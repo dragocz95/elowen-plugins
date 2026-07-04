@@ -9,6 +9,15 @@
       "author": "Orca",
       "apiVersion": "1",
       "provides": { "tools": 2 }
+    },
+    {
+      "name": "mem0",
+      "version": "0.1.0",
+      "description": "Long-term memory backed by a self-hosted mem0 server: the brain can save durable facts and recall them across conversations.",
+      "category": "memory",
+      "author": "Orca",
+      "apiVersion": "1",
+      "provides": { "tools": 2 }
     }
   ]
 }
