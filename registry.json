@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "plugins": [
+    {
+      "name": "todo",
+      "version": "0.1.0",
+      "description": "Task todo list: the agent keeps a live checklist for multi-step work and shows it to you as it goes.",
+      "category": "automation",
+      "author": "Orca",
+      "apiVersion": "1",
+      "provides": { "tools": 2 }
+    }
+  ]
+}
