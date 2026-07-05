@@ -6,7 +6,9 @@ import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-const CONNECT_TIMEOUT_MS = 20_000;
+// Generous: a first-ever `npx <pkg>` cold-starts by downloading the package, which can take well over
+// 20s; once cached, connects are quick. Better to wait than to spuriously drop a valid server.
+const CONNECT_TIMEOUT_MS = 60_000;
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 
 /** Race a promise against a timeout so one hung MCP server can't wedge the whole plugin load. */
@@ -35,15 +37,17 @@ export async function register(ctx) {
 
   for (const s of servers) {
     if (!s || s.enabled === false || !s.name || !s.command) continue;
+    let transport;
+    let client;
     try {
-      const transport = new StdioClientTransport({
+      transport = new StdioClientTransport({
         command: s.command,
         args: Array.isArray(s.args) ? s.args : [],
         // getDefaultEnvironment() carries a safe PATH/HOME so `npx`-launched servers resolve; server env overrides.
         env: { ...getDefaultEnvironment(), ...(s.env && typeof s.env === 'object' ? s.env : {}) },
         stderr: 'ignore',
       });
-      const client = new Client({ name: 'orca-mcp-bridge', version: '0.1.0' }, { capabilities: {} });
+      client = new Client({ name: 'orca-mcp-bridge', version: '0.1.0' }, { capabilities: {} });
       await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `connect ${s.name}`);
       const listed = await withTimeout(client.listTools(), CONNECT_TIMEOUT_MS, `listTools ${s.name}`);
       const tools = listed?.tools ?? [];
@@ -69,6 +73,8 @@ export async function register(ctx) {
       ctx.logger.info(`mcp: connected ${s.name} (${tools.length} tool${tools.length === 1 ? '' : 's'})`);
     } catch (e) {
       // Fail-open: one bad server must not throw out of register() (the loader would drop the whole plugin).
+      // Close the transport so a timed-out/failed connect doesn't leak its child process.
+      try { await (client?.close?.() ?? transport?.close?.()); } catch { /* ignore */ }
       ctx.logger.warn(`mcp: failed to connect ${s.name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
