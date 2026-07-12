@@ -1,0 +1,8 @@
+{
+  "name": "elowen-plugins-registry",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --import=./tests/register-loader.mjs"
+  }
+}

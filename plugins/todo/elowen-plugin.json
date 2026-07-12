@@ -1,8 +1,13 @@
 {
   "name": "todo",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "apiVersion": "1",
   "description": "Task todo list: the agent keeps a live checklist for multi-step work and shows it to you as it goes.",
   "entry": "index.mjs",
-  "provides": { "tools": ["todo_write", "todo_read"] }
+  "provides": {
+    "tools": ["todo_write", "todo_read"]
+  },
+  "icons": {
+    "todo_*": "📋"
+  }
 }
