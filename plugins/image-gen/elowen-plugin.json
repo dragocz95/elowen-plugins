@@ -1,6 +1,6 @@
 {
   "name": "image-gen",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "apiVersion": "1",
   "description": "Image generation via the OpenAI Images API (gpt-image-1 by default). Generated images show directly in the chat.",
   "entry": "index.mjs",
@@ -11,7 +11,7 @@
   },
   "provides": {
     "tools": [
-      "ImageGenerate"
+      "GenerateImage"
     ]
   },
   "configSchema": [

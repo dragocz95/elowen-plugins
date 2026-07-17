@@ -25,7 +25,7 @@
     },
     {
       "name": "image-gen",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "description": "Image generation via the OpenAI Images API (gpt-image-1 by default). Generated images show directly in the chat.",
       "category": "media",
       "author": "Elowen",
@@ -36,7 +36,7 @@
     },
     {
       "name": "image-edit",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "description": "Edit an existing image from a text instruction (image-to-image) via the OpenAI Images edits API. The result shows in the chat.",
       "category": "media",
       "author": "Elowen",

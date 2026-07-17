@@ -35,7 +35,7 @@ export function register(ctx) {
   const model = resolveModel(ctx.config.model);
 
   ctx.registerTool(defineTool({
-    name: 'ImageEdit', label: 'Edit image',
+    name: 'EditImage', label: 'Edit image',
     description: 'Edit an existing image from a text instruction (image-to-image). Provide the source as '
       + 'a repo file path or a public image URL. Returns a markdown image that renders in the chat.',
     parameters: Type.Object({

@@ -37,7 +37,7 @@ export function register(ctx) {
   const defaultSize = SIZES.has(ctx.config.size) ? ctx.config.size : '1024x1024';
 
   ctx.registerTool(defineTool({
-    name: 'ImageGenerate', label: 'Generate image',
+    name: 'GenerateImage', label: 'Generate image',
     description: 'Generate an image from a text prompt. Returns a markdown image that renders in the chat.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'What to draw, be specific' }),
