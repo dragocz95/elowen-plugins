@@ -55,7 +55,7 @@ function renderTurnContext(todos) {
     '  </todo_items>',
     '  <todo_instructions>',
     '    Keep this checklist synchronized with the work.',
-    '    Call `todo_write` with the FULL list immediately when a step starts, completes, becomes blocked, or scope changes.',
+    '    Call `TodoWrite` with the FULL list immediately when a step starts, completes, becomes blocked, or scope changes.',
     '    Keep at most one item `in_progress`; leave only genuinely unfinished work pending.',
     '    Before the final answer, reconcile every item and mark finished work `completed`.',
     '    Do not repeat the checklist in the reply; the todo panel renders it for the user.',
@@ -119,7 +119,7 @@ export function register(ctx) {
   const store = new TodoStore(join(ctx.dataDir(), 'todos.json'));
 
   ctx.registerTool(defineTool({
-    name: 'todo_write',
+    name: 'TodoWrite',
     label: 'Write todos',
     description: 'Create or replace the current todo checklist. Pass the FULL ordered list every time. '
       + 'Use it for genuinely multi-step work, keep at most one item in_progress, and update it at each status transition.',
@@ -144,7 +144,7 @@ export function register(ctx) {
   }));
 
   ctx.registerTool(defineTool({
-    name: 'todo_read',
+    name: 'TodoRead',
     label: 'Read todos',
     description: 'Return the current todo checklist as a markdown checklist.',
     parameters: Type.Object({}),
@@ -169,10 +169,10 @@ export function register(ctx) {
   // Only the stable bootstrap rule belongs in the system prompt. Once a list exists, the precise update
   // protocol travels beside that live list in the after-user block above.
   ctx.registerSystemPromptFragment(
-    'You have a todo checklist (tools `todo_write`, `todo_read`). For a genuinely multi-step task, create '
-    + 'a short list with `todo_write` and keep it synchronized while you work. The checklist is displayed '
+    'You have a todo checklist (tools `TodoWrite`, `TodoRead`). For a genuinely multi-step task, create '
+    + 'a short list with `TodoWrite` and keep it synchronized while you work. The checklist is displayed '
     + 'automatically in the todo panel; do not repeat it as reply text.',
   );
 
-  ctx.logger.info('todo tools registered (todo_write + todo_read)');
+  ctx.logger.info('todo tools registered (TodoWrite + TodoRead)');
 }

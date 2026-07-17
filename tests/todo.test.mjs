@@ -30,7 +30,7 @@ test('todo keeps its live state and update protocol together after the user mess
   register(ctx);
   assert.equal(typeof turnContext, 'function');
   assert.equal(turnContext(), '');
-  const write = tools.find((tool) => tool.name === 'todo_write');
+  const write = tools.find((tool) => tool.name === 'TodoWrite');
   assert.ok(write);
   await write.execute('call-1', {
     todos: [
@@ -46,7 +46,7 @@ test('todo keeps its live state and update protocol together after the user mess
   assert.match(block, /status="in_progress"/);
   assert.match(block, /Inspect &lt;cache&gt; &amp; &lt;\/todo_items&gt;/);
   assert.doesNotMatch(block, /Inspect <cache>/);
-  assert.match(block, /Call `todo_write` with the FULL list/);
+  assert.match(block, /Call `TodoWrite` with the FULL list/);
   assert.match(block, /when a step starts, completes, becomes blocked, or scope changes/);
   assert.match(block, /at most one item `in_progress`/);
   assert.match(block, /Before the final answer/);
@@ -56,7 +56,7 @@ test('todo keeps its live state and update protocol together after the user mess
   assert.deepEqual(Object.keys(stored), ['u7@/srv/project']);
   assert.equal(cards.at(-1)?.id, 'todos');
   assert.match(systemPrompt, /multi-step task/i);
-  assert.match(systemPrompt, /todo_write/);
+  assert.match(systemPrompt, /TodoWrite/);
   assert.doesNotMatch(systemPrompt, /Current todo list/i);
 });
 
@@ -64,6 +64,6 @@ test('todo manifest and marketplace registry expose the same release version', (
   const manifest = JSON.parse(readFileSync(new URL('../plugins/todo/elowen-plugin.json', import.meta.url), 'utf8'));
   const registry = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
   const catalog = registry.plugins.find((plugin) => plugin.name === 'todo');
-  assert.equal(manifest.version, '0.4.0');
+  assert.equal(manifest.version, '0.5.0');
   assert.equal(catalog?.version, manifest.version);
 });

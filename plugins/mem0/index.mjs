@@ -40,7 +40,7 @@ export function register(ctx) {
   };
 
   ctx.registerTool(defineTool({
-    name: 'add_memory', label: 'Remember',
+    name: 'Mem0Add', label: 'Remember',
     description: 'Save a durable, reusable fact to long-term memory (preferences, decisions, infrastructure details). One self-contained fact per call. Never store secrets.',
     parameters: Type.Object({ text: Type.String({ description: 'The fact to remember, self-contained' }) }),
     execute: async (_id, p) => {
@@ -52,7 +52,7 @@ export function register(ctx) {
   }));
 
   ctx.registerTool(defineTool({
-    name: 'search_memory', label: 'Recall',
+    name: 'Mem0Search', label: 'Recall',
     description: 'Search long-term memory for facts relevant to a query.',
     parameters: Type.Object({ query: Type.String({ description: 'What to look for' }) }),
     execute: async (_id, p) => {

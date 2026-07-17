@@ -1,6 +1,6 @@
 {
   "name": "image-edit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": "1",
   "description": "Edit an existing image from a text instruction (image-to-image) via the OpenAI Images edits API. The result shows directly in the chat.",
   "entry": "index.mjs",
@@ -11,7 +11,7 @@
   },
   "provides": {
     "tools": [
-      "edit_image"
+      "ImageEdit"
     ]
   },
   "configSchema": [

@@ -1,5 +1,5 @@
 // Web plugin: search (Tavily) + page fetch as readable text — the Hermes `web` toolset shape, sized
-// for the embedded brain. web_fetch needs no API key; web_search politely explains when none is set.
+// for the embedded brain. WebFetch needs no API key; WebSearch politely explains when none is set.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { lookup } from 'node:dns/promises';
@@ -62,12 +62,12 @@ export function register(ctx) {
   const maxResults = Number(ctx.config.maxResults) >= 1 ? Math.min(Number(ctx.config.maxResults), 10) : 5;
 
   ctx.registerTool(defineTool({
-    name: 'web_search', label: 'Web search',
-    description: 'Search the web and get titles, URLs and content snippets. Follow up with web_fetch for a full page.',
+    name: 'WebSearch', label: 'Web search',
+    description: 'Search the web and get titles, URLs and content snippets. Follow up with WebFetch for a full page.',
     parameters: Type.Object({ query: Type.String({ description: 'Search query' }) }),
     execute: async (_id, p) => {
       const apiKey = typeof ctx.config.tavilyApiKey === 'string' ? ctx.config.tavilyApiKey.trim() : '';
-      if (!apiKey) return ok('web_search is not configured (no Tavily API key set in the web plugin settings). Use web_fetch with a known URL instead.');
+      if (!apiKey) return ok('WebSearch is not configured (no Tavily API key set in the web plugin settings). Use WebFetch with a known URL instead.');
       try {
         const res = await fetch('https://api.tavily.com/search', {
           method: 'POST',
@@ -86,7 +86,7 @@ export function register(ctx) {
   }));
 
   ctx.registerTool(defineTool({
-    name: 'web_fetch', label: 'Fetch web page',
+    name: 'WebFetch', label: 'Fetch web page',
     description: 'Fetch a public http(s) URL and return its readable text content.',
     parameters: Type.Object({ url: Type.String({ description: 'Absolute http(s) URL' }) }),
     execute: async (_id, p) => {

@@ -3,7 +3,7 @@
   "plugins": [
     {
       "name": "todo",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "description": "Task todo list: the agent keeps a live checklist for multi-step work and shows it to you as it goes.",
       "category": "automation",
       "author": "Elowen",
@@ -14,7 +14,7 @@
     },
     {
       "name": "mem0",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "description": "Long-term memory backed by a self-hosted mem0 server: the brain can save durable facts and recall them across conversations.",
       "category": "memory",
       "author": "Elowen",
@@ -25,7 +25,7 @@
     },
     {
       "name": "image-gen",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "description": "Image generation via the OpenAI Images API (gpt-image-1 by default). Generated images show directly in the chat.",
       "category": "media",
       "author": "Elowen",
@@ -36,7 +36,7 @@
     },
     {
       "name": "image-edit",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "description": "Edit an existing image from a text instruction (image-to-image) via the OpenAI Images edits API. The result shows in the chat.",
       "category": "media",
       "author": "Elowen",
@@ -47,8 +47,8 @@
     },
     {
       "name": "web",
-      "version": "0.1.0",
-      "description": "Web research: web_search (Tavily) and web_fetch (fetch a page as readable text).",
+      "version": "0.2.0",
+      "description": "Web research: WebSearch (Tavily) and WebFetch (fetch a page as readable text).",
       "category": "research",
       "author": "Elowen",
       "apiVersion": "1",
