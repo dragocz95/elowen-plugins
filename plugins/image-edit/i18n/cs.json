@@ -3,7 +3,7 @@
   "fields": {
     "provider": {
       "label": "Poskytovatel",
-      "hint": "Který nakonfigurovaný OpenAI-kompatibilní poskytovatel použít (převezme jeho klíč + base URL). Poskytovatele přidáte v Nastavení → Brain."
+      "hint": "Který nakonfigurovaný OpenAI-kompatibilní poskytovatel použít (převezme jeho klíč + základní URL). Poskytovatele přidáte v Nastavení → Brain."
     },
     "model": {
       "label": "Model",

@@ -2,8 +2,8 @@
   "description": "Dlouhodobá paměť postavená na vlastním mem0 serveru: mozek může ukládat trvalá fakta a vybavovat si je napříč konverzacemi.",
   "fields": {
     "endpoint": {
-      "label": "mem0 endpoint",
-      "hint": "Base URL REST serveru mem0, např. http://127.0.0.1:3401"
+      "label": "Koncový bod mem0",
+      "hint": "Základní URL REST API serveru mem0, např. http://127.0.0.1:3401"
     },
     "apiKey": {
       "label": "API klíč",
