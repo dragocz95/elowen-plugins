@@ -63,7 +63,7 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'WebSearch', label: 'Web search',
-    description: 'Search the web and get titles, URLs and content snippets. Follow up with WebFetch for a full page.',
+    description: 'Search the web and get titles, URLs and content snippets. For recent software, documentation or events, include the current year in the query. Results are short snippets — follow up with WebFetch on the most relevant URL when you need the full page, and cite the URLs you used in your reply.',
     parameters: Type.Object({ query: Type.String({ description: 'Search query' }) }),
     execute: async (_id, p) => {
       const apiKey = typeof ctx.config.tavilyApiKey === 'string' ? ctx.config.tavilyApiKey.trim() : '';
@@ -87,7 +87,7 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'WebFetch', label: 'Fetch web page',
-    description: 'Fetch a public http(s) URL and return its readable text content.',
+    description: 'Fetch a public http(s) URL and return its readable text content: HTML is stripped to text, redirects are followed, and the output is truncated at 20k characters. Read-only; private and loopback URLs are refused. Pages rendered entirely in JavaScript may return little or nothing — prefer an API or feed URL when one exists.',
     parameters: Type.Object({ url: Type.String({ description: 'Absolute http(s) URL' }) }),
     execute: async (_id, p) => {
       try {

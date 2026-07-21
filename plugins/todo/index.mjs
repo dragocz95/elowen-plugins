@@ -121,8 +121,9 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'TodoWrite',
     label: 'Write todos',
-    description: 'Create or replace the current todo checklist. Pass the FULL ordered list every time. '
-      + 'Use it for genuinely multi-step work, keep at most one item in_progress, and update it at each status transition.',
+    description: 'Create or replace the current todo checklist — the user sees it live in the todo panel. '
+      + 'Use it for genuinely multi-step work: three or more distinct steps, several sub-tasks, or a user request that lists multiple things to do. Skip it for a single trivial action — just do the work. '
+      + 'Pass the FULL ordered list every time, keep at most one item in_progress, mark items completed the moment they finish (never batch completions), and update the list at every status transition or scope change.',
     parameters: Type.Object({
       todos: Type.Array(Type.Object({
         title: Type.Optional(Type.String({ description: 'Short imperative task title' })),
