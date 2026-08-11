@@ -1,5 +1,6 @@
-// Web plugin: search (Tavily) + page fetch as readable text — the Hermes `web` toolset shape, sized
-// for the embedded brain. WebFetch needs no API key; WebSearch politely explains when none is set.
+// Web plugin: search (Tavily or Serper) + page fetch as readable text — the Hermes `web` toolset
+// shape, sized for the embedded brain. WebFetch needs no API key; WebSearch politely explains when
+// none is set.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { lookup } from 'node:dns/promises';
@@ -8,6 +9,7 @@ import { isIP } from 'node:net';
 const FETCH_TIMEOUT_MS = 20_000;
 const MAX_PAGE_CHARS = 20_000;
 const MAX_REDIRECTS = 3;
+const SNIPPET_CHARS = 300;
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
 
@@ -58,6 +60,87 @@ export function htmlToText(html) {
     .trim();
 }
 
+/** The search backends, each mapping its own response onto ONE normalized shape
+ *  ({ answer, results: [{ title, url, snippet }] }) so the formatting below — and therefore what the
+ *  brain reads — stays identical whichever backend answered. */
+export const SEARCH_PROVIDERS = {
+  tavily: {
+    label: 'Tavily',
+    keyField: 'tavilyApiKey',
+    async search(apiKey, query, maxResults) {
+      const res = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey, query, max_results: maxResults, include_answer: true }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`tavily HTTP ${res.status}`);
+      const data = await res.json();
+      return {
+        answer: data.answer ?? '',
+        results: (data.results ?? []).map((r) => ({ title: r.title, url: r.url, snippet: r.content })),
+      };
+    },
+  },
+  serper: {
+    label: 'Serper',
+    keyField: 'serperApiKey',
+    async search(apiKey, query, maxResults) {
+      const res = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': apiKey },
+        body: JSON.stringify({ q: query, num: maxResults }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`serper HTTP ${res.status}`);
+      const data = await res.json();
+      // Serper mirrors the Google SERP: a direct answer arrives as answerBox (`answer` for a plain
+      // value, `snippet` for a featured paragraph), and a card-style result as knowledgeGraph. Tavily's
+      // `answer` has no equivalent otherwise, so this keeps the two backends' output comparable.
+      const box = data.answerBox ?? {};
+      const graph = data.knowledgeGraph ?? {};
+      return {
+        answer: box.answer || box.snippet || graph.description || '',
+        results: (data.organic ?? []).slice(0, maxResults)
+          .map((r) => ({ title: r.title, url: r.link, snippet: r.snippet })),
+      };
+    },
+  },
+};
+
+/** Backends in preference order for the automatic choice. Tavily first so an install that only ever
+ *  had a Tavily key keeps behaving exactly as it did before Serper existed. */
+const PROVIDER_ORDER = ['tavily', 'serper'];
+
+/** Which backend answers, and with which key — or a `message` explaining what the operator must fix.
+ *  Returning the explanation (rather than throwing) keeps a misconfiguration a readable tool result
+ *  the brain can act on instead of an error it will retry. */
+export function resolveSearchProvider(config = {}) {
+  const keyOf = (field) => (typeof config[field] === 'string' ? config[field].trim() : '');
+  const configured = PROVIDER_ORDER.filter((id) => keyOf(SEARCH_PROVIDERS[id].keyField));
+  const choice = typeof config.provider === 'string' && config.provider.trim() ? config.provider.trim() : 'auto';
+
+  if (choice !== 'auto') {
+    const provider = SEARCH_PROVIDERS[choice];
+    if (!provider) {
+      return { message: `WebSearch provider "${choice}" is unknown — set it to Tavily or Serper in the web plugin settings.` };
+    }
+    const apiKey = keyOf(provider.keyField);
+    if (apiKey) return { id: choice, provider, apiKey };
+    const other = configured[0];
+    const hint = other
+      ? ` (a ${SEARCH_PROVIDERS[other].label} key is configured — either switch the provider or add the ${provider.label} key)`
+      : '';
+    return { message: `WebSearch is set to ${provider.label} but no ${provider.label} API key is set in the web plugin settings${hint}.` };
+  }
+
+  const id = configured[0];
+  if (!id) {
+    return { message: 'WebSearch is not configured (no Tavily or Serper API key set in the web plugin settings). Use WebFetch with a known URL instead.' };
+  }
+  return { id, provider: SEARCH_PROVIDERS[id], apiKey: keyOf(SEARCH_PROVIDERS[id].keyField) };
+}
+
 export function register(ctx) {
   const maxResults = Number(ctx.config.maxResults) >= 1 ? Math.min(Number(ctx.config.maxResults), 10) : 5;
 
@@ -66,20 +149,13 @@ export function register(ctx) {
     description: 'Search the web and get titles, URLs and content snippets. For recent software, documentation or events, include the current year in the query. Results are short snippets — follow up with WebFetch on the most relevant URL when you need the full page, and cite the URLs you used in your reply.',
     parameters: Type.Object({ query: Type.String({ description: 'Search query' }) }),
     execute: async (_id, p) => {
-      const apiKey = typeof ctx.config.tavilyApiKey === 'string' ? ctx.config.tavilyApiKey.trim() : '';
-      if (!apiKey) return ok('WebSearch is not configured (no Tavily API key set in the web plugin settings). Use WebFetch with a known URL instead.');
+      const selected = resolveSearchProvider(ctx.config);
+      if (selected.message) return ok(selected.message);
       try {
-        const res = await fetch('https://api.tavily.com/search', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ api_key: apiKey, query: p.query, max_results: maxResults, include_answer: true }),
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        });
-        if (!res.ok) throw new Error(`tavily HTTP ${res.status}`);
-        const data = await res.json();
+        const { answer, results } = await selected.provider.search(selected.apiKey, p.query, maxResults);
         const lines = [];
-        if (data.answer) lines.push(`Answer: ${data.answer}`, '');
-        for (const r of data.results ?? []) lines.push(`- ${r.title}\n  ${r.url}\n  ${String(r.content ?? '').slice(0, 300)}`);
+        if (answer) lines.push(`Answer: ${answer}`, '');
+        for (const r of results) lines.push(`- ${r.title}\n  ${r.url}\n  ${String(r.snippet ?? '').slice(0, SNIPPET_CHARS)}`);
         return ok(lines.join('\n') || 'No results.');
       } catch (e) { return fail(e); }
     },
