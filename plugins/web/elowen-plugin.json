@@ -2,7 +2,7 @@
   "name": "web",
   "version": "0.3.0",
   "apiVersion": "1",
-  "description": "Web research: WebSearch (Tavily or Serper) and WebFetch (fetch a page as readable text). Modeled on the Hermes web toolset.",
+  "description": "Web research: WebSearch (Tavily or Serper) and WebFetch (fetch a page as readable text).",
   "entry": "index.mjs",
   "provides": { "tools": ["WebSearch", "WebFetch"] },
   "configSchema": [

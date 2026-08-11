@@ -1,5 +1,5 @@
 {
-  "description": "Webový výzkum: WebSearch (Tavily nebo Serper) a WebFetch (načtení stránky jako čitelný text). Navrženo podle webové sady nástrojů Hermes.",
+  "description": "Webový výzkum: WebSearch (Tavily nebo Serper) a WebFetch (načtení stránky jako čitelný text).",
   "fields": {
     "provider": {
       "label": "Vyhledávač",

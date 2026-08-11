@@ -1,6 +1,5 @@
-// Web plugin: search (Tavily or Serper) + page fetch as readable text — the Hermes `web` toolset
-// shape, sized for the embedded brain. WebFetch needs no API key; WebSearch politely explains when
-// none is set.
+// Web plugin: search (Tavily or Serper) + page fetch as readable text, sized for the embedded brain.
+// WebFetch needs no API key; WebSearch politely explains when none is set.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { lookup } from 'node:dns/promises';
