@@ -52,15 +52,28 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [] } = {
   return { skills, tools, routes, userRemoved, session };
 }
 
-/** Run `fn` as a TURN with the given identity — the shape `runWithPolicy(..., { identity })` installs
- *  around a tool call, where `isAdminSession()` is true for an admin's own session. Awaited, not merely
- *  returned: the daemon's scope is AsyncLocalStorage and survives an `await` inside the tool, so tearing
- *  this one down the moment the promise is HANDED BACK would quietly diverge the day a tool grows one. */
-const asSession = async (plugin, identity, fn) => {
+/** Run `fn` as a TURN — the scope `runWithPolicy(policy, fn, { identity })` installs around a tool call.
+ *
+ *  The two axes are INDEPENDENT in the daemon and must stay so here: `isAdminSession()` answers from the
+ *  turn's POLICY (`allowedProjectIds === 'all'`), while `currentIdentity()` answers from the account the
+ *  turn acts FOR. A limited-policy turn can still belong to an account, and an admin-policy turn (a CLI
+ *  session, a cron job) can belong to nobody — and the skills tools branch on that exact combination.
+ *
+ *  Awaited, not merely returned: the daemon's scope is AsyncLocalStorage and survives an `await` inside
+ *  the tool, so tearing this one down the moment the promise is HANDED BACK would quietly diverge the day
+ *  a tool grows one. */
+const asTurn = async (plugin, { admin = false, identity = null }, fn) => {
   plugin.session.identity = identity;
-  plugin.session.adminSession = identity?.admin === true;
+  plugin.session.adminSession = admin;
   try { return await fn(); } finally { plugin.session.identity = null; plugin.session.adminSession = false; }
 };
+
+/** `runWithPolicy(ADMIN, …)` with no identity: every project in reach, nobody behind the turn. */
+const ADMIN_TURN = { admin: true, identity: null };
+/** `runWithPolicy(LIMITED, …)` with no identity: neither an admin session nor an account. */
+const LIMITED_TURN = { admin: false, identity: null };
+/** A limited turn that DOES belong to an account. */
+const turnFor = (elowenUserId) => ({ admin: false, identity: { platform: 'elowen', userId: String(elowenUserId), elowenUserId, admin: false, owner: false } });
 
 const runTool = (plugin, name, params) => {
   const tool = plugin.tools.find((t) => t.name === name);
@@ -298,7 +311,9 @@ const listSkills = async (app, token) => (await (await app.request('/plugins/ski
 
 // ═══ suite 1 — plugin registration (ported from tests/plugins/skillsPlugin.test.ts) ═══════════════════
 
-const adminIdentity = { platform: 'elowen', userId: '1', admin: true, owner: true };
+/** The identity skillsPlugin.test.ts ran its tool calls under: an admin-policy turn whose identity
+ *  names no Elowen account, so callerId() is null and every unspecified write is the instance set. */
+const OWNER_TURN = { admin: true, identity: { platform: 'elowen', userId: '1', admin: true, owner: true } };
 
 test('bundled skills plugin', async (t) => {
   t.after(cleanup);
@@ -321,7 +336,7 @@ test('bundled skills plugin', async (t) => {
     const dataRoot = tmpDir('skills');
     let reloads = 0;
     const reg = loadPlugin({ dataRoot, requestReload: () => { reloads += 1; } });
-    const out = await asSession(reg, adminIdentity, () => runTool(reg, 'CreateSkill', { name: 'ship-it', description: 'how to ship a release', content: 'do the thing' }));
+    const out = await asTurn(reg, OWNER_TURN, () => runTool(reg, 'CreateSkill', { name: 'ship-it', description: 'how to ship a release', content: 'do the thing' }));
     assert.ok(out.content[0].text.includes('next message')); // the message no longer says "after a restart"
     assert.equal(reloads, 1); // the missing link: the tool now requests a live apply
     // A fresh load (what the reload performs) picks the new skill up from the data dir.
@@ -335,7 +350,7 @@ test('bundled skills plugin', async (t) => {
     writeFileSync(join(dataRoot, 'skills', 'temp-skill.md'), '---\nname: temp-skill\ndescription: throwaway\n---\n\nbody\n');
     let reloads = 0;
     const reg = loadPlugin({ dataRoot, requestReload: () => { reloads += 1; } });
-    const out = await asSession(reg, adminIdentity, () => runTool(reg, 'DeleteSkill', { name: 'temp-skill' }));
+    const out = await asTurn(reg, OWNER_TURN, () => runTool(reg, 'DeleteSkill', { name: 'temp-skill' }));
     assert.ok(out.content[0].text.includes('deleted'));
     assert.equal(reloads, 1);
   });
@@ -352,12 +367,72 @@ test('bundled skills plugin', async (t) => {
     // PI's loader registered the dir-form skill…
     assert.ok(reg.skills.map((s) => s.name).includes('deploy-flow'));
     // …and ListSkills surfaces it (via the loader, not a flat readdir).
-    const listed = await asSession(reg, adminIdentity, () => runTool(reg, 'ListSkills', {}));
+    const listed = await asTurn(reg, OWNER_TURN, () => runTool(reg, 'ListSkills', {}));
     assert.ok(listed.content[0].text.includes('deploy-flow'));
     // …and DeleteSkill removes the whole skill directory.
-    const removed = await asSession(reg, adminIdentity, () => runTool(reg, 'DeleteSkill', { name: 'deploy-flow' }));
+    const removed = await asTurn(reg, OWNER_TURN, () => runTool(reg, 'DeleteSkill', { name: 'deploy-flow' }));
     assert.ok(removed.content[0].text.includes('deleted'));
     assert.equal(existsSync(skillDir), false);
+  });
+});
+
+// ═══ suite 1b — the creator tools (ported from tests/plugins/cronSkillsImagePlugins.test.ts) ═════════
+
+const asText = (r) => r.content[0].text;
+
+test('skills plugin creator tools', async (t) => {
+  t.after(cleanup);
+
+  await t.test('create → list → delete a user skill (admin only)', async () => {
+    const dataRoot = tmpDir('pdata');
+    const reg = loadPlugin({ dataRoot });
+
+    await asTurn(reg, LIMITED_TURN, async () => {
+      // No account behind the turn and no admin session: neither set is writable, and the refusal names
+      // both so the caller knows which of the two is missing.
+      const refusal = asText(await runTool(reg, 'CreateSkill', { name: 'x', description: 'd', content: 'c' }));
+      assert.match(refusal, /admin session/);
+      assert.match(refusal, /no account behind it/);
+    });
+    await asTurn(reg, ADMIN_TURN, async () => {
+      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'Bad Name', description: 'd', content: 'c' })), /kebab-case/);
+      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'deploy-checklist', description: 'Kdy nasazovat', content: 'Kroky…' })), /saved/);
+      const file = join(dataRoot, 'skills/deploy-checklist.md');
+      assert.ok(readFileSync(file, 'utf-8').includes('name: deploy-checklist'));
+      assert.ok(asText(await runTool(reg, 'ListSkills', {})).includes('deploy-checklist (instance)'));
+      assert.match(asText(await runTool(reg, 'DeleteSkill', { name: 'deploy-checklist' })), /deleted/);
+      assert.equal(existsSync(file), false);
+    });
+  });
+
+  // A turn that belongs to an account writes into THAT account's set by default; the instance set stays
+  // admin-only. Without this, one person's CreateSkill would edit everyone's system prompt.
+  await t.test('writes a personal skill for the account behind the turn, and hides it from other accounts', async () => {
+    const dataRoot = tmpDir('pdata');
+    const reg = loadPlugin({ dataRoot });
+    const amy = turnFor(4);
+    const bob = turnFor(5);
+
+    await asTurn(reg, amy, async () => {
+      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'amy-skill', description: 'd', content: 'c' })), /personal/);
+      assert.equal(existsSync(join(dataRoot, 'skills/users/4/amy-skill.md')), true);
+      assert.equal(existsSync(join(dataRoot, 'skills/amy-skill.md')), false);
+      // A non-admin cannot promote it to the shared set.
+      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'amy-shared', description: 'd', content: 'c', scope: 'instance' })), /admin session/);
+      assert.ok(asText(await runTool(reg, 'ListSkills', {})).includes('amy-skill (personal)'));
+    });
+
+    await asTurn(reg, bob, async () => {
+      assert.ok(!asText(await runTool(reg, 'ListSkills', {})).includes('amy-skill'));
+    });
+  });
+
+  await t.test('user-created skills register on the next plugin load', async () => {
+    const dataRoot = tmpDir('pdata');
+    const reg1 = loadPlugin({ dataRoot });
+    await asTurn(reg1, ADMIN_TURN, () => runTool(reg1, 'CreateSkill', { name: 'novy-skill', description: 'test', content: 'obsah' }));
+    const reg2 = loadPlugin({ dataRoot });
+    assert.equal(reg2.skills.some((s) => s.name === 'novy-skill'), true);
   });
 });
 
