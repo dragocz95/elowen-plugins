@@ -154,7 +154,7 @@
       "key": "reindexRepos",
       "label": "Repository paths",
       "type": "textarea",
-      "placeholder": "/var/www/my-project",
+      "placeholder": "/srv/projects/my-app",
       "hint": "One absolute repository path per line (or comma-separated). A path that is not a readable directory is skipped and logged.",
       "visibleWhen": { "key": "reindexScope", "equals": "listed" }
     },
