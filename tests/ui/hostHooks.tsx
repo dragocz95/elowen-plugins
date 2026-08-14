@@ -6,7 +6,8 @@
  */
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { elowenClient, type PluginSkillRow, type SkillOwner } from './hostClient';
+import { elowenClient, type CronJobRow, type PluginSkillRow, type SkillOwner } from './hostClient';
+export { useAutoSaveStatus } from './useAutoSaveStatus';
 
 // ── i18n ─────────────────────────────────────────────────────────────────────────────────────────────
 // The app's own English dictionary, narrowed to the keys the shared register and the plugin panel read.
@@ -21,6 +22,23 @@ export const DICTIONARY = {
     retry: 'Retry',
     close: 'Close',
     loading: 'Loading…',
+    saving: 'Saving…',
+    saved: 'Saved',
+    saveFailed: 'Couldn\'t save',
+  },
+  // The managed-selection vocabulary (SelectionSummary + ManageSelectionModal). These are CORE labels
+  // too: the picker owns its search box, its "All" chip and its Save button, which is why the cronjob
+  // plugin ships none of them.
+  managePicker: {
+    manage: 'Manage',
+    searchPlaceholder: 'Search…',
+    all: 'All',
+    selectedCount: '{n} selected',
+    saveChanges: 'Save changes',
+    noResults: 'No results',
+    filterByGroup: 'Filter by group',
+    groupChannels: 'Channels',
+    groupThreads: 'Threads',
   },
   assetEditor: {
     search: 'Search…',
@@ -125,4 +143,30 @@ export function createWrapper() {
     client,
     wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
   };
+}
+
+// ── cronjob panel ────────────────────────────────────────────────────────────────────────────────────
+// Ported from the host's web/lib/queries.ts + mutations.ts, cache keys included: the panel's refetch
+// after a save is react-query invalidating 'cron-jobs', so the key has to be the real one.
+
+/** The cronjob plugin's scheduled jobs (admin-only endpoint). */
+export const useCronJobs = (enabled = true) =>
+  useQuery({ queryKey: ['cron-jobs'], queryFn: elowenClient.cronJobs, enabled });
+
+/** Text channels + active threads of the configured Discord guild (the cron destination picker). */
+export const useDiscordChannels = () =>
+  useQuery({ queryKey: ['discord-channels'], queryFn: elowenClient.discordChannels, staleTime: 60_000 });
+
+/** Pickable brain models across all configured providers. */
+export const useBrainModels = () =>
+  useQuery({ queryKey: ['brain-models'], queryFn: elowenClient.brainModels });
+
+export function useSaveCronJob() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (job: CronJobRow) => elowenClient.saveCronJob(job), onSuccess: () => qc.invalidateQueries({ queryKey: ['cron-jobs'] }) });
+}
+
+export function useDeleteCronJob() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => elowenClient.deleteCronJob(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['cron-jobs'] }) });
 }

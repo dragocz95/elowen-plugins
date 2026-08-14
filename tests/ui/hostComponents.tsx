@@ -11,13 +11,14 @@
  *  form's button set matches production.
  */
 import {
-  useEffect, useMemo, useRef, useState,
+  useCallback, useEffect, useId, useMemo, useRef, useState,
   type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, Search, Trash2, type LucideIcon } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Cpu, Loader2, Search, Settings2, Trash2, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { apiErrorMessage } from './hostClient';
 import { useToast, useTranslation } from './hostHooks';
+import type { SaveStatus } from './useAutoSaveStatus';
 
 // ── primitives ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -247,18 +248,64 @@ export function WorkspaceDetailRail({ label, closeLabel, onClose, children }: { 
   return portal ? createPortal(content, portal) : content;
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode; size?: string; icon?: LucideIcon }) {
+/** Ported from web/components/ui/Modal.tsx. Portaled to <body>, named by its title through
+ *  `aria-labelledby` and carrying the header's Close button, so a modal's button set matches
+ *  production. Only the size/presentation styling is dropped — a drawer and a centered window are the
+ *  same dialog with the same focus and close behaviour. */
+function Modal({ title, description, onClose, children }: {
+  title: string; description?: string; onClose: () => void; children: ReactNode;
+  size?: string; presentation?: 'center' | 'drawer'; icon?: LucideIcon;
+}) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  const descriptionId = useId();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
   return createPortal(
-    <div className="overlay-layer-modal" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div role="dialog" aria-modal="true">
-        <header><h2>{title}</h2></header>
+    <div
+      className="overlay-layer-modal"
+      onClick={(event) => {
+        if (event.target !== event.currentTarget) return;
+        // Portal events still bubble through their React tree — stop at this backdrop so a nested
+        // modal's backdrop click cannot also close its parent.
+        event.stopPropagation();
+        onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
+        tabIndex={-1}
+        data-elowen-modal
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header>
+          <h2 id={titleId}>{title}</h2>
+          {description ? <p id={descriptionId}>{description}</p> : null}
+          <button type="button" aria-label={t.common.close} onClick={onClose}>×</button>
+        </header>
         {children}
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** Scrollable content region of a modal; `ModalFooter` keeps the actions pinned below it and takes an
+ *  optional `status` node (the auto-save indicator) on the left. */
+function ModalBody({ children }: { children: ReactNode; gap?: 4 | 5 | 6 }) {
+  return <div className="modal-body">{children}</div>;
+}
+
+function ModalFooter({ children, status }: { children?: ReactNode; status?: ReactNode }) {
+  return (
+    <div className="modal-footer">
+      {status ? <div>{status}</div> : null}
+      <div>{children}</div>
+    </div>
   );
 }
 
@@ -275,6 +322,422 @@ export function ConfirmDialog({ open, title, description, confirmLabel, onConfir
         <Button onClick={onConfirm}>{confirmLabel ?? t.common.delete}</Button>
       </div>
     </Modal>
+  );
+}
+
+// ── save indicator ───────────────────────────────────────────────────────────────────────────────────
+
+/** Ported from web/components/ui/states.tsx. Without `label` it is aria-hidden: a spinner beside its own
+ *  visible text would be announced twice. */
+const SPINNER_PX = { xs: 10, sm: 13, md: 16, lg: 40 } as const;
+export function Spinner({ size = 'sm', label }: { size?: keyof typeof SPINNER_PX; tone?: string; label?: string }) {
+  return <Loader2 size={SPINNER_PX[size]} className="spinner" {...(label ? { role: 'status' as const, 'aria-label': label } : { 'aria-hidden': true })} />;
+}
+
+/** Ported from web/components/ui/AutoSaveStatus.tsx. Idle renders an EMPTY live region rather than
+ *  nothing — the row keeps one stable `role="status"` node, so the first "Saving…" is announced instead
+ *  of arriving with a brand-new region a screen reader may not read. The error is `role="alert"` and
+ *  offers Retry. */
+export function AutoSaveStatus({ status, onRetry }: { status: SaveStatus; onRetry?: () => void }) {
+  const { t } = useTranslation();
+  if (status === 'idle') return <span role="status" aria-live="polite" />;
+  if (status === 'saving') return <span role="status" aria-live="polite"><Spinner size="sm" tone="" />{t.common.saving}</span>;
+  if (status === 'saved') return <span role="status" aria-live="polite"><Check size={13} aria-hidden />{t.common.saved}</span>;
+  return (
+    <span role="alert">
+      <TriangleAlert size={13} aria-hidden />{t.common.saveFailed}
+      {onRetry ? <button type="button" onClick={onRetry}>{t.common.retry}</button> : null}
+    </span>
+  );
+}
+
+// ── managed selection ────────────────────────────────────────────────────────────────────────────────
+
+/** Ported from web/lib/modelIcon.ts — ordered keyword → lobe-icons base slug, first match wins, so the
+ *  model brand (deepseek, kimi…) comes before the runner brand (ollama): `ollama/deepseek-…` is a
+ *  DeepSeek model. */
+const MODEL_ICON_RULES: [RegExp, string][] = [
+  [/deepseek/i, 'deepseek'],
+  [/claude[\s_-]?code|claudecode/i, 'claudecode'],
+  [/claude|anthropic|sonnet|opus|haiku/i, 'claude'],
+  [/codex/i, 'codex'],
+  [/gpt|openai|chatgpt|\bo[1-4]\b/i, 'openai'],
+  [/kimi|\bk2\b|(?:^|\/)k\d+(?:p\d+)?$/i, 'kimi'],
+  [/moonshot/i, 'moonshot'],
+  [/minimax/i, 'minimax'],
+  [/qwen|qwq/i, 'qwen'],
+  [/gemini/i, 'gemini'],
+  [/mistral|mixtral|codestral|magistral|devstral/i, 'mistral'],
+  [/grok/i, 'grok'],
+  [/\bxai\b/i, 'xai'],
+  [/xiaomi|mimo/i, 'xiaomimimo'],
+  [/glm|chatglm|zhipu/i, 'zhipu'],
+  [/llama|meta[\s_-]?ai|\bmeta\b/i, 'metaai'],
+  [/ollama/i, 'ollama'],
+  [/github[\s_-]?copilot|\bcopilot\b/i, 'githubcopilot'],
+];
+/** Which of those brands ship a `-color` variant in the app's generated MODEL_ICON_SLUGS inventory; the
+ *  rest resolve to the mono base. The inventory itself is generated from web/public/models, which this
+ *  repo has no copy of, so only the brands the rules can reach are listed. */
+const MODEL_ICON_COLOR = new Set(['deepseek', 'claudecode', 'claude', 'codex', 'kimi', 'minimax', 'qwen', 'gemini', 'mistral', 'xiaomimimo', 'zhipu', 'metaai']);
+
+function modelIconSlug(name: string | undefined | null): { slug: string; color: boolean } | null {
+  if (!name) return null;
+  for (const [re, base] of MODEL_ICON_RULES) {
+    if (re.test(name)) return MODEL_ICON_COLOR.has(base) ? { slug: `${base}-color`, color: true } : { slug: base, color: false };
+  }
+  return null;
+}
+
+/** Ported from web/components/ui/ModelIcon.tsx: the brand mark of a model, resolved from its
+ *  name/exec string. An unknown name (or an asset that 404s) falls back to the generic glyph rather
+ *  than a broken image. */
+export function ModelIcon({ name, size = 20, className = '' }: { name?: string | null; size?: number; className?: string }) {
+  const icon = modelIconSlug(name);
+  const [fallback, setFallback] = useState(false);
+  const [failed, setFailed] = useState(false);
+  // Reset per icon so a name change from a missing icon to a good one re-tries the asset.
+  useEffect(() => { setFallback(false); setFailed(false); }, [icon?.slug]);
+
+  const onError = useCallback(() => {
+    if (icon?.color && !fallback) setFallback(true);
+    else setFailed(true);
+  }, [icon?.color, fallback]);
+
+  if (!icon || failed) return <Cpu size={size} className={className} aria-hidden />;
+  const ext = icon.color && fallback ? 'webp' : 'svg';
+  return (
+    <img
+      src={`/models/${icon.slug}.${ext}`}
+      alt=""
+      className={className}
+      style={{ width: size, height: size }}
+      aria-hidden
+      onError={onError}
+    />
+  );
+}
+
+/** Ported from web/components/ui/Checkbox.tsx — a presentational box; the clickable parent owns the
+ *  toggle, which is why it stays `aria-hidden` and the row's `aria-pressed` carries the state. */
+export function Checkbox({ checked }: { checked: boolean; className?: string }) {
+  return (
+    <span aria-hidden data-checked={checked}>
+      <Check size={11} strokeWidth={3} />
+    </span>
+  );
+}
+
+interface SelectionSummaryProps {
+  /** Count line, e.g. "14 models · 5 providers". Empty hides the line (chip-only summaries). */
+  countText: string;
+  /** A few representative chips (the caller slices, typically first 3). */
+  samples: { label: string; icon?: ReactNode }[];
+  /** How many more items exist beyond the samples — renders a "+N" chip when > 0. */
+  moreCount: number;
+  onManage: () => void;
+  manageLabel: string;
+  /** More specific accessible name when several managed selections share one page. */
+  manageAriaLabel?: string;
+  variant?: 'default' | 'line';
+}
+
+/** Ported from web/components/ui/SelectionSummary.tsx: the compact on-page summary of a managed
+ *  selection — a count line, sample chips and the "Manage" button that opens the modal. The two
+ *  `data-selection-*` hooks are the contract the panel is asserted through. */
+export function SelectionSummary({ countText, samples, moreCount, onManage, manageLabel, manageAriaLabel }: SelectionSummaryProps) {
+  return (
+    <div data-selection-summary>
+      <div>
+        {countText ? <span>{countText}</span> : null}
+        {(samples.length > 0 || moreCount > 0) && (
+          <div>
+            {samples.map((s) => (
+              <span key={s.label}>
+                {s.icon ? <span aria-hidden>{s.icon}</span> : null}
+                <span>{s.label}</span>
+              </span>
+            ))}
+            {moreCount > 0 && <span>+{moreCount}</span>}
+          </div>
+        )}
+      </div>
+      <button type="button" data-selection-manage onClick={onManage} aria-label={manageAriaLabel}>
+        <Settings2 size={13} aria-hidden />
+        {manageLabel}
+      </button>
+    </div>
+  );
+}
+
+export interface ManageSelectionItem {
+  id: string;
+  label: string;
+  /** Grouping key — items sharing a group render under one header. `''` pins the item to an ungrouped
+   *  section at the top (no header, no filter chip), e.g. a "Default" option or a saved id the
+   *  vocabulary no longer lists. */
+  group: string;
+  /** Display name for the group header/filter chip (falls back to `group`). */
+  groupLabel?: string;
+  icon?: ReactNode;
+  badges?: { text: string; tone?: 'accent' | 'muted' }[];
+  /** Row cannot be toggled (e.g. built-in tools) — rendered with `disabledHint` as its title. */
+  disabled?: boolean;
+  disabledHint?: string;
+}
+
+interface ManageSelectionModalProps {
+  title: string;
+  subtitle?: string;
+  open: boolean;
+  onClose: () => void;
+  items: ManageSelectionItem[];
+  selected: Set<string>;
+  onSave: (next: Set<string>) => void | Promise<void>;
+  saving?: boolean;
+  /** Shown in the footer instead of the count when nothing is selected (e.g. "empty = all allowed"). */
+  emptySelectionHint?: string;
+  countLabel?: (n: number) => string;
+  /** Optional icon per group key, shown in the group header and its filter chip. */
+  groupIcons?: Record<string, ReactNode>;
+  /** Single-select mode: clicking a row REPLACES the selection (radio-like check, no deselect) and the
+   *  header chip + footer show the chosen item's label instead of a count. */
+  single?: boolean;
+}
+
+/** Case- and diacritics-insensitive haystack normalization for the search filter. */
+const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/** Radio-like check for single-select rows — same footprint as the Checkbox, but round. */
+function RadioDot({ checked }: { checked: boolean }) {
+  return <span aria-hidden data-checked={checked}><span /></span>;
+}
+
+/** One selectable row — checkbox in multi mode, radio-like dot in single mode. The row IS the control,
+ *  so its `aria-pressed` is what the selection is asserted through. */
+function Row({ item, on, single, onToggle }: { item: ManageSelectionItem; on: boolean; single: boolean; onToggle: (item: ManageSelectionItem) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(item)}
+      disabled={item.disabled}
+      aria-pressed={on}
+      title={item.disabled ? item.disabledHint : undefined}
+    >
+      {item.icon ? <span aria-hidden>{item.icon}</span> : null}
+      <span>{item.label}</span>
+      {item.badges?.map((b) => <span key={b.text}>{b.text}</span>)}
+      {single ? <RadioDot checked={on} /> : <Checkbox checked={on} />}
+    </button>
+  );
+}
+
+/** Ported from web/components/ui/ManageSelectionModal.tsx: search + group filter chips + grouped rows.
+ *  Selection is LOCAL until "Save changes" hands the next set to `onSave`; Cancel/Esc discards. When
+ *  `onSave` rejects the modal stays open so the user can retry. `single` turns it into a radio-like
+ *  picker (a row click replaces the selection); items with `group: ''` render pinned above the grouped
+ *  sections. */
+export function ManageSelectionModal(props: ManageSelectionModalProps) {
+  // Mount the stateful body only while open so local selection re-seeds from `selected` on every open.
+  if (!props.open) return null;
+  return <ManageSelectionModalBody {...props} />;
+}
+
+function ManageSelectionModalBody({
+  title, subtitle, onClose, items, selected, onSave, saving = false,
+  emptySelectionHint, countLabel, groupIcons, single = false,
+}: ManageSelectionModalProps) {
+  const { t } = useTranslation();
+  const [local, setLocal] = useState<Set<string>>(() => new Set(selected));
+  const [query, setQuery] = useState('');
+  const [groupFilter, setGroupFilter] = useState<string | null>(null);
+
+  // Unique groups in first-appearance order — drives the filter chips and the section order. Pinned
+  // (group '') items live above the sections and never get a chip.
+  const groups = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const it of items) if (it.group !== '' && !seen.has(it.group)) seen.set(it.group, it.groupLabel ?? it.group);
+    return [...seen.entries()].map(([id, label]) => ({ id, label }));
+  }, [items]);
+
+  const q = fold(query.trim());
+  // Pinned rows ignore the group filter (they belong to no group) but still honor the search.
+  const pinned = items.filter((it) => it.group === '' && (!q || fold(it.label).includes(q)));
+  const visible = items.filter((it) =>
+    it.group !== ''
+    && (!groupFilter || it.group === groupFilter)
+    && (!q || fold(it.label).includes(q) || fold(it.groupLabel ?? it.group).includes(q)));
+
+  const toggle = (item: ManageSelectionItem) => {
+    if (item.disabled) return;
+    if (single) { setLocal(new Set([item.id])); return; } // radio semantics — a click replaces the pick
+    setLocal((prev) => {
+      const next = new Set(prev);
+      if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+      return next;
+    });
+  };
+
+  // Single mode surfaces the chosen item's label (header chip + footer) instead of a count.
+  const chosen = single ? items.find((it) => local.has(it.id)) : undefined;
+  const chosenLabel = chosen?.label ?? emptySelectionHint ?? '—';
+
+  const save = async () => {
+    try {
+      const result = onSave(new Set(local));
+      // Synchronous pickers close in the same interaction frame; async persistence keeps the modal open
+      // until it resolves so failures remain retryable.
+      if (result) await result;
+      onClose();
+    } catch {
+      // The caller surfaces the failure (toast); keep the modal open so the user can retry.
+    }
+  };
+
+  return (
+    <Modal title={title} description={subtitle} onClose={onClose} size="xl">
+      <ModalBody>
+        <div>
+          <div>
+            <Search size={13} aria-hidden />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t.managePicker.searchPlaceholder}
+              aria-label={t.managePicker.searchPlaceholder}
+            />
+          </div>
+          <span>{single ? chosenLabel : t.managePicker.selectedCount.replace('{n}', String(local.size))}</span>
+        </div>
+
+        {groups.length > 1 && (
+          <div role="tablist" aria-label={t.managePicker.filterByGroup}>
+            <button type="button" role="tab" aria-selected={groupFilter === null} onClick={() => setGroupFilter(null)}>
+              {t.managePicker.all}
+            </button>
+            {groups.map((g) => (
+              <button key={g.id} type="button" role="tab" aria-selected={groupFilter === g.id} onClick={() => setGroupFilter(g.id)}>
+                {groupIcons?.[g.id]}
+                {g.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {pinned.length === 0 && visible.length === 0
+          ? <p>{t.managePicker.noResults}</p>
+          : (
+            <div>
+              {pinned.length > 0 && (
+                <ul>
+                  {pinned.map((item) => <li key={item.id}><Row item={item} on={local.has(item.id)} single={single} onToggle={toggle} /></li>)}
+                </ul>
+              )}
+              {groups.map((g) => {
+                const groupItems = visible.filter((it) => it.group === g.id);
+                if (groupItems.length === 0) return null;
+                return (
+                  <section key={g.id}>
+                    <h3>
+                      {groupIcons?.[g.id]}
+                      {g.label}
+                    </h3>
+                    <ul>
+                      {groupItems.map((item) => (
+                        <li key={item.id}><Row item={item} on={local.has(item.id)} single={single} onToggle={toggle} /></li>
+                      ))}
+                    </ul>
+                  </section>
+                );
+              })}
+            </div>
+          )}
+      </ModalBody>
+      <ModalFooter
+        status={
+          <span>
+            {single
+              ? chosenLabel
+              : local.size === 0 && emptySelectionHint
+                ? emptySelectionHint
+                : (countLabel ?? ((n: number) => t.managePicker.selectedCount.replace('{n}', String(n))))(local.size)}
+          </span>
+        }
+      >
+        <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{t.common.cancel}</Button>
+        <Button type="button" variant="accent" onClick={save} disabled={saving}>
+          {saving ? t.common.saving : t.managePicker.saveChanges}
+        </Button>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
+interface BrainModelOption { provider: string; providerLabel?: string; model: string }
+
+/** Ported from web/components/ui/BrainModelField.tsx. Single-select brain-model picker: a compact
+ *  summary chip + a Manage modal grouping the catalog by provider, every group header carrying the
+ *  provider's brand logo and every row its model icon. A pinned row (id `''`) is the "default" pick; a
+ *  saved model the catalog no longer lists stays visible as a pinned, selected row so a save can never
+ *  silently drop it. `keyOf` bridges the caller's id encoding — the empty string always means default. */
+export function BrainModelField({ value, onChange, models, title, subtitle, defaultLabel, keyOf, allowDefault = true, manageAriaLabel }: {
+  value: string;
+  onChange: (key: string) => void;
+  models: BrainModelOption[];
+  title: string;
+  subtitle?: string;
+  defaultLabel: string;
+  keyOf: (m: BrainModelOption) => string;
+  allowDefault?: boolean;
+  manageAriaLabel?: string;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const selected = models.find((m) => keyOf(m) === value);
+
+  const items: ManageSelectionItem[] = [
+    ...(allowDefault ? [{ id: '', label: defaultLabel, group: '' }] : []),
+    ...(value && !selected ? [{ id: value, label: value, group: '', icon: <ModelIcon name={value} size={14} /> }] : []),
+    ...models.map((m) => ({
+      id: keyOf(m),
+      label: m.model,
+      group: m.provider,
+      groupLabel: m.providerLabel,
+      icon: <ModelIcon name={m.model} size={14} />,
+    })),
+  ];
+  // Provider brand logo on each group header/chip, resolved from the provider LABEL (Anthropic, OpenAI…)
+  // and keyed by provider id; a custom endpoint with no known brand falls back to the generic glyph.
+  const groupIcons = Object.fromEntries(
+    [...new Map(models.map((m) => [m.provider, m.providerLabel])).entries()]
+      .map(([provider, label]) => [provider, <ModelIcon key={provider} name={label} size={14} />]),
+  );
+
+  return (
+    <>
+      <SelectionSummary
+        countText=""
+        samples={[value
+          ? { label: selected?.model ?? value, icon: <ModelIcon name={selected?.model ?? value} size={13} /> }
+          : { label: defaultLabel }]}
+        moreCount={0}
+        onManage={() => setOpen(true)}
+        manageLabel={t.managePicker.manage}
+        manageAriaLabel={manageAriaLabel}
+      />
+      <ManageSelectionModal
+        title={title}
+        subtitle={subtitle}
+        open={open}
+        onClose={() => setOpen(false)}
+        items={items}
+        selected={new Set([value])}
+        single
+        groupIcons={groupIcons}
+        onSave={(next) => onChange([...next][0] ?? '')}
+      />
+    </>
   );
 }
 

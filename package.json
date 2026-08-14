@@ -6,14 +6,15 @@
     "test": "npm run test:node && npm run test:ui",
     "test:node": "node --test --import=./tests/register-loader.mjs \"tests/*.test.mjs\"",
     "test:ui": "vitest run",
-    "test:e2e": "npm run test:e2e:msteams && npm run test:e2e:telegram && npm run test:e2e:whatsapp && npm run test:e2e:discord",
+    "test:e2e": "npm run test:e2e:msteams && npm run test:e2e:telegram && npm run test:e2e:whatsapp && npm run test:e2e:discord && npm run test:e2e:cron",
     "test:e2e:msteams": "node tests/e2e/msteams/run.mjs",
     "build:web": "node scripts/build-web.mjs",
     "check:web": "node scripts/build-web.mjs && git diff --exit-code -- \"plugins/*/web/index.js\"",
     "check": "npm run check:web && npm test",
     "test:e2e:telegram": "node tests/e2e/telegram/run.mjs",
     "test:e2e:whatsapp": "node tests/e2e/whatsapp/run.mjs",
-    "test:e2e:discord": "node tests/e2e/discord/run.mjs"
+    "test:e2e:discord": "node tests/e2e/discord/run.mjs",
+    "test:e2e:cron": "node tests/e2e/cron/run.mjs"
   },
   "devDependencies": {
     "@tanstack/react-query": "^5.101.4",

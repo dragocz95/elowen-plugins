@@ -172,6 +172,18 @@
         "tools": 25,
         "apiRoutes": 1
       }
+    },
+    {
+      "name": "cronjob",
+      "version": "0.1.0",
+      "description": "Scheduler: recurring prompts, one-shot wake-ups and shell collectors that wake the agent on a schedule, with a jobs screen in Settings.",
+      "category": "automation",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "tools": 4,
+        "apiRoutes": 1
+      }
     }
   ]
 }

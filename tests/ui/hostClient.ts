@@ -50,6 +50,12 @@ export interface PluginSkillRow {
   content?: string;
 }
 
+/** Shapes the jobs panel reads. They live in the plugin's own web-src/runtime.ts too — this side only
+ *  needs enough of them to type the client, so the fields are deliberately loose. */
+export interface CronJobRow { id: string }
+export interface DiscordChannelOption { id: string; name: string }
+export interface BrainModelOption { id: string; label?: string }
+
 export interface PluginUiListing { name: string; url: string; apiVersion: number; strings: Record<string, string> }
 
 export const elowenClient = {
@@ -62,6 +68,12 @@ export const elowenClient = {
     req<{ ok: boolean }>(`/plugins/skills/${encodeURIComponent(name)}${ownerQuery(owner)}`, json(patch, 'PATCH')),
   deletePluginSkill: (name: string, owner?: SkillOwner) =>
     req<{ ok: boolean }>(`/plugins/skills/${encodeURIComponent(name)}${ownerQuery(owner)}`, { method: 'DELETE' }),
+  // The cronjob panel's calls. Same URLs the daemon's routes are tested against on the node side.
+  cronJobs: () => req<CronJobRow[]>('/plugins/cronjob/jobs'),
+  saveCronJob: (job: CronJobRow) => req<{ ok: boolean }>(`/plugins/cronjob/jobs/${encodeURIComponent(job.id)}`, json(job, 'PUT')),
+  deleteCronJob: (id: string) => req<{ ok: boolean }>(`/plugins/cronjob/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  discordChannels: () => req<DiscordChannelOption[]>('/plugins/discord/channels'),
+  brainModels: () => req<BrainModelOption[]>('/brain/models'),
 };
 
 /** Same-origin JSON fetch exposed to a bundle as `runtime.api`. Rejects on non-2xx. */

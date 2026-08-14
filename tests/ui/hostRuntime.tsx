@@ -13,6 +13,7 @@ import * as JsxRuntime from 'react/jsx-runtime';
 import * as C from './hostComponents';
 import * as H from './hostHooks';
 import { api, apiErrorMessage } from './hostClient';
+import { compactElapsed, isValidSchedule, parseTs } from './hostUtils';
 
 export const PLUGIN_UI_API_VERSION = 1;
 
@@ -39,6 +40,8 @@ export function ensurePluginUiRuntime(): void {
       DataTable: C.DataTable, DataTableRow: C.DataTableRow, DataTableCell: C.DataTableCell,
       EmptyState: C.EmptyState, LoadingState: C.LoadingState, ErrorState: C.ErrorState,
       ConfirmDialog: C.ConfirmDialog, WorkspaceDetailRail: C.WorkspaceDetailRail,
+      AutoSaveStatus: C.AutoSaveStatus, Spinner: C.Spinner, Checkbox: C.Checkbox, ModelIcon: C.ModelIcon,
+      SelectionSummary: C.SelectionSummary, ManageSelectionModal: C.ManageSelectionModal, BrainModelField: C.BrainModelField,
       WorkspacePage: C.WorkspacePage, SpatialWorkspaceLayout: C.SpatialWorkspaceLayout, WorkspaceMetric: C.WorkspaceMetric,
       MarkdownAssetEditor: C.MarkdownAssetEditor,
     },
@@ -50,8 +53,11 @@ export function ensurePluginUiRuntime(): void {
       useMe: H.useMe, usePluginUi: H.usePluginUi,
       usePluginSkills: H.usePluginSkills, useCreatePluginSkill: H.useCreatePluginSkill,
       useUpdatePluginSkill: H.useUpdatePluginSkill, useDeletePluginSkill: H.useDeletePluginSkill,
+      useCronJobs: H.useCronJobs, useSaveCronJob: H.useSaveCronJob, useDeleteCronJob: H.useDeleteCronJob,
+      useDiscordChannels: H.useDiscordChannels, useBrainModels: H.useBrainModels,
+      useAutoSaveStatus: H.useAutoSaveStatus,
     },
-    utils: { apiErrorMessage },
+    utils: { apiErrorMessage, parseTs, compactElapsed, isValidSchedule },
     api,
     navigate: (href: string) => { window.location.assign(href); },
   };
