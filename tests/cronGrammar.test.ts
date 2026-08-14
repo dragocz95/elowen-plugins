@@ -1,21 +1,25 @@
 // @vitest-environment node
+import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 
 // The other half of a contract the Elowen package holds too. The cron/schedule grammar exists in three
 // hand-written copies that cannot import one another: this plugin's parseSchedule (the authority, and
 // what validates writes to /plugins/cronjob/jobs), and the daemon's web/lib/cronSchedule.ts and
-// web/lib/cron.ts. Since the plugin lives here and those live there, each side pins itself to the same
-// frozen corpus — cronGrammar.json, byte-identical in both repositories.
+// web/lib/cron.ts. The plugin lives here and those live there — so both sides read the SAME file, the
+// one published inside elowen-plugin-shared, rather than two copies kept equal by hand.
 //
-// If this fails, the plugin's grammar moved. Widening it is fine; doing so without updating BOTH copies
-// of the fixture is how the dashboard ends up showing a valid job as "never fires".
+// That is deliberate: a plugin installed in production resolves this package through the daemon's
+// node_modules, so the corpus under test is literally the corpus that ships. If this fails, the
+// plugin's grammar moved away from the contract. Widening it means publishing a new shared package —
+// which is the cost that makes "the dashboard shows a valid job as never fires" impossible to reach by
+// forgetting a second copy.
+const grammar = JSON.parse(
+  readFileSync(createRequire(import.meta.url).resolve('elowen-plugin-shared/cronGrammar'), 'utf-8'),
+) as { accepts: Record<string, boolean> };
 const here = dirname(fileURLToPath(import.meta.url));
-const grammar = JSON.parse(readFileSync(join(here, 'cronGrammar.json'), 'utf-8')) as {
-  accepts: Record<string, boolean>;
-};
 const pluginPath = resolve(here, '..', 'plugins/cronjob/index.mjs');
 
 describe('cron schedule grammar (plugin ⋅ frozen contract)', () => {
