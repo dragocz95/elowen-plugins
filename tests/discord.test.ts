@@ -1678,19 +1678,6 @@ describe('discord /help renders the passed command list (single-source, no drift
     expect(body).toContain('`/deploy` — Ship it'); // plugin command appears, fallback description
   });
 
-  it('inherits the shared service messages verbatim, in every language', async () => {
-    const [{ MESSAGES }, shared] = await Promise.all([
-      import(join(repoRoot, 'plugins/discord/lib/messages.mjs')) as Promise<{
-        MESSAGES: Record<string, { noModels: string; restarting: string; compacted: (n: number) => string }>;
-      }>,
-      import('elowen-plugin-shared/messages') as Promise<{
-        SHARED_MESSAGES: Record<string, { noModels: string; restarting: string; compacted: (n: number) => string }>;
-      }>,
-    ]);
-    for (const lang of ['en', 'cs', 'sk']) {
-      expect(MESSAGES[lang].noModels).toBe(shared.SHARED_MESSAGES[lang].noModels);
-      expect(MESSAGES[lang].restarting).toBe(shared.SHARED_MESSAGES[lang].restarting);
-      expect(MESSAGES[lang].compacted(42)).toBe(shared.SHARED_MESSAGES[lang].compacted(42));
-    }
-  });
+  // Shared-message inheritance for this adapter moved to tests/sharedMessages.test.ts, which asserts
+  // EVERY shared key for all four chat adapters at once — this checked three of them, for discord alone.
 });
