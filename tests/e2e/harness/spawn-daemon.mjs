@@ -108,6 +108,15 @@ export async function spawnRealDaemon(opts) {
     ELOWEN_LOG_DIR: join(dataDir, 'logs'),
     ELOWEN_BOOTSTRAP_USER: bootstrapUser,
     ELOWEN_BOOTSTRAP_PASS: bootstrapPass,
+    // Hermetic plugin surface. When a plugin is enabled in config but absent from disk, the daemon repairs
+    // itself at boot: `marketplace.reconcileEnabled()` git-clones the curated registry from GitHub and
+    // reinstalls the name (dist/daemon/bootstrap.js:444). Inside a suite that is both a network dependency
+    // and a live-state hazard — each restore reloads the plugin registry, and a reload disposes every live
+    // channel session (`resetChannels('plugins reloaded')`), so a scenario that already spoke to the brain
+    // silently loses its session. Point the marketplace at a path that cannot exist: the clone fails, the
+    // daemon logs one warning and runs with exactly the plugins on disk. A suite that genuinely tests the
+    // marketplace overrides it through `opts.env`, which is applied after this block.
+    ELOWEN_PLUGIN_REGISTRY: join(dataDir, 'no-such-plugin-registry.git'),
   }, opts.env ?? {});
 
   let child = null;
