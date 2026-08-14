@@ -1,0 +1,696 @@
+import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import test from 'node:test';
+import { formatSkillsForPrompt } from '@earendil-works/pi-coding-agent';
+import { register } from '../plugins/skills/index.mjs';
+
+const pluginDir = fileURLToPath(new URL('../plugins/skills/', import.meta.url));
+const manifest = JSON.parse(readFileSync(join(pluginDir, 'elowen-plugin.json'), 'utf-8'));
+const log = { info() {}, warn() {}, error() {} };
+
+let dirs = [];
+const tmpDir = (tag) => { const p = mkdtempSync(join(tmpdir(), `elowen-${tag}-`)); dirs.push(p); return p; };
+const cleanup = () => { for (const p of dirs.splice(0)) rmSync(p, { recursive: true, force: true }); };
+
+const skillMd = (name, description) => `---\nname: ${name}\ndescription: ${description}\n---\n\nBody of ${name}.\n`;
+
+// ── the stub host ────────────────────────────────────────────────────────────────────────────────────
+// What the daemon's plugin loader hands `register(ctx)`. Only the seams the skills plugin actually
+// touches are provided; anything it reaches for that is missing would throw rather than silently answer.
+
+/**
+ * Load the plugin under a stub host rooted at `dataRoot` (the daemon resolves ctx.dataDir() to
+ * `<dataRoot>/skills`, which is where the HTTP routes and the CreateSkill tool both write).
+ */
+function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [] } = {}) {
+  const skills = [];
+  const tools = [];
+  const routes = [];
+  const userRemoved = [];
+  // The identity/admin state the host would install around a turn or an API request. It is ambient in
+  // the daemon (AsyncLocalStorage); a mutable cell is the same thing for a single-threaded test.
+  const session = { identity: null, adminSession: false };
+  const ctx = {
+    logger: log,
+    dataDir: () => join(dataRoot, 'skills'),
+    registerSkill: (skill, opts = {}) => { skills.push({ ...skill, ownerUserId: opts.ownerUserId ?? null }); },
+    registerTool: (tool) => tools.push(tool),
+    registerApiRoute: (route) => routes.push(route),
+    registerUserRemoved: (fn) => userRemoved.push(fn),
+    requestReload,
+    currentIdentity: () => session.identity,
+    isAdminSession: () => session.adminSession,
+    // Declared by the manifest as `capabilities.reads: ['stores']`; the plugin refuses to mint a personal
+    // folder for an id that names no account, so it needs the same account list the daemon wires in. Read
+    // LIVE, not snapshotted: a grant or an account deletion must be visible to the very next request.
+    host: { stores: () => ({ usersRead: { list: users } }) },
+  };
+  register(ctx);
+  return { skills, tools, routes, userRemoved, session };
+}
+
+/** Run `fn` as a TURN with the given identity — the shape `runWithPolicy(..., { identity })` installs
+ *  around a tool call, where `isAdminSession()` is true for an admin's own session. Awaited, not merely
+ *  returned: the daemon's scope is AsyncLocalStorage and survives an `await` inside the tool, so tearing
+ *  this one down the moment the promise is HANDED BACK would quietly diverge the day a tool grows one. */
+const asSession = async (plugin, identity, fn) => {
+  plugin.session.identity = identity;
+  plugin.session.adminSession = identity?.admin === true;
+  try { return await fn(); } finally { plugin.session.identity = null; plugin.session.adminSession = false; }
+};
+
+const runTool = (plugin, name, params) => {
+  const tool = plugin.tools.find((t) => t.name === name);
+  assert.ok(tool, `tool ${name} must be registered`);
+  return tool.execute('t', params);
+};
+
+// ── the HTTP harness ─────────────────────────────────────────────────────────────────────────────────
+// The daemon serves this plugin's grandfathered `/plugins/skills/*` surface through the ROOT-mounted
+// plugin API dispatcher (src/api/routes/pluginApi.ts + PluginRegistry.rootApiRoute). There is no daemon
+// here, so the parts of that path the assertions depend on are ported faithfully: mount registration
+// (including the manifest declaration gate), the mount-ranking resolver, the access + per-user grant
+// gates, the exact PluginApiRequest shape a handler is handed, and the response mapping. A looser stand-in
+// would let the tests pass on behaviour production does not have.
+
+/** The registry's registerApiRoute for a ROOT mount: `<rootMount>/<path>`, method upper-cased, and the
+ *  full mount must be declared in the manifest's provides.apiRoutes or the route is dropped. */
+function mountRoutes(routes) {
+  const mounts = new Map();
+  for (const route of routes) {
+    const clean = route.path.replace(/^\/+|\/+$/g, '');
+    assert.ok(route.rootMount, 'the skills plugin registers root mounts only');
+    const base = route.rootMount.trim().replace(/\/+$/g, '');
+    const mount = clean ? `${base}/${clean}` : base;
+    // Every reason the registry DROPS a route at registration time (with a warning, so a typo shows up
+    // as a dead endpoint rather than a crash). Asserted rather than mirrored: a route silently missing
+    // from the harness would take its whole test with it and read as a plugin bug.
+    assert.ok(['admin', 'user', 'agent'].includes(route.access), `access must be admin, user or agent, got '${route.access}'`);
+    assert.ok(
+      base.startsWith('/') && base.slice(1).split('/').every((seg) => /^[a-z0-9][a-z0-9-]*$/.test(seg) || /^:[a-zA-Z][a-zA-Z0-9]*$/.test(seg)),
+      `rootMount '${route.rootMount}' must be an absolute lowercase path (segments may be ':param')`,
+    );
+    assert.ok(
+      manifest.provides?.apiRoutes?.includes(mount),
+      `root mount '${mount}' is not declared in the manifest's provides.apiRoutes — the daemon would drop it`,
+    );
+    const entry = mounts.get(mount) ?? [];
+    entry.push({ ...(route.method ? { method: route.method.toUpperCase() } : {}), access: route.access, handler: route.handler });
+    mounts.set(mount, entry);
+  }
+  return mounts;
+}
+
+/** Port of PluginRegistry.rootApiRoute: the mount naming the most leading segments wins (literal and
+ *  ':param' mounts compete on the same scale), literal beats pattern at equal depth, and an exact method
+ *  beats a method-less route. */
+function resolveRootRoute(mounts, path, method) {
+  const parts = ('/' + path.replace(/^\/+|\/+$/g, '')).slice(1).split('/');
+  const candidates = [];
+  for (let depth = parts.length; depth >= 1; depth--) {
+    const mount = '/' + parts.slice(0, depth).join('/');
+    if (!mounts.has(mount)) continue;
+    candidates.push({ mount, remainder: parts.slice(depth).join('/'), params: {}, literals: depth, depth });
+  }
+  for (const mount of mounts.keys()) {
+    if (!mount.includes('/:')) continue;
+    const msegs = mount.slice(1).split('/');
+    if (msegs.length > parts.length) continue;
+    const params = {};
+    let literals = 0;
+    let ok = true;
+    for (let i = 0; i < msegs.length; i++) {
+      const seg = msegs[i];
+      if (seg.startsWith(':')) params[seg.slice(1)] = decodeURIComponent(parts[i]);
+      else if (seg === parts[i]) literals++;
+      else { ok = false; break; }
+    }
+    if (!ok) continue;
+    candidates.push({ mount, remainder: parts.slice(msegs.length).join('/'), params, literals, depth: msegs.length });
+  }
+  candidates.sort((a, b) => b.depth - a.depth || b.literals - a.literals);
+  for (const candidate of candidates) {
+    const entry = mounts.get(candidate.mount);
+    const route = entry.find((r) => r.method === method) ?? entry.find((r) => r.method === undefined);
+    if (route) return { ...candidate, ...route };
+  }
+  return undefined;
+}
+
+/** Port of shared/pluginAccess.ts: a userGrantable plugin is deny-by-default for a non-admin. */
+const isPluginAllowedForUser = (user, grantable) => {
+  if (!grantable) return true;
+  if (!user || user.is_admin) return true;
+  return user.granted_plugins.includes('skills');
+};
+
+/** A minimal stand-in for the daemon's UserStore: the FIRST account created is the admin, ids are never
+ *  handed out twice, and a deleted account fires the plugin's user-removed handler. */
+function makeUsers() {
+  const rows = [];
+  let seq = 0;
+  return {
+    create(username) {
+      const user = { id: ++seq, username, is_admin: rows.length === 0, granted_plugins: [] };
+      rows.push(user);
+      return user;
+    },
+    list: () => rows.map((u) => ({ ...u })),
+    get: (id) => rows.find((u) => u.id === id),
+    setGrantedPlugins(id, plugins) { rows.find((u) => u.id === id).granted_plugins = plugins; },
+    remove(id) {
+      const at = rows.findIndex((u) => u.id === id);
+      if (at === -1) return false;
+      rows.splice(at, 1);
+      return true;
+    },
+    issueToken: (id) => `user:${id}`,
+  };
+}
+
+/**
+ * The '/plugins/skills/*' surface, served exactly the way the daemon serves it. `enabled: []` leaves the
+ * plugin unloaded, so its DECLARED-but-inactive mounts answer 503 rather than a bare 404 — the reason a
+ * CLI or spawned agent can tell "subsystem off" from "no such endpoint".
+ */
+function setup(opts = {}) {
+  const dataRoot = tmpDir('skills-data');
+  const users = makeUsers();
+  const admin = users.create('admin');
+  const amy = users.create('amy');
+  const enabled = opts.enabled ?? ['skills'];
+  const plugin = enabled.includes('skills') ? loadPlugin({ dataRoot, users: () => users.list() }) : null;
+  const mounts = plugin ? mountRoutes(plugin.routes) : new Map();
+  // Mounts this plugin DECLARES but does not currently serve — i.e. it is disabled or failed to load.
+  // A request under one of those answers an explicit 503 instead of a bare 404, so a caller can tell
+  // "subsystem off" from "no such endpoint". A mount that IS live is excluded, exactly as the daemon
+  // excludes it: a live mount with no route for the requested method is a 404, not a disabled plugin.
+  const declaredInactive = manifest.provides.apiRoutes
+    .filter((mount) => !mounts.has(mount))
+    .map((mount) => mount.split('/').filter(Boolean));
+
+  const app = {
+    async request(url, init = {}) {
+      const parsed = new URL(url, 'http://daemon');
+      const method = (init.method ?? 'GET').toUpperCase();
+      const headers = Object.fromEntries(Object.entries(init.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+      const token = (headers.authorization ?? '').replace(/^Bearer /, '');
+      const user = users.get(Number(token.replace(/^user:/, ''))) ?? null;
+      // The daemon's global auth middleware runs BEFORE either dispatcher, so a request with no valid
+      // bearer never reaches a handler. It has to be here too: `isPluginAllowedForUser(null, …)` answers
+      // "allowed" for a userless caller, and that is only safe in the daemon because these guards
+      // already owned the case — without them the harness would serve the whole surface anonymously.
+      if (!user) return res(401, { error: 'unauthorized' });
+
+      // Core routes win by construction (the plugin dispatcher is a fall-through registered last). Only
+      // the one this suite exercises is modelled; NOT modelled is the `/plugins/:name/*` core family that
+      // shadows `/plugins/skills/config`, `…/icon`, `…/logs` and friends — which is why the plugin keeps
+      // its own RESERVED_NAMES list. Neither repo's suite covers those names, so nothing here asserts on
+      // a path the daemon would route elsewhere.
+      if (method === 'DELETE' && /^\/users\/\d+$/.test(parsed.pathname)) {
+        if (!user?.is_admin) return res(403, { error: 'forbidden' });
+        const id = Number(parsed.pathname.split('/')[2]);
+        if (!users.remove(id)) return res(404, { error: 'not found' });
+        for (const fn of plugin?.userRemoved ?? []) await fn(id);
+        return res(200, { ok: true });
+      }
+
+      const match = resolveRootRoute(mounts, parsed.pathname, method);
+      if (!match) {
+        const segs = parsed.pathname.split('/').filter(Boolean);
+        const inactive = declaredInactive.some((m) => m.length <= segs.length && m.every((seg, i) => seg.startsWith(':') || seg === segs[i]));
+        return inactive ? res(503, { error: 'skills plugin is disabled' }) : res(404, { error: 'not found' });
+      }
+      // Declared access, enforced centrally — before the plugin ever sees the request.
+      if (match.access === 'admin' && !user?.is_admin) return res(403, { error: 'forbidden' });
+      // Per-user grant for a plugin whose manifest opted in, checked once for the whole surface so a
+      // plugin cannot grow an ungated endpoint by forgetting one.
+      if (!isPluginAllowedForUser(user, manifest.userGrantable === true)) return res(403, { error: 'forbidden' });
+
+      const raw = Buffer.from(init.body ?? '');
+      const request = {
+        method,
+        path: match.remainder,
+        query: Object.fromEntries(parsed.searchParams),
+        headers,
+        params: match.params,
+        body: () => Promise.resolve(raw),
+        json: () => Promise.resolve(JSON.parse(raw.toString('utf8'))),
+        auth: {
+          userId: user?.id ?? null,
+          admin: user?.is_admin === true,
+          tokenScope: 'user',
+          agentTask: null,
+          accessibleProjects: user?.is_admin ? null : [],
+        },
+      };
+      // An API handler runs inside an IDENTITY scope, explicitly NOT a turn scope: no session id, so
+      // `isAdminSession()` stays false and the tools' admin-only path guard keeps refusing.
+      plugin.session.identity = {
+        platform: 'http',
+        userId: String(request.auth.userId ?? ''),
+        ...(request.auth.userId !== null ? { elowenUserId: request.auth.userId } : {}),
+        admin: request.auth.admin,
+        owner: request.auth.userId === 1,
+      };
+      plugin.session.adminSession = false;
+      try {
+        const out = await match.handler(request);
+        return res(out.status ?? 200, out.body);
+      } catch (error) {
+        // Body-shape failures map exactly like the core route families' onError, so a grandfathered root
+        // mount keeps its clients' 400 contract.
+        if (error instanceof SyntaxError) return res(400, { error: 'invalid JSON body' });
+        return res(500, { error: 'plugin api handler failed' });
+      } finally {
+        plugin.session.identity = null;
+      }
+    },
+  };
+  return { app, dataRoot, users, admin, amy, plugin, userDir: join(dataRoot, 'skills'), adminTok: users.issueToken(admin.id), amyTok: users.issueToken(amy.id) };
+}
+
+const res = (status, body) => ({ status, json: async () => body });
+const auth = (t) => ({ headers: { authorization: `Bearer ${t}` } });
+const post = (t, body) => ({ method: 'POST', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+const del = (t) => ({ method: 'DELETE', headers: { authorization: `Bearer ${t}` } });
+const patch = (t, body) => ({ method: 'PATCH', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+const skill = (extra = {}) => ({ name: 'deploy-checklist', description: 'When deploying.', content: 'Check twice.', ...extra });
+
+// ── assertion helpers (the node:test counterparts of the vitest matchers the sources used) ───────────
+const matches = (row, shape) => Object.entries(shape).every(([key, value]) => {
+  // Strict, deliberately: legacy deepEqual treats an ABSENT field as equal to `null`, which would let
+  // `{ owner: null }` match a payload that never carried an owner column at all.
+  try { assert.deepStrictEqual(row?.[key], value); return true; } catch { return false; }
+});
+/** vitest's `toContainEqual(expect.objectContaining(shape))`. */
+const assertContains = (rows, shape) =>
+  assert.ok(rows.some((row) => matches(row, shape)), `no row matching ${JSON.stringify(shape)} in ${JSON.stringify(rows)}`);
+/** vitest's `toMatchObject`. */
+const assertMatches = (row, shape) =>
+  assert.ok(matches(row, shape), `${JSON.stringify(row)} does not match ${JSON.stringify(shape)}`);
+
+const listSkills = async (app, token) => (await (await app.request('/plugins/skills/list', auth(token))).json());
+
+// ═══ suite 1 — plugin registration (ported from tests/plugins/skillsPlugin.test.ts) ═══════════════════
+
+const adminIdentity = { platform: 'elowen', userId: '1', admin: true, owner: true };
+
+test('bundled skills plugin', async (t) => {
+  t.after(cleanup);
+
+  await t.test('registers at least one skill from its bundled dir', () => {
+    const reg = loadPlugin({ dataRoot: tmpDir('skills') });
+    assert.ok(reg.skills.length > 0);
+    assert.ok(reg.skills.map((s) => s.name).includes('elowen-control'));
+  });
+
+  await t.test('the registered skills format into a non-empty prompt block', () => {
+    const reg = loadPlugin({ dataRoot: tmpDir('skills') });
+    assert.ok(formatSkillsForPrompt(reg.skills).length > 0);
+  });
+
+  await t.test('CreateSkill writes the skill AND asks the host to apply it live (no restart)', async () => {
+    // Regression: before the fix, CreateSkill wrote the file but never triggered a reload, so a freshly
+    // created skill only reached the model after a daemon restart / plugins toggle. It must now request a
+    // live reload (drained by the brain once the turn settles) so the skill is available next message.
+    const dataRoot = tmpDir('skills');
+    let reloads = 0;
+    const reg = loadPlugin({ dataRoot, requestReload: () => { reloads += 1; } });
+    const out = await asSession(reg, adminIdentity, () => runTool(reg, 'CreateSkill', { name: 'ship-it', description: 'how to ship a release', content: 'do the thing' }));
+    assert.ok(out.content[0].text.includes('next message')); // the message no longer says "after a restart"
+    assert.equal(reloads, 1); // the missing link: the tool now requests a live apply
+    // A fresh load (what the reload performs) picks the new skill up from the data dir.
+    const reloaded = loadPlugin({ dataRoot });
+    assert.ok(reloaded.skills.map((s) => s.name).includes('ship-it'));
+  });
+
+  await t.test('DeleteSkill also asks the host to apply the removal live', async () => {
+    const dataRoot = tmpDir('skills');
+    mkdirSync(join(dataRoot, 'skills'), { recursive: true });
+    writeFileSync(join(dataRoot, 'skills', 'temp-skill.md'), '---\nname: temp-skill\ndescription: throwaway\n---\n\nbody\n');
+    let reloads = 0;
+    const reg = loadPlugin({ dataRoot, requestReload: () => { reloads += 1; } });
+    const out = await asSession(reg, adminIdentity, () => runTool(reg, 'DeleteSkill', { name: 'temp-skill' }));
+    assert.ok(out.content[0].text.includes('deleted'));
+    assert.equal(reloads, 1);
+  });
+
+  await t.test('lists AND deletes a directory-form <name>/SKILL.md user skill, not just flat .md', async () => {
+    // ctx.dataDir() resolves to <dataRoot>/skills — seed a directory-form skill there (PI treats a dir
+    // with a SKILL.md as a skill root). The old flat-*.md readdir catalog would miss it entirely.
+    const dataRoot = tmpDir('skills');
+    const skillDir = join(dataRoot, 'skills', 'deploy-flow');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: deploy-flow\ndescription: how to deploy the app\n---\n\nsteps here\n');
+
+    const reg = loadPlugin({ dataRoot });
+    // PI's loader registered the dir-form skill…
+    assert.ok(reg.skills.map((s) => s.name).includes('deploy-flow'));
+    // …and ListSkills surfaces it (via the loader, not a flat readdir).
+    const listed = await asSession(reg, adminIdentity, () => runTool(reg, 'ListSkills', {}));
+    assert.ok(listed.content[0].text.includes('deploy-flow'));
+    // …and DeleteSkill removes the whole skill directory.
+    const removed = await asSession(reg, adminIdentity, () => runTool(reg, 'DeleteSkill', { name: 'deploy-flow' }));
+    assert.ok(removed.content[0].text.includes('deleted'));
+    assert.equal(existsSync(skillDir), false);
+  });
+});
+
+// ═══ suite 2 — skill ownership (ported from tests/plugins/skillOwnership.test.ts) ═════════════════════
+
+/** A skill is a briefing the model believes. One that names a tool teaches the model that the tool is
+ *  there — and a model convinced a missing tool should exist works around its absence instead of
+ *  reporting it. So a skill about a plugin's tools has to load and unload WITH that plugin, which means
+ *  shipping inside it. This is the guard for the whole class: it caught the task tools being taught by
+ *  the core skills plugin after the task domain had moved out of core. */
+test('a skill that teaches a plugin’s tools ships with that plugin', async (t) => {
+  t.after(cleanup);
+
+  /** Every task tool the work plugin declares in its manifest — none of them may be taught elsewhere. */
+  const TASK_TOOLS = ['ElowenListTasks', 'ElowenCreateTask', 'ElowenPlan', 'ElowenUpdateTask', 'ElowenGetTask', 'ElowenStopTask', 'ElowenTaskOutput'];
+
+  await t.test('and by nothing that outlives it — the core skills plugin no longer names them', () => {
+    const reg = loadPlugin({ dataRoot: tmpDir('skills') });
+    assert.ok(reg.skills.map((s) => s.name).includes('elowen-control'));
+    assert.ok(!reg.skills.map((s) => s.name).includes('elowen-tasks'));
+    // What the model will actually READ: a registered skill is a pointer to its file, not its text.
+    const everything = reg.skills.map((s) => readFileSync(s.filePath, 'utf8')).join('\n');
+    for (const tool of TASK_TOOLS) {
+      assert.equal(`${tool} taught without its plugin: ${everything.includes(tool)}`, `${tool} taught without its plugin: false`);
+    }
+  });
+});
+
+// ═══ suite 3 — the HTTP routes (ported from tests/api/skillsRoutes.test.ts) ═══════════════════════════
+
+// The '/plugins/skills/*' surface is served by the REAL skills plugin (root mounts), so the "bundled"
+// fixtures below are the plugin's actual shipped skills ('skill-creation', 'elowen-control'), not
+// synthetic ones: the .mjs resolves its bundled dir next to its own file.
+const BUNDLED = 'skill-creation';
+
+test('skills routes', async (t) => {
+  t.after(cleanup);
+
+  await t.test('GET /plugins/skills/list returns bundled + user skills with parsed descriptions', async () => {
+    const { app, userDir, adminTok } = setup();
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'my-skill.md'), skillMd('my-skill', 'A user skill.'));
+    const response = await app.request('/plugins/skills/list', auth(adminTok));
+    assert.equal(response.status, 200);
+    const list = await response.json();
+    assertContains(list, { name: BUNDLED, source: 'bundled', scope: 'bundled/system', active: true, canDelete: false });
+    assertContains(list, { name: 'my-skill', description: 'A user skill.', source: 'user', scope: 'user-defined', active: true, canDelete: true });
+  });
+
+  await t.test('GET lists bundled skills even when the user dir does not exist yet', async () => {
+    const { app, adminTok } = setup();
+    const list = await listSkills(app, adminTok);
+    assert.ok(list.length > 0);
+    assert.equal(list.every((sk) => sk.source === 'bundled'), true);
+    assertContains(list, { name: BUNDLED, canDelete: false });
+  });
+
+  await t.test('POST creates the user skill file in the CreateSkill format and GET lists it', async () => {
+    const { app, userDir, adminTok } = setup();
+    const response = await app.request('/plugins/skills?owner=instance', post(adminTok, skill()));
+    assert.equal(response.status, 201);
+    assert.equal(
+      readFileSync(join(userDir, 'deploy-checklist.md'), 'utf-8'),
+      '---\nname: deploy-checklist\ndescription: When deploying.\n---\n\nCheck twice.\n',
+    );
+    const list = await listSkills(app, adminTok);
+    assertContains(list, { name: 'deploy-checklist', description: 'When deploying.', source: 'user', canDelete: true });
+  });
+
+  await t.test('POST flattens newlines in the description (frontmatter stays one line)', async () => {
+    const { app, userDir, adminTok } = setup();
+    await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ description: 'line one\nline two' })));
+    assert.ok(readFileSync(join(userDir, 'deploy-checklist.md'), 'utf-8').includes('description: line one line two\n'));
+  });
+
+  await t.test('POST rejects a bad name, empty description/content and a non-JSON body (400)', async () => {
+    const { app, adminTok } = setup();
+    for (const bad of [skill({ name: 'Bad Name' }), skill({ name: 'x' }), skill({ description: '' }), skill({ content: '  ' }), skill({ content: undefined })]) {
+      assert.equal((await app.request('/plugins/skills?owner=instance', post(adminTok, bad))).status, 400, JSON.stringify(bad));
+    }
+    const raw = await app.request('/plugins/skills', { method: 'POST', headers: { authorization: `Bearer ${adminTok}`, 'content-type': 'application/json' }, body: '{not json' });
+    assert.equal(raw.status, 400);
+  });
+
+  await t.test('POST refuses a name colliding with a bundled skill (400) but overwrites a user skill', async () => {
+    const { app, adminTok } = setup();
+    assert.equal((await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ name: BUNDLED })))).status, 400);
+    assert.equal((await app.request('/plugins/skills?owner=instance', post(adminTok, skill()))).status, 201);
+    assert.equal((await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ content: 'v2' })))).status, 201);
+  });
+
+  await t.test('POST writes the disable-model-invocation flag and GET reports it', async () => {
+    const { app, userDir, adminTok } = setup();
+    await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ disableModelInvocation: true })));
+    assert.ok(readFileSync(join(userDir, 'deploy-checklist.md'), 'utf-8').includes('disable-model-invocation: true\n'));
+    const list = await listSkills(app, adminTok);
+    const row = list.find((s) => s.name === 'deploy-checklist');
+    assert.equal(row?.disableModelInvocation, true);
+    assert.equal(row?.content, 'Check twice.'); // user skills carry their body so the editor can prefill
+  });
+
+  await t.test('PATCH edits a user skill in place; partial fields keep their current value', async () => {
+    const { app, userDir, adminTok } = setup();
+    await app.request('/plugins/skills?owner=instance', post(adminTok, skill()));
+    // Toggle the flag only — description/content are preserved.
+    assert.equal((await app.request('/plugins/skills/deploy-checklist?owner=instance', patch(adminTok, { disableModelInvocation: true }))).status, 200);
+    assert.equal(
+      readFileSync(join(userDir, 'deploy-checklist.md'), 'utf-8'),
+      '---\nname: deploy-checklist\ndescription: When deploying.\ndisable-model-invocation: true\n---\n\nCheck twice.\n',
+    );
+    // Edit body + description, and clear the flag. A content edit bumps metadata.version (absent → 1).
+    assert.equal((await app.request('/plugins/skills/deploy-checklist?owner=instance', patch(adminTok, { description: 'Updated.', content: 'New body.', disableModelInvocation: false }))).status, 200);
+    assert.equal(
+      readFileSync(join(userDir, 'deploy-checklist.md'), 'utf-8'),
+      '---\nname: deploy-checklist\ndescription: Updated.\nmetadata:\n  version: 1\n---\n\nNew body.\n',
+    );
+  });
+
+  await t.test('PATCH preserves unknown frontmatter fields (license/allowed-tools/metadata/compatibility)', async () => {
+    const { app, userDir, adminTok } = setup();
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'claude-skill.md'),
+      '---\nname: claude-skill\ndescription: "Quoted: with a colon"\nlicense: MIT\nallowed-tools:\n  - Read\n  - Grep\ncompatibility: pi>=1\nmetadata:\n  version: 3\n  author: sam\n---\n\nOriginal body.\n');
+    // Toggle the disclosure flag only — nothing else may be lost, and the version must NOT bump.
+    assert.equal((await app.request('/plugins/skills/claude-skill?owner=instance', patch(adminTok, { disableModelInvocation: true }))).status, 200);
+    const raw = readFileSync(join(userDir, 'claude-skill.md'), 'utf-8');
+    assert.ok(raw.includes('license: MIT\n'));
+    assert.ok(raw.includes('allowed-tools:\n  - Read\n  - Grep\n'));
+    assert.ok(raw.includes('compatibility: pi>=1\n'));
+    assert.ok(raw.includes('version: 3\n'));
+    assert.ok(raw.includes('author: sam\n'));
+    assert.ok(raw.includes('disable-model-invocation: true\n'));
+    // The quoted description parses cleanly (no surrounding quotes leak into the UI payload).
+    const list = await listSkills(app, adminTok);
+    const row = list.find((s) => s.name === 'claude-skill');
+    assert.equal(row?.description, 'Quoted: with a colon');
+    assert.equal(row?.version, 3);
+  });
+
+  await t.test('PATCH bumps metadata.version on a content edit but not on a flag-only toggle', async () => {
+    const { app, userDir, adminTok } = setup();
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'versioned.md'), '---\nname: versioned\ndescription: D.\nmetadata:\n  version: 5\n---\n\nBody.\n');
+    // Flag-only toggle: version stays 5.
+    await app.request('/plugins/skills/versioned?owner=instance', patch(adminTok, { disableModelInvocation: true }));
+    assert.ok(readFileSync(join(userDir, 'versioned.md'), 'utf-8').includes('version: 5\n'));
+    // Content edit: 5 → 6.
+    await app.request('/plugins/skills/versioned?owner=instance', patch(adminTok, { content: 'Changed.' }));
+    assert.ok(readFileSync(join(userDir, 'versioned.md'), 'utf-8').includes('version: 6\n'));
+  });
+
+  await t.test('reads, edits and deletes the directory-form <name>/SKILL.md layout', async () => {
+    const { app, userDir, adminTok } = setup();
+    const skillDir = join(userDir, 'nested-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: nested-skill\ndescription: Nested.\n---\n\nNested body.\n');
+    // A support file that must survive a delete of the skill.
+    mkdirSync(join(skillDir, 'references'), { recursive: true });
+    writeFileSync(join(skillDir, 'references', 'notes.md'), 'keep me\n');
+
+    const list = await listSkills(app, adminTok);
+    assertContains(list, { name: 'nested-skill', content: 'Nested body.' });
+
+    assert.equal((await app.request('/plugins/skills/nested-skill?owner=instance', patch(adminTok, { content: 'Edited.' }))).status, 200);
+    assert.ok(readFileSync(join(skillDir, 'SKILL.md'), 'utf-8').includes('Edited.\n'));
+
+    assert.equal((await app.request('/plugins/skills/nested-skill?owner=instance', del(adminTok))).status, 200);
+    assert.equal(existsSync(join(skillDir, 'SKILL.md')), false);
+    // Support files remain, so the folder is kept.
+    assert.equal(existsSync(join(skillDir, 'references', 'notes.md')), true);
+  });
+
+  await t.test('DELETE removes an empty directory-form skill folder entirely', async () => {
+    const { app, userDir, adminTok } = setup();
+    const skillDir = join(userDir, 'bare-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: bare-skill\ndescription: Bare.\n---\n\nBody.\n');
+    assert.equal((await app.request('/plugins/skills/bare-skill?owner=instance', del(adminTok))).status, 200);
+    assert.equal(existsSync(skillDir), false);
+  });
+
+  await t.test('PATCH rejects a bundled skill (400), a missing skill (404) and empty content (400)', async () => {
+    const { app, adminTok } = setup();
+    await app.request('/plugins/skills?owner=instance', post(adminTok, skill()));
+    assert.equal((await app.request(`/plugins/skills/${BUNDLED}`, patch(adminTok, { content: 'x' }))).status, 400);
+    assert.equal((await app.request('/plugins/skills/nope?owner=instance', patch(adminTok, { content: 'x' }))).status, 404);
+    assert.equal((await app.request('/plugins/skills/deploy-checklist?owner=instance', patch(adminTok, { content: '  ' }))).status, 400);
+  });
+
+  await t.test('DELETE removes a user skill; bundled → 400, missing → 404, bad name → 400', async () => {
+    const { app, userDir, adminTok } = setup();
+    await app.request('/plugins/skills?owner=instance', post(adminTok, skill()));
+    assert.equal((await app.request(`/plugins/skills/${BUNDLED}`, del(adminTok))).status, 400);
+    assert.equal((await app.request('/plugins/skills/nope?owner=instance', del(adminTok))).status, 404);
+    assert.equal((await app.request('/plugins/skills/Bad%20Name?owner=instance', del(adminTok))).status, 400);
+    const response = await app.request('/plugins/skills/deploy-checklist?owner=instance', del(adminTok));
+    assert.equal(response.status, 200);
+    assert.equal(existsSync(join(userDir, 'deploy-checklist.md')), false);
+  });
+
+  // Skills is a user-grantable plugin: an account the admin has not granted it reaches nothing at all,
+  // not even its own set. The refusal happens in the core HTTP gate, before the plugin sees the request.
+  await t.test('rejects an ungranted non-admin (403) on list, create and delete', async () => {
+    const { app, amyTok } = setup();
+    assert.equal((await app.request('/plugins/skills/list', auth(amyTok))).status, 403);
+    assert.equal((await app.request('/plugins/skills', post(amyTok, skill()))).status, 403);
+    assert.equal((await app.request('/plugins/skills/x', patch(amyTok, { content: 'y' }))).status, 403);
+    assert.equal((await app.request('/plugins/skills/x', del(amyTok))).status, 403);
+  });
+
+  await t.test('gives a granted non-admin her OWN skills set, and nobody else\'s', async () => {
+    const { app, dataRoot, users, amy, amyTok, adminTok } = setup();
+    users.setGrantedPlugins(amy.id, ['skills']);
+    // An instance-wide skill everyone sees, written by the admin.
+    assert.equal((await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ name: 'shared-one' })))).status, 201);
+
+    // Her ownerless write lands in her own folder, not the shared dir.
+    assert.equal((await app.request('/plugins/skills', post(amyTok, skill({ name: 'amy-skill' })))).status, 201);
+    assert.equal(existsSync(join(dataRoot, 'skills', 'users', String(amy.id), 'amy-skill.md')), true);
+    assert.equal(existsSync(join(dataRoot, 'skills', 'amy-skill.md')), false);
+
+    // She sees bundled + instance-wide + her own, with the owner column filled in.
+    const list = await listSkills(app, amyTok);
+    assertContains(list, { name: 'amy-skill', owner: amy.id });
+    assertContains(list, { name: 'shared-one', owner: null });
+    assertContains(list, { name: BUNDLED, owner: null });
+
+    // She may not write the shared set, nor reach another account's.
+    assert.equal((await app.request('/plugins/skills?owner=instance', post(amyTok, skill({ name: 'sneaky' })))).status, 403);
+    assert.equal((await app.request('/plugins/skills/shared-one?owner=instance', del(amyTok))).status, 403);
+    assert.equal((await app.request(`/plugins/skills?owner=${amy.id + 99}`, post(amyTok, skill({ name: 'sneaky' })))).status, 403);
+    assert.equal((await app.request('/plugins/skills?owner=abc', post(amyTok, skill({ name: 'sneaky' })))).status, 400);
+    assert.equal(existsSync(join(dataRoot, 'skills', 'sneaky.md')), false);
+  });
+
+  await t.test('sends an admin\'s unspecified write to the shared set, and only an explicit "me" to his own', async () => {
+    const { app, dataRoot, users, adminTok } = setup();
+    const admin = users.list()[0];
+    // What this endpoint did before ownership existed, and what a client written back then still expects.
+    assert.equal((await app.request('/plugins/skills', post(adminTok, skill({ name: 'ops-runbook' })))).status, 201);
+    assert.equal(existsSync(join(dataRoot, 'skills', 'ops-runbook.md')), true);
+
+    assert.equal((await app.request('/plugins/skills?owner=me', post(adminTok, skill({ name: 'my-notes' })))).status, 201);
+    assert.equal(existsSync(join(dataRoot, 'skills', 'users', String(admin.id), 'my-notes.md')), true);
+    assert.equal(existsSync(join(dataRoot, 'skills', 'my-notes.md')), false);
+  });
+
+  await t.test('refuses a name that already exists in the other set, in BOTH directions', async () => {
+    const { app, users, amy, amyTok, adminTok } = setup();
+    users.setGrantedPlugins(amy.id, ['skills']);
+    assert.equal((await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ name: 'deploy' })))).status, 201);
+    // Personal shadowing instance: two files, one name, fighting over one slot in her prompt.
+    assert.equal((await app.request('/plugins/skills?owner=me', post(amyTok, skill({ name: 'deploy' })))).status, 400);
+
+    assert.equal((await app.request('/plugins/skills?owner=me', post(amyTok, skill({ name: 'her-own' })))).status, 201);
+    // And the same collision the other way round: an instance skill lands in HER sessions too.
+    const response = await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ name: 'her-own' })));
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /personal skill/);
+  });
+
+  await t.test('does not offer a non-admin controls for a skill she cannot write', async () => {
+    const { app, users, amy, amyTok, adminTok } = setup();
+    users.setGrantedPlugins(amy.id, ['skills']);
+    assert.equal((await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ name: 'shared-one' })))).status, 201);
+    assert.equal((await app.request('/plugins/skills?owner=me', post(amyTok, skill({ name: 'mine' })))).status, 201);
+
+    const list = await listSkills(app, amyTok);
+    // The UI hides its edit/delete controls on this flag, so it has to match what the write routes do —
+    // a button whose request is always refused is worse than no button.
+    assert.equal(list.find((x) => x.name === 'shared-one').canDelete, false);
+    assert.equal(list.find((x) => x.name === 'mine').canDelete, true);
+
+    const adminList = await listSkills(app, adminTok);
+    assert.equal(adminList.find((x) => x.name === 'shared-one').canDelete, true);
+    assert.equal(adminList.find((x) => x.name === 'mine').canDelete, true);
+  });
+
+  await t.test('shows the admin every account\'s skills and lets him clean one up', async () => {
+    const { app, dataRoot, users, amy, amyTok, adminTok } = setup();
+    users.setGrantedPlugins(amy.id, ['skills']);
+    await app.request('/plugins/skills', post(amyTok, skill({ name: 'amy-skill' })));
+
+    const list = await listSkills(app, adminTok);
+    assertContains(list, { name: 'amy-skill', owner: amy.id });
+
+    assert.equal((await app.request(`/plugins/skills/amy-skill?owner=${amy.id}`, del(adminTok))).status, 200);
+    assert.equal(existsSync(join(dataRoot, 'skills', 'users', String(amy.id), 'amy-skill.md')), false);
+  });
+
+  // Nothing can ever reach that folder again, so leaving it behind just keeps one person's private
+  // instructions on the operator's disk forever.
+  await t.test('drops an account\'s personal skills when the account is deleted', async () => {
+    const { app, dataRoot, users, amy, amyTok, adminTok } = setup();
+    users.setGrantedPlugins(amy.id, ['skills']);
+    await app.request('/plugins/skills', post(amyTok, skill({ name: 'amy-skill' })));
+    const dir = join(dataRoot, 'skills', 'users', String(amy.id));
+    assert.equal(existsSync(dir), true);
+
+    assert.equal((await app.request(`/users/${amy.id}`, del(adminTok))).status, 200);
+    assert.equal(existsSync(dir), false);
+  });
+
+  await t.test('keeps a --- line in the body as body, not a second frontmatter delimiter', async () => {
+    const { app, userDir, adminTok } = setup();
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'rules.md'), '---\nname: rules\ndescription: R.\n---\nPart one.\n\n---\n\nPart two.\n');
+    const list = await listSkills(app, adminTok);
+    assertMatches(list.find((s) => s.name === 'rules'), { description: 'R.', content: 'Part one.\n\n---\n\nPart two.' });
+  });
+
+  await t.test('answers 503 "skills plugin is disabled" when the plugin is off', async () => {
+    const { app, adminTok } = setup({ enabled: [] });
+    const response = await app.request('/plugins/skills/list', auth(adminTok));
+    assert.equal(response.status, 503);
+    assert.deepStrictEqual(await response.json(), { error: 'skills plugin is disabled' });
+    assert.equal((await app.request('/plugins/skills?owner=instance', post(adminTok, skill()))).status, 503);
+  });
+
+  await t.test('parses a BOM-prefixed user skill and keeps its frontmatter through an edit', async () => {
+    const { app, userDir, adminTok } = setup();
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'bom-skill.md'), '\uFEFF---\nname: bom-skill\ndescription: B.\nlicense: MIT\n---\nBody.\n');
+    const list = await listSkills(app, adminTok);
+    assertMatches(list.find((s) => s.name === 'bom-skill'), { description: 'B.', content: 'Body.' });
+    // PATCH keeps the unknown license field — the frontmatter was actually parsed, not treated as body.
+    assert.equal((await app.request('/plugins/skills/bom-skill?owner=instance', patch(adminTok, { content: 'v2' }))).status, 200);
+    assert.ok(readFileSync(join(userDir, 'bom-skill.md'), 'utf-8').includes('license: MIT\n'));
+  });
+});
+
+test('skills manifest and marketplace registry expose the same release version', () => {
+  const registry = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
+  const catalog = registry.plugins.find((plugin) => plugin.name === 'skills');
+  assert.equal(catalog?.version, manifest.version);
+});
