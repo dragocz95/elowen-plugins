@@ -159,6 +159,19 @@
         "tools": 6,
         "apiRoutes": 3
       }
+    },
+    {
+      "name": "discord",
+      "version": "0.3.0",
+      "description": "Discord bot: chat with Elowen in a server channel, thread or DM, with slash commands, live message editing and per-role project access.",
+      "category": "chat",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "platforms": 1,
+        "tools": 25,
+        "apiRoutes": 1
+      }
     }
   ]
 }
