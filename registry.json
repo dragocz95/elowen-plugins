@@ -66,6 +66,28 @@
       "provides": {
         "platforms": 1
       }
+    },
+    {
+      "name": "formatters",
+      "version": "0.1.0",
+      "description": "Automatically format files the assistant writes, using the formatter the project itself is set up for (prettier, biome, pint, ruff, gofmt, rustfmt, ...). A formatter only runs when its binary or config is present in the project.",
+      "category": "tools",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "hooks": 1
+      }
+    },
+    {
+      "name": "dev-commands",
+      "version": "0.1.0",
+      "description": "Curated developer slash-commands for the chat surfaces — /commit, /review, /test, /explain, /pr, /docs. Each is a reusable prompt macro: type it with an argument and the agent runs the workflow.",
+      "category": "tools",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "commands": 6
+      }
     }
   ]
 }
