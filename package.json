@@ -4,8 +4,10 @@
   "type": "module",
   "scripts": {
     "test": "npm run test:node && npm run test:ui",
-    "test:node": "node --test --import=./tests/register-loader.mjs",
+    "test:node": "node --test --import=./tests/register-loader.mjs \"tests/*.test.mjs\"",
     "test:ui": "vitest run",
+    "test:e2e": "npm run test:e2e:msteams",
+    "test:e2e:msteams": "node tests/e2e/msteams/run.mjs",
     "build:web": "node scripts/build-web.mjs",
     "check:web": "node scripts/build-web.mjs && git diff --exit-code -- \"plugins/*/web/index.js\"",
     "check": "npm run check:web && npm test"
@@ -15,8 +17,10 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "better-sqlite3": "^13.0.3",
+    "elowen": "^0.28.1",
     "elowen-plugin-shared": "^0.1.0",
     "elowen-plugin-ui-kit": "^0.1.0",
+    "jose": "^5.10.0",
     "jsdom": "^25.0.1",
     "lucide-react": "^0.460.0",
     "react": "^19.2.8",

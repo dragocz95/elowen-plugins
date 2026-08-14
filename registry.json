@@ -121,6 +121,19 @@
       "provides": {
         "apiRoutes": 3
       }
+    },
+    {
+      "name": "msteams",
+      "version": "0.1.0",
+      "description": "Microsoft Teams bot: chat with Elowen in a personal chat, group chat or team channel, with slash commands, Adaptive Card pickers and a downloadable Teams app package.",
+      "category": "chat",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "platforms": 1,
+        "tools": 8,
+        "apiRoutes": 1
+      }
     }
   ]
 }
