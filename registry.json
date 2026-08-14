@@ -88,6 +88,28 @@
       "provides": {
         "commands": 6
       }
+    },
+    {
+      "name": "security-scan",
+      "version": "0.1.0",
+      "description": "Scan code or a repo file for dangerous patterns (eval, pickle.load, shell=True, unpinned deserialization, hardcoded secrets…) before you rely on it. Advisory — reports findings, never executes anything.",
+      "category": "tools",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "tools": 1
+      }
+    },
+    {
+      "name": "codebase",
+      "version": "0.1.0",
+      "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings → Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex (admin) refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",
+      "category": "tools",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "tools": 3
+      }
     }
   ]
 }

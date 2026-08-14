@@ -4,5 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test --import=./tests/register-loader.mjs"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^13.0.3"
   }
 }
