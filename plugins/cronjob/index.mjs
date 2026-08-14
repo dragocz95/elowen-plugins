@@ -7,12 +7,13 @@
 // account: that job runs as its owner (`access.actAsUserId`, so the host applies that account's project
 // policy, tool deny-list and plugin grants), reports into that person's own conversation, and may not
 // run a shell guard or address a notification channel.
-import { defineTool } from '@earendil-works/pi-coding-agent';
+import { defineTool, loadSkillsFromDir } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runtimeFooter } from 'elowen-plugin-shared/format';
 import { readJsonSafe, writeJsonAtomic } from 'elowen-plugin-shared/atomicJson';
 
@@ -1116,5 +1117,14 @@ export function register(ctx) {
   });
 
   ctx.registerPlatform(new CronAdapter(store, deliveryStore, ctx.logger, ctx.notify, ctx.config, () => ctx.timezone(), ownerIsAdmin, ownerMaySchedule));
+  // The skill that teaches the model to USE those tools ships with them, the way the task domain's
+  // does. Kept in the skills plugin it would keep describing CronAdd on an instance where this plugin
+  // is not installed and nothing answers — and a model that believes a missing tool should be there
+  // works around its absence instead of stopping.
+  const skillsDir = join(dirname(fileURLToPath(import.meta.url)), 'skills');
+  for (const skill of loadSkillsFromDir({ dir: skillsDir, source: 'elowen-plugin:cronjob' }).skills) {
+    ctx.registerSkill(skill);
+  }
+
   ctx.logger.info('cron tools + scheduler registered');
 }

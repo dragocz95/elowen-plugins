@@ -321,7 +321,7 @@ test('bundled skills plugin', async (t) => {
   await t.test('registers at least one skill from its bundled dir', () => {
     const reg = loadPlugin({ dataRoot: tmpDir('skills') });
     assert.ok(reg.skills.length > 0);
-    assert.ok(reg.skills.map((s) => s.name).includes('elowen-control'));
+    assert.ok(reg.skills.map((s) => s.name).includes('skill-creation'));
   });
 
   await t.test('the registered skills format into a non-empty prompt block', () => {
@@ -446,16 +446,24 @@ test('skills plugin creator tools', async (t) => {
 test('a skill that teaches a plugin’s tools ships with that plugin', async (t) => {
   t.after(cleanup);
 
-  /** Every task tool the work plugin declares in its manifest — none of them may be taught elsewhere. */
-  const TASK_TOOLS = ['ElowenListTasks', 'ElowenCreateTask', 'ElowenPlan', 'ElowenUpdateTask', 'ElowenGetTask', 'ElowenStopTask', 'ElowenTaskOutput'];
+  /** Tools owned by OTHER plugins — none of them may be taught by this one. The task tools left for the
+   *  work plugin; the scheduling tools left for cronjob, taking the mission/session half of the old
+   *  elowen-control skill with them into the agents plugin. */
+  const FOREIGN_TOOLS = [
+    'ElowenListTasks', 'ElowenCreateTask', 'ElowenPlan', 'ElowenUpdateTask', 'ElowenGetTask', 'ElowenStopTask', 'ElowenTaskOutput',
+    'CronAdd', 'ScheduleWakeup', 'CronList', 'CronRemove',
+    'ElowenListMissions', 'ElowenListSessions',
+  ];
 
   await t.test('and by nothing that outlives it — the core skills plugin no longer names them', () => {
     const reg = loadPlugin({ dataRoot: tmpDir('skills') });
-    assert.ok(reg.skills.map((s) => s.name).includes('elowen-control'));
-    assert.ok(!reg.skills.map((s) => s.name).includes('elowen-tasks'));
+    const names = reg.skills.map((s) => s.name);
+    // It still ships ONE skill of its own — the meta-skill about authoring skills, which is this
+    // plugin's own subject. Without this the assertions below could pass on an empty set.
+    assert.deepEqual(names, ['skill-creation']);
     // What the model will actually READ: a registered skill is a pointer to its file, not its text.
     const everything = reg.skills.map((s) => readFileSync(s.filePath, 'utf8')).join('\n');
-    for (const tool of TASK_TOOLS) {
+    for (const tool of FOREIGN_TOOLS) {
       assert.equal(`${tool} taught without its plugin: ${everything.includes(tool)}`, `${tool} taught without its plugin: false`);
     }
   });
@@ -464,7 +472,7 @@ test('a skill that teaches a plugin’s tools ships with that plugin', async (t)
 // ═══ suite 3 — the HTTP routes (ported from tests/api/skillsRoutes.test.ts) ═══════════════════════════
 
 // The '/plugins/skills/*' surface is served by the REAL skills plugin (root mounts), so the "bundled"
-// fixtures below are the plugin's actual shipped skills ('skill-creation', 'elowen-control'), not
+// fixtures below are the plugin's actual shipped skill ('skill-creation'), not
 // synthetic ones: the .mjs resolves its bundled dir next to its own file.
 const BUNDLED = 'skill-creation';
 
