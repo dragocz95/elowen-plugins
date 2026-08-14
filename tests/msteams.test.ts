@@ -142,6 +142,25 @@ describe('msteams plugin registration', () => {
     expect(reg.platforms.map((p) => p.name)).toEqual(['msteams']);
     expect([...reg.httpRoutes.keys()]).toEqual(['msteams/messages']);
   });
+
+  // Came with the plugin from the Elowen package, where one suite checked this for all four chat
+  // adapters at once. Each adapter's own service texts must stay identical to the shared ones — a
+  // divergence here is how a surface quietly grows its own wording for "no models configured".
+  it('inherits the shared service messages verbatim, in every language', async () => {
+    const [{ MESSAGES }, shared] = await Promise.all([
+      import(join(repoRoot, 'plugins/msteams/lib/messages.mjs')) as Promise<{
+        MESSAGES: Record<string, { noModels: string; restarting: string; compacted: (n: number) => string }>;
+      }>,
+      import('elowen-plugin-shared/messages') as Promise<{
+        SHARED_MESSAGES: Record<string, { noModels: string; restarting: string; compacted: (n: number) => string }>;
+      }>,
+    ]);
+    for (const lang of ['en', 'cs', 'sk']) {
+      expect(MESSAGES[lang].noModels).toBe(shared.SHARED_MESSAGES[lang].noModels);
+      expect(MESSAGES[lang].restarting).toBe(shared.SHARED_MESSAGES[lang].restarting);
+      expect(MESSAGES[lang].compacted(42)).toBe(shared.SHARED_MESSAGES[lang].compacted(42));
+    }
+  });
 });
 
 describe('msteams identity + role mapping', () => {
