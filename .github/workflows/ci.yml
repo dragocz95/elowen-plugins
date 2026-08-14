@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# These jobs only read the repository and run tests.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests + bundle drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      # A plugin's browser bundle is COMMITTED, because the Elowen marketplace installs a plugin by
+      # copying files and never compiles anything — the committed web/index.js is the artifact users
+      # actually run. Rebuilding it here and demanding an empty diff is the only thing standing between
+      # "the source changed" and "the file everyone downloads still does the old thing".
+      - run: npm run check:web

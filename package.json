@@ -3,9 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test --import=./tests/register-loader.mjs"
+    "test": "node --test --import=./tests/register-loader.mjs",
+    "build:web": "node scripts/build-web.mjs",
+    "check:web": "node scripts/build-web.mjs && git diff --exit-code -- \"plugins/*/web/index.js\"",
+    "check": "npm run check:web && npm test"
   },
   "devDependencies": {
-    "better-sqlite3": "^13.0.3"
+    "better-sqlite3": "^13.0.3",
+    "elowen-plugin-shared": "^0.1.0",
+    "elowen-plugin-ui-kit": "^0.1.0",
+    "lucide-react": "^0.460.0"
   }
 }
