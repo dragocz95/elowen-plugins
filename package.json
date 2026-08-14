@@ -6,11 +6,12 @@
     "test": "npm run test:node && npm run test:ui",
     "test:node": "node --test --import=./tests/register-loader.mjs \"tests/*.test.mjs\"",
     "test:ui": "vitest run",
-    "test:e2e": "npm run test:e2e:msteams",
+    "test:e2e": "npm run test:e2e:msteams && npm run test:e2e:telegram",
     "test:e2e:msteams": "node tests/e2e/msteams/run.mjs",
     "build:web": "node scripts/build-web.mjs",
     "check:web": "node scripts/build-web.mjs && git diff --exit-code -- \"plugins/*/web/index.js\"",
-    "check": "npm run check:web && npm test"
+    "check": "npm run check:web && npm test",
+    "test:e2e:telegram": "node tests/e2e/telegram/run.mjs"
   },
   "devDependencies": {
     "@tanstack/react-query": "^5.101.4",
@@ -20,6 +21,7 @@
     "elowen": "^0.28.1",
     "elowen-plugin-shared": "^0.1.0",
     "elowen-plugin-ui-kit": "^0.1.0",
+    "grammy": "^1.45.1",
     "jose": "^5.10.0",
     "jsdom": "^25.0.1",
     "lucide-react": "^0.460.0",
