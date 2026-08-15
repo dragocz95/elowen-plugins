@@ -4,7 +4,11 @@
  *  to a plugin's own `web.strings`, and the moved suites assert on them by literal. Paraphrasing any of
  *  them here would make the assertions test this file instead of the view.
  *
- *  Sections nothing in this repo renders are left out; adding one back is a copy-paste. */
+ *  Sections nothing in this repo renders are left out; adding one back is a copy-paste.
+ *
+ *  Held to the package by tests/hostDictionaryParity.test.ts, which compares every key below against
+ *  the INSTALLED elowen devDependency. Resync from that version, not from a daemon working copy: a
+ *  reword that has not shipped yet is not product text, and copying it early reddens the guard. */
 export const en = {
   nav: {
     worlds: 'Spaces',
@@ -645,7 +649,7 @@ export const en = {
     unavailableTitle: 'Interface unavailable',
     manage: 'Manage plugins',
     unavailable: 'This plugin is not enabled, or it has no interface.',
-    notGranted: 'This extension is not available on your account. It may not be installed on this workspace, or it may not be assigned to you — an administrator can tell you which.',
+    notGranted: 'This extension has not been assigned to your account. Ask an administrator for access.',
     incompatible: 'This plugin needs a newer version of the application. Update the server to use its interface.',
     loadFailed: 'The plugin interface failed to load. Check the plugin logs in Settings → Plugins.',
     pageMissing: 'The plugin has no page at this address.',
@@ -1453,7 +1457,7 @@ export const cs = {
     unavailableTitle: 'Rozhraní není k dispozici',
     manage: 'Spravovat pluginy',
     unavailable: 'Tento plugin není zapnutý, nebo nemá žádné rozhraní.',
-    notGranted: 'Tento doplněk nemáte k dispozici. Buď není v tomto pracovním prostoru nainstalovaný, nebo vám nebyl přidělen — správce vám řekne, o který případ jde.',
+    notGranted: 'Tento doplněk vám nebyl přidělen. Požádejte o přístup správce.',
     incompatible: 'Tento plugin vyžaduje novější verzi aplikace. Pro použití jeho rozhraní aktualizujte server.',
     loadFailed: 'Rozhraní pluginu se nepodařilo načíst. Zkontrolujte záznamy pluginu v Nastavení → Pluginy.',
     pageMissing: 'Plugin nemá na této adrese žádnou stránku.',

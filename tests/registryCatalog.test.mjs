@@ -81,3 +81,63 @@ for (const name of folders) {
     assert.notEqual(tracked, '', `${name}: entry "${manifest.entry}" is not tracked by git — it would be missing from a clone`);
   });
 }
+
+/** The grant set a user is asked to approve at install time.
+ *
+ *  `capabilities` is not documentation: the daemon shows it on the install prompt and holds the plugin
+ *  to it, so it is the difference between an extension that reads the task store and one that also
+ *  reaches the network, the git checkout and the user's tmux. The daemon used to carry a skeleton test
+ *  pinning the agents plugin's set; it was deleted along with the plugin, and the checks above cover
+ *  only version, apiVersion and entry. A plugin could therefore widen what it asks for and every test
+ *  in this repo would stay green.
+ *
+ *  Pinned as an expected list so widening one is a deliberate edit here — reviewable as the privilege
+ *  change it is — rather than a line that slips through inside an unrelated manifest bump. Arrays are
+ *  compared as sets: reordering is not a grant change, adding or removing an entry is.
+ */
+const EXPECTED_CAPABILITIES = {
+  agents: {
+    reads: ['brain-worker', 'config', 'db', 'elowen-cli', 'git', 'inference', 'prompts', 'push', 'stores', 'terminals', 'tmux'],
+    mutates: ['events', 'prompt'],
+  },
+  codebase: { reads: ['embeddings'], network: true },
+  cronjob: { reads: ['stores'] },
+  editor: { reads: ['project-files', 'stores'] },
+  lsp: { network: true },
+  mcp: { network: true },
+  skills: { reads: ['stores'] },
+  work: {
+    reads: ['brain-worker', 'config', 'controls', 'db', 'elowen-cli', 'git', 'inference', 'prompts', 'stores', 'tmux'],
+    mutates: ['events'],
+  },
+};
+
+const normalizeCapabilities = (capabilities) =>
+  Object.fromEntries(
+    Object.entries(capabilities).map(([key, value]) => [key, Array.isArray(value) ? [...value].sort() : value]),
+  );
+
+test('every plugin that asks for capabilities is pinned', () => {
+  // Both directions. A plugin that GAINS a capabilities block is the interesting case: it would be
+  // granted whatever it declares, unpinned, because no expectation below names it. Eight of the twenty
+  // plugins declare one today.
+  const declaring = folders.filter((name) => manifestOf(name).capabilities).sort();
+  assert.ok(declaring.length >= 8, `expected the manifests to declare capabilities, found ${declaring.length}`);
+  assert.deepEqual(
+    declaring,
+    Object.keys(EXPECTED_CAPABILITIES).sort(),
+    'a plugin gained or lost its capabilities block — pin the new grant set in EXPECTED_CAPABILITIES',
+  );
+});
+
+for (const [name, expected] of Object.entries(EXPECTED_CAPABILITIES)) {
+  test(`${name}: its declared capabilities are exactly the approved grant set`, () => {
+    const { capabilities } = manifestOf(name);
+    assert.ok(capabilities, `${name}: manifest no longer declares capabilities`);
+    assert.deepEqual(
+      normalizeCapabilities(capabilities),
+      normalizeCapabilities(expected),
+      `${name}: the install-time grant set changed — approve it here if it is intended`,
+    );
+  });
+}
