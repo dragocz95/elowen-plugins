@@ -1,0 +1,4392 @@
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __commonJS = (cb, mod) => function __require() {
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+
+// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+var require_react = __commonJS({
+  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+    var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
+    if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
+    module.exports = runtime2.react;
+  }
+});
+
+// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+var require_jsx_runtime = __commonJS({
+  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+    var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
+    if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
+    module.exports = runtime2.jsxRuntime;
+  }
+});
+
+// plugins/editor/web-src/runtime.tsx
+function runtime() {
+  const value = window.ElowenUiRuntime;
+  if (!value) throw new Error("ElowenUiRuntime is not installed");
+  return value;
+}
+function registerEditorUi(registration) {
+  window.__elowenRegisterPluginUi?.("editor", registration);
+}
+
+// plugins/editor/web-src/EditorPage.tsx
+var import_react20 = __toESM(require_react(), 1);
+
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
+var import_react2 = __toESM(require_react());
+
+// node_modules/lucide-react/dist/esm/shared/src/utils.js
+var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+var mergeClasses = (...classes) => classes.filter((className, index2, array) => {
+  return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index2;
+}).join(" ").trim();
+
+// node_modules/lucide-react/dist/esm/Icon.js
+var import_react = __toESM(require_react());
+
+// node_modules/lucide-react/dist/esm/defaultAttributes.js
+var defaultAttributes = {
+  xmlns: "http://www.w3.org/2000/svg",
+  width: 24,
+  height: 24,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round",
+  strokeLinejoin: "round"
+};
+
+// node_modules/lucide-react/dist/esm/Icon.js
+var Icon = (0, import_react.forwardRef)(
+  ({
+    color = "currentColor",
+    size = 24,
+    strokeWidth = 2,
+    absoluteStrokeWidth,
+    className = "",
+    children,
+    iconNode,
+    ...rest
+  }, ref) => {
+    return (0, import_react.createElement)(
+      "svg",
+      {
+        ref,
+        ...defaultAttributes,
+        width: size,
+        height: size,
+        stroke: color,
+        strokeWidth: absoluteStrokeWidth ? Number(strokeWidth) * 24 / Number(size) : strokeWidth,
+        className: mergeClasses("lucide", className),
+        ...rest
+      },
+      [
+        ...iconNode.map(([tag, attrs]) => (0, import_react.createElement)(tag, attrs)),
+        ...Array.isArray(children) ? children : [children]
+      ]
+    );
+  }
+);
+
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
+var createLucideIcon = (iconName, iconNode) => {
+  const Component = (0, import_react2.forwardRef)(
+    ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
+      ref,
+      iconNode,
+      className: mergeClasses(`lucide-${toKebabCase(iconName)}`, className),
+      ...props
+    })
+  );
+  Component.displayName = `${iconName}`;
+  return Component;
+};
+
+// node_modules/lucide-react/dist/esm/icons/chevron-left.js
+var ChevronLeft = createLucideIcon("ChevronLeft", [
+  ["path", { d: "m15 18-6-6 6-6", key: "1wnfg3" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/chevron-right.js
+var ChevronRight = createLucideIcon("ChevronRight", [
+  ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/clipboard-copy.js
+var ClipboardCopy = createLucideIcon("ClipboardCopy", [
+  ["rect", { width: "8", height: "4", x: "8", y: "2", rx: "1", ry: "1", key: "tgr4d6" }],
+  ["path", { d: "M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2", key: "4jdomd" }],
+  ["path", { d: "M16 4h2a2 2 0 0 1 2 2v4", key: "3hqy98" }],
+  ["path", { d: "M21 14H11", key: "1bme5i" }],
+  ["path", { d: "m15 10-4 4 4 4", key: "5dvupr" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/code-xml.js
+var CodeXml = createLucideIcon("CodeXml", [
+  ["path", { d: "m18 16 4-4-4-4", key: "1inbqp" }],
+  ["path", { d: "m6 8-4 4 4 4", key: "15zrgr" }],
+  ["path", { d: "m14.5 4-5 16", key: "e7oirm" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/copy.js
+var Copy = createLucideIcon("Copy", [
+  ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2", key: "17jyea" }],
+  ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/eye.js
+var Eye = createLucideIcon("Eye", [
+  [
+    "path",
+    {
+      d: "M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0",
+      key: "1nclc0"
+    }
+  ],
+  ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/file-plus.js
+var FilePlus = createLucideIcon("FilePlus", [
+  ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "1rqfz7" }],
+  ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
+  ["path", { d: "M9 15h6", key: "cctwl0" }],
+  ["path", { d: "M12 18v-6", key: "17g6i2" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/file.js
+var File = createLucideIcon("File", [
+  ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "1rqfz7" }],
+  ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/folder-open.js
+var FolderOpen = createLucideIcon("FolderOpen", [
+  [
+    "path",
+    {
+      d: "m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2",
+      key: "usdka0"
+    }
+  ]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/folder-plus.js
+var FolderPlus = createLucideIcon("FolderPlus", [
+  ["path", { d: "M12 10v6", key: "1bos4e" }],
+  ["path", { d: "M9 13h6", key: "1uhe8q" }],
+  [
+    "path",
+    {
+      d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
+      key: "1kt360"
+    }
+  ]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/folder.js
+var Folder = createLucideIcon("Folder", [
+  [
+    "path",
+    {
+      d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
+      key: "1kt360"
+    }
+  ]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/git-compare.js
+var GitCompare = createLucideIcon("GitCompare", [
+  ["circle", { cx: "18", cy: "18", r: "3", key: "1xkwt0" }],
+  ["circle", { cx: "6", cy: "6", r: "3", key: "1lh9wr" }],
+  ["path", { d: "M13 6h3a2 2 0 0 1 2 2v7", key: "1yeb86" }],
+  ["path", { d: "M11 18H8a2 2 0 0 1-2-2V9", key: "19pyzm" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/maximize-2.js
+var Maximize2 = createLucideIcon("Maximize2", [
+  ["polyline", { points: "15 3 21 3 21 9", key: "mznyad" }],
+  ["polyline", { points: "9 21 3 21 3 15", key: "1avn1i" }],
+  ["line", { x1: "21", x2: "14", y1: "3", y2: "10", key: "ota7mn" }],
+  ["line", { x1: "3", x2: "10", y1: "21", y2: "14", key: "1atl0r" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/minimize-2.js
+var Minimize2 = createLucideIcon("Minimize2", [
+  ["polyline", { points: "4 14 10 14 10 20", key: "11kfnr" }],
+  ["polyline", { points: "20 10 14 10 14 4", key: "rlmsce" }],
+  ["line", { x1: "14", x2: "21", y1: "10", y2: "3", key: "o5lafz" }],
+  ["line", { x1: "3", x2: "10", y1: "21", y2: "14", key: "1atl0r" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/panel-left.js
+var PanelLeft = createLucideIcon("PanelLeft", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
+  ["path", { d: "M9 3v18", key: "fh3hqa" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/pencil.js
+var Pencil = createLucideIcon("Pencil", [
+  [
+    "path",
+    {
+      d: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z",
+      key: "1a8usu"
+    }
+  ],
+  ["path", { d: "m15 5 4 4", key: "1mk7zo" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/save.js
+var Save = createLucideIcon("Save", [
+  [
+    "path",
+    {
+      d: "M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+      key: "1c8476"
+    }
+  ],
+  ["path", { d: "M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7", key: "1ydtos" }],
+  ["path", { d: "M7 3v4a1 1 0 0 0 1 1h7", key: "t51u73" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/trash-2.js
+var Trash2 = createLucideIcon("Trash2", [
+  ["path", { d: "M3 6h18", key: "d0wm0j" }],
+  ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
+  ["path", { d: "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2", key: "v07s0e" }],
+  ["line", { x1: "10", x2: "10", y1: "11", y2: "17", key: "1uufr5" }],
+  ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/wrap-text.js
+var WrapText = createLucideIcon("WrapText", [
+  ["line", { x1: "3", x2: "21", y1: "6", y2: "6", key: "4m8b97" }],
+  ["path", { d: "M3 12h15a3 3 0 1 1 0 6h-4", key: "1cl7v7" }],
+  ["polyline", { points: "16 16 14 18 16 20", key: "1jznyi" }],
+  ["line", { x1: "3", x2: "10", y1: "18", y2: "18", key: "1h33wv" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/x.js
+var X = createLucideIcon("X", [
+  ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
+  ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
+]);
+
+// plugins/editor/web-src/editor/ProjectEditor.tsx
+var import_react19 = __toESM(require_react(), 1);
+
+// plugins/editor/web-src/editor/helpers.ts
+function buildTree(nodes) {
+  const root = { name: "", path: "", type: "dir", children: [] };
+  const dirs = /* @__PURE__ */ new Map([["", root]]);
+  for (const node of [...nodes].sort((a, b2) => a.path.localeCompare(b2.path))) {
+    const parts = node.path.split("/");
+    const parentPath = parts.slice(0, -1).join("/");
+    const treeNode = { name: parts[parts.length - 1] ?? node.path, path: node.path, type: node.type, children: [] };
+    (dirs.get(parentPath) ?? root).children.push(treeNode);
+    if (node.type === "dir") dirs.set(node.path, treeNode);
+  }
+  const sort = (tree) => {
+    tree.children.sort((a, b2) => a.type === b2.type ? a.name.localeCompare(b2.name) : a.type === "dir" ? -1 : 1);
+    tree.children.forEach(sort);
+  };
+  sort(root);
+  return root.children;
+}
+var baseName = (path) => path.split("/").pop() ?? path;
+var extOf = (path) => baseName(path).split(".").pop()?.toLowerCase() ?? "";
+function langOf(path) {
+  const map = { ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript", json: "json", css: "css", scss: "scss", html: "html", md: "markdown", py: "python", sh: "shell", bash: "shell", yml: "yaml", yaml: "yaml", sql: "sql", toml: "ini", env: "ini", go: "go", rs: "rust", php: "php" };
+  return map[extOf(path)] ?? "plaintext";
+}
+var parentDir = (path) => path.split("/").slice(0, -1).join("/");
+var joinPath = (dir, name) => dir ? `${dir}/${name}` : name;
+var imageExtensions = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif"]);
+var isImage = (path) => imageExtensions.has(extOf(path));
+var isMarkdown = (path) => ["md", "markdown"].includes(extOf(path));
+function copyName(path) {
+  const base = baseName(path);
+  const dot = base.lastIndexOf(".");
+  return joinPath(parentDir(path), `${dot > 0 ? base.slice(0, dot) : base} copy${dot > 0 ? base.slice(dot) : ""}`);
+}
+
+// plugins/editor/web-src/editor/FileTree.tsx
+var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+function TreeRow({ node, depth, expanded, onToggle, selected, onSelect, changed, onContextMenu }) {
+  const isOpen = expanded.has(node.path);
+  const ctx = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(e, node);
+  };
+  if (node.type === "dir") {
+    const hasChange = changed.size > 0 && [...changed].some((c) => c.startsWith(node.path + "/"));
+    const FolderIcon = isOpen ? FolderOpen : Folder;
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { role: "treeitem", "aria-expanded": isOpen, "aria-label": node.name, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { type: "button", onClick: () => onToggle(node.path), onContextMenu: ctx, className: "flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-xs text-text-muted transition-colors hover:bg-elevated", style: { paddingLeft: depth * 12 + 6 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronRight, { size: 11, className: `shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`, "aria-hidden": true }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderIcon, { size: 13, className: `shrink-0 ${hasChange ? "text-accent" : "text-text-muted"}`, "aria-hidden": true }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `truncate ${hasChange ? "text-text" : ""}`, children: node.name })
+      ] }),
+      isOpen ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { role: "group", className: "m-0 list-none p-0", children: node.children.map((c) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TreeRow, { node: c, depth: depth + 1, expanded, onToggle, selected, onSelect, changed, onContextMenu }, c.path)) }) : null
+    ] });
+  }
+  const isChanged = changed.has(node.path);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { role: "treeitem", "aria-selected": selected === node.path, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { type: "button", onClick: () => onSelect(node.path), onContextMenu: ctx, className: `flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-xs transition-colors hover:bg-elevated ${selected === node.path ? "bg-accent/15 text-accent" : isChanged ? "font-medium text-accent" : "text-text"}`, style: { paddingLeft: depth * 12 + 16 }, title: node.path, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(File, { size: 12, className: `shrink-0 ${isChanged ? "text-accent" : "text-text-muted"}`, "aria-hidden": true }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "min-w-0 flex-1 truncate", children: node.name }),
+    isChanged ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "h-1.5 w-1.5 shrink-0 rounded-full bg-accent", "aria-hidden": true }) : null
+  ] }) });
+}
+function FileTree({ tree, expanded, onToggle, selected, onSelect, changed, onContextMenu, emptyLabel, treeLabel }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "h-full", onContextMenu: (e) => {
+    e.preventDefault();
+    onContextMenu(e, null);
+  }, children: tree.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "p-3 text-center text-xs text-text-muted", children: emptyLabel }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { role: "tree", "aria-label": treeLabel, className: "m-0 list-none p-0", children: tree.map((n) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TreeRow, { node: n, depth: 0, expanded, onToggle, selected, onSelect, changed, onContextMenu }, n.path)) }) });
+}
+
+// plugins/editor/web-src/editor/dialogs.tsx
+var import_react3 = __toESM(require_react(), 1);
+var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
+var { Modal, ModalBody, ModalFooter, Button, Input, Field } = runtime().components;
+var { useTranslation } = runtime().hooks;
+function PromptDialog({ title, label, initialValue, confirmLabel, icon, onConfirm, onCancel }) {
+  const { t } = useTranslation();
+  const [value, setValue] = (0, import_react3.useState)(initialValue);
+  const trimmed = value.trim();
+  const valid = trimmed.length > 0 && trimmed !== initialValue.trim();
+  const submit = () => {
+    if (valid) onConfirm(trimmed);
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Modal, { title, onClose: onCancel, size: "sm", icon, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ModalBody, { gap: 4, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Input, { value, onChange: (e) => setValue(e.target.value), onKeyDown: (e) => {
+      if (e.key === "Enter") submit();
+    }, className: "font-mono text-xs", autoFocus: true }) }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalFooter, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", onClick: onCancel, children: t.common.cancel }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "accent", onClick: submit, disabled: !valid, children: confirmLabel })
+    ] })
+  ] });
+}
+function ConfirmDialog({ title, message, confirmLabel, danger, icon, onConfirm, onCancel }) {
+  const { t } = useTranslation();
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Modal, { title, onClose: onCancel, size: "sm", icon, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ModalBody, { gap: 4, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-sm text-text-muted", children: message }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalFooter, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", onClick: onCancel, children: t.common.cancel }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: danger ? "danger" : "accent", onClick: onConfirm, children: confirmLabel })
+    ] })
+  ] });
+}
+
+// plugins/editor/web-src/editor/EditorPane.tsx
+var import_react16 = __toESM(require_react(), 1);
+
+// node_modules/@monaco-editor/loader/lib/es/_virtual/_rollupPluginBabelHelpers.js
+function _arrayLikeToArray(r, a) {
+  (null == a || a > r.length) && (a = r.length);
+  for (var e = 0, n = Array(a); e < a; e++) n[e] = r[e];
+  return n;
+}
+function _arrayWithHoles(r) {
+  if (Array.isArray(r)) return r;
+}
+function _defineProperty(e, r, t) {
+  return (r = _toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
+    value: t,
+    enumerable: true,
+    configurable: true,
+    writable: true
+  }) : e[r] = t, e;
+}
+function _iterableToArrayLimit(r, l4) {
+  var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
+  if (null != t) {
+    var e, n, i, u, a = [], f2 = true, o = false;
+    try {
+      if (i = (t = t.call(r)).next, 0 === l4) ;
+      else for (; !(f2 = (e = i.call(t)).done) && (a.push(e.value), a.length !== l4); f2 = true) ;
+    } catch (r2) {
+      o = true, n = r2;
+    } finally {
+      try {
+        if (!f2 && null != t.return && (u = t.return(), Object(u) !== u)) return;
+      } finally {
+        if (o) throw n;
+      }
+    }
+    return a;
+  }
+}
+function _nonIterableRest() {
+  throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+}
+function ownKeys(e, r) {
+  var t = Object.keys(e);
+  if (Object.getOwnPropertySymbols) {
+    var o = Object.getOwnPropertySymbols(e);
+    r && (o = o.filter(function(r2) {
+      return Object.getOwnPropertyDescriptor(e, r2).enumerable;
+    })), t.push.apply(t, o);
+  }
+  return t;
+}
+function _objectSpread2(e) {
+  for (var r = 1; r < arguments.length; r++) {
+    var t = null != arguments[r] ? arguments[r] : {};
+    r % 2 ? ownKeys(Object(t), true).forEach(function(r2) {
+      _defineProperty(e, r2, t[r2]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function(r2) {
+      Object.defineProperty(e, r2, Object.getOwnPropertyDescriptor(t, r2));
+    });
+  }
+  return e;
+}
+function _objectWithoutProperties(e, t) {
+  if (null == e) return {};
+  var o, r, i = _objectWithoutPropertiesLoose(e, t);
+  if (Object.getOwnPropertySymbols) {
+    var n = Object.getOwnPropertySymbols(e);
+    for (r = 0; r < n.length; r++) o = n[r], -1 === t.indexOf(o) && {}.propertyIsEnumerable.call(e, o) && (i[o] = e[o]);
+  }
+  return i;
+}
+function _objectWithoutPropertiesLoose(r, e) {
+  if (null == r) return {};
+  var t = {};
+  for (var n in r) if ({}.hasOwnProperty.call(r, n)) {
+    if (-1 !== e.indexOf(n)) continue;
+    t[n] = r[n];
+  }
+  return t;
+}
+function _slicedToArray(r, e) {
+  return _arrayWithHoles(r) || _iterableToArrayLimit(r, e) || _unsupportedIterableToArray(r, e) || _nonIterableRest();
+}
+function _toPrimitive(t, r) {
+  if ("object" != typeof t || !t) return t;
+  var e = t[Symbol.toPrimitive];
+  if (void 0 !== e) {
+    var i = e.call(t, r);
+    if ("object" != typeof i) return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return ("string" === r ? String : Number)(t);
+}
+function _toPropertyKey(t) {
+  var i = _toPrimitive(t, "string");
+  return "symbol" == typeof i ? i : i + "";
+}
+function _unsupportedIterableToArray(r, a) {
+  if (r) {
+    if ("string" == typeof r) return _arrayLikeToArray(r, a);
+    var t = {}.toString.call(r).slice(8, -1);
+    return "Object" === t && r.constructor && (t = r.constructor.name), "Map" === t || "Set" === t ? Array.from(r) : "Arguments" === t || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(t) ? _arrayLikeToArray(r, a) : void 0;
+  }
+}
+
+// node_modules/state-local/lib/es/state-local.js
+function _defineProperty2(obj, key, value) {
+  if (key in obj) {
+    Object.defineProperty(obj, key, {
+      value,
+      enumerable: true,
+      configurable: true,
+      writable: true
+    });
+  } else {
+    obj[key] = value;
+  }
+  return obj;
+}
+function ownKeys2(object, enumerableOnly) {
+  var keys = Object.keys(object);
+  if (Object.getOwnPropertySymbols) {
+    var symbols = Object.getOwnPropertySymbols(object);
+    if (enumerableOnly) symbols = symbols.filter(function(sym) {
+      return Object.getOwnPropertyDescriptor(object, sym).enumerable;
+    });
+    keys.push.apply(keys, symbols);
+  }
+  return keys;
+}
+function _objectSpread22(target) {
+  for (var i = 1; i < arguments.length; i++) {
+    var source = arguments[i] != null ? arguments[i] : {};
+    if (i % 2) {
+      ownKeys2(Object(source), true).forEach(function(key) {
+        _defineProperty2(target, key, source[key]);
+      });
+    } else if (Object.getOwnPropertyDescriptors) {
+      Object.defineProperties(target, Object.getOwnPropertyDescriptors(source));
+    } else {
+      ownKeys2(Object(source)).forEach(function(key) {
+        Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key));
+      });
+    }
+  }
+  return target;
+}
+function compose() {
+  for (var _len = arguments.length, fns = new Array(_len), _key = 0; _key < _len; _key++) {
+    fns[_key] = arguments[_key];
+  }
+  return function(x2) {
+    return fns.reduceRight(function(y2, f2) {
+      return f2(y2);
+    }, x2);
+  };
+}
+function curry(fn) {
+  return function curried() {
+    var _this = this;
+    for (var _len2 = arguments.length, args = new Array(_len2), _key2 = 0; _key2 < _len2; _key2++) {
+      args[_key2] = arguments[_key2];
+    }
+    return args.length >= fn.length ? fn.apply(this, args) : function() {
+      for (var _len3 = arguments.length, nextArgs = new Array(_len3), _key3 = 0; _key3 < _len3; _key3++) {
+        nextArgs[_key3] = arguments[_key3];
+      }
+      return curried.apply(_this, [].concat(args, nextArgs));
+    };
+  };
+}
+function isObject(value) {
+  return {}.toString.call(value).includes("Object");
+}
+function isEmpty(obj) {
+  return !Object.keys(obj).length;
+}
+function isFunction(value) {
+  return typeof value === "function";
+}
+function hasOwnProperty(object, property) {
+  return Object.prototype.hasOwnProperty.call(object, property);
+}
+function validateChanges(initial, changes) {
+  if (!isObject(changes)) errorHandler("changeType");
+  if (Object.keys(changes).some(function(field) {
+    return !hasOwnProperty(initial, field);
+  })) errorHandler("changeField");
+  return changes;
+}
+function validateSelector(selector) {
+  if (!isFunction(selector)) errorHandler("selectorType");
+}
+function validateHandler(handler) {
+  if (!(isFunction(handler) || isObject(handler))) errorHandler("handlerType");
+  if (isObject(handler) && Object.values(handler).some(function(_handler) {
+    return !isFunction(_handler);
+  })) errorHandler("handlersType");
+}
+function validateInitial(initial) {
+  if (!initial) errorHandler("initialIsRequired");
+  if (!isObject(initial)) errorHandler("initialType");
+  if (isEmpty(initial)) errorHandler("initialContent");
+}
+function throwError(errorMessages3, type) {
+  throw new Error(errorMessages3[type] || errorMessages3["default"]);
+}
+var errorMessages = {
+  initialIsRequired: "initial state is required",
+  initialType: "initial state should be an object",
+  initialContent: "initial state shouldn't be an empty object",
+  handlerType: "handler should be an object or a function",
+  handlersType: "all handlers should be a functions",
+  selectorType: "selector should be a function",
+  changeType: "provided value of changes should be an object",
+  changeField: 'it seams you want to change a field in the state which is not specified in the "initial" state',
+  "default": "an unknown error accured in `state-local` package"
+};
+var errorHandler = curry(throwError)(errorMessages);
+var validators = {
+  changes: validateChanges,
+  selector: validateSelector,
+  handler: validateHandler,
+  initial: validateInitial
+};
+function create(initial) {
+  var handler = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : {};
+  validators.initial(initial);
+  validators.handler(handler);
+  var state = {
+    current: initial
+  };
+  var didUpdate = curry(didStateUpdate)(state, handler);
+  var update = curry(updateState)(state);
+  var validate = curry(validators.changes)(initial);
+  var getChanges = curry(extractChanges)(state);
+  function getState2() {
+    var selector = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : function(state2) {
+      return state2;
+    };
+    validators.selector(selector);
+    return selector(state.current);
+  }
+  function setState2(causedChanges) {
+    compose(didUpdate, update, validate, getChanges)(causedChanges);
+  }
+  return [getState2, setState2];
+}
+function extractChanges(state, causedChanges) {
+  return isFunction(causedChanges) ? causedChanges(state.current) : causedChanges;
+}
+function updateState(state, changes) {
+  state.current = _objectSpread22(_objectSpread22({}, state.current), changes);
+  return changes;
+}
+function didStateUpdate(state, handler, changes) {
+  isFunction(handler) ? handler(state.current) : Object.keys(changes).forEach(function(field) {
+    var _handler$field;
+    return (_handler$field = handler[field]) === null || _handler$field === void 0 ? void 0 : _handler$field.call(handler, state.current[field]);
+  });
+  return changes;
+}
+var index = {
+  create
+};
+var state_local_default = index;
+
+// node_modules/@monaco-editor/loader/lib/es/config/index.js
+var config = {
+  paths: {
+    vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs"
+  }
+};
+
+// node_modules/@monaco-editor/loader/lib/es/utils/curry.js
+function curry2(fn) {
+  return function curried() {
+    var _this = this;
+    for (var _len = arguments.length, args = new Array(_len), _key = 0; _key < _len; _key++) {
+      args[_key] = arguments[_key];
+    }
+    return args.length >= fn.length ? fn.apply(this, args) : function() {
+      for (var _len2 = arguments.length, nextArgs = new Array(_len2), _key2 = 0; _key2 < _len2; _key2++) {
+        nextArgs[_key2] = arguments[_key2];
+      }
+      return curried.apply(_this, [].concat(args, nextArgs));
+    };
+  };
+}
+
+// node_modules/@monaco-editor/loader/lib/es/utils/isObject.js
+function isObject2(value) {
+  return {}.toString.call(value).includes("Object");
+}
+
+// node_modules/@monaco-editor/loader/lib/es/validators/index.js
+function validateConfig(config3) {
+  if (!config3) errorHandler2("configIsRequired");
+  if (!isObject2(config3)) errorHandler2("configType");
+  if (config3.urls) {
+    informAboutDeprecation();
+    return {
+      paths: {
+        vs: config3.urls.monacoBase
+      }
+    };
+  }
+  return config3;
+}
+function informAboutDeprecation() {
+  console.warn(errorMessages2.deprecation);
+}
+function throwError2(errorMessages3, type) {
+  throw new Error(errorMessages3[type] || errorMessages3["default"]);
+}
+var errorMessages2 = {
+  configIsRequired: "the configuration object is required",
+  configType: "the configuration object should be an object",
+  "default": "an unknown error accured in `@monaco-editor/loader` package",
+  deprecation: "Deprecation warning!\n    You are using deprecated way of configuration.\n\n    Instead of using\n      monaco.config({ urls: { monacoBase: '...' } })\n    use\n      monaco.config({ paths: { vs: '...' } })\n\n    For more please check the link https://github.com/suren-atoyan/monaco-loader#config\n  "
+};
+var errorHandler2 = curry2(throwError2)(errorMessages2);
+var validators2 = {
+  config: validateConfig
+};
+
+// node_modules/@monaco-editor/loader/lib/es/utils/compose.js
+var compose2 = function compose3() {
+  for (var _len = arguments.length, fns = new Array(_len), _key = 0; _key < _len; _key++) {
+    fns[_key] = arguments[_key];
+  }
+  return function(x2) {
+    return fns.reduceRight(function(y2, f2) {
+      return f2(y2);
+    }, x2);
+  };
+};
+
+// node_modules/@monaco-editor/loader/lib/es/utils/deepMerge.js
+function merge(target, source) {
+  Object.keys(source).forEach(function(key) {
+    if (source[key] instanceof Object) {
+      if (target[key]) {
+        Object.assign(source[key], merge(target[key], source[key]));
+      }
+    }
+  });
+  return _objectSpread2(_objectSpread2({}, target), source);
+}
+
+// node_modules/@monaco-editor/loader/lib/es/utils/makeCancelable.js
+var CANCELATION_MESSAGE = {
+  type: "cancelation",
+  msg: "operation is manually canceled"
+};
+function makeCancelable(promise) {
+  var hasCanceled_ = false;
+  var wrappedPromise = new Promise(function(resolve, reject) {
+    promise.then(function(val) {
+      return hasCanceled_ ? reject(CANCELATION_MESSAGE) : resolve(val);
+    });
+    promise["catch"](reject);
+  });
+  return wrappedPromise.cancel = function() {
+    return hasCanceled_ = true;
+  }, wrappedPromise;
+}
+
+// node_modules/@monaco-editor/loader/lib/es/loader/index.js
+var _excluded = ["monaco"];
+var _state$create = state_local_default.create({
+  config,
+  isInitialized: false,
+  resolve: null,
+  reject: null,
+  monaco: null
+});
+var _state$create2 = _slicedToArray(_state$create, 2);
+var getState = _state$create2[0];
+var setState = _state$create2[1];
+function config2(globalConfig) {
+  var _validators$config = validators2.config(globalConfig), monaco = _validators$config.monaco, config3 = _objectWithoutProperties(_validators$config, _excluded);
+  setState(function(state) {
+    return {
+      config: merge(state.config, config3),
+      monaco
+    };
+  });
+}
+function init() {
+  var state = getState(function(_ref2) {
+    var monaco = _ref2.monaco, isInitialized = _ref2.isInitialized, resolve = _ref2.resolve;
+    return {
+      monaco,
+      isInitialized,
+      resolve
+    };
+  });
+  if (!state.isInitialized) {
+    setState({
+      isInitialized: true
+    });
+    if (state.monaco) {
+      state.resolve(state.monaco);
+      return makeCancelable(wrapperPromise);
+    }
+    if (window.monaco && window.monaco.editor) {
+      storeMonacoInstance(window.monaco);
+      state.resolve(window.monaco);
+      return makeCancelable(wrapperPromise);
+    }
+    compose2(injectScripts, getMonacoLoaderScript)(configureLoader);
+  }
+  return makeCancelable(wrapperPromise);
+}
+function injectScripts(script) {
+  return document.body.appendChild(script);
+}
+function createScript(src) {
+  var script = document.createElement("script");
+  return src && (script.src = src), script;
+}
+function getMonacoLoaderScript(configureLoader2) {
+  var state = getState(function(_ref2) {
+    var config3 = _ref2.config, reject = _ref2.reject;
+    return {
+      config: config3,
+      reject
+    };
+  });
+  var loaderScript = createScript("".concat(state.config.paths.vs, "/loader.js"));
+  loaderScript.onload = function() {
+    return configureLoader2();
+  };
+  loaderScript.onerror = state.reject;
+  return loaderScript;
+}
+function configureLoader() {
+  var state = getState(function(_ref3) {
+    var config3 = _ref3.config, resolve = _ref3.resolve, reject = _ref3.reject;
+    return {
+      config: config3,
+      resolve,
+      reject
+    };
+  });
+  var require2 = window.require;
+  require2.config(state.config);
+  require2(["vs/editor/editor.main"], function(loaded) {
+    var monaco = loaded.m || loaded;
+    storeMonacoInstance(monaco);
+    state.resolve(monaco);
+  }, function(error) {
+    state.reject(error);
+  });
+}
+function storeMonacoInstance(monaco) {
+  if (!getState().monaco) {
+    setState({
+      monaco
+    });
+  }
+}
+function __getMonacoInstance() {
+  return getState(function(_ref4) {
+    var monaco = _ref4.monaco;
+    return monaco;
+  });
+}
+var wrapperPromise = new Promise(function(resolve, reject) {
+  return setState({
+    resolve,
+    reject
+  });
+});
+var loader = {
+  config: config2,
+  init,
+  __getMonacoInstance
+};
+
+// node_modules/@monaco-editor/react/dist/index.mjs
+var import_react4 = __toESM(require_react(), 1);
+var import_react5 = __toESM(require_react(), 1);
+var import_react6 = __toESM(require_react(), 1);
+var import_react7 = __toESM(require_react(), 1);
+var import_react8 = __toESM(require_react(), 1);
+var import_react9 = __toESM(require_react(), 1);
+var import_react10 = __toESM(require_react(), 1);
+var import_react11 = __toESM(require_react(), 1);
+var import_react12 = __toESM(require_react(), 1);
+var import_react13 = __toESM(require_react(), 1);
+var import_react14 = __toESM(require_react(), 1);
+var le = { wrapper: { display: "flex", position: "relative", textAlign: "initial" }, fullWidth: { width: "100%" }, hide: { display: "none" } };
+var v = le;
+var ae = { container: { display: "flex", height: "100%", width: "100%", justifyContent: "center", alignItems: "center" } };
+var Y = ae;
+function Me({ children: e }) {
+  return import_react8.default.createElement("div", { style: Y.container }, e);
+}
+var Z = Me;
+var $ = Z;
+function Ee({ width: e, height: r, isEditorReady: n, loading: t, _ref: a, className: m2, wrapperProps: E2 }) {
+  return import_react7.default.createElement("section", { style: { ...v.wrapper, width: e, height: r }, ...E2 }, !n && import_react7.default.createElement($, null, t), import_react7.default.createElement("div", { ref: a, style: { ...v.fullWidth, ...!n && v.hide }, className: m2 }));
+}
+var ee = Ee;
+var H = (0, import_react6.memo)(ee);
+function Ce(e) {
+  (0, import_react9.useEffect)(e, []);
+}
+var k = Ce;
+function he(e, r, n = true) {
+  let t = (0, import_react10.useRef)(true);
+  (0, import_react10.useEffect)(t.current || !n ? () => {
+    t.current = false;
+  } : e, r);
+}
+var l = he;
+function D() {
+}
+function h(e, r, n, t) {
+  return De(e, t) || be(e, r, n, t);
+}
+function De(e, r) {
+  return e.editor.getModel(te(e, r));
+}
+function be(e, r, n, t) {
+  return e.editor.createModel(r, n, t ? te(e, t) : void 0);
+}
+function te(e, r) {
+  return e.Uri.parse(r);
+}
+function Oe({ original: e, modified: r, language: n, originalLanguage: t, modifiedLanguage: a, originalModelPath: m2, modifiedModelPath: E2, keepCurrentOriginalModel: g = false, keepCurrentModifiedModel: N = false, theme: x2 = "light", loading: P2 = "Loading...", options: y2 = {}, height: V2 = "100%", width: z2 = "100%", className: F2, wrapperProps: j2 = {}, beforeMount: A2 = D, onMount: q2 = D }) {
+  let [M, O2] = (0, import_react5.useState)(false), [T, s] = (0, import_react5.useState)(true), u = (0, import_react5.useRef)(null), c = (0, import_react5.useRef)(null), w = (0, import_react5.useRef)(null), d = (0, import_react5.useRef)(q2), o = (0, import_react5.useRef)(A2), b2 = (0, import_react5.useRef)(false);
+  k(() => {
+    let i = loader.init();
+    return i.then((f2) => (c.current = f2) && s(false)).catch((f2) => f2?.type !== "cancelation" && console.error("Monaco initialization: error:", f2)), () => u.current ? I2() : i.cancel();
+  }), l(() => {
+    if (u.current && c.current) {
+      let i = u.current.getOriginalEditor(), f2 = h(c.current, e || "", t || n || "text", m2 || "");
+      f2 !== i.getModel() && i.setModel(f2);
+    }
+  }, [m2], M), l(() => {
+    if (u.current && c.current) {
+      let i = u.current.getModifiedEditor(), f2 = h(c.current, r || "", a || n || "text", E2 || "");
+      f2 !== i.getModel() && i.setModel(f2);
+    }
+  }, [E2], M), l(() => {
+    let i = u.current.getModifiedEditor();
+    i.getOption(c.current.editor.EditorOption.readOnly) ? i.setValue(r || "") : r !== i.getValue() && (i.executeEdits("", [{ range: i.getModel().getFullModelRange(), text: r || "", forceMoveMarkers: true }]), i.pushUndoStop());
+  }, [r], M), l(() => {
+    u.current?.getModel()?.original.setValue(e || "");
+  }, [e], M), l(() => {
+    let { original: i, modified: f2 } = u.current.getModel();
+    c.current.editor.setModelLanguage(i, t || n || "text"), c.current.editor.setModelLanguage(f2, a || n || "text");
+  }, [n, t, a], M), l(() => {
+    c.current?.editor.setTheme(x2);
+  }, [x2], M), l(() => {
+    u.current?.updateOptions(y2);
+  }, [y2], M);
+  let L2 = (0, import_react5.useCallback)(() => {
+    if (!c.current) return;
+    o.current(c.current);
+    let i = h(c.current, e || "", t || n || "text", m2 || ""), f2 = h(c.current, r || "", a || n || "text", E2 || "");
+    u.current?.setModel({ original: i, modified: f2 });
+  }, [n, r, a, e, t, m2, E2]), U2 = (0, import_react5.useCallback)(() => {
+    !b2.current && w.current && (u.current = c.current.editor.createDiffEditor(w.current, { automaticLayout: true, ...y2 }), L2(), c.current?.editor.setTheme(x2), O2(true), b2.current = true);
+  }, [y2, x2, L2]);
+  (0, import_react5.useEffect)(() => {
+    M && d.current(u.current, c.current);
+  }, [M]), (0, import_react5.useEffect)(() => {
+    !T && !M && U2();
+  }, [T, M, U2]);
+  function I2() {
+    let i = u.current?.getModel();
+    g || i?.original?.dispose(), N || i?.modified?.dispose(), u.current?.dispose();
+  }
+  return import_react5.default.createElement(H, { width: z2, height: V2, isEditorReady: M, loading: P2, _ref: w, className: F2, wrapperProps: j2 });
+}
+var ie = Oe;
+var we = (0, import_react4.memo)(ie);
+function He(e) {
+  let r = (0, import_react14.useRef)();
+  return (0, import_react14.useEffect)(() => {
+    r.current = e;
+  }, [e]), r.current;
+}
+var se = He;
+var _ = /* @__PURE__ */ new Map();
+function Ve({ defaultValue: e, defaultLanguage: r, defaultPath: n, value: t, language: a, path: m2, theme: E2 = "light", line: g, loading: N = "Loading...", options: x2 = {}, overrideServices: P2 = {}, saveViewState: y2 = true, keepCurrentModel: V2 = false, width: z2 = "100%", height: F2 = "100%", className: j2, wrapperProps: A2 = {}, beforeMount: q2 = D, onMount: M = D, onChange: O2, onValidate: T = D }) {
+  let [s, u] = (0, import_react13.useState)(false), [c, w] = (0, import_react13.useState)(true), d = (0, import_react13.useRef)(null), o = (0, import_react13.useRef)(null), b2 = (0, import_react13.useRef)(null), L2 = (0, import_react13.useRef)(M), U2 = (0, import_react13.useRef)(q2), I2 = (0, import_react13.useRef)(), i = (0, import_react13.useRef)(t), f2 = se(m2), Q2 = (0, import_react13.useRef)(false), B2 = (0, import_react13.useRef)(false);
+  k(() => {
+    let p = loader.init();
+    return p.then((R2) => (d.current = R2) && w(false)).catch((R2) => R2?.type !== "cancelation" && console.error("Monaco initialization: error:", R2)), () => o.current ? pe2() : p.cancel();
+  }), l(() => {
+    let p = h(d.current, e || t || "", r || a || "", m2 || n || "");
+    p !== o.current?.getModel() && (y2 && _.set(f2, o.current?.saveViewState()), o.current?.setModel(p), y2 && o.current?.restoreViewState(_.get(m2)));
+  }, [m2], s), l(() => {
+    o.current?.updateOptions(x2);
+  }, [x2], s), l(() => {
+    !o.current || t === void 0 || (o.current.getOption(d.current.editor.EditorOption.readOnly) ? o.current.setValue(t) : t !== o.current.getValue() && (B2.current = true, o.current.executeEdits("", [{ range: o.current.getModel().getFullModelRange(), text: t, forceMoveMarkers: true }]), o.current.pushUndoStop(), B2.current = false));
+  }, [t], s), l(() => {
+    let p = o.current?.getModel();
+    p && a && d.current?.editor.setModelLanguage(p, a);
+  }, [a], s), l(() => {
+    g !== void 0 && o.current?.revealLine(g);
+  }, [g], s), l(() => {
+    d.current?.editor.setTheme(E2);
+  }, [E2], s);
+  let X3 = (0, import_react13.useCallback)(() => {
+    if (!(!b2.current || !d.current) && !Q2.current) {
+      U2.current(d.current);
+      let p = m2 || n, R2 = h(d.current, t || e || "", r || a || "", p || "");
+      o.current = d.current?.editor.create(b2.current, { model: R2, automaticLayout: true, ...x2 }, P2), y2 && o.current.restoreViewState(_.get(p)), d.current.editor.setTheme(E2), g !== void 0 && o.current.revealLine(g), u(true), Q2.current = true;
+    }
+  }, [e, r, n, t, a, m2, x2, P2, y2, E2, g]);
+  (0, import_react13.useEffect)(() => {
+    s && L2.current(o.current, d.current);
+  }, [s]), (0, import_react13.useEffect)(() => {
+    !c && !s && X3();
+  }, [c, s, X3]), i.current = t, (0, import_react13.useEffect)(() => {
+    s && O2 && (I2.current?.dispose(), I2.current = o.current?.onDidChangeModelContent((p) => {
+      B2.current || O2(o.current.getValue(), p);
+    }));
+  }, [s, O2]), (0, import_react13.useEffect)(() => {
+    if (s) {
+      let p = d.current.editor.onDidChangeMarkers((R2) => {
+        let G2 = o.current.getModel()?.uri;
+        if (G2 && R2.find((J2) => J2.path === G2.path)) {
+          let J2 = d.current.editor.getModelMarkers({ resource: G2 });
+          T?.(J2);
+        }
+      });
+      return () => {
+        p?.dispose();
+      };
+    }
+    return () => {
+    };
+  }, [s, T]);
+  function pe2() {
+    I2.current?.dispose(), V2 ? y2 && _.set(m2, o.current.saveViewState()) : o.current.getModel()?.dispose(), o.current.dispose();
+  }
+  return import_react13.default.createElement(H, { width: z2, height: F2, isEditorReady: s, loading: N, _ref: b2, className: j2, wrapperProps: A2 });
+}
+var fe = Ve;
+var de = (0, import_react12.memo)(fe);
+var Ft = de;
+
+// plugins/editor/web-src/editor/monacoLoader.ts
+loader.config({ paths: { vs: "/monaco/vs" } });
+
+// plugins/editor/web-src/editor/EditorPane.tsx
+var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
+function EditorPane({ path, value, onChange, onSave, wordWrap }) {
+  const saveRef = (0, import_react16.useRef)(onSave);
+  saveRef.current = onSave;
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+    Ft,
+    {
+      height: "100%",
+      theme: runtime().utils.editorTheme(),
+      beforeMount: runtime().utils.defineEditorThemes,
+      onMount: (editor, monaco) => {
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveRef.current());
+      },
+      language: langOf(path),
+      value,
+      onChange: (v3) => onChange(v3 ?? ""),
+      options: { fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false, automaticLayout: true, padding: { top: 10 }, wordWrap: wordWrap ? "on" : "off" }
+    },
+    path
+  );
+}
+
+// plugins/editor/web-src/editor/DiffEditorPane.tsx
+var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
+function DiffEditorPane({ path, original, modified }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    we,
+    {
+      height: "100%",
+      theme: runtime().utils.editorTheme(),
+      beforeMount: runtime().utils.defineEditorThemes,
+      language: langOf(path),
+      original,
+      modified,
+      options: { readOnly: true, renderSideBySide: true, fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false, automaticLayout: true, ignoreTrimWhitespace: false }
+    },
+    path
+  );
+}
+
+// plugins/editor/web-src/editor/PatchView.tsx
+var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
+var { LoadingLine } = runtime().components;
+function PatchView({ diff, empty, loading = false }) {
+  if (loading) return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "p-4", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LoadingLine, {}) });
+  if (!diff.trim()) return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "p-4 text-center text-sm text-text-muted", children: empty });
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("pre", { className: "h-full overflow-auto bg-bg p-3 font-mono text-xs leading-relaxed", children: diff.split("\n").map((line, i) => {
+    const c = line.startsWith("+") && !line.startsWith("+++") ? "text-success" : line.startsWith("-") && !line.startsWith("---") ? "text-danger" : line.startsWith("@@") ? "text-accent" : "text-text-muted";
+    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: c, children: line || " " }, i);
+  }) });
+}
+
+// plugins/editor/web-src/editor/MarkdownPreview.tsx
+var import_react17 = __toESM(require_react(), 1);
+
+// node_modules/marked/lib/marked.esm.js
+function C2() {
+  return { async: false, breaks: false, extensions: null, gfm: true, hooks: null, pedantic: false, renderer: null, silent: false, tokenizer: null, walkTokens: null };
+}
+var R = C2();
+function j(l4) {
+  R = l4;
+}
+var z = { exec: () => null };
+function A(l4) {
+  let e = [];
+  return (t) => {
+    let n = Math.max(0, Math.min(3, t - 1)), s = e[n];
+    return s || (s = l4(n), e[n] = s), s;
+  };
+}
+function k2(l4, e = "") {
+  let t = typeof l4 == "string" ? l4 : l4.source, n = { replace: (s, r) => {
+    let i = typeof r == "string" ? r : r.source;
+    return i = i.replace(m.caret, "$1"), t = t.replace(s, i), n;
+  }, getRegex: () => new RegExp(t, e) };
+  return n;
+}
+var Te2 = ((l4 = "") => {
+  try {
+    return !!new RegExp("(?<=1)(?<!1)" + l4);
+  } catch {
+    return false;
+  }
+})();
+var m = { codeRemoveIndent: /^(?: {1,4}| {0,3}\t)/gm, outputLinkReplace: /\\([\[\]])/g, indentCodeCompensation: /^(\s+)(?:```)/, beginningSpace: /^\s+/, endingHash: /#$/, startingSpaceChar: /^ /, endingSpaceChar: / $/, nonSpaceChar: /[^ ]/, newLineCharGlobal: /\n/g, tabCharGlobal: /\t/g, multipleSpaceGlobal: /\s+/g, blankLine: /^[ \t]*$/, doubleBlankLine: /\n[ \t]*\n[ \t]*$/, blockquoteStart: /^ {0,3}>/, blockquoteSetextReplace: /\n {0,3}((?:=+|-+) *)(?=\n|$)/g, blockquoteSetextReplace2: /^ {0,3}>[ \t]?/gm, listReplaceNesting: /^ {1,4}(?=( {4})*[^ ])/g, listIsTask: /^\[[ xX]\] +\S/, listReplaceTask: /^\[[ xX]\] +/, listTaskCheckbox: /\[[ xX]\]/, anyLine: /\n.*\n/, hrefBrackets: /^<(.*)>$/, tableDelimiter: /[:|]/, tableAlignChars: /^\||\| *$/g, tableRowBlankLine: /\n[ \t]*$/, tableAlignRight: /^ *-+: *$/, tableAlignCenter: /^ *:-+: *$/, tableAlignLeft: /^ *:-+ *$/, startATag: /^<a /i, endATag: /^<\/a>/i, startPreScriptTag: /^<(pre|code|kbd|script)(\s|>)/i, endPreScriptTag: /^<\/(pre|code|kbd|script)(\s|>)/i, startAngleBracket: /^</, endAngleBracket: />$/, pedanticHrefTitle: /^([^'"]*[^\s])\s+(['"])(.*)\2/, unicodeAlphaNumeric: /[\p{L}\p{N}]/u, escapeTest: /[&<>"']/, escapeReplace: /[&<>"']/g, escapeTestNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/, escapeReplaceNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/g, caret: /(^|[^\[])\^/g, percentDecode: /%25/g, findPipe: /\|/g, splitPipe: / \|/, slashPipe: /\\\|/g, carriageReturn: /\r\n|\r/g, spaceLine: /^ +$/gm, notSpaceStart: /^\S*/, endingNewline: /\n$/, listItemRegex: (l4) => new RegExp(`^( {0,3}${l4})((?:[	 ][^\\n]*)?(?:\\n|$))`), nextBulletRegex: A((l4) => new RegExp(`^ {0,${l4}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)), hrRegex: A((l4) => new RegExp(`^ {0,${l4}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`)), fencesBeginRegex: A((l4) => new RegExp(`^ {0,${l4}}(?:\`\`\`|~~~)`)), headingBeginRegex: A((l4) => new RegExp(`^ {0,${l4}}#`)), htmlBeginRegex: A((l4) => new RegExp(`^ {0,${l4}}<(?:[a-z].*>|!--)`, "i")), blockquoteBeginRegex: A((l4) => new RegExp(`^ {0,${l4}}>`)) };
+var Oe2 = /^(?:[ \t]*(?:\n|$))+/;
+var we2 = /^((?: {4}| {0,3}\t)[^\n]+(?:\n(?:[ \t]*(?:\n|$))*)?)+/;
+var ye2 = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/;
+var q = /^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/;
+var Pe = /^ {0,3}(#{1,6})(?=\s|$)(.*)(?:\n+|$)/;
+var U = / {0,3}(?:[*+-]|\d{1,9}[.)])/;
+var oe2 = /^(?!bull |blockCode|fences|blockquote|heading|html|table)((?:.|\n(?!\s*?\n|bull |blockCode|fences|blockquote|heading|html|table))+?)\n {0,3}(=+|-+) *(?:\n+|$)/;
+var ae2 = k2(oe2).replace(/bull/g, U).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/\|table/g, "").getRegex();
+var Se = k2(oe2).replace(/bull/g, U).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/table/g, / {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex();
+var K2 = /^([^\n]+(?:\n(?!hr|heading|lheading|blockquote|fences|list|html|table|[ \t]+\n)[^\n]+)*)/;
+var _e2 = /^[^\n]+/;
+var W2 = /(?!\s*\])(?:\\[\s\S]|[^\[\]\\])+/;
+var $e = k2(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label", W2).replace("title", /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex();
+var Le = k2(/^(bull)([ \t][^\n]*?)?(?:\n|$)/).replace(/bull/g, U).getRegex();
+var Q = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
+var X2 = /<!--(?:-?>|[\s\S]*?(?:-->|$))/;
+var Me2 = k2("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n*|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>[^\\n]*\\n*|$)|<![A-Z][\\s\\S]*?(?:>[^\\n]*\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>[^\\n]*\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", X2).replace("tag", Q).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex();
+var le2 = (l4) => k2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~~~)[^\\n]*\\n").replace("list", l4).replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
+var ze2 = le2(/ {0,3}(?:[*+-]|1[.)])[ \t]+[^ \t\n]/);
+var Ee2 = le2(/ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|\n|$)/);
+var Ce2 = k2(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", Ee2).getRegex();
+var J = { blockquote: Ce2, code: we2, def: $e, fences: ye2, heading: Pe, hr: q, html: Me2, lheading: ae2, list: Le, newline: Oe2, paragraph: ze2, table: z, text: _e2 };
+var se2 = k2("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~~~)[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
+var Ae = { ...J, lheading: Se, table: se2, paragraph: k2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", se2).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~~~)[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]+[^ \\t\\n]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex() };
+var Ie2 = { ...J, html: k2(`^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:"[^"]*"|'[^']*'|\\s[^'"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))`).replace("comment", X2).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(), def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/, heading: /^(#{1,6})(.*)(?:\n+|$)/, fences: z, lheading: /^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/, paragraph: k2(K2).replace("hr", q).replace("heading", ` *#{1,6} *[^
+]`).replace("lheading", ae2).replace("|table", "").replace("blockquote", " {0,3}>").replace("|fences", "").replace("|list", "").replace("|html", "").replace("|tag", "").getRegex() };
+var Be = /^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/;
+var De2 = /^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/;
+var pe = /^( {2,}|\\)\n(?!\s*$)/;
+var qe = /^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/;
+var _2 = /[\p{P}\p{S}]/u;
+var I = /[\s\p{P}\p{S}]/u;
+var v2 = /[^\s\p{P}\p{S}]/u;
+var ve2 = k2(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, I).getRegex();
+var He2 = /[\p{Pi}\p{Ps}"']/u;
+var ue2 = /(?!~)[\p{P}\p{S}]/u;
+var Ze = /(?!~)[\s\p{P}\p{S}]/u;
+var Ge = /(?:[^\s\p{P}\p{S}]|~)/u;
+var Qe = k2(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", Te2 ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex();
+var ce = /^(?:\*+(?:((?!\*)punct)|([^\s*]))?)|^_+(?:((?!_)punct)|([^\s_]))?/;
+var Ne = k2(ce, "u").replace(/punct/g, _2).getRegex();
+var je = k2(ce, "u").replace(/punct/g, ue2).getRegex();
+var Fe = /^(?:\*+(?:((?!\*)(?!openQuote)punct)|([^\s*]))?)|^_+(?:((?!_)(?!openQuote)punct)|([^\s_]))?/;
+var Ue2 = k2(Fe, "u").replace(/openQuote/g, He2).replace(/punct/g, _2).getRegex();
+var he2 = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)punctSpace(\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|notPunctSpace(\\*+)(?=notPunctSpace)";
+var Ke = k2(he2, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I).replace(/punct/g, _2).getRegex();
+var We2 = k2(he2, "gu").replace(/notPunctSpace/g, Ge).replace(/punctSpace/g, Ze).replace(/punct/g, ue2).getRegex();
+var Xe = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)[\\s](\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|(?:(?!\\*)punct|notPunctSpace)(\\*+)(?!\\*)(?=notPunctSpace)";
+var Je = k2(Xe, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I).replace(/punct/g, _2).getRegex();
+var Ve2 = k2("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I).replace(/punct/g, _2).getRegex();
+var Ye = "^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)[\\s](_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)|(?:(?!_)punct|notPunctSpace)(_+)(?!_)(?=notPunctSpace)";
+var et = k2(Ye, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I).replace(/punct/g, _2).getRegex();
+var tt = k2(/^~~?(?:((?!~)punct)|[^\s~])/, "u").replace(/punct/g, _2).getRegex();
+var nt = "^[^~]+(?=[^~])|(?!~)punct(~~?)(?=[\\s]|$)|notPunctSpace(~~?)(?!~)(?=punctSpace|$)|(?!~)punctSpace(~~?)(?=notPunctSpace)|[\\s](~~?)(?!~)(?=punct)|(?!~)punct(~~?)(?!~)(?=punct)|notPunctSpace(~~?)(?=notPunctSpace)";
+var rt = k2(nt, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I).replace(/punct/g, _2).getRegex();
+var st = k2(/\\(punct)/, "gu").replace(/punct/g, _2).getRegex();
+var it = k2(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex();
+var ot = k2(X2).replace("(?:-->|$)", "-->").getRegex();
+var at = k2("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", ot).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex();
+var G = /(?:\[(?:\\[\s\S]|[^\[\]\\])*\]|\\[\s\S]|`+(?!`)[^`]*?`+(?!`)|``+(?=\])|[^\[\]\\`])*?/;
+var lt = k2(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)(title))?\s*\)/).replace("label", G).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]+|(?=\))/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex();
+var de2 = k2(/^!?\[(label)\]\[(ref)\]/).replace("label", G).replace("ref", W2).getRegex();
+var ke2 = k2(/^!?\[(ref)\](?:\[\])?/).replace("ref", W2).getRegex();
+var pt = k2("reflink|nolink(?!\\()", "g").replace("reflink", de2).replace("nolink", ke2).getRegex();
+var ie2 = /[hH][tT][tT][pP][sS]?|[fF][tT][pP]/;
+var V = { _backpedal: z, anyPunctuation: st, autolink: it, blockSkip: Qe, br: pe, code: De2, del: z, delLDelim: z, delRDelim: z, emStrongLDelim: Ne, emStrongRDelimAst: Ke, emStrongRDelimUnd: Ve2, escape: Be, link: lt, nolink: ke2, punctuation: ve2, reflink: de2, reflinkSearch: pt, tag: at, text: qe, url: z };
+var ut = { ...V, emStrongLDelim: Ue2, emStrongRDelimAst: Je, emStrongRDelimUnd: et, link: k2(/^!?\[(label)\]\((.*?)\)/).replace("label", G).getRegex(), reflink: k2(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", G).getRegex() };
+var F = { ...V, emStrongRDelimAst: We2, emStrongLDelim: je, delLDelim: tt, delRDelim: rt, url: k2(/^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("protocol", ie2).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(), _backpedal: /(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/, del: /^(~~?)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/, text: k2(/^(`+|~+|[^`~])(?:(?=[`~])|(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/).replace("protocol", ie2).getRegex() };
+var ct = { ...F, br: k2(pe).replace("{2,}", "*").getRegex(), text: k2(F.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex() };
+var H2 = { normal: J, gfm: Ae, pedantic: Ie2 };
+var B = { normal: V, gfm: F, breaks: ct, pedantic: ut };
+var ht = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+var ge2 = (l4) => ht[l4];
+function O(l4, e) {
+  if (e) {
+    if (m.escapeTest.test(l4)) return l4.replace(m.escapeReplace, ge2);
+  } else if (m.escapeTestNoEncode.test(l4)) return l4.replace(m.escapeReplaceNoEncode, ge2);
+  return l4;
+}
+function Y2(l4) {
+  try {
+    l4 = encodeURI(l4).replace(m.percentDecode, "%");
+  } catch {
+    return null;
+  }
+  return l4;
+}
+function ee2(l4, e) {
+  let t = l4.replace(m.findPipe, (r, i, o) => {
+    let p = false, a = i;
+    for (; --a >= 0 && o[a] === "\\"; ) p = !p;
+    return p ? "|" : " |";
+  }), n = t.split(m.splitPipe), s = 0;
+  if (n[0].trim() || n.shift(), n.length > 0 && !n.at(-1)?.trim() && n.pop(), e) if (n.length > e) n.splice(e);
+  else for (; n.length < e; ) n.push("");
+  for (; s < n.length; s++) n[s] = n[s].trim().replace(m.slashPipe, "|");
+  return n;
+}
+function $2(l4, e, t) {
+  let n = l4.length;
+  if (n === 0) return "";
+  let s = 0;
+  for (; s < n; ) {
+    let r = l4.charAt(n - s - 1);
+    if (r === e && !t) s++;
+    else if (r !== e && t) s++;
+    else break;
+  }
+  return l4.slice(0, n - s);
+}
+function te2(l4) {
+  let e = l4.split(`
+`), t = e.length - 1;
+  for (; t >= 0 && m.blankLine.test(e[t]); ) t--;
+  return e.length - t <= 2 ? l4 : e.slice(0, t + 1).join(`
+`);
+}
+function fe2(l4, e) {
+  if (l4.indexOf(e[1]) === -1) return -1;
+  let t = 0;
+  for (let n = 0; n < l4.length; n++) if (l4[n] === "\\") n++;
+  else if (l4[n] === e[0]) t++;
+  else if (l4[n] === e[1] && (t--, t < 0)) return n;
+  return t > 0 ? -2 : -1;
+}
+function me2(l4, e = 0) {
+  let t = e, n = "";
+  for (let s of l4) if (s === "	") {
+    let r = 4 - t % 4;
+    n += " ".repeat(r), t += r;
+  } else n += s, t++;
+  return n;
+}
+function xe2(l4, e, t, n, s) {
+  let r = e.href, i = e.title || null, o = l4[1].replace(s.other.outputLinkReplace, "$1");
+  n.state.inLink = true;
+  let p = { type: l4[0].charAt(0) === "!" ? "image" : "link", raw: t, href: r, title: i, text: o, tokens: n.inlineTokens(o) };
+  return n.state.inLink = false, p;
+}
+function dt(l4, e, t) {
+  let n = l4.match(t.other.indentCodeCompensation);
+  if (n === null) return e;
+  let s = n[1];
+  return e.split(`
+`).map((r) => {
+    let i = r.match(t.other.beginningSpace);
+    if (i === null) return r;
+    let [o] = i;
+    return o.length >= s.length ? r.slice(s.length) : r;
+  }).join(`
+`);
+}
+var y = class {
+  options;
+  rules;
+  lexer;
+  constructor(e) {
+    this.options = e || R;
+  }
+  space(e) {
+    let t = this.rules.block.newline.exec(e);
+    if (t && t[0].length > 0) return { type: "space", raw: t[0] };
+  }
+  code(e) {
+    let t = this.rules.block.code.exec(e);
+    if (t) {
+      let n = this.options.pedantic ? t[0] : te2(t[0]), s = n.replace(this.rules.other.codeRemoveIndent, "");
+      return { type: "code", raw: n, codeBlockStyle: "indented", text: s };
+    }
+  }
+  fences(e) {
+    let t = this.rules.block.fences.exec(e);
+    if (t) {
+      let n = t[0], s = dt(n, t[3] || "", this.rules);
+      return { type: "code", raw: n, lang: t[2] ? t[2].trim().replace(this.rules.inline.anyPunctuation, "$1") : t[2], text: s };
+    }
+  }
+  heading(e) {
+    let t = this.rules.block.heading.exec(e);
+    if (t) {
+      let n = t[2].trim();
+      if (this.rules.other.endingHash.test(n)) {
+        let s = $2(n, "#");
+        (this.options.pedantic || !s || this.rules.other.endingSpaceChar.test(s)) && (n = s.trim());
+      }
+      return { type: "heading", raw: $2(t[0], `
+`), depth: t[1].length, text: n, tokens: this.lexer.inline(n) };
+    }
+  }
+  hr(e) {
+    let t = this.rules.block.hr.exec(e);
+    if (t) return { type: "hr", raw: $2(t[0], `
+`) };
+  }
+  blockquote(e) {
+    let t = this.rules.block.blockquote.exec(e);
+    if (t) {
+      let n = $2(t[0], `
+`).split(`
+`), s = "", r = "", i = [];
+      for (; n.length > 0; ) {
+        let o = false, p = [], a;
+        for (a = 0; a < n.length; a++) if (this.rules.other.blockquoteStart.test(n[a])) p.push(n[a]), o = true;
+        else if (!o) p.push(n[a]);
+        else break;
+        n = n.slice(a);
+        let u = p.join(`
+`), c = u.replace(this.rules.other.blockquoteSetextReplace, `
+    $1`).replace(this.rules.other.blockquoteSetextReplace2, "");
+        s = s ? `${s}
+${u}` : u, r = r ? `${r}
+${c}` : c;
+        let h2 = this.lexer.state.top;
+        if (this.lexer.state.top = true, this.lexer.blockTokens(c, i, true), this.lexer.state.top = h2, n.length === 0) break;
+        let d = i.at(-1);
+        if (d?.type === "code") break;
+        if (d?.type === "blockquote") {
+          let T = d, g = n.join(`
+`), w = T.raw + `
+` + g.replace(this.rules.other.blockquoteSetextReplace2, ""), M = this.blockquote(w);
+          i[i.length - 1] = M, s = `${s}
+${g}`, r = r.substring(0, r.length - T.text.length) + M.text;
+          break;
+        } else if (d?.type === "list") {
+          let T = d, g = T.raw + `
+` + n.join(`
+`), w = this.list(g);
+          i[i.length - 1] = w, s = s.substring(0, s.length - d.raw.length) + w.raw, r = r.substring(0, r.length - T.raw.length) + w.raw, n = g.substring(i.at(-1).raw.length).split(`
+`);
+          continue;
+        }
+      }
+      return { type: "blockquote", raw: s, tokens: i, text: r };
+    }
+  }
+  list(e) {
+    let t = this.rules.block.list.exec(e);
+    if (t) {
+      let n = t[1].trim(), s = n.length > 1, r = { type: "list", raw: "", ordered: s, start: s ? +n.slice(0, -1) : "", loose: false, items: [] };
+      n = s ? `\\d{1,9}\\${n.slice(-1)}` : `\\${n}`, this.options.pedantic && (n = s ? n : "[*+-]");
+      let i = this.rules.other.listItemRegex(n), o = false;
+      for (; e; ) {
+        let a = false, u = "", c = "";
+        if (!(t = i.exec(e)) || this.rules.block.hr.test(e)) break;
+        u = t[0], e = e.substring(u.length);
+        let h2 = me2(t[2].split(`
+`, 1)[0], t[1].length), d = e.split(`
+`, 1)[0], T = !h2.trim(), g = 0;
+        if (this.options.pedantic ? (g = 2, c = h2.trimStart()) : T ? g = t[1].length + 1 : (g = h2.search(this.rules.other.nonSpaceChar), g = g > 4 ? 1 : g, c = h2.slice(g), g += t[1].length), T && this.rules.other.blankLine.test(d) && (u += d + `
+`, e = e.substring(d.length + 1), a = true), !a) {
+          let w = this.rules.other.nextBulletRegex(g), M = this.rules.other.hrRegex(g), ne2 = this.rules.other.fencesBeginRegex(g), re2 = this.rules.other.headingBeginRegex(g), be2 = this.rules.other.htmlBeginRegex(g), Re2 = this.rules.other.blockquoteBeginRegex(g);
+          for (; e; ) {
+            let N = e.split(`
+`, 1)[0], D2;
+            if (d = N, this.options.pedantic ? (d = d.replace(this.rules.other.listReplaceNesting, "  "), D2 = d) : D2 = d.replace(this.rules.other.tabCharGlobal, "    "), ne2.test(d) || re2.test(d) || be2.test(d) || Re2.test(d) || w.test(d) || M.test(d)) break;
+            if (D2.search(this.rules.other.nonSpaceChar) >= g || !d.trim()) c += `
+` + D2.slice(g);
+            else {
+              if (T || h2.replace(this.rules.other.tabCharGlobal, "    ").search(this.rules.other.nonSpaceChar) >= 4 || ne2.test(h2) || re2.test(h2) || M.test(h2)) break;
+              c += `
+` + d;
+            }
+            T = !d.trim(), u += N + `
+`, e = e.substring(N.length + 1), h2 = D2.slice(g);
+          }
+        }
+        r.loose || (o ? r.loose = true : this.rules.other.doubleBlankLine.test(u) && (o = true)), r.items.push({ type: "list_item", raw: u, task: !!this.options.gfm && this.rules.other.listIsTask.test(c), loose: false, text: c, tokens: [] }), r.raw += u;
+      }
+      let p = r.items.at(-1);
+      if (p) p.raw = p.raw.trimEnd(), p.text = p.text.trimEnd();
+      else return;
+      r.raw = r.raw.trimEnd();
+      for (let a of r.items) {
+        this.lexer.state.top = false, a.tokens = this.lexer.blockTokens(a.text, []);
+        let u = a.tokens[0];
+        if (a.task && (u?.type === "text" || u?.type === "paragraph")) {
+          a.text = a.text.replace(this.rules.other.listReplaceTask, ""), u.raw = u.raw.replace(this.rules.other.listReplaceTask, ""), u.text = u.text.replace(this.rules.other.listReplaceTask, "");
+          for (let h2 = this.lexer.inlineQueue.length - 1; h2 >= 0; h2--) if (this.rules.other.listIsTask.test(this.lexer.inlineQueue[h2].src)) {
+            this.lexer.inlineQueue[h2].src = this.lexer.inlineQueue[h2].src.replace(this.rules.other.listReplaceTask, "");
+            break;
+          }
+          let c = this.rules.other.listTaskCheckbox.exec(a.raw);
+          if (c) {
+            let h2 = { type: "checkbox", raw: c[0] + " ", checked: c[0] !== "[ ]" };
+            a.checked = h2.checked, r.loose ? a.tokens[0] && ["paragraph", "text"].includes(a.tokens[0].type) && "tokens" in a.tokens[0] && a.tokens[0].tokens ? (a.tokens[0].raw = h2.raw + a.tokens[0].raw, a.tokens[0].text = h2.raw + a.tokens[0].text, a.tokens[0].tokens.unshift(h2)) : a.tokens.unshift({ type: "paragraph", raw: h2.raw, text: h2.raw, tokens: [h2] }) : a.tokens.unshift(h2);
+          }
+        } else a.task && (a.task = false);
+        if (!r.loose) {
+          let c = a.tokens.filter((d) => d.type === "space"), h2 = c.length > 0 && c.some((d) => this.rules.other.anyLine.test(d.raw));
+          r.loose = h2;
+        }
+      }
+      if (r.loose) for (let a of r.items) {
+        a.loose = true;
+        for (let u of a.tokens) u.type === "text" && (u.type = "paragraph");
+      }
+      return r;
+    }
+  }
+  html(e) {
+    let t = this.rules.block.html.exec(e);
+    if (t) {
+      let n = te2(t[0]);
+      return { type: "html", block: true, raw: n, pre: t[1] === "pre" || t[1] === "script" || t[1] === "style", text: n };
+    }
+  }
+  def(e) {
+    let t = this.rules.block.def.exec(e);
+    if (t) {
+      let n = t[1].toLowerCase().replace(this.rules.other.multipleSpaceGlobal, " "), s = t[2] ? t[2].replace(this.rules.other.hrefBrackets, "$1").replace(this.rules.inline.anyPunctuation, "$1") : "", r = t[3] ? t[3].substring(1, t[3].length - 1).replace(this.rules.inline.anyPunctuation, "$1") : t[3];
+      return { type: "def", tag: n, raw: $2(t[0], `
+`), href: s, title: r };
+    }
+  }
+  table(e) {
+    let t = this.rules.block.table.exec(e);
+    if (!t || !this.rules.other.tableDelimiter.test(t[2])) return;
+    let n = ee2(t[1]), s = t[2].replace(this.rules.other.tableAlignChars, "").split("|"), r = t[3]?.trim() ? t[3].replace(this.rules.other.tableRowBlankLine, "").split(`
+`) : [], i = { type: "table", raw: $2(t[0], `
+`), header: [], align: [], rows: [] };
+    if (n.length === s.length) {
+      for (let o of s) this.rules.other.tableAlignRight.test(o) ? i.align.push("right") : this.rules.other.tableAlignCenter.test(o) ? i.align.push("center") : this.rules.other.tableAlignLeft.test(o) ? i.align.push("left") : i.align.push(null);
+      for (let o = 0; o < n.length; o++) i.header.push({ text: n[o], tokens: this.lexer.inline(n[o]), header: true, align: i.align[o] });
+      for (let o of r) i.rows.push(ee2(o, i.header.length).map((p, a) => ({ text: p, tokens: this.lexer.inline(p), header: false, align: i.align[a] })));
+      return i;
+    }
+  }
+  lheading(e) {
+    let t = this.rules.block.lheading.exec(e);
+    if (t) {
+      let n = t[1].trim();
+      return { type: "heading", raw: $2(t[0], `
+`), depth: t[2].charAt(0) === "=" ? 1 : 2, text: n, tokens: this.lexer.inline(n) };
+    }
+  }
+  paragraph(e) {
+    let t = this.rules.block.paragraph.exec(e);
+    if (t) {
+      let n = t[1].charAt(t[1].length - 1) === `
+` ? t[1].slice(0, -1) : t[1];
+      return { type: "paragraph", raw: t[0], text: n, tokens: this.lexer.inline(n) };
+    }
+  }
+  text(e) {
+    let t = this.rules.block.text.exec(e);
+    if (t) return { type: "text", raw: t[0], text: t[0], tokens: this.lexer.inline(t[0]) };
+  }
+  escape(e) {
+    let t = this.rules.inline.escape.exec(e);
+    if (t) return { type: "escape", raw: t[0], text: t[1] };
+  }
+  tag(e) {
+    let t = this.rules.inline.tag.exec(e);
+    if (t) return !this.lexer.state.inLink && this.rules.other.startATag.test(t[0]) ? this.lexer.state.inLink = true : this.lexer.state.inLink && this.rules.other.endATag.test(t[0]) && (this.lexer.state.inLink = false), !this.lexer.state.inRawBlock && this.rules.other.startPreScriptTag.test(t[0]) ? this.lexer.state.inRawBlock = true : this.lexer.state.inRawBlock && this.rules.other.endPreScriptTag.test(t[0]) && (this.lexer.state.inRawBlock = false), { type: "html", raw: t[0], inLink: this.lexer.state.inLink, inRawBlock: this.lexer.state.inRawBlock, block: false, text: t[0] };
+  }
+  link(e) {
+    let t = this.rules.inline.link.exec(e);
+    if (t) {
+      let n = t[2].trim();
+      if (!this.options.pedantic && this.rules.other.startAngleBracket.test(n)) {
+        if (!this.rules.other.endAngleBracket.test(n)) return;
+        let i = $2(n.slice(0, -1), "\\");
+        if ((n.length - i.length) % 2 === 0) return;
+      } else {
+        let i = fe2(t[2], "()");
+        if (i === -2) return;
+        if (i > -1) {
+          let p = (t[0].indexOf("!") === 0 ? 5 : 4) + t[1].length + i;
+          t[2] = t[2].substring(0, i), t[0] = t[0].substring(0, p).trim(), t[3] = "";
+        }
+      }
+      let s = t[2], r = "";
+      if (this.options.pedantic) {
+        let i = this.rules.other.pedanticHrefTitle.exec(s);
+        i && (s = i[1], r = i[3]);
+      } else r = t[3] ? t[3].slice(1, -1) : "";
+      return s = s.trim(), this.rules.other.startAngleBracket.test(s) && (this.options.pedantic && !this.rules.other.endAngleBracket.test(n) ? s = s.slice(1) : s = s.slice(1, -1)), xe2(t, { href: s && s.replace(this.rules.inline.anyPunctuation, "$1"), title: r && r.replace(this.rules.inline.anyPunctuation, "$1") }, t[0], this.lexer, this.rules);
+    }
+  }
+  reflink(e, t) {
+    let n;
+    if ((n = this.rules.inline.reflink.exec(e)) || (n = this.rules.inline.nolink.exec(e))) {
+      let s = (n[2] || n[1]).replace(this.rules.other.multipleSpaceGlobal, " "), r = t[s.toLowerCase()];
+      if (!r) {
+        let i = n[0].charAt(0);
+        return { type: "text", raw: i, text: i };
+      }
+      return xe2(n, r, n[0], this.lexer, this.rules);
+    }
+  }
+  emStrong(e, t, n = "") {
+    let s = this.rules.inline.emStrongLDelim.exec(e);
+    if (!s || !s[1] && !s[2] && !s[3] && !s[4] || s[4] && n.match(this.rules.other.unicodeAlphaNumeric)) return;
+    if (!(s[1] || s[3] || "") || !n || this.rules.inline.punctuation.exec(n)) {
+      let i = [...s[0]].length - 1, o, p, a = i, u = 0, c = s[0][0], h2 = n === c, d = c === "*" ? this.rules.inline.emStrongRDelimAst : this.rules.inline.emStrongRDelimUnd;
+      for (d.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = d.exec(t)) !== null; ) {
+        if (o = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !o) continue;
+        if (p = [...o].length, s[3] || s[4]) {
+          a += p;
+          continue;
+        } else if (s[5] || s[6]) {
+          if (i % 3 && !((i + p) % 3)) {
+            u += p;
+            continue;
+          }
+          if (h2) break;
+        }
+        if (a -= p, a > 0) continue;
+        p = Math.min(p, p + a + u);
+        let T = [...s[0]][0].length, g = e.slice(0, i + s.index + T + p);
+        if (Math.min(i, p) % 2) {
+          let M = g.slice(1, -1);
+          return { type: "em", raw: g, text: M, tokens: this.lexer.inlineTokens(M) };
+        }
+        let w = g.slice(2, -2);
+        return { type: "strong", raw: g, text: w, tokens: this.lexer.inlineTokens(w) };
+      }
+    }
+  }
+  codespan(e) {
+    let t = this.rules.inline.code.exec(e);
+    if (t) {
+      let n = t[2].replace(this.rules.other.newLineCharGlobal, " "), s = this.rules.other.nonSpaceChar.test(n), r = this.rules.other.startingSpaceChar.test(n) && this.rules.other.endingSpaceChar.test(n);
+      return s && r && (n = n.substring(1, n.length - 1)), { type: "codespan", raw: t[0], text: n };
+    }
+  }
+  br(e) {
+    let t = this.rules.inline.br.exec(e);
+    if (t) return { type: "br", raw: t[0] };
+  }
+  del(e, t, n = "") {
+    let s = this.rules.inline.delLDelim.exec(e);
+    if (!s) return;
+    if (!(s[1] || "") || !n || this.rules.inline.punctuation.exec(n)) {
+      let i = [...s[0]].length - 1, o, p, a = i, u = this.rules.inline.delRDelim;
+      for (u.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = u.exec(t)) !== null; ) {
+        if (o = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !o || (p = [...o].length, p !== i)) continue;
+        if (s[3] || s[4]) {
+          a += p;
+          continue;
+        }
+        if (a -= p, a > 0) continue;
+        p = Math.min(p, p + a);
+        let c = [...s[0]][0].length, h2 = e.slice(0, i + s.index + c + p), d = h2.slice(i, -i);
+        return { type: "del", raw: h2, text: d, tokens: this.lexer.inlineTokens(d) };
+      }
+    }
+  }
+  autolink(e) {
+    let t = this.rules.inline.autolink.exec(e);
+    if (t) {
+      let n, s;
+      return t[2] === "@" ? (n = t[1], s = "mailto:" + n) : (n = t[1], s = n), { type: "link", raw: t[0], text: n, href: s, tokens: [{ type: "text", raw: n, text: n }] };
+    }
+  }
+  url(e) {
+    let t;
+    if (t = this.rules.inline.url.exec(e)) {
+      let n, s;
+      if (t[2] === "@") n = t[0], s = "mailto:" + n;
+      else {
+        let r;
+        do
+          r = t[0], t[0] = this.rules.inline._backpedal.exec(t[0])?.[0] ?? "";
+        while (r !== t[0]);
+        n = t[0], t[1] === "www." ? s = "http://" + t[0] : s = t[0];
+      }
+      return { type: "link", raw: t[0], text: n, href: s, tokens: [{ type: "text", raw: n, text: n }] };
+    }
+  }
+  inlineText(e) {
+    let t = this.rules.inline.text.exec(e);
+    if (t) {
+      let n = this.lexer.state.inRawBlock;
+      return { type: "text", raw: t[0], text: t[0], escaped: n };
+    }
+  }
+};
+var x = class l2 {
+  tokens;
+  options;
+  state;
+  inlineQueue;
+  tokenizer;
+  constructor(e) {
+    this.tokens = [], this.tokens.links = /* @__PURE__ */ Object.create(null), this.options = e || R, this.options.tokenizer = this.options.tokenizer || new y(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = { inLink: false, inRawBlock: false, top: true };
+    let t = { other: m, block: H2.normal, inline: B.normal };
+    this.options.pedantic ? (t.block = H2.pedantic, t.inline = B.pedantic) : this.options.gfm && (t.block = H2.gfm, this.options.breaks ? t.inline = B.breaks : t.inline = B.gfm), this.tokenizer.rules = t;
+  }
+  static get rules() {
+    return { block: H2, inline: B };
+  }
+  static lex(e, t) {
+    return new l2(t).lex(e);
+  }
+  static lexInline(e, t) {
+    return new l2(t).inlineTokens(e);
+  }
+  lex(e) {
+    e = e.replace(m.carriageReturn, `
+`), this.blockTokens(e, this.tokens);
+    for (let t = 0; t < this.inlineQueue.length; t++) {
+      let n = this.inlineQueue[t];
+      this.inlineTokens(n.src, n.tokens);
+    }
+    return this.inlineQueue = [], this.tokens;
+  }
+  blockTokens(e, t = [], n = false) {
+    this.tokenizer.lexer = this, this.options.pedantic && (e = e.replace(m.tabCharGlobal, "    ").replace(m.spaceLine, ""));
+    let s = 1 / 0;
+    for (; e; ) {
+      if (e.length < s) s = e.length;
+      else {
+        this.infiniteLoopError(e.charCodeAt(0));
+        break;
+      }
+      let r;
+      if (this.options.extensions?.block?.some((o) => (r = o.call({ lexer: this }, e, t)) ? (e = e.substring(r.raw.length), t.push(r), true) : false)) continue;
+      if (r = this.tokenizer.space(e)) {
+        e = e.substring(r.raw.length);
+        let o = t.at(-1);
+        r.raw.length === 1 && o !== void 0 ? o.raw += `
+` : t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.code(e)) {
+        e = e.substring(r.raw.length);
+        let o = t.at(-1);
+        o?.type === "paragraph" || o?.type === "text" ? (o.raw += (o.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, o.text += `
+` + r.text, this.inlineQueue.at(-1).src = o.text) : t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.fences(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.heading(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.hr(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.blockquote(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.list(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.html(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.def(e)) {
+        e = e.substring(r.raw.length);
+        let o = t.at(-1);
+        o?.type === "paragraph" || o?.type === "text" ? (o.raw += (o.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, o.text += `
+` + r.raw, this.inlineQueue.at(-1).src = o.text) : this.tokens.links[r.tag] || (this.tokens.links[r.tag] = { href: r.href, title: r.title }, t.push(r));
+        continue;
+      }
+      if (r = this.tokenizer.table(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.lheading(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      let i = e;
+      if (this.options.extensions?.startBlock) {
+        let o = 1 / 0, p = e.slice(1), a;
+        this.options.extensions.startBlock.forEach((u) => {
+          a = u.call({ lexer: this }, p), typeof a == "number" && a >= 0 && (o = Math.min(o, a));
+        }), o < 1 / 0 && o >= 0 && (i = e.substring(0, o + 1));
+      }
+      if (this.state.top && (r = this.tokenizer.paragraph(i))) {
+        let o = t.at(-1);
+        n && o?.type === "paragraph" ? (o.raw += (o.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, o.text += `
+` + r.text, this.inlineQueue.pop(), this.inlineQueue.at(-1).src = o.text) : t.push(r), n = i.length !== e.length, e = e.substring(r.raw.length);
+        continue;
+      }
+      if (r = this.tokenizer.text(e)) {
+        e = e.substring(r.raw.length);
+        let o = t.at(-1);
+        o?.type === "text" ? (o.raw += (o.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, o.text += `
+` + r.text, this.inlineQueue.pop(), this.inlineQueue.at(-1).src = o.text) : t.push(r);
+        continue;
+      }
+      if (e) {
+        this.infiniteLoopError(e.charCodeAt(0));
+        break;
+      }
+    }
+    return this.state.top = true, t;
+  }
+  inline(e, t = []) {
+    return this.inlineQueue.push({ src: e, tokens: t }), t;
+  }
+  inlineTokens(e, t = []) {
+    this.tokenizer.lexer = this;
+    let n = e;
+    if (this.tokens.links) {
+      let o = Object.keys(this.tokens.links);
+      o.length > 0 && (n = n.replace(this.tokenizer.rules.inline.reflinkSearch, (p) => o.includes(p.slice(p.lastIndexOf("[") + 1, -1)) ? "[" + "a".repeat(p.length - 2) + "]" : p));
+    }
+    n = n.replace(this.tokenizer.rules.inline.anyPunctuation, "++"), n = n.replace(this.tokenizer.rules.inline.blockSkip, (o, p, a) => {
+      let u = a ? a.length : 0;
+      return o.slice(0, u) + "[" + "a".repeat(o.length - u - 2) + "]";
+    }), n = this.options.hooks?.emStrongMask?.call({ lexer: this }, n) ?? n;
+    let s = false, r = "", i = 1 / 0;
+    for (; e; ) {
+      if (e.length < i) i = e.length;
+      else {
+        this.infiniteLoopError(e.charCodeAt(0));
+        break;
+      }
+      s || (r = ""), s = false;
+      let o;
+      if (this.options.extensions?.inline?.some((a) => (o = a.call({ lexer: this }, e, t)) ? (e = e.substring(o.raw.length), t.push(o), true) : false)) continue;
+      if (o = this.tokenizer.escape(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.tag(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.link(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.reflink(e, this.tokens.links)) {
+        e = e.substring(o.raw.length);
+        let a = t.at(-1);
+        o.type === "text" && a?.type === "text" ? (a.raw += o.raw, a.text += o.text) : t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.emStrong(e, n, r)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.codespan(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.br(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.del(e, n, r)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.autolink(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (!this.state.inLink && (o = this.tokenizer.url(e))) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      let p = e;
+      if (this.options.extensions?.startInline) {
+        let a = 1 / 0, u = e.slice(1), c;
+        this.options.extensions.startInline.forEach((h2) => {
+          c = h2.call({ lexer: this }, u), typeof c == "number" && c >= 0 && (a = Math.min(a, c));
+        }), a < 1 / 0 && a >= 0 && (p = e.substring(0, a + 1));
+      }
+      if (o = this.tokenizer.inlineText(p)) {
+        e = e.substring(o.raw.length), o.raw.slice(-1) !== "_" && (r = o.raw.slice(-1)), s = true;
+        let a = t.at(-1);
+        a?.type === "text" ? (a.raw += o.raw, a.text += o.text) : t.push(o);
+        continue;
+      }
+      if (e) {
+        this.infiniteLoopError(e.charCodeAt(0));
+        break;
+      }
+    }
+    return t;
+  }
+  infiniteLoopError(e) {
+    let t = "Infinite loop on byte: " + e;
+    if (this.options.silent) console.error(t);
+    else throw new Error(t);
+  }
+};
+var P = class {
+  options;
+  parser;
+  constructor(e) {
+    this.options = e || R;
+  }
+  space(e) {
+    return "";
+  }
+  code({ text: e, lang: t, escaped: n }) {
+    let s = (t || "").match(m.notSpaceStart)?.[0], r = e.replace(m.endingNewline, "") + `
+`;
+    return s ? '<pre><code class="language-' + O(s) + '">' + (n ? r : O(r, true)) + `</code></pre>
+` : "<pre><code>" + (n ? r : O(r, true)) + `</code></pre>
+`;
+  }
+  blockquote({ tokens: e }) {
+    return `<blockquote>
+${this.parser.parse(e)}</blockquote>
+`;
+  }
+  html({ text: e }) {
+    return e;
+  }
+  def(e) {
+    return "";
+  }
+  heading({ tokens: e, depth: t }) {
+    return `<h${t}>${this.parser.parseInline(e)}</h${t}>
+`;
+  }
+  hr(e) {
+    return `<hr>
+`;
+  }
+  list(e) {
+    let t = e.ordered, n = e.start, s = "";
+    for (let o = 0; o < e.items.length; o++) {
+      let p = e.items[o];
+      s += this.listitem(p);
+    }
+    let r = t ? "ol" : "ul", i = t && n !== 1 ? ' start="' + n + '"' : "";
+    return "<" + r + i + `>
+` + s + "</" + r + `>
+`;
+  }
+  listitem(e) {
+    return `<li>${this.parser.parse(e.tokens)}</li>
+`;
+  }
+  checkbox({ checked: e }) {
+    return "<input " + (e ? 'checked="" ' : "") + 'disabled="" type="checkbox"> ';
+  }
+  paragraph({ tokens: e }) {
+    return `<p>${this.parser.parseInline(e)}</p>
+`;
+  }
+  table(e) {
+    let t = "", n = "";
+    for (let r = 0; r < e.header.length; r++) n += this.tablecell(e.header[r]);
+    t += this.tablerow({ text: n });
+    let s = "";
+    for (let r = 0; r < e.rows.length; r++) {
+      let i = e.rows[r];
+      n = "";
+      for (let o = 0; o < i.length; o++) n += this.tablecell(i[o]);
+      s += this.tablerow({ text: n });
+    }
+    return s && (s = `<tbody>${s}</tbody>`), `<table>
+<thead>
+` + t + `</thead>
+` + s + `</table>
+`;
+  }
+  tablerow({ text: e }) {
+    return `<tr>
+${e}</tr>
+`;
+  }
+  tablecell(e) {
+    let t = this.parser.parseInline(e.tokens), n = e.header ? "th" : "td";
+    return (e.align ? `<${n} align="${e.align}">` : `<${n}>`) + t + `</${n}>
+`;
+  }
+  strong({ tokens: e }) {
+    return `<strong>${this.parser.parseInline(e)}</strong>`;
+  }
+  em({ tokens: e }) {
+    return `<em>${this.parser.parseInline(e)}</em>`;
+  }
+  codespan({ text: e }) {
+    return `<code>${O(e, true)}</code>`;
+  }
+  br(e) {
+    return "<br>";
+  }
+  del({ tokens: e }) {
+    return `<del>${this.parser.parseInline(e)}</del>`;
+  }
+  link({ href: e, title: t, tokens: n }) {
+    let s = this.parser.parseInline(n), r = Y2(e);
+    if (r === null) return s;
+    e = r;
+    let i = '<a href="' + e + '"';
+    return t && (i += ' title="' + O(t) + '"'), i += ">" + s + "</a>", i;
+  }
+  image({ href: e, title: t, text: n, tokens: s }) {
+    s && (n = this.parser.parseInline(s, this.parser.textRenderer));
+    let r = Y2(e);
+    if (r === null) return O(n);
+    e = r;
+    let i = `<img src="${e}" alt="${O(n)}"`;
+    return t && (i += ` title="${O(t)}"`), i += ">", i;
+  }
+  text(e) {
+    return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : O(e.text);
+  }
+};
+var L = class {
+  strong({ text: e }) {
+    return e;
+  }
+  em({ text: e }) {
+    return e;
+  }
+  codespan({ text: e }) {
+    return e;
+  }
+  del({ text: e }) {
+    return e;
+  }
+  html({ text: e }) {
+    return e;
+  }
+  text({ text: e }) {
+    return e;
+  }
+  link({ text: e }) {
+    return "" + e;
+  }
+  image({ text: e }) {
+    return "" + e;
+  }
+  br() {
+    return "";
+  }
+  checkbox({ raw: e }) {
+    return e;
+  }
+};
+var b = class l3 {
+  options;
+  renderer;
+  textRenderer;
+  constructor(e) {
+    this.options = e || R, this.options.renderer = this.options.renderer || new P(), this.renderer = this.options.renderer, this.renderer.options = this.options, this.renderer.parser = this, this.textRenderer = new L();
+  }
+  static parse(e, t) {
+    return new l3(t).parse(e);
+  }
+  static parseInline(e, t) {
+    return new l3(t).parseInline(e);
+  }
+  parse(e) {
+    this.renderer.parser = this;
+    let t = "";
+    for (let n = 0; n < e.length; n++) {
+      let s = e[n];
+      if (this.options.extensions?.renderers?.[s.type]) {
+        let i = s, o = this.options.extensions.renderers[i.type].call({ parser: this }, i);
+        if (o !== false || !["space", "hr", "heading", "code", "table", "blockquote", "list", "checkbox", "html", "def", "paragraph", "text"].includes(i.type)) {
+          t += o || "";
+          continue;
+        }
+      }
+      let r = s;
+      switch (r.type) {
+        case "space": {
+          t += this.renderer.space(r);
+          break;
+        }
+        case "hr": {
+          t += this.renderer.hr(r);
+          break;
+        }
+        case "heading": {
+          t += this.renderer.heading(r);
+          break;
+        }
+        case "code": {
+          t += this.renderer.code(r);
+          break;
+        }
+        case "table": {
+          t += this.renderer.table(r);
+          break;
+        }
+        case "blockquote": {
+          t += this.renderer.blockquote(r);
+          break;
+        }
+        case "list": {
+          t += this.renderer.list(r);
+          break;
+        }
+        case "checkbox": {
+          t += this.renderer.checkbox(r);
+          break;
+        }
+        case "html": {
+          t += this.renderer.html(r);
+          break;
+        }
+        case "def": {
+          t += this.renderer.def(r);
+          break;
+        }
+        case "paragraph": {
+          t += this.renderer.paragraph(r);
+          break;
+        }
+        case "text": {
+          t += this.renderer.text(r);
+          break;
+        }
+        default: {
+          let i = 'Token with "' + r.type + '" type was not found.';
+          if (this.options.silent) return console.error(i), "";
+          throw new Error(i);
+        }
+      }
+    }
+    return t;
+  }
+  parseInline(e, t = this.renderer) {
+    this.renderer.parser = this;
+    let n = "";
+    for (let s = 0; s < e.length; s++) {
+      let r = e[s];
+      if (this.options.extensions?.renderers?.[r.type]) {
+        let o = this.options.extensions.renderers[r.type].call({ parser: this }, r);
+        if (o !== false || !["escape", "html", "link", "image", "checkbox", "strong", "em", "codespan", "br", "del", "text"].includes(r.type)) {
+          n += o || "";
+          continue;
+        }
+      }
+      let i = r;
+      switch (i.type) {
+        case "escape": {
+          n += t.text(i);
+          break;
+        }
+        case "html": {
+          n += t.html(i);
+          break;
+        }
+        case "link": {
+          n += t.link(i);
+          break;
+        }
+        case "image": {
+          n += t.image(i);
+          break;
+        }
+        case "checkbox": {
+          n += t.checkbox(i);
+          break;
+        }
+        case "strong": {
+          n += t.strong(i);
+          break;
+        }
+        case "em": {
+          n += t.em(i);
+          break;
+        }
+        case "codespan": {
+          n += t.codespan(i);
+          break;
+        }
+        case "br": {
+          n += t.br(i);
+          break;
+        }
+        case "del": {
+          n += t.del(i);
+          break;
+        }
+        case "text": {
+          n += t.text(i);
+          break;
+        }
+        default: {
+          let o = 'Token with "' + i.type + '" type was not found.';
+          if (this.options.silent) return console.error(o), "";
+          throw new Error(o);
+        }
+      }
+    }
+    return n;
+  }
+};
+var S2 = class {
+  options;
+  block;
+  constructor(e) {
+    this.options = e || R;
+  }
+  static passThroughHooks = /* @__PURE__ */ new Set(["preprocess", "postprocess", "processAllTokens", "emStrongMask"]);
+  static passThroughHooksRespectAsync = /* @__PURE__ */ new Set(["preprocess", "postprocess", "processAllTokens"]);
+  preprocess(e) {
+    return e;
+  }
+  postprocess(e) {
+    return e;
+  }
+  processAllTokens(e) {
+    return e;
+  }
+  emStrongMask(e) {
+    return e;
+  }
+  provideLexer(e = this.block) {
+    return e ? x.lex : x.lexInline;
+  }
+  provideParser(e = this.block) {
+    return e ? b.parse : b.parseInline;
+  }
+};
+var Z2 = class {
+  defaults = C2();
+  options = this.setOptions;
+  parse = this.parseMarkdown(true);
+  parseInline = this.parseMarkdown(false);
+  Parser = b;
+  Renderer = P;
+  TextRenderer = L;
+  Lexer = x;
+  Tokenizer = y;
+  Hooks = S2;
+  constructor(...e) {
+    this.use(...e);
+  }
+  walkTokens(e, t) {
+    let n = [];
+    for (let s of e) switch (n = n.concat(t.call(this, s)), s.type) {
+      case "table": {
+        let r = s;
+        for (let i of r.header) n = n.concat(this.walkTokens(i.tokens, t));
+        for (let i of r.rows) for (let o of i) n = n.concat(this.walkTokens(o.tokens, t));
+        break;
+      }
+      case "list": {
+        let r = s;
+        n = n.concat(this.walkTokens(r.items, t));
+        break;
+      }
+      default: {
+        let r = s;
+        this.defaults.extensions?.childTokens?.[r.type] ? this.defaults.extensions.childTokens[r.type].forEach((i) => {
+          let o = r[i].flat(1 / 0);
+          n = n.concat(this.walkTokens(o, t));
+        }) : r.tokens && (n = n.concat(this.walkTokens(r.tokens, t)));
+      }
+    }
+    return n;
+  }
+  use(...e) {
+    let t = this.defaults.extensions || { renderers: {}, childTokens: {} };
+    return e.forEach((n) => {
+      let s = { ...n };
+      if (s.async = this.defaults.async || s.async || false, n.extensions && (n.extensions.forEach((r) => {
+        if (!r.name) throw new Error("extension name required");
+        if ("renderer" in r) {
+          let i = t.renderers[r.name];
+          i ? t.renderers[r.name] = function(...o) {
+            let p = r.renderer.apply(this, o);
+            return p === false && (p = i.apply(this, o)), p;
+          } : t.renderers[r.name] = r.renderer;
+        }
+        if ("tokenizer" in r) {
+          if (!r.level || r.level !== "block" && r.level !== "inline") throw new Error("extension level must be 'block' or 'inline'");
+          let i = t[r.level];
+          i ? i.unshift(r.tokenizer) : t[r.level] = [r.tokenizer], r.start && (r.level === "block" ? t.startBlock ? t.startBlock.push(r.start) : t.startBlock = [r.start] : r.level === "inline" && (t.startInline ? t.startInline.push(r.start) : t.startInline = [r.start]));
+        }
+        "childTokens" in r && r.childTokens && (t.childTokens[r.name] = r.childTokens);
+      }), s.extensions = t), n.renderer) {
+        let r = this.defaults.renderer || new P(this.defaults);
+        for (let i in n.renderer) {
+          if (!(i in r)) throw new Error(`renderer '${i}' does not exist`);
+          if (["options", "parser"].includes(i)) continue;
+          let o = i, p = n.renderer[o], a = r[o];
+          r[o] = (...u) => {
+            let c = p.apply(r, u);
+            return c === false && (c = a.apply(r, u)), c || "";
+          };
+        }
+        s.renderer = r;
+      }
+      if (n.tokenizer) {
+        let r = this.defaults.tokenizer || new y(this.defaults);
+        for (let i in n.tokenizer) {
+          if (!(i in r)) throw new Error(`tokenizer '${i}' does not exist`);
+          if (["options", "rules", "lexer"].includes(i)) continue;
+          let o = i, p = n.tokenizer[o], a = r[o];
+          r[o] = (...u) => {
+            let c = p.apply(r, u);
+            return c === false && (c = a.apply(r, u)), c;
+          };
+        }
+        s.tokenizer = r;
+      }
+      if (n.hooks) {
+        let r = this.defaults.hooks || new S2();
+        for (let i in n.hooks) {
+          if (!(i in r)) throw new Error(`hook '${i}' does not exist`);
+          if (["options", "block"].includes(i)) continue;
+          let o = i, p = n.hooks[o], a = r[o];
+          S2.passThroughHooks.has(i) ? r[o] = (u) => {
+            if (this.defaults.async && S2.passThroughHooksRespectAsync.has(i)) return (async () => {
+              let h2 = await p.call(r, u);
+              return a.call(r, h2);
+            })();
+            let c = p.call(r, u);
+            return a.call(r, c);
+          } : r[o] = (...u) => {
+            if (this.defaults.async) return (async () => {
+              let h2 = await p.apply(r, u);
+              return h2 === false && (h2 = await a.apply(r, u)), h2;
+            })();
+            let c = p.apply(r, u);
+            return c === false && (c = a.apply(r, u)), c;
+          };
+        }
+        s.hooks = r;
+      }
+      if (n.walkTokens) {
+        let r = this.defaults.walkTokens, i = n.walkTokens;
+        s.walkTokens = function(o) {
+          let p = [];
+          return p.push(i.call(this, o)), r && (p = p.concat(r.call(this, o))), p;
+        };
+      }
+      this.defaults = { ...this.defaults, ...s };
+    }), this;
+  }
+  setOptions(e) {
+    return this.defaults = { ...this.defaults, ...e }, this;
+  }
+  lexer(e, t) {
+    return x.lex(e, t ?? this.defaults);
+  }
+  parser(e, t) {
+    return b.parse(e, t ?? this.defaults);
+  }
+  parseMarkdown(e) {
+    return (n, s) => {
+      let r = { ...s }, i = { ...this.defaults, ...r }, o = this.onError(!!i.silent, !!i.async);
+      if (this.defaults.async === true && r.async === false) return o(new Error("marked(): The async option was set to true by an extension. Remove async: false from the parse options object to return a Promise."));
+      if (typeof n > "u" || n === null) return o(new Error("marked(): input parameter is undefined or null"));
+      if (typeof n != "string") return o(new Error("marked(): input parameter is of type " + Object.prototype.toString.call(n) + ", string expected"));
+      if (i.hooks && (i.hooks.options = i, i.hooks.block = e), i.async) return (async () => {
+        let p = i.hooks ? await i.hooks.preprocess(n) : n, u = await (i.hooks ? await i.hooks.provideLexer(e) : e ? x.lex : x.lexInline)(p, i), c = i.hooks ? await i.hooks.processAllTokens(u) : u;
+        i.walkTokens && await Promise.all(this.walkTokens(c, i.walkTokens));
+        let d = await (i.hooks ? await i.hooks.provideParser(e) : e ? b.parse : b.parseInline)(c, i);
+        return i.hooks ? await i.hooks.postprocess(d) : d;
+      })().catch(o);
+      try {
+        i.hooks && (n = i.hooks.preprocess(n));
+        let a = (i.hooks ? i.hooks.provideLexer(e) : e ? x.lex : x.lexInline)(n, i);
+        i.hooks && (a = i.hooks.processAllTokens(a)), i.walkTokens && this.walkTokens(a, i.walkTokens);
+        let c = (i.hooks ? i.hooks.provideParser(e) : e ? b.parse : b.parseInline)(a, i);
+        return i.hooks && (c = i.hooks.postprocess(c)), c;
+      } catch (p) {
+        return o(p);
+      }
+    };
+  }
+  onError(e, t) {
+    return (n) => {
+      if (n.message += `
+Please report this to https://github.com/markedjs/marked.`, e) {
+        let s = "<p>An error occurred:</p><pre>" + O(n.message + "", true) + "</pre>";
+        return t ? Promise.resolve(s) : s;
+      }
+      if (t) return Promise.reject(n);
+      throw n;
+    };
+  }
+};
+var E = new Z2();
+function f(l4, e) {
+  return E.parse(l4, e);
+}
+f.options = f.setOptions = function(l4) {
+  return E.setOptions(l4), f.defaults = E.defaults, j(f.defaults), f;
+};
+f.getDefaults = C2;
+f.defaults = R;
+function kt(...l4) {
+  return E.use(...l4), f.defaults = E.defaults, j(f.defaults), f;
+}
+f.use = kt;
+f.walkTokens = function(l4, e) {
+  return E.walkTokens(l4, e);
+};
+f.parseInline = E.parseInline;
+f.Parser = b;
+f.parser = b.parse;
+f.Renderer = P;
+f.TextRenderer = L;
+f.Lexer = x;
+f.lexer = x.lex;
+f.Tokenizer = y;
+f.Hooks = S2;
+f.parse = f;
+var nn = f.options;
+var rn = f.setOptions;
+var sn = f.walkTokens;
+var on = f.parseInline;
+var ln = b.parse;
+var pn = x.lex;
+
+// node_modules/dompurify/dist/purify.es.mjs
+function _arrayLikeToArray2(r, a) {
+  (null == a || a > r.length) && (a = r.length);
+  for (var e = 0, n = Array(a); e < a; e++) n[e] = r[e];
+  return n;
+}
+function _arrayWithHoles2(r) {
+  if (Array.isArray(r)) return r;
+}
+function _iterableToArrayLimit2(r, l4) {
+  var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
+  if (null != t) {
+    var e, n, i, u, a = [], f2 = true, o = false;
+    try {
+      if (i = (t = t.call(r)).next, 0 === l4) ;
+      else for (; !(f2 = (e = i.call(t)).done) && (a.push(e.value), a.length !== l4); f2 = true) ;
+    } catch (r2) {
+      o = true, n = r2;
+    } finally {
+      try {
+        if (!f2 && null != t.return && (u = t.return(), Object(u) !== u)) return;
+      } finally {
+        if (o) throw n;
+      }
+    }
+    return a;
+  }
+}
+function _nonIterableRest2() {
+  throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+}
+function _slicedToArray2(r, e) {
+  return _arrayWithHoles2(r) || _iterableToArrayLimit2(r, e) || _unsupportedIterableToArray2(r, e) || _nonIterableRest2();
+}
+function _unsupportedIterableToArray2(r, a) {
+  if (r) {
+    if ("string" == typeof r) return _arrayLikeToArray2(r, a);
+    var t = {}.toString.call(r).slice(8, -1);
+    return "Object" === t && r.constructor && (t = r.constructor.name), "Map" === t || "Set" === t ? Array.from(r) : "Arguments" === t || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(t) ? _arrayLikeToArray2(r, a) : void 0;
+  }
+}
+var entries = Object.entries;
+var setPrototypeOf = Object.setPrototypeOf;
+var isFrozen = Object.isFrozen;
+var getPrototypeOf = Object.getPrototypeOf;
+var getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+var freeze = Object.freeze;
+var seal = Object.seal;
+var create2 = Object.create;
+var _ref = typeof Reflect !== "undefined" && Reflect;
+var apply = _ref.apply;
+var construct = _ref.construct;
+if (!freeze) {
+  freeze = function freeze2(x2) {
+    return x2;
+  };
+}
+if (!seal) {
+  seal = function seal2(x2) {
+    return x2;
+  };
+}
+if (!apply) {
+  apply = function apply2(func, thisArg) {
+    for (var _len = arguments.length, args = new Array(_len > 2 ? _len - 2 : 0), _key = 2; _key < _len; _key++) {
+      args[_key - 2] = arguments[_key];
+    }
+    return func.apply(thisArg, args);
+  };
+}
+if (!construct) {
+  construct = function construct2(Func) {
+    for (var _len2 = arguments.length, args = new Array(_len2 > 1 ? _len2 - 1 : 0), _key2 = 1; _key2 < _len2; _key2++) {
+      args[_key2 - 1] = arguments[_key2];
+    }
+    return new Func(...args);
+  };
+}
+var arrayForEach = unapply(Array.prototype.forEach);
+var arrayLastIndexOf = unapply(Array.prototype.lastIndexOf);
+var arrayPop = unapply(Array.prototype.pop);
+var arrayPush = unapply(Array.prototype.push);
+var arraySplice = unapply(Array.prototype.splice);
+var arrayIsArray = Array.isArray;
+var stringToLowerCase = unapply(String.prototype.toLowerCase);
+var stringToString = unapply(String.prototype.toString);
+var stringMatch = unapply(String.prototype.match);
+var stringReplace = unapply(String.prototype.replace);
+var stringIndexOf = unapply(String.prototype.indexOf);
+var stringTrim = unapply(String.prototype.trim);
+var numberToString = unapply(Number.prototype.toString);
+var booleanToString = unapply(Boolean.prototype.toString);
+var bigintToString = typeof BigInt === "undefined" ? null : unapply(BigInt.prototype.toString);
+var symbolToString = typeof Symbol === "undefined" ? null : unapply(Symbol.prototype.toString);
+var objectHasOwnProperty = unapply(Object.prototype.hasOwnProperty);
+var objectToString = unapply(Object.prototype.toString);
+var regExpTest = unapply(RegExp.prototype.test);
+var typeErrorCreate = unconstruct(TypeError);
+function unapply(func) {
+  return function(thisArg) {
+    if (thisArg instanceof RegExp) {
+      thisArg.lastIndex = 0;
+    }
+    for (var _len3 = arguments.length, args = new Array(_len3 > 1 ? _len3 - 1 : 0), _key3 = 1; _key3 < _len3; _key3++) {
+      args[_key3 - 1] = arguments[_key3];
+    }
+    return apply(func, thisArg, args);
+  };
+}
+function unconstruct(Func) {
+  return function() {
+    for (var _len4 = arguments.length, args = new Array(_len4), _key4 = 0; _key4 < _len4; _key4++) {
+      args[_key4] = arguments[_key4];
+    }
+    return construct(Func, args);
+  };
+}
+function addToSet(set, array) {
+  let transformCaseFunc = arguments.length > 2 && arguments[2] !== void 0 ? arguments[2] : stringToLowerCase;
+  if (setPrototypeOf) {
+    setPrototypeOf(set, null);
+  }
+  if (!arrayIsArray(array)) {
+    return set;
+  }
+  let l4 = array.length;
+  while (l4--) {
+    let element = array[l4];
+    if (typeof element === "string") {
+      const lcElement = transformCaseFunc(element);
+      if (lcElement !== element) {
+        if (!isFrozen(array)) {
+          array[l4] = lcElement;
+        }
+        element = lcElement;
+      }
+    }
+    set[element] = true;
+  }
+  return set;
+}
+function cleanArray(array) {
+  for (let index2 = 0; index2 < array.length; index2++) {
+    const isPropertyExist = objectHasOwnProperty(array, index2);
+    if (!isPropertyExist) {
+      array[index2] = null;
+    }
+  }
+  return array;
+}
+function clone(object) {
+  const newObject = create2(null);
+  for (const _ref2 of entries(object)) {
+    var _ref3 = _slicedToArray2(_ref2, 2);
+    const property = _ref3[0];
+    const value = _ref3[1];
+    const isPropertyExist = objectHasOwnProperty(object, property);
+    if (isPropertyExist) {
+      if (arrayIsArray(value)) {
+        newObject[property] = cleanArray(value);
+      } else if (value && typeof value === "object" && value.constructor === Object) {
+        newObject[property] = clone(value);
+      } else {
+        newObject[property] = value;
+      }
+    }
+  }
+  return newObject;
+}
+function stringifyValue(value) {
+  switch (typeof value) {
+    case "string": {
+      return value;
+    }
+    case "number": {
+      return numberToString(value);
+    }
+    case "boolean": {
+      return booleanToString(value);
+    }
+    case "bigint": {
+      return bigintToString ? bigintToString(value) : "0";
+    }
+    case "symbol": {
+      return symbolToString ? symbolToString(value) : "Symbol()";
+    }
+    case "undefined": {
+      return objectToString(value);
+    }
+    case "function":
+    case "object": {
+      if (value === null) {
+        return objectToString(value);
+      }
+      const valueAsRecord = value;
+      const valueToString = lookupGetter(valueAsRecord, "toString");
+      if (typeof valueToString === "function") {
+        const stringified = valueToString(valueAsRecord);
+        return typeof stringified === "string" ? stringified : objectToString(stringified);
+      }
+      return objectToString(value);
+    }
+    default: {
+      return objectToString(value);
+    }
+  }
+}
+function lookupGetter(object, prop) {
+  while (object !== null) {
+    const desc = getOwnPropertyDescriptor(object, prop);
+    if (desc) {
+      if (desc.get) {
+        return unapply(desc.get);
+      }
+      if (typeof desc.value === "function") {
+        return unapply(desc.value);
+      }
+    }
+    object = getPrototypeOf(object);
+  }
+  function fallbackValue() {
+    return null;
+  }
+  return fallbackValue;
+}
+function isRegex(value) {
+  try {
+    regExpTest(value, "");
+    return true;
+  } catch (_unused) {
+    return false;
+  }
+}
+var html$1 = freeze(["a", "abbr", "acronym", "address", "area", "article", "aside", "audio", "b", "bdi", "bdo", "big", "blink", "blockquote", "body", "br", "button", "canvas", "caption", "center", "cite", "code", "col", "colgroup", "content", "data", "datalist", "dd", "decorator", "del", "details", "dfn", "dialog", "dir", "div", "dl", "dt", "element", "em", "fieldset", "figcaption", "figure", "font", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html", "i", "img", "input", "ins", "kbd", "label", "legend", "li", "main", "map", "mark", "marquee", "menu", "menuitem", "meter", "nav", "nobr", "ol", "optgroup", "option", "output", "p", "picture", "pre", "progress", "q", "rp", "rt", "ruby", "s", "samp", "search", "section", "select", "shadow", "slot", "small", "source", "spacer", "span", "strike", "strong", "style", "sub", "summary", "sup", "table", "tbody", "td", "template", "textarea", "tfoot", "th", "thead", "time", "tr", "track", "tt", "u", "ul", "var", "video", "wbr"]);
+var svg$1 = freeze(["svg", "a", "altglyph", "altglyphdef", "altglyphitem", "animatecolor", "animatemotion", "animatetransform", "circle", "clippath", "defs", "desc", "ellipse", "enterkeyhint", "exportparts", "filter", "font", "g", "glyph", "glyphref", "hkern", "image", "inputmode", "line", "lineargradient", "marker", "mask", "metadata", "mpath", "part", "path", "pattern", "polygon", "polyline", "radialgradient", "rect", "stop", "style", "switch", "symbol", "text", "textpath", "title", "tref", "tspan", "view", "vkern"]);
+var svgFilters = freeze(["feBlend", "feColorMatrix", "feComponentTransfer", "feComposite", "feConvolveMatrix", "feDiffuseLighting", "feDisplacementMap", "feDistantLight", "feDropShadow", "feFlood", "feFuncA", "feFuncB", "feFuncG", "feFuncR", "feGaussianBlur", "feImage", "feMerge", "feMergeNode", "feMorphology", "feOffset", "fePointLight", "feSpecularLighting", "feSpotLight", "feTile", "feTurbulence"]);
+var svgDisallowed = freeze(["animate", "color-profile", "cursor", "discard", "font-face", "font-face-format", "font-face-name", "font-face-src", "font-face-uri", "foreignobject", "hatch", "hatchpath", "mesh", "meshgradient", "meshpatch", "meshrow", "missing-glyph", "script", "set", "solidcolor", "unknown", "use"]);
+var mathMl$1 = freeze(["math", "menclose", "merror", "mfenced", "mfrac", "mglyph", "mi", "mlabeledtr", "mmultiscripts", "mn", "mo", "mover", "mpadded", "mphantom", "mroot", "mrow", "ms", "mspace", "msqrt", "mstyle", "msub", "msup", "msubsup", "mtable", "mtd", "mtext", "mtr", "munder", "munderover", "mprescripts"]);
+var mathMlDisallowed = freeze(["maction", "maligngroup", "malignmark", "mlongdiv", "mscarries", "mscarry", "msgroup", "mstack", "msline", "msrow", "semantics", "annotation", "annotation-xml", "mprescripts", "none"]);
+var text = freeze(["#text"]);
+var html = freeze(["accept", "action", "align", "alt", "autocapitalize", "autocomplete", "autopictureinpicture", "autoplay", "background", "bgcolor", "border", "capture", "cellpadding", "cellspacing", "checked", "cite", "class", "clear", "color", "cols", "colspan", "command", "commandfor", "controls", "controlslist", "coords", "crossorigin", "datetime", "decoding", "default", "dir", "disabled", "disablepictureinpicture", "disableremoteplayback", "download", "draggable", "enctype", "enterkeyhint", "exportparts", "face", "for", "headers", "height", "hidden", "high", "href", "hreflang", "id", "inert", "inputmode", "integrity", "ismap", "kind", "label", "lang", "list", "loading", "loop", "low", "max", "maxlength", "media", "method", "min", "minlength", "multiple", "muted", "name", "nonce", "noshade", "novalidate", "nowrap", "open", "optimum", "part", "pattern", "placeholder", "playsinline", "popover", "popovertarget", "popovertargetaction", "poster", "preload", "pubdate", "radiogroup", "readonly", "rel", "required", "rev", "reversed", "role", "rows", "rowspan", "spellcheck", "scope", "selected", "shape", "size", "sizes", "slot", "span", "srclang", "start", "src", "srcset", "step", "style", "summary", "tabindex", "title", "translate", "type", "usemap", "valign", "value", "width", "wrap", "xmlns"]);
+var svg = freeze(["accent-height", "accumulate", "additive", "alignment-baseline", "amplitude", "ascent", "attributename", "attributetype", "azimuth", "basefrequency", "baseline-shift", "begin", "bias", "by", "class", "clip", "clippathunits", "clip-path", "clip-rule", "color", "color-interpolation", "color-interpolation-filters", "color-profile", "color-rendering", "cx", "cy", "d", "dx", "dy", "diffuseconstant", "direction", "display", "divisor", "dominant-baseline", "dur", "edgemode", "elevation", "end", "exponent", "fill", "fill-opacity", "fill-rule", "filter", "filterunits", "flood-color", "flood-opacity", "font-family", "font-size", "font-size-adjust", "font-stretch", "font-style", "font-variant", "font-weight", "fx", "fy", "g1", "g2", "glyph-name", "glyphref", "gradientunits", "gradienttransform", "height", "href", "id", "image-rendering", "in", "in2", "intercept", "k", "k1", "k2", "k3", "k4", "kerning", "keypoints", "keysplines", "keytimes", "lang", "lengthadjust", "letter-spacing", "kernelmatrix", "kernelunitlength", "lighting-color", "local", "marker-end", "marker-mid", "marker-start", "markerheight", "markerunits", "markerwidth", "maskcontentunits", "maskunits", "max", "mask", "mask-type", "media", "method", "mode", "min", "name", "numoctaves", "offset", "operator", "opacity", "order", "orient", "orientation", "origin", "overflow", "paint-order", "path", "pathlength", "patterncontentunits", "patterntransform", "patternunits", "points", "preservealpha", "preserveaspectratio", "primitiveunits", "r", "rx", "ry", "radius", "refx", "refy", "repeatcount", "repeatdur", "restart", "result", "rotate", "scale", "seed", "shape-rendering", "slope", "specularconstant", "specularexponent", "spreadmethod", "startoffset", "stddeviation", "stitchtiles", "stop-color", "stop-opacity", "stroke-dasharray", "stroke-dashoffset", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-opacity", "stroke", "stroke-width", "style", "surfacescale", "systemlanguage", "tabindex", "tablevalues", "targetx", "targety", "transform", "transform-origin", "text-anchor", "text-decoration", "text-orientation", "text-rendering", "textlength", "type", "u1", "u2", "unicode", "values", "viewbox", "visibility", "version", "vert-adv-y", "vert-origin-x", "vert-origin-y", "width", "word-spacing", "wrap", "writing-mode", "xchannelselector", "ychannelselector", "x", "x1", "x2", "xmlns", "y", "y1", "y2", "z", "zoomandpan"]);
+var mathMl = freeze(["accent", "accentunder", "align", "bevelled", "close", "columnalign", "columnlines", "columnspacing", "columnspan", "denomalign", "depth", "dir", "display", "displaystyle", "encoding", "fence", "frame", "height", "href", "id", "largeop", "length", "linethickness", "lquote", "lspace", "mathbackground", "mathcolor", "mathsize", "mathvariant", "maxsize", "minsize", "movablelimits", "notation", "numalign", "open", "rowalign", "rowlines", "rowspacing", "rowspan", "rspace", "rquote", "scriptlevel", "scriptminsize", "scriptsizemultiplier", "selection", "separator", "separators", "stretchy", "subscriptshift", "supscriptshift", "symmetric", "voffset", "width", "xmlns"]);
+var xml = freeze(["xlink:href", "xml:id", "xlink:title", "xml:space", "xmlns:xlink"]);
+var MUSTACHE_EXPR = seal(/{{[\w\W]*|^[\w\W]*}}/g);
+var ERB_EXPR = seal(/<%[\w\W]*|^[\w\W]*%>/g);
+var TMPLIT_EXPR = seal(/\${[\w\W]*/g);
+var DATA_ATTR = seal(/^data-[\-\w.\u00B7-\uFFFF]+$/);
+var ARIA_ATTR = seal(/^aria-[\-\w]+$/);
+var IS_ALLOWED_URI = seal(
+  /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
+  // eslint-disable-line no-useless-escape
+);
+var IS_SCRIPT_OR_DATA = seal(/^(?:\w+script|data):/i);
+var ATTR_WHITESPACE = seal(
+  /[\u0000-\u0020\u00A0\u1680\u180E\u2000-\u2029\u205F\u3000]/g
+  // eslint-disable-line no-control-regex
+);
+var DOCTYPE_NAME = seal(/^html$/i);
+var CUSTOM_ELEMENT = seal(/^[a-z][.\w]*(-[.\w]+)+$/i);
+var ELEMENT_MARKUP_PROBE = seal(/<[/\w!]/g);
+var COMMENT_MARKUP_PROBE = seal(/<[/\w]/g);
+var FALLBACK_TAG_CLOSE = seal(/<\/no(script|embed|frames)/i);
+var SELF_CLOSING_TAG = seal(/\/>/i);
+var NODE_TYPE = {
+  element: 1,
+  attribute: 2,
+  text: 3,
+  cdataSection: 4,
+  entityReference: 5,
+  // Deprecated
+  entityNode: 6,
+  // Deprecated
+  processingInstruction: 7,
+  comment: 8,
+  document: 9,
+  documentType: 10,
+  documentFragment: 11,
+  notation: 12
+  // Deprecated
+};
+var getGlobal = function getGlobal2() {
+  return typeof window === "undefined" ? null : window;
+};
+var _createTrustedTypesPolicy = function _createTrustedTypesPolicy2(trustedTypes, purifyHostElement) {
+  if (typeof trustedTypes !== "object" || typeof trustedTypes.createPolicy !== "function") {
+    return null;
+  }
+  let suffix = null;
+  const ATTR_NAME = "data-tt-policy-suffix";
+  if (purifyHostElement && purifyHostElement.hasAttribute(ATTR_NAME)) {
+    suffix = purifyHostElement.getAttribute(ATTR_NAME);
+  }
+  const policyName = "dompurify" + (suffix ? "#" + suffix : "");
+  try {
+    return trustedTypes.createPolicy(policyName, {
+      createHTML(html2) {
+        return html2;
+      },
+      createScriptURL(scriptUrl) {
+        return scriptUrl;
+      }
+    });
+  } catch (_3) {
+    console.warn("TrustedTypes policy " + policyName + " could not be created.");
+    return null;
+  }
+};
+var _createHooksMap = function _createHooksMap2() {
+  return {
+    afterSanitizeAttributes: [],
+    afterSanitizeElements: [],
+    afterSanitizeShadowDOM: [],
+    beforeSanitizeAttributes: [],
+    beforeSanitizeElements: [],
+    beforeSanitizeShadowDOM: [],
+    uponSanitizeAttribute: [],
+    uponSanitizeElement: [],
+    uponSanitizeShadowNode: []
+  };
+};
+var _resolveSetOption = function _resolveSetOption2(cfg, key, fallback, options) {
+  return objectHasOwnProperty(cfg, key) && arrayIsArray(cfg[key]) ? addToSet(options.base ? clone(options.base) : {}, cfg[key], options.transform) : fallback;
+};
+function createDOMPurify() {
+  let window2 = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : getGlobal();
+  const DOMPurify = (root) => createDOMPurify(root);
+  DOMPurify.version = "3.4.13";
+  DOMPurify.removed = [];
+  if (!window2 || !window2.document || window2.document.nodeType !== NODE_TYPE.document || !window2.Element) {
+    DOMPurify.isSupported = false;
+    return DOMPurify;
+  }
+  let document2 = window2.document;
+  const originalDocument = document2;
+  const currentScript = originalDocument.currentScript;
+  window2.DocumentFragment;
+  const HTMLTemplateElement = window2.HTMLTemplateElement, Node = window2.Node, Element = window2.Element, NodeFilter = window2.NodeFilter, _window$NamedNodeMap = window2.NamedNodeMap;
+  _window$NamedNodeMap === void 0 ? window2.NamedNodeMap || window2.MozNamedAttrMap : _window$NamedNodeMap;
+  window2.HTMLFormElement;
+  const DOMParser = window2.DOMParser, trustedTypes = window2.trustedTypes;
+  const ElementPrototype = Element.prototype;
+  const cloneNode = lookupGetter(ElementPrototype, "cloneNode");
+  const remove = lookupGetter(ElementPrototype, "remove");
+  const getNextSibling = lookupGetter(ElementPrototype, "nextSibling");
+  const getChildNodes = lookupGetter(ElementPrototype, "childNodes");
+  const getParentNode = lookupGetter(ElementPrototype, "parentNode");
+  const getShadowRoot = lookupGetter(ElementPrototype, "shadowRoot");
+  const getAttributes = lookupGetter(ElementPrototype, "attributes");
+  const getNodeType = Node && Node.prototype ? lookupGetter(Node.prototype, "nodeType") : null;
+  const getNodeName = Node && Node.prototype ? lookupGetter(Node.prototype, "nodeName") : null;
+  const getOwnerDocument = Node && Node.prototype ? lookupGetter(Node.prototype, "ownerDocument") : null;
+  if (typeof HTMLTemplateElement === "function") {
+    const template = document2.createElement("template");
+    if (template.content && template.content.ownerDocument) {
+      document2 = template.content.ownerDocument;
+    }
+  }
+  let trustedTypesPolicy;
+  let emptyHTML = "";
+  let defaultTrustedTypesPolicy;
+  let defaultTrustedTypesPolicyResolved = false;
+  let IN_TRUSTED_TYPES_POLICY = 0;
+  const _assertNotInTrustedTypesPolicy = function _assertNotInTrustedTypesPolicy2() {
+    if (IN_TRUSTED_TYPES_POLICY > 0) {
+      throw typeErrorCreate('A configured TRUSTED_TYPES_POLICY callback (createHTML or createScriptURL) must not call DOMPurify.sanitize, as that causes infinite recursion. Do not pass a policy whose callbacks wrap DOMPurify as TRUSTED_TYPES_POLICY; see the "DOMPurify and Trusted Types" section of the README.');
+    }
+  };
+  const _createTrustedHTML = function _createTrustedHTML2(html2) {
+    _assertNotInTrustedTypesPolicy();
+    IN_TRUSTED_TYPES_POLICY++;
+    try {
+      return trustedTypesPolicy.createHTML(html2);
+    } finally {
+      IN_TRUSTED_TYPES_POLICY--;
+    }
+  };
+  const _createTrustedScriptURL = function _createTrustedScriptURL2(scriptUrl) {
+    _assertNotInTrustedTypesPolicy();
+    IN_TRUSTED_TYPES_POLICY++;
+    try {
+      return trustedTypesPolicy.createScriptURL(scriptUrl);
+    } finally {
+      IN_TRUSTED_TYPES_POLICY--;
+    }
+  };
+  const _getDefaultTrustedTypesPolicy = function _getDefaultTrustedTypesPolicy2() {
+    if (!defaultTrustedTypesPolicyResolved) {
+      defaultTrustedTypesPolicy = _createTrustedTypesPolicy(trustedTypes, currentScript);
+      defaultTrustedTypesPolicyResolved = true;
+    }
+    return defaultTrustedTypesPolicy;
+  };
+  const _document = document2, implementation = _document.implementation, createNodeIterator = _document.createNodeIterator, createDocumentFragment = _document.createDocumentFragment, getElementsByTagName = _document.getElementsByTagName;
+  const importNode = originalDocument.importNode;
+  let hooks2 = _createHooksMap();
+  DOMPurify.isSupported = typeof entries === "function" && typeof getParentNode === "function" && implementation && implementation.createHTMLDocument !== void 0;
+  const MUSTACHE_EXPR$1 = MUSTACHE_EXPR, ERB_EXPR$1 = ERB_EXPR, TMPLIT_EXPR$1 = TMPLIT_EXPR, DATA_ATTR$1 = DATA_ATTR, ARIA_ATTR$1 = ARIA_ATTR, IS_SCRIPT_OR_DATA$1 = IS_SCRIPT_OR_DATA, ATTR_WHITESPACE$1 = ATTR_WHITESPACE, CUSTOM_ELEMENT$1 = CUSTOM_ELEMENT;
+  let IS_ALLOWED_URI$1 = IS_ALLOWED_URI;
+  let ALLOWED_TAGS = null;
+  const DEFAULT_ALLOWED_TAGS = addToSet({}, [...html$1, ...svg$1, ...svgFilters, ...mathMl$1, ...text]);
+  let ALLOWED_ATTR = null;
+  const DEFAULT_ALLOWED_ATTR = addToSet({}, [...html, ...svg, ...mathMl, ...xml]);
+  let CUSTOM_ELEMENT_HANDLING = Object.seal(create2(null, {
+    tagNameCheck: {
+      writable: true,
+      configurable: false,
+      enumerable: true,
+      value: null
+    },
+    attributeNameCheck: {
+      writable: true,
+      configurable: false,
+      enumerable: true,
+      value: null
+    },
+    allowCustomizedBuiltInElements: {
+      writable: true,
+      configurable: false,
+      enumerable: true,
+      value: false
+    }
+  }));
+  let FORBID_TAGS = null;
+  let FORBID_ATTR = null;
+  const EXTRA_ELEMENT_HANDLING = Object.seal(create2(null, {
+    tagCheck: {
+      writable: true,
+      configurable: false,
+      enumerable: true,
+      value: null
+    },
+    attributeCheck: {
+      writable: true,
+      configurable: false,
+      enumerable: true,
+      value: null
+    }
+  }));
+  let ALLOW_ARIA_ATTR = true;
+  let ALLOW_DATA_ATTR = true;
+  let ALLOW_UNKNOWN_PROTOCOLS = false;
+  let ALLOW_SELF_CLOSE_IN_ATTR = true;
+  let SAFE_FOR_TEMPLATES = false;
+  let SAFE_FOR_XML = true;
+  let WHOLE_DOCUMENT = false;
+  let SET_CONFIG = false;
+  let SET_CONFIG_ALLOWED_TAGS = null;
+  let SET_CONFIG_ALLOWED_ATTR = null;
+  let FORCE_BODY = false;
+  let RETURN_DOM = false;
+  let RETURN_DOM_FRAGMENT = false;
+  let RETURN_TRUSTED_TYPE = false;
+  let SANITIZE_DOM = true;
+  let SANITIZE_NAMED_PROPS = false;
+  const SANITIZE_NAMED_PROPS_PREFIX = "user-content-";
+  let KEEP_CONTENT = true;
+  let IN_PLACE = false;
+  let USE_PROFILES = {};
+  let FORBID_CONTENTS = null;
+  const DEFAULT_FORBID_CONTENTS = addToSet({}, [
+    "annotation-xml",
+    "audio",
+    "colgroup",
+    "desc",
+    "foreignobject",
+    "head",
+    "iframe",
+    "math",
+    "mi",
+    "mn",
+    "mo",
+    "ms",
+    "mtext",
+    "noembed",
+    "noframes",
+    "noscript",
+    "plaintext",
+    "script",
+    // <selectedcontent> mirrors the selected <option>'s subtree, cloned by
+    // the UA (customizable <select>) — including any on* handlers — and the
+    // engine re-mirrors synchronously whenever a removal changes which
+    // option/selectedcontent is current, even inside DOMPurify's inert
+    // DOMParser document. Hoisting its children on removal re-inserts a fresh
+    // mirror target ahead of the walk, which the engine refills, looping
+    // forever (DoS) and amplifying output. Dropping its content on removal
+    // (rather than hoisting) breaks that cascade; the content is a duplicate
+    // of the option, which is sanitized on its own. See campaign-3 F1/F6.
+    "selectedcontent",
+    "style",
+    "svg",
+    "template",
+    "thead",
+    "title",
+    "video",
+    "xmp"
+  ]);
+  let DATA_URI_TAGS = null;
+  const DEFAULT_DATA_URI_TAGS = addToSet({}, ["audio", "video", "img", "source", "image", "track"]);
+  let URI_SAFE_ATTRIBUTES = null;
+  const DEFAULT_URI_SAFE_ATTRIBUTES = addToSet({}, ["alt", "class", "for", "id", "label", "name", "pattern", "placeholder", "role", "summary", "title", "value", "style", "xmlns"]);
+  const MATHML_NAMESPACE = "http://www.w3.org/1998/Math/MathML";
+  const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+  const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
+  let NAMESPACE = HTML_NAMESPACE;
+  let IS_EMPTY_INPUT = false;
+  let ALLOWED_NAMESPACES = null;
+  const DEFAULT_ALLOWED_NAMESPACES = addToSet({}, [MATHML_NAMESPACE, SVG_NAMESPACE, HTML_NAMESPACE], stringToString);
+  const DEFAULT_MATHML_TEXT_INTEGRATION_POINTS = freeze(["mi", "mo", "mn", "ms", "mtext"]);
+  let MATHML_TEXT_INTEGRATION_POINTS = addToSet({}, DEFAULT_MATHML_TEXT_INTEGRATION_POINTS);
+  const DEFAULT_HTML_INTEGRATION_POINTS = freeze(["annotation-xml"]);
+  let HTML_INTEGRATION_POINTS = addToSet({}, DEFAULT_HTML_INTEGRATION_POINTS);
+  const COMMON_SVG_AND_HTML_ELEMENTS = addToSet({}, ["title", "style", "font", "a", "script"]);
+  let PARSER_MEDIA_TYPE = null;
+  const SUPPORTED_PARSER_MEDIA_TYPES = ["application/xhtml+xml", "text/html"];
+  const DEFAULT_PARSER_MEDIA_TYPE = "text/html";
+  let transformCaseFunc = null;
+  let CONFIG = null;
+  const formElement = document2.createElement("form");
+  const isRegexOrFunction = function isRegexOrFunction2(testValue) {
+    return testValue instanceof RegExp || testValue instanceof Function;
+  };
+  const _parseConfig = function _parseConfig2() {
+    let cfg = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : {};
+    if (CONFIG && CONFIG === cfg) {
+      return;
+    }
+    if (!cfg || typeof cfg !== "object") {
+      cfg = {};
+    }
+    cfg = clone(cfg);
+    PARSER_MEDIA_TYPE = // eslint-disable-next-line unicorn/prefer-includes
+    SUPPORTED_PARSER_MEDIA_TYPES.indexOf(cfg.PARSER_MEDIA_TYPE) === -1 ? DEFAULT_PARSER_MEDIA_TYPE : cfg.PARSER_MEDIA_TYPE;
+    transformCaseFunc = PARSER_MEDIA_TYPE === "application/xhtml+xml" ? stringToString : stringToLowerCase;
+    ALLOWED_TAGS = _resolveSetOption(cfg, "ALLOWED_TAGS", DEFAULT_ALLOWED_TAGS, {
+      transform: transformCaseFunc
+    });
+    ALLOWED_ATTR = _resolveSetOption(cfg, "ALLOWED_ATTR", DEFAULT_ALLOWED_ATTR, {
+      transform: transformCaseFunc
+    });
+    ALLOWED_NAMESPACES = _resolveSetOption(cfg, "ALLOWED_NAMESPACES", DEFAULT_ALLOWED_NAMESPACES, {
+      transform: stringToString
+    });
+    URI_SAFE_ATTRIBUTES = _resolveSetOption(cfg, "ADD_URI_SAFE_ATTR", DEFAULT_URI_SAFE_ATTRIBUTES, {
+      transform: transformCaseFunc,
+      base: DEFAULT_URI_SAFE_ATTRIBUTES
+    });
+    DATA_URI_TAGS = _resolveSetOption(cfg, "ADD_DATA_URI_TAGS", DEFAULT_DATA_URI_TAGS, {
+      transform: transformCaseFunc,
+      base: DEFAULT_DATA_URI_TAGS
+    });
+    FORBID_CONTENTS = _resolveSetOption(cfg, "FORBID_CONTENTS", DEFAULT_FORBID_CONTENTS, {
+      transform: transformCaseFunc
+    });
+    FORBID_TAGS = _resolveSetOption(cfg, "FORBID_TAGS", clone({}), {
+      transform: transformCaseFunc
+    });
+    FORBID_ATTR = _resolveSetOption(cfg, "FORBID_ATTR", clone({}), {
+      transform: transformCaseFunc
+    });
+    USE_PROFILES = objectHasOwnProperty(cfg, "USE_PROFILES") ? cfg.USE_PROFILES && typeof cfg.USE_PROFILES === "object" ? clone(cfg.USE_PROFILES) : cfg.USE_PROFILES : false;
+    ALLOW_ARIA_ATTR = cfg.ALLOW_ARIA_ATTR !== false;
+    ALLOW_DATA_ATTR = cfg.ALLOW_DATA_ATTR !== false;
+    ALLOW_UNKNOWN_PROTOCOLS = cfg.ALLOW_UNKNOWN_PROTOCOLS || false;
+    ALLOW_SELF_CLOSE_IN_ATTR = cfg.ALLOW_SELF_CLOSE_IN_ATTR !== false;
+    SAFE_FOR_TEMPLATES = cfg.SAFE_FOR_TEMPLATES || false;
+    SAFE_FOR_XML = cfg.SAFE_FOR_XML !== false;
+    WHOLE_DOCUMENT = cfg.WHOLE_DOCUMENT || false;
+    RETURN_DOM = cfg.RETURN_DOM || false;
+    RETURN_DOM_FRAGMENT = cfg.RETURN_DOM_FRAGMENT || false;
+    RETURN_TRUSTED_TYPE = cfg.RETURN_TRUSTED_TYPE || false;
+    FORCE_BODY = cfg.FORCE_BODY || false;
+    SANITIZE_DOM = cfg.SANITIZE_DOM !== false;
+    SANITIZE_NAMED_PROPS = cfg.SANITIZE_NAMED_PROPS || false;
+    KEEP_CONTENT = cfg.KEEP_CONTENT !== false;
+    IN_PLACE = cfg.IN_PLACE || false;
+    IS_ALLOWED_URI$1 = isRegex(cfg.ALLOWED_URI_REGEXP) ? cfg.ALLOWED_URI_REGEXP : IS_ALLOWED_URI;
+    NAMESPACE = typeof cfg.NAMESPACE === "string" ? cfg.NAMESPACE : HTML_NAMESPACE;
+    MATHML_TEXT_INTEGRATION_POINTS = objectHasOwnProperty(cfg, "MATHML_TEXT_INTEGRATION_POINTS") && cfg.MATHML_TEXT_INTEGRATION_POINTS && typeof cfg.MATHML_TEXT_INTEGRATION_POINTS === "object" ? clone(cfg.MATHML_TEXT_INTEGRATION_POINTS) : addToSet({}, DEFAULT_MATHML_TEXT_INTEGRATION_POINTS);
+    HTML_INTEGRATION_POINTS = objectHasOwnProperty(cfg, "HTML_INTEGRATION_POINTS") && cfg.HTML_INTEGRATION_POINTS && typeof cfg.HTML_INTEGRATION_POINTS === "object" ? clone(cfg.HTML_INTEGRATION_POINTS) : addToSet({}, DEFAULT_HTML_INTEGRATION_POINTS);
+    const customElementHandling = objectHasOwnProperty(cfg, "CUSTOM_ELEMENT_HANDLING") && cfg.CUSTOM_ELEMENT_HANDLING && typeof cfg.CUSTOM_ELEMENT_HANDLING === "object" ? clone(cfg.CUSTOM_ELEMENT_HANDLING) : create2(null);
+    CUSTOM_ELEMENT_HANDLING = create2(null);
+    if (objectHasOwnProperty(customElementHandling, "tagNameCheck") && isRegexOrFunction(customElementHandling.tagNameCheck)) {
+      CUSTOM_ELEMENT_HANDLING.tagNameCheck = customElementHandling.tagNameCheck;
+    }
+    if (objectHasOwnProperty(customElementHandling, "attributeNameCheck") && isRegexOrFunction(customElementHandling.attributeNameCheck)) {
+      CUSTOM_ELEMENT_HANDLING.attributeNameCheck = customElementHandling.attributeNameCheck;
+    }
+    if (objectHasOwnProperty(customElementHandling, "allowCustomizedBuiltInElements") && typeof customElementHandling.allowCustomizedBuiltInElements === "boolean") {
+      CUSTOM_ELEMENT_HANDLING.allowCustomizedBuiltInElements = customElementHandling.allowCustomizedBuiltInElements;
+    }
+    seal(CUSTOM_ELEMENT_HANDLING);
+    if (SAFE_FOR_TEMPLATES) {
+      ALLOW_DATA_ATTR = false;
+    }
+    if (RETURN_DOM_FRAGMENT) {
+      RETURN_DOM = true;
+    }
+    if (USE_PROFILES) {
+      ALLOWED_TAGS = addToSet({}, text);
+      ALLOWED_ATTR = create2(null);
+      if (USE_PROFILES.html === true) {
+        addToSet(ALLOWED_TAGS, html$1);
+        addToSet(ALLOWED_ATTR, html);
+      }
+      if (USE_PROFILES.svg === true) {
+        addToSet(ALLOWED_TAGS, svg$1);
+        addToSet(ALLOWED_ATTR, svg);
+        addToSet(ALLOWED_ATTR, xml);
+      }
+      if (USE_PROFILES.svgFilters === true) {
+        addToSet(ALLOWED_TAGS, svgFilters);
+        addToSet(ALLOWED_ATTR, svg);
+        addToSet(ALLOWED_ATTR, xml);
+      }
+      if (USE_PROFILES.mathMl === true) {
+        addToSet(ALLOWED_TAGS, mathMl$1);
+        addToSet(ALLOWED_ATTR, mathMl);
+        addToSet(ALLOWED_ATTR, xml);
+      }
+    }
+    EXTRA_ELEMENT_HANDLING.tagCheck = null;
+    EXTRA_ELEMENT_HANDLING.attributeCheck = null;
+    if (objectHasOwnProperty(cfg, "ADD_TAGS")) {
+      if (typeof cfg.ADD_TAGS === "function") {
+        EXTRA_ELEMENT_HANDLING.tagCheck = cfg.ADD_TAGS;
+      } else if (arrayIsArray(cfg.ADD_TAGS)) {
+        if (ALLOWED_TAGS === DEFAULT_ALLOWED_TAGS) {
+          ALLOWED_TAGS = clone(ALLOWED_TAGS);
+        }
+        addToSet(ALLOWED_TAGS, cfg.ADD_TAGS, transformCaseFunc);
+      }
+    }
+    if (objectHasOwnProperty(cfg, "ADD_ATTR")) {
+      if (typeof cfg.ADD_ATTR === "function") {
+        EXTRA_ELEMENT_HANDLING.attributeCheck = cfg.ADD_ATTR;
+      } else if (arrayIsArray(cfg.ADD_ATTR)) {
+        if (ALLOWED_ATTR === DEFAULT_ALLOWED_ATTR) {
+          ALLOWED_ATTR = clone(ALLOWED_ATTR);
+        }
+        addToSet(ALLOWED_ATTR, cfg.ADD_ATTR, transformCaseFunc);
+      }
+    }
+    if (objectHasOwnProperty(cfg, "ADD_URI_SAFE_ATTR") && arrayIsArray(cfg.ADD_URI_SAFE_ATTR)) {
+      addToSet(URI_SAFE_ATTRIBUTES, cfg.ADD_URI_SAFE_ATTR, transformCaseFunc);
+    }
+    if (objectHasOwnProperty(cfg, "FORBID_CONTENTS") && arrayIsArray(cfg.FORBID_CONTENTS)) {
+      if (FORBID_CONTENTS === DEFAULT_FORBID_CONTENTS) {
+        FORBID_CONTENTS = clone(FORBID_CONTENTS);
+      }
+      addToSet(FORBID_CONTENTS, cfg.FORBID_CONTENTS, transformCaseFunc);
+    }
+    if (objectHasOwnProperty(cfg, "ADD_FORBID_CONTENTS") && arrayIsArray(cfg.ADD_FORBID_CONTENTS)) {
+      if (FORBID_CONTENTS === DEFAULT_FORBID_CONTENTS) {
+        FORBID_CONTENTS = clone(FORBID_CONTENTS);
+      }
+      addToSet(FORBID_CONTENTS, cfg.ADD_FORBID_CONTENTS, transformCaseFunc);
+    }
+    if (KEEP_CONTENT) {
+      ALLOWED_TAGS["#text"] = true;
+    }
+    if (WHOLE_DOCUMENT) {
+      addToSet(ALLOWED_TAGS, ["html", "head", "body"]);
+    }
+    if (ALLOWED_TAGS.table) {
+      addToSet(ALLOWED_TAGS, ["tbody"]);
+      delete FORBID_TAGS.tbody;
+    }
+    if (cfg.TRUSTED_TYPES_POLICY) {
+      if (typeof cfg.TRUSTED_TYPES_POLICY.createHTML !== "function") {
+        throw typeErrorCreate('TRUSTED_TYPES_POLICY configuration option must provide a "createHTML" hook.');
+      }
+      if (typeof cfg.TRUSTED_TYPES_POLICY.createScriptURL !== "function") {
+        throw typeErrorCreate('TRUSTED_TYPES_POLICY configuration option must provide a "createScriptURL" hook.');
+      }
+      const previousTrustedTypesPolicy = trustedTypesPolicy;
+      trustedTypesPolicy = cfg.TRUSTED_TYPES_POLICY;
+      try {
+        emptyHTML = _createTrustedHTML("");
+      } catch (error) {
+        trustedTypesPolicy = previousTrustedTypesPolicy;
+        throw error;
+      }
+    } else if (cfg.TRUSTED_TYPES_POLICY === null) {
+      trustedTypesPolicy = void 0;
+      emptyHTML = "";
+    } else {
+      if (trustedTypesPolicy === void 0) {
+        trustedTypesPolicy = _getDefaultTrustedTypesPolicy();
+      }
+      if (trustedTypesPolicy && typeof emptyHTML === "string") {
+        emptyHTML = _createTrustedHTML("");
+      }
+    }
+    if (freeze) {
+      freeze(cfg);
+    }
+    CONFIG = cfg;
+  };
+  const ALL_SVG_TAGS = addToSet({}, [...svg$1, ...svgFilters, ...svgDisallowed]);
+  const ALL_MATHML_TAGS = addToSet({}, [...mathMl$1, ...mathMlDisallowed]);
+  const _checkSvgNamespace = function _checkSvgNamespace2(tagName, parent, parentTagName) {
+    if (parent.namespaceURI === HTML_NAMESPACE) {
+      return tagName === "svg";
+    }
+    if (parent.namespaceURI === MATHML_NAMESPACE) {
+      return tagName === "svg" && (parentTagName === "annotation-xml" || MATHML_TEXT_INTEGRATION_POINTS[parentTagName]);
+    }
+    return Boolean(ALL_SVG_TAGS[tagName]);
+  };
+  const _checkMathMlNamespace = function _checkMathMlNamespace2(tagName, parent, parentTagName) {
+    if (parent.namespaceURI === HTML_NAMESPACE) {
+      return tagName === "math";
+    }
+    if (parent.namespaceURI === SVG_NAMESPACE) {
+      return tagName === "math" && HTML_INTEGRATION_POINTS[parentTagName];
+    }
+    return Boolean(ALL_MATHML_TAGS[tagName]);
+  };
+  const _checkHtmlNamespace = function _checkHtmlNamespace2(tagName, parent, parentTagName) {
+    if (parent.namespaceURI === SVG_NAMESPACE && !HTML_INTEGRATION_POINTS[parentTagName]) {
+      return false;
+    }
+    if (parent.namespaceURI === MATHML_NAMESPACE && !MATHML_TEXT_INTEGRATION_POINTS[parentTagName]) {
+      return false;
+    }
+    return !ALL_MATHML_TAGS[tagName] && (COMMON_SVG_AND_HTML_ELEMENTS[tagName] || !ALL_SVG_TAGS[tagName]);
+  };
+  const _checkValidNamespace = function _checkValidNamespace2(element) {
+    let parent = getParentNode(element);
+    if (!parent || !parent.tagName) {
+      parent = {
+        namespaceURI: NAMESPACE,
+        tagName: "template"
+      };
+    }
+    const tagName = stringToLowerCase(element.tagName);
+    const parentTagName = stringToLowerCase(parent.tagName);
+    if (!ALLOWED_NAMESPACES[element.namespaceURI]) {
+      return false;
+    }
+    if (element.namespaceURI === SVG_NAMESPACE) {
+      return _checkSvgNamespace(tagName, parent, parentTagName);
+    }
+    if (element.namespaceURI === MATHML_NAMESPACE) {
+      return _checkMathMlNamespace(tagName, parent, parentTagName);
+    }
+    if (element.namespaceURI === HTML_NAMESPACE) {
+      return _checkHtmlNamespace(tagName, parent, parentTagName);
+    }
+    if (PARSER_MEDIA_TYPE === "application/xhtml+xml" && ALLOWED_NAMESPACES[element.namespaceURI]) {
+      return true;
+    }
+    return false;
+  };
+  const _forceRemove = function _forceRemove2(node) {
+    arrayPush(DOMPurify.removed, {
+      element: node
+    });
+    try {
+      getParentNode(node).removeChild(node);
+    } catch (_3) {
+      remove(node);
+      if (!getParentNode(node)) {
+        throw typeErrorCreate("a node selected for removal could not be detached from its tree and cannot be safely returned; refusing to sanitize in place");
+      }
+    }
+  };
+  const _neutralizeRoot = function _neutralizeRoot2(root) {
+    _neutralizeSubtree(root);
+    const childNodes = getChildNodes(root);
+    if (childNodes) {
+      const snapshot = [];
+      arrayForEach(childNodes, (child) => {
+        arrayPush(snapshot, child);
+      });
+      arrayForEach(snapshot, (child) => {
+        try {
+          remove(child);
+        } catch (_3) {
+        }
+      });
+    }
+    const attributes = getAttributes(root);
+    if (attributes) {
+      for (let i = attributes.length - 1; i >= 0; --i) {
+        const attribute = attributes[i];
+        const name = attribute && attribute.name;
+        if (typeof name === "string") {
+          try {
+            root.removeAttribute(name);
+          } catch (_3) {
+          }
+        }
+      }
+    }
+  };
+  const _removeAttribute = function _removeAttribute2(name, element) {
+    try {
+      arrayPush(DOMPurify.removed, {
+        attribute: element.getAttributeNode(name),
+        from: element
+      });
+    } catch (_3) {
+      arrayPush(DOMPurify.removed, {
+        attribute: null,
+        from: element
+      });
+    }
+    element.removeAttribute(name);
+    if (name === "is") {
+      if (RETURN_DOM || RETURN_DOM_FRAGMENT) {
+        try {
+          _forceRemove(element);
+        } catch (_3) {
+        }
+      } else {
+        try {
+          element.setAttribute(name, "");
+        } catch (_3) {
+        }
+      }
+    }
+  };
+  const _stripDisallowedAttributes = function _stripDisallowedAttributes2(element) {
+    const attributes = getAttributes(element);
+    if (!attributes) {
+      return;
+    }
+    for (let i = attributes.length - 1; i >= 0; --i) {
+      const attribute = attributes[i];
+      const name = attribute && attribute.name;
+      if (typeof name !== "string" || ALLOWED_ATTR[transformCaseFunc(name)]) {
+        continue;
+      }
+      try {
+        element.removeAttribute(name);
+      } catch (_3) {
+      }
+    }
+  };
+  const _neutralizeSubtree = function _neutralizeSubtree2(root) {
+    const stack = [root];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      const nodeType = getNodeType ? getNodeType(node) : node.nodeType;
+      if (nodeType === NODE_TYPE.element) {
+        _stripDisallowedAttributes(node);
+      }
+      const childNodes = getChildNodes(node);
+      if (childNodes) {
+        for (let i = childNodes.length - 1; i >= 0; --i) {
+          stack.push(childNodes[i]);
+        }
+      }
+    }
+  };
+  const _neutralizePatchLinkage = function _neutralizePatchLinkage2(root) {
+    if (!SAFE_FOR_XML) {
+      return;
+    }
+    const stack = [root];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      const nodeType = getNodeType ? getNodeType(node) : node.nodeType;
+      if (nodeType === NODE_TYPE.processingInstruction || nodeType === NODE_TYPE.comment && regExpTest(COMMENT_MARKUP_PROBE, node.data)) {
+        try {
+          remove(node);
+        } catch (_3) {
+        }
+        continue;
+      }
+      if (nodeType === NODE_TYPE.element) {
+        const element = node;
+        const lcTag = transformCaseFunc(getNodeName ? getNodeName(node) : node.nodeName);
+        try {
+          if (element.hasAttribute && element.hasAttribute("patchsrc")) {
+            element.removeAttribute("patchsrc");
+          }
+          if (element.hasAttribute && element.hasAttribute("for") && lcTag !== "label" && lcTag !== "output") {
+            element.removeAttribute("for");
+          }
+        } catch (_3) {
+        }
+      }
+      const childNodes = getChildNodes(node);
+      if (childNodes) {
+        for (let i = childNodes.length - 1; i >= 0; --i) {
+          stack.push(childNodes[i]);
+        }
+      }
+    }
+  };
+  const _initDocument = function _initDocument2(dirty) {
+    let doc = null;
+    let leadingWhitespace = null;
+    if (FORCE_BODY) {
+      dirty = "<remove></remove>" + dirty;
+    } else {
+      const matches = stringMatch(dirty, /^[\r\n\t ]+/);
+      leadingWhitespace = matches && matches[0];
+    }
+    if (PARSER_MEDIA_TYPE === "application/xhtml+xml" && NAMESPACE === HTML_NAMESPACE) {
+      dirty = '<html xmlns="http://www.w3.org/1999/xhtml"><head></head><body>' + dirty + "</body></html>";
+    }
+    const dirtyPayload = trustedTypesPolicy ? _createTrustedHTML(dirty) : dirty;
+    if (NAMESPACE === HTML_NAMESPACE) {
+      try {
+        doc = new DOMParser().parseFromString(dirtyPayload, PARSER_MEDIA_TYPE);
+      } catch (_3) {
+      }
+    }
+    if (!doc || !doc.documentElement) {
+      doc = implementation.createDocument(NAMESPACE, "template", null);
+      try {
+        doc.documentElement.innerHTML = IS_EMPTY_INPUT ? emptyHTML : dirtyPayload;
+      } catch (_3) {
+      }
+    }
+    const body = doc.body || doc.documentElement;
+    if (dirty && leadingWhitespace) {
+      body.insertBefore(document2.createTextNode(leadingWhitespace), body.childNodes[0] || null);
+    }
+    if (NAMESPACE === HTML_NAMESPACE) {
+      return getElementsByTagName.call(doc, WHOLE_DOCUMENT ? "html" : "body")[0];
+    }
+    return WHOLE_DOCUMENT ? doc.documentElement : body;
+  };
+  const _createNodeIterator = function _createNodeIterator2(root) {
+    const doc = getOwnerDocument ? getOwnerDocument(root) : root.ownerDocument;
+    return createNodeIterator.call(
+      doc || root,
+      root,
+      // eslint-disable-next-line no-bitwise
+      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT | NodeFilter.SHOW_TEXT | NodeFilter.SHOW_PROCESSING_INSTRUCTION | NodeFilter.SHOW_CDATA_SECTION,
+      null
+    );
+  };
+  const _stripTemplateExpressions = function _stripTemplateExpressions2(value) {
+    value = stringReplace(value, MUSTACHE_EXPR$1, " ");
+    value = stringReplace(value, ERB_EXPR$1, " ");
+    value = stringReplace(value, TMPLIT_EXPR$1, " ");
+    return value;
+  };
+  const _scrubTemplateExpressions2 = function _scrubTemplateExpressions(node) {
+    var _node$querySelectorAl;
+    node.normalize();
+    const doc = getOwnerDocument ? getOwnerDocument(node) : node.ownerDocument;
+    const walker = createNodeIterator.call(
+      doc || node,
+      node,
+      // eslint-disable-next-line no-bitwise
+      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_COMMENT | NodeFilter.SHOW_CDATA_SECTION | NodeFilter.SHOW_PROCESSING_INSTRUCTION,
+      null
+    );
+    let currentNode = walker.nextNode();
+    while (currentNode) {
+      currentNode.data = _stripTemplateExpressions(currentNode.data);
+      currentNode = walker.nextNode();
+    }
+    const templates = (_node$querySelectorAl = node.querySelectorAll) === null || _node$querySelectorAl === void 0 ? void 0 : _node$querySelectorAl.call(node, "template");
+    if (templates) {
+      arrayForEach(templates, (tmpl) => {
+        if (_isDocumentFragment(tmpl.content)) {
+          _scrubTemplateExpressions2(tmpl.content);
+        }
+      });
+    }
+  };
+  const _isClobbered = function _isClobbered2(element) {
+    const realTagName = getNodeName ? getNodeName(element) : null;
+    if (typeof realTagName !== "string") {
+      return false;
+    }
+    if (transformCaseFunc(realTagName) !== "form") {
+      return false;
+    }
+    return typeof element.nodeName !== "string" || typeof element.textContent !== "string" || typeof element.removeChild !== "function" || // Realm-safe NamedNodeMap detection: equality against the cached
+    // prototype getter. Clobbered .attributes (e.g. <input name="attributes">)
+    // makes the direct read diverge from the cached read; a clean form
+    // (same-realm OR foreign-realm) has both reads pointing at the same
+    // canonical NamedNodeMap.
+    element.attributes !== getAttributes(element) || typeof element.removeAttribute !== "function" || typeof element.setAttribute !== "function" || typeof element.namespaceURI !== "string" || typeof element.insertBefore !== "function" || typeof element.hasChildNodes !== "function" || // NodeType clobbering probe. Cached Node.prototype.nodeType getter
+    // returns the integer 1 for any Element regardless of realm; direct
+    // read on a clobbered form (e.g. <input name="nodeType">) returns
+    // the named child element. Cheap addition — nodeType is read from
+    // an internal slot, no serialization cost — and removes a residual
+    // clobbering surface used by several mXSS / PI / comment branches
+    // in _sanitizeElements that compare currentNode.nodeType directly.
+    element.nodeType !== getNodeType(element) || // HTMLFormElement has [LegacyOverrideBuiltIns]: a descendant named
+    // "childNodes" shadows the prototype getter. Direct reads of
+    // form.childNodes from a clobbered form return the named child
+    // instead of the real NodeList, so any walk that reads it directly
+    // skips the form's real children. Compare the direct read to the
+    // cached Node.prototype getter — when the form's named-property
+    // getter intercepts the read, the two values differ and we flag
+    // the form. This catches every clobbering child type (input,
+    // select, etc.) regardless of whether the named child happens to
+    // carry a numeric .length, which a typeof-based probe would miss
+    // (e.g. HTMLSelectElement.length is a defined unsigned-long).
+    element.childNodes !== getChildNodes(element);
+  };
+  const _isDocumentFragment = function _isDocumentFragment2(value) {
+    if (!getNodeType || typeof value !== "object" || value === null) {
+      return false;
+    }
+    try {
+      return getNodeType(value) === NODE_TYPE.documentFragment;
+    } catch (_3) {
+      return false;
+    }
+  };
+  const _isNode = function _isNode2(value) {
+    if (!getNodeType || typeof value !== "object" || value === null) {
+      return false;
+    }
+    try {
+      return typeof getNodeType(value) === "number";
+    } catch (_3) {
+      return false;
+    }
+  };
+  function _executeHooks(hooks3, currentNode, data) {
+    if (hooks3.length === 0) {
+      return;
+    }
+    arrayForEach(hooks3, (hook) => {
+      hook.call(DOMPurify, currentNode, data, CONFIG);
+    });
+  }
+  const _isUnsafeNode = function _isUnsafeNode2(currentNode, tagName) {
+    if (SAFE_FOR_XML && currentNode.hasChildNodes() && !_isNode(currentNode.firstElementChild) && regExpTest(ELEMENT_MARKUP_PROBE, currentNode.textContent) && regExpTest(ELEMENT_MARKUP_PROBE, currentNode.innerHTML)) {
+      return true;
+    }
+    if (SAFE_FOR_XML && currentNode.namespaceURI === HTML_NAMESPACE && tagName === "style" && _isNode(currentNode.firstElementChild)) {
+      return true;
+    }
+    if (currentNode.nodeType === NODE_TYPE.processingInstruction) {
+      return true;
+    }
+    if (SAFE_FOR_XML && currentNode.nodeType === NODE_TYPE.comment && regExpTest(COMMENT_MARKUP_PROBE, currentNode.data)) {
+      return true;
+    }
+    return false;
+  };
+  const _sanitizeDisallowedNode = function _sanitizeDisallowedNode2(currentNode, tagName, root) {
+    if (!FORBID_TAGS[tagName] && _isBasicCustomElement(tagName)) {
+      if (CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof RegExp && regExpTest(CUSTOM_ELEMENT_HANDLING.tagNameCheck, tagName)) {
+        return false;
+      }
+      if (CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof Function && CUSTOM_ELEMENT_HANDLING.tagNameCheck(tagName)) {
+        return false;
+      }
+    }
+    if (KEEP_CONTENT && !FORBID_CONTENTS[tagName]) {
+      const parentNode = getParentNode(currentNode);
+      const childNodes = getChildNodes(currentNode);
+      if (childNodes && parentNode) {
+        const childCount = childNodes.length;
+        for (let i = childCount - 1; i >= 0; --i) {
+          const hoisted = currentNode === root ? cloneNode(childNodes[i], true) : childNodes[i];
+          parentNode.insertBefore(hoisted, getNextSibling(currentNode));
+        }
+      }
+    }
+    _forceRemove(currentNode);
+    return true;
+  };
+  const _forkSharedAllowlist = function _forkSharedAllowlist2(hookList, set, defaultSet, setConfigSet) {
+    if (hookList.length === 0) {
+      return set;
+    }
+    return set === defaultSet || set === setConfigSet ? clone(set) : set;
+  };
+  const _sanitizeElements = function _sanitizeElements2(currentNode, root) {
+    _executeHooks(hooks2.beforeSanitizeElements, currentNode, null);
+    if (currentNode !== root && getParentNode(currentNode) === null) {
+      if (IN_PLACE) {
+        _neutralizeSubtree(currentNode);
+      }
+      return true;
+    }
+    if (_isClobbered(currentNode)) {
+      _forceRemove(currentNode);
+      return true;
+    }
+    const tagName = transformCaseFunc(getNodeName ? getNodeName(currentNode) : currentNode.nodeName);
+    ALLOWED_TAGS = _forkSharedAllowlist(hooks2.uponSanitizeElement, ALLOWED_TAGS, DEFAULT_ALLOWED_TAGS, SET_CONFIG_ALLOWED_TAGS);
+    _executeHooks(hooks2.uponSanitizeElement, currentNode, {
+      tagName,
+      allowedTags: ALLOWED_TAGS
+    });
+    if (currentNode !== root && getParentNode(currentNode) === null) {
+      if (IN_PLACE) {
+        _neutralizeSubtree(currentNode);
+      }
+      return true;
+    }
+    if (_isUnsafeNode(currentNode, tagName)) {
+      _forceRemove(currentNode);
+      return true;
+    }
+    if (FORBID_TAGS[tagName] || !(EXTRA_ELEMENT_HANDLING.tagCheck instanceof Function && EXTRA_ELEMENT_HANDLING.tagCheck(tagName)) && !ALLOWED_TAGS[tagName]) {
+      const removed = _sanitizeDisallowedNode(currentNode, tagName, root);
+      if (removed === false) {
+        _executeHooks(hooks2.afterSanitizeElements, currentNode, null);
+      }
+      return removed;
+    }
+    const nt2 = getNodeType ? getNodeType(currentNode) : currentNode.nodeType;
+    if (nt2 === NODE_TYPE.element && !_checkValidNamespace(currentNode)) {
+      _forceRemove(currentNode);
+      return true;
+    }
+    if ((tagName === "noscript" || tagName === "noembed" || tagName === "noframes") && regExpTest(FALLBACK_TAG_CLOSE, currentNode.innerHTML)) {
+      _forceRemove(currentNode);
+      return true;
+    }
+    if (SAFE_FOR_TEMPLATES && currentNode.nodeType === NODE_TYPE.text) {
+      const content = _stripTemplateExpressions(currentNode.textContent);
+      if (currentNode.textContent !== content) {
+        arrayPush(DOMPurify.removed, {
+          element: currentNode.cloneNode()
+        });
+        currentNode.textContent = content;
+      }
+    }
+    _executeHooks(hooks2.afterSanitizeElements, currentNode, null);
+    return false;
+  };
+  const _isValidAttribute = function _isValidAttribute2(lcTag, lcName, value) {
+    if (FORBID_ATTR[lcName]) {
+      return false;
+    }
+    if (SAFE_FOR_XML && lcName === "patchsrc") {
+      return false;
+    }
+    if (SAFE_FOR_XML && lcName === "for" && lcTag !== "label" && lcTag !== "output") {
+      return false;
+    }
+    if (SANITIZE_DOM && (lcName === "id" || lcName === "name") && (value in document2 || value in formElement)) {
+      return false;
+    }
+    const nameIsPermitted = ALLOWED_ATTR[lcName] || EXTRA_ELEMENT_HANDLING.attributeCheck instanceof Function && EXTRA_ELEMENT_HANDLING.attributeCheck(lcName, lcTag);
+    if (ALLOW_DATA_ATTR && regExpTest(DATA_ATTR$1, lcName)) ;
+    else if (ALLOW_ARIA_ATTR && regExpTest(ARIA_ATTR$1, lcName)) ;
+    else if (!nameIsPermitted) {
+      if (
+        // First condition does a very basic check if a) it's basically a valid custom element tagname AND
+        // b) if the tagName passes whatever the user has configured for CUSTOM_ELEMENT_HANDLING.tagNameCheck
+        // and c) if the attribute name passes whatever the user has configured for CUSTOM_ELEMENT_HANDLING.attributeNameCheck
+        _isBasicCustomElement(lcTag) && (CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof RegExp && regExpTest(CUSTOM_ELEMENT_HANDLING.tagNameCheck, lcTag) || CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof Function && CUSTOM_ELEMENT_HANDLING.tagNameCheck(lcTag)) && (CUSTOM_ELEMENT_HANDLING.attributeNameCheck instanceof RegExp && regExpTest(CUSTOM_ELEMENT_HANDLING.attributeNameCheck, lcName) || CUSTOM_ELEMENT_HANDLING.attributeNameCheck instanceof Function && CUSTOM_ELEMENT_HANDLING.attributeNameCheck(lcName, lcTag)) || // Alternative, second condition checks if it's an `is`-attribute, AND
+        // the value passes whatever the user has configured for CUSTOM_ELEMENT_HANDLING.tagNameCheck
+        lcName === "is" && CUSTOM_ELEMENT_HANDLING.allowCustomizedBuiltInElements && (CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof RegExp && regExpTest(CUSTOM_ELEMENT_HANDLING.tagNameCheck, value) || CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof Function && CUSTOM_ELEMENT_HANDLING.tagNameCheck(value))
+      ) ;
+      else {
+        return false;
+      }
+    } else if (URI_SAFE_ATTRIBUTES[lcName]) ;
+    else if (regExpTest(IS_ALLOWED_URI$1, stringReplace(value, ATTR_WHITESPACE$1, ""))) ;
+    else if ((lcName === "src" || lcName === "xlink:href" || lcName === "href") && lcTag !== "script" && stringIndexOf(value, "data:") === 0 && DATA_URI_TAGS[lcTag]) ;
+    else if (ALLOW_UNKNOWN_PROTOCOLS && !regExpTest(IS_SCRIPT_OR_DATA$1, stringReplace(value, ATTR_WHITESPACE$1, ""))) ;
+    else if (value) {
+      return false;
+    } else ;
+    return true;
+  };
+  const RESERVED_CUSTOM_ELEMENT_NAMES = addToSet({}, ["annotation-xml", "color-profile", "font-face", "font-face-format", "font-face-name", "font-face-src", "font-face-uri", "missing-glyph"]);
+  const _isBasicCustomElement = function _isBasicCustomElement2(tagName) {
+    return !RESERVED_CUSTOM_ELEMENT_NAMES[stringToLowerCase(tagName)] && regExpTest(CUSTOM_ELEMENT$1, tagName);
+  };
+  const _applyTrustedTypesToAttribute = function _applyTrustedTypesToAttribute2(lcTag, lcName, namespaceURI, value) {
+    if (trustedTypesPolicy && typeof trustedTypes === "object" && typeof trustedTypes.getAttributeType === "function" && !namespaceURI) {
+      switch (trustedTypes.getAttributeType(lcTag, lcName)) {
+        case "TrustedHTML": {
+          return _createTrustedHTML(value);
+        }
+        case "TrustedScriptURL": {
+          return _createTrustedScriptURL(value);
+        }
+      }
+    }
+    return value;
+  };
+  const _setAttributeValue = function _setAttributeValue2(currentNode, name, namespaceURI, value) {
+    try {
+      if (namespaceURI) {
+        currentNode.setAttributeNS(namespaceURI, name, value);
+      } else {
+        currentNode.setAttribute(name, value);
+      }
+      if (_isClobbered(currentNode)) {
+        _forceRemove(currentNode);
+      } else {
+        arrayPop(DOMPurify.removed);
+      }
+    } catch (_3) {
+      _removeAttribute(name, currentNode);
+    }
+  };
+  const _sanitizeAttributes = function _sanitizeAttributes2(currentNode) {
+    _executeHooks(hooks2.beforeSanitizeAttributes, currentNode, null);
+    const attributes = currentNode.attributes;
+    if (!attributes || _isClobbered(currentNode)) {
+      return;
+    }
+    ALLOWED_ATTR = _forkSharedAllowlist(hooks2.uponSanitizeAttribute, ALLOWED_ATTR, DEFAULT_ALLOWED_ATTR, SET_CONFIG_ALLOWED_ATTR);
+    const hookEvent = {
+      attrName: "",
+      attrValue: "",
+      keepAttr: true,
+      allowedAttributes: ALLOWED_ATTR,
+      forceKeepAttr: void 0
+    };
+    let l4 = attributes.length;
+    const lcTag = transformCaseFunc(currentNode.nodeName);
+    while (l4--) {
+      const attr = attributes[l4];
+      const name = attr.name, namespaceURI = attr.namespaceURI, attrValue = attr.value;
+      const lcName = transformCaseFunc(name);
+      const initValue = attrValue;
+      let value = name === "value" ? initValue : stringTrim(initValue);
+      hookEvent.attrName = lcName;
+      hookEvent.attrValue = value;
+      hookEvent.keepAttr = true;
+      hookEvent.forceKeepAttr = void 0;
+      _executeHooks(hooks2.uponSanitizeAttribute, currentNode, hookEvent);
+      value = hookEvent.attrValue;
+      if (SANITIZE_NAMED_PROPS && (lcName === "id" || lcName === "name") && stringIndexOf(value, SANITIZE_NAMED_PROPS_PREFIX) !== 0) {
+        _removeAttribute(name, currentNode);
+        value = SANITIZE_NAMED_PROPS_PREFIX + value;
+      }
+      if (SAFE_FOR_XML && regExpTest(/((--!?|])>)|<\/(style|script|title|xmp|textarea|noscript|iframe|noembed|noframes)/i, value)) {
+        _removeAttribute(name, currentNode);
+        continue;
+      }
+      if (lcName === "attributename" && stringMatch(value, "href")) {
+        _removeAttribute(name, currentNode);
+        continue;
+      }
+      if (hookEvent.forceKeepAttr) {
+        continue;
+      }
+      if (!hookEvent.keepAttr) {
+        _removeAttribute(name, currentNode);
+        continue;
+      }
+      if (!ALLOW_SELF_CLOSE_IN_ATTR && regExpTest(SELF_CLOSING_TAG, value)) {
+        _removeAttribute(name, currentNode);
+        continue;
+      }
+      if (SAFE_FOR_TEMPLATES) {
+        value = _stripTemplateExpressions(value);
+      }
+      if (!_isValidAttribute(lcTag, lcName, value)) {
+        _removeAttribute(name, currentNode);
+        continue;
+      }
+      value = _applyTrustedTypesToAttribute(lcTag, lcName, namespaceURI, value);
+      if (value !== initValue) {
+        _setAttributeValue(currentNode, name, namespaceURI, value);
+      }
+    }
+    _executeHooks(hooks2.afterSanitizeAttributes, currentNode, null);
+  };
+  const _sanitizeShadowDOM2 = function _sanitizeShadowDOM(fragment) {
+    let shadowNode = null;
+    const shadowIterator = _createNodeIterator(fragment);
+    _executeHooks(hooks2.beforeSanitizeShadowDOM, fragment, null);
+    while (shadowNode = shadowIterator.nextNode()) {
+      _executeHooks(hooks2.uponSanitizeShadowNode, shadowNode, null);
+      _sanitizeElements(shadowNode, fragment);
+      _sanitizeAttributes(shadowNode);
+      if (_isDocumentFragment(shadowNode.content)) {
+        _sanitizeShadowDOM2(shadowNode.content);
+      }
+      const shadowNodeType = getNodeType ? getNodeType(shadowNode) : shadowNode.nodeType;
+      if (shadowNodeType === NODE_TYPE.element) {
+        const innerSr = getShadowRoot(shadowNode);
+        if (_isDocumentFragment(innerSr)) {
+          _sanitizeAttachedShadowRoots(innerSr);
+          _sanitizeShadowDOM2(innerSr);
+        }
+      }
+    }
+    _executeHooks(hooks2.afterSanitizeShadowDOM, fragment, null);
+  };
+  const _sanitizeAttachedShadowRoots = function _sanitizeAttachedShadowRoots2(root) {
+    const stack = [{
+      node: root,
+      shadow: null
+    }];
+    while (stack.length > 0) {
+      const item = stack.pop();
+      if (item.shadow) {
+        _sanitizeShadowDOM2(item.shadow);
+        continue;
+      }
+      const node = item.node;
+      const nodeType = getNodeType ? getNodeType(node) : node.nodeType;
+      const isElement = nodeType === NODE_TYPE.element;
+      const childNodes = getChildNodes(node);
+      if (childNodes) {
+        for (let i = childNodes.length - 1; i >= 0; --i) {
+          stack.push({
+            node: childNodes[i],
+            shadow: null
+          });
+        }
+      }
+      if (isElement) {
+        const rootName = getNodeName ? getNodeName(node) : null;
+        if (typeof rootName === "string" && transformCaseFunc(rootName) === "template") {
+          const content = node.content;
+          if (_isDocumentFragment(content)) {
+            stack.push({
+              node: content,
+              shadow: null
+            });
+          }
+        }
+      }
+      if (isElement) {
+        const sr = getShadowRoot(node);
+        if (_isDocumentFragment(sr)) {
+          stack.push({
+            node: null,
+            shadow: sr
+          }, {
+            node: sr,
+            shadow: null
+          });
+        }
+      }
+    }
+  };
+  DOMPurify.sanitize = function(dirty) {
+    let cfg = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : {};
+    let body = null;
+    let importedNode = null;
+    let currentNode = null;
+    let returnNode = null;
+    IS_EMPTY_INPUT = !dirty;
+    if (IS_EMPTY_INPUT) {
+      dirty = "<!-->";
+    }
+    if (typeof dirty !== "string" && !_isNode(dirty)) {
+      dirty = stringifyValue(dirty);
+      if (typeof dirty !== "string") {
+        throw typeErrorCreate("dirty is not a string, aborting");
+      }
+    }
+    if (!DOMPurify.isSupported) {
+      return dirty;
+    }
+    if (SET_CONFIG) {
+      ALLOWED_TAGS = SET_CONFIG_ALLOWED_TAGS;
+      ALLOWED_ATTR = SET_CONFIG_ALLOWED_ATTR;
+    } else {
+      _parseConfig(cfg);
+    }
+    if (hooks2.uponSanitizeElement.length > 0 || hooks2.uponSanitizeAttribute.length > 0) {
+      ALLOWED_TAGS = clone(ALLOWED_TAGS);
+    }
+    if (hooks2.uponSanitizeAttribute.length > 0) {
+      ALLOWED_ATTR = clone(ALLOWED_ATTR);
+    }
+    DOMPurify.removed = [];
+    const inPlace = IN_PLACE && typeof dirty !== "string" && _isNode(dirty);
+    if (inPlace) {
+      _neutralizePatchLinkage(dirty);
+      const nn2 = getNodeName ? getNodeName(dirty) : dirty.nodeName;
+      if (typeof nn2 === "string") {
+        const tagName = transformCaseFunc(nn2);
+        if (!ALLOWED_TAGS[tagName] || FORBID_TAGS[tagName]) {
+          _neutralizeRoot(dirty);
+          throw typeErrorCreate("root node is forbidden and cannot be sanitized in-place");
+        }
+      }
+      if (_isClobbered(dirty)) {
+        _neutralizeRoot(dirty);
+        throw typeErrorCreate("root node is clobbered and cannot be sanitized in-place");
+      }
+      try {
+        _sanitizeAttachedShadowRoots(dirty);
+      } catch (error) {
+        _neutralizeRoot(dirty);
+        throw error;
+      }
+    } else if (_isNode(dirty)) {
+      body = _initDocument("<!---->");
+      importedNode = body.ownerDocument.importNode(dirty, true);
+      if (importedNode.nodeType === NODE_TYPE.element && importedNode.nodeName === "BODY") {
+        body = importedNode;
+      } else if (importedNode.nodeName === "HTML") {
+        body = importedNode;
+      } else {
+        body.appendChild(importedNode);
+      }
+      _sanitizeAttachedShadowRoots(importedNode);
+    } else {
+      if (!RETURN_DOM && !SAFE_FOR_TEMPLATES && !WHOLE_DOCUMENT && // eslint-disable-next-line unicorn/prefer-includes
+      dirty.indexOf("<") === -1) {
+        return trustedTypesPolicy && RETURN_TRUSTED_TYPE ? _createTrustedHTML(dirty) : dirty;
+      }
+      body = _initDocument(dirty);
+      if (!body) {
+        return RETURN_DOM ? null : RETURN_TRUSTED_TYPE ? emptyHTML : "";
+      }
+    }
+    if (body && FORCE_BODY) {
+      _forceRemove(body.firstChild);
+    }
+    const walkRoot = inPlace ? dirty : body;
+    try {
+      const nodeIterator = _createNodeIterator(walkRoot);
+      while (currentNode = nodeIterator.nextNode()) {
+        _sanitizeElements(currentNode, walkRoot);
+        _sanitizeAttributes(currentNode);
+        if (_isDocumentFragment(currentNode.content)) {
+          _sanitizeShadowDOM2(currentNode.content);
+        }
+      }
+    } catch (error) {
+      if (inPlace) {
+        _neutralizeRoot(dirty);
+        arrayForEach(DOMPurify.removed, (entry) => {
+          if (entry.element) {
+            _neutralizeSubtree(entry.element);
+          }
+        });
+      }
+      throw error;
+    }
+    if (inPlace) {
+      arrayForEach(DOMPurify.removed, (entry) => {
+        if (entry.element) {
+          _neutralizeSubtree(entry.element);
+        }
+      });
+      if (SAFE_FOR_TEMPLATES) {
+        _scrubTemplateExpressions2(dirty);
+      }
+      return dirty;
+    }
+    if (RETURN_DOM) {
+      if (SAFE_FOR_TEMPLATES) {
+        _scrubTemplateExpressions2(body);
+      }
+      if (RETURN_DOM_FRAGMENT) {
+        returnNode = createDocumentFragment.call(body.ownerDocument);
+        while (body.firstChild) {
+          returnNode.appendChild(body.firstChild);
+        }
+      } else {
+        returnNode = body;
+      }
+      if (ALLOWED_ATTR.shadowroot || ALLOWED_ATTR.shadowrootmode) {
+        returnNode = importNode.call(originalDocument, returnNode, true);
+      }
+      return returnNode;
+    }
+    let serializedHTML = WHOLE_DOCUMENT ? body.outerHTML : body.innerHTML;
+    if (WHOLE_DOCUMENT && ALLOWED_TAGS["!doctype"] && body.ownerDocument && body.ownerDocument.doctype && body.ownerDocument.doctype.name && regExpTest(DOCTYPE_NAME, body.ownerDocument.doctype.name)) {
+      serializedHTML = "<!DOCTYPE " + body.ownerDocument.doctype.name + ">\n" + serializedHTML;
+    }
+    if (SAFE_FOR_TEMPLATES) {
+      serializedHTML = _stripTemplateExpressions(serializedHTML);
+    }
+    return trustedTypesPolicy && RETURN_TRUSTED_TYPE ? _createTrustedHTML(serializedHTML) : serializedHTML;
+  };
+  DOMPurify.setConfig = function() {
+    let cfg = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : {};
+    _parseConfig(cfg);
+    SET_CONFIG = true;
+    SET_CONFIG_ALLOWED_TAGS = ALLOWED_TAGS;
+    SET_CONFIG_ALLOWED_ATTR = ALLOWED_ATTR;
+  };
+  DOMPurify.clearConfig = function() {
+    CONFIG = null;
+    SET_CONFIG = false;
+    SET_CONFIG_ALLOWED_TAGS = null;
+    SET_CONFIG_ALLOWED_ATTR = null;
+    trustedTypesPolicy = defaultTrustedTypesPolicy;
+    emptyHTML = "";
+  };
+  DOMPurify.isValidAttribute = function(tag, attr, value) {
+    if (!CONFIG) {
+      _parseConfig({});
+    }
+    const lcTag = transformCaseFunc(tag);
+    const lcName = transformCaseFunc(attr);
+    return _isValidAttribute(lcTag, lcName, value);
+  };
+  DOMPurify.addHook = function(entryPoint, hookFunction) {
+    if (typeof hookFunction !== "function") {
+      return;
+    }
+    if (!objectHasOwnProperty(hooks2, entryPoint)) {
+      return;
+    }
+    arrayPush(hooks2[entryPoint], hookFunction);
+  };
+  DOMPurify.removeHook = function(entryPoint, hookFunction) {
+    if (!objectHasOwnProperty(hooks2, entryPoint)) {
+      return void 0;
+    }
+    if (hookFunction !== void 0) {
+      const index2 = arrayLastIndexOf(hooks2[entryPoint], hookFunction);
+      return index2 === -1 ? void 0 : arraySplice(hooks2[entryPoint], index2, 1)[0];
+    }
+    return arrayPop(hooks2[entryPoint]);
+  };
+  DOMPurify.removeHooks = function(entryPoint) {
+    if (!objectHasOwnProperty(hooks2, entryPoint)) {
+      return;
+    }
+    hooks2[entryPoint] = [];
+  };
+  DOMPurify.removeAllHooks = function() {
+    hooks2 = _createHooksMap();
+  };
+  return DOMPurify;
+}
+var purify = createDOMPurify();
+
+// plugins/editor/web-src/editor/MarkdownPreview.tsx
+var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
+function MarkdownPreview({ source }) {
+  const html2 = (0, import_react17.useMemo)(() => purify.sanitize(f.parse(source, { async: false })), [source]);
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "markdown-preview h-full overflow-auto p-5 text-sm leading-relaxed text-text", dangerouslySetInnerHTML: { __html: html2 } });
+}
+
+// plugins/editor/web-src/editor/ImagePreview.tsx
+var import_react18 = __toESM(require_react(), 1);
+var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
+function ImagePreview({ projectId, path }) {
+  const [url, setUrl] = (0, import_react18.useState)(null);
+  const [failed, setFailed] = (0, import_react18.useState)(false);
+  (0, import_react18.useEffect)(() => {
+    let cancelled = false;
+    let objectUrl = null;
+    setUrl(null);
+    setFailed(false);
+    fetch(`/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}`, { credentials: "same-origin" }).then((response) => {
+      if (!response.ok) throw new Error(`raw ${response.status}`);
+      return response.blob();
+    }).then((blob) => {
+      if (cancelled) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    }).catch(() => {
+      if (!cancelled) setFailed(true);
+    });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [projectId, path]);
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-bg p-6", children: failed ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: "text-sm text-text-muted", children: path }) : url ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("img", { src: url, alt: path, className: "max-h-full max-w-full object-contain" }) : null });
+}
+
+// plugins/editor/web-src/editor/Tabs.tsx
+var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
+function Tabs({ tabs, active, dirty, onSelect, onClose, closeLabel }) {
+  if (tabs.length === 0) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "flex items-stretch overflow-x-auto border-b border-border bg-bg/40", children: tabs.map((p) => {
+    const isActive = p === active;
+    const isDirty = dirty.has(p);
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: `group flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs ${isActive ? "bg-surface text-text" : "text-text-muted hover:bg-elevated"}`, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", onClick: () => onSelect(p), className: "max-w-40 truncate", title: p, children: baseName(p) }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("button", { type: "button", onClick: () => onClose(p), "aria-label": closeLabel, className: "flex h-4 w-4 items-center justify-center rounded text-text-muted hover:bg-bg hover:text-text", children: [
+        isDirty ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "h-1.5 w-1.5 rounded-full bg-accent group-hover:hidden", "aria-hidden": true }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(X, { size: 11, className: isDirty ? "hidden group-hover:block" : "block", "aria-hidden": true })
+      ] })
+    ] }, p);
+  }) });
+}
+
+// plugins/editor/web-src/editor/ProjectEditor.tsx
+var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+var { hooks, components, utils } = runtime();
+var { useProjectFiles, useProjectFile, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useWriteProjectFile, useNewProjectFile, useNewProjectDir, useRenameProjectEntry, useCopyProjectEntry, useDeleteProjectEntry, useMobile, useToast, useTranslation: useTranslation2 } = hooks;
+var { Button: Button2, LoadingState, EmptyState, ContextMenu } = components;
+var DIVIDER = "divider";
+var EDITOR_H_KEY = "elowen:editor:height";
+var MIN_EDITOR_H = 320;
+var clampEditorH = (px) => Math.max(MIN_EDITOR_H, Math.min(typeof window !== "undefined" ? window.innerHeight * 0.96 : 4e3, px));
+function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill = false }) {
+  const { t } = useTranslation2();
+  const { toast } = useToast();
+  const files = useProjectFiles(projectId);
+  const [selected, setSelected] = (0, import_react19.useState)(null);
+  const [openTabs, setOpenTabs] = (0, import_react19.useState)([]);
+  const [commit] = (0, import_react19.useState)(initialCommit ?? null);
+  const [working] = (0, import_react19.useState)(!!initialWorking);
+  const [expanded, setExpanded] = (0, import_react19.useState)(/* @__PURE__ */ new Set());
+  const [tab, setTab] = (0, import_react19.useState)("edit");
+  const [wordWrap, setWordWrap] = (0, import_react19.useState)(false);
+  const [fullscreen, setFullscreen] = (0, import_react19.useState)(false);
+  const [editorH, setEditorH] = (0, import_react19.useState)(560);
+  const dragY = (0, import_react19.useRef)(null);
+  const [menu, setMenu] = (0, import_react19.useState)(null);
+  const [dialog, setDialog] = (0, import_react19.useState)(null);
+  const [drafts, setDrafts] = (0, import_react19.useState)({});
+  const draftsRef = (0, import_react19.useRef)(drafts);
+  const updateDrafts = (fn) => {
+    draftsRef.current = fn(draftsRef.current);
+    setDrafts(draftsRef.current);
+  };
+  const [dirtyPaths, setDirtyPaths] = (0, import_react19.useState)(/* @__PURE__ */ new Set());
+  const mobile = useMobile();
+  const [showTree, setShowTree] = (0, import_react19.useState)(false);
+  (0, import_react19.useEffect)(() => {
+    let stored = null;
+    try {
+      const raw = localStorage.getItem(EDITOR_H_KEY);
+      if (raw) {
+        const n = Number(raw);
+        if (Number.isFinite(n)) stored = n;
+      }
+    } catch {
+    }
+    setEditorH(clampEditorH(stored ?? window.innerHeight * 0.7));
+  }, []);
+  (0, import_react19.useEffect)(() => {
+    try {
+      localStorage.setItem(EDITOR_H_KEY, String(editorH));
+    } catch {
+    }
+  }, [editorH]);
+  const commitData = useProjectCommit(projectId, commit);
+  const changesData = useProjectChanges(projectId, working);
+  const commitFileDiff = useProjectCommitFileDiff(projectId, commit, commit ? selected : null);
+  const workingChanged = useProjectChanged(projectId).data?.changed;
+  const changedSet = (0, import_react19.useMemo)(
+    () => new Set(commit ? commitData.data?.files ?? [] : workingChanged ?? []),
+    [commit, commitData.data?.files, workingChanged]
+  );
+  const fileData = useProjectFile(projectId, selected);
+  const write = useWriteProjectFile();
+  const newFile = useNewProjectFile();
+  const newDir = useNewProjectDir();
+  const rename = useRenameProjectEntry();
+  const copy = useCopyProjectEntry();
+  const del = useDeleteProjectEntry();
+  const tree = (0, import_react19.useMemo)(() => buildTree(files.data ?? []), [files.data]);
+  const serverContent = fileData.data?.content ?? "";
+  const draft = selected != null ? drafts[selected] : void 0;
+  const value = draft ?? serverContent;
+  const dirty = selected != null && dirtyPaths.has(selected);
+  const img = selected != null && isImage(selected);
+  const md = selected != null && isMarkdown(selected);
+  const editable = selected != null && !img && !commit && !working;
+  const effTab = tab === "preview" && !md ? "edit" : tab;
+  const headData = useProjectFileAtHead(projectId, selected, editable && effTab === "diff");
+  const openFile = (p) => {
+    setSelected(p);
+    setOpenTabs((tabs) => tabs.includes(p) ? tabs : [...tabs, p]);
+    setTab("edit");
+  };
+  const selectInTree = (p) => {
+    if (commit) setSelected(p);
+    else openFile(p);
+  };
+  const onChange = (v3) => {
+    if (selected == null) return;
+    updateDrafts((d) => ({ ...d, [selected]: v3 }));
+    setDirtyPaths((s) => {
+      const n = new Set(s);
+      v3 !== serverContent ? n.add(selected) : n.delete(selected);
+      return n;
+    });
+  };
+  const toggle = (p) => setExpanded((s) => {
+    const n = new Set(s);
+    n.has(p) ? n.delete(p) : n.add(p);
+    return n;
+  });
+  const expandPath = (dir) => setExpanded((s) => {
+    const n = new Set(s);
+    let acc = "";
+    for (const part of dir.split("/").filter(Boolean)) {
+      acc = acc ? `${acc}/${part}` : part;
+      n.add(acc);
+    }
+    return n;
+  });
+  (0, import_react19.useEffect)(() => {
+    if (!fullscreen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape" && !dialog && !menu) {
+        e.stopPropagation();
+        setFullscreen(false);
+        setShowTree(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullscreen, dialog, menu]);
+  (0, import_react19.useEffect)(() => {
+    if (mobile) setFullscreen(true);
+  }, [mobile]);
+  (0, import_react19.useEffect)(() => {
+    if (!fullscreen || !mobile) setShowTree(false);
+  }, [fullscreen, mobile]);
+  const save = () => {
+    if (selected == null) return;
+    const path = selected;
+    const sent = value;
+    void write.mutateAsync({ id: projectId, path, content: sent }).then(
+      () => {
+        const current = draftsRef.current[path];
+        if (current === void 0 || current === sent) {
+          updateDrafts((d) => {
+            const n = { ...d };
+            delete n[path];
+            return n;
+          });
+          setDirtyPaths((s) => {
+            const n = new Set(s);
+            n.delete(path);
+            return n;
+          });
+        }
+        toast(t.projects.fileSaved.replace("{path}", path));
+      },
+      (e) => toast(String(e), "error")
+    );
+  };
+  const closeTab = (p) => {
+    setOpenTabs((tabs) => {
+      const next = tabs.filter((x2) => x2 !== p);
+      if (selected === p) setSelected(next[next.length - 1] ?? null);
+      return next;
+    });
+  };
+  const forgetPath = (path) => {
+    const under = (x2) => x2 === path || x2.startsWith(path + "/");
+    setOpenTabs((tabs) => tabs.filter((x2) => !under(x2)));
+    updateDrafts((d) => {
+      const n = { ...d };
+      for (const k3 of Object.keys(n)) if (under(k3)) delete n[k3];
+      return n;
+    });
+    setDirtyPaths((s) => {
+      const n = new Set([...s].filter((x2) => !under(x2)));
+      return n;
+    });
+    setSelected((s) => s && under(s) ? null : s);
+  };
+  const remapPath = (from, to) => {
+    const remap = (x2) => x2 === from ? to : x2.startsWith(from + "/") ? to + x2.slice(from.length) : x2;
+    setOpenTabs((tabs) => tabs.map(remap));
+    updateDrafts((d) => {
+      const n = {};
+      for (const [k3, v3] of Object.entries(d)) n[remap(k3)] = v3;
+      return n;
+    });
+    setDirtyPaths((s) => new Set([...s].map(remap)));
+    setSelected((s) => s ? remap(s) : s);
+  };
+  const err = (e) => toast(String(e), "error");
+  const copyPath = (p) => {
+    void utils.copyText(p).then((ok) => {
+      if (ok) toast(t.projects.pathCopied);
+      else toast(t.projects.copyFailed, "error");
+    });
+  };
+  const submitDialog = (val) => {
+    if (!dialog) return;
+    if (dialog.kind === "newFile") {
+      const path = joinPath(dialog.dir, val);
+      newFile.mutate({ id: projectId, path }, { onSuccess: () => {
+        expandPath(dialog.dir);
+        openFile(path);
+        toast(t.projects.fileCreated.replace("{path}", path));
+      }, onError: err });
+    } else if (dialog.kind === "newFolder") {
+      const path = joinPath(dialog.dir, val);
+      newDir.mutate({ id: projectId, path }, { onSuccess: () => {
+        expandPath(path);
+        toast(t.projects.folderCreated.replace("{path}", path));
+      }, onError: err });
+    } else if (dialog.kind === "rename") {
+      const to = joinPath(parentDir(dialog.target), val);
+      rename.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => {
+        remapPath(dialog.target, to);
+        toast(t.projects.renamed.replace("{path}", to));
+      }, onError: err });
+    } else if (dialog.kind === "duplicate") {
+      const to = joinPath(parentDir(dialog.target), val);
+      copy.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => {
+        toast(t.projects.duplicated.replace("{path}", to));
+      }, onError: err });
+    }
+    setDialog(null);
+  };
+  const confirmDelete = () => {
+    if (dialog?.kind !== "delete") return;
+    const path = dialog.target;
+    del.mutate({ id: projectId, path }, { onSuccess: () => {
+      forgetPath(path);
+      toast(t.projects.deleted.replace("{path}", path));
+    }, onError: err });
+    setDialog(null);
+  };
+  const buildMenu = (node) => {
+    if (!node) return [
+      { label: t.projects.ctxNewFile, icon: FilePlus, onClick: () => setDialog({ kind: "newFile", dir: "" }) },
+      { label: t.projects.ctxNewFolder, icon: FolderPlus, onClick: () => setDialog({ kind: "newFolder", dir: "" }) }
+    ];
+    const common = [
+      { label: t.projects.ctxRename, icon: Pencil, onClick: () => setDialog({ kind: "rename", target: node.path }) },
+      { label: t.projects.ctxDuplicate, icon: Copy, onClick: () => setDialog({ kind: "duplicate", target: node.path }) },
+      { label: t.projects.ctxDelete, icon: Trash2, danger: true, onClick: () => setDialog({ kind: "delete", target: node.path }) },
+      DIVIDER,
+      { label: t.projects.ctxCopyPath, icon: ClipboardCopy, onClick: () => copyPath(node.path) }
+    ];
+    if (node.type === "dir") return [
+      { label: t.projects.ctxNewFile, icon: FilePlus, onClick: () => setDialog({ kind: "newFile", dir: node.path }) },
+      { label: t.projects.ctxNewFolder, icon: FolderPlus, onClick: () => setDialog({ kind: "newFolder", dir: node.path }) },
+      DIVIDER,
+      ...common
+    ];
+    return [
+      { label: t.projects.ctxOpen, icon: File, onClick: () => openFile(node.path) },
+      DIVIDER,
+      ...common
+    ];
+  };
+  const onContextMenu = (e, node) => setMenu({ x: e.clientX, y: e.clientY, items: buildMenu(node) });
+  const dialogTitle = dialog?.kind === "newFile" ? t.projects.dlgNewFile : dialog?.kind === "newFolder" ? t.projects.dlgNewFolder : dialog?.kind === "rename" ? t.projects.dlgRename : dialog?.kind === "duplicate" ? t.projects.dlgDuplicate : "";
+  const dialogInitial = dialog?.kind === "rename" ? baseName(dialog.target) : dialog?.kind === "duplicate" ? baseName(copyName(dialog.target)) : "";
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+    "div",
+    {
+      className: fullscreen ? "fixed inset-0 z-50 flex h-screen flex-col overflow-hidden bg-surface" : "flex flex-col overflow-hidden border-y border-border bg-document",
+      style: fullscreen ? void 0 : { height: fill ? "100%" : editorH },
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "flex items-center gap-2 border-b border-border px-3 py-2", children: [
+          mobile && fullscreen && onClose && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+            "button",
+            {
+              type: "button",
+              onClick: onClose,
+              "aria-label": t.common.back,
+              title: t.common.back,
+              className: "flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text",
+              children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ChevronLeft, { size: 18 })
+            }
+          ),
+          mobile && fullscreen && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+            "button",
+            {
+              type: "button",
+              onClick: () => setShowTree((s) => !s),
+              "aria-pressed": showTree,
+              "aria-label": t.projects.toggleTree,
+              title: t.projects.toggleTree,
+              className: `flex h-7 w-7 items-center justify-center rounded-md transition-colors ${showTree ? "bg-accent/15 text-accent" : "text-text-muted hover:bg-elevated hover:text-text"}`,
+              children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PanelLeft, { size: 15 })
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(CodeXml, { size: 15, className: "shrink-0 text-accent", "aria-hidden": true }),
+          !(mobile && fullscreen) && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "text-sm font-semibold text-text", children: t.projects.editorTitle }),
+          working ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { className: "truncate font-mono text-xs text-warning", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(GitCompare, { size: 11, className: "mr-1 inline", "aria-hidden": true }),
+            t.projects.workingChanges
+          ] }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("button", { type: "button", onClick: () => setSelected(null), disabled: !selected, title: selected ? t.projects.viewCommit : void 0, className: "flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(GitCompare, { size: 11, className: "mr-1 inline shrink-0", "aria-hidden": true }),
+            /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { className: "truncate", children: [
+              t.projects.commitLabel,
+              " ",
+              commit.slice(0, 8),
+              selected ? ` \xB7 ${selected}` : ""
+            ] })
+          ] }) : null,
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "ml-auto flex items-center gap-1.5", children: [
+            editable ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(import_jsx_runtime9.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "edit" ? "accent" : "ghost", onClick: () => setTab("edit"), children: t.projects.tabEdit }),
+              md ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "preview" ? "accent" : "ghost", icon: Eye, onClick: () => setTab("preview"), children: t.projects.tabPreview }) : null,
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "diff" ? "accent" : "ghost", icon: GitCompare, onClick: () => setTab("diff"), children: t.projects.tabDiff }),
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: wordWrap ? "accent" : "ghost", icon: WrapText, "aria-label": t.projects.wordWrap, title: t.projects.wordWrap, onClick: () => setWordWrap((w) => !w) }),
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: "accent", icon: Save, disabled: !dirty || write.isPending, onClick: save, children: t.common.save })
+            ] }) : null,
+            onClose && !(mobile && fullscreen) ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", "aria-label": t.common.close, onClick: onClose, className: "flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(X, { size: 15 }) }) : null
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "relative flex min-h-0 flex-1", children: [
+          mobile && fullscreen && !showTree ? null : /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+            "div",
+            {
+              className: `flex shrink-0 flex-col border-r border-border ${mobile && fullscreen ? "absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-surface shadow-[var(--shadow-raised)]" : "w-64 bg-bg/40"}`,
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "min-h-0 flex-1 overflow-auto p-1.5", children: files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
+                  selectInTree(p);
+                  if (mobile && fullscreen) setShowTree(false);
+                }, changed: changedSet, onContextMenu, emptyLabel: t.projects.noFiles, treeLabel: t.projects.editorTitle }) }),
+                /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "shrink-0 border-t border-border p-1.5", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: () => setFullscreen((f2) => !f2),
+                    "aria-pressed": fullscreen,
+                    title: fullscreen ? t.projects.exitFullscreen : t.projects.fullscreen,
+                    className: "flex w-full items-center justify-center gap-2 rounded-md border border-border bg-elevated px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-border-strong hover:text-text",
+                    children: [
+                      fullscreen ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Minimize2, { size: 13, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Maximize2, { size: 13, "aria-hidden": true }),
+                      fullscreen ? t.projects.exitFullscreen : t.projects.fullscreen
+                    ]
+                  }
+                ) })
+              ]
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "flex min-w-0 flex-1 flex-col", children: [
+            !commit && !working ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Tabs, { tabs: openTabs, active: selected, dirty: dirtyPaths, onSelect: setSelected, onClose: closeTab, closeLabel: t.common.close }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "min-h-0 flex-1", children: working ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: changesData.data?.diff ?? "", loading: changesData.isLoading, empty: t.projects.noChanges }) : commit && selected ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: commitFileDiff.data?.diff ?? "", loading: commitFileDiff.isLoading, empty: t.projects.noChanges }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: commitData.data?.diff ?? "", loading: commitData.isLoading, empty: t.projects.noChanges }) : !selected ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(EmptyState, { title: t.projects.selectFile, icon: File }) : img ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ImagePreview, { projectId, path: selected }) : fileData.data?.truncated ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: "p-4 text-center text-sm text-text-muted", children: t.projects.fileTooBig }) : effTab === "diff" ? headData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(DiffEditorPane, { path: selected, original: headData.data?.content ?? "", modified: value }) : effTab === "preview" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(MarkdownPreview, { source: value }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(EditorPane, { path: selected, value, onChange, onSave: save, wordWrap }) })
+          ] })
+        ] }),
+        !fullscreen && !fill ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+          "div",
+          {
+            role: "separator",
+            "aria-orientation": "horizontal",
+            "aria-label": t.projects.resizeEditor,
+            title: t.projects.resizeEditor,
+            onPointerDown: (e) => {
+              e.preventDefault();
+              dragY.current = e.clientY;
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+            },
+            onPointerMove: (e) => {
+              if (dragY.current === null) return;
+              const dy = e.clientY - dragY.current;
+              dragY.current = e.clientY;
+              setEditorH((h2) => clampEditorH(h2 + dy));
+            },
+            onPointerUp: (e) => {
+              if (dragY.current === null) return;
+              dragY.current = null;
+              e.currentTarget.releasePointerCapture?.(e.pointerId);
+            },
+            onLostPointerCapture: () => {
+              dragY.current = null;
+            },
+            className: "group flex h-3.5 shrink-0 cursor-row-resize items-center justify-center border-t border-border bg-bg/40 transition-colors hover:bg-elevated",
+            children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "h-1 w-10 rounded-full bg-border transition-all duration-200 group-hover:w-16 group-hover:bg-text-muted" })
+          }
+        ) : null,
+        menu ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ContextMenu, { state: menu, onClose: () => setMenu(null) }) : null,
+        dialog && dialog.kind === "delete" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ConfirmDialog, { title: t.projects.dlgDelete, message: t.projects.dlgDeleteMsg.replace("{name}", baseName(dialog.target)), confirmLabel: t.projects.ctxDelete, danger: true, icon: Trash2, onConfirm: confirmDelete, onCancel: () => setDialog(null) }) : dialog ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PromptDialog, { title: dialogTitle, label: t.projects.dlgName, initialValue: dialogInitial, confirmLabel: t.common.save, onConfirm: submitDialog, onCancel: () => setDialog(null) }) : null
+      ]
+    }
+  );
+}
+
+// plugins/editor/web-src/EditorPage.tsx
+var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+var { useProjects, usePluginStrings, useProjectFilter, useFillHeight, useMobile: useMobile2 } = runtime().hooks;
+var {
+  ModuleHeader,
+  EmptyState: EmptyState2,
+  WorkspacePage,
+  CompactWorkspaceHeader,
+  ProjectFilterPills,
+  ControlSurfaceDocument,
+  MotionPresence,
+  MotionLayoutItem
+} = runtime().components;
+var { navigate } = runtime();
+function linkTarget() {
+  const params = new URLSearchParams(window.location.search);
+  const id = Number(params.get("project"));
+  return {
+    project: Number.isInteger(id) && id > 0 ? id : null,
+    commit: params.get("commit"),
+    working: params.get("working") === "1"
+  };
+}
+function EditorPage() {
+  const s = usePluginStrings("editor");
+  const mobile = useMobile2();
+  const projects = useProjects();
+  const surfaceRef = (0, import_react20.useRef)(null);
+  const fillHeight = useFillHeight(surfaceRef);
+  const { selectedProject, setProject } = useProjectFilter("elowen.editor.project");
+  const [link] = (0, import_react20.useState)(linkTarget);
+  const list = projects.data ?? [];
+  const filtered = selectedProject === "all" ? list[0]?.id ?? null : selectedProject;
+  const projectId = link.project != null && list.some((item) => item.id === link.project) ? link.project : filtered;
+  const project = list.find((item) => item.id === projectId) ?? null;
+  const onClose = mobile ? () => {
+    if (window.history.length > 1) window.history.back();
+    else navigate("/dash");
+  } : void 0;
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ModuleHeader, { title: s.title, icon: CodeXml }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(WorkspacePage, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+        CompactWorkspaceHeader,
+        {
+          eyebrow: s.workspaceEyebrow,
+          title: s.title,
+          description: s.workspaceIntro,
+          icon: CodeXml,
+          status: project ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "workspace-status", children: s.workspaceReady.replace("{project}", project.slug) }) : void 0,
+          action: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ProjectFilterPills, { value: projectId ?? "all", onChange: setProject, includeAll: false, variant: "dropdown" })
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { ref: surfaceRef, className: "workspace-content", style: fillHeight ? { height: fillHeight } : void 0, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ControlSurfaceDocument, { className: "editor-control-surface", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(MotionPresence, { mode: "wait", children: projectId == null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(EmptyState2, { title: s.noProjects, description: s.noProjectsDescription, icon: CodeXml }) }, "empty") : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ProjectEditor, { projectId, initialCommit: link.commit, initialWorking: link.working, onClose, fill: true }) }, `${projectId}:${link.commit ?? ""}:${link.working}`) }) }) })
+    ] })
+  ] });
+}
+
+// plugins/editor/web-src/index.tsx
+registerEditorUi({
+  requiresApiVersion: 1,
+  pages: { "": EditorPage }
+});

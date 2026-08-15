@@ -36,3 +36,40 @@ export function compactElapsed(ms: number): string {
 export function isValidSchedule(spec: string): boolean {
   return parseSchedule(spec) !== null;
 }
+
+/** Copy to the clipboard, reporting whether it worked — the caller toasts either way, so it must not
+ *  throw. Ported from the host's clipboard helper; jsdom exposes no clipboard, which is the `false` branch. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Elowen's Monaco themes, installed by the HOST so every editor surface (a plugin's included) shares one
+ *  colour table: 'elowen-oled' for the true-black canvas, 'elowen-paper' for a light skin, picked by the
+ *  document's resolved color-scheme.
+ *
+ *  The palettes are deliberately abridged. The app's full tables live in web/lib/monaco/oledTheme.ts and
+ *  nothing on this side could keep a copy of them honest. What a panel actually depends on — and what
+ *  this reproduces exactly — is the two theme NAMES and the fact that the bundle registers neither
+ *  itself. */
+type Monaco = { editor: { defineTheme(name: string, theme: unknown): void } };
+
+export function defineEditorThemes(monaco: Monaco): void {
+  monaco.editor.defineTheme('elowen-oled', {
+    base: 'vs-dark', inherit: true, rules: [{ token: '', foreground: 'f7f3f0' }],
+    colors: { 'editor.background': '#000000', 'editor.foreground': '#f7f3f0' },
+  });
+  monaco.editor.defineTheme('elowen-paper', {
+    base: 'vs', inherit: true, rules: [{ token: '', foreground: '0f1c2e' }],
+    colors: { 'editor.background': '#ffffff', 'editor.foreground': '#0f1c2e' },
+  });
+}
+
+export function editorTheme(): 'elowen-oled' | 'elowen-paper' {
+  if (typeof document === 'undefined') return 'elowen-oled';
+  return getComputedStyle(document.documentElement).colorScheme === 'light' ? 'elowen-paper' : 'elowen-oled';
+}

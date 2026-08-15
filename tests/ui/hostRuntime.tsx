@@ -13,7 +13,7 @@ import * as JsxRuntime from 'react/jsx-runtime';
 import * as C from './hostComponents';
 import * as H from './hostHooks';
 import { api, apiErrorMessage } from './hostClient';
-import { compactElapsed, isValidSchedule, parseTs } from './hostUtils';
+import { compactElapsed, copyText, defineEditorThemes, editorTheme, isValidSchedule, parseTs } from './hostUtils';
 
 export const PLUGIN_UI_API_VERSION = 1;
 
@@ -56,8 +56,14 @@ export function ensurePluginUiRuntime(): void {
       useCronJobs: H.useCronJobs, useSaveCronJob: H.useSaveCronJob, useDeleteCronJob: H.useDeleteCronJob,
       useDiscordChannels: H.useDiscordChannels, useBrainModels: H.useBrainModels,
       useAutoSaveStatus: H.useAutoSaveStatus,
+      useProjectFiles: H.useProjectFiles, useProjectFile: H.useProjectFile, useProjectFileAtHead: H.useProjectFileAtHead,
+      useProjectCommit: H.useProjectCommit, useProjectCommitFileDiff: H.useProjectCommitFileDiff,
+      useProjectChanged: H.useProjectChanged, useProjectChanges: H.useProjectChanges,
+      useWriteProjectFile: H.useWriteProjectFile, useNewProjectFile: H.useNewProjectFile, useNewProjectDir: H.useNewProjectDir,
+      useRenameProjectEntry: H.useRenameProjectEntry, useCopyProjectEntry: H.useCopyProjectEntry, useDeleteProjectEntry: H.useDeleteProjectEntry,
+      useMobile: H.useMobile,
     },
-    utils: { apiErrorMessage, parseTs, compactElapsed, isValidSchedule },
+    utils: { apiErrorMessage, parseTs, compactElapsed, isValidSchedule, copyText, defineEditorThemes, editorTheme },
     api,
     navigate: (href: string) => { window.location.assign(href); },
   };

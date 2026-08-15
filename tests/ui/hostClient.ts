@@ -58,6 +58,9 @@ export interface BrainModelOption { id: string; label?: string }
 
 export interface PluginUiListing { name: string; url: string; apiVersion: number; strings: Record<string, string> }
 
+/** One entry of a project's flat file listing — the shape the editor panel builds its tree from. */
+export interface FileNode { path: string; type: 'file' | 'dir' }
+
 export const elowenClient = {
   me: () => req<{ user: { id: number; username: string; is_admin: boolean } }>('/auth/me'),
   pluginUi: (lang?: string) => req<PluginUiListing[]>(`/plugins/ui${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`),
@@ -74,6 +77,21 @@ export const elowenClient = {
   deleteCronJob: (id: string) => req<{ ok: boolean }>(`/plugins/cronjob/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   discordChannels: () => req<DiscordChannelOption[]>('/plugins/discord/channels'),
   brainModels: () => req<BrainModelOption[]>('/brain/models'),
+  // The editor panel's project-file calls. These are the plugin's OWN grandfathered routes (its manifest
+  // lists them under provides.apiRoutes), so the URLs are the contract its node side is tested against.
+  projectFiles: (id: number) => req<FileNode[]>(`/projects/${id}/files`),
+  projectFile: (id: number, path: string) => req<{ content: string; truncated: boolean }>(`/projects/${id}/file?path=${encodeURIComponent(path)}`),
+  writeProjectFile: (id: number, path: string, content: string) => req<{ ok: boolean }>(`/projects/${id}/file`, json({ path, content }, 'PUT')),
+  projectFileAtHead: (id: number, path: string) => req<{ content: string }>(`/projects/${id}/head?path=${encodeURIComponent(path)}`),
+  projectCommit: (id: number, hash: string) => req<{ diff: string; files: string[] }>(`/projects/${id}/commit/${encodeURIComponent(hash)}`),
+  projectCommitFileDiff: (id: number, hash: string, path: string) => req<{ diff: string }>(`/projects/${id}/commit/${encodeURIComponent(hash)}/diff?path=${encodeURIComponent(path)}`),
+  projectChanged: (id: number) => req<{ changed: string[] }>(`/projects/${id}/changed`),
+  projectChanges: (id: number) => req<{ diff: string }>(`/projects/${id}/changes`),
+  newProjectFile: (id: number, path: string) => req<{ ok: boolean }>(`/projects/${id}/new-file`, json({ path })),
+  newProjectDir: (id: number, path: string) => req<{ ok: boolean }>(`/projects/${id}/dir`, json({ path })),
+  renameProjectEntry: (id: number, from: string, to: string) => req<{ ok: boolean }>(`/projects/${id}/rename`, json({ from, to })),
+  copyProjectEntry: (id: number, from: string, to: string) => req<{ ok: boolean }>(`/projects/${id}/copy`, json({ from, to })),
+  deleteProjectEntry: (id: number, path: string) => req<{ ok: boolean }>(`/projects/${id}/entry?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
 };
 
 /** Same-origin JSON fetch exposed to a bundle as `runtime.api`. Rejects on non-2xx. */
