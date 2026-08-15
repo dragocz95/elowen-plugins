@@ -41,10 +41,27 @@ function bareImports(pluginDir: string): string[] {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) { walk(path); continue; }
       if (!/\.(mjs|js|ts|tsx)$/.test(entry.name)) continue;
-      for (const m of readFileSync(path, 'utf-8').matchAll(/(?:from|import)\s*\(?\s*['"]([^'".][^'"]*)['"]/g)) {
-        const spec = m[1]!;
-        if (spec.startsWith('node:') || spec.startsWith('.')) continue;
-        found.add(spec);
+      const source = readFileSync(path, 'utf-8');
+      // Match import SYNTAX, not any quoted string that happens to follow the word "from". A doc
+      // comment reading `tell "subsystem off" from "no such endpoint"` is ordinary English, and a
+      // looser pattern reported it as a missing dependency called "no such endpoint".
+      //
+      // A static import/export is a top-level statement, so it is anchored to the start of a line;
+      // `[^;'"]*?` keeps a multi-line `{ A, B }` clause in while stopping the match from running past
+      // the end of the statement. Dynamic import() and require() can appear anywhere, so they are
+      // matched on their call shape instead.
+      const patterns = [
+        /^\s*(?:import|export)\b[^;'"]*?\bfrom\s*['"]([^'"]+)['"]/gm,
+        /^\s*import\s+['"]([^'"]+)['"]/gm,
+        /\bimport\s*\(\s*['"]([^'"]+)['"]/g,
+        /\brequire\s*\(\s*['"]([^'"]+)['"]/g,
+      ];
+      for (const pattern of patterns) {
+        for (const m of source.matchAll(pattern)) {
+          const spec = m[1]!;
+          if (spec.startsWith('node:') || spec.startsWith('.')) continue;
+          found.add(spec);
+        }
       }
     }
   };
