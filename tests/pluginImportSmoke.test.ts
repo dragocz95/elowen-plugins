@@ -65,8 +65,13 @@ describe('every plugin imports cleanly against the daemon it will run inside', (
 
   it.each(plugins)('%s imports without an unresolved specifier', async (name) => {
     const dir = join(registryRoot, 'plugins', name);
-    const manifest = JSON.parse(readFileSync(join(dir, 'elowen-plugin.json'), 'utf-8')) as { main?: string };
-    const entry = join(dir, manifest.main ?? 'index.mjs');
+    // The manifest field is `entry` — there is no `main`. Reading the wrong name fell through to the
+    // `index.mjs` default, which happens to be right for every plugin here TODAY, so the suite passed
+    // while never actually following a manifest. A plugin whose entry is anything else (a compiled
+    // `dist/index.js`, say) would have been imported from a path that does not exist.
+    const manifest = JSON.parse(readFileSync(join(dir, 'elowen-plugin.json'), 'utf-8')) as { entry?: string };
+    expect(manifest.entry, `${name} has no entry in its manifest`).toBeTruthy();
+    const entry = join(dir, manifest.entry!);
     // The import is the assertion: a missing dependency, a dropped subpath export or a breaking major
     // all surface here as a real resolution error rather than as a passing name check.
     await expect(import(entry)).resolves.toBeDefined();
