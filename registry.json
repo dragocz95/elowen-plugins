@@ -47,7 +47,7 @@
     },
     {
       "name": "web",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "description": "Web research: WebSearch (Tavily) and WebFetch (fetch a page as readable text).",
       "category": "research",
       "author": "Elowen",
@@ -184,6 +184,29 @@
         "tools": 4,
         "apiRoutes": 1,
         "skills": 1
+      }
+    },
+    {
+      "name": "editor",
+      "version": "0.1.0",
+      "description": "Project file editor with Monaco, file management, image and Markdown previews, and read-only Git history. Disabling it removes the editor UI and makes its grandfathered project-file API unavailable while project registration and task Git history remain available.",
+      "category": "tools",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "apiRoutes": 15
+      }
+    },
+    {
+      "name": "lsp",
+      "version": "0.1.0",
+      "description": "Language-server code intelligence: type-check an edit the moment it lands (LspDiagnostics), jump to a definition, find every reference, read a hover signature and list document or workspace symbols — all answered by the real language server for the file, not a text search. Elowen drives the servers it knows (TypeScript, Pyright, gopls, rust-analyzer, clangd, …) and can install the npm-based ones into its own prefix. Disabling it stops every language server and withdraws the tools.",
+      "category": "tools",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "tools": 6,
+        "apiRoutes": 3
       }
     }
   ]
