@@ -1,1 +1,6 @@
 node_modules/
+
+# tsc's incremental build cache. The compiled dist/ IS committed (the marketplace copies files and never
+# compiles), but the buildinfo is per-machine state that would churn on every build and means nothing to
+# anyone cloning this repo.
+*.tsbuildinfo

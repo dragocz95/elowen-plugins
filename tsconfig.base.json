@@ -1,0 +1,38 @@
+{
+  "//": [
+    "Shared compiler settings for every TypeScript plugin in this registry. Each plugin adds a",
+    "tsconfig.plugins.<name>.json that extends this file and supplies only its own paths, mirroring how",
+    "the daemon repo compiles the same plugins today — the two builds must agree, because a plugin moved",
+    "here has to produce the same JavaScript it produced there.",
+    "",
+    "skipLibCheck is not optional. Without it the build fails inside nested dependencies of",
+    "@earendil-works/pi-coding-agent (a JSON import without an import attribute, a path into",
+    "undici-types that does not resolve) — 44 errors, none of them in Elowen's own types or in plugin",
+    "code. The daemon sets it for the same reason.",
+    "",
+    "declaration is off because nothing consumes these plugins as a library: the daemon imports the",
+    "built index.js at runtime and never type-checks against it.",
+    "",
+    "HOW A PLUGIN GETS THE DAEMON'S TYPES: `import type { PluginContext } from 'elowen/dist/plugins/api.js'`.",
+    "The daemon has since declared a stable `elowen/plugin-api` subpath for exactly this, and that is where",
+    "these imports should point — but it landed after 0.28.1, the version this repo installs from npm, so",
+    "the deep path is what resolves TODAY. The daemon's exports map keeps `./dist/*` open precisely so this",
+    "keeps working, and a contract test there fails if that wildcard is ever dropped. Switch these imports",
+    "to `elowen/plugin-api` when the elowen devDependency moves past 0.28.1."
+  ],
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"]
+  }
+}
