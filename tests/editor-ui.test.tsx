@@ -5,6 +5,13 @@ import type { QueryClient } from '@tanstack/react-query';
 import { http, HttpResponse, listen, resetHandlers, setDefaults, close } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
+import manifest from '../plugins/editor/elowen-plugin.json' with { type: 'json' };
+
+// View copy is served per-plugin by /plugins/ui; serving the REAL manifest en fallback keeps the
+// assertions in lockstep with what production users see. The host dictionary carries none of the
+// editor's own labels any more, so a panel that went back to reading them off `t` would break here
+// rather than in production once the app deletes the keys nothing references.
+const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
 
 // Monaco is browser-only — stub it with a textarea and capture the Cmd+S command the editor
 // registers via `onMount`, so a test can save exactly the way a keyboard user does (the toolbar
@@ -50,6 +57,7 @@ let failing = new Set<string>();
 let holdReads = false;
 let readGates: Array<() => void> = [];
 setDefaults(
+  http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'editor', url: '/plugins/editor/web/index.js', apiVersion: 1, nav: [], settings: [], strings }])),
   http.get('/api/projects/:id/files', () => HttpResponse.json([{ path: 'a.ts', type: 'file' }, { path: 'b.ts', type: 'file' }])),
   http.get('/api/projects/:id/file', async ({ url }) => {
     if (holdReads) await new Promise<void>((resolve) => readGates.push(resolve));
@@ -97,6 +105,25 @@ async function renderEditor() {
   return client;
 }
 const saveNow = async (path: string) => { act(() => monaco.save()); await waitFor(() => expect(gates.has(path)).toBe(true)); };
+
+describe('ProjectEditor copy', () => {
+  // The panel used to read these off the host's `t.projects.*`. They are the plugin's own vocabulary and
+  // travel with it, so the assertions are literals: comparing against `strings.x` would pass just as
+  // happily if the panel had gone back to the host, whereas a literal only holds while the manifest and
+  // the rendered text agree.
+  it('renders its own manifest copy rather than a host dictionary section', async () => {
+    await renderEditor();
+
+    expect(await screen.findByText('Code editor')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Diff' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Word wrap' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument();
+    expect(screen.getByRole('separator', { name: 'Drag to resize the editor' })).toBeInTheDocument();
+    // The file tree's accessible name is plugin copy too — `getByRole('tree')` elsewhere never checks it.
+    expect(screen.getByRole('tree')).toHaveAccessibleName('Code editor');
+  });
+});
 
 describe('ProjectEditor save', () => {
   it('themes Monaco from the host runtime rather than a colour table of its own', async () => {

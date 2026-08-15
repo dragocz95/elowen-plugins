@@ -3951,13 +3951,14 @@ function Tabs({ tabs, active, dirty, onSelect, onClose, closeLabel }) {
 // plugins/editor/web-src/editor/ProjectEditor.tsx
 var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
 var { hooks, components, utils } = runtime();
-var { useProjectFiles, useProjectFile, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useWriteProjectFile, useNewProjectFile, useNewProjectDir, useRenameProjectEntry, useCopyProjectEntry, useDeleteProjectEntry, useMobile, useToast, useTranslation: useTranslation2 } = hooks;
+var { useProjectFiles, useProjectFile, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useWriteProjectFile, useNewProjectFile, useNewProjectDir, useRenameProjectEntry, useCopyProjectEntry, useDeleteProjectEntry, useMobile, useToast, useTranslation: useTranslation2, usePluginStrings } = hooks;
 var { Button: Button2, LoadingState, EmptyState, ContextMenu } = components;
 var DIVIDER = "divider";
 var EDITOR_H_KEY = "elowen:editor:height";
 var MIN_EDITOR_H = 320;
 var clampEditorH = (px) => Math.max(MIN_EDITOR_H, Math.min(typeof window !== "undefined" ? window.innerHeight * 0.96 : 4e3, px));
 function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill = false }) {
+  const s = usePluginStrings("editor");
   const { t } = useTranslation2();
   const { toast } = useToast();
   const files = useProjectFiles(projectId);
@@ -4037,19 +4038,19 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const onChange = (v3) => {
     if (selected == null) return;
     updateDrafts((d) => ({ ...d, [selected]: v3 }));
-    setDirtyPaths((s) => {
-      const n = new Set(s);
+    setDirtyPaths((cur) => {
+      const n = new Set(cur);
       v3 !== serverContent ? n.add(selected) : n.delete(selected);
       return n;
     });
   };
-  const toggle = (p) => setExpanded((s) => {
-    const n = new Set(s);
+  const toggle = (p) => setExpanded((cur) => {
+    const n = new Set(cur);
     n.has(p) ? n.delete(p) : n.add(p);
     return n;
   });
-  const expandPath = (dir) => setExpanded((s) => {
-    const n = new Set(s);
+  const expandPath = (dir) => setExpanded((cur) => {
+    const n = new Set(cur);
     let acc = "";
     for (const part of dir.split("/").filter(Boolean)) {
       acc = acc ? `${acc}/${part}` : part;
@@ -4088,13 +4089,13 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
             delete n[path];
             return n;
           });
-          setDirtyPaths((s) => {
-            const n = new Set(s);
+          setDirtyPaths((cur) => {
+            const n = new Set(cur);
             n.delete(path);
             return n;
           });
         }
-        toast(t.projects.fileSaved.replace("{path}", path));
+        toast(s.fileSaved.replace("{path}", path));
       },
       (e) => toast(String(e), "error")
     );
@@ -4114,11 +4115,11 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       for (const k3 of Object.keys(n)) if (under(k3)) delete n[k3];
       return n;
     });
-    setDirtyPaths((s) => {
-      const n = new Set([...s].filter((x2) => !under(x2)));
+    setDirtyPaths((cur) => {
+      const n = new Set([...cur].filter((x2) => !under(x2)));
       return n;
     });
-    setSelected((s) => s && under(s) ? null : s);
+    setSelected((cur) => cur && under(cur) ? null : cur);
   };
   const remapPath = (from, to) => {
     const remap = (x2) => x2 === from ? to : x2.startsWith(from + "/") ? to + x2.slice(from.length) : x2;
@@ -4128,14 +4129,14 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       for (const [k3, v3] of Object.entries(d)) n[remap(k3)] = v3;
       return n;
     });
-    setDirtyPaths((s) => new Set([...s].map(remap)));
-    setSelected((s) => s ? remap(s) : s);
+    setDirtyPaths((cur) => new Set([...cur].map(remap)));
+    setSelected((cur) => cur ? remap(cur) : cur);
   };
   const err = (e) => toast(String(e), "error");
   const copyPath = (p) => {
     void utils.copyText(p).then((ok) => {
-      if (ok) toast(t.projects.pathCopied);
-      else toast(t.projects.copyFailed, "error");
+      if (ok) toast(s.pathCopied);
+      else toast(s.copyFailed, "error");
     });
   };
   const submitDialog = (val) => {
@@ -4145,24 +4146,24 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       newFile.mutate({ id: projectId, path }, { onSuccess: () => {
         expandPath(dialog.dir);
         openFile(path);
-        toast(t.projects.fileCreated.replace("{path}", path));
+        toast(s.fileCreated.replace("{path}", path));
       }, onError: err });
     } else if (dialog.kind === "newFolder") {
       const path = joinPath(dialog.dir, val);
       newDir.mutate({ id: projectId, path }, { onSuccess: () => {
         expandPath(path);
-        toast(t.projects.folderCreated.replace("{path}", path));
+        toast(s.folderCreated.replace("{path}", path));
       }, onError: err });
     } else if (dialog.kind === "rename") {
       const to = joinPath(parentDir(dialog.target), val);
       rename.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => {
         remapPath(dialog.target, to);
-        toast(t.projects.renamed.replace("{path}", to));
+        toast(s.renamed.replace("{path}", to));
       }, onError: err });
     } else if (dialog.kind === "duplicate") {
       const to = joinPath(parentDir(dialog.target), val);
       copy.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => {
-        toast(t.projects.duplicated.replace("{path}", to));
+        toast(s.duplicated.replace("{path}", to));
       }, onError: err });
     }
     setDialog(null);
@@ -4172,36 +4173,36 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     const path = dialog.target;
     del.mutate({ id: projectId, path }, { onSuccess: () => {
       forgetPath(path);
-      toast(t.projects.deleted.replace("{path}", path));
+      toast(s.deleted.replace("{path}", path));
     }, onError: err });
     setDialog(null);
   };
   const buildMenu = (node) => {
     if (!node) return [
-      { label: t.projects.ctxNewFile, icon: FilePlus, onClick: () => setDialog({ kind: "newFile", dir: "" }) },
-      { label: t.projects.ctxNewFolder, icon: FolderPlus, onClick: () => setDialog({ kind: "newFolder", dir: "" }) }
+      { label: s.ctxNewFile, icon: FilePlus, onClick: () => setDialog({ kind: "newFile", dir: "" }) },
+      { label: s.ctxNewFolder, icon: FolderPlus, onClick: () => setDialog({ kind: "newFolder", dir: "" }) }
     ];
     const common = [
-      { label: t.projects.ctxRename, icon: Pencil, onClick: () => setDialog({ kind: "rename", target: node.path }) },
-      { label: t.projects.ctxDuplicate, icon: Copy, onClick: () => setDialog({ kind: "duplicate", target: node.path }) },
-      { label: t.projects.ctxDelete, icon: Trash2, danger: true, onClick: () => setDialog({ kind: "delete", target: node.path }) },
+      { label: s.ctxRename, icon: Pencil, onClick: () => setDialog({ kind: "rename", target: node.path }) },
+      { label: s.ctxDuplicate, icon: Copy, onClick: () => setDialog({ kind: "duplicate", target: node.path }) },
+      { label: s.ctxDelete, icon: Trash2, danger: true, onClick: () => setDialog({ kind: "delete", target: node.path }) },
       DIVIDER,
-      { label: t.projects.ctxCopyPath, icon: ClipboardCopy, onClick: () => copyPath(node.path) }
+      { label: s.ctxCopyPath, icon: ClipboardCopy, onClick: () => copyPath(node.path) }
     ];
     if (node.type === "dir") return [
-      { label: t.projects.ctxNewFile, icon: FilePlus, onClick: () => setDialog({ kind: "newFile", dir: node.path }) },
-      { label: t.projects.ctxNewFolder, icon: FolderPlus, onClick: () => setDialog({ kind: "newFolder", dir: node.path }) },
+      { label: s.ctxNewFile, icon: FilePlus, onClick: () => setDialog({ kind: "newFile", dir: node.path }) },
+      { label: s.ctxNewFolder, icon: FolderPlus, onClick: () => setDialog({ kind: "newFolder", dir: node.path }) },
       DIVIDER,
       ...common
     ];
     return [
-      { label: t.projects.ctxOpen, icon: File, onClick: () => openFile(node.path) },
+      { label: s.ctxOpen, icon: File, onClick: () => openFile(node.path) },
       DIVIDER,
       ...common
     ];
   };
   const onContextMenu = (e, node) => setMenu({ x: e.clientX, y: e.clientY, items: buildMenu(node) });
-  const dialogTitle = dialog?.kind === "newFile" ? t.projects.dlgNewFile : dialog?.kind === "newFolder" ? t.projects.dlgNewFolder : dialog?.kind === "rename" ? t.projects.dlgRename : dialog?.kind === "duplicate" ? t.projects.dlgDuplicate : "";
+  const dialogTitle = dialog?.kind === "newFile" ? s.dlgNewFile : dialog?.kind === "newFolder" ? s.dlgNewFolder : dialog?.kind === "rename" ? s.dlgRename : dialog?.kind === "duplicate" ? s.dlgDuplicate : "";
   const dialogInitial = dialog?.kind === "rename" ? baseName(dialog.target) : dialog?.kind === "duplicate" ? baseName(copyName(dialog.target)) : "";
   return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
     "div",
@@ -4225,23 +4226,23 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
             "button",
             {
               type: "button",
-              onClick: () => setShowTree((s) => !s),
+              onClick: () => setShowTree((cur) => !cur),
               "aria-pressed": showTree,
-              "aria-label": t.projects.toggleTree,
-              title: t.projects.toggleTree,
+              "aria-label": s.toggleTree,
+              title: s.toggleTree,
               className: `flex h-7 w-7 items-center justify-center rounded-md transition-colors ${showTree ? "bg-accent/15 text-accent" : "text-text-muted hover:bg-elevated hover:text-text"}`,
               children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PanelLeft, { size: 15 })
             }
           ),
           /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(CodeXml, { size: 15, className: "shrink-0 text-accent", "aria-hidden": true }),
-          !(mobile && fullscreen) && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "text-sm font-semibold text-text", children: t.projects.editorTitle }),
+          !(mobile && fullscreen) && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "text-sm font-semibold text-text", children: s.editorTitle }),
           working ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { className: "truncate font-mono text-xs text-warning", children: [
             /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(GitCompare, { size: 11, className: "mr-1 inline", "aria-hidden": true }),
-            t.projects.workingChanges
-          ] }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("button", { type: "button", onClick: () => setSelected(null), disabled: !selected, title: selected ? t.projects.viewCommit : void 0, className: "flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default", children: [
+            s.workingChanges
+          ] }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("button", { type: "button", onClick: () => setSelected(null), disabled: !selected, title: selected ? s.viewCommit : void 0, className: "flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default", children: [
             /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(GitCompare, { size: 11, className: "mr-1 inline shrink-0", "aria-hidden": true }),
             /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { className: "truncate", children: [
-              t.projects.commitLabel,
+              s.commitLabel,
               " ",
               commit.slice(0, 8),
               selected ? ` \xB7 ${selected}` : ""
@@ -4249,10 +4250,10 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
           ] }) : null,
           /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "ml-auto flex items-center gap-1.5", children: [
             editable ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(import_jsx_runtime9.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "edit" ? "accent" : "ghost", onClick: () => setTab("edit"), children: t.projects.tabEdit }),
-              md ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "preview" ? "accent" : "ghost", icon: Eye, onClick: () => setTab("preview"), children: t.projects.tabPreview }) : null,
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "diff" ? "accent" : "ghost", icon: GitCompare, onClick: () => setTab("diff"), children: t.projects.tabDiff }),
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: wordWrap ? "accent" : "ghost", icon: WrapText, "aria-label": t.projects.wordWrap, title: t.projects.wordWrap, onClick: () => setWordWrap((w) => !w) }),
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "edit" ? "accent" : "ghost", onClick: () => setTab("edit"), children: s.tabEdit }),
+              md ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "preview" ? "accent" : "ghost", icon: Eye, onClick: () => setTab("preview"), children: s.tabPreview }) : null,
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "diff" ? "accent" : "ghost", icon: GitCompare, onClick: () => setTab("diff"), children: s.tabDiff }),
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: wordWrap ? "accent" : "ghost", icon: WrapText, "aria-label": s.wordWrap, title: s.wordWrap, onClick: () => setWordWrap((w) => !w) }),
               /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: "accent", icon: Save, disabled: !dirty || write.isPending, onClick: save, children: t.common.save })
             ] }) : null,
             onClose && !(mobile && fullscreen) ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", "aria-label": t.common.close, onClick: onClose, className: "flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(X, { size: 15 }) }) : null
@@ -4267,18 +4268,18 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
                 /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "min-h-0 flex-1 overflow-auto p-1.5", children: files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
                   selectInTree(p);
                   if (mobile && fullscreen) setShowTree(false);
-                }, changed: changedSet, onContextMenu, emptyLabel: t.projects.noFiles, treeLabel: t.projects.editorTitle }) }),
+                }, changed: changedSet, onContextMenu, emptyLabel: s.noFiles, treeLabel: s.editorTitle }) }),
                 /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "shrink-0 border-t border-border p-1.5", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
                   "button",
                   {
                     type: "button",
                     onClick: () => setFullscreen((f2) => !f2),
                     "aria-pressed": fullscreen,
-                    title: fullscreen ? t.projects.exitFullscreen : t.projects.fullscreen,
+                    title: fullscreen ? s.exitFullscreen : s.fullscreen,
                     className: "flex w-full items-center justify-center gap-2 rounded-md border border-border bg-elevated px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-border-strong hover:text-text",
                     children: [
                       fullscreen ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Minimize2, { size: 13, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Maximize2, { size: 13, "aria-hidden": true }),
-                      fullscreen ? t.projects.exitFullscreen : t.projects.fullscreen
+                      fullscreen ? s.exitFullscreen : s.fullscreen
                     ]
                   }
                 ) })
@@ -4287,7 +4288,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
           ),
           /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "flex min-w-0 flex-1 flex-col", children: [
             !commit && !working ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Tabs, { tabs: openTabs, active: selected, dirty: dirtyPaths, onSelect: setSelected, onClose: closeTab, closeLabel: t.common.close }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "min-h-0 flex-1", children: working ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: changesData.data?.diff ?? "", loading: changesData.isLoading, empty: t.projects.noChanges }) : commit && selected ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: commitFileDiff.data?.diff ?? "", loading: commitFileDiff.isLoading, empty: t.projects.noChanges }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: commitData.data?.diff ?? "", loading: commitData.isLoading, empty: t.projects.noChanges }) : !selected ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(EmptyState, { title: t.projects.selectFile, icon: File }) : img ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ImagePreview, { projectId, path: selected }) : fileData.data?.truncated ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: "p-4 text-center text-sm text-text-muted", children: t.projects.fileTooBig }) : effTab === "diff" ? headData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(DiffEditorPane, { path: selected, original: headData.data?.content ?? "", modified: value }) : effTab === "preview" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(MarkdownPreview, { source: value }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(EditorPane, { path: selected, value, onChange, onSave: save, wordWrap }) })
+            /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "min-h-0 flex-1", children: working ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: changesData.data?.diff ?? "", loading: changesData.isLoading, empty: s.noChanges }) : commit && selected ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: commitFileDiff.data?.diff ?? "", loading: commitFileDiff.isLoading, empty: s.noChanges }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: commitData.data?.diff ?? "", loading: commitData.isLoading, empty: s.noChanges }) : !selected ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(EmptyState, { title: s.selectFile, icon: File }) : img ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ImagePreview, { projectId, path: selected }) : fileData.data?.truncated ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: "p-4 text-center text-sm text-text-muted", children: s.fileTooBig }) : effTab === "diff" ? headData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(DiffEditorPane, { path: selected, original: headData.data?.content ?? "", modified: value }) : effTab === "preview" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(MarkdownPreview, { source: value }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(EditorPane, { path: selected, value, onChange, onSave: save, wordWrap }) })
           ] })
         ] }),
         !fullscreen && !fill ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
@@ -4295,8 +4296,8 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
           {
             role: "separator",
             "aria-orientation": "horizontal",
-            "aria-label": t.projects.resizeEditor,
-            title: t.projects.resizeEditor,
+            "aria-label": s.resizeEditor,
+            title: s.resizeEditor,
             onPointerDown: (e) => {
               e.preventDefault();
               dragY.current = e.clientY;
@@ -4321,7 +4322,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
           }
         ) : null,
         menu ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ContextMenu, { state: menu, onClose: () => setMenu(null) }) : null,
-        dialog && dialog.kind === "delete" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ConfirmDialog, { title: t.projects.dlgDelete, message: t.projects.dlgDeleteMsg.replace("{name}", baseName(dialog.target)), confirmLabel: t.projects.ctxDelete, danger: true, icon: Trash2, onConfirm: confirmDelete, onCancel: () => setDialog(null) }) : dialog ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PromptDialog, { title: dialogTitle, label: t.projects.dlgName, initialValue: dialogInitial, confirmLabel: t.common.save, onConfirm: submitDialog, onCancel: () => setDialog(null) }) : null
+        dialog && dialog.kind === "delete" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ConfirmDialog, { title: s.dlgDelete, message: s.dlgDeleteMsg.replace("{name}", baseName(dialog.target)), confirmLabel: s.ctxDelete, danger: true, icon: Trash2, onConfirm: confirmDelete, onCancel: () => setDialog(null) }) : dialog ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PromptDialog, { title: dialogTitle, label: s.dlgName, initialValue: dialogInitial, confirmLabel: t.common.save, onConfirm: submitDialog, onCancel: () => setDialog(null) }) : null
       ]
     }
   );
@@ -4329,7 +4330,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
 
 // plugins/editor/web-src/EditorPage.tsx
 var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
-var { useProjects, usePluginStrings, useProjectFilter, useFillHeight, useMobile: useMobile2 } = runtime().hooks;
+var { useProjects, usePluginStrings: usePluginStrings2, useProjectFilter, useFillHeight, useMobile: useMobile2 } = runtime().hooks;
 var {
   ModuleHeader,
   EmptyState: EmptyState2,
@@ -4351,7 +4352,7 @@ function linkTarget() {
   };
 }
 function EditorPage() {
-  const s = usePluginStrings("editor");
+  const s = usePluginStrings2("editor");
   const mobile = useMobile2();
   const projects = useProjects();
   const surfaceRef = (0, import_react20.useRef)(null);
