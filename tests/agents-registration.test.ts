@@ -345,6 +345,33 @@ describe('agents plugin runtime composition root (extraction B1)', () => {
     await expect(rt.reconcileOverseers()).resolves.toBeUndefined();
   });
 
+  // The BEHAVIOUR of the zombie reconcile, not merely that it runs. A daemon restart leaves every task
+  // its agents were working on stuck at 'in_progress' with the tmux session that owned it gone, and
+  // nothing re-picks such a task — so without this the work is silently abandoned. It used to be proven
+  // end to end by the Elowen package's migration E2E (an upgraded pre-plugin database whose zombie phase
+  // had to come back as 'open'), which cannot run there now that this plugin is not in that package.
+  // The assertion therefore lives here, against the plugin that actually owns the reconcile.
+  it('reconcileZombies re-opens a task whose agent session died, and leaves a live agent alone', async () => {
+    const { deps, published } = fakeDeps();
+    const task = (id: string, agent: string) => ({
+      id, project_id: 1, title: id, type: 'task', status: 'in_progress', labels: [`agent:${agent}`],
+    });
+    const setStatusCalls: [string, string][] = [];
+    deps.stores.tasks = {
+      list: ({ status }: { status?: string }) => (status === 'in_progress' ? [task('ph1', 'Nova'), task('ph2', 'Kilo')] : []),
+      get: () => null,
+      setStatus: (id: string, status: string) => { setStatusCalls.push([id, status]); },
+    } as unknown as TaskStore;
+    // Kilo's pane survived the restart; Nova's died with the previous daemon.
+    (deps.tmux as FakeTmuxDriver).setPane('elowen-Kilo', '');
+
+    const rt = buildAgentsRuntime(deps);
+    await rt.reconcileZombies();
+
+    expect(setStatusCalls).toEqual([['ph1', 'open']]);
+    expect(published).toContainEqual({ type: 'task', taskId: 'ph1', status: 'open' });
+  });
+
   it('dispose tears down exactly the two bus subscriptions', () => {
     const { deps, disposed } = fakeDeps();
     const rt = buildAgentsRuntime(deps);
