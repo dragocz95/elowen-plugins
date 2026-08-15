@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "plugins/agents/dist",
+    "rootDir": "plugins/agents/src",
+    "tsBuildInfoFile": "plugins/agents/dist/.tsbuildinfo"
+  },
+  "include": ["plugins/agents/src/**/*"]
+}

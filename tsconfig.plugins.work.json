@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "plugins/work/dist",
+    "rootDir": "plugins/work/src",
+    "tsBuildInfoFile": "plugins/work/dist/.tsbuildinfo"
+  },
+  "include": ["plugins/work/src/**/*"]
+}

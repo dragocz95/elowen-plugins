@@ -16,24 +16,29 @@ import { describe, expect, it } from 'vitest';
 const registryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(registryRoot, 'plugins');
 
-interface Manifest { provides?: { skills?: string[] } }
+interface Manifest { entry?: string; provides?: { skills?: string[] } }
 
 const declaring = readdirSync(pluginsDir)
   .filter((name) => existsSync(join(pluginsDir, name, 'elowen-plugin.json')))
-  .map((name) => ({
-    name,
-    skills: ((JSON.parse(readFileSync(join(pluginsDir, name, 'elowen-plugin.json'), 'utf-8')) as Manifest)
-      .provides?.skills ?? [])
-      // '*' is the skills plugin declaring "whatever is in my dir" — a capability, not a named skill.
-      .filter((skill) => skill !== '*'),
-  }))
+  .map((name) => {
+    const manifest = JSON.parse(readFileSync(join(pluginsDir, name, 'elowen-plugin.json'), 'utf-8')) as Manifest;
+    return {
+      name,
+      // The file the daemon actually loads. A TypeScript plugin points this at its compiled
+      // `dist/index.js`; assuming `index.mjs` would read a file that does not exist there.
+      entry: manifest.entry ?? 'index.mjs',
+      skills: (manifest.provides?.skills ?? [])
+        // '*' is the skills plugin declaring "whatever is in my dir" — a capability, not a named skill.
+        .filter((skill) => skill !== '*'),
+    };
+  })
   .filter((p) => p.skills.length > 0);
 
 describe('a plugin that declares skills ships them', () => {
   it('finds the declaring plugins from their manifests', () => {
     // Read from disk so a new plugin is covered the moment it lands — and an empty read would make
     // every case below pass by doing nothing.
-    expect(declaring.map((p) => p.name).sort()).toEqual(['cronjob']);
+    expect(declaring.map((p) => p.name).sort()).toEqual(['agents', 'cronjob', 'work']);
   });
 
   it.each(declaring)('$name has every declared skill on disk, loadable, under the declared name', ({ name, skills }) => {
@@ -43,9 +48,11 @@ describe('a plugin that declares skills ships them', () => {
     for (const skill of skills) expect(loaded, `${name} declares ${skill}`).toContain(skill);
   });
 
-  it.each(declaring)('$name registers what it declares, not merely ships it', ({ name, skills }) => {
-    const source = readFileSync(join(pluginsDir, name, 'index.mjs'), 'utf-8');
+  it.each(declaring)('$name registers what it declares, not merely ships it', ({ name, entry, skills }) => {
+    // Read the ENTRY the manifest names, not a fixed filename: for a TypeScript plugin that is the
+    // compiled artefact the marketplace installs, so this asserts against what actually runs.
+    const source = readFileSync(join(pluginsDir, name, entry), 'utf-8');
     expect(source, `${name} declares ${skills.join(', ')} but never calls ctx.registerSkill`)
-      .toMatch(/ctx\.registerSkill\(/);
+      .toMatch(/registerSkill\(/);
   });
 });
