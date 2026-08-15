@@ -11,19 +11,39 @@
  *  form's button set matches production.
  */
 import {
-  useCallback, useEffect, useId, useMemo, useRef, useState,
-  type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode,
+  createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState,
+  type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type InputHTMLAttributes, type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronLeft, ChevronRight, Cpu, Loader2, Search, Settings2, Trash2, TriangleAlert, type LucideIcon } from 'lucide-react';
-import { apiErrorMessage } from './hostClient';
-import { useToast, useTranslation } from './hostHooks';
+import {
+  CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Coins, Cpu, FolderGit2,
+  GitCommitHorizontal, Link2, Loader2, Maximize2, Search, Settings2, Timer, Trash2, TriangleAlert,
+  XCircle, type LucideIcon,
+} from 'lucide-react';
+import { apiErrorMessage, type Task } from './hostClient';
+import {
+  useAgentsPlugin, useBrainModels, useConfig, useProjectGit, useProjects, useSessionInfos,
+  useSessionPane, useTaskUsage, useTasks, useToast, useTranslation, type StallState,
+} from './hostHooks';
+import {
+  agentDisplayName, allModels as allModelsUtil, DIVIDER, execModel, formatCost, formatTokens,
+  liveState, PROVIDERS, taskAgentName, taskElapsed, taskExec, taskForSession, taskSessionName,
+  tailSnippet, type DateRange, type DerivedSignal, type RangePreset, type Tone,
+} from './hostUtils';
+import { ProjectIcon } from './hostProjectIcon';
 import type { SaveStatus } from './useAutoSaveStatus';
+
+export { ProjectIcon };
+export { DIVIDER as contextMenuDivider };
+
+/** The instance's display name — the app reads it from the brand config; here it is the default, which
+ *  is what the moved suites assert the hero mascot is labelled with. */
+const APP_NAME = 'Elowen';
 
 // ── primitives ───────────────────────────────────────────────────────────────────────────────────────
 
-export function Badge({ children }: { children: ReactNode; tone?: string }) {
-  return <span className="badge">{children}</span>;
+export function Badge({ children, tone = 'default' }: { children: ReactNode; tone?: Tone }) {
+  return <span className="badge" data-tone={tone}>{children}</span>;
 }
 
 export function Button({ icon: Icon, children, ...rest }: { variant?: string; icon?: LucideIcon } & ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -47,7 +67,7 @@ export function Field({ label, htmlFor, children, hint }: { label: string; htmlF
   );
 }
 
-function HelpTip({ children }: { children: ReactNode }) {
+export function HelpTip({ children }: { children: ReactNode }) {
   return (
     <span className="help-tip">
       <button type="button" aria-label="Help" title={typeof children === 'string' ? children : undefined}>?</button>
@@ -130,14 +150,27 @@ export function ControlSurfaceState({ children, tone = 'default' }: { children: 
   return <div className="control-surface-state" data-tone={tone}>{children}</div>;
 }
 
-export function DataTable({ ariaLabel, children, className = '' }: { ariaLabel: string; columns?: string; compactColumns?: string; children: ReactNode; className?: string }) {
-  return <div role="table" aria-label={ariaLabel} className={className}>{children}</div>;
+/** Responsive register table. Wide-only cells disappear as a unit and the compact grid closes ranks.
+ *  The column tracks travel as CSS custom properties, which is the part a panel asserts on: the layout
+ *  itself is stylesheet work jsdom never runs, but WHICH tracks a view asked for is its own decision. */
+type TableStyle = CSSProperties & { '--data-table-columns'?: string; '--data-table-compact-columns'?: string };
+
+export function DataTable({ ariaLabel, columns, compactColumns = 'minmax(0,1fr)', children, className = '', ...rest }: {
+  ariaLabel: string; columns: string; compactColumns?: string; children: ReactNode; className?: string;
+} & Omit<HTMLAttributes<HTMLDivElement>, 'children'>) {
+  const style: TableStyle = { '--data-table-columns': columns, '--data-table-compact-columns': compactColumns };
+  return <div role="table" aria-label={ariaLabel} style={style} className={`@container overflow-x-clip rounded-lg border border-border/80 ${className}`} {...rest}>{children}</div>;
 }
 export function DataTableRow({ children, header = false, selected = false, interactive = false, className = '', ...rest }: {
   children: ReactNode; header?: boolean; selected?: boolean; interactive?: boolean;
 } & HTMLAttributes<HTMLDivElement>) {
   return (
-    <div role="row" data-state={selected ? 'selected' : 'idle'} data-interactive={interactive || undefined} className={`${header ? 'data-table-header' : ''} ${className}`} {...rest}>
+    <div
+      role="row"
+      data-state={selected ? 'selected' : 'idle'}
+      className={`data-table-grid items-center gap-x-3 border-b border-border/70 px-4 last:border-b-0 ${header ? 'data-table-header sticky top-0 z-10 py-2.5' : `py-3.5 ${interactive ? 'interactive-row' : ''}`} ${selected ? 'bg-accent/[0.055]' : ''} ${className}`}
+      {...rest}
+    >
       {children}
     </div>
   );
@@ -145,7 +178,16 @@ export function DataTableRow({ children, header = false, selected = false, inter
 export function DataTableCell({ children, header = false, priority = 'always', className = '', ...rest }: {
   children: ReactNode; header?: boolean; priority?: 'always' | 'wide';
 } & HTMLAttributes<HTMLDivElement>) {
-  return <div role={header ? 'columnheader' : 'cell'} data-priority={priority} className={className} {...rest}>{children}</div>;
+  return (
+    <div
+      role={header ? 'columnheader' : 'cell'}
+      data-priority={priority}
+      className={`${priority === 'wide' ? 'data-table-wide' : ''} min-w-0 ${header ? 'text-[10px] font-semibold uppercase tracking-wider text-text-muted' : ''} ${className}`}
+      {...rest}
+    >
+      {children}
+    </div>
+  );
 }
 
 export function EmptyState({ title, description, icon: Icon, action }: { title: string; description?: string; icon?: LucideIcon; action?: ReactNode }) {
@@ -178,6 +220,66 @@ export function WorkspacePage({ children, className = '' }: { children: ReactNod
   return <div className={`workspace-page ${className}`}>{children}</div>;
 }
 
+/** The workspace mascot. The app's WebGL scene is skipped under test even in production code; what a
+ *  page depends on — and what the moved suites count, to prove a page grew exactly one hero — is the
+ *  `role="img"` named after the instance. */
+export function SpatialMascot() {
+  return <div className="spatial-mascot" role="img" aria-label={APP_NAME} />;
+}
+
+/** The page's primary section switcher: a radiogroup of section nodes, each named "<label> <count>"
+ *  when it carries one, with the arrow/Home/End roving the selection. */
+export interface SpatialDeckSection { id: string; label: string; icon: LucideIcon; description?: string; count?: number }
+
+export function SpatialSectionRail({ sections, value, onChange, ariaLabel }: {
+  sections: SpatialDeckSection[];
+  value: string;
+  onChange: (id: string) => void;
+  ariaLabel: string;
+}) {
+  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const move = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let next = index;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % sections.length;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + sections.length) % sections.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = sections.length - 1;
+    else return;
+    event.preventDefault();
+    const section = sections[next];
+    if (!section) return;
+    onChange(section.id);
+    refs.current[section.id]?.focus();
+  };
+  return (
+    <div data-testid="spatial-section-rail" className="spatial-section-rail">
+      <nav role="radiogroup" aria-label={ariaLabel} className="spatial-section-rail__track">
+        {sections.map((section, index) => {
+          const selected = section.id === value;
+          const Icon = section.icon;
+          return (
+            <button
+              key={section.id}
+              ref={(node) => { refs.current[section.id] = node; }}
+              type="button"
+              role="radio"
+              aria-label={section.count === undefined ? section.label : `${section.label} ${section.count}`}
+              aria-checked={selected}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => onChange(section.id)}
+              onKeyDown={(event) => move(event, index)}
+              className={`spatial-section-node ${selected ? 'spatial-section-node--active' : ''}`}
+            >
+              {Icon ? <span className="spatial-section-node__icon"><Icon size={17} aria-hidden /></span> : null}
+              <span className="spatial-section-node__label">{section.label}{section.count !== undefined ? <span className="spatial-section-node__count">{section.count}</span> : null}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
 function SpatialWorkspaceHero({ eyebrow, title, count, description, status, action, children }: {
   eyebrow?: string; title: string; count?: number; description?: string;
   status?: ReactNode; action?: ReactNode; mascotState?: string; children: ReactNode;
@@ -196,15 +298,16 @@ function SpatialWorkspaceHero({ eyebrow, title, count, description, status, acti
         <div className="workspace-header__actions">{status}{action}</div>
       </header>
       <div className="spatial-workspace-hero__body">
-        <div className="spatial-workspace-hero__mascot" data-testid="workspace-hero-mascot" />
+        <div className="spatial-workspace-hero__mascot" data-testid="workspace-hero-mascot"><SpatialMascot /></div>
         <div className="spatial-workspace-hero__metrics">{children}</div>
       </div>
     </section>
   );
 }
 
-export function SpatialWorkspaceLayout({ hero, children, className = '' }: {
+export function SpatialWorkspaceLayout({ hero, navigation, children, className = '' }: {
   hero: { eyebrow?: string; title: string; count?: number; description?: string; status?: ReactNode; action?: ReactNode; mascotState?: string; metrics: ReactNode };
+  navigation?: { sections: SpatialDeckSection[]; value: string; onChange: (id: string) => void; ariaLabel: string };
   children: ReactNode;
   className?: string;
 }) {
@@ -214,8 +317,32 @@ export function SpatialWorkspaceLayout({ hero, children, className = '' }: {
       <div className="spatial-workspace-layout__hero">
         <SpatialWorkspaceHero {...heroProps}>{metrics}</SpatialWorkspaceHero>
       </div>
+      {navigation ? <SpatialSectionRail {...navigation} /> : null}
       <div className="workspace-content" data-testid="spatial-workspace-layout">{children}</div>
     </WorkspacePage>
+  );
+}
+
+/** The slim header a workspace wears when it is mostly one working surface (no mascot hero). */
+export function CompactWorkspaceHeader({ eyebrow, title, count, description, status, action, icon: Icon }: {
+  eyebrow?: string; title: string; count?: number; description?: string;
+  status?: ReactNode; action?: ReactNode; icon?: LucideIcon;
+}) {
+  return (
+    <header className="workspace-header">
+      <div>
+        {Icon ? <span className="workspace-header__icon"><Icon size={20} aria-hidden /></span> : null}
+        <div>
+          {eyebrow ? <div className="workspace-header__eyebrow">{eyebrow}</div> : null}
+          <div>
+            <h1>{title}</h1>
+            {count !== undefined ? <span className="workspace-header__count">{count}</span> : null}
+          </div>
+          {description ? <p>{description}</p> : null}
+        </div>
+      </div>
+      <div className="workspace-header__actions">{status}{action}</div>
+    </header>
   );
 }
 
@@ -252,7 +379,7 @@ export function WorkspaceDetailRail({ label, closeLabel, onClose, children }: { 
  *  `aria-labelledby` and carrying the header's Close button, so a modal's button set matches
  *  production. Only the size/presentation styling is dropped — a drawer and a centered window are the
  *  same dialog with the same focus and close behaviour. */
-function Modal({ title, description, onClose, children }: {
+export function Modal({ title, description, onClose, children }: {
   title: string; description?: string; onClose: () => void; children: ReactNode;
   size?: string; presentation?: 'center' | 'drawer'; icon?: LucideIcon;
 }) {
@@ -296,11 +423,11 @@ function Modal({ title, description, onClose, children }: {
 
 /** Scrollable content region of a modal; `ModalFooter` keeps the actions pinned below it and takes an
  *  optional `status` node (the auto-save indicator) on the left. */
-function ModalBody({ children }: { children: ReactNode; gap?: 4 | 5 | 6 }) {
+export function ModalBody({ children }: { children: ReactNode; gap?: 4 | 5 | 6 }) {
   return <div className="modal-body">{children}</div>;
 }
 
-function ModalFooter({ children, status }: { children?: ReactNode; status?: ReactNode }) {
+export function ModalFooter({ children, status }: { children?: ReactNode; status?: ReactNode }) {
   return (
     <div className="modal-footer">
       {status ? <div>{status}</div> : null}
@@ -978,3 +1105,891 @@ export function MarkdownAssetEditor(props: any) {
     </div>
   );
 }
+
+// ── page chrome ──────────────────────────────────────────────────────────────────────────────────────
+
+/** Publishes the page title into the shell masthead and renders only the page's own toolbar below it.
+ *  There is no masthead in this repo, so the title is rendered inline — what a panel depends on is that
+ *  the toolbar children land in a wrapping flex row, which is what its layout assertions read. */
+export function ModuleHeader({ title, subtitle, children }: { title: string; count?: number; icon?: LucideIcon; children?: ReactNode; subtitle?: string }) {
+  if (!children && !subtitle) return null;
+  return (
+    <div className="mb-6 flex flex-col gap-2">
+      {subtitle ? <p>{subtitle}</p> : null}
+      {children ? <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{children}</div> : null}
+    </div>
+  );
+}
+
+export function IconButton({ icon: Icon, label, onClick, disabled = false }: { icon: LucideIcon; label: string; onClick?: () => void; variant?: 'default' | 'danger'; disabled?: boolean }) {
+  return (
+    <button type="button" aria-label={label} title={label} onClick={onClick} disabled={disabled}>
+      <Icon size={14} aria-hidden />
+    </button>
+  );
+}
+
+export function EntityList({ children, className = '', ...rest }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
+  return <div role="list" className={className} {...rest}>{children}</div>;
+}
+
+export function EntityRow({ children, selected = false, busy = false, interactive = true, className = '', ...rest }: {
+  children: ReactNode; selected?: boolean; busy?: boolean; interactive?: boolean;
+} & HTMLAttributes<HTMLDivElement>) {
+  const state = busy ? 'busy' : selected ? 'selected' : 'idle';
+  return (
+    <div role="listitem" data-state={state} aria-busy={busy || undefined} className={`${interactive ? 'interactive-row' : ''} min-w-0 px-4 py-3.5 ${className}`} {...rest}>
+      {children}
+    </div>
+  );
+}
+
+/** The app's Motion wrappers, without the motion library. Their whole contract to a plugin panel is
+ *  "render my children in a div and keep exits out of the way"; the animation itself is app chrome that
+ *  jsdom could not observe anyway, and pulling a motion runtime in for it would only add a second
+ *  scheduler between a click and the assertion after it. */
+export function MotionPresence({ children }: { children: ReactNode; mode?: string }) { return <>{children}</>; }
+export function MotionLayout({ children, ...rest }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) { return <div {...rest}>{children}</div>; }
+export function MotionLayoutItem({ children, layoutId: _layoutId, ...rest }: HTMLAttributes<HTMLDivElement> & { children: ReactNode; layoutId?: string }) {
+  return <div {...rest}>{children}</div>;
+}
+export function MotionReveal({ children, delay: _delay, ...rest }: HTMLAttributes<HTMLDivElement> & { children: ReactNode; delay?: number }) {
+  return <div {...rest}>{children}</div>;
+}
+
+// ── loading line ─────────────────────────────────────────────────────────────────────────────────────
+
+export function LoadingLine({ label, spinner = false }: { label?: string; layout?: 'inline' | 'block' | 'page'; spinner?: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <span role="status" aria-live="polite">
+      {spinner ? <Spinner size="md" /> : null}
+      <span>{label ?? t.common.loading}</span>
+    </span>
+  );
+}
+
+// ── project identity ─────────────────────────────────────────────────────────────────────────────────
+
+/** Small muted pill naming the project a card belongs to. Hidden in a single-project workspace unless
+ *  the caller passes `always` (on a session card, "where is this agent working" is confirmation). */
+export function ProjectPill({ projectId, always = false }: { projectId?: number; always?: boolean }) {
+  const { data: projects } = useProjects();
+  if (projectId == null || !projects || (!always && projects.length < 2)) return null;
+  const project = projects.find((p) => p.id === projectId);
+  if (!project) return null;
+  return (
+    <span title={project.path}>
+      <ProjectIcon project={project} size={11} />
+      <span>{project.slug}</span>
+    </span>
+  );
+}
+
+/** How many project pills show before the tail folds behind "+N more". */
+const PROJECT_PREVIEW = 5;
+
+/** The shared project filter: "All projects" plus one entry per accessible project, hidden entirely
+ *  when the workspace has fewer than two (no choice to make). The host owns the value and persists it.
+ *  Two shapes, both in production: a `role="group"` of toggle pills, and a `role="menu"` dropdown whose
+ *  options are `menuitemradio` — the pages moved here use the dropdown. */
+export function ProjectFilterPills({ value, onChange, includeAll = true, variant = 'pills' }: {
+  value: number | 'all'; onChange: (v: number | 'all') => void; includeAll?: boolean; variant?: 'pills' | 'dropdown';
+}) {
+  const { data: projects } = useProjects();
+  const { t } = useTranslation();
+  const [showAll, setShowAll] = useState(false);
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open || variant !== 'dropdown') return;
+    const onPointerDown = (event: PointerEvent) => { if (!dropdownRef.current?.contains(event.target as Node)) setOpen(false); };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.removeEventListener('pointerdown', onPointerDown); document.removeEventListener('keydown', onKeyDown); };
+  }, [open, variant]);
+  if (!projects || projects.length < 2) return null;
+
+  if (variant === 'dropdown') {
+    const selected = value === 'all' ? null : projects.find((project) => project.id === value);
+    const choose = (next: number | 'all') => { onChange(next); setOpen(false); };
+    return (
+      <div ref={dropdownRef} className="relative">
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={t.tasks.filterProjectsAria}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <FolderGit2 size={13} aria-hidden />
+          <span>{selected?.slug ?? t.tasks.filterAllProjects}</span>
+          <ChevronDown size={13} aria-hidden />
+        </button>
+        {open ? (
+          <div role="menu" aria-label={t.tasks.filterProjectsAria}>
+            {includeAll ? (
+              <button type="button" role="menuitemradio" aria-checked={value === 'all'} onClick={() => choose('all')}>
+                <FolderGit2 size={14} aria-hidden />
+                <span>{t.tasks.filterAllProjects}</span>
+                {value === 'all' ? <Check size={15} aria-hidden /> : null}
+              </button>
+            ) : null}
+            <div role="separator" />
+            {projects.map((project) => (
+              <button key={project.id} type="button" role="menuitemradio" aria-checked={value === project.id} onClick={() => choose(project.id)} title={project.path}>
+                <ProjectIcon project={project} size={14} />
+                <span>{project.slug}</span>
+                {value === project.id ? <Check size={15} aria-hidden /> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const folded = !showAll && projects.length > PROJECT_PREVIEW;
+  const head = folded ? projects.slice(0, PROJECT_PREVIEW) : projects;
+  const selectedProject = folded ? projects.find((p) => p.id === value) : undefined;
+  // A selected project inside the folded tail rides along as one extra pill — picking one must never
+  // reshuffle the row.
+  const visible = selectedProject && !head.some((p) => p.id === selectedProject.id) ? [...head, selectedProject] : head;
+  return (
+    <div role="group" aria-label={t.tasks.filterProjectsAria}>
+      {includeAll ? (
+        <button type="button" aria-pressed={value === 'all'} onClick={() => onChange('all')}>
+          <FolderGit2 size={13} aria-hidden />{t.tasks.filterAllProjects}
+        </button>
+      ) : null}
+      {visible.map((p) => (
+        <button key={p.id} type="button" aria-pressed={value === p.id} onClick={() => onChange(p.id)} title={p.path}>
+          <ProjectIcon project={p} size={13} /><span>{p.slug}</span>
+        </button>
+      ))}
+      {projects.length > PROJECT_PREVIEW ? (
+        <button type="button" aria-expanded={showAll} onClick={() => setShowAll((v) => !v)}>
+          {showAll ? t.pills?.showLess ?? 'Show less' : (t.pills?.showMore ?? '+{n} more').replace('{n}', String(projects.length - visible.length))}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+// ── menus ────────────────────────────────────────────────────────────────────────────────────────────
+
+interface MenuAction { label: string; icon?: LucideIcon; onClick: () => void; danger?: boolean; disabled?: boolean }
+interface MenuSubmenu { label: string; icon?: LucideIcon; disabled?: boolean; items: MenuEntry[] }
+type MenuEntry = MenuAction | MenuSubmenu | typeof DIVIDER;
+
+const isSubmenu = (e: MenuEntry): e is MenuSubmenu => e !== DIVIDER && 'items' in e;
+
+/** The floating right-click menu, with one level of submenus. Closes on outside click, Esc or after a
+ *  leaf runs. The app also clamps it to the viewport; jsdom measures everything as zero, so the
+ *  positioning maths is the one part that does not travel. */
+export function ContextMenu({ state, onClose }: { state: { x: number; y: number; items: MenuEntry[] }; onClose: () => void }) {
+  useEffect(() => {
+    const close = () => onClose();
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) onClose(); };
+    // Deferred a tick: the opening right-click must not instantly close it.
+    const id = window.setTimeout(() => window.addEventListener('mousedown', close), 0);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', close);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', close);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div role="menu" className="overlay-layer-menu" style={{ left: state.x, top: state.y }} onMouseDown={(e) => e.stopPropagation()}>
+      {state.items.map((item, i) => <MenuRow key={i} entry={item} index={i} onClose={onClose} />)}
+    </div>,
+    document.body,
+  );
+}
+
+function MenuRow({ entry, index, onClose }: { entry: MenuEntry; index: number; onClose: () => void }) {
+  if (entry === DIVIDER) return <div aria-hidden className="menu-divider" />;
+  if (isSubmenu(entry)) return <SubmenuRow entry={entry} onClose={onClose} />;
+  const Icon = entry.icon;
+  return (
+    <button type="button" role="menuitem" data-index={index} disabled={entry.disabled} onClick={() => { entry.onClick(); onClose(); }}>
+      {Icon ? <Icon size={13} aria-hidden /> : null}
+      <span>{entry.label}</span>
+    </button>
+  );
+}
+
+function SubmenuRow({ entry, onClose }: { entry: MenuSubmenu; onClose: () => void }) {
+  const [open, setOpen] = useState(false);
+  const Icon = entry.icon;
+  return (
+    <div onMouseEnter={() => !entry.disabled && setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={entry.disabled}
+        onClick={() => !entry.disabled && setOpen((o) => !o)}
+      >
+        {Icon ? <Icon size={13} aria-hidden /> : null}
+        <span>{entry.label}</span>
+        <ChevronRight size={13} aria-hidden />
+      </button>
+      {open && !entry.disabled ? (
+        <div role="menu">{entry.items.map((item, i) => <MenuRow key={i} entry={item} index={i} onClose={onClose} />)}</div>
+      ) : null}
+    </div>
+  );
+}
+
+export type ActionMenuItem = { label: string; tone?: 'default' | 'danger'; onSelect: () => void; icon?: LucideIcon; iconNode?: ReactNode };
+
+/** The hover/click action menu. Its trigger is a button named by `label`, and the items are
+ *  `role="menuitem"` — which is why a suite tells the trigger apart from a same-named confirm button by
+ *  `aria-haspopup`. */
+export function ActionMenu({ items, label, trigger }: {
+  items: ActionMenuItem[]; label?: string; trigger?: ReactNode; triggerClassName?: string; align?: 'left' | 'right';
+}) {
+  const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
+  const resolvedLabel = label ?? t.common.actions;
+  return (
+    <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button type="button" aria-label={resolvedLabel} aria-haspopup="menu" aria-expanded={open} title={resolvedLabel} onClick={() => setOpen((o) => !o)}>
+        {trigger ?? <Trash2 size={15} aria-hidden />}
+      </button>
+      {open ? (
+        <div role="menu">
+          {items.map((it) => {
+            const Icon = it.icon;
+            return (
+              <button key={it.label} type="button" role="menuitem" onClick={() => { setOpen(false); it.onSelect(); }}>
+                {it.iconNode ?? (Icon ? <Icon size={15} aria-hidden /> : null)}
+                {it.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ── task presentation ────────────────────────────────────────────────────────────────────────────────
+
+/** Green ✓ / red ✕ badge for a closed task's outcome; nothing without one. */
+export function OutcomeBadge({ outcome }: { outcome?: string | null }) {
+  const { t } = useTranslation();
+  if (!outcome) return null;
+  const fail = outcome === 'fail';
+  return (
+    <Badge tone={fail ? 'danger' : 'success'}>
+      {fail ? <XCircle size={11} aria-hidden /> : <CheckCircle2 size={11} aria-hidden />}
+      {fail ? t.tasks.outcomeFail : t.tasks.outcomeOk}
+    </Badge>
+  );
+}
+
+/** One-line agent identity: the friendly agent name (or the model as a fallback) and the run duration,
+ *  frozen once the task finishes. */
+export function AgentIdentityStrip({ task, showTime = true, showIcon = false, iconSize = 14 }: { task: Task; showTime?: boolean; showIcon?: boolean; iconSize?: number }) {
+  const { data: config } = useConfig();
+  const exec = taskExec(task.labels) || (config as { defaults?: { exec?: string } } | undefined)?.defaults?.exec || '';
+  const identity = taskSessionName(task) ?? taskAgentName(task) ?? exec;
+  const ran = showTime ? taskElapsed(task, Date.now()) : null;
+  if (!identity && !ran) return null;
+  return (
+    <div>
+      {showIcon ? <ModelIcon name={exec} size={iconSize} /> : null}
+      {identity ? <span>{agentDisplayName(identity)}</span> : null}
+      {ran ? <><span aria-hidden>·</span><span><Timer size={11} aria-hidden />{ran}</span></> : null}
+    </div>
+  );
+}
+
+/** The live-state dot. Gated on the agents plugin product-wide: without it the dot could only ever say
+ *  a meaningless neutral 'idle', so it hides rather than lie. */
+export function AgentStatusDot({ signal, live = false, stall, silenceSec = 0 }: {
+  signal?: DerivedSignal; live?: boolean; size?: 'sm' | 'md'; stall?: StallState; silenceSec?: number;
+}) {
+  const { t } = useTranslation();
+  const agentsUi = useAgentsPlugin();
+  if (!agentsUi) return null;
+  const state = stall === 'stuck' ? 'stuck' : stall === 'stalled' ? 'stalled' : liveState(signal, live);
+  const minutes = String(Math.max(1, Math.floor(silenceSec / 60)));
+  const label = state === 'stalled' ? t.agent.stalled.replace('{min}', minutes)
+    : state === 'stuck' ? t.agent.stuck.replace('{min}', minutes)
+    : t.agent[state === 'idle' ? 'idle' : state === 'needs_input' ? 'needsInput' : state];
+  return <span role="status" aria-label={label} title={label} data-live-state={state} />;
+}
+
+/** Compact segmented progress bar for an epic's phases. */
+export function ProgressRibbon({ phases, className = '' }: { phases: Task[]; className?: string; active?: boolean }) {
+  return (
+    <div className={className}>
+      {phases.length === 0 ? <div /> : phases.map((p) => <div key={p.id} title={`${p.title} — ${p.status}`} data-phase-status={p.status} />)}
+    </div>
+  );
+}
+
+/** Coloured unified-diff view for a raw git patch. */
+export function PatchView({ diff, empty, loading = false }: { diff: string; empty: string; loading?: boolean }) {
+  if (loading) return <div><LoadingLine /></div>;
+  if (!diff.trim()) return <p>{empty}</p>;
+  return (
+    <pre>
+      {diff.split('\n').map((line, i) => <div key={i}>{line || ' '}</div>)}
+    </pre>
+  );
+}
+
+/** Live tail line for a running session — polls only while mounted, so closed cards stay quiet. */
+function LiveTailLine({ name }: { name: string }) {
+  const { t } = useTranslation();
+  const { tail, isLoading } = useSessionPane(name, 3);
+  const line = tailSnippet(tail);
+  return (
+    <div>
+      <ChevronRight size={12} aria-hidden />
+      <span>{line || (isLoading ? t.common.loading : t.sessions.noOutput)}</span>
+    </div>
+  );
+}
+
+/** One context line per task: live tail (running), result summary (closed), blocker reason (blocked)
+ *  or a subtle Ready. Nothing when there is nothing to say. */
+export function TaskContextLine({ task, sessionName, blockers }: { task: Task; sessionName?: string | null; blockers?: Task[] }) {
+  const { t } = useTranslation();
+  if (sessionName) return <LiveTailLine name={sessionName} />;
+  if (task.status === 'closed' || task.status === 'cancelled') {
+    const fail = task.outcome === 'fail';
+    return (
+      <p>
+        {fail ? <XCircle size={12} aria-hidden /> : <CheckCircle2 size={12} aria-hidden />}
+        <span>{task.result_summary?.trim() || t.tasks.noSummary}</span>
+      </p>
+    );
+  }
+  if (blockers && blockers.length > 0) {
+    return (
+      <p>
+        <Link2 size={12} aria-hidden />
+        <span>{t.agent.waitingFor.replace('{deps}', blockers.map((b) => b.title).join(', '))}</span>
+      </p>
+    );
+  }
+  if (task.status === 'open') return <p>{t.agent.ready}</p>;
+  return null;
+}
+
+/** Token usage as IN / CACHE / OUT (and cost) pills. */
+export function UsageBadge({ usage }: { usage: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number; costUsd: number | null } }) {
+  const { t } = useTranslation();
+  if (!usage || usage.total === 0) return null;
+  const cache = usage.cacheRead + usage.cacheWrite;
+  const hasCost = usage.costUsd != null && usage.costUsd > 0;
+  return (
+    <span>
+      <span>{t.usage.input}{formatTokens(usage.input)}</span>
+      {cache > 0 ? <span>{t.usage.cache}{formatTokens(cache)}</span> : null}
+      <span>{t.usage.output}{formatTokens(usage.output)}</span>
+      {hasCost ? <span><Coins size={10} aria-hidden />{t.usage.cost}{formatCost(usage.costUsd!)}</span> : null}
+    </span>
+  );
+}
+
+/** Connected UsageBadge: fetches a task's usage (polling while live). Nothing until it resolves. */
+export function TaskUsageBadge({ taskId, live = false }: { taskId: string; live?: boolean }) {
+  const { data } = useTaskUsage(taskId, live);
+  if (!data) return null;
+  return <UsageBadge usage={data} />;
+}
+
+/** Compact "what changed" strip: dirty count + last commit subject, resolved against the first project. */
+export function ChangeStrip() {
+  const { t } = useTranslation();
+  const projects = useProjects();
+  const projectId = projects.data?.[0]?.id ?? null;
+  const git = useProjectGit(projectId);
+  if (!git.data) return null;
+  const { status, commits } = git.data;
+  if (!status) return null;
+  const dirty = status.dirty;
+  const last = commits[0];
+  if (dirty === 0 && !last) return null;
+  const dirtyLabel = dirty === 0 ? null : dirty === 1 ? t.changes.dirtyOne : t.changes.dirtyN.replace('{count}', String(dirty));
+  return (
+    <span>
+      <GitCommitHorizontal size={12} aria-hidden />
+      {dirtyLabel ? <span>{dirtyLabel}</span> : null}
+      {last ? <span>{t.changes.lastCommit.replace('{relative}', last.relative).replace('{subject}', last.subject)}</span> : null}
+    </span>
+  );
+}
+
+// ── date window ──────────────────────────────────────────────────────────────────────────────────────
+
+const DEFAULT_PRESETS: RangePreset[] = ['today', '7d', '30d', '90d', 'all', 'custom'];
+
+/** The preset/custom window control shared by every dated view: a trigger showing the active window,
+ *  opening a popover of quick presets and — when the caller allows it — a from/to picker. All the
+ *  window maths live in hostUtils; this is presentation plus one onChange. */
+export function DateRangeFilter({ value, onChange, presets = DEFAULT_PRESETS }: {
+  value: DateRange; onChange: (r: DateRange) => void; compact?: boolean; presets?: RangePreset[];
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => { if (!ref.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const presetLabel: Record<RangePreset, string> = {
+    '7d': t.common.rangeLast7, '30d': t.common.rangeLast30, '90d': t.common.rangeLast90,
+    today: t.common.rangeToday, all: t.common.rangeAll, custom: t.common.rangeCustom,
+  };
+  const label = value.preset === 'custom' ? `${value.from ?? '…'} – ${value.to ?? '…'}` : presetLabel[value.preset];
+  const PRESETS = presets.filter((p) => p !== 'custom'); // 'custom' is the picker below, not a button
+  const allowCustom = presets.includes('custom');
+  const pickPreset = (p: RangePreset) => { onChange({ preset: p, from: null, to: null }); setOpen(false); };
+
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={open}>
+        <CalendarDays size={14} aria-hidden />
+        <span>{label}</span>
+        <ChevronDown size={14} aria-hidden />
+      </button>
+      {open && (
+        <div role="dialog" aria-label={t.common.rangeLabel}>
+          <div>
+            {PRESETS.map((p) => (
+              <button key={p} type="button" onClick={() => pickPreset(p)} aria-pressed={value.preset === p}>{presetLabel[p]}</button>
+            ))}
+          </div>
+          {allowCustom && (
+            <div>
+              <p>{t.common.rangeCustom}</p>
+              <label>
+                <span>{t.common.rangeFrom}</span>
+                <Input type="date" value={value.from ?? ''} max={value.to ?? undefined} onChange={(e) => onChange({ preset: 'custom', from: e.target.value || null, to: value.to })} />
+              </label>
+              <label>
+                <span>{t.common.rangeTo}</span>
+                <Input type="date" value={value.to ?? ''} min={value.from ?? undefined} onChange={(e) => onChange({ preset: 'custom', from: value.from, to: e.target.value || null })} />
+              </label>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── model / provider pickers ─────────────────────────────────────────────────────────────────────────
+
+const providerMeta = (id: string) => PROVIDERS.find((p) => p.id === id);
+
+/** Which program runs an exec string — the same heuristic the daemon's spawn path uses, so the picker
+ *  groups a model under the engine that will actually run it. */
+function execProvider(exec: string): string {
+  for (const prefix of ['elowen:', 'codex:', 'opencode:', 'claude:', 'kilo:', 'pi:', 'omp:']) {
+    if (exec.startsWith(prefix)) return prefix.slice(0, -1) === 'claude' ? 'claude-code' : prefix.slice(0, -1);
+  }
+  if (exec.includes('/')) return 'opencode';
+  return 'claude-code';
+}
+
+const SOURCE_BADGE: Record<string, string> = { oauth: 'OAuth', 'api-key': 'API', relay: 'Relay' };
+
+/** Per-role reasoning backend picker: a summary chip plus the shared single-select Manage modal, with a
+ *  "Workers" group per CLI engine and one group for the embedded brain. A pinned relay row sits above
+ *  the groups; a saved-but-unknown exec stays visible so a save can never silently drop it. */
+export function BackendPicker({ value, onChange, models, relayLabel, allowRelay = true, kind = 'all', title, manageAriaLabel }: {
+  value: string;
+  onChange: (v: string) => void;
+  models: { label: string; exec: string }[];
+  relayLabel: string;
+  allowRelay?: boolean;
+  kind?: 'all' | 'brain';
+  title?: string;
+  manageAriaLabel?: string;
+}) {
+  const { t } = useTranslation();
+  const config = useConfig();
+  const brain = useBrainModels();
+  const [open, setOpen] = useState(false);
+
+  const allowed = (config.data as { allowedExecs?: string[] } | undefined)?.allowedExecs;
+  const brainList = ((brain.data ?? []) as { exec?: string; model?: string; providerLabel?: string; source?: string }[])
+    .filter((m) => kind === 'brain' || !allowed || allowed.includes(m.exec ?? ''));
+
+  const workerModels = (kind === 'brain' ? [] : [...models])
+    .filter((m) => execProvider(m.exec) !== 'elowen')
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const known = new Set([...workerModels.map((m) => m.exec), ...brainList.map((m) => m.exec ?? '')]);
+
+  const items: ManageSelectionItem[] = [
+    ...(allowRelay ? [{ id: '', label: relayLabel, group: '' }] : []),
+    ...(value && !known.has(value) ? [{ id: value, label: value, group: '', icon: <ModelIcon name={value} size={14} /> }] : []),
+    ...workerModels.map((m) => {
+      const prov = execProvider(m.exec);
+      return { id: m.exec, label: m.label, group: `w:${prov}`, groupLabel: providerMeta(prov)?.label ?? prov, icon: <ModelIcon name={m.exec} size={14} /> };
+    }),
+    ...brainList.map((m) => ({
+      id: m.exec ?? '',
+      label: m.model ?? '',
+      group: 'b:elowen',
+      groupLabel: providerMeta('elowen')?.label ?? 'Elowen AI',
+      icon: <ModelIcon name={m.model} size={14} />,
+      badges: [{ text: m.providerLabel ?? '', tone: 'muted' as const }, { text: SOURCE_BADGE[m.source ?? ''] ?? '', tone: 'muted' as const }],
+    })),
+  ];
+
+  const selected = value ? items.find((it) => it.id === value) : undefined;
+  return (
+    <>
+      <SelectionSummary
+        countText=""
+        samples={[value && selected ? { label: selected.label, icon: selected.icon } : { label: relayLabel }]}
+        moreCount={0}
+        onManage={() => setOpen(true)}
+        manageLabel={t.managePicker.manage}
+        manageAriaLabel={manageAriaLabel}
+      />
+      <ManageSelectionModal
+        title={title ?? t.settings.executor}
+        open={open}
+        onClose={() => setOpen(false)}
+        items={items}
+        selected={new Set([value])}
+        single
+        emptySelectionHint={relayLabel}
+        onSave={(next) => onChange([...next][0] ?? '')}
+      />
+    </>
+  );
+}
+
+/** The task-executor field — the same picker, named for the task vocabulary. */
+export function ExecutorPicker({ value, onChange, models, defaultLabel, allowDefault = true, kind = 'all' }: {
+  value: string;
+  onChange: (exec: string) => void;
+  models: { label: string; exec: string }[];
+  defaultLabel?: string;
+  moreLabel?: string;
+  limit?: number;
+  allowDefault?: boolean;
+  kind?: 'all' | 'brain';
+}) {
+  const { t } = useTranslation();
+  return (
+    <BackendPicker
+      value={value}
+      onChange={onChange}
+      models={models}
+      relayLabel={defaultLabel ?? t.tasks.defaultExecutor}
+      allowRelay={allowDefault}
+      kind={kind}
+      title={t.tasks.fieldExecutor}
+    />
+  );
+}
+
+/** Pick one of the configured brain providers as the credential + endpoint source. A stale saved id
+ *  stays selectable as its own option so a selection is never silently lost. */
+export function ProviderPicker({ providers, value, onChange, label, emptyText }: {
+  providers: { id: string; label: string }[];
+  value: string;
+  onChange: (id: string) => void;
+  label?: string;
+  emptyText?: string;
+  size?: 'sm' | 'md';
+  variant?: 'default' | 'line';
+}) {
+  const options = providers.map((p) => ({ value: p.id, label: p.label }));
+  if (value && !providers.some((p) => p.id === value)) options.unshift({ value, label: value });
+  if (options.length === 0) return <p>{emptyText ?? ''}</p>;
+  return <Segmented aria-label={label} options={options} value={value} onChange={onChange} />;
+}
+
+/** Single-select model picker over a flat, provider-scoped catalog. */
+export function ModelCatalogField({ value, onChange, catalog, title, subtitle }: {
+  value: string; onChange: (v: string) => void; catalog: string[]; title: string; subtitle?: string; variant?: 'default' | 'line';
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const items: ManageSelectionItem[] = [
+    { id: '', label: t.managePicker.none, group: '' },
+    ...(value && !catalog.includes(value) ? [{ id: value, label: value, group: '', icon: <ModelIcon name={value} size={14} /> }] : []),
+    ...catalog.map((m) => ({ id: m, label: m, group: '', icon: <ModelIcon name={m} size={14} /> })),
+  ];
+  return (
+    <>
+      <SelectionSummary
+        countText=""
+        samples={[value ? { label: value, icon: <ModelIcon name={value} size={13} /> } : { label: t.managePicker.none }]}
+        moreCount={0}
+        onManage={() => setOpen(true)}
+        manageLabel={t.managePicker.manage}
+      />
+      <ManageSelectionModal
+        title={title} subtitle={subtitle} open={open} onClose={() => setOpen(false)}
+        items={items} selected={new Set([value])} single
+        onSave={(next) => onChange([...next][0] ?? '')}
+      />
+    </>
+  );
+}
+
+/** Canonical single-choice field: two or three choices stay inline; larger catalogs use the shared
+ *  picker. `picker="always"` skips the inline form regardless of count (constellation pods pick in the
+ *  drawer). Unknown persisted values remain selectable so opening the UI never drops data. */
+export function ChoiceField({ title, options, value, onChange, picker = 'auto', manageAriaLabel }: {
+  title: string;
+  options: { value: string; label: string; icon?: ReactNode }[];
+  value: string;
+  onChange: (value: string) => void;
+  picker?: 'auto' | 'always';
+  manageAriaLabel?: string;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const items = useMemo<ManageSelectionItem[]>(() => {
+    const known = new Set(options.map((option) => option.value));
+    return [
+      ...(value && !known.has(value) ? [{ id: value, label: value, group: '' }] : []),
+      ...options.map((option) => ({ id: option.value, label: option.label, group: '', icon: option.icon })),
+    ];
+  }, [options, value]);
+  if (picker === 'auto' && items.length <= 3) {
+    return <Segmented aria-label={title} options={items.map((item) => ({ value: item.id, label: item.label }))} value={value} onChange={onChange} />;
+  }
+  const selected = items.find((item) => item.id === value);
+  return (
+    <>
+      <SelectionSummary
+        countText=""
+        samples={selected ? [{ label: selected.label }] : []}
+        moreCount={0}
+        onManage={() => setOpen(true)}
+        manageLabel={t.managePicker.manage}
+        manageAriaLabel={manageAriaLabel}
+      />
+      <ManageSelectionModal
+        title={title} open={open} onClose={() => setOpen(false)}
+        items={items} selected={new Set(value ? [value] : [])} single
+        onSave={(next) => onChange([...next][0] ?? '')}
+      />
+    </>
+  );
+}
+
+/** The CLI provider's brand mark. */
+export function ProviderLogo({ meta, alt, size = 36 }: { meta: { icon: string; label: string }; alt?: string; size?: number }) {
+  return <span><img src={meta.icon} alt={alt ?? meta.label} width={size * 0.62} height={size * 0.62} /></span>;
+}
+
+// ── terminal surfaces ────────────────────────────────────────────────────────────────────────────────
+
+/** The live pane preview. The app renders the tail ANSI-coloured and scales it to fit; here the text is
+ *  what matters — a panel's contract is that the agent's latest output is on screen and, when the
+ *  caller passes `onExpand`, that clicking it opens the full terminal. */
+export function LiveTail({ name, lines = 20, onExpand }: { name: string; lines?: number; heightClass?: string; onExpand?: () => void }) {
+  const { t } = useTranslation();
+  const { tail, isLoading } = useSessionPane(name, lines);
+  const pane = <pre>{isLoading ? t.common.loading : tail || t.sessions.noOutput}</pre>;
+  if (!onExpand) return <div>{pane}</div>;
+  return (
+    <div className="group relative">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onExpand}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onExpand(); } }}
+        title={t.tasks.openTerminal}
+      >
+        {pane}
+      </div>
+      <span aria-hidden><Maximize2 size={12} /> {t.tasks.openTerminal}</span>
+    </div>
+  );
+}
+
+/** The full agent terminal in a modal, titled by the session's role (Autopilot, Planner) or its
+ *  friendly agent name, with the task it is working on as the subtitle.
+ *
+ *  The app mounts xterm in here through a dynamic import. This repo has no xterm and no next/dynamic,
+ *  so the pane is the terminal's own `data-testid` and the session name — which is exactly what the
+ *  moved suites assert, because they stubbed the xterm panel with the same node. */
+export function TerminalModal({ session, onClose }: { session: string; onClose: () => void }) {
+  const tasks = useTasks();
+  const { t } = useTranslation();
+  const info = useSessionInfos().data?.find((s) => s.name === session);
+  const task = taskForSession((tasks.data ?? []) as Task[], session);
+  const title = info?.role === 'overseer' ? t.sessions.roleOverseer
+    : info?.role === 'pilot' ? t.sessions.rolePilot
+    : agentDisplayName(session);
+  return (
+    <Modal title={title} description={task?.title} onClose={onClose}>
+      <div data-testid="term">{session}</div>
+    </Modal>
+  );
+}
+
+// ── settings surfaces ────────────────────────────────────────────────────────────────────────────────
+
+/** Inside a ConstellationScope a settings group renders as an orbital field and each row as a floating
+ *  pod. The app draws the ellipse and its filaments from measured geometry; jsdom measures zero, so only
+ *  the DOM contract travels — and that contract is what a section is asserted through: the pod's orb is
+ *  a second button carrying the row's label, and clicking it forwards to the control's hidden
+ *  [data-selection-manage] trigger. */
+const ConstellationContext = createContext<{ core: string } | null>(null);
+
+export function ConstellationScope({ core, children }: { core: string; children: ReactNode }) {
+  return <ConstellationContext.Provider value={{ core }}>{children}</ConstellationContext.Provider>;
+}
+
+/** Opts a subtree back OUT of an enclosing scope — a hybrid section keeps its list groups classic. */
+function ClassicScope({ children }: { children: ReactNode }) {
+  return <ConstellationContext.Provider value={null}>{children}</ConstellationContext.Provider>;
+}
+
+const useConstellation = () => useContext(ConstellationContext);
+
+export function SettingsDocument({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div data-control-surface data-settings-document className={`control-surface-document settings-document ${className}`}>{children}</div>;
+}
+
+export function SettingsGroup({ title, description, icon: Icon, actions, tone = 'default', density = 'comfortable', children, className = '', variant }: {
+  title?: string; description?: string; icon?: LucideIcon; actions?: ReactNode;
+  tone?: 'default' | 'danger'; density?: 'comfortable' | 'compact';
+  children?: ReactNode; className?: string; variant?: 'classic';
+}) {
+  const cosmos = useConstellation();
+  if (cosmos && variant !== 'classic') {
+    return <section className="cosmos" data-testid="cosmos" data-core={title ?? cosmos.core}><div className="cosmos-pods">{children}</div></section>;
+  }
+  const classic = (
+    <section data-settings-group data-tone={tone} data-density={density} className={`settings-group ${className}`}>
+      {title || description || actions ? (
+        <header className="settings-group__header">
+          <div className="settings-group__heading">
+            {Icon ? <span className="settings-group__icon" aria-hidden><Icon size={17} /></span> : null}
+            <div>
+              {title ? <h2>{title}</h2> : null}
+              {description ? <p>{description}</p> : null}
+            </div>
+          </div>
+          {actions ? <div className="settings-group__actions">{actions}</div> : null}
+        </header>
+      ) : null}
+      {children ? <div className="settings-group__body">{children}</div> : null}
+    </section>
+  );
+  return cosmos ? <ClassicScope>{classic}</ClassicScope> : classic;
+}
+
+export function SettingsRow({ label, description, icon: Icon, status, actions, children, className = '' }: {
+  label: string; description?: string; icon?: LucideIcon; status?: ReactNode; actions?: ReactNode;
+  children?: ReactNode; className?: string;
+}) {
+  const cosmos = useConstellation();
+  const podRef = useRef<HTMLDivElement>(null);
+  if (cosmos) {
+    return (
+      <div className="cosmos-pod" ref={podRef}>
+        <div className="cosmos-pod__inner">
+          {Icon ? (
+            <button
+              type="button"
+              className="cosmos-pod__orb"
+              aria-label={label}
+              onClick={() => podRef.current?.querySelector<HTMLButtonElement>('[data-selection-manage]')?.click()}
+            >
+              <Icon size={17} aria-hidden />
+            </button>
+          ) : null}
+          <span className="cosmos-pod__title">
+            {label}
+            {description ? <HelpTip>{description}</HelpTip> : null}
+          </span>
+          {status ? <div className="cosmos-pod__status">{status}</div> : null}
+          <div className="cosmos-pod__control">{children}{actions}</div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className={`settings-row ${className}`}>
+      <div className="settings-row__label">
+        {Icon ? <span className="settings-row__icon" aria-hidden><Icon size={16} /></span> : null}
+        <div>
+          <span className="settings-row__title">{label}{description ? <HelpTip>{description}</HelpTip> : null}</span>
+          {status ? <div className="settings-row__status">{status}</div> : null}
+        </div>
+      </div>
+      {children ? <div className="settings-row__control">{children}</div> : null}
+      {actions ? <div className="settings-row__actions">{actions}</div> : null}
+    </div>
+  );
+}
+
+// ── plugin page frames ───────────────────────────────────────────────────────────────────────────────
+// Supplied by the HOST rather than by each bundle, so every plugin page is labelled the same way in the
+// user's language without shipping the word seven times.
+
+export function PluginPageHeader({ title, description, icon, action }: { title: string; description?: string; icon?: LucideIcon; action?: ReactNode }) {
+  const { t } = useTranslation();
+  return <CompactWorkspaceHeader eyebrow={t.pluginUi.eyebrow} title={title} description={description} icon={icon} action={action} />;
+}
+
+/** On a page the section is headed and sits on its own document surface; inside the Settings deck the
+ *  surrounding panel supplies both, so the children render bare. */
+export function PluginPageFrame({ surface, title, description, icon, action, children }: {
+  surface: 'page' | 'deck'; title?: string; description?: string; icon?: LucideIcon; action?: ReactNode;
+  plugin?: string; section?: string; children: ReactNode;
+}) {
+  if (surface === 'deck') return <>{children}</>;
+  return (
+    <>
+      <PluginPageHeader title={title ?? ''} description={description} icon={icon} action={action} />
+      <SettingsDocument>{children}</SettingsDocument>
+    </>
+  );
+}
+
+/** The common shape: one settings group. In the deck the group carries its own title block; on a page
+ *  that block becomes the page header instead. */
+export function PluginSection({ surface, title, description, icon, action, actions, className, density, children }: {
+  surface: 'page' | 'deck'; title: string; description?: string; icon?: LucideIcon;
+  action?: ReactNode; actions?: ReactNode; className?: string; density?: 'comfortable' | 'compact'; children: ReactNode;
+}) {
+  const deck = surface === 'deck';
+  return (
+    <PluginPageFrame surface={surface} title={title} description={description} icon={icon} action={action}>
+      <SettingsGroup
+        className={className}
+        icon={deck ? icon : undefined}
+        title={deck ? title : undefined}
+        description={deck ? description : undefined}
+        actions={actions}
+        density={density}
+      >
+        {children}
+      </SettingsGroup>
+    </PluginPageFrame>
+  );
+}
+
+export { allModelsUtil as allModels, execModel };

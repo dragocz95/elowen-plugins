@@ -7,11 +7,11 @@ import { PluginRegistryProvider } from 'elowen/dist/plugins/pluginsProvider.js';
 import { createServer } from 'elowen/dist/api/server.js';
 import { ConfigStore } from 'elowen/dist/store/configStore.js';
 import { UserStore } from 'elowen/dist/store/userStore.js';
-import { TaskStore } from 'elowen/plugins/work/dist/store/taskStore.js';
+import { TaskStore } from '../plugins/work/dist/store/taskStore.js';
 import { ProjectStore } from 'elowen/dist/store/projectStore.js';
 import { UserProjectStore } from 'elowen/dist/store/userProjectStore.js';
-import { MissionStore } from 'elowen/plugins/agents/dist/store/missionStore.js';
-import { Readiness } from 'elowen/plugins/work/dist/store/readiness.js';
+import { MissionStore } from '../plugins/agents/dist/store/missionStore.js';
+import { Readiness } from '../plugins/work/dist/store/readiness.js';
 import { EventBus } from 'elowen/dist/api/sse.js';
 import { FakeClock } from 'elowen/dist/shared/clock.js';
 

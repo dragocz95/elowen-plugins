@@ -4,9 +4,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TaskStore } from 'elowen/plugins/work/dist/store/taskStore.js';
-import { Readiness } from 'elowen/plugins/work/dist/store/readiness.js';
-import { MissionStore } from 'elowen/plugins/agents/dist/store/missionStore.js';
+import { TaskStore } from '../plugins/work/dist/store/taskStore.js';
+import { Readiness } from '../plugins/work/dist/store/readiness.js';
+import { MissionStore } from '../plugins/agents/dist/store/missionStore.js';
 import { ProjectStore } from 'elowen/dist/store/projectStore.js';
 import { EventBus } from 'elowen/dist/api/sse.js';
 import { createServer } from 'elowen/dist/api/server.js';
