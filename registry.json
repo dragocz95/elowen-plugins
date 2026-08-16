@@ -177,6 +177,15 @@
       }
     },
     {
+      "name": "stats",
+      "version": "0.1.0",
+      "description": "Model usage analytics for tokens, cost, cache efficiency and generation speed. Uses Elowen's shared usage ledger and keeps task tracking focused on work rather than infrastructure spend.",
+      "category": "productivity",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {}
+    },
+    {
       "name": "telegram",
       "version": "0.2.0",
       "description": "Telegram bot: chat with Elowen in a private chat, group or forum topic, with slash commands, inline keyboards and live message editing.",
@@ -225,7 +234,7 @@
     },
     {
       "name": "work",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Task tracking: the work domain — tasks, epics and phases, their dependency graph, the plan/replan endpoints and the per-task usage snapshots, plus the control-plane tools an agent uses to drive them. Extracted from the Elowen core onto the plugin platform; disabling it turns off task tracking entirely (and with it missions, which are built on tasks) while chat, memory, projects and the rest of the agent keep working.",
       "category": "productivity",
       "author": "Elowen",

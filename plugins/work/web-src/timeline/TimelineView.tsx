@@ -279,7 +279,7 @@ export function TimelineView() {
   const { points, ticks } = useMemo(() => plotAxis(filteredEvents, Date.now(), windowHours), [filteredEvents, windowHours]);
 
   // Summary: count the in-window points by kind, with review split into approved/escalated.
-  const stats = useMemo(() => {
+  const totals = useMemo(() => {
     const counts = { task: 0, mission: 0, signal: 0, approved: 0, escalated: 0 };
     for (const p of points) {
       if (p.type === 'review') p.detail.startsWith('escalated') ? counts.escalated++ : counts.approved++;
@@ -326,10 +326,10 @@ export function TimelineView() {
           mascotState: q.isLoading ? 'saving' : q.isError ? 'error' : 'idle',
           status: !q.isLoading && !q.isError ? <span className="workspace-status">{s.tlWorkspaceReady}</span> : undefined,
           metrics: <div className="contents" data-testid="timeline-summary">
-            <WorkspaceMetric label={s.tlFilterTasks} value={stats.task} icon={Activity} />
-            <WorkspaceMetric label={s.tlFilterMissions} value={stats.mission} icon={Columns3} />
-            <WorkspaceMetric label={s.tlApproved} value={stats.approved} icon={CheckCircle2} />
-            <WorkspaceMetric label={s.tlEscalated} value={stats.escalated} icon={AlertTriangle} />
+            <WorkspaceMetric label={s.tlFilterTasks} value={totals.task} icon={Activity} />
+            <WorkspaceMetric label={s.tlFilterMissions} value={totals.mission} icon={Columns3} />
+            <WorkspaceMetric label={s.tlApproved} value={totals.approved} icon={CheckCircle2} />
+            <WorkspaceMetric label={s.tlEscalated} value={totals.escalated} icon={AlertTriangle} />
           </div>,
         }}
         navigation={{ sections: [{ id: 'axis', label: s.tlAxis, icon: Activity }, { id: 'lanes', label: s.tlLanes, icon: Columns3 }], value: view, onChange: setView, ariaLabel: t.page.timeline }}

@@ -28,8 +28,8 @@ function toUsage(r: AggRow & { raw_usage_metadata?: string | null }): TokenUsage
   return usage;
 }
 
-/** Persisted per-task usage snapshots. A task's numbers are captured once when it settles, so the
- *  stats page aggregates straight from here — no re-scanning the CLIs' (potentially gigabyte) session
+/** Persisted per-task usage snapshots. A task's numbers are captured once when it settles, so usage
+ *  analytics aggregate straight from here — no re-scanning the CLIs' (potentially gigabyte) session
  *  stores on every request. `record` is keyed on task_id, so a re-run/re-snapshot replaces in place. */
 export class TaskUsageStore implements TaskUsageContract {
   constructor(private db: WorkDb) {}
@@ -122,7 +122,7 @@ export class TaskUsageStore implements TaskUsageContract {
     return rows;
   }
 
-  /** Wipe all snapshots (the stats-page reset). Returns the number of rows removed. */
+  /** Wipe all snapshots through the core-owned usage reset. Returns the number of rows removed. */
   deleteAll(): number {
     return this.db.prepare('DELETE FROM task_usage').run().changes;
   }

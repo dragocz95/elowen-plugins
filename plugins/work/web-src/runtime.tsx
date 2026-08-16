@@ -14,8 +14,8 @@ import { useMemo, useSyncExternalStore } from 'react';
 import type { ChangeEvent, ComponentType, ReactNode, MouseEvent } from 'react';
 import type {
   ActivityEvent, BrainMessage, CommitLogEntry, DateRange, DerivedSignal, ElowenConfig, LocaleDict,
-  Mission, ModelUsage, DayUsage, Note, PlanJob, PlanSubmitResult, Project, SegmentedOption,
-  ResetUsageResult, SpatialDeckSection, Task, TokenUsage, Tone, UsageSummary,
+  Mission, Note, PlanJob, PlanSubmitResult, Project, SegmentedOption,
+  SpatialDeckSection, Task, TokenUsage, Tone,
 } from './types';
 
 // ---- hook result shapes -------------------------------------------------------------------------
@@ -73,8 +73,6 @@ interface WorkHooks {
   useProjects(): QueryResult<Project[]>;
   useMe(): QueryResult<{ user?: { id: number; username: string; is_admin: boolean } }>;
   useActivity(type?: string, limit?: number): QueryResult<ActivityEvent[]>;
-  useModelUsage(projectId?: number, window?: { fromMs: number; toMs: number }): QueryResult<ModelUsage[]>;
-  useUsageByDay(projectId?: number, days?: number): QueryResult<DayUsage[]>;
   useProjectsCommits(projectIds: number[], hours: number, enabled?: boolean): { commits: TaggedCommit[]; isLoading: boolean };
   useProjectChanged(id: number | null, enabled?: boolean): QueryResult<{ changed: string[] }>;
   useProjectChanges(id: number | null, enabled: boolean): QueryResult<{ diff: string }>;
@@ -111,7 +109,6 @@ interface WorkHooks {
   useApproveGate(): MutationResult<string, { released: string[] }>;
   useKillSession(): MutationResult<string>;
   useSendInput(): MutationResult<{ name: string; keys: string[] }>;
-  useResetUsage(): MutationResult<void, ResetUsageResult>;
 }
 
 interface DepEdge { task_id: string; depends_on_id: string }
@@ -158,10 +155,9 @@ interface WorkUtils {
   eventIcon(type: string): IconComponent;
   TONE_TEXT: Record<Tone, string>;
   contextMenuDivider: 'divider';
-  // models + usage
+  // models
   allModels(custom?: { label: string; exec: string }[], hidden?: string[]): { label: string; exec: string }[];
   execModel(exec: string): string;
-  buildUsageSummary(data: ModelUsage[] | undefined): UsageSummary;
   // host services
   openTerminalWindow(name: string): void;
   apiErrorMessage(e: unknown): string;

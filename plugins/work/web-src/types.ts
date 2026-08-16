@@ -51,38 +51,6 @@ export interface TokenUsage {
   reasoning?: number; costUsd: number | null; currency?: string | null;
   outputTps?: number | null; measuredOutput?: number;
 }
-/** Total token/cost usage aggregated for one model (exec spec). */
-export interface ModelUsage { exec: string; usage: TokenUsage }
-/** One day's rolled-up spend, for the 7-day trend. */
-export interface DayUsage { day: string; tokens: number; cost: number | null }
-/** Result of a usage reset: how many task_usage snapshot rows were wiped. */
-export interface ResetUsageResult { ok: boolean; cleared: number }
-
-/** One model's row on the stats page: figures plus a max-normalized bar width (by tokens). */
-interface UsageRow {
-  exec: string;
-  totalTokens: number;
-  costUsd: number | null;
-  pct: number;
-  tokensLabel: string;
-  costLabel: string;
-  speedLabel: string;
-  cacheHitPct: number | null;
-}
-/** Pre-formatted usage totals the stats view charts, as the host's `buildUsageSummary` returns them. */
-export interface UsageSummary {
-  rows: UsageRow[];
-  totalCost: number | null;
-  totalCostLabel: string;
-  totalTokens: number;
-  totalTokensLabel: string;
-  totalCacheTokens: number;
-  totalCacheLabel: string;
-  modelsUsed: number;
-  avgSpeedLabel: string;
-  hasAnyUsage: boolean;
-}
-
 export interface Project { id: number; slug: string; path: string; notes: string; icon: string; pr_enabled: boolean | null }
 
 /** One handoff note shown read-only in the detail pane. */

@@ -47,7 +47,7 @@ var require_jsx_runtime = __commonJS({
 });
 
 // plugins/work/web-src/index.tsx
-var import_react24 = __toESM(require_react(), 1);
+var import_react22 = __toESM(require_react(), 1);
 
 // plugins/work/web-src/runtime.tsx
 var import_react = __toESM(require_react(), 1);
@@ -214,40 +214,6 @@ var Bot = createLucideIcon("Bot", [
   ["path", { d: "M9 13v2", key: "rq6x2g" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/boxes.js
-var Boxes = createLucideIcon("Boxes", [
-  [
-    "path",
-    {
-      d: "M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z",
-      key: "lc1i9w"
-    }
-  ],
-  ["path", { d: "m7 16.5-4.74-2.85", key: "1o9zyk" }],
-  ["path", { d: "m7 16.5 5-3", key: "va8pkn" }],
-  ["path", { d: "M7 16.5v5.17", key: "jnp8gn" }],
-  [
-    "path",
-    {
-      d: "M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z",
-      key: "8zsnat"
-    }
-  ],
-  ["path", { d: "m17 16.5-5-3", key: "8arw3v" }],
-  ["path", { d: "m17 16.5 4.74-2.85", key: "8rfmw" }],
-  ["path", { d: "M17 16.5v5.17", key: "k6z78m" }],
-  [
-    "path",
-    {
-      d: "M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z",
-      key: "1xygjf"
-    }
-  ],
-  ["path", { d: "M12 8 7.26 5.15", key: "1vbdud" }],
-  ["path", { d: "m12 8 4.74-2.85", key: "3rx089" }],
-  ["path", { d: "M12 13.5V8", key: "1io7kd" }]
-]);
-
 // node_modules/lucide-react/dist/esm/icons/calendar-check.js
 var CalendarCheck = createLucideIcon("CalendarCheck", [
   ["path", { d: "M8 2v4", key: "1cmpym" }],
@@ -299,14 +265,6 @@ var Calendar = createLucideIcon("Calendar", [
   ["path", { d: "M16 2v4", key: "4m81vk" }],
   ["rect", { width: "18", height: "18", x: "3", y: "4", rx: "2", key: "1hopcy" }],
   ["path", { d: "M3 10h18", key: "8toen8" }]
-]);
-
-// node_modules/lucide-react/dist/esm/icons/chart-column.js
-var ChartColumn = createLucideIcon("ChartColumn", [
-  ["path", { d: "M3 3v16a2 2 0 0 0 2 2h16", key: "c24i48" }],
-  ["path", { d: "M18 17V9", key: "2bz60n" }],
-  ["path", { d: "M13 17V5", key: "1frdt8" }],
-  ["path", { d: "M8 17v-3", key: "17ska0" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/check.js
@@ -381,19 +339,6 @@ var Cpu = createLucideIcon("Cpu", [
   ["path", { d: "M9 20v2", key: "i2bqo8" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/database.js
-var Database = createLucideIcon("Database", [
-  ["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3", key: "msslwz" }],
-  ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5", key: "1wlel7" }],
-  ["path", { d: "M3 12A9 3 0 0 0 21 12", key: "mv7ke4" }]
-]);
-
-// node_modules/lucide-react/dist/esm/icons/dollar-sign.js
-var DollarSign = createLucideIcon("DollarSign", [
-  ["line", { x1: "12", x2: "12", y1: "2", y2: "22", key: "7eqyqh" }],
-  ["path", { d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", key: "1b0p4s" }]
-]);
-
 // node_modules/lucide-react/dist/esm/icons/ellipsis.js
 var Ellipsis = createLucideIcon("Ellipsis", [
   ["circle", { cx: "12", cy: "12", r: "1", key: "41hilf" }],
@@ -425,12 +370,6 @@ var FileDiff = createLucideIcon("FileDiff", [
 var Flag = createLucideIcon("Flag", [
   ["path", { d: "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z", key: "i9b6wo" }],
   ["line", { x1: "4", x2: "4", y1: "22", y2: "15", key: "1cm3nv" }]
-]);
-
-// node_modules/lucide-react/dist/esm/icons/gauge.js
-var Gauge = createLucideIcon("Gauge", [
-  ["path", { d: "m12 14 4-4", key: "9kzdfg" }],
-  ["path", { d: "M3.34 19a10 10 0 1 1 17.32 0", key: "19p75a" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/git-commit-horizontal.js
@@ -3727,7 +3666,7 @@ function TimelineView() {
   }, [filteredEvents, range]);
   const windowLabel = windowHours < 36 ? s.tlActivityHours.replace("{n}", String(Math.round(windowHours))) : range.preset === "7d" ? s.tlActivityWeek : s.tlActivityDays.replace("{n}", String(Math.round(windowHours / 24)));
   const { points, ticks } = (0, import_react21.useMemo)(() => plotAxis(filteredEvents, Date.now(), windowHours), [filteredEvents, windowHours]);
-  const stats = (0, import_react21.useMemo)(() => {
+  const totals = (0, import_react21.useMemo)(() => {
     const counts = { task: 0, mission: 0, signal: 0, approved: 0, escalated: 0 };
     for (const p of points) {
       if (p.type === "review") p.detail.startsWith("escalated") ? counts.escalated++ : counts.approved++;
@@ -3768,10 +3707,10 @@ function TimelineView() {
           mascotState: q.isLoading ? "saving" : q.isError ? "error" : "idle",
           status: !q.isLoading && !q.isError ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("span", { className: "workspace-status", children: s.tlWorkspaceReady }) : void 0,
           metrics: /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)("div", { className: "contents", "data-testid": "timeline-summary", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(WorkspaceMetric3, { label: s.tlFilterTasks, value: stats.task, icon: Activity }),
-            /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(WorkspaceMetric3, { label: s.tlFilterMissions, value: stats.mission, icon: Columns3 }),
-            /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(WorkspaceMetric3, { label: s.tlApproved, value: stats.approved, icon: CircleCheck }),
-            /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(WorkspaceMetric3, { label: s.tlEscalated, value: stats.escalated, icon: TriangleAlert })
+            /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(WorkspaceMetric3, { label: s.tlFilterTasks, value: totals.task, icon: Activity }),
+            /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(WorkspaceMetric3, { label: s.tlFilterMissions, value: totals.mission, icon: Columns3 }),
+            /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(WorkspaceMetric3, { label: s.tlApproved, value: totals.approved, icon: CircleCheck }),
+            /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(WorkspaceMetric3, { label: s.tlEscalated, value: totals.escalated, icon: TriangleAlert })
           ] })
         },
         navigation: { sections: [{ id: "axis", label: s.tlAxis, icon: Activity }, { id: "lanes", label: s.tlLanes, icon: Columns3 }], value: view, onChange: setView, ariaLabel: t.page.timeline },
@@ -3806,160 +3745,9 @@ function TimelineView() {
   ] });
 }
 
-// plugins/work/web-src/stats/StatsView.tsx
-var import_react23 = __toESM(require_react(), 1);
-
-// plugins/work/web-src/stats/ResetUsageModal.tsx
-var import_react22 = __toESM(require_react(), 1);
-var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
-var { Button: Button8, Input: Input4, Modal: Modal7, ModalBody: ModalBody5, ModalFooter: ModalFooter5 } = runtime().components;
-var { useResetUsage, useToast: useToast11, useTranslation: useTranslation21 } = runtime().hooks;
-function ResetUsageModal({ onClose }) {
-  const { t } = useTranslation21();
-  const { toast } = useToast11();
-  const reset = useResetUsage();
-  const [typed, setTyped] = (0, import_react22.useState)("");
-  const armed = typed.trim().toUpperCase() === t.stats.resetConfirmWord;
-  const onConfirm = () => {
-    reset.mutate(void 0, {
-      onSuccess: () => {
-        toast(t.stats.resetDone);
-        onClose();
-      },
-      onError: () => toast(t.stats.resetFailed, "error")
-    });
-  };
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(Modal7, { title: t.stats.resetTitle, onClose, size: "sm", icon: TriangleAlert, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(ModalBody5, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("p", { className: "text-sm leading-relaxed text-text-muted", children: t.stats.resetBody }),
-      /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)("div", { className: "flex flex-col gap-1.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("label", { className: "text-xs text-text-muted", children: t.stats.resetConfirmHint.replace("{word}", t.stats.resetConfirmWord) }),
-        /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
-          Input4,
-          {
-            value: typed,
-            onChange: (e) => setTyped(e.target.value),
-            autoFocus: true,
-            spellCheck: false,
-            className: "font-mono"
-          }
-        )
-      ] })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(ModalFooter5, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Button8, { variant: "ghost", onClick: onClose, children: t.common.cancel }),
-      /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Button8, { variant: "danger", onClick: onConfirm, disabled: !armed || reset.isPending, children: t.stats.resetConfirm })
-    ] })
-  ] });
-}
-
-// plugins/work/web-src/stats/StatsView.tsx
-var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
-var { ControlSurfaceDocument: ControlSurfaceDocument4, ControlSurfaceRegister: ControlSurfaceRegister4, ControlSurfaceState: ControlSurfaceState4, ControlSurfaceToolbar: ControlSurfaceToolbar4, DataTable, DataTableCell, DataTableRow, DateRangeFilter: DateRangeFilter4, EmptyState: EmptyState4, ErrorState: ErrorState4, LoadingState: LoadingState4, ModelIcon: ModelIcon8, ModuleHeader: ModuleHeader4, MotionLayoutItem: MotionLayoutItem5, MotionPresence: MotionPresence4, SpatialWorkspaceLayout: SpatialWorkspaceLayout4, WorkspaceMetric: WorkspaceMetric4 } = runtime().components;
-var { useMe, useModelUsage, usePersistentState: usePersistentState5, useTranslation: useTranslation22 } = runtime().hooks;
-var { buildUsageSummary, DEFAULT_RANGE: DEFAULT_RANGE3, isStoredRange: isStoredRange4, parseRange: parseRange4, rangeBounds, serializeRange: serializeRange4 } = runtime().utils;
-function StatsView() {
-  const { t } = useTranslation22();
-  const [rangeRaw, setRangeRaw] = usePersistentState5("elowen.stats.range", serializeRange4(DEFAULT_RANGE3), isStoredRange4);
-  const range = (0, import_react23.useMemo)(() => parseRange4(rangeRaw) ?? DEFAULT_RANGE3, [rangeRaw]);
-  const window2 = (0, import_react23.useMemo)(() => rangeBounds(range, Date.now()), [range]);
-  const usage = useModelUsage(void 0, window2);
-  const me = useMe();
-  const isAdmin = me.data?.user?.is_admin ?? false;
-  const [resetOpen, setResetOpen] = (0, import_react23.useState)(false);
-  const summary = buildUsageSummary(usage.data);
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_jsx_runtime25.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(ModuleHeader4, { title: t.page.stats, icon: ChartColumn }),
-    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(SpatialWorkspaceLayout4, { hero: {
-      eyebrow: t.stats.workspaceEyebrow,
-      title: t.page.stats,
-      count: summary.modelsUsed,
-      description: t.stats.workspaceIntro,
-      mascotState: usage.isLoading ? "saving" : usage.isError ? "error" : "idle",
-      status: !usage.isLoading && !usage.isError ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: "workspace-status", children: t.stats.workspaceReady }) : void 0,
-      metrics: /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_jsx_runtime25.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(WorkspaceMetric4, { label: t.stats.cardTotalTokens, value: summary.totalTokensLabel, icon: ChartColumn }),
-        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(WorkspaceMetric4, { label: t.stats.cardTotalCost, value: summary.totalCostLabel, icon: DollarSign }),
-        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(WorkspaceMetric4, { label: t.stats.cardCache, value: summary.totalCacheLabel, icon: Database }),
-        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(WorkspaceMetric4, { label: t.stats.cardModelsUsed, value: summary.modelsUsed, icon: Boxes }),
-        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(WorkspaceMetric4, { label: t.stats.avgSpeed, value: summary.avgSpeedLabel, icon: Gauge })
-      ] })
-    }, children: /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(ControlSurfaceDocument4, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(ControlSurfaceToolbar4, { className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(DateRangeFilter4, { value: range, onChange: (next) => setRangeRaw(serializeRange4(next)), compact: true }) }),
-      usage.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(ControlSurfaceState4, { children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(LoadingState4, { variant: "list" }) }) : usage.isError ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(ControlSurfaceState4, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(ErrorState4, { message: t.common.daemonUnreachable, onRetry: () => usage.refetch() }) }) : /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(ControlSurfaceRegister4, { className: "flex flex-col gap-3", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("div", { className: "flex flex-wrap items-end justify-between gap-3", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("div", { className: "flex flex-col gap-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("h2", { className: "text-sm font-semibold text-text", children: t.stats.costByModel }),
-            /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("p", { className: "text-xs text-text-muted", children: t.stats.ledgerHint })
-          ] }),
-          isAdmin && summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("button", { type: "button", className: "text-xs text-text-muted transition-colors hover:text-danger", onClick: () => setResetOpen(true), children: t.stats.reset }) : null
-        ] }),
-        !summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(EmptyState4, { title: t.stats.emptyTitle, description: t.stats.emptyDesc, icon: ChartColumn }) : /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("div", { "data-testid": "model-usage-list", children: /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(
-          DataTable,
-          {
-            ariaLabel: t.stats.costByModel,
-            columns: "2rem minmax(0,12rem) minmax(6rem,1fr) 7.5rem 6rem 9rem",
-            compactColumns: "2rem minmax(0,1fr) auto",
-            children: [
-              /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(DataTableRow, { header: true, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null }),
-                /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(DataTableCell, { header: true, className: "whitespace-nowrap", children: t.stats.cardModelsUsed }),
-                /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(DataTableCell, { header: true, priority: "wide", className: "whitespace-nowrap", children: t.stats.pulseLabel }),
-                /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(DataTableCell, { header: true, priority: "wide", className: "whitespace-nowrap text-right", children: t.stats.cardTotalTokens }),
-                /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(DataTableCell, { header: true, priority: "wide", className: "whitespace-nowrap text-right", children: "tok/s" }),
-                /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(DataTableCell, { header: true, className: "whitespace-nowrap text-right", children: t.stats.cardTotalCost })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("div", { role: "rowgroup", children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(MotionPresence4, { children: summary.rows.map((row) => /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
-                MotionLayoutItem5,
-                {
-                  layoutId: `stats-model-${row.exec}`,
-                  role: "presentation",
-                  className: "border-b border-border/70 last:border-b-0",
-                  children: /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(DataTableRow, { "data-testid": "model-usage-row", interactive: true, className: "gap-y-2", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(DataTableCell, { className: "flex h-8 w-8 shrink-0 items-center justify-center text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(ModelIcon8, { name: row.exec, size: 17 }) }),
-                    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(DataTableCell, { className: "truncate font-mono text-xs text-text", title: row.exec, children: row.exec }),
-                    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(DataTableCell, { className: "col-start-2 col-end-4 row-start-2 h-px bg-border @4xl:col-start-3 @4xl:col-end-4 @4xl:row-start-1", children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("div", { "aria-hidden": true, className: "relative h-px bg-gradient-to-r from-accent via-ember to-ember-bright shadow-[0_0_9px_rgb(var(--accent-rgb)/0.35)]", style: { width: `${row.pct}%` }, children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: "absolute -right-0.5 -top-0.5 h-1 w-1 rounded-full bg-ember-bright shadow-[0_0_8px_rgb(var(--accent-rgb)/0.5)]" }) }) }),
-                    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
-                      DataTableCell,
-                      {
-                        className: "col-start-2 row-start-3 font-mono text-xs tabular-nums text-text-muted @4xl:col-start-4 @4xl:row-start-1 @4xl:text-right",
-                        "aria-label": `${t.stats.cardTotalTokens}: ${row.tokensLabel}`,
-                        children: row.tokensLabel
-                      }
-                    ),
-                    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
-                      DataTableCell,
-                      {
-                        priority: "wide",
-                        className: "col-start-3 row-start-3 font-mono text-xs tabular-nums text-text-muted @4xl:col-start-5 @4xl:row-start-1 @4xl:text-right",
-                        "aria-label": `${t.stats.speed}: ${row.speedLabel}`,
-                        children: row.speedLabel
-                      }
-                    ),
-                    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
-                      DataTableCell,
-                      {
-                        className: "col-start-3 row-start-1 text-right font-mono text-xs tabular-nums text-text @4xl:col-start-6",
-                        "aria-label": `${t.stats.cardTotalCost}: ${row.costLabel}`,
-                        children: row.costLabel
-                      }
-                    )
-                  ] })
-                },
-                row.exec
-              )) }) })
-            ]
-          }
-        ) })
-      ] })
-    ] }) }),
-    resetOpen ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(ResetUsageModal, { onClose: () => setResetOpen(false) }) : null
-  ] });
-}
-
 // plugins/work/web-src/index.tsx
 function RootRedirect() {
-  (0, import_react24.useEffect)(() => {
+  (0, import_react22.useEffect)(() => {
     runtime().navigate("/p/work/tasks");
   }, []);
   return null;
@@ -3970,7 +3758,6 @@ registerWorkUi({
     "": RootRedirect,
     "tasks": TasksView,
     "kanban": KanbanPage,
-    "timeline": TimelineView,
-    "stats": StatsView
+    "timeline": TimelineView
   }
 });

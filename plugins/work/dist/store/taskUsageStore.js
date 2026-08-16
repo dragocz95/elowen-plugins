@@ -17,8 +17,8 @@ function toUsage(r) {
     }
     return usage;
 }
-/** Persisted per-task usage snapshots. A task's numbers are captured once when it settles, so the
- *  stats page aggregates straight from here — no re-scanning the CLIs' (potentially gigabyte) session
+/** Persisted per-task usage snapshots. A task's numbers are captured once when it settles, so usage
+ *  analytics aggregate straight from here — no re-scanning the CLIs' (potentially gigabyte) session
  *  stores on every request. `record` is keyed on task_id, so a re-run/re-snapshot replaces in place. */
 export class TaskUsageStore {
     db;
@@ -115,7 +115,7 @@ export class TaskUsageStore {
        ORDER BY day`).all(...params);
         return rows;
     }
-    /** Wipe all snapshots (the stats-page reset). Returns the number of rows removed. */
+    /** Wipe all snapshots through the core-owned usage reset. Returns the number of rows removed. */
     deleteAll() {
         return this.db.prepare('DELETE FROM task_usage').run().changes;
     }

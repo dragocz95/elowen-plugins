@@ -5,8 +5,7 @@
     "nav": {
       "tasks": "Úlohy",
       "kanban": "Kanban",
-      "timeline": "Časová os",
-      "stats": "Štatistiky"
+      "timeline": "Časová os"
     },
     "strings": {
       "kbBoard": "Doska",

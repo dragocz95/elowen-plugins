@@ -45,9 +45,9 @@ export function ensurePluginUiRuntime(): void {
       SelectionSummary: C.SelectionSummary, ManageSelectionModal: C.ManageSelectionModal, BrainModelField: C.BrainModelField,
       WorkspacePage: C.WorkspacePage, SpatialWorkspaceLayout: C.SpatialWorkspaceLayout, WorkspaceMetric: C.WorkspaceMetric,
       CompactWorkspaceHeader: C.CompactWorkspaceHeader, MarkdownAssetEditor: C.MarkdownAssetEditor,
-      // The work-extraction surface (F4): the task/kanban/timeline/stats views compose these. They are
-      // app chrome shared with the surfaces that stay in core, which is why they live on the runtime
-      // rather than inside the bundle.
+      // The work and stats surfaces compose these shared workspace primitives. They are app chrome shared
+      // with the surfaces that stay in core, which is why they live on the runtime rather than inside either
+      // bundle.
       ActionMenu: C.ActionMenu, AgentIdentityStrip: C.AgentIdentityStrip, AgentStatusDot: C.AgentStatusDot,
       ContextMenu: C.ContextMenu, DateRangeFilter: C.DateRangeFilter, EntityList: C.EntityList, EntityRow: C.EntityRow,
       ExecutorPicker: C.ExecutorPicker, IconButton: C.IconButton, LiveTail: C.LiveTail, ModuleHeader: C.ModuleHeader,
@@ -81,8 +81,8 @@ export function ensurePluginUiRuntime(): void {
       useMobile: H.useMobile,
       // Layout/selection behaviour shared with the built-in workspaces.
       usePersistentState: H.usePersistentState, useProjectFilter: H.useProjectFilter, useFillHeight: H.useFillHeight,
-      // The work + agents domains. These stay on the HOST so the plugin pages and the core surfaces
-      // that still read tasks share ONE react-query cache and ONE invalidation path.
+      // Work, agents and usage data stay on the HOST so plugin pages and core surfaces share ONE
+      // react-query cache and ONE invalidation path.
       useTasks: H.useTasks, useAllDeps: H.useAllDeps, useMissions: H.useMissions, useSessions: H.useSessions,
       useSessionInfos: H.useSessionInfos, useSessionSignals: H.useSessionSignals, useSessionSignal: H.useSessionSignal,
       useConfig: H.useConfig, useProjects: H.useProjects, useProjectGit: H.useProjectGit,
