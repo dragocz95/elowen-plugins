@@ -1,17 +1,16 @@
-// Build the browser-UI bundle of every plugin in this registry that ships TS/React sources: a plugin
-// with `web-src/index.{tsx,ts,jsx,js}` gets it bundled to `web/index.js` — the file its manifest's
-// `web.entry` points at, and the ONLY thing the daemon reads (it hashes those bytes at load time and
-// serves them on a content-hash URL).
+// Build the browser UI of every plugin in this registry that ships TS/React sources: a plugin with
+// `web-src/index.{tsx,ts,jsx,js}` gets bundled to `web/index.js`, then the finished bundle is scanned for
+// Tailwind utilities and compiled to `web/index.css`.
 //
-// The built bundle is COMMITTED, because the marketplace installs a plugin by copying files and never
-// compiles anything. `npm run check:web` re-runs this build and fails if the result differs from what is
-// checked in, so a committed bundle can never quietly stop matching its source.
+// Both artifacts are COMMITTED, because the marketplace installs a plugin by copying files and never
+// compiles anything. `npm run check:web` re-runs this build and fails if either result differs from what
+// is checked in, so the installed JS and CSS can never quietly stop matching their source.
 //
 // Pass a plugin name to build just that one: `node scripts/build-web.mjs whatsapp`.
 import { readdirSync, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildPluginUiBundle } from 'elowen-plugin-ui-kit/build';
+import { buildPluginUiBundle, buildPluginUiCss } from 'elowen-plugin-ui-kit/build';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(root, 'plugins');
@@ -30,8 +29,10 @@ for (const name of readdirSync(pluginsDir)) {
   // Browser libraries (lucide-react…) resolve from this repo's own node_modules. They are pinned in the
   // lockfile: the same source must produce the same bytes, or the drift check would fail on a dependency
   // bump rather than on a real change.
-  await buildPluginUiBundle({ entry, outfile: join(dir, 'web', 'index.js'), nodePaths: [join(root, 'node_modules')] });
-  console.log(`[build-web] ${name}: web-src → web/index.js`);
+  const bundle = join(dir, 'web', 'index.js');
+  await buildPluginUiBundle({ entry, outfile: bundle, nodePaths: [join(root, 'node_modules')] });
+  await buildPluginUiCss({ bundle, outfile: join(dir, 'web', 'index.css') });
+  console.log(`[build-web] ${name}: web-src → web/index.js + web/index.css`);
   built += 1;
 }
 

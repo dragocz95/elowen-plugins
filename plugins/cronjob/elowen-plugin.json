@@ -1,6 +1,6 @@
 {
   "name": "cronjob",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "apiVersion": "1",
   "description": "Scheduled prompts: recurring jobs (\"every 30m\", \"daily 07:30\") and one-shot wake-ups (\"in 20m\", \"at 18:30\") that run as the brain's own conversations. An admin's jobs belong to the instance and run with full owner powers; a job somebody else schedules runs with that person's own rights and reports into their own conversation.",
   "entry": "index.mjs",
@@ -150,6 +150,7 @@
   ],
   "web": {
     "entry": "web/index.js",
+    "css": "web/index.css",
     "requiresApiVersion": 1,
     "settings": [
       {

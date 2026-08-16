@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "apiVersion": "1",
   "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
   "entry": "index.mjs",
@@ -34,6 +34,7 @@
   ],
   "web": {
     "entry": "web/index.js",
+    "css": "web/index.css",
     "requiresApiVersion": 1,
     "settings": [
       {
