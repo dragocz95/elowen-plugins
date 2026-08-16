@@ -25,6 +25,7 @@ const { TaskConversation } = await import('../plugins/work/web-src/tasks/TaskCon
 const { TaskResultsModal } = await import('../plugins/work/web-src/tasks/TaskResultsModal');
 
 import type { Task } from '../plugins/work/web-src/types';
+import { parseExecRef } from '../plugins/work/web-src/lib/execs';
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest }));
@@ -476,6 +477,13 @@ const msg = (id: number, role: 'agent' | 'autopilot' | 'human', text: string, ts
   ({ id, type: 'message', detail: JSON.stringify({ role, text }), ts });
 
 describe('TaskConversation', () => {
+  it('takes a structured worker identity program literally', () => {
+    expect(parseExecRef({ program: 'elowen', provider: 'relay', model: 'vendor/model' })?.program).toBe('elowen');
+    expect(parseExecRef({ program: 'opencode', model: 'vendor/model' })?.program).toBe('opencode');
+    expect(parseExecRef({ program: 'codex', model: 'vendor/model' })?.program).toBe('codex');
+    expect(parseExecRef('vendor/model')?.program).toBe('opencode');
+  });
+
   beforeEach(() => {
     // The thread is seeded through the cache; these keep the background refetch from rejecting.
     server.use(

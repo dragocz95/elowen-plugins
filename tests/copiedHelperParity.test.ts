@@ -17,7 +17,9 @@
  *
  *  The copies are DISCOVERED, not hand-listed, so one added tomorrow is covered the moment it exists
  *  rather than when someone remembers to write its test. A plugin file counts as a copy of a core
- *  `shared/<name>` module when it sits at the same basename AND exports exactly the same names.
+ *  `shared/<name>` module when it sits at the same basename AND exports exactly the expected names.
+ *  A narrowly pinned forward-export set lets the registry ship before the corresponding core release;
+ *  once core catches up, the same expected set collapses back to exact core parity automatically.
  *  Plugins also keep smaller same-named helpers of their own (clock, logger, text, time, paths) that
  *  were never copies; those export a narrower surface, which is what tells the two apart.
  */
@@ -57,6 +59,12 @@ const PINNED = [
   'work/gitSha',
   'work/keyedMutex',
 ];
+
+/** The registry is released before core. These are the F1 exports agents must carry while CI still
+ *  installs core 0.28.2; unioning them with core exports remains an exact-set check before and after F1. */
+const FORWARD_EXPORTS: Readonly<Record<string, readonly string[]>> = {
+  'agents/execs': ['PROGRAMS', 'isProgram', 'execSpecProgram', 'parseExecRef', 'execRefSpec', 'isElowenExec'],
+};
 
 type Candidate = {
   id: string;
@@ -101,17 +109,19 @@ for (const plugin of readdirSync(pluginsDir, { withFileTypes: true })) {
       unbuilt.push(srcRel);
       continue;
     }
+    const id = `${plugin.name}/${moduleName}`;
     const pluginExports = Object.keys(await import(pathToFileURL(distPath).href)).sort();
     const coreExports = Object.keys(await import(pathToFileURL(join(coreSharedDir, `${moduleName}.js`)).href)).sort();
+    const expectedExports = [...new Set([...coreExports, ...(FORWARD_EXPORTS[id] ?? [])])].sort();
     candidates.push({
-      id: `${plugin.name}/${moduleName}`,
+      id,
       srcRel,
       distRel: distPath.slice(root.length),
       pluginExports,
       coreExports,
       isCopy:
-        pluginExports.length === coreExports.length &&
-        pluginExports.every((name, i) => name === coreExports[i]),
+        pluginExports.length === expectedExports.length &&
+        pluginExports.every((name, i) => name === expectedExports[i]),
     });
   }
 }
@@ -205,6 +215,19 @@ describe('execs, copied into plugins/agents', () => {
     expect(agentsExecs.parseElowenExec(spec)).toEqual(coreExecs.parseElowenExec(spec));
     expect(agentsExecs.isAllowedExec(spec, ['sonnet'])).toBe(coreExecs.isAllowedExec(spec, ['sonnet']));
     expect(agentsExecs.isAllowedExec(spec, [])).toBe(coreExecs.isAllowedExec(spec, []));
+  });
+
+  it('takes a structured identity program literally instead of guessing from its model shape', () => {
+    expect(agentsExecs.parseExecRef({ program: 'elowen', provider: 'relay', model: 'vendor/model' })).toEqual(
+      { program: 'elowen', provider: 'relay', model: 'vendor/model' },
+    );
+    expect(agentsExecs.parseExecRef({ program: 'opencode', model: 'vendor/model' })).toEqual(
+      { program: 'opencode', model: 'vendor/model' },
+    );
+    expect(agentsExecs.parseExecRef({ program: 'codex', model: 'vendor/model' })).toEqual(
+      { program: 'codex', model: 'vendor/model' },
+    );
+    expect(agentsExecs.parseExecRef('vendor/model')).toEqual({ program: 'opencode', model: 'vendor/model' });
   });
 
   /** The permission surface: this decides which model a non-admin may spend on, so a copy that answers

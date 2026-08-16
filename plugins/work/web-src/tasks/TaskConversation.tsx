@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Bot, GitCommit, Check, TriangleAlert, User, Wrench, Image as ImageIcon } from 'lucide-react';
 import { runtime } from '../runtime';
 import type { CommitLogEntry } from '../types';
+import { parseExecRef } from '../lib/execs';
 
 const { Modal, ModelIcon, PatchView } = runtime().components;
 const { useConfig, useTaskBrainConversation, useTaskCommitFileDiff, useTaskCommits, useTaskConversation, useTasks, useTranslation } = runtime().hooks;
@@ -73,7 +74,7 @@ export function TaskConversation({ task }: { task: { id: string } }) {
   const [openFile, setOpenFile] = useState<{ hash: string; path: string } | null>(null);
   const fileDiff = useTaskCommitFileDiff(task.id, openFile?.hash ?? null, openFile?.path ?? null);
   // Embedded-brain workers have no terminal pane — their transcript IS the work log.
-  const isBrainWorker = workerExec.startsWith('elowen:');
+  const isBrainWorker = parseExecRef(workerExec)?.program === 'elowen';
   const brainChat = useTaskBrainConversation(task.id, isBrainWorker);
 
   const items = useMemo<FeedItem[]>(() => {

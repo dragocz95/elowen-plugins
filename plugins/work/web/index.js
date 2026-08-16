@@ -677,6 +677,46 @@ function ResultSummary({ task, className = "" }) {
 
 // plugins/work/web-src/tasks/TaskConversation.tsx
 var import_react4 = __toESM(require_react(), 1);
+
+// plugins/work/web-src/lib/execs.ts
+var PROGRAM_PREFIXES = {
+  "codex:": "codex",
+  "opencode:": "opencode",
+  "claude:": "claude-code",
+  "kilo:": "kilo",
+  "pi:": "pi",
+  "omp:": "omp",
+  "elowen:": "elowen"
+};
+var PROGRAMS = ["claude-code", "opencode", "codex", "kilo", "pi", "omp", "elowen"];
+function isProgram(value) {
+  return typeof value === "string" && PROGRAMS.includes(value);
+}
+function execSpecProgram(spec) {
+  for (const [prefix, program] of Object.entries(PROGRAM_PREFIXES)) {
+    if (spec.startsWith(prefix)) return program;
+  }
+  return spec.includes("/") ? "opencode" : "claude-code";
+}
+function parseExecRef(input) {
+  if (typeof input !== "string") {
+    if (!isProgram(input.program) || !input.model) return null;
+    if (input.program === "elowen") {
+      return input.provider ? { program: "elowen", provider: input.provider, model: input.model } : null;
+    }
+    return { program: input.program, model: input.model };
+  }
+  const program = execSpecProgram(input);
+  const prefix = Object.keys(PROGRAM_PREFIXES).find((candidate) => input.startsWith(candidate));
+  const model = prefix ? input.slice(prefix.length) : input;
+  if (!model) return null;
+  if (program !== "elowen") return { program, model };
+  const slash = model.indexOf("/");
+  if (slash <= 0 || slash === model.length - 1) return null;
+  return { program: "elowen", provider: model.slice(0, slash), model: model.slice(slash + 1) };
+}
+
+// plugins/work/web-src/tasks/TaskConversation.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 var { Modal, ModelIcon, PatchView } = runtime().components;
 var { useConfig, useTaskBrainConversation, useTaskCommitFileDiff, useTaskCommits, useTaskConversation, useTasks, useTranslation: useTranslation2 } = runtime().hooks;
@@ -717,7 +757,7 @@ function TaskConversation({ task }) {
   const overseerExec = config.data?.autopilot.overseerExec ?? "";
   const [openFile, setOpenFile] = (0, import_react4.useState)(null);
   const fileDiff = useTaskCommitFileDiff(task.id, openFile?.hash ?? null, openFile?.path ?? null);
-  const isBrainWorker = workerExec.startsWith("elowen:");
+  const isBrainWorker = parseExecRef(workerExec)?.program === "elowen";
   const brainChat = useTaskBrainConversation(task.id, isBrainWorker);
   const items = (0, import_react4.useMemo)(() => {
     const out = [];

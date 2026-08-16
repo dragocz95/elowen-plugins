@@ -1,6 +1,6 @@
 {
   "name": "work",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "apiVersion": "1",
   "requiresCore": "0.28.1",
   "description": "Task tracking: the work domain — tasks, epics and phases, their dependency graph, the plan/replan endpoints and the per-task usage snapshots, plus the control-plane tools an agent uses to drive them. Extracted from the Elowen core onto the plugin platform; disabling it turns off task tracking entirely (and with it missions, which are built on tasks) while chat, memory, projects and the rest of the agent keep working.",

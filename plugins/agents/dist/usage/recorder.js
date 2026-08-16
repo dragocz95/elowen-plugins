@@ -2,6 +2,7 @@ import { readTaskUsage } from './index.js';
 import { captureResumeLabel } from './resumeCapture.js';
 import { execOfLabels } from './byModel.js';
 import { logger } from '../lib/logger.js';
+import { parseExecRef } from '../lib/execs.js';
 const log = logger('usage-recorder');
 /** The single EventBus subscriber that snapshots a task's token/cost usage into `task_usage` the
  *  moment it settles (closed/cancelled). Reading the CLI session store happens once, here, for one
@@ -36,7 +37,7 @@ export class UsageRecorder {
             return; // nothing to attribute (no exec label → no model)
         // Embedded-brain workers have no CLI session on disk: BrainWorkerService records their usage
         // itself at close, and there is nothing to capture for resume (rehydration is store-driven).
-        if (exec.startsWith('elowen:'))
+        if (parseExecRef(exec)?.program === 'elowen')
             return;
         const siblings = this.d.tasks.list({ project_id: task.project_id });
         const projectPath = this.d.pathFor(task);
