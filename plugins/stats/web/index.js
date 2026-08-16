@@ -57,7 +57,7 @@ function registerStatsUi(pages) {
 }
 
 // plugins/stats/web-src/StatsView.tsx
-var import_react5 = __toESM(require_react(), 1);
+var import_react6 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
@@ -287,15 +287,19 @@ function PieChart({ title, data, emptyText, renderIcon }) {
 }
 
 // plugins/stats/web-src/components/UsageTrend.tsx
+var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var formatTokens = (value, locale) => new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 var formatCost = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD", maximumFractionDigits: 4 }).format(value);
 function UsageTrend({ data, locale, tokenLabel, costLabel, emptyText }) {
+  const [activeDay, setActiveDay] = (0, import_react4.useState)(null);
   if (data.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "py-10 text-center text-sm text-text-muted", children: emptyText });
   const maxTokens = Math.max(1, ...data.map((row) => row.tokens));
   const maxCost = Math.max(1e-6, ...data.map((row) => row.cost ?? 0));
+  const active = data.find((row) => row.day === activeDay) ?? null;
+  const hover = (day) => () => setActiveDay(day);
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("figure", { className: "flex min-w-0 flex-col gap-3", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("figcaption", { className: "flex items-center gap-4 text-xs text-text-muted", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("figcaption", { className: "flex min-w-0 items-center gap-4 text-xs text-text-muted", children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "inline-flex items-center gap-1.5", children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "h-2 w-2 rounded-sm bg-accent", "aria-hidden": true }),
         tokenLabel
@@ -303,12 +307,27 @@ function UsageTrend({ data, locale, tokenLabel, costLabel, emptyText }) {
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "inline-flex items-center gap-1.5", children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "h-2 w-2 rounded-sm bg-warning", "aria-hidden": true }),
         costLabel
-      ] })
+      ] }),
+      active ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "ml-auto flex min-w-0 items-center gap-3 font-mono tabular-nums", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-text", children: active.day }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "whitespace-nowrap text-accent", children: formatTokens(active.tokens, locale) }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "whitespace-nowrap text-warning", children: formatCost(active.cost, locale) })
+      ] }) : null
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex h-36 min-w-0 items-end gap-1 overflow-hidden border-b border-border px-1", "aria-hidden": true, children: data.map((row) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex h-full min-w-[3px] flex-1 items-end justify-center gap-px", title: `${row.day} \xB7 ${formatTokens(row.tokens, locale)} \xB7 ${formatCost(row.cost, locale)}`, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "w-1/2 min-w-px rounded-t-sm bg-accent", style: { height: `${Math.max(2, row.tokens / maxTokens * 100)}%` } }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "w-1/2 min-w-px rounded-t-sm bg-warning", style: { height: `${row.cost == null ? 0 : Math.max(2, row.cost / maxCost * 100)}%` } })
-    ] }, row.day)) }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex h-36 min-w-0 items-end gap-1 overflow-hidden border-b border-border px-1", "aria-hidden": true, children: data.map((row) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+      "div",
+      {
+        className: "flex h-full min-w-[3px] flex-1 cursor-pointer items-end justify-center gap-px transition-opacity duration-150",
+        style: { opacity: active && active.day !== row.day ? 0.3 : 1 },
+        onMouseEnter: hover(row.day),
+        onMouseLeave: hover(null),
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "w-1/2 min-w-px rounded-t-sm bg-accent", style: { height: `${Math.max(2, row.tokens / maxTokens * 100)}%` } }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "w-1/2 min-w-px rounded-t-sm bg-warning", style: { height: `${row.cost == null ? 0 : Math.max(2, row.cost / maxCost * 100)}%` } })
+        ]
+      },
+      row.day
+    )) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex justify-between font-mono text-[10px] text-text-muted", "aria-hidden": true, children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: data[0]?.day }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: data[data.length - 1]?.day })
@@ -328,7 +347,7 @@ function UsageTrend({ data, locale, tokenLabel, costLabel, emptyText }) {
 }
 
 // plugins/stats/web-src/ResetUsageModal.tsx
-var import_react4 = __toESM(require_react(), 1);
+var import_react5 = __toESM(require_react(), 1);
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 var { Button, Input, Modal, ModalBody, ModalFooter } = runtime().components;
 var { usePluginStrings, useResetUsage, useToast, useTranslation } = runtime().hooks;
@@ -337,8 +356,8 @@ function ResetUsageModal({ onClose }) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const reset = useResetUsage();
-  const confirmInputId = (0, import_react4.useId)();
-  const [typed, setTyped] = (0, import_react4.useState)("");
+  const confirmInputId = (0, import_react5.useId)();
+  const [typed, setTyped] = (0, import_react5.useState)("");
   const armed = typed.trim().toLocaleUpperCase() === s.resetConfirmWord.toLocaleUpperCase();
   const onConfirm = () => {
     reset.mutate(void 0, {
@@ -456,23 +475,23 @@ function StatsView() {
   const s = usePluginStrings2("stats");
   const { t, locale } = useTranslation2();
   const [rangeRaw, setRangeRaw] = usePersistentState("elowen.stats.range", serializeRange(DEFAULT_RANGE), isStoredRange);
-  const range = (0, import_react5.useMemo)(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
-  const now = (0, import_react5.useMemo)(() => Date.now(), [rangeRaw]);
-  const window2 = (0, import_react5.useMemo)(() => rangeBounds(range, now), [range, now]);
-  const trendDays = (0, import_react5.useMemo)(() => trendDaysForWindow(window2, now), [window2, now]);
+  const range = (0, import_react6.useMemo)(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
+  const now = (0, import_react6.useMemo)(() => Date.now(), [rangeRaw]);
+  const window2 = (0, import_react6.useMemo)(() => rangeBounds(range, now), [range, now]);
+  const trendDays = (0, import_react6.useMemo)(() => trendDaysForWindow(window2, now), [window2, now]);
   const usage = useModelUsage(void 0, window2);
   const daily = useUsageByDay(void 0, trendDays);
   const me = useMe();
   const summary = buildUsageSummary(usage.data);
-  const [query, setQuery] = (0, import_react5.useState)("");
-  const [filter, setFilter] = (0, import_react5.useState)("all");
-  const [page, setPage] = (0, import_react5.useState)(0);
-  const [selectedExec, setSelectedExec] = (0, import_react5.useState)(null);
-  const [resetOpen, setResetOpen] = (0, import_react5.useState)(false);
+  const [query, setQuery] = (0, import_react6.useState)("");
+  const [filter, setFilter] = (0, import_react6.useState)("all");
+  const [page, setPage] = (0, import_react6.useState)(0);
+  const [selectedExec, setSelectedExec] = (0, import_react6.useState)(null);
+  const [resetOpen, setResetOpen] = (0, import_react6.useState)(false);
   const hasError = usage.isError || daily.isError;
   const isLoading = usage.isLoading || daily.isLoading || !usage.data || !daily.data;
-  const modelByExec = (0, import_react5.useMemo)(() => new Map((usage.data ?? []).map((model) => [model.exec, model])), [usage.data]);
-  const filtered = (0, import_react5.useMemo)(() => {
+  const modelByExec = (0, import_react6.useMemo)(() => new Map((usage.data ?? []).map((model) => [model.exec, model])), [usage.data]);
+  const filtered = (0, import_react6.useMemo)(() => {
     const needle = query.trim().toLocaleLowerCase();
     return summary.rows.filter((row) => {
       const model = modelByExec.get(row.exec);
@@ -487,8 +506,8 @@ function StatsView() {
   const pageRows = filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
   const selected = selectedExec ? modelByExec.get(selectedExec) ?? null : null;
   const trendUnavailable = isTrendWindowUnavailable(window2, trendDays, now);
-  const trend = (0, import_react5.useMemo)(() => padDailyUsage(daily.data ?? [], trendDays, window2, now), [daily.data, now, trendDays, window2]);
-  const rowByExec = (0, import_react5.useMemo)(() => new Map(summary.rows.map((row) => [row.exec, row])), [summary.rows]);
+  const trend = (0, import_react6.useMemo)(() => padDailyUsage(daily.data ?? [], trendDays, window2, now), [daily.data, now, trendDays, window2]);
+  const rowByExec = (0, import_react6.useMemo)(() => new Map(summary.rows.map((row) => [row.exec, row])), [summary.rows]);
   const pieTokens = (usage.data ?? []).map((model) => ({
     id: model.exec,
     label: model.exec,
