@@ -547,7 +547,7 @@ function StatsView() {
       ] })
     }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceDocument, { children: hasError ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ErrorState, { message: t.common.daemonUnreachable, onRetry: retry }) }) : isLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(LoadingState, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceToolbar, { className: "flex-col items-stretch", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-2 py-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex w-full min-w-0 flex-wrap items-center gap-2 py-3", children: [
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "relative min-w-[15rem] flex-1", children: [
             /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Search, { size: 14, "aria-hidden": true, className: "pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" }),
             /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Input2, { "aria-label": s.searchPlaceholder, value: query, onChange: (event) => {

@@ -183,8 +183,10 @@ export function StatsView() {
           ) : (
             <div className="workspace-master-detail" data-detail={selected != null}>
               <div className="flex min-w-0 flex-col gap-4">
-                <ControlSurfaceToolbar className="flex-col items-stretch">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 py-3">
+                <ControlSurfaceToolbar>
+                  {/* w-full, not items-stretch: a plugin's utilities live in @layer utilities and lose
+                      to the host's unlayered .control-surface-toolbar { align-items: center }. */}
+                  <div className="flex w-full min-w-0 flex-wrap items-center gap-2 py-3">
                     <div className="relative min-w-[15rem] flex-1">
                       <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
                       <Input aria-label={s.searchPlaceholder} value={query} onChange={(event) => { setQuery(event.target.value); resetPage(); }} placeholder={s.searchPlaceholder} className="pl-9" />
