@@ -1,7 +1,9 @@
 {
   "description": "Analytika spotřeby modelů pro tokeny, náklady, efektivitu cache a rychlost generování. Používá sdílenou účetní knihu spotřeby Elowenu a ponechává sledování úkolů zaměřené na práci, ne na náklady infrastruktury.",
   "web": {
-    "nav": { "": "Statistiky" },
+    "nav": {
+      "": "Statistiky"
+    },
     "strings": {
       "title": "Statistiky",
       "workspaceEyebrow": "Spotřeba modelů",
@@ -10,7 +12,6 @@
       "metricTokens": "Tokeny celkem",
       "metricCost": "Evidované náklady",
       "metricCache": "Tokeny cache",
-      "metricModels": "Použité modely",
       "metricSpeed": "Průměrná rychlost",
       "searchPlaceholder": "Hledat modely",
       "filterLabel": "Filtr spotřeby",

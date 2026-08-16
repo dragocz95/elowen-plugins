@@ -1,6 +1,6 @@
 import { useMemo, useState, type KeyboardEvent } from 'react';
 import {
-  BarChart3, Boxes, ChevronLeft, ChevronRight, Database, DollarSign, Gauge, Search, Trash2,
+  BarChart3, ChevronLeft, ChevronRight, Database, DollarSign, Gauge, Search, Trash2,
 } from 'lucide-react';
 import { PieChart } from './components/PieChart';
 import { UsageTrend } from './components/UsageTrend';
@@ -20,6 +20,9 @@ const { useMe, useModelUsage, usePersistentState, usePluginStrings, useTranslati
 const { buildUsageSummary, DEFAULT_RANGE, isStoredRange, parseRange, rangeBounds, serializeRange } = runtime().utils;
 
 type UsageFilter = 'all' | 'costed' | 'cached';
+
+/** The pie's datum id IS the exec string, which is what ModelIcon resolves its brand mark from. */
+const renderModelIcon = (datum: { id: string }) => <ModelIcon name={datum.id} size={20} />;
 
 const utcDayStart = (timestamp: number): number => {
   const date = new Date(timestamp);
@@ -169,7 +172,6 @@ export function StatsView() {
           <WorkspaceMetric label={s.metricTokens} value={summary.totalTokensLabel} icon={BarChart3} />
           <WorkspaceMetric label={s.metricCost} value={summary.totalCostLabel} icon={DollarSign} />
           <WorkspaceMetric label={s.metricCache} value={summary.totalCacheLabel} icon={Database} />
-          <WorkspaceMetric label={s.metricModels} value={summary.modelsUsed} icon={Boxes} />
           <WorkspaceMetric label={s.metricSpeed} value={summary.avgSpeedLabel} icon={Gauge} />
         </>,
       }}>
@@ -211,12 +213,12 @@ export function StatsView() {
                         <section className="rounded-lg border border-border bg-surface p-4">
                           <h2 className="text-sm font-semibold text-text">{s.tokensByModel}</h2>
                           <p className="mb-4 text-xs text-text-muted">{s.tokensByModelHint}</p>
-                          <PieChart title={s.tokensByModel} data={pieTokens} emptyText={s.noChartData} />
+                          <PieChart title={s.tokensByModel} data={pieTokens} emptyText={s.noChartData} renderIcon={renderModelIcon} />
                         </section>
                         <section className="rounded-lg border border-border bg-surface p-4">
                           <h2 className="text-sm font-semibold text-text">{s.costByModel}</h2>
                           <p className="mb-4 text-xs text-text-muted">{s.costByModelHint}</p>
-                          <PieChart title={s.costByModel} data={pieCosts} emptyText={s.noChartData} />
+                          <PieChart title={s.costByModel} data={pieCosts} emptyText={s.noChartData} renderIcon={renderModelIcon} />
                         </section>
                       </div>
 

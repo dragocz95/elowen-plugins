@@ -1,6 +1,6 @@
 {
   "name": "stats",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "apiVersion": "1",
   "requiresCore": "0.28.1",
   "description": "Model usage analytics for tokens, cost, cache efficiency and generation speed. Uses Elowen's shared usage ledger and keeps task tracking focused on work rather than infrastructure spend.",
@@ -10,7 +10,11 @@
     "entry": "web/index.js",
     "requiresApiVersion": 1,
     "nav": [
-      { "label": "Statistics", "icon": "ChartPie", "route": "" }
+      {
+        "label": "Statistics",
+        "icon": "ChartPie",
+        "route": ""
+      }
     ],
     "strings": {
       "title": "Statistics",
@@ -20,7 +24,6 @@
       "metricTokens": "Total tokens",
       "metricCost": "Tracked cost",
       "metricCache": "Cache tokens",
-      "metricModels": "Models used",
       "metricSpeed": "Average speed",
       "searchPlaceholder": "Search models",
       "filterLabel": "Usage filter",

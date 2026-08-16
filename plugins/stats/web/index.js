@@ -57,7 +57,7 @@ function registerStatsUi(pages) {
 }
 
 // plugins/stats/web-src/StatsView.tsx
-var import_react4 = __toESM(require_react(), 1);
+var import_react5 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
@@ -130,40 +130,6 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/boxes.js
-var Boxes = createLucideIcon("Boxes", [
-  [
-    "path",
-    {
-      d: "M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z",
-      key: "lc1i9w"
-    }
-  ],
-  ["path", { d: "m7 16.5-4.74-2.85", key: "1o9zyk" }],
-  ["path", { d: "m7 16.5 5-3", key: "va8pkn" }],
-  ["path", { d: "M7 16.5v5.17", key: "jnp8gn" }],
-  [
-    "path",
-    {
-      d: "M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z",
-      key: "8zsnat"
-    }
-  ],
-  ["path", { d: "m17 16.5-5-3", key: "8arw3v" }],
-  ["path", { d: "m17 16.5 4.74-2.85", key: "8rfmw" }],
-  ["path", { d: "M17 16.5v5.17", key: "k6z78m" }],
-  [
-    "path",
-    {
-      d: "M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z",
-      key: "1xygjf"
-    }
-  ],
-  ["path", { d: "M12 8 7.26 5.15", key: "1vbdud" }],
-  ["path", { d: "m12 8 4.74-2.85", key: "3rx089" }],
-  ["path", { d: "M12 13.5V8", key: "1io7kd" }]
-]);
-
 // node_modules/lucide-react/dist/esm/icons/chart-column.js
 var ChartColumn = createLucideIcon("ChartColumn", [
   ["path", { d: "M3 3v16a2 2 0 0 0 2 2h16", key: "c24i48" }],
@@ -230,6 +196,7 @@ var TriangleAlert = createLucideIcon("TriangleAlert", [
 ]);
 
 // plugins/stats/web-src/components/PieChart.tsx
+var import_react3 = __toESM(require_react(), 1);
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var COLORS = [
   "var(--color-accent)",
@@ -255,37 +222,67 @@ function calculatePieSegments(data) {
     return segment;
   });
 }
-function PieChart({ title, data, emptyText }) {
+function PieChart({ title, data, emptyText, renderIcon }) {
   const segments = calculatePieSegments(data);
+  const [activeId, setActiveId] = (0, import_react3.useState)(null);
   if (segments.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "py-10 text-center text-sm text-text-muted", children: emptyText });
+  const active = segments.find((segment) => segment.id === activeId) ?? null;
+  const hover = (id) => () => setActiveId(id);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("figure", { className: "grid gap-5 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center", "aria-label": title, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { viewBox: "0 0 42 42", role: "img", "aria-label": title, className: "mx-auto h-36 w-36 -rotate-90", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "21", cy: "21", r: "15.9155", fill: "none", stroke: "var(--color-border)", strokeWidth: "6" }),
-      segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "circle",
-        {
-          cx: "21",
-          cy: "21",
-          r: "15.9155",
-          fill: "none",
-          stroke: COLORS[index % COLORS.length],
-          strokeWidth: "6",
-          strokeDasharray: segment.dashArray,
-          strokeDashoffset: segment.dashOffset,
-          "aria-hidden": true
-        },
-        segment.id
-      ))
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "relative mx-auto h-36 w-36", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { viewBox: "0 0 42 42", role: "img", "aria-label": title, className: "h-full w-full -rotate-90", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "21", cy: "21", r: "15.9155", fill: "none", stroke: "var(--color-border)", strokeWidth: "6" }),
+        segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "circle",
+          {
+            cx: "21",
+            cy: "21",
+            r: "15.9155",
+            fill: "none",
+            stroke: COLORS[index % COLORS.length],
+            strokeWidth: active?.id === segment.id ? 7.5 : 6,
+            strokeDasharray: segment.dashArray,
+            strokeDashoffset: segment.dashOffset,
+            opacity: active && active.id !== segment.id ? 0.3 : 1,
+            className: "cursor-pointer transition-all duration-150",
+            onMouseEnter: hover(segment.id),
+            onMouseLeave: hover(null),
+            "aria-hidden": true
+          },
+          segment.id
+        ))
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 px-7 text-center", children: active ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+        renderIcon?.(active),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "font-mono text-sm tabular-nums text-text", children: [
+          active.percentage.toFixed(1),
+          "%"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "w-full truncate text-[0.65rem] text-text-muted", children: active.valueLabel })
+      ] }) : null })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("figcaption", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex min-w-0 flex-col gap-2", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "grid min-w-0 grid-cols-[0.75rem_minmax(0,1fr)_auto] items-center gap-2 text-xs", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "h-2.5 w-2.5 rounded-sm", style: { backgroundColor: COLORS[index % COLORS.length] }, "aria-hidden": true }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-text", title: segment.label, children: segment.label }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "whitespace-nowrap font-mono tabular-nums text-text-muted", children: [
-        segment.percentage.toFixed(1),
-        "% \xB7 ",
-        segment.valueLabel
-      ] })
-    ] }, segment.id)) }) })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("figcaption", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex min-w-0 flex-col gap-2", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      "li",
+      {
+        className: "grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-1 py-0.5 text-xs transition-colors",
+        style: active?.id === segment.id ? { backgroundColor: "var(--color-elevated)" } : void 0,
+        onMouseEnter: hover(segment.id),
+        onMouseLeave: hover(null),
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-1.5", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "h-2.5 w-2.5 rounded-sm", style: { backgroundColor: COLORS[index % COLORS.length] }, "aria-hidden": true }),
+            renderIcon?.(segment)
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-text", title: segment.label, children: segment.label }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "whitespace-nowrap font-mono tabular-nums text-text-muted", children: [
+            segment.percentage.toFixed(1),
+            "% \xB7 ",
+            segment.valueLabel
+          ] })
+        ]
+      },
+      segment.id
+    )) }) })
   ] });
 }
 
@@ -331,7 +328,7 @@ function UsageTrend({ data, locale, tokenLabel, costLabel, emptyText }) {
 }
 
 // plugins/stats/web-src/ResetUsageModal.tsx
-var import_react3 = __toESM(require_react(), 1);
+var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 var { Button, Input, Modal, ModalBody, ModalFooter } = runtime().components;
 var { usePluginStrings, useResetUsage, useToast, useTranslation } = runtime().hooks;
@@ -340,8 +337,8 @@ function ResetUsageModal({ onClose }) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const reset = useResetUsage();
-  const confirmInputId = (0, import_react3.useId)();
-  const [typed, setTyped] = (0, import_react3.useState)("");
+  const confirmInputId = (0, import_react4.useId)();
+  const [typed, setTyped] = (0, import_react4.useState)("");
   const armed = typed.trim().toLocaleUpperCase() === s.resetConfirmWord.toLocaleUpperCase();
   const onConfirm = () => {
     reset.mutate(void 0, {
@@ -394,6 +391,7 @@ var {
 } = runtime().components;
 var { useMe, useModelUsage, usePersistentState, usePluginStrings: usePluginStrings2, useTranslation: useTranslation2, useUsageByDay } = runtime().hooks;
 var { buildUsageSummary, DEFAULT_RANGE, isStoredRange, parseRange, rangeBounds, serializeRange } = runtime().utils;
+var renderModelIcon = (datum) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ModelIcon, { name: datum.id, size: 20 });
 var utcDayStart = (timestamp) => {
   const date = new Date(timestamp);
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
@@ -458,23 +456,23 @@ function StatsView() {
   const s = usePluginStrings2("stats");
   const { t, locale } = useTranslation2();
   const [rangeRaw, setRangeRaw] = usePersistentState("elowen.stats.range", serializeRange(DEFAULT_RANGE), isStoredRange);
-  const range = (0, import_react4.useMemo)(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
-  const now = (0, import_react4.useMemo)(() => Date.now(), [rangeRaw]);
-  const window2 = (0, import_react4.useMemo)(() => rangeBounds(range, now), [range, now]);
-  const trendDays = (0, import_react4.useMemo)(() => trendDaysForWindow(window2, now), [window2, now]);
+  const range = (0, import_react5.useMemo)(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
+  const now = (0, import_react5.useMemo)(() => Date.now(), [rangeRaw]);
+  const window2 = (0, import_react5.useMemo)(() => rangeBounds(range, now), [range, now]);
+  const trendDays = (0, import_react5.useMemo)(() => trendDaysForWindow(window2, now), [window2, now]);
   const usage = useModelUsage(void 0, window2);
   const daily = useUsageByDay(void 0, trendDays);
   const me = useMe();
   const summary = buildUsageSummary(usage.data);
-  const [query, setQuery] = (0, import_react4.useState)("");
-  const [filter, setFilter] = (0, import_react4.useState)("all");
-  const [page, setPage] = (0, import_react4.useState)(0);
-  const [selectedExec, setSelectedExec] = (0, import_react4.useState)(null);
-  const [resetOpen, setResetOpen] = (0, import_react4.useState)(false);
+  const [query, setQuery] = (0, import_react5.useState)("");
+  const [filter, setFilter] = (0, import_react5.useState)("all");
+  const [page, setPage] = (0, import_react5.useState)(0);
+  const [selectedExec, setSelectedExec] = (0, import_react5.useState)(null);
+  const [resetOpen, setResetOpen] = (0, import_react5.useState)(false);
   const hasError = usage.isError || daily.isError;
   const isLoading = usage.isLoading || daily.isLoading || !usage.data || !daily.data;
-  const modelByExec = (0, import_react4.useMemo)(() => new Map((usage.data ?? []).map((model) => [model.exec, model])), [usage.data]);
-  const filtered = (0, import_react4.useMemo)(() => {
+  const modelByExec = (0, import_react5.useMemo)(() => new Map((usage.data ?? []).map((model) => [model.exec, model])), [usage.data]);
+  const filtered = (0, import_react5.useMemo)(() => {
     const needle = query.trim().toLocaleLowerCase();
     return summary.rows.filter((row) => {
       const model = modelByExec.get(row.exec);
@@ -489,8 +487,8 @@ function StatsView() {
   const pageRows = filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
   const selected = selectedExec ? modelByExec.get(selectedExec) ?? null : null;
   const trendUnavailable = isTrendWindowUnavailable(window2, trendDays, now);
-  const trend = (0, import_react4.useMemo)(() => padDailyUsage(daily.data ?? [], trendDays, window2, now), [daily.data, now, trendDays, window2]);
-  const rowByExec = (0, import_react4.useMemo)(() => new Map(summary.rows.map((row) => [row.exec, row])), [summary.rows]);
+  const trend = (0, import_react5.useMemo)(() => padDailyUsage(daily.data ?? [], trendDays, window2, now), [daily.data, now, trendDays, window2]);
+  const rowByExec = (0, import_react5.useMemo)(() => new Map(summary.rows.map((row) => [row.exec, row])), [summary.rows]);
   const pieTokens = (usage.data ?? []).map((model) => ({
     id: model.exec,
     label: model.exec,
@@ -526,7 +524,6 @@ function StatsView() {
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: s.metricTokens, value: summary.totalTokensLabel, icon: ChartColumn }),
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: s.metricCost, value: summary.totalCostLabel, icon: DollarSign }),
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: s.metricCache, value: summary.totalCacheLabel, icon: Database }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: s.metricModels, value: summary.modelsUsed, icon: Boxes }),
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: s.metricSpeed, value: summary.avgSpeedLabel, icon: Gauge })
       ] })
     }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceDocument, { children: hasError ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ErrorState, { message: t.common.daemonUnreachable, onRetry: retry }) }) : isLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(LoadingState, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
@@ -563,12 +560,12 @@ function StatsView() {
             /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
               /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.tokensByModel }),
               /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "mb-4 text-xs text-text-muted", children: s.tokensByModelHint }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData })
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData, renderIcon: renderModelIcon })
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
               /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.costByModel }),
               /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "mb-4 text-xs text-text-muted", children: s.costByModelHint }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData })
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData, renderIcon: renderModelIcon })
             ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
