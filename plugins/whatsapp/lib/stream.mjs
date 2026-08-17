@@ -19,13 +19,14 @@ async function postWithImages(adapter, jid, text, quoted) {
 
 // The Baileys transport for one editable message. Each closure receives the adapter so it calls the same
 // `sock.sendMessage` / `sendImages` the plugin tests mock. Create returns the message key (null on failure,
-// so the next drain retries the create), edit returns whether it landed. No `remove`/`replyRef`: those
-// serve the engine's live-answer bubbles, which WhatsApp does not open (see LiveMessage below).
+// so the next drain retries the create), edit returns whether it landed, and remove uses Baileys' delete
+// protocol when ephemeral tool progress is enabled. WhatsApp may render its standard deletion tombstone.
 const transport = {
   create: (a, jid, content, extra) =>
     a.sock.sendMessage(jid, { text: content }, extra).then((s) => s?.key ?? null, () => null),
   edit: (a, jid, key, content) =>
     a.sock.sendMessage(jid, { text: content, edit: key }).then(() => true, () => false),
+  remove: (a, jid, key) => a.sock.sendMessage(jid, { delete: key }).catch(() => {}),
   hasImages: (a) => typeof a.resolveImageFiles === 'function' && typeof a.sendImages === 'function',
   // Forward the trigger quote exactly like postWithImages does for text: the image reply keeps its link
   // to the message it answers. The adapter quotes only the first image (matching sendText's first piece).

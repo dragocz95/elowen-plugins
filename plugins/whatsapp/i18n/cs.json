@@ -29,6 +29,10 @@
       "label": "Živý průběh práce",
       "hint": "Zobrazovat průběh práce agenta (volání nástrojů) ve zprávě, která se během práce průběžně upravuje. Samotná odpověď přijde vždy jako jedna zpráva na konci. Vypnuto = jen finální odpověď."
     },
+    "deleteToolActivityAfterTurn": {
+      "label": "Odstranit aktivitu nástrojů po turnu",
+      "hint": "Po odeslání finální odpovědi smaže zprávu s průběhem nástrojů. Klient WhatsApp může zobrazit běžné oznámení o smazání."
+    },
     "reactions": {
       "label": "Stavové reakce",
       "hint": "Reaguje 👀 při přemýšlení, ✅/❌ po dokončení."

@@ -77,6 +77,10 @@
       "hint": "Jedna živá zpráva udrží kanál přehledný. Jedna zpráva na nástroj dá každému volání vlastní upravovanou bublinu v Discordu.",
       "options": { "single": "Jedna živá zpráva", "per_tool": "Jedna zpráva na nástroj" }
     },
+    "deleteToolActivityAfterTurn": {
+      "label": "Odstranit aktivitu nástrojů po turnu",
+      "hint": "Po odeslání finální odpovědi smaže samostatnou zprávu nebo zprávy s průběhem nástrojů."
+    },
     "reactions": {
       "label": "Stavové reakce",
       "hint": "Reaguje 👀 při přemýšlení, ✅/❌ po dokončení."

@@ -71,6 +71,13 @@
       "hint": "Show the agent's tool trace in a message edited in place while it works. The answer itself always arrives as one message at the end. Off = only the final answer."
     },
     {
+      "key": "deleteToolActivityAfterTurn",
+      "label": "Remove tool activity after turn",
+      "type": "boolean",
+      "default": false,
+      "hint": "Delete the tool-progress message after the final answer is posted. WhatsApp clients may show their standard deletion notice."
+    },
+    {
       "key": "reactions",
       "label": "Status reactions",
       "type": "boolean",

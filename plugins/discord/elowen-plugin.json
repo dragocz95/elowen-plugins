@@ -133,6 +133,13 @@
       "hint": "One live message keeps the channel compact. One message per tool gives every tool call its own editable Discord bubble."
     },
     {
+      "key": "deleteToolActivityAfterTurn",
+      "label": "Remove tool activity after turn",
+      "type": "boolean",
+      "default": false,
+      "hint": "Delete the separate tool-progress message or messages after the final answer is posted."
+    },
+    {
       "key": "reactions",
       "label": "Status reactions",
       "type": "boolean",

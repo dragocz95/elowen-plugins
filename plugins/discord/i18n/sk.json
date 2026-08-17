@@ -77,6 +77,10 @@
       "hint": "Jedna živá správa udrží kanál prehľadný. Jedna správa na nástroj dá každému volaniu vlastnú upravovanú bublinu v Discorde.",
       "options": { "single": "Jedna živá správa", "per_tool": "Jedna správa na nástroj" }
     },
+    "deleteToolActivityAfterTurn": {
+      "label": "Odstrániť aktivitu nástrojov po turne",
+      "hint": "Po odoslaní finálnej odpovede zmaže samostatnú správu alebo správy s priebehom nástrojov."
+    },
     "reactions": {
       "label": "Stavové reakcie",
       "hint": "Reaguje 👀 pri premýšľaní, ✅/❌ po dokončení."

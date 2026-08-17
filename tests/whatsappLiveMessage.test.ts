@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-type Msg = { text: string; edit?: unknown };
+type Msg = { text?: string; edit?: unknown; delete?: unknown };
 type Lm = {
   onEvent: (e: Record<string, unknown>) => void;
   finalize: (reply?: string) => Promise<void>;
@@ -25,17 +25,18 @@ describe('whatsapp LiveMessage (edit lifecycle)', () => {
 
   /** A fake Baileys adapter: `sock.sendMessage` records the latest progress-bubble text (create + every
    *  edit overwrite the same buffer) and counts creates vs edits. */
-  function fakeAdapter(onSend?: (msg: Msg) => Promise<void>) {
-    const state = { progress: '', creates: 0, edits: 0, answers: [] as string[] };
+  function fakeAdapter(onSend?: (msg: Msg) => Promise<void>, cfg: Record<string, unknown> = {}) {
+    const state = { progress: '', creates: 0, edits: 0, deletes: 0, answers: [] as string[] };
     const adapter = {
       // `streaming: true` is the shipped default, and resolveDisplaySettings maps that legacy flag to
       // answerMode 'live' — WhatsApp must still keep its answer out of a live-edited bubble.
-      cfg: { runtimeFooter: false, streaming: true },
+      cfg: { runtimeFooter: false, streaming: true, ...cfg },
       sock: {
         sendMessage: async (_jid: string, msg: Msg) => {
+          if (msg.delete) { state.deletes++; return { key: msg.delete }; }
           if (msg.edit) state.edits++; else state.creates++;
           await onSend?.(msg);
-          state.progress = msg.text;
+          state.progress = msg.text ?? '';
           return { key: msg.edit ?? { id: 'k1' } };
         },
       },

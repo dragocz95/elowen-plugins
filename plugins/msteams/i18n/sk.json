@@ -83,6 +83,10 @@
         "per_tool": "Správa za každý nástroj"
       }
     },
+    "deleteToolActivityAfterTurn": {
+      "label": "Odstrániť aktivitu nástrojov po turne",
+      "hint": "Po odoslaní finálnej odpovede zmaže samostatnú správu alebo správy s priebehom nástrojov."
+    },
     "runtimeFooter": {
       "label": "Riadok s behovými údajmi",
       "hint": "Pripojí pod finálnu odpoveď malý riadok „model · kontext %“."

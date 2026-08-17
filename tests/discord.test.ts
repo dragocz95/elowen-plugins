@@ -385,9 +385,9 @@ describe('discord LiveMessage (tool progress)', () => {
 describe('discord display settings', () => {
   it('defaults to live tool status + one final answer, while preserving legacy booleans', async () => {
     const { resolveDisplaySettings } = (await import(join(repoRoot, 'plugins/discord/index.mjs'))) as {
-      resolveDisplaySettings: (cfg?: Record<string, unknown>, state?: Record<string, unknown>) => Record<string, string>;
+      resolveDisplaySettings: (cfg?: Record<string, unknown>, state?: Record<string, unknown>) => Record<string, unknown>;
     };
-    expect(resolveDisplaySettings({})).toEqual({ toolActivity: 'status', answerMode: 'final', toolOutput: 'summary', toolMessageMode: 'single' });
+    expect(resolveDisplaySettings({})).toMatchObject({ toolActivity: 'status', answerMode: 'final', toolOutput: 'summary', toolMessageMode: 'single' });
     expect(resolveDisplaySettings({ streaming: true, streamAnswer: true })).toMatchObject({ toolActivity: 'status', answerMode: 'live' });
     expect(resolveDisplaySettings({ streaming: true, streamAnswer: false })).toMatchObject({ toolActivity: 'status', answerMode: 'final' });
     expect(resolveDisplaySettings({ streaming: false })).toMatchObject({ toolActivity: 'off', answerMode: 'final' });
@@ -395,14 +395,14 @@ describe('discord display settings', () => {
 
   it('lets each channel override one axis and reset it to the global default independently', async () => {
     const { resolveDisplaySettings, updateDisplayOverrides } = (await import(join(repoRoot, 'plugins/discord/index.mjs'))) as {
-      resolveDisplaySettings: (cfg?: Record<string, unknown>, state?: Record<string, unknown>) => Record<string, string>;
+      resolveDisplaySettings: (cfg?: Record<string, unknown>, state?: Record<string, unknown>) => Record<string, unknown>;
       updateDisplayOverrides: (current: Record<string, string>, values: Record<string, string>) => Record<string, string>;
     };
     const cfg = { toolActivity: 'status', answerMode: 'final', toolOutput: 'summary' };
     const display = updateDisplayOverrides({}, { toolActivity: 'live', toolOutput: 'tail' });
-    expect(resolveDisplaySettings(cfg, { display })).toEqual({ toolActivity: 'live', answerMode: 'final', toolOutput: 'tail', toolMessageMode: 'single' });
+    expect(resolveDisplaySettings(cfg, { display })).toMatchObject({ toolActivity: 'live', answerMode: 'final', toolOutput: 'tail', toolMessageMode: 'single' });
     const reset = updateDisplayOverrides(display, { toolActivity: 'default' });
-    expect(resolveDisplaySettings(cfg, { display: reset })).toEqual({ toolActivity: 'status', answerMode: 'final', toolOutput: 'tail', toolMessageMode: 'single' });
+    expect(resolveDisplaySettings(cfg, { display: reset })).toMatchObject({ toolActivity: 'status', answerMode: 'final', toolOutput: 'tail', toolMessageMode: 'single' });
   });
 
   it('/display persists operator-only channel overrides and reports the resolved policy', async () => {
