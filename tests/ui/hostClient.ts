@@ -187,6 +187,14 @@ export const elowenClient = {
     params.set('days', String(days));
     return req<unknown[]>(`/usage/by-day?${params.toString()}`);
   },
+  /** ADMIN-ONLY on the daemon. Mirrors web/lib/elowenClient.ts so a plugin bundle exercised here hits
+   *  the same URL shape the real host would build. */
+  usageByOrigin: (group = 'pair', window?: { fromMs: number; toMs: number }, limit = 50) => {
+    const params = new URLSearchParams({ group, limit: String(limit) });
+    if (window && Number.isFinite(window.fromMs)) params.set('from', new Date(window.fromMs).toISOString());
+    if (window && Number.isFinite(window.toMs)) params.set('to', new Date(window.toMs).toISOString());
+    return req<unknown>(`/usage/by-origin?${params.toString()}`);
+  },
   resetUsage: () => req<Record<string, unknown>>('/usage/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
 
   systemSkills: () => req<{ skills: { provider: string; present: boolean; installed: boolean; upToDate: boolean }[] }>('/system/skills'),

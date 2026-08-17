@@ -57,7 +57,7 @@ function registerStatsUi(pages) {
 }
 
 // plugins/stats/web-src/StatsView.tsx
-var import_react6 = __toESM(require_react(), 1);
+var import_react7 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
@@ -165,6 +165,18 @@ var DollarSign = createLucideIcon("DollarSign", [
 var Gauge = createLucideIcon("Gauge", [
   ["path", { d: "m12 14 4-4", key: "9kzdfg" }],
   ["path", { d: "M3.34 19a10 10 0 1 1 17.32 0", key: "19p75a" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/map-pin.js
+var MapPin = createLucideIcon("MapPin", [
+  [
+    "path",
+    {
+      d: "M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0",
+      key: "1r0f0z"
+    }
+  ],
+  ["circle", { cx: "12", cy: "10", r: "3", key: "ilqhr7" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/search.js
@@ -383,12 +395,205 @@ function ResetUsageModal({ onClose }) {
   ] });
 }
 
-// plugins/stats/web-src/StatsView.tsx
+// plugins/stats/web-src/OriginDrawer.tsx
+var import_react6 = __toESM(require_react(), 1);
+
+// plugins/stats/web-src/format.ts
+var integer = (value, locale) => new Intl.NumberFormat(locale).format(value);
+var money = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(value);
+var shortDateTime = (ms, locale) => new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(new Date(ms));
+
+// plugins/stats/web-src/OriginDrawer.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
+var {
+  Button: Button2,
+  EmptyState,
+  ErrorState,
+  HelpTip,
+  LoadingState,
+  Segmented,
+  WorkspaceDetailRail
+} = runtime().components;
+var { useUsageByOrigin } = runtime().hooks;
+function sortRows(rows, sort) {
+  const copy = [...rows];
+  copy.sort((a, b) => sort === "cost" ? (b.cost ?? -1) - (a.cost ?? -1) : b.tokens - a.tokens);
+  return copy;
+}
+function rowLabel(row, group, strings) {
+  const user = row.username ?? (row.userId != null ? `#${row.userId}` : "\u2014");
+  const origin = originLabel(row, strings);
+  if (group === "user") return user;
+  if (group === "origin") return origin;
+  return `${user} \xB7 ${origin}`;
+}
+function originLabel(row, strings) {
+  if (row.origin == null) return "\u2014";
+  if (row.originKind === "internal") return strings.originInternal;
+  if (row.originKind === "local") return strings.originLocal;
+  if (row.originKind === "redacted") return strings.originRedacted;
+  if (row.originKind === "platform") return `${strings.originPlatform}: ${row.origin.slice("platform:".length)}`;
+  return row.origin;
+}
+function ShareBar({ share }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "h-1.5 w-full overflow-hidden rounded-full bg-border/60", "aria-hidden": true, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "h-full rounded-full bg-accent", style: { width: `${Math.max(1, Math.round(share * 100))}%` } }) });
+}
+function OriginRows({
+  rows,
+  group,
+  sort,
+  locale,
+  strings,
+  onSelect
+}) {
+  const sorted = (0, import_react6.useMemo)(() => sortRows(rows, sort), [rows, sort]);
+  const peak = sorted.reduce((max, row) => Math.max(max, sort === "cost" ? row.cost ?? 0 : row.tokens), 0);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ol", { className: "flex flex-col gap-3", children: sorted.map((row, index) => {
+    const value = sort === "cost" ? row.cost ?? 0 : row.tokens;
+    const key = `${row.userId ?? "x"}:${row.origin ?? "x"}`;
+    const selectable = onSelect != null;
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+      "li",
+      {
+        className: selectable ? "group cursor-pointer rounded-md p-2 hover:bg-surface-muted" : "rounded-md p-2",
+        ...selectable ? {
+          role: "button",
+          tabIndex: 0,
+          "data-testid": "origin-row",
+          onClick: () => onSelect(row),
+          onKeyDown: (event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            onSelect(row);
+          }
+        } : { "data-testid": "origin-row" },
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "font-mono text-xs text-text-muted", children: [
+              index + 1,
+              "."
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "min-w-0 flex-1 truncate text-sm text-text", title: rowLabel(row, group, strings), children: rowLabel(row, group, strings) }),
+            !row.trusted ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TriangleAlert, { size: 13, "aria-label": strings.originUnverified, className: "shrink-0 text-warning" }) : null,
+            selectable ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ChevronRight, { size: 13, "aria-hidden": true, className: "shrink-0 text-text-muted" }) : null
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mt-1.5 flex items-center gap-3", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ShareBar, { share: peak > 0 ? value / peak : 0 }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "shrink-0 font-mono text-xs tabular-nums text-text", children: integer(row.tokens, locale) }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "shrink-0 font-mono text-xs tabular-nums text-text-muted", children: money(row.cost, locale) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: "mt-1 text-xs text-text-muted", children: [
+            group === "user" ? strings.rowOrigins.replace("{count}", String(row.origins)) : strings.rowTurns.replace("{count}", String(row.turns)),
+            " \xB7 ",
+            strings.rowLastSeen.replace("{when}", shortDateTime(row.lastAt, locale))
+          ] })
+        ]
+      },
+      key
+    );
+  }) });
+}
+function OriginDrawer({
+  isAdmin,
+  window: usageWindow,
+  rangeLabel,
+  locale,
+  strings,
+  closeLabel,
+  unreachableLabel,
+  onClose
+}) {
+  const [group, setGroup] = (0, import_react6.useState)("user");
+  const [sort, setSort] = (0, import_react6.useState)("tokens");
+  const [drillUserId, setDrillUserId] = (0, import_react6.useState)(null);
+  const grouped = useUsageByOrigin(group, usageWindow, { enabled: isAdmin });
+  const pairs = useUsageByOrigin("pair", usageWindow, { enabled: isAdmin && drillUserId != null, limit: 200 });
+  const result = grouped.data;
+  const drillRows = (0, import_react6.useMemo)(
+    () => (pairs.data?.rows ?? []).filter((row) => row.userId === drillUserId),
+    [pairs.data, drillUserId]
+  );
+  const drillLabel = drillRows[0]?.username ?? (drillUserId != null ? `#${drillUserId}` : "");
+  const untrusted = (result?.rows ?? []).filter((row) => !row.trusted).length;
+  const body = () => {
+    if (grouped.isError) return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ErrorState, { message: unreachableLabel, onRetry: () => grouped.refetch() });
+    if (grouped.isLoading || !result) return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(LoadingState, { variant: "cards" });
+    if (result.rows.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(EmptyState, { title: strings.originEmptyTitle, description: strings.originEmptyBody, icon: MapPin });
+    if (drillUserId != null) {
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-col gap-4", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button2, { variant: "ghost", icon: ChevronLeft, onClick: () => setDrillUserId(null), children: strings.originBack }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h3", { className: "text-sm font-semibold text-text", children: drillLabel }),
+        pairs.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(LoadingState, { variant: "cards" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(OriginRows, { rows: drillRows, group: "origin", sort, locale, strings })
+      ] });
+    }
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      OriginRows,
+      {
+        rows: result.rows,
+        group,
+        sort,
+        locale,
+        strings,
+        ...group === "user" ? { onSelect: (row) => {
+          if (row.userId != null) setDrillUserId(row.userId);
+        } } : {}
+      }
+    );
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceDetailRail, { label: strings.originTitle, closeLabel, onClose, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-col gap-1", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "text-sm font-semibold text-text", children: strings.originTitle }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-text-muted", children: rangeLabel }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-text-muted", children: result?.trackingSince ? strings.originTrackedSince.replace("{day}", result.trackingSince) : strings.originTrackedNever })
+    ] }),
+    untrusted > 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2.5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TriangleAlert, { size: 14, "aria-hidden": true, className: "mt-0.5 shrink-0 text-warning" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "min-w-0 text-xs text-text", children: strings.originUntrustedWarning.replace("{count}", String(untrusted)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(HelpTip, { children: strings.originUntrustedHelp })
+    ] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        Segmented,
+        {
+          nowrap: true,
+          "aria-label": strings.originGroupLabel,
+          value: group,
+          onChange: (value) => {
+            setGroup(value);
+            setDrillUserId(null);
+          },
+          options: [
+            { value: "user", label: strings.originGroupUsers },
+            { value: "origin", label: strings.originGroupOrigins },
+            { value: "pair", label: strings.originGroupPairs }
+          ]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        Segmented,
+        {
+          nowrap: true,
+          "aria-label": strings.originSortLabel,
+          value: sort,
+          onChange: (value) => setSort(value),
+          options: [
+            { value: "tokens", label: strings.originSortTokens },
+            { value: "cost", label: strings.originSortCost }
+          ]
+        }
+      )
+    ] }),
+    body(),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "border-t border-border/70 pt-3 text-xs text-text-muted", children: strings.originFootnote })
+  ] }) });
+}
+
+// plugins/stats/web-src/StatsView.tsx
+var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 var PAGE_SIZE = 20;
 var DAY_MS = 864e5;
 var {
-  Button: Button2,
+  Button: Button3,
   ControlSurfaceDocument,
   ControlSurfaceRegister,
   ControlSurfaceState,
@@ -397,20 +602,20 @@ var {
   DataTableCell,
   DataTableRow,
   DateRangeFilter,
-  EmptyState,
-  ErrorState,
+  EmptyState: EmptyState2,
+  ErrorState: ErrorState2,
   Input: Input2,
-  LoadingState,
+  LoadingState: LoadingState2,
   ModelIcon,
   ModuleHeader,
-  Segmented,
+  Segmented: Segmented2,
   SpatialWorkspaceLayout,
-  WorkspaceDetailRail,
+  WorkspaceDetailRail: WorkspaceDetailRail2,
   WorkspaceMetric
 } = runtime().components;
 var { useMe, useModelUsage, usePersistentState, usePluginStrings: usePluginStrings2, useTranslation: useTranslation2, useUsageByDay } = runtime().hooks;
 var { buildUsageSummary, DEFAULT_RANGE, isStoredRange, parseRange, rangeBounds, serializeRange } = runtime().utils;
-var renderModelIcon = (datum) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ModelIcon, { name: datum.id, size: 20 });
+var renderModelIcon = (datum) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: datum.id, size: 20 });
 var utcDayStart = (timestamp) => {
   const date = new Date(timestamp);
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
@@ -444,7 +649,6 @@ function padDailyUsage(rows, days, window2, now) {
   }
   return padded;
 }
-var integer = (value, locale) => new Intl.NumberFormat(locale).format(value);
 var percent = (value) => value == null ? "\u2014" : `${value.toFixed(1)}%`;
 var cacheTokens = (usage) => usage.cacheRead + usage.cacheWrite;
 function ModelDetail({ model, locale, strings }) {
@@ -460,14 +664,14 @@ function ModelDetail({ model, locale, strings }) {
     [strings.detailCacheRate, percent(cacheRate)],
     [strings.detailCostSource, costSource]
   ];
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 flex-col gap-5", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 items-center gap-3", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ModelIcon, { name: model.exec, size: 24 }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "truncate font-mono text-sm text-text", title: model.exec, children: model.exec })
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-5", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 items-center gap-3", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: model.exec, size: 24 }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "truncate font-mono text-sm text-text", title: model.exec, children: model.exec })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dl", { className: "flex flex-col divide-y divide-border/70", children: rows.map(([label, value]) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex items-center justify-between gap-4 py-3 text-sm", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dt", { className: "text-text-muted", children: label }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dd", { className: "truncate font-mono tabular-nums text-text", title: value, children: value })
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dl", { className: "flex flex-col divide-y divide-border/70", children: rows.map(([label, value]) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex items-center justify-between gap-4 py-3 text-sm", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dt", { className: "text-text-muted", children: label }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dd", { className: "truncate font-mono tabular-nums text-text", title: value, children: value })
     ] }, label)) })
   ] });
 }
@@ -475,23 +679,24 @@ function StatsView() {
   const s = usePluginStrings2("stats");
   const { t, locale } = useTranslation2();
   const [rangeRaw, setRangeRaw] = usePersistentState("elowen.stats.range", serializeRange(DEFAULT_RANGE), isStoredRange);
-  const range = (0, import_react6.useMemo)(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
-  const now = (0, import_react6.useMemo)(() => Date.now(), [rangeRaw]);
-  const window2 = (0, import_react6.useMemo)(() => rangeBounds(range, now), [range, now]);
-  const trendDays = (0, import_react6.useMemo)(() => trendDaysForWindow(window2, now), [window2, now]);
+  const range = (0, import_react7.useMemo)(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
+  const now = (0, import_react7.useMemo)(() => Date.now(), [rangeRaw]);
+  const window2 = (0, import_react7.useMemo)(() => rangeBounds(range, now), [range, now]);
+  const trendDays = (0, import_react7.useMemo)(() => trendDaysForWindow(window2, now), [window2, now]);
   const usage = useModelUsage(void 0, window2);
   const daily = useUsageByDay(void 0, trendDays);
   const me = useMe();
   const summary = buildUsageSummary(usage.data);
-  const [query, setQuery] = (0, import_react6.useState)("");
-  const [filter, setFilter] = (0, import_react6.useState)("all");
-  const [page, setPage] = (0, import_react6.useState)(0);
-  const [selectedExec, setSelectedExec] = (0, import_react6.useState)(null);
-  const [resetOpen, setResetOpen] = (0, import_react6.useState)(false);
+  const [query, setQuery] = (0, import_react7.useState)("");
+  const [filter, setFilter] = (0, import_react7.useState)("all");
+  const [page, setPage] = (0, import_react7.useState)(0);
+  const [selectedExec, setSelectedExec] = (0, import_react7.useState)(null);
+  const [resetOpen, setResetOpen] = (0, import_react7.useState)(false);
+  const [originOpen, setOriginOpen] = (0, import_react7.useState)(false);
   const hasError = usage.isError || daily.isError;
   const isLoading = usage.isLoading || daily.isLoading || !usage.data || !daily.data;
-  const modelByExec = (0, import_react6.useMemo)(() => new Map((usage.data ?? []).map((model) => [model.exec, model])), [usage.data]);
-  const filtered = (0, import_react6.useMemo)(() => {
+  const modelByExec = (0, import_react7.useMemo)(() => new Map((usage.data ?? []).map((model) => [model.exec, model])), [usage.data]);
+  const filtered = (0, import_react7.useMemo)(() => {
     const needle = query.trim().toLocaleLowerCase();
     return summary.rows.filter((row) => {
       const model = modelByExec.get(row.exec);
@@ -506,8 +711,14 @@ function StatsView() {
   const pageRows = filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
   const selected = selectedExec ? modelByExec.get(selectedExec) ?? null : null;
   const trendUnavailable = isTrendWindowUnavailable(window2, trendDays, now);
-  const trend = (0, import_react6.useMemo)(() => padDailyUsage(daily.data ?? [], trendDays, window2, now), [daily.data, now, trendDays, window2]);
-  const rowByExec = (0, import_react6.useMemo)(() => new Map(summary.rows.map((row) => [row.exec, row])), [summary.rows]);
+  const rangeSummary = (0, import_react7.useMemo)(() => {
+    const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+    const from = Number.isFinite(window2.fromMs) ? day(window2.fromMs) : s.originRangeOpen;
+    const to = Number.isFinite(window2.toMs) ? day(window2.toMs) : s.originRangeNow;
+    return `${from} \u2013 ${to}`;
+  }, [window2, s.originRangeOpen, s.originRangeNow]);
+  const trend = (0, import_react7.useMemo)(() => padDailyUsage(daily.data ?? [], trendDays, window2, now), [daily.data, now, trendDays, window2]);
+  const rowByExec = (0, import_react7.useMemo)(() => new Map(summary.rows.map((row) => [row.exec, row])), [summary.rows]);
   const pieTokens = (usage.data ?? []).map((model) => ({
     id: model.exec,
     label: model.exec,
@@ -529,34 +740,39 @@ function StatsView() {
     usage.refetch();
     daily.refetch();
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ModuleHeader, { title: s.title, count: summary.modelsUsed, icon: ChartColumn }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SpatialWorkspaceLayout, { hero: {
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModuleHeader, { title: s.title, count: summary.modelsUsed, icon: ChartColumn }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(SpatialWorkspaceLayout, { hero: {
       eyebrow: s.workspaceEyebrow,
       title: s.title,
       count: summary.modelsUsed,
       description: s.workspaceIntro,
       mascotState: hasError ? "error" : isLoading ? "saving" : "idle",
-      status: !hasError && !isLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "workspace-status", children: s.workspaceReady }) : void 0,
-      action: me.data?.user?.is_admin && summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button2, { variant: "ghost-danger", icon: Trash2, onClick: () => setResetOpen(true), children: s.reset }) : void 0,
-      metrics: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: s.metricTokens, value: summary.totalTokensLabel, icon: ChartColumn }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: s.metricCost, value: summary.totalCostLabel, icon: DollarSign }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: s.metricCache, value: summary.totalCacheLabel, icon: Database }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: s.metricSpeed, value: summary.avgSpeedLabel, icon: Gauge })
+      status: !hasError && !isLoading ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "workspace-status", children: s.workspaceReady }) : void 0,
+      // Admin-only affordances. The origin view's real gate is the daemon route (403 for anyone
+      // else); hiding the button is presentation, not access control.
+      action: me.data?.user?.is_admin ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Button3, { variant: "ghost", icon: MapPin, onClick: () => setOriginOpen(true), children: s.originAction }),
+        summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Button3, { variant: "ghost-danger", icon: Trash2, onClick: () => setResetOpen(true), children: s.reset }) : null
+      ] }) : void 0,
+      metrics: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricTokens, value: summary.totalTokensLabel, icon: ChartColumn }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricCost, value: summary.totalCostLabel, icon: DollarSign }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricCache, value: summary.totalCacheLabel, icon: Database }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricSpeed, value: summary.avgSpeedLabel, icon: Gauge })
       ] })
-    }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceDocument, { children: hasError ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ErrorState, { message: t.common.daemonUnreachable, onRetry: retry }) }) : isLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(LoadingState, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex w-full min-w-0 flex-wrap items-center gap-2 py-3", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "relative min-w-[15rem] flex-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Search, { size: 14, "aria-hidden": true, className: "pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Input2, { "aria-label": s.searchPlaceholder, value: query, onChange: (event) => {
+    }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceDocument, { children: hasError ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ErrorState2, { message: t.common.daemonUnreachable, onRetry: retry }) }) : isLoading ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LoadingState2, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "workspace-master-detail", "data-detail": originOpen || selected != null, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex w-full min-w-0 flex-wrap items-center gap-2 py-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "relative min-w-[15rem] flex-1", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Search, { size: 14, "aria-hidden": true, className: "pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Input2, { "aria-label": s.searchPlaceholder, value: query, onChange: (event) => {
               setQuery(event.target.value);
               resetPage();
             }, placeholder: s.searchPlaceholder, className: "pl-9" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-            Segmented,
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+            Segmented2,
             {
               nowrap: true,
               "aria-label": s.filterLabel,
@@ -572,40 +788,40 @@ function StatsView() {
               ]
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DateRangeFilter, { value: range, onChange: changeRange, compact: true })
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DateRangeFilter, { value: range, onChange: changeRange, compact: true })
         ] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-5", children: !summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(EmptyState, { title: s.emptyTitle, description: s.emptyDescription, icon: ChartColumn }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "grid gap-4 xl:grid-cols-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.tokensByModel }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "mb-4 text-xs text-text-muted", children: s.tokensByModelHint }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData, renderIcon: renderModelIcon })
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-5", children: !summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptyTitle, description: s.emptyDescription, icon: ChartColumn }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid gap-4 xl:grid-cols-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.tokensByModel }),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-text-muted", children: s.tokensByModelHint }),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData, renderIcon: renderModelIcon })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.costByModel }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "mb-4 text-xs text-text-muted", children: s.costByModelHint }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData, renderIcon: renderModelIcon })
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.costByModel }),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-text-muted", children: s.costByModelHint }),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData, renderIcon: renderModelIcon })
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.trendTitle }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "mb-4 text-xs text-text-muted", children: s.trendHint }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(UsageTrend, { data: trend, locale, tokenLabel: s.trendTokens, costLabel: s.trendCost, emptyText: trendUnavailable ? s.trendUnavailable : s.noChartData })
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.trendTitle }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-text-muted", children: s.trendHint }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(UsageTrend, { data: trend, locale, tokenLabel: s.trendTokens, costLabel: s.trendCost, emptyText: trendUnavailable ? s.trendUnavailable : s.noChartData })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.tableTitle }),
-            filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(EmptyState, { title: s.emptySearch, icon: Search }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(DataTable, { ariaLabel: s.tableTitle, columns: "2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem", compactColumns: "2rem minmax(0,1fr) 7rem 1.25rem", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(DataTableRow, { header: true, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { header: true, children: s.columnModel }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { header: true, priority: "wide", className: "text-right", children: s.columnTokens }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { header: true, className: "text-right", children: s.columnCost }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { header: true, priority: "wide", className: "text-right", children: s.columnCache }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { header: true, priority: "wide", className: "text-right", children: s.columnSpeed }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null })
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.tableTitle }),
+            filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptySearch, icon: Search }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTable, { ariaLabel: s.tableTitle, columns: "2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem", compactColumns: "2rem minmax(0,1fr) 7rem 1.25rem", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTableRow, { header: true, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, children: s.columnModel }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, priority: "wide", className: "text-right", children: s.columnTokens }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, className: "text-right", children: s.columnCost }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, priority: "wide", className: "text-right", children: s.columnCache }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, priority: "wide", className: "text-right", children: s.columnSpeed }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { role: "rowgroup", children: pageRows.map((row) => {
-                return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "rowgroup", children: pageRows.map((row) => {
+                return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
                   DataTableRow,
                   {
                     "data-testid": "model-usage-row",
@@ -619,36 +835,48 @@ function StatsView() {
                       setSelectedExec(row.exec);
                     },
                     children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { className: "flex items-center gap-1.5 text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { className: "truncate font-mono text-xs text-text", title: row.exec, children: row.exec }),
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { priority: "wide", className: "truncate text-right font-mono text-xs tabular-nums text-text-muted", title: row.tokensLabel, children: row.tokensLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { className: "truncate text-right font-mono text-xs tabular-nums text-text", title: row.costLabel, children: row.costLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { priority: "wide", className: "truncate text-right font-mono text-xs tabular-nums text-text-muted", title: percent(row.cacheHitPct), children: percent(row.cacheHitPct) }),
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { priority: "wide", className: "truncate text-right font-mono text-xs tabular-nums text-text-muted", title: row.speedLabel, children: row.speedLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DataTableCell, { className: "flex items-center justify-end gap-1.5 text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ChevronRight, { size: 12, className: "group-hover:text-text", "aria-hidden": true }) })
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "flex items-center gap-1.5 text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "truncate font-mono text-xs text-text", title: row.exec, children: row.exec }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "truncate text-right font-mono text-xs tabular-nums text-text-muted", title: row.tokensLabel, children: row.tokensLabel }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "truncate text-right font-mono text-xs tabular-nums text-text", title: row.costLabel, children: row.costLabel }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "truncate text-right font-mono text-xs tabular-nums text-text-muted", title: percent(row.cacheHitPct), children: percent(row.cacheHitPct) }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "truncate text-right font-mono text-xs tabular-nums text-text-muted", title: row.speedLabel, children: row.speedLabel }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "flex items-center justify-end gap-1.5 text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ChevronRight, { size: 12, className: "group-hover:text-text", "aria-hidden": true }) })
                     ]
                   },
                   row.exec
                 );
               }) })
             ] }),
-            filtered.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-col gap-2 border-b border-border/80 pb-3 sm:flex-row sm:items-center sm:justify-between", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "font-mono text-xs text-text-muted", children: s.pageRange.replace("{from}", String(clampedPage * PAGE_SIZE + 1)).replace("{to}", String(clampedPage * PAGE_SIZE + pageRows.length)).replace("{total}", String(filtered.length)) }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex items-center gap-1", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button2, { variant: "ghost", icon: ChevronLeft, disabled: clampedPage === 0, onClick: () => setPage(clampedPage - 1), children: s.previousPage }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "min-w-24 text-center font-mono text-xs text-text-muted", children: s.pageLabel.replace("{page}", String(clampedPage + 1)).replace("{pages}", String(pageCount)) }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Button2, { variant: "ghost", disabled: clampedPage >= pageCount - 1, onClick: () => setPage(clampedPage + 1), children: [
+            filtered.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex flex-col gap-2 border-b border-border/80 pb-3 sm:flex-row sm:items-center sm:justify-between", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "font-mono text-xs text-text-muted", children: s.pageRange.replace("{from}", String(clampedPage * PAGE_SIZE + 1)).replace("{to}", String(clampedPage * PAGE_SIZE + pageRows.length)).replace("{total}", String(filtered.length)) }),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex items-center gap-1", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Button3, { variant: "ghost", icon: ChevronLeft, disabled: clampedPage === 0, onClick: () => setPage(clampedPage - 1), children: s.previousPage }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "min-w-24 text-center font-mono text-xs text-text-muted", children: s.pageLabel.replace("{page}", String(clampedPage + 1)).replace("{pages}", String(pageCount)) }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(Button3, { variant: "ghost", disabled: clampedPage >= pageCount - 1, onClick: () => setPage(clampedPage + 1), children: [
                   s.nextPage,
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ChevronRight, { size: 15, className: "ml-1", "aria-hidden": true })
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ChevronRight, { size: 15, className: "ml-1", "aria-hidden": true })
                 ] })
               ] })
             ] }) : null
           ] })
         ] }) })
       ] }),
-      selected ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceDetailRail, { label: `${s.detailTitle}: ${selected.exec}`, closeLabel: t.common.close, onClose: () => setSelectedExec(null), children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ModelDetail, { model: selected, locale, strings: s }) }) : null
+      originOpen ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+        OriginDrawer,
+        {
+          isAdmin: me.data?.user?.is_admin === true,
+          window: window2,
+          rangeLabel: s.originRange.replace("{range}", rangeSummary),
+          locale,
+          strings: s,
+          closeLabel: t.common.close,
+          unreachableLabel: t.common.daemonUnreachable,
+          onClose: () => setOriginOpen(false)
+        }
+      ) : selected ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceDetailRail2, { label: `${s.detailTitle}: ${selected.exec}`, closeLabel: t.common.close, onClose: () => setSelectedExec(null), children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelDetail, { model: selected, locale, strings: s }) }) : null
     ] }) }) }),
-    resetOpen ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ResetUsageModal, { onClose: () => setResetOpen(false) }) : null
+    resetOpen ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ResetUsageModal, { onClose: () => setResetOpen(false) }) : null
   ] });
 }
 

@@ -261,6 +261,7 @@ const QUERY_KEYS = {
   systemSkills: ['system-skills'] as const,
   usageByModel: ['usage-by-model'] as const,
   usageByDay: ['usage-by-day'] as const,
+  usageByOrigin: ['usage-by-origin'] as const,
   sessionSignals: ['session-signals'] as const,
 };
 
@@ -373,6 +374,20 @@ export const useModelUsage = (projectId?: number, window?: { fromMs: number; toM
 
 export const useUsageByDay = (projectId?: number, days = 7) =>
   useQuery({ queryKey: [...QUERY_KEYS.usageByDay, projectId ?? null, days], queryFn: () => elowenClient.usageByDay(projectId, days) });
+
+export const useUsageByOrigin = (
+  group: 'user' | 'origin' | 'pair' = 'pair',
+  window?: { fromMs: number; toMs: number },
+  opts?: { enabled?: boolean; limit?: number },
+) =>
+  useQuery({
+    queryKey: [...QUERY_KEYS.usageByOrigin, group,
+      Number.isFinite(window?.fromMs) ? window!.fromMs : null,
+      Number.isFinite(window?.toMs) ? window!.toMs : null,
+      opts?.limit ?? 50],
+    queryFn: () => elowenClient.usageByOrigin(group, window, opts?.limit ?? 50),
+    enabled: opts?.enabled !== false,
+  });
 
 export const usePlanJob = (jobId: string | null) =>
   useQuery({

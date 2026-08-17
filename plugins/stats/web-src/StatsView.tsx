@@ -1,10 +1,12 @@
 import { useMemo, useState, type KeyboardEvent } from 'react';
 import {
-  BarChart3, ChevronLeft, ChevronRight, Database, DollarSign, Gauge, Search, Trash2,
+  BarChart3, ChevronLeft, ChevronRight, Database, DollarSign, Gauge, MapPin, Search, Trash2,
 } from 'lucide-react';
 import { PieChart } from './components/PieChart';
 import { UsageTrend } from './components/UsageTrend';
 import { ResetUsageModal } from './ResetUsageModal';
+import { OriginDrawer } from './OriginDrawer';
+import { integer } from './format';
 import { runtime } from './runtime';
 import type { DayUsage, ModelUsage, TokenUsage } from './types';
 
@@ -61,7 +63,6 @@ export function padDailyUsage(rows: DayUsage[], days: number, window: { fromMs: 
   return padded;
 }
 
-const integer = (value: number, locale: string) => new Intl.NumberFormat(locale).format(value);
 const percent = (value: number | null) => value == null ? '—' : `${value.toFixed(1)}%`;
 const cacheTokens = (usage: TokenUsage) => usage.cacheRead + usage.cacheWrite;
 
@@ -117,6 +118,7 @@ export function StatsView() {
   const [page, setPage] = useState(0);
   const [selectedExec, setSelectedExec] = useState<string | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
+  const [originOpen, setOriginOpen] = useState(false);
 
   const hasError = usage.isError || daily.isError;
   const isLoading = usage.isLoading || daily.isLoading || !usage.data || !daily.data;
@@ -136,6 +138,14 @@ export function StatsView() {
   const pageRows = filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
   const selected = selectedExec ? modelByExec.get(selectedExec) ?? null : null;
   const trendUnavailable = isTrendWindowUnavailable(window, trendDays, now);
+  // The window the whole page is already filtered by, rendered once for the origin drawer's framing —
+  // an open-ended preset has no start, and saying so beats printing an invalid date.
+  const rangeSummary = useMemo(() => {
+    const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+    const from = Number.isFinite(window.fromMs) ? day(window.fromMs) : s.originRangeOpen;
+    const to = Number.isFinite(window.toMs) ? day(window.toMs) : s.originRangeNow;
+    return `${from} – ${to}`;
+  }, [window, s.originRangeOpen, s.originRangeNow]);
   const trend = useMemo(() => padDailyUsage(daily.data ?? [], trendDays, window, now), [daily.data, now, trendDays, window]);
   const rowByExec = useMemo(() => new Map(summary.rows.map((row) => [row.exec, row])), [summary.rows]);
   const pieTokens = (usage.data ?? []).map((model) => ({
@@ -165,8 +175,15 @@ export function StatsView() {
         description: s.workspaceIntro,
         mascotState: hasError ? 'error' : isLoading ? 'saving' : 'idle',
         status: !hasError && !isLoading ? <span className="workspace-status">{s.workspaceReady}</span> : undefined,
-        action: me.data?.user?.is_admin && summary.hasAnyUsage
-          ? <Button variant="ghost-danger" icon={Trash2} onClick={() => setResetOpen(true)}>{s.reset}</Button>
+        // Admin-only affordances. The origin view's real gate is the daemon route (403 for anyone
+        // else); hiding the button is presentation, not access control.
+        action: me.data?.user?.is_admin
+          ? <>
+              <Button variant="ghost" icon={MapPin} onClick={() => setOriginOpen(true)}>{s.originAction}</Button>
+              {summary.hasAnyUsage
+                ? <Button variant="ghost-danger" icon={Trash2} onClick={() => setResetOpen(true)}>{s.reset}</Button>
+                : null}
+            </>
           : undefined,
         metrics: <>
           <WorkspaceMetric label={s.metricTokens} value={summary.totalTokensLabel} icon={BarChart3} />
@@ -181,7 +198,7 @@ export function StatsView() {
           ) : isLoading ? (
             <ControlSurfaceState><LoadingState variant="cards" /></ControlSurfaceState>
           ) : (
-            <div className="workspace-master-detail" data-detail={selected != null}>
+            <div className="workspace-master-detail" data-detail={originOpen || selected != null}>
               <div className="flex min-w-0 flex-col gap-4">
                 <ControlSurfaceToolbar>
                   {/* w-full, not items-stretch: a plugin's utilities live in @layer utilities and lose
@@ -292,7 +309,20 @@ export function StatsView() {
                   )}
                 </ControlSurfaceRegister>
               </div>
-              {selected ? (
+              {/* One rail at a time: the origin view answers a different question and takes precedence
+                  while it is open, rather than fighting the model detail for the same slot. */}
+              {originOpen ? (
+                <OriginDrawer
+                  isAdmin={me.data?.user?.is_admin === true}
+                  window={window}
+                  rangeLabel={s.originRange.replace('{range}', rangeSummary)}
+                  locale={locale}
+                  strings={s}
+                  closeLabel={t.common.close}
+                  unreachableLabel={t.common.daemonUnreachable}
+                  onClose={() => setOriginOpen(false)}
+                />
+              ) : selected ? (
                 <WorkspaceDetailRail label={`${s.detailTitle}: ${selected.exec}`} closeLabel={t.common.close} onClose={() => setSelectedExec(null)}>
                   <ModelDetail model={selected} locale={locale} strings={s} />
                 </WorkspaceDetailRail>

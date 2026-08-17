@@ -1,5 +1,5 @@
 import type { ChangeEvent, ComponentType } from 'react';
-import type { DateRange, DayUsage, ModelUsage, ResetUsageResult, UsageSummary } from './types';
+import type { DateRange, DayUsage, ModelUsage, ResetUsageResult, UsageByOriginResult, UsageOriginGroup, UsageSummary } from './types';
 
 interface QueryResult<T> {
   data?: T;
@@ -31,6 +31,7 @@ interface StatsRuntime {
     DateRangeFilter: DateRangeComponent;
     EmptyState: AnyComponent;
     ErrorState: AnyComponent;
+    HelpTip: AnyComponent;
     Input: InputComponent;
     LoadingState: AnyComponent;
     Modal: AnyComponent;
@@ -47,6 +48,13 @@ interface StatsRuntime {
     useMe(): QueryResult<{ user?: { id: number; username: string; is_admin: boolean } }>;
     useModelUsage(projectId?: number, window?: { fromMs: number; toMs: number }): QueryResult<ModelUsage[]>;
     useUsageByDay(projectId?: number, days?: number): QueryResult<DayUsage[]>;
+    /** ADMIN-ONLY on the server: a non-admin caller gets 403 by design. `enabled` keeps a normal
+     *  account from firing a request that is meant to fail; it is not the access control. */
+    useUsageByOrigin(
+      group?: UsageOriginGroup,
+      window?: { fromMs: number; toMs: number },
+      opts?: { enabled?: boolean; limit?: number },
+    ): QueryResult<UsageByOriginResult>;
     usePersistentState<T extends string>(key: string, initial: T, allowed: readonly T[] | ((raw: string) => boolean)): [T, (value: T) => void];
     usePluginStrings(plugin: string): Record<string, string>;
     useResetUsage(): MutationResult<void, ResetUsageResult>;

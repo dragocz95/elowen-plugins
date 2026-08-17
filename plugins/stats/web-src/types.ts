@@ -14,7 +14,36 @@ export interface TokenUsage {
 
 export interface ModelUsage { exec: string; usage: TokenUsage }
 export interface DayUsage { day: string; tokens: number; cost: number | null }
-export interface ResetUsageResult { ok: boolean; cleared: number; chatCleared?: number }
+export interface ResetUsageResult { ok: boolean; cleared: number; chatCleared?: number; originsCleared?: number }
+
+/** Which axis the admin origin view collapses. Mirrors the daemon's GET /usage/by-origin `group`. */
+export type UsageOriginGroup = 'user' | 'origin' | 'pair';
+
+/** One row of the admin origin view. `userId`/`origin` is null on whichever axis was collapsed.
+ *  `trusted` is false when any turn in the bucket arrived with an address the daemon could not verify —
+ *  the row is marked, never hidden. `cost` null means "no price reported", not zero. */
+export interface UsageOriginRow {
+  userId: number | null;
+  username: string | null;
+  origin: string | null;
+  originKind: 'ip' | 'local' | 'internal' | 'platform' | 'redacted' | null;
+  trusted: boolean;
+  origins: number;
+  turns: number;
+  tokens: number;
+  cost: number | null;
+  costedTurns: number;
+  firstAt: number;
+  lastAt: number;
+}
+
+/** GET /usage/by-origin. `trackingSince` is the first day the rollup holds; everything the instance
+ *  spent before it has no recorded origin and never will. */
+export interface UsageByOriginResult {
+  rows: UsageOriginRow[];
+  group: UsageOriginGroup;
+  trackingSince: string | null;
+}
 
 export interface UsageRow {
   exec: string;

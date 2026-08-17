@@ -87,6 +87,7 @@ export function ensurePluginUiRuntime(): void {
       useSessionInfos: H.useSessionInfos, useSessionSignals: H.useSessionSignals, useSessionSignal: H.useSessionSignal,
       useConfig: H.useConfig, useProjects: H.useProjects, useProjectGit: H.useProjectGit,
       useActivity: H.useActivity, useModelUsage: H.useModelUsage, useUsageByDay: H.useUsageByDay,
+      useUsageByOrigin: H.useUsageByOrigin,
       useProjectsCommits: H.useProjectsCommits, useTaskConversation: H.useTaskConversation,
       useTaskBrainConversation: H.useTaskBrainConversation, useTaskCommits: H.useTaskCommits,
       useTaskCommitFileDiff: H.useTaskCommitFileDiff, useTaskUsage: H.useTaskUsage,

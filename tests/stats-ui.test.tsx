@@ -148,3 +148,87 @@ describe('stats UI registration', () => {
     expect(registration.requiresApiVersion).toBe(1);
   });
 });
+
+describe('consumption origin drawer', () => {
+  const originRows = [
+    { userId: 2, username: 'patulka', origin: null, originKind: null, trusted: true, origins: 3, turns: 214, tokens: 5_902_110, cost: 8.12, costSource: 'provider_reported', costedTurns: 214, firstAt: Date.parse('2026-08-03T09:12:00Z'), lastAt: Date.parse('2026-08-17T10:42:00Z') },
+    { userId: 1, username: 'admin', origin: null, originKind: null, trusted: false, origins: 1, turns: 40, tokens: 1_830_400, cost: null, costSource: 'unavailable', costedTurns: 0, firstAt: Date.parse('2026-08-10T09:12:00Z'), lastAt: Date.parse('2026-08-17T11:31:00Z') },
+  ];
+  const pairRows = [
+    { userId: 2, username: 'patulka', origin: '203.0.113.7', originKind: 'ip', trusted: true, origins: 1, turns: 140, tokens: 4_210_003, cost: 6.01, costSource: 'provider_reported', costedTurns: 140, firstAt: Date.parse('2026-08-03T09:12:00Z'), lastAt: Date.parse('2026-08-17T10:42:00Z') },
+    { userId: 2, username: 'patulka', origin: 'platform:discord', originKind: 'platform', trusted: true, origins: 1, turns: 13, tokens: 390_000, cost: null, costSource: 'unavailable', costedTurns: 0, firstAt: Date.parse('2026-08-05T09:12:00Z'), lastAt: Date.parse('2026-08-16T10:42:00Z') },
+    { userId: 1, username: 'admin', origin: '198.51.100.44', originKind: 'ip', trusted: false, origins: 1, turns: 40, tokens: 1_830_400, cost: null, costSource: 'unavailable', costedTurns: 0, firstAt: Date.parse('2026-08-10T09:12:00Z'), lastAt: Date.parse('2026-08-17T11:31:00Z') },
+  ];
+  let originSearches: string[] = [];
+  const serveOrigins = () => server.use(http.get('*/api/usage/by-origin', ({ request }) => {
+    const url = new URL(request.url);
+    originSearches.push(url.search);
+    const group = url.searchParams.get('group');
+    return HttpResponse.json({
+      group, trackingSince: '2026-08-01',
+      rows: group === 'pair' ? pairRows : originRows,
+    });
+  }));
+  afterEach(() => { originSearches = []; });
+
+  const openDrawer = async () => {
+    renderStats();
+    fireEvent.click(await screen.findByRole('button', { name: strings.originAction }));
+  };
+
+  it('ranks accounts, states the tracking window and marks an unverified source', async () => {
+    serveOrigins();
+    await openDrawer();
+
+    // The framing comes before the ranking: without the tracking start the numbers read as the whole
+    // history of the instance, and everything spent before the rollup existed has no origin at all.
+    expect(await screen.findByText(strings.originTrackedSince.replace('{day}', '2026-08-01'))).toBeVisible();
+    const rows = await screen.findAllByTestId('origin-row');
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).getByText('patulka')).toBeVisible();
+    expect(within(rows[0]).getByText(/8[.,]12/)).toBeVisible();
+    // An uncosted bucket shows an em dash, never $0 — the price is unknown, not zero.
+    expect(within(rows[1]).getByText('—')).toBeVisible();
+    expect(within(rows[1]).getByLabelText(strings.originUnverified)).toBeVisible();
+    expect(screen.getByText(strings.originUntrustedWarning.replace('{count}', '1'))).toBeVisible();
+    // The default axis is the account, and the window travels with the query.
+    expect(originSearches.some((s) => s.includes('group=user'))).toBe(true);
+  });
+
+  it('re-ranks by cost, which is a different order than by tokens', async () => {
+    serveOrigins();
+    await openDrawer();
+    await screen.findAllByTestId('origin-row');
+
+    fireEvent.click(screen.getByRole('radio', { name: strings.originSortCost }));
+    const rows = await screen.findAllByTestId('origin-row');
+    // admin has no reported cost at all, so a cost ranking must not leave them where the token ranking
+    // put them — presenting one ordering as the other is the failure this switch exists to prevent.
+    expect(within(rows[0]).getByText('patulka')).toBeVisible();
+  });
+
+  it('drills into one account and names non-address origins in words', async () => {
+    serveOrigins();
+    await openDrawer();
+    const rows = await screen.findAllByTestId('origin-row');
+
+    fireEvent.click(rows[0]);
+    await waitFor(() => expect(screen.getByText(strings.originBack)).toBeVisible());
+    const drill = await screen.findAllByTestId('origin-row');
+    expect(within(drill[0]).getByText('203.0.113.7')).toBeVisible();
+    // A chat bridge is not an address and must never be rendered as one.
+    expect(within(drill[1]).getByText(`${strings.originPlatform}: discord`)).toBeVisible();
+    expect(originSearches.some((s) => s.includes('group=pair'))).toBe(true);
+  });
+
+  it('is not offered to a non-admin, and never fires the request', async () => {
+    serveOrigins();
+    server.use(http.get('*/api/auth/me', () => HttpResponse.json({ user: { id: 2, username: 'patulka', is_admin: false } })));
+    renderStats();
+    await screen.findAllByTestId('model-usage-row');
+    // The daemon refuses this route for a non-admin regardless; not offering it keeps a normal account
+    // from firing a request that is designed to fail.
+    expect(screen.queryByRole('button', { name: strings.originAction })).toBeNull();
+    expect(originSearches).toEqual([]);
+  });
+});
