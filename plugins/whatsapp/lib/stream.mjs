@@ -43,6 +43,9 @@ const style = {
   italic: (s) => `_${s}_`,
   subtext: (s) => s,
   summaryLine: (s) => `  ↳ ${s}`,
+  // WhatsApp renders `> ` as a quoted block, so the checklist gets its own panel instead of a drawn
+  // divider — the one piece of block markup this otherwise plain-text surface does support.
+  quoteBlock: (lines) => lines.map((l) => `> ${l}`).join('\n'),
 };
 
 const LiveBase = createLiveMessage({ transport, style, CHUNK, splitContent, postWithImages, footerLine, editThrottleMs: EDIT_THROTTLE_MS });

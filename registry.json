@@ -52,7 +52,7 @@
     },
     {
       "name": "discord",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "description": "Discord bot: chat with Elowen in a server channel, thread or DM, with slash commands, live message editing and per-role project access.",
       "category": "chat",
       "author": "Elowen",
@@ -143,7 +143,7 @@
     },
     {
       "name": "msteams",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "description": "Microsoft Teams bot with private slash commands, channel-thread history, proactive messaging, file consent, Adaptive Cards and a downloadable Teams app package.",
       "category": "chat",
       "author": "Elowen",
@@ -221,7 +221,7 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",
       "author": "Elowen",

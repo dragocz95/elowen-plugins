@@ -52,6 +52,11 @@ const style = {
   // came out as one run-on paragraph ("Skill … ToolSearch … CronAdd …" on one line). A blank line is
   // the only separator the documented Teams subset gives a bot, so trace rows are joined by one.
   lineBreak: '\n\n',
+  // The checklist card as ONE quote instead of the drawn divider. Teams documents blockquote as
+  // supported in text-only bot messages on desktop, iOS and Android, but its markdown form would need
+  // the blank-line row separator above and draw a full-width frame around EVERY item — so the whole
+  // card goes into a single <blockquote> from the supported XML subset, with <br> between the rows.
+  quoteBlock: (lines) => `<blockquote>${lines.join('<br>')}</blockquote>`,
 };
 
 export const LiveMessage = createLiveMessage({ transport, style, CHUNK, splitContent, postWithImages, footerLine });

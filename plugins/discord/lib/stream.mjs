@@ -52,6 +52,10 @@ const style = {
   italic: (s) => `_${s}_`,
   subtext: (s) => `-# ${s}`,
   summaryLine: (s) => `-# ↳ ${s}`,
+  // Display cards (the todo checklist) render as a Discord block quote, whose left bar sets the plan
+  // apart from the tool trace on its own — so the engine drops the drawn divider on this surface.
+  // Discord continues one quote across consecutive `> ` lines, so prefixing each line is the whole job.
+  quoteBlock: (lines) => lines.map((l) => `> ${l}`).join('\n'),
 };
 
 export const LiveMessage = createLiveMessage({ transport, style, CHUNK, splitContent, postWithImages, footerLine });
