@@ -36,7 +36,7 @@ describe('Teams person access matching', () => {
   });
 
   it('relocates an existing person policy without duplicating it or losing its access configuration', () => {
-    const existing = { ...policy('aad-1'), elowenUser: 'filip', admin: true, projectIds: ['project-1'], tools: ['RaynetSearch'], prompt: 'Private context' };
+    const existing = { ...policy('aad-1'), elowenUser: 'filip', admin: true, projectIds: [1], tools: ['RaynetSearch'], prompt: 'Private context' };
     const updated = upsertDirectPolicy(
       [policy('19:channel'), existing, policy('*')],
       person,
