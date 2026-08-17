@@ -633,7 +633,6 @@ function SessionsView() {
     window.history.replaceState(null, "", next === "needs_input" ? "/p/agents/sessions?filter=needs_input" : "/p/agents/sessions");
   };
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ModuleHeader, { title: t.page.sessions, icon: SquareTerminal }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       C.SpatialWorkspaceLayout,
       {
@@ -775,72 +774,69 @@ function EscalationsView() {
       onError: (err) => toast(utils.apiErrorMessage(err) || s.escActionError, "error")
     });
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.ModuleHeader, { title: s.escTitle, count: escalations.length + pendingAsks.length, icon: ShieldAlert }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-      C.SpatialWorkspaceLayout,
-      {
-        hero: {
-          eyebrow: s.escWorkspaceEyebrow,
-          title: s.escTitle,
-          count: total,
-          description: s.escWorkspaceIntro,
-          status: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "workspace-status", children: total > 0 ? s.escWorkspaceWaiting : s.escWorkspaceReady }),
-          metrics: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.WorkspaceMetric, { label: s.escMetricTotal, value: total, icon: Inbox }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.WorkspaceMetric, { label: s.escMetricQuestions, value: pendingAsks.length, icon: MessagesSquare }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.WorkspaceMetric, { label: s.escMetricReviews, value: escalations.length, icon: ShieldAlert }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.WorkspaceMetric, { label: s.escMetricBlocked, value: blockedCount, icon: GitBranch })
-          ] })
-        },
-        children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.ControlSurfaceDocument, { children: total === 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.EmptyState, { title: s.escEmpty, description: s.escEmptyDesc, icon: ShieldCheck }) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(C.ControlSurfaceRegister, { children: [
-          pendingAsks.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "border-b border-border/80 px-4 pb-3 font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-accent", children: s.escQuestionsSection }) : null,
-          pendingAsks.map((a) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(PendingAskCard, { ask: a }, a.askId)),
-          escalations.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "border-b border-border/80 px-4 pb-3 pt-7 font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-warning", children: s.escReviewsSection }) : null,
-          escalations.map((e) => {
-            const when = utils.formatTaskTime(e.ts, Date.now(), locale);
-            return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("article", { className: "escalation-register-row flex flex-col gap-4 border-t border-warning/30 px-4 py-5", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex items-start gap-3", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-warning/40 bg-warning/10", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ShieldAlert, { size: 20, className: "text-warning", "aria-hidden": true }) }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "min-w-0 flex-1", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "truncate text-sm font-semibold text-text", children: e.title }),
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] text-text-muted", children: [
-                    e.epicId ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Rocket, { size: 11, className: "shrink-0", "aria-hidden": true }),
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "truncate", children: e.epicId })
-                    ] }) : null,
-                    when.label ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { "aria-hidden": true, className: "opacity-50", children: "\xB7" }),
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Clock, { size: 11, className: "shrink-0", "aria-hidden": true }),
-                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { title: when.title, children: when.label })
-                    ] }) : null
-                  ] })
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    C.SpatialWorkspaceLayout,
+    {
+      hero: {
+        eyebrow: s.escWorkspaceEyebrow,
+        title: s.escTitle,
+        count: total,
+        description: s.escWorkspaceIntro,
+        status: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "workspace-status", children: total > 0 ? s.escWorkspaceWaiting : s.escWorkspaceReady }),
+        metrics: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.WorkspaceMetric, { label: s.escMetricTotal, value: total, icon: Inbox }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.WorkspaceMetric, { label: s.escMetricQuestions, value: pendingAsks.length, icon: MessagesSquare }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.WorkspaceMetric, { label: s.escMetricReviews, value: escalations.length, icon: ShieldAlert }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.WorkspaceMetric, { label: s.escMetricBlocked, value: blockedCount, icon: GitBranch })
+        ] })
+      },
+      children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.ControlSurfaceDocument, { children: total === 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.EmptyState, { title: s.escEmpty, description: s.escEmptyDesc, icon: ShieldCheck }) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(C.ControlSurfaceRegister, { children: [
+        pendingAsks.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "border-b border-border/80 px-4 pb-3 font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-accent", children: s.escQuestionsSection }) : null,
+        pendingAsks.map((a) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(PendingAskCard, { ask: a }, a.askId)),
+        escalations.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "border-b border-border/80 px-4 pb-3 pt-7 font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-warning", children: s.escReviewsSection }) : null,
+        escalations.map((e) => {
+          const when = utils.formatTaskTime(e.ts, Date.now(), locale);
+          return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("article", { className: "escalation-register-row flex flex-col gap-4 border-t border-warning/30 px-4 py-5", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex items-start gap-3", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-warning/40 bg-warning/10", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ShieldAlert, { size: 20, className: "text-warning", "aria-hidden": true }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "min-w-0 flex-1", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "truncate text-sm font-semibold text-text", children: e.title }),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] text-text-muted", children: [
+                  e.epicId ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Rocket, { size: 11, className: "shrink-0", "aria-hidden": true }),
+                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "truncate", children: e.epicId })
+                  ] }) : null,
+                  when.label ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { "aria-hidden": true, className: "opacity-50", children: "\xB7" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Clock, { size: 11, className: "shrink-0", "aria-hidden": true }),
+                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { title: when.title, children: when.label })
+                  ] }) : null
                 ] })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "border-l border-warning/35 py-1 pl-4", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted", children: s.escRationale }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "whitespace-pre-wrap text-sm leading-relaxed text-text", children: e.rationale || s.escNoReason })
-              ] }),
-              e.blocked.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-col gap-1", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "text-[11px] font-semibold uppercase tracking-wide text-text-muted", children: s.escBlockedBy }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { className: "flex flex-col gap-1", children: e.blocked.map((b) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("li", { className: "flex items-center gap-2 text-xs text-text", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Link2, { size: 12, className: "shrink-0 text-text-muted", "aria-hidden": true }),
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "min-w-0 flex-1 truncate", children: b.title })
-                ] }, b.id)) })
-              ] }) : null,
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-wrap items-center justify-end gap-2", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("button", { type: "button", onClick: () => rerun(e), disabled: setStatus.isPending, className: "inline-flex items-center gap-1.5 px-1 py-2 text-xs text-text-muted transition-colors hover:text-warning disabled:opacity-40", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(RotateCcw, { size: 13, "aria-hidden": true }),
-                  s.escRerun
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Button, { variant: "accent", icon: Play, onClick: () => approve(e), disabled: e.blocked.length === 0 || approveGate.isPending, children: s.escApprove })
               ] })
-            ] }, `${e.taskId}-${e.ts}`);
-          })
-        ] }) })
-      }
-    )
-  ] });
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "border-l border-warning/35 py-1 pl-4", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted", children: s.escRationale }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "whitespace-pre-wrap text-sm leading-relaxed text-text", children: e.rationale || s.escNoReason })
+            ] }),
+            e.blocked.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-col gap-1", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "text-[11px] font-semibold uppercase tracking-wide text-text-muted", children: s.escBlockedBy }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { className: "flex flex-col gap-1", children: e.blocked.map((b) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("li", { className: "flex items-center gap-2 text-xs text-text", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Link2, { size: 12, className: "shrink-0 text-text-muted", "aria-hidden": true }),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "min-w-0 flex-1 truncate", children: b.title })
+              ] }, b.id)) })
+            ] }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-wrap items-center justify-end gap-2", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("button", { type: "button", onClick: () => rerun(e), disabled: setStatus.isPending, className: "inline-flex items-center gap-1.5 px-1 py-2 text-xs text-text-muted transition-colors hover:text-warning disabled:opacity-40", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(RotateCcw, { size: 13, "aria-hidden": true }),
+                s.escRerun
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Button, { variant: "accent", icon: Play, onClick: () => approve(e), disabled: e.blocked.length === 0 || approveGate.isPending, children: s.escApprove })
+            ] })
+          ] }, `${e.taskId}-${e.ts}`);
+        })
+      ] }) })
+    }
+  );
 }
 
 // plugins/agents/web-src/settings/AgentsSettings.tsx

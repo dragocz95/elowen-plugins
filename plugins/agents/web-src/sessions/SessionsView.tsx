@@ -45,7 +45,6 @@ export function SessionsView() {
 
   return (
     <>
-      <C.ModuleHeader title={t.page.sessions} icon={TerminalSquare} />
       <C.SpatialWorkspaceLayout
         hero={{
           eyebrow: t.sessions.workspaceEyebrow,

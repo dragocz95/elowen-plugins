@@ -89,9 +89,7 @@ export function EscalationsView() {
   };
 
   return (
-    <>
-      <C.ModuleHeader title={s.escTitle} count={escalations.length + pendingAsks.length} icon={ShieldAlert} />
-      <C.SpatialWorkspaceLayout
+    <C.SpatialWorkspaceLayout
         hero={{
           eyebrow: s.escWorkspaceEyebrow,
           title: s.escTitle,
@@ -163,7 +161,6 @@ export function EscalationsView() {
         </C.ControlSurfaceRegister>
       )}
       </C.ControlSurfaceDocument>
-      </C.SpatialWorkspaceLayout>
-    </>
+    </C.SpatialWorkspaceLayout>
   );
 }
