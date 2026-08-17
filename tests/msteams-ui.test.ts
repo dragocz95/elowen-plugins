@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { directPolicyIndex, matchesPerson } from '../plugins/msteams/web-src/TeamsWorkspace';
+import { directPolicyIndex, matchesPerson, upsertDirectPolicy } from '../plugins/msteams/web-src/TeamsWorkspace';
 import type { RolePolicy, TeamsPerson } from '../plugins/msteams/web-src/runtime';
 
 const person: TeamsPerson = {
@@ -29,8 +29,19 @@ describe('Teams person access matching', () => {
     expect(matchesPerson(policy('a:conversation'), person)).toBe(false);
   });
 
-  it('treats a person policy below a wildcard as shadowed', () => {
+  it('treats a person policy below a wildcard or conversation policy as shadowed', () => {
     expect(directPolicyIndex([policy('aad-1'), policy('*')], person)).toBe(0);
     expect(directPolicyIndex([policy('*'), policy('aad-1')], person)).toBe(-1);
+    expect(directPolicyIndex([policy('19:channel'), policy('aad-1')], person)).toBe(-1);
+  });
+
+  it('relocates an existing person policy before every broad fallback without duplicating it', () => {
+    const updated = upsertDirectPolicy(
+      [policy('19:channel'), policy('aad-1'), policy('*')],
+      person,
+      { ...policy('aad-1'), name: 'Updated' },
+    );
+    expect(updated.map((entry) => entry.roleId)).toEqual(['aad-1', '19:channel', '*']);
+    expect(updated.filter((entry) => entry.roleId === 'aad-1')).toHaveLength(1);
   });
 });

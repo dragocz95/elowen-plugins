@@ -206,10 +206,21 @@ function matchesPerson(policy, person) {
   if (person.upn && roleId.includes("@") && roleId.toLowerCase() === person.upn.toLowerCase()) return true;
   return [person.aadObjectId, person.teamsId].some((id) => id !== "" && roleId === id);
 }
+function isBroadPolicy(policy) {
+  const roleId = policy.roleId.trim();
+  return roleId === "*" || roleId.startsWith("a:") || roleId.startsWith("19:");
+}
 function directPolicyIndex(policies, person) {
   const direct = policies.findIndex((policy) => matchesPerson(policy, person));
-  const wildcard = policies.findIndex((policy) => policy.roleId.trim() === "*");
-  return direct >= 0 && (wildcard < 0 || direct < wildcard) ? direct : -1;
+  if (direct < 0) return -1;
+  const broad = policies.findIndex(isBroadPolicy);
+  return broad < 0 || direct < broad ? direct : -1;
+}
+function upsertDirectPolicy(policies, person, nextPolicy) {
+  const next = policies.filter((policy) => !matchesPerson(policy, person));
+  const broad = next.findIndex(isBroadPolicy);
+  next.splice(broad < 0 ? next.length : broad, 0, nextPolicy);
+  return next;
 }
 function primaryId(person) {
   return person.aadObjectId || person.upn || person.teamsId || person.key;
@@ -242,10 +253,7 @@ function PeopleAccess({ draft, response }) {
   const createPolicy = () => {
     if (selected === null) return;
     const nextPolicy = { roleId: primaryId(selected), name: selected.name || selected.upn || s.personFallback, projectIds: [], prompt: "", tools: [] };
-    const wildcard = policies.findIndex((item) => item.roleId.trim() === "*");
-    const next = [...policies];
-    next.splice(wildcard < 0 ? next.length : wildcard, 0, nextPolicy);
-    replacePolicies(next);
+    replacePolicies(upsertDirectPolicy(policies, selected, nextPolicy));
   };
   const patchPolicy = (patch) => {
     if (policyIndex < 0) return;

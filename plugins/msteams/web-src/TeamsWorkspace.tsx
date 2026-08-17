@@ -12,11 +12,26 @@ export function matchesPerson(policy: RolePolicy, person: TeamsPerson): boolean 
   return [person.aadObjectId, person.teamsId].some((id) => id !== '' && roleId === id);
 }
 
-/** A wildcard wins over every policy below it, exactly as the adapter's first-match lookup does. */
+function isBroadPolicy(policy: RolePolicy): boolean {
+  const roleId = policy.roleId.trim();
+  return roleId === '*' || roleId.startsWith('a:') || roleId.startsWith('19:');
+}
+
+/** Conversation and wildcard policies win over every matching person policy below them, exactly as the
+ * adapter's first-match lookup does. */
 export function directPolicyIndex(policies: RolePolicy[], person: TeamsPerson): number {
   const direct = policies.findIndex((policy) => matchesPerson(policy, person));
-  const wildcard = policies.findIndex((policy) => policy.roleId.trim() === '*');
-  return direct >= 0 && (wildcard < 0 || direct < wildcard) ? direct : -1;
+  if (direct < 0) return -1;
+  const broad = policies.findIndex(isBroadPolicy);
+  return broad < 0 || direct < broad ? direct : -1;
+}
+
+/** Insert or relocate one person's policy before every conversation/wildcard fallback. */
+export function upsertDirectPolicy(policies: RolePolicy[], person: TeamsPerson, nextPolicy: RolePolicy): RolePolicy[] {
+  const next = policies.filter((policy) => !matchesPerson(policy, person));
+  const broad = next.findIndex(isBroadPolicy);
+  next.splice(broad < 0 ? next.length : broad, 0, nextPolicy);
+  return next;
 }
 
 function primaryId(person: TeamsPerson): string {
@@ -57,10 +72,7 @@ function PeopleAccess({ draft, response }: {
   const createPolicy = () => {
     if (selected === null) return;
     const nextPolicy = { roleId: primaryId(selected), name: selected.name || selected.upn || s.personFallback, projectIds: [], prompt: '', tools: [] };
-    const wildcard = policies.findIndex((item) => item.roleId.trim() === '*');
-    const next = [...policies];
-    next.splice(wildcard < 0 ? next.length : wildcard, 0, nextPolicy);
-    replacePolicies(next);
+    replacePolicies(upsertDirectPolicy(policies, selected, nextPolicy));
   };
   const patchPolicy = (patch: Partial<RolePolicy>) => {
     if (policyIndex < 0) return;
