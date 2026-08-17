@@ -10,10 +10,10 @@
  *  through silently stopped resolving. `gitSha` below is exactly that helper.
  *
  *  Source text cannot be compared across the repo boundary — the daemon's npm package publishes
- *  `dist/`, not `src/` — so this pins BEHAVIOUR against the installed `elowen` package, the way
- *  tests/editorGitShaParity.test.ts already does for the editor's copy. Behavioural equivalence is
- *  worth more than byte equality anyway: it is the only thing that survives the daemon compiling its
- *  TypeScript, and it is what actually breaks a user.
+ *  `dist/`, not `src/` — so this pins BEHAVIOUR against a built core. It prefers ELOWEN_CORE_ROOT,
+ *  then a sibling checkout, then the installed package, and prints that choice on every run. The
+ *  registry may lead the published package, so a narrowly pinned forward contract covers that window.
+ *  Behavioural equivalence is what survives TypeScript compilation and what actually breaks a user.
  *
  *  The copies are DISCOVERED, not hand-listed, so one added tomorrow is covered the moment it exists
  *  rather than when someone remembers to write its test. A plugin file counts as a copy of a core
@@ -25,15 +25,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readdirSync, existsSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
+import { join, dirname, basename, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
-
-import { isGitSha as coreIsGitSha } from 'elowen/dist/shared/gitSha.js';
-import { KeyedMutex as CoreKeyedMutex } from 'elowen/dist/shared/keyedMutex.js';
-import { callElowenApi as coreCallElowenApi } from 'elowen/dist/shared/apiClient.js';
-import { classifySession as coreClassifySession } from 'elowen/dist/shared/sessionInfo.js';
-import * as coreExecs from 'elowen/dist/shared/execs.js';
 
 import { isGitSha as workIsGitSha } from '../plugins/work/dist/lib/gitSha.js';
 import { KeyedMutex as AgentsKeyedMutex } from '../plugins/agents/dist/lib/keyedMutex.js';
@@ -44,10 +38,30 @@ import * as agentsExecs from '../plugins/agents/dist/lib/execs.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const requireFromHere = createRequire(import.meta.url);
+const installedCoreRoot = dirname(requireFromHere.resolve('elowen/package.json'));
+const siblingCoreRoot = resolve(root, '..', 'elowen');
+const configuredCoreRoot = process.env.ELOWEN_CORE_ROOT?.trim();
+const coreRoot = configuredCoreRoot
+  ? resolve(configuredCoreRoot)
+  : existsSync(join(siblingCoreRoot, 'package.json'))
+    ? siblingCoreRoot
+    : installedCoreRoot;
+const coreSource = configuredCoreRoot ? 'ELOWEN_CORE_ROOT' : coreRoot === siblingCoreRoot ? 'sibling checkout' : 'installed package';
+const coreSharedDir = join(coreRoot, 'dist', 'shared');
+if (!existsSync(join(coreSharedDir, 'execs.js'))) {
+  throw new Error(`[copied-helper-parity] ${coreSource} has no built dist/shared/execs.js: ${coreRoot}`);
+}
+console.info(`[copied-helper-parity] core source: ${coreSource} (${coreRoot})`);
 
-/** The daemon's shared modules, read out of the INSTALLED package — CI has the package and no sibling
- *  checkout, so a path into one would pass locally and mean nothing on the runner. */
-const coreSharedDir = join(dirname(requireFromHere.resolve('elowen/package.json')), 'dist', 'shared');
+const coreGitSha = await import(pathToFileURL(join(coreSharedDir, 'gitSha.js')).href);
+const coreKeyedMutex = await import(pathToFileURL(join(coreSharedDir, 'keyedMutex.js')).href);
+const coreApiClient = await import(pathToFileURL(join(coreSharedDir, 'apiClient.js')).href);
+const coreSessionInfo = await import(pathToFileURL(join(coreSharedDir, 'sessionInfo.js')).href);
+const coreExecs = await import(pathToFileURL(join(coreSharedDir, 'execs.js')).href);
+const coreIsGitSha = coreGitSha.isGitSha;
+const CoreKeyedMutex = coreKeyedMutex.KeyedMutex;
+const coreCallElowenApi = coreApiClient.callElowenApi;
+const coreClassifySession = coreSessionInfo.classifySession;
 
 /** Ids of the copies this file pins behaviourally. The discovery scan below asserts this list is
  *  exactly what it found, so a NEW copy fails the suite until someone adds cases for it here. */
@@ -60,10 +74,19 @@ const PINNED = [
   'work/keyedMutex',
 ];
 
-/** The registry is released before core. These are the F1 exports agents must carry while CI still
- *  installs core 0.28.2; unioning them with core exports remains an exact-set check before and after F1. */
+/** The registry is released before core. These are the exports agents must carry while CI still
+ *  installs core 0.28.2; unioning them with core exports remains an exact-set check before and after release. */
 const FORWARD_EXPORTS: Readonly<Record<string, readonly string[]>> = {
-  'agents/execs': ['PROGRAMS', 'isProgram', 'execSpecProgram', 'parseExecRef', 'execRefSpec', 'isElowenExec'],
+  'agents/execs': [
+    'BRAIN_REGISTRY_PROVIDER_PREFIX',
+    'PROGRAMS',
+    'isProgram',
+    'execSpecProgram',
+    'parseExecRef',
+    'execRefSpec',
+    'isElowenExec',
+    'isConfiguredBrainExec',
+  ],
 };
 
 type Candidate = {
@@ -177,85 +200,105 @@ describe('isGitSha, copied into plugins/work', () => {
 });
 
 describe('execs, copied into plugins/agents', () => {
-  /** For a data module the tables ARE the behaviour: they seed the config allow-list and the model
-   *  picker, so a copy that drifts hands a fresh install different defaults from the daemon's. */
-  const tables = ['PROGRAM_PREFIXES', 'DEFAULT_BINS', 'KNOWN_EXECS', 'EXEC_NOTES'] as const;
-
-  it.each(tables)('carries the daemon\'s %s verbatim', (name) => {
-    expect(agentsExecs[name]).toEqual(coreExecs[name]);
-  });
-
-  it('routes bare specs to the same programs', () => {
-    expect(agentsExecs.BARE_PLAIN_PROGRAM).toBe(coreExecs.BARE_PLAIN_PROGRAM);
-    expect(agentsExecs.BARE_WITH_SLASH_PROGRAM).toBe(coreExecs.BARE_WITH_SLASH_PROGRAM);
-  });
-
-  const specs = [
-    '',
+  const coreHasCanonicalRouting = coreExecs.BARE_WITH_SLASH_PROGRAM === 'elowen';
+  const canonicalKnownExecs = [
+    'opencode:ollama-cloud/glm-5.2',
+    'codex:gpt-5.5',
     'sonnet',
     'opus',
-    'codex:gpt-5.5',
-    'claude:opus',
-    'opencode:vendor/model',
-    'kilo:k',
-    'pi:p',
-    'omp:o',
-    'elowen:relay/ollama/kimi-k2.7-code',
-    'elowen:openai/gpt-5.5',
-    'elowen:',
-    'elowen:/model',
-    'elowen:provider/',
-    'vendor/model',
-    'foo',
-    '--all',
+    'opencode:ollama-cloud/deepseek-v4-pro',
+    'opencode:ollama/kimi-k2.7-code',
+    'opencode:ollama-cloud/minimax-m3',
+    'opencode:ollama-cloud/deepseek-v4-flash',
+    'opencode:ollama-cloud/minimax-m2.7',
+    'opencode:ollama-cloud/glm-5.1',
+    'opencode:ollama-cloud/qwen3.5',
   ];
 
-  it.each(specs)('classifies %j the same way the daemon does', (spec) => {
-    expect(agentsExecs.isWellFormedExec(spec)).toBe(coreExecs.isWellFormedExec(spec));
-    expect(agentsExecs.parseElowenExec(spec)).toEqual(coreExecs.parseElowenExec(spec));
-    expect(agentsExecs.isAllowedExec(spec, ['sonnet'])).toBe(coreExecs.isAllowedExec(spec, ['sonnet']));
-    expect(agentsExecs.isAllowedExec(spec, [])).toBe(coreExecs.isAllowedExec(spec, []));
-  });
+  console.info(
+    `[copied-helper-parity] exec contract: ${coreHasCanonicalRouting ? 'selected core build' : 'forward canonical contract (selected core predates it)'}`,
+  );
 
-  it('takes a structured identity program literally instead of guessing from its model shape', () => {
-    expect(agentsExecs.parseExecRef({ program: 'elowen', provider: 'relay', model: 'vendor/model' })).toEqual(
-      { program: 'elowen', provider: 'relay', model: 'vendor/model' },
-    );
-    expect(agentsExecs.parseExecRef({ program: 'opencode', model: 'vendor/model' })).toEqual(
-      { program: 'opencode', model: 'vendor/model' },
-    );
-    expect(agentsExecs.parseExecRef({ program: 'codex', model: 'vendor/model' })).toEqual(
-      { program: 'codex', model: 'vendor/model' },
-    );
-    expect(agentsExecs.parseExecRef('vendor/model')).toEqual({ program: 'opencode', model: 'vendor/model' });
-  });
-
-  /** The permission surface: this decides which model a non-admin may spend on, so a copy that answers
-   *  differently from the daemon is a privilege bug, not a cosmetic one. */
-  const users = [
-    ['open mode', null],
-    ['an admin with no personal list', { is_admin: true, allowed_execs: [] }],
-    ['an admin with a curated shortlist', { is_admin: true, allowed_execs: ['opus'] }],
-    ['a plain user with no personal list', { is_admin: false, allowed_execs: [] }],
-    ['a plain user narrowed to sonnet', { is_admin: false, allowed_execs: ['sonnet'] }],
-  ] as const;
-
-  it.each(users)('gates %s identically', (_label, user) => {
-    const globals = ['sonnet', 'opus'];
-    for (const spec of specs) {
-      expect(agentsExecs.isExecAllowedForUser(user, globals, spec)).toBe(
-        coreExecs.isExecAllowedForUser(user, globals, spec),
-      );
-      expect(agentsExecs.isModelVisibleForUser(user, globals, spec)).toBe(
-        coreExecs.isModelVisibleForUser(user, globals, spec),
-      );
+  it('carries the canonical routing tables', () => {
+    expect(agentsExecs.BARE_PLAIN_PROGRAM).toBe('claude-code');
+    expect(agentsExecs.BARE_WITH_SLASH_PROGRAM).toBe('elowen');
+    expect(agentsExecs.KNOWN_EXECS).toEqual(canonicalKnownExecs);
+    expect(Object.keys(agentsExecs.EXEC_NOTES)).toEqual(canonicalKnownExecs);
+    expect(agentsExecs.PROGRAM_PREFIXES).toEqual(coreExecs.PROGRAM_PREFIXES);
+    expect(agentsExecs.DEFAULT_BINS).toEqual(coreExecs.DEFAULT_BINS);
+    if (coreHasCanonicalRouting) {
+      expect(agentsExecs.KNOWN_EXECS).toEqual(coreExecs.KNOWN_EXECS);
+      expect(agentsExecs.EXEC_NOTES).toEqual(coreExecs.EXEC_NOTES);
     }
   });
 
-  it('composes a brain exec spec the same way', () => {
-    expect(agentsExecs.elowenExec('relay', 'ollama/kimi-k2.7-code')).toBe(
-      coreExecs.elowenExec('relay', 'ollama/kimi-k2.7-code'),
-    );
+  const cases = [
+    ['sonnet', 'claude-code', null],
+    ['opencode:vendor/model', 'opencode', null],
+    ['vendor/model', 'elowen', { provider: 'vendor', model: 'model' }],
+    ['elowen:relay/ollama/kimi-k2.7-code', 'elowen', { provider: 'relay', model: 'ollama/kimi-k2.7-code' }],
+    ['codex:vendor/model', 'codex', null],
+    ['elowen:', 'elowen', null],
+    ['elowen:/model', 'elowen', null],
+    ['elowen:provider/', 'elowen', null],
+  ] as const;
+
+  it.each(cases)('routes %j canonically', (spec, program, parsedBrain) => {
+    expect(agentsExecs.execSpecProgram(spec)).toBe(program);
+    expect(agentsExecs.parseElowenExec(spec)).toEqual(parsedBrain);
+    if (coreHasCanonicalRouting) {
+      expect(agentsExecs.execSpecProgram(spec)).toBe(coreExecs.execSpecProgram(spec));
+      expect(agentsExecs.parseElowenExec(spec)).toEqual(coreExecs.parseElowenExec(spec));
+    }
+  });
+
+  it('takes a structured identity program literally and formats it canonically', () => {
+    const refs = [
+      { program: 'elowen', provider: 'relay', model: 'vendor/model' },
+      { program: 'opencode', model: 'vendor/model' },
+      { program: 'codex', model: 'vendor/model' },
+    ] as const;
+    expect(agentsExecs.parseExecRef('vendor/model')).toEqual({ program: 'elowen', provider: 'vendor', model: 'model' });
+    expect(agentsExecs.parseExecRef('opencode:vendor/model')).toEqual({ program: 'opencode', model: 'vendor/model' });
+    expect(refs.map((ref) => agentsExecs.execRefSpec(ref))).toEqual([
+      'relay/vendor/model',
+      'opencode:vendor/model',
+      'codex:vendor/model',
+    ]);
+    expect(agentsExecs.elowenExec('relay', 'ollama/kimi-k2.7-code')).toBe('relay/ollama/kimi-k2.7-code');
+    if (coreHasCanonicalRouting) {
+      for (const ref of refs) expect(agentsExecs.execRefSpec(ref)).toBe(coreExecs.execRefSpec(ref));
+    }
+  });
+
+  it('enforces canonical permissions and matches a selected core that carries them', () => {
+    const plainUser = { is_admin: false, allowed_execs: [] };
+    const globals = ['sonnet', 'opencode:vendor/model'];
+    const brainProviders = ['vendor'];
+    expect(agentsExecs.isExecAllowedForUser(plainUser, globals, 'vendor/model', brainProviders)).toBe(true);
+    expect(agentsExecs.isExecAllowedForUser(plainUser, globals, 'bogus/model', brainProviders)).toBe(false);
+    expect(agentsExecs.isExecAllowedForUser(plainUser, globals, 'opencode:vendor/model', brainProviders)).toBe(true);
+    expect(agentsExecs.isModelVisibleForUser(plainUser, globals, 'vendor/model', brainProviders)).toBe(true);
+    expect(agentsExecs.isModelVisibleForUser(plainUser, globals, 'bogus/model', brainProviders)).toBe(false);
+
+    if (!coreHasCanonicalRouting) return;
+    const users = [
+      null,
+      { is_admin: true, allowed_execs: [] },
+      plainUser,
+      { is_admin: false, allowed_execs: ['vendor/model'] },
+    ] as const;
+    const specs = ['sonnet', 'opencode:vendor/model', 'vendor/model', 'bogus/model'];
+    for (const user of users) {
+      for (const spec of specs) {
+        expect(agentsExecs.isExecAllowedForUser(user, globals, spec, brainProviders)).toBe(
+          coreExecs.isExecAllowedForUser(user, globals, spec, brainProviders),
+        );
+        expect(agentsExecs.isModelVisibleForUser(user, globals, spec, brainProviders)).toBe(
+          coreExecs.isModelVisibleForUser(user, globals, spec, brainProviders),
+        );
+      }
+    }
   });
 });
 

@@ -14,6 +14,7 @@ import { Readiness } from '../plugins/work/dist/store/readiness.js';
 import { MissionStore } from '../plugins/agents/dist/store/missionStore.js';
 import { AgentStore } from '../plugins/agents/dist/store/agentStore.js';
 import { SpawnService } from '../plugins/agents/dist/spawn/spawn.js';
+import { KNOWN_EXECS } from '../plugins/agents/dist/lib/execs.js';
 import { FakeTmuxDriver } from 'elowen/dist/tmux/fakeDriver.js';
 import { EventBus } from 'elowen/dist/api/sse.js';
 import { createServer } from 'elowen/dist/api/server.js';
@@ -36,6 +37,7 @@ async function setup(extra: { engine?: unknown; missionGit?: unknown } = {}) {
   const tmux = new FakeTmuxDriver();
   const readiness = new Readiness(db);
   const config = new ConfigStore(db);
+  config.update({ allowedExecs: [...KNOWN_EXECS] });
   const projects = new ProjectStore(db);
   // The /missions surface — and the whole /tasks surface — is served by the plugins' root-mounted
   // routes now.
@@ -112,8 +114,8 @@ describe('per-user model allow-list enforcement', () => {
     await app.request(`/users/${bob.id}`, patch(adminTok, { allowed_execs: ['sonnet'] }));
     tasks.create({ id: 'elowen-1', project_id: 1, title: 'X' });
 
-    // 'ollama-cloud/deepseek-v4-flash' is in the GLOBAL allow-list but not in bob's → 403, no spawn.
-    const blocked = await app.request('/sessions', post(bobTok, { taskId: 'elowen-1', exec: 'ollama-cloud/deepseek-v4-flash' }));
+    // 'opencode:ollama-cloud/deepseek-v4-flash' is in the GLOBAL allow-list but not in bob's → 403, no spawn.
+    const blocked = await app.request('/sessions', post(bobTok, { taskId: 'elowen-1', exec: 'opencode:ollama-cloud/deepseek-v4-flash' }));
     expect(blocked.status).toBe(403);
     expect(await tmux.list()).toHaveLength(0);
 
@@ -127,7 +129,7 @@ describe('per-user model allow-list enforcement', () => {
     userProjects.assign(bob.id, 1);
     tasks.create({ id: 'elowen-1', project_id: 1, title: 'X' });
     // bob has no allowed_execs set → any globally-allowed exec works.
-    expect((await app.request('/sessions', post(bobTok, { taskId: 'elowen-1', exec: 'ollama-cloud/deepseek-v4-flash' }))).status).toBe(201);
+    expect((await app.request('/sessions', post(bobTok, { taskId: 'elowen-1', exec: 'opencode:ollama-cloud/deepseek-v4-flash' }))).status).toBe(201);
     tasks.setStatus('elowen-1', 'closed'); // free the shared checkout before the next launch (single-writer)
     tasks.create({ id: 'elowen-2', project_id: 1, title: 'Y' });
     expect((await app.request('/sessions', post(adminTok, { taskId: 'elowen-2', exec: 'codex:gpt-5.5' }))).status).toBe(201);

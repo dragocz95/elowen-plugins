@@ -6,6 +6,7 @@
  *  mounts, over the real spawn service and mission engine. */
 import { describe, it, expect } from 'vitest';
 import type { ElowenEvent } from 'elowen/dist/api/sse.js';
+import { KNOWN_EXECS } from '../plugins/agents/dist/lib/execs.js';
 import { makeDomainApp } from './helpers/domainApp.js';
 
 describe('agents plugin: session + mission routes on a daemon-shaped app', () => {
@@ -21,8 +22,9 @@ describe('agents plugin: session + mission routes on a daemon-shaped app', () =>
 
   it('POST /sessions launches an agent on a task and marks it in_progress', async () => {
     const { app, token, deps } = await makeDomainApp();
+    deps.config.update({ allowedExecs: [...KNOWN_EXECS] });
     deps.tasks.create({ id: 'elowen-1', project_id: 1, title: 'X' });
-    const res = await app.request('/sessions', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'elowen-1', exec: 'ollama-cloud/deepseek-v4-flash' }) });
+    const res = await app.request('/sessions', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'elowen-1', exec: 'opencode:ollama-cloud/deepseek-v4-flash' }) });
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.session).toMatch(/^elowen-/);
@@ -30,7 +32,7 @@ describe('agents plugin: session + mission routes on a daemon-shaped app', () =>
     expect(await deps.tmux.list()).toContain(body.session);
     // spawn tags the task with exec + agent labels so the UI can show its model and link the session
     const t1 = deps.tasks.get('elowen-1')!;
-    expect(t1.labels).toContain('exec:ollama-cloud/deepseek-v4-flash');
+    expect(t1.labels).toContain('exec:opencode:ollama-cloud/deepseek-v4-flash');
     expect(t1.labels.some((l) => l.startsWith('agent:'))).toBe(true);
   });
 
@@ -49,8 +51,9 @@ describe('agents plugin: session + mission routes on a daemon-shaped app', () =>
 
   it('GET /sessions tags each live session with its project from the agent store', async () => {
     const { app, token, deps } = await makeDomainApp();
+    deps.config.update({ allowedExecs: [...KNOWN_EXECS] });
     deps.tasks.create({ id: 'elowen-1', project_id: 1, title: 'X' });
-    await app.request('/sessions', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'elowen-1', exec: 'ollama-cloud/deepseek-v4-flash' }) });
+    await app.request('/sessions', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'elowen-1', exec: 'opencode:ollama-cloud/deepseek-v4-flash' }) });
     const sessions = await (await app.request('/sessions', { headers: { authorization: `Bearer ${token}` } })).json();
     expect(sessions).toHaveLength(1);
     // the daemon resolves the session's repo from the agent store (works for every role, not just workers)

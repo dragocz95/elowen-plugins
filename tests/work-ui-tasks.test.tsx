@@ -477,11 +477,12 @@ const msg = (id: number, role: 'agent' | 'autopilot' | 'human', text: string, ts
   ({ id, type: 'message', detail: JSON.stringify({ role, text }), ts });
 
 describe('TaskConversation', () => {
-  it('takes a structured worker identity program literally', () => {
+  it('takes a structured worker identity literally and routes canonical string specs', () => {
     expect(parseExecRef({ program: 'elowen', provider: 'relay', model: 'vendor/model' })?.program).toBe('elowen');
     expect(parseExecRef({ program: 'opencode', model: 'vendor/model' })?.program).toBe('opencode');
     expect(parseExecRef({ program: 'codex', model: 'vendor/model' })?.program).toBe('codex');
-    expect(parseExecRef('vendor/model')?.program).toBe('opencode');
+    expect(parseExecRef('vendor/model')).toEqual({ program: 'elowen', provider: 'vendor', model: 'model' });
+    expect(parseExecRef('opencode:vendor/model')).toEqual({ program: 'opencode', model: 'vendor/model' });
   });
 
   beforeEach(() => {

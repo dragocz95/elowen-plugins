@@ -72,8 +72,8 @@ function engineSetup(opts?: { summarize?: MissionEngineDeps['summarize'] }) {
   const db = openPluginTablesDb(':memory:'); db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const tasks = new TaskStore(db);
   tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
-  tasks.create({ id: 't1', project_id: 1, title: 'one', parent_id: 'epic', labels: ['exec:ollama-cloud/deepseek-v4-flash'] });
-  tasks.create({ id: 't2', project_id: 1, title: 'two', parent_id: 'epic', labels: ['exec:ollama-cloud/deepseek-v4-flash'] });
+  tasks.create({ id: 't1', project_id: 1, title: 'one', parent_id: 'epic', labels: ['exec:opencode:ollama-cloud/deepseek-v4-flash'] });
+  tasks.create({ id: 't2', project_id: 1, title: 'two', parent_id: 'epic', labels: ['exec:opencode:ollama-cloud/deepseek-v4-flash'] });
   tasks.addDep('t2', 't1');
   const tmux = new FakeTmuxDriver();
   const bus = new EventBus();
@@ -128,8 +128,8 @@ describe('MissionEngine', () => {
     const tasks = new TaskStore(db);
     tasks.create({ id: 'epic', project_id: 1, title: 'E', type: 'epic' });
     // Two independent (no dep) phases → both dependency-cleared and ready at once.
-    tasks.create({ id: 'a', project_id: 1, title: 'A', parent_id: 'epic', labels: ['exec:ollama-cloud/deepseek-v4-flash'] });
-    tasks.create({ id: 'b', project_id: 1, title: 'B', parent_id: 'epic', labels: ['exec:ollama-cloud/deepseek-v4-flash'] });
+    tasks.create({ id: 'a', project_id: 1, title: 'A', parent_id: 'epic', labels: ['exec:opencode:ollama-cloud/deepseek-v4-flash'] });
+    tasks.create({ id: 'b', project_id: 1, title: 'B', parent_id: 'epic', labels: ['exec:opencode:ollama-cloud/deepseek-v4-flash'] });
     let n = 0;
     const engine = new MissionEngine({ git: gitSeam,
       tasks, taskRefs: new TaskRefs(db), readiness: new Readiness(db), missions: new MissionStore(db),
@@ -492,7 +492,7 @@ describe('MissionEngine multi-project', () => {
     db.prepare("INSERT INTO projects (id,slug,path) VALUES (2,'other','/p2')").run();
     const tasks = new TaskStore(db);
     tasks.create({ id: 'epic2', project_id: 2, title: 'E2', type: 'epic' });
-    tasks.create({ id: 'x1', project_id: 2, title: 'work', parent_id: 'epic2', labels: ['exec:ollama-cloud/deepseek-v4-flash'] });
+    tasks.create({ id: 'x1', project_id: 2, title: 'work', parent_id: 'epic2', labels: ['exec:opencode:ollama-cloud/deepseek-v4-flash'] });
     const tmux = new FakeTmuxDriver();
     const engine = new MissionEngine({ git: gitSeam,
       tasks, taskRefs: new TaskRefs(db), readiness: new Readiness(db), missions: new MissionStore(db),
@@ -1423,8 +1423,8 @@ describe('checkAction — reason "progress" (routine glance at a working agent)'
 
 const FB = { program: 'claude-code', model: 'sonnet' };
 describe('resolveExecutor', () => {
-  it('routes exec:provider/model to opencode', () => {
-    expect(resolveExecutor(['exec:ollama-cloud/deepseek-v4-flash'], FB)).toEqual({ program: 'opencode', model: 'ollama-cloud/deepseek-v4-flash' });
+  it('routes explicit exec:opencode:<provider/model> to opencode', () => {
+    expect(resolveExecutor(['exec:opencode:ollama-cloud/deepseek-v4-flash'], FB)).toEqual({ program: 'opencode', model: 'ollama-cloud/deepseek-v4-flash' });
   });
   it('routes bare exec:sonnet to claude', () => {
     expect(resolveExecutor(['exec:sonnet'], FB)).toEqual({ program: 'claude-code', model: 'sonnet' });

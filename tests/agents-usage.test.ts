@@ -254,7 +254,7 @@ describe('readTaskUsage', () => {
 
   it('routes opencode tasks to the opencode reader', () => {
     writeOcDb([{ id: 'ses_a', created: SINCE + 500, model: 'ollama-cloud/deepseek-v4-flash', in: 10, out: 5, cost: 0.05 }]);
-    const task = ocTask('t1', 'ollama-cloud/deepseek-v4-flash', '2026-06-19 10:00:00');
+    const task = ocTask('t1', 'opencode:ollama-cloud/deepseek-v4-flash', '2026-06-19 10:00:00');
     const u = readTaskUsage(task, [task], DIR, fallback, home);
     expect(u?.total).toBe(15);
     expect(u?.costUsd).toBeCloseTo(0.05);
@@ -276,7 +276,7 @@ describe('readTaskUsage', () => {
     // Both tasks share the SAME whole-second created_at (the realistic mission case), but carry
     // distinct sub-second started:<ms> labels. Crucially the id-FIRST task (t-a) started LATER,
     // so id order is the OPPOSITE of start order — proving rank follows started:<ms>, not id.
-    const mk = (id: string, startedMs: number) => ({ id, labels: ['exec:ollama-cloud/deepseek-v4-flash', `started:${startedMs}`], created_at: '2026-06-19 10:00:00' });
+    const mk = (id: string, startedMs: number) => ({ id, labels: ['exec:opencode:ollama-cloud/deepseek-v4-flash', `started:${startedMs}`], created_at: '2026-06-19 10:00:00' });
     const a = mk('t-a', SINCE + 140); // id-first but started LATER → rank 1 → ses_second (99)
     const b = mk('t-b', SINCE + 90);  // id-second but started FIRST → rank 0 → ses_first (10)
     const siblings = [a, b];
@@ -292,8 +292,8 @@ describe('readTaskUsage', () => {
       { id: 'ses_first', created: SINCE + 100, model: 'ollama-cloud/deepseek-v4-flash', in: 10, cost: 0.01 },
       { id: 'ses_second', created: SINCE + 200, model: 'ollama-cloud/deepseek-v4-flash', in: 99, cost: 0.02 },
     ]);
-    const running = { id: 't-running', labels: ['exec:ollama-cloud/deepseek-v4-flash', `started:${SINCE + 120}`], created_at: '2026-06-19 10:00:00' };
-    const open = { id: 't-open', labels: ['exec:ollama-cloud/deepseek-v4-flash'], created_at: '2026-06-19 10:00:00' }; // never spawned
+    const running = { id: 't-running', labels: ['exec:opencode:ollama-cloud/deepseek-v4-flash', `started:${SINCE + 120}`], created_at: '2026-06-19 10:00:00' };
+    const open = { id: 't-open', labels: ['exec:opencode:ollama-cloud/deepseek-v4-flash'], created_at: '2026-06-19 10:00:00' }; // never spawned
     expect(readTaskUsage(running, [running, open], DIR, fallback, home)?.total).toBe(10);
   });
 
@@ -305,7 +305,7 @@ describe('readTaskUsage', () => {
       { id: 'ses_overseer', created: SINCE + 90, model: 'ollama-cloud/glm-5.2', in: 900_000 },
       { id: 'ses_exec', created: SINCE + 110, model: 'deepseek/deepseek-v4-flash', in: 120, cost: 0.02 },
     ]);
-    const task = { id: 't1', labels: ['exec:deepseek/deepseek-v4-flash', `started:${SINCE + 100}`], created_at: '2026-06-19 10:00:00' };
+    const task = { id: 't1', labels: ['exec:opencode:deepseek/deepseek-v4-flash', `started:${SINCE + 100}`], created_at: '2026-06-19 10:00:00' };
     expect(readTaskUsage(task, [task], DIR, fallback, home)?.input).toBe(120);
   });
 });
