@@ -141,6 +141,10 @@ describe('msteams plugin registration', () => {
     const reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['msteams'], logger: log });
     expect(reg.platforms).toHaveLength(0);
     expect(reg.httpRoutes.size).toBe(0);
+    expect([...reg.rootApiRoutes.keys()].sort()).toEqual([
+      '/plugins/msteams/app-package',
+      '/plugins/msteams/people',
+    ]);
   });
 
   it('registers the platform adapter and the /hooks mount when configured', async () => {
@@ -154,6 +158,23 @@ describe('msteams plugin registration', () => {
 });
 
 describe('msteams identity + role mapping', () => {
+  it('exposes a sorted browser-safe people directory without routing secrets', async () => {
+    const { peopleForUi } = await import(join(repoRoot, 'plugins/msteams/index.mjs')) as {
+      peopleForUi: (people: Record<string, unknown>[]) => Record<string, unknown>[];
+    };
+    const result = peopleForUi([
+      { key: 'b', name: 'Zoe', upn: 'zoe@example.com', aad: 'aad-z', id: '29:z', conv: 'a:private', url: 'https://smba.test/secret', at: 123 },
+      { key: 'a', name: 'Alex', upn: 'alex@example.com', aad: 'aad-a', id: '29:a', at: 0 },
+    ]);
+    expect(result.map((person) => person.name)).toEqual(['Alex', 'Zoe']);
+    expect(result[1]).toEqual({
+      key: 'b', name: 'Zoe', upn: 'zoe@example.com', aadObjectId: 'aad-z', teamsId: '29:z',
+      hasPersonalChat: true, lastSeenAt: 123,
+    });
+    expect(JSON.stringify(result)).not.toContain('smba.test');
+    expect(JSON.stringify(result)).not.toContain('a:private');
+  });
+
   it('matches Entra GUIDs exactly and UPN/email case-insensitively', async () => {
     const { matchesId, senderIds } = await import(join(repoRoot, 'plugins/msteams/index.mjs')) as {
       matchesId: (a: string, b: string) => boolean; senderIds: (f: unknown, c: string, u?: string) => string[];

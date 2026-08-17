@@ -1,0 +1,353 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Download, KeyRound, MessageCircle, Search, Settings2, ShieldCheck, UserCheck, Users } from 'lucide-react';
+import { apiJson, runtime, type ConfigField, type PeopleResponse, type PluginDetail, type RolePolicy, type TeamsPerson } from './runtime';
+
+type WorkspaceTab = 'people' | 'settings';
+type PersonFilter = 'all' | 'mapped' | 'unmapped';
+
+export function matchesPerson(policy: RolePolicy, person: TeamsPerson): boolean {
+  const roleId = policy.roleId.trim();
+  if (roleId === '' || roleId === '*') return false;
+  if (person.upn && roleId.includes('@') && roleId.toLowerCase() === person.upn.toLowerCase()) return true;
+  return [person.aadObjectId, person.teamsId].some((id) => id !== '' && roleId === id);
+}
+
+/** A wildcard wins over every policy below it, exactly as the adapter's first-match lookup does. */
+export function directPolicyIndex(policies: RolePolicy[], person: TeamsPerson): number {
+  const direct = policies.findIndex((policy) => matchesPerson(policy, person));
+  const wildcard = policies.findIndex((policy) => policy.roleId.trim() === '*');
+  return direct >= 0 && (wildcard < 0 || direct < wildcard) ? direct : -1;
+}
+
+function primaryId(person: TeamsPerson): string {
+  return person.aadObjectId || person.upn || person.teamsId || person.key;
+}
+
+function policiesOf(values: Record<string, unknown>): RolePolicy[] {
+  return Array.isArray(values.rolePolicies) ? values.rolePolicies as RolePolicy[] : [];
+}
+
+function PeopleAccess({ draft, response }: {
+  draft: ReturnType<ReturnType<typeof runtime>['hooks']['usePluginConfigDraft']>;
+  response: PeopleResponse;
+}) {
+  const { components: C, hooks } = runtime();
+  const s = hooks.usePluginStrings('msteams');
+  const users = hooks.useUsers().data ?? [];
+  const projects = hooks.useProjects().data ?? [];
+  const plugins = hooks.usePlugins().data ?? [];
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<PersonFilter>('all');
+  const [selectedKey, setSelectedKey] = useState<string | null>(response.people[0]?.key ?? null);
+  const [toolsOpen, setToolsOpen] = useState(false);
+
+  const policies = policiesOf(draft.values);
+  const visible = response.people.filter((person) => {
+    const mapped = directPolicyIndex(policies, person) >= 0;
+    if (filter === 'mapped' && !mapped) return false;
+    if (filter === 'unmapped' && mapped) return false;
+    const haystack = `${person.name} ${person.upn} ${person.aadObjectId}`.toLowerCase();
+    return haystack.includes(search.trim().toLowerCase());
+  });
+  const selected = response.people.find((person) => person.key === selectedKey) ?? visible[0] ?? null;
+  const policyIndex = selected === null ? -1 : directPolicyIndex(policies, selected);
+  const policy = policyIndex >= 0 ? policies[policyIndex]! : null;
+
+  const replacePolicies = (next: RolePolicy[]) => draft.setValue('rolePolicies', next);
+  const createPolicy = () => {
+    if (selected === null) return;
+    const nextPolicy = { roleId: primaryId(selected), name: selected.name || selected.upn || s.personFallback, projectIds: [], prompt: '', tools: [] };
+    const wildcard = policies.findIndex((item) => item.roleId.trim() === '*');
+    const next = [...policies];
+    next.splice(wildcard < 0 ? next.length : wildcard, 0, nextPolicy);
+    replacePolicies(next);
+  };
+  const patchPolicy = (patch: Partial<RolePolicy>) => {
+    if (policyIndex < 0) return;
+    replacePolicies(policies.map((item, index) => index === policyIndex ? { ...item, ...patch } : item));
+  };
+  const removePolicy = () => {
+    if (policyIndex < 0) return;
+    replacePolicies(policies.filter((_, index) => index !== policyIndex));
+  };
+
+  const owners = new Map<string, string>();
+  for (const plugin of plugins) {
+    if (!plugin.enabled) continue;
+    for (const tool of plugin.provides.tools ?? []) if (!owners.has(tool)) owners.set(tool, plugin.name);
+  }
+  const selectedTools = policy?.tools ?? [];
+  const knownTools = new Set(owners.keys());
+  const toolItems = [
+    ...selectedTools.filter((tool) => !knownTools.has(tool)).map((tool) => ({ id: tool, label: tool, group: s.unavailableTools })),
+    ...[...owners.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([tool, plugin]) => ({ id: tool, label: tool, group: plugin })),
+  ];
+  const accountOptions = [
+    { value: '', label: s.accountNone },
+    ...(policy?.elowenUser && !users.some((user) => user.username === policy.elowenUser)
+      ? [{ value: policy.elowenUser, label: policy.elowenUser }]
+      : []),
+    ...users.map((user) => ({ value: user.username, label: user.name ? `${user.name} · @${user.username}` : `@${user.username}` })),
+  ];
+  const inherited = policies.some((item) => item.roleId === '*');
+
+  return (
+    <C.ControlSurfaceDocument>
+      <C.ControlSurfaceToolbar>
+        <div className="flex w-full flex-wrap items-center gap-3">
+          <div className="relative min-w-[15rem] flex-1">
+            <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+            <C.Input value={search} onChange={(event: { target: { value: string } }) => setSearch(event.target.value)} placeholder={s.peopleSearch} className="pl-9" />
+          </div>
+          <div className="flex rounded-lg border border-border bg-surface p-1">
+            {(['all', 'mapped', 'unmapped'] as const).map((value) => (
+              <button
+                type="button"
+                key={value}
+                onClick={() => setFilter(value)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${filter === value ? 'bg-accent text-accent-foreground' : 'text-text-muted hover:text-text'}`}
+              >
+                {value === 'all' ? s.filterAll : value === 'mapped' ? s.filterMapped : s.filterUnmapped}
+              </button>
+            ))}
+          </div>
+        </div>
+      </C.ControlSurfaceToolbar>
+
+      {response.people.length === 0 ? (
+        <C.ControlSurfaceState>
+          <C.EmptyState title={s.peopleEmptyTitle} description={s.peopleEmptyDescription} icon={Users} />
+        </C.ControlSurfaceState>
+      ) : visible.length === 0 ? (
+        <C.ControlSurfaceState>
+          <C.EmptyState title={s.peopleNoResults} description={s.peopleNoResultsDescription} icon={Search} />
+        </C.ControlSurfaceState>
+      ) : (
+        <C.ControlSurfaceRegister className="grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(18rem,0.8fr)_minmax(24rem,1.2fr)]">
+          <div className="flex min-w-0 flex-col gap-2">
+            {visible.map((person) => {
+              const mapped = directPolicyIndex(policies, person) >= 0;
+              const active = selected?.key === person.key;
+              return (
+                <button
+                  type="button"
+                  key={person.key}
+                  onClick={() => setSelectedKey(person.key)}
+                  className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? 'border-accent/60 bg-accent/10' : 'border-border bg-surface hover:border-border-strong hover:bg-elevated/50'}`}
+                >
+                  <C.Avatar name={person.name || person.upn || s.personFallback} size="md" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-text">{person.name || s.personFallback}</span>
+                    <span className="block truncate text-xs text-text-muted">{person.upn || person.aadObjectId}</span>
+                  </span>
+                  <span className="flex shrink-0 flex-col items-end gap-1">
+                    <C.Badge tone={mapped ? 'accent' : undefined}>{mapped ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped}</C.Badge>
+                    {person.hasPersonalChat ? <span className="inline-flex items-center gap-1 text-[11px] text-text-muted"><MessageCircle size={11} aria-hidden />{s.chatOpen}</span> : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="min-w-0 rounded-xl border border-border bg-elevated/30 p-5">
+            {selected === null ? null : (
+              <div className="flex flex-col gap-5">
+                <div className="flex items-start gap-3">
+                  <C.Avatar name={selected.name || selected.upn || s.personFallback} size="lg" />
+                  <div className="min-w-0 flex-1">
+                    <h2 className="truncate text-base font-semibold text-text">{selected.name || s.personFallback}</h2>
+                    <p className="truncate text-sm text-text-muted">{selected.upn || selected.aadObjectId}</p>
+                    <p className="mt-1 font-mono text-[11px] text-text-subtle">{selected.aadObjectId || selected.teamsId}</p>
+                  </div>
+                  {policy ? <C.Button variant="ghost" onClick={removePolicy}>{s.removeAccess}</C.Button> : null}
+                </div>
+
+                {policy === null ? (
+                  <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 text-center">
+                    <UserCheck size={28} className="text-text-muted" aria-hidden />
+                    <div>
+                      <p className="text-sm font-semibold text-text">{inherited ? s.inheritedTitle : s.unmappedTitle}</p>
+                      <p className="mt-1 max-w-md text-xs leading-relaxed text-text-muted">{inherited ? s.inheritedDescription : s.unmappedDescription}</p>
+                    </div>
+                    <C.Button variant="accent" icon={KeyRound} onClick={createPolicy}>{s.configureAccess}</C.Button>
+                  </div>
+                ) : (
+                  <>
+                    <C.Field label={s.accountLabel} hint={s.accountHint}>
+                      <C.SelectMenu
+                        value={policy.elowenUser ?? ''}
+                        onChange={(value: string) => patchPolicy({ elowenUser: value || undefined })}
+                        options={accountOptions}
+                        label={s.accountLabel}
+                      />
+                    </C.Field>
+
+                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface p-3">
+                      <C.Toggle checked={policy.admin === true} onChange={(value: boolean) => patchPolicy({ admin: value })} label={s.adminLabel} />
+                      <span>
+                        <span className="block text-sm font-medium text-text">{s.adminLabel}</span>
+                        <span className="block text-xs leading-relaxed text-text-muted">{s.adminHint}</span>
+                      </span>
+                    </label>
+
+                    <C.Field label={s.projectsLabel} hint={s.projectsHint}>
+                      <div className="flex flex-wrap gap-x-4 gap-y-2 rounded-lg border border-border bg-surface p-3">
+                        {projects.map((project) => {
+                          const checked = policy.projectIds.includes(project.id);
+                          return (
+                            <label key={project.id} className="flex cursor-pointer items-center gap-2 text-sm text-text">
+                              <span onClick={() => patchPolicy({ projectIds: checked ? policy.projectIds.filter((id) => id !== project.id) : [...policy.projectIds, project.id] })}>
+                                <C.Checkbox checked={checked} />
+                              </span>
+                              {project.name || project.slug}
+                            </label>
+                          );
+                        })}
+                        {projects.length === 0 ? <span className="text-xs text-text-muted">{s.projectsEmpty}</span> : null}
+                      </div>
+                    </C.Field>
+
+                    <C.Field label={s.toolsLabel} hint={s.toolsHint}>
+                      <C.SelectionSummary
+                        countText={selectedTools.length === 0 ? s.toolsAll : s.toolsCount.replace('{n}', String(selectedTools.length))}
+                        samples={selectedTools.slice(0, 3).map((tool) => ({ label: tool }))}
+                        moreCount={Math.max(0, selectedTools.length - 3)}
+                        onManage={() => setToolsOpen(true)}
+                        manageLabel={s.manageTools}
+                      />
+                    </C.Field>
+                    <C.ManageSelectionModal
+                      title={s.toolsLabel}
+                      open={toolsOpen}
+                      onClose={() => setToolsOpen(false)}
+                      items={toolItems}
+                      selected={new Set(selectedTools)}
+                      onSave={(next: Set<string>) => patchPolicy({ tools: [...next] })}
+                      emptySelectionHint={s.toolsAll}
+                      countLabel={(count: number) => s.toolsCount.replace('{n}', String(count))}
+                    />
+
+                    <C.Field label={s.promptLabel} hint={s.promptHint}>
+                      <textarea
+                        value={policy.prompt ?? ''}
+                        onChange={(event) => patchPolicy({ prompt: event.target.value })}
+                        rows={5}
+                        className="w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none transition focus:border-accent"
+                        placeholder={s.promptPlaceholder}
+                      />
+                    </C.Field>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </C.ControlSurfaceRegister>
+      )}
+    </C.ControlSurfaceDocument>
+  );
+}
+
+function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
+  const { components: C, hooks, utils } = runtime();
+  const s = hooks.usePluginStrings('msteams');
+  const { locale } = hooks.useTranslation();
+  const draft = hooks.usePluginConfigDraft('msteams', detail);
+  const [tab, setTab] = useState<WorkspaceTab>('people');
+  const [people, setPeople] = useState<PeopleResponse | null>(null);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void apiJson<PeopleResponse>('/plugins/msteams/people')
+      .then((value) => { if (live) setPeople(value); })
+      .catch((error) => { if (live) setPeopleError(utils.apiErrorMessage(error)); });
+    return () => { live = false; };
+  }, [utils]);
+
+  const policies = policiesOf(draft.values);
+  const mappedCount = people?.people.filter((person) => directPolicyIndex(policies, person) >= 0).length ?? 0;
+  const openChats = people?.people.filter((person) => person.hasPersonalChat).length ?? 0;
+  const adminCount = policies.filter((policy) => policy.admin === true).length;
+  const configured = Boolean(String(draft.values.appId ?? '').trim() && String(draft.values.tenantId ?? '').trim() && detail.secretsSet.includes('appPassword'));
+  const overlay = detail.i18n?.[locale]?.fields ?? {};
+  const fieldLabel = (field: ConfigField) => overlay[field.key]?.label ?? field.label;
+  const fieldHint = (field: ConfigField) => overlay[field.key]?.hint ?? field.hint;
+  const fieldOptions = (field: ConfigField) => (field.options ?? []).map((option) => ({ value: option.value, label: overlay[field.key]?.options?.[option.value] ?? option.label }));
+  const riskText = (risk: 'low' | 'medium' | 'high') => risk === 'high' ? s.riskHigh : risk === 'medium' ? s.riskMedium : s.riskLow;
+
+  const hero = {
+    eyebrow: s.workspaceEyebrow,
+    title: s.title,
+    description: s.workspaceIntro,
+    mascotState: peopleError !== null || !configured ? 'error' : draft.status === 'saving' ? 'saving' : 'idle',
+    status: (
+      <span className="flex items-center gap-3">
+        <span className="workspace-status">{configured && people?.active ? s.workspaceReady : s.workspaceSetup}</span>
+        <C.AutoSaveStatus status={draft.status} onRetry={draft.retry} />
+      </span>
+    ),
+    action: (
+      <C.Button variant="accent" icon={Download} disabled={!configured} onClick={() => { window.location.href = '/api/plugins/msteams/app-package'; }}>
+        {s.downloadPackage}
+      </C.Button>
+    ),
+    metrics: (
+      <>
+        <C.WorkspaceMetric label={s.metricPeople} value={people?.people.length ?? '—'} icon={Users} />
+        <C.WorkspaceMetric label={s.metricMapped} value={people === null ? '—' : mappedCount} icon={UserCheck} />
+        <C.WorkspaceMetric label={s.metricChats} value={people === null ? '—' : openChats} icon={MessageCircle} />
+        <C.WorkspaceMetric label={s.metricAdmins} value={adminCount} icon={ShieldCheck} />
+      </>
+    ),
+  };
+
+  return (
+    <C.SpatialWorkspaceLayout
+      hero={hero}
+      navigation={{
+        sections: [
+          { id: 'people', label: s.peopleTab, icon: Users },
+          { id: 'settings', label: s.settingsTab, icon: Settings2 },
+        ],
+        value: tab,
+        onChange: (value: WorkspaceTab) => setTab(value),
+        ariaLabel: s.title,
+      }}
+    >
+      {tab === 'people' ? (
+        peopleError !== null ? (
+          <C.ControlSurfaceDocument><C.ControlSurfaceState tone="danger"><C.ErrorState message={`${s.peopleLoadError} — ${peopleError}`} /></C.ControlSurfaceState></C.ControlSurfaceDocument>
+        ) : people === null ? (
+          <C.ControlSurfaceDocument><C.ControlSurfaceState><C.LoadingState variant="list" /></C.ControlSurfaceState></C.ControlSurfaceDocument>
+        ) : <PeopleAccess draft={draft} response={people} />
+      ) : (
+        <C.SettingsDocument>
+          <C.PluginConfigEditor
+            name="msteams"
+            detail={detail}
+            draft={draft}
+            mode="all"
+            fieldLabel={fieldLabel}
+            fieldHint={fieldHint}
+            fieldOptions={fieldOptions}
+            riskText={riskText}
+          />
+        </C.SettingsDocument>
+      )}
+    </C.SpatialWorkspaceLayout>
+  );
+}
+
+export function TeamsWorkspace() {
+  const { components: C, hooks } = runtime();
+  const s = hooks.usePluginStrings('msteams');
+  const detail = hooks.usePluginDetail('msteams');
+  const hero = useMemo(() => ({ eyebrow: s.workspaceEyebrow, title: s.title, description: s.workspaceIntro }), [s]);
+  if (detail.isError) {
+    return <C.SpatialWorkspaceLayout hero={hero}><C.ControlSurfaceDocument><C.ControlSurfaceState tone="danger"><C.ErrorState message={s.settingsLoadError} onRetry={() => detail.refetch()} /></C.ControlSurfaceState></C.ControlSurfaceDocument></C.SpatialWorkspaceLayout>;
+  }
+  if (detail.isLoading || detail.data === undefined) {
+    return <C.SpatialWorkspaceLayout hero={hero}><C.ControlSurfaceDocument><C.ControlSurfaceState><C.LoadingState variant="cards" /></C.ControlSurfaceState></C.ControlSurfaceDocument></C.SpatialWorkspaceLayout>;
+  }
+  return <LoadedWorkspace detail={detail.data} />;
+}

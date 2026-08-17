@@ -6,6 +6,7 @@
 import { join } from 'node:path';
 import { StateStore } from './lib/state.mjs';
 import { MsTeamsAdapter } from './lib/adapter.mjs';
+import { PeopleDirectory } from './lib/directory.mjs';
 import { registerTools } from './lib/tools.mjs';
 import { platformImageDirs } from 'elowen-plugin-shared/images';
 
@@ -14,6 +15,19 @@ export { splitContent, footerLine, CHUNK } from './lib/format.mjs';
 export { makeTokenVerifier } from './lib/auth.mjs';
 export { ConnectorClient } from './lib/connector.mjs';
 
+/** Browser-safe projection of the learned Teams directory. Routing details stay daemon-only. */
+export function peopleForUi(people) {
+  return people.map((person) => ({
+    key: String(person.key),
+    name: typeof person.name === 'string' ? person.name : '',
+    upn: typeof person.upn === 'string' ? person.upn : '',
+    aadObjectId: typeof person.aad === 'string' ? person.aad : '',
+    teamsId: typeof person.id === 'string' ? person.id : '',
+    hasPersonalChat: Boolean(person.conv),
+    lastSeenAt: Number(person.at) || null,
+  })).sort((a, b) => a.name.localeCompare(b.name) || a.upn.localeCompare(b.upn));
+}
+
 export function register(ctx) {
   // The sideloadable app package (manifest + icons) an admin uploads to the org's Teams app catalog,
   // built by the live adapter from the current config. Registered UP FRONT and reporting 503 while no
@@ -21,6 +35,9 @@ export function register(ctx) {
   // the registered platforms and 503'd when it found none. Registering it after the credential check
   // would turn that into a 404 on an enabled-but-unconfigured instance.
   let adapter = null;
+  const dataDir = ctx.dataDir();
+  const state = new StateStore(join(dataDir, 'channel-state.json'));
+  const people = new PeopleDirectory(state, ctx.logger);
   const agentName = typeof ctx.config.agentName === 'string' && ctx.config.agentName.trim()
     ? ctx.config.agentName.trim()
     : 'Elowen';
@@ -42,6 +59,13 @@ export function register(ctx) {
       };
     },
   });
+  ctx.registerApiRoute({
+    rootMount: '/plugins/msteams/people', path: '', method: 'GET', access: 'admin',
+    handler: async (req) => {
+      if (req.path !== '') return { status: 404, body: { error: 'not found' } };
+      return { body: { active: adapter !== null, people: peopleForUi(people.list()) } };
+    },
+  });
 
   const appId = typeof ctx.config.appId === 'string' ? ctx.config.appId.trim() : '';
   const appPassword = typeof ctx.config.appPassword === 'string' ? ctx.config.appPassword.trim() : '';
@@ -50,8 +74,6 @@ export function register(ctx) {
     ctx.logger.warn('enabled but appId/appPassword/tenantId are not all configured — not connecting');
     return;
   }
-  const dataDir = ctx.dataDir();
-  const state = new StateStore(join(dataDir, 'channel-state.json'));
   const imageDirs = platformImageDirs(dataDir);
   // chatCommands passes LAZILY (a function) so a plugin registered after msteams — or a live reload —
   // is always reflected in /help and dispatch.

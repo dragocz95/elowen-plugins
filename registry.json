@@ -143,7 +143,7 @@
     },
     {
       "name": "msteams",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "description": "Microsoft Teams bot with private slash commands, channel-thread history, proactive messaging, file consent, Adaptive Cards and a downloadable Teams app package.",
       "category": "chat",
       "author": "Elowen",
@@ -151,7 +151,7 @@
       "provides": {
         "platforms": 1,
         "tools": 9,
-        "apiRoutes": 1
+        "apiRoutes": 2
       }
     },
     {
