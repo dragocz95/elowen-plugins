@@ -82,8 +82,19 @@ export function registerTools(ctx, adapter) {
         if (!target.email && !target.aadObjectId && !target.userId && !target.name) {
           return ok('Error: name the recipient with one of email, aadObjectId, userId or name.');
         }
-        const { person, conversationId } = await adapter.messagePerson(target, String(p.text ?? ''));
-        return ok(`Sent to ${person.name || person.upn || person.aad || person.id} (chat ${conversationId}).`);
+        const identity = ctx.currentIdentity?.();
+        const sender = identity?.elowenUsername || identity?.userId || 'another Elowen agent';
+        const { person, conversationId, relay } = await adapter.messagePerson(target, String(p.text ?? ''), {
+          relay: { sender, senderUserId: identity?.elowenUserId },
+        });
+        const wake = relay?.error
+          ? ` The message was delivered, but the recipient agent handoff was incomplete: ${relay.error}`
+          : relay?.woken
+            ? ' The recipient’s Elowen agent was also woken in that chat.'
+            : relay?.sameAccount
+              ? ' The recipient uses the same Elowen account, so no second agent wake was needed.'
+              : ' No mapped recipient Elowen account was available to wake.';
+        return ok(`Sent to ${person.name || person.upn || person.aad || person.id} (chat ${conversationId}).${wake}`);
       } catch (e) { return fail(e); }
     },
   }));

@@ -241,7 +241,20 @@ function globalSettingsDetail(detail) {
 function linkedUserFor(policies, person, users) {
   const index = directPolicyIndex(policies, person);
   const ref = index >= 0 ? String(policies[index]?.elowenUser ?? "").trim() : "";
-  return ref ? users.find((user) => user.username === ref || String(user.id) === ref) : void 0;
+  return ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : void 0;
+}
+function accountOptionsFor(policy, users, noneLabel) {
+  const ref = String(policy?.elowenUser ?? "").trim();
+  const selected = ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : void 0;
+  return [
+    { value: "", label: noneLabel },
+    ...ref && !selected ? [{ value: ref, label: ref }] : [],
+    ...users.map((user) => ({
+      value: selected?.id === user.id ? ref : user.username,
+      label: user.name ? `${user.name} \xB7 @${user.username}` : `@${user.username}`,
+      user
+    }))
+  ];
 }
 function PeopleAccess({ draft, response }) {
   const { components: C, hooks } = runtime();
@@ -290,11 +303,11 @@ function PeopleAccess({ draft, response }) {
     ...selectedTools.filter((tool) => !knownTools.has(tool)).map((tool) => ({ id: tool, label: tool, group: s.unavailableTools })),
     ...[...owners.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([tool, plugin]) => ({ id: tool, label: tool, group: plugin }))
   ];
-  const accountOptions = [
-    { value: "", label: s.accountNone },
-    ...policy?.elowenUser && !users.some((user) => user.username === policy.elowenUser) ? [{ value: policy.elowenUser, label: policy.elowenUser }] : [],
-    ...users.map((user) => ({ value: user.username, label: user.name ? `${user.name} \xB7 @${user.username}` : `@${user.username}` }))
-  ];
+  const accountOptions = accountOptionsFor(policy, users, s.accountNone).map((option) => ({
+    value: option.value,
+    label: option.label,
+    icon: option.user ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: option.user.name || option.user.username, user: option.user, size: "sm" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserCheck, { size: 15 })
+  }));
   const inherited = policies.some((item) => item.roleId === "*");
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceDocument, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex w-full flex-wrap items-center gap-3", children: [

@@ -23,6 +23,7 @@ type AdapterModule = {
     onCardAction: (m: unknown) => Promise<void>;
     postAsk: (convId: string, replyToId: string, askerId: string, id: string, questions: unknown[]) => Promise<void>;
     listen: (h: (src: Record<string, unknown>, text: string, onEvent?: (e: Record<string, unknown>) => void) => Promise<string | undefined>) => void;
+    control: (api: { relay: (src: Record<string, unknown>, text: string) => Promise<string | undefined> }) => void;
     stripMention: (t: string) => string;
     isForMe: (m: unknown) => boolean;
     accessFor: (ids: string[], convId: string) => { access?: Record<string, unknown> };
@@ -31,7 +32,7 @@ type AdapterModule = {
     appPackage: () => Buffer;
     readRoster: (conversationId: string) => Promise<Record<string, unknown>[]>;
     lookupPeople: (query: string) => Promise<Record<string, unknown>[]>;
-    messagePerson: (target: Record<string, unknown>, text: string) => Promise<{ person: Record<string, unknown>; conversationId: string }>;
+    messagePerson: (target: Record<string, unknown>, text: string, options?: Record<string, unknown>) => Promise<{ person: Record<string, unknown>; conversationId: string; relay?: { woken: boolean; error?: string } }>;
     unknownPersonHelp: (label: string) => string;
     connector: Record<string, unknown>;
     pendingAsks: Map<string, Record<string, unknown>>;
@@ -85,7 +86,7 @@ async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
 }
 
 /** The Teams* tools against a fake plugin ctx, so the gates can be driven from a test. */
-async function makeTools(adapter: unknown, gate: { admin?: boolean; owner?: boolean } = {}) {
+async function makeTools(adapter: unknown, gate: { admin?: boolean; owner?: boolean; username?: string } = {}) {
   const { registerTools } = await import(join(repoRoot, 'plugins/msteams/lib/tools.mjs')) as {
     registerTools: (ctx: unknown, adapter: unknown) => void;
   };
@@ -93,7 +94,7 @@ async function makeTools(adapter: unknown, gate: { admin?: boolean; owner?: bool
   const tools = new Map<string, Tool>();
   registerTools({
     isAdminSession: () => gate.admin === true,
-    currentIdentity: () => ({ owner: gate.owner === true }),
+    currentIdentity: () => ({ owner: gate.owner === true, elowenUsername: gate.username }),
     registerTool: (t: Tool) => { tools.set(t.name, t); },
   }, adapter);
   const run = async (name: string, params: Record<string, unknown> = {}) => {
@@ -1140,8 +1141,8 @@ describe('msteams proactive person messaging', () => {
   ];
 
   /** An adapter that has met the roster of a team channel — the layer-1 case: no Graph anywhere. */
-  async function withRoster(cfg: Record<string, unknown> = {}) {
-    const made = await makeAdapter(cfg);
+  async function withRoster(cfg: Record<string, unknown> = {}, opts: { users?: { id: number; username: string; isAdmin: boolean }[] } = {}) {
+    const made = await makeAdapter(cfg, opts);
     made.state.patch('_meta', { serviceUrl: 'https://smba.test/emea' });
     made.state.patch('a:team', { ref: { serviceUrl: 'https://smba.test/emea', conversationType: 'channel' } });
     Object.assign(made.adapter.connector, {
@@ -1204,6 +1205,77 @@ describe('msteams proactive person messaging', () => {
     await adapter.messagePerson({ name: 'Dana Novák' }, 'and now it is green');
     expect(calls.filter((c) => c.kind === 'create')).toHaveLength(1);
     expect(calls.filter((c) => c.kind === 'send')).toHaveLength(2);
+  });
+
+  it('wakes the mapped recipient account in the same durable chat and delivers its reply', async () => {
+    const { adapter, calls, state } = await withRoster(
+      { historyLimit: 10, rolePolicies: [{ roleId: 'aad-2', projectIds: [7], elowenUser: 'dana' }] },
+      { users: [{ id: 2, username: 'dana', isAdmin: false }] },
+    );
+    state.patch('a:dm-dana', { log: [{ n: 'Dana', t: 'Earlier context' }] });
+    let relayed: { src: Record<string, unknown>; text: string; history: string } | undefined;
+    adapter.control({
+      relay: async (src, text) => {
+        const history = await (src.history as () => Promise<string>)();
+        relayed = { src, text, history };
+        return 'Michal replied — the build is green.';
+      },
+    });
+
+    const result = await adapter.messagePerson(
+      { email: 'dana@contoso.com' },
+      'Michal asks whether the build is green.',
+      { relay: { sender: 'Michal' } },
+    );
+
+    expect(result.relay).toMatchObject({ woken: true, reply: 'Michal replied — the build is green.' });
+    expect(relayed?.src).toMatchObject({
+      platform: 'msteams', userId: 'aad-2', channelId: 'a:dm-dana#0',
+      access: { actAsUserId: 2, denyTools: ['TeamsSend', 'TeamsMessagePerson', 'TeamsSendFile', 'TeamsApi'] },
+    });
+    expect(relayed?.text).toContain('Message from Michal:\nMichal asks whether the build is green.');
+    expect(relayed?.history).toContain('Earlier context');
+    expect(relayed?.history).not.toContain('Michal asks whether the build is green.');
+    expect((state.get('a:dm-dana').log as { t: string }[]).map((entry) => entry.t)).toEqual([
+      'Earlier context', 'Michal asks whether the build is green.', 'Michal replied — the build is green.',
+    ]);
+    const sent = calls.filter((call) => call.kind === 'send');
+    expect(sent).toHaveLength(2);
+    expect(sent[1]!.args[2]).toMatchObject({ text: 'Michal replied — the build is green.' });
+  });
+
+  it('does not persist a relay reply that Teams failed to deliver', async () => {
+    const { adapter, state, calls } = await withRoster(
+      { historyLimit: 10, rolePolicies: [{ roleId: 'aad-2', projectIds: [], elowenUser: 'dana' }] },
+      { users: [{ id: 2, username: 'dana', isAdmin: false }] },
+    );
+    adapter.control({ relay: async () => `${'x'.repeat(20_000)}tail` });
+    let sendCount = 0;
+    adapter.connector.send = async (...args: unknown[]) => {
+      calls.push({ kind: 'send', args });
+      sendCount += 1;
+      return sendCount === 3 ? null : 'delivered';
+    };
+    const result = await adapter.messagePerson(
+      { email: 'dana@contoso.com' }, 'Original message', { relay: { sender: 'Filip', senderUserId: 1 } },
+    );
+    expect(result.relay).toMatchObject({ woken: true, error: expect.stringContaining('accepted only 1') });
+    expect(result.relay).not.toHaveProperty('reply');
+    expect((state.get('a:dm-dana').log as { t: string }[]).map((entry) => entry.t)).toEqual(['Original message']);
+  });
+
+  it('does not re-enter the sender account when an agent messages its own mapped person', async () => {
+    const { adapter } = await withRoster(
+      { rolePolicies: [{ roleId: 'aad-2', projectIds: [], elowenUser: 'dana' }] },
+      { users: [{ id: 2, username: 'dana', isAdmin: false }] },
+    );
+    let relayCalls = 0;
+    adapter.control({ relay: async () => { relayCalls += 1; return 'must not run'; } });
+    const result = await adapter.messagePerson(
+      { email: 'dana@contoso.com' }, 'note to self', { relay: { sender: 'Dana', senderUserId: 2 } },
+    );
+    expect(result.relay).toMatchObject({ woken: false, sameAccount: true });
+    expect(relayCalls).toBe(0);
   });
 
   it('tells an operator how to make an unknown person reachable, and calls no Graph', async () => {
@@ -1450,8 +1522,8 @@ describe('msteams proactive person messaging', () => {
 describe('msteams person tools gating', () => {
   const roster = [{ id: '29:dana', name: 'Dana Novák', userPrincipalName: 'dana@contoso.com', aadObjectId: 'aad-2' }];
 
-  async function known(cfg: Record<string, unknown> = {}) {
-    const made = await makeAdapter(cfg);
+  async function known(cfg: Record<string, unknown> = {}, opts: { users?: { id: number; username: string; isAdmin: boolean }[] } = {}) {
+    const made = await makeAdapter(cfg, opts);
     made.state.patch('_meta', { serviceUrl: 'https://smba.test/emea' });
     made.state.patch('a:team', { ref: { serviceUrl: 'https://smba.test/emea', conversationType: 'channel' } });
     Object.assign(made.adapter.connector, {
@@ -1467,10 +1539,17 @@ describe('msteams person tools gating', () => {
     // account was stricter than the equivalent Discord tools and left admins told they "lack rights"
     // for something their role was meant to cover; what a role may actually call is narrowed by its own
     // tool allowlist, not by conflating admin with operator.
-    const { adapter, calls } = await known();
-    const { run } = await makeTools(adapter, { admin: true, owner: false });
-    expect(await run('TeamsMessagePerson', { email: 'dana@contoso.com', text: 'the build broke' }))
-      .toBe('Sent to Dana Novák (chat a:dm-dana).');
+    const { adapter, calls } = await known(
+      { rolePolicies: [{ roleId: 'aad-2', projectIds: [], elowenUser: 'dana' }] },
+      { users: [{ id: 2, username: 'dana', isAdmin: false }] },
+    );
+    let relayText = '';
+    adapter.control({ relay: async (_src, text) => { relayText = text; return undefined; } });
+    const { run } = await makeTools(adapter, { admin: true, owner: false, username: 'michal' });
+    const result = await run('TeamsMessagePerson', { email: 'dana@contoso.com', text: 'the build broke' });
+    expect(result).toContain('Sent to Dana Novák (chat a:dm-dana).');
+    expect(result).toContain('agent was also woken');
+    expect(relayText).toContain('Message from michal:\nthe build broke');
     expect(calls.filter((c) => c.kind === 'send')).toHaveLength(1);
   });
 
@@ -1511,7 +1590,7 @@ describe('msteams person tools gating', () => {
     const { adapter, calls } = await known();
     const { run } = await makeTools(adapter, { admin: true, owner: true });
     expect(await run('TeamsMessagePerson', { email: 'dana@contoso.com', text: 'the build broke' }))
-      .toBe('Sent to Dana Novák (chat a:dm-dana).');
+      .toContain('Sent to Dana Novák (chat a:dm-dana).');
     expect(calls.filter((c) => c.kind === 'send')).toHaveLength(1);
   });
 

@@ -59,7 +59,21 @@ export function globalSettingsDetail(detail: PluginDetail): PluginDetail {
 export function linkedUserFor(policies: RolePolicy[], person: TeamsPerson, users: User[]): User | undefined {
   const index = directPolicyIndex(policies, person);
   const ref = index >= 0 ? String(policies[index]?.elowenUser ?? '').trim() : '';
-  return ref ? users.find((user) => user.username === ref || String(user.id) === ref) : undefined;
+  return ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : undefined;
+}
+
+export function accountOptionsFor(policy: RolePolicy | null, users: User[], noneLabel: string): { value: string; label: string; user?: User }[] {
+  const ref = String(policy?.elowenUser ?? '').trim();
+  const selected = ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : undefined;
+  return [
+    { value: '', label: noneLabel },
+    ...(ref && !selected ? [{ value: ref, label: ref }] : []),
+    ...users.map((user) => ({
+      value: selected?.id === user.id ? ref : user.username,
+      label: user.name ? `${user.name} · @${user.username}` : `@${user.username}`,
+      user,
+    })),
+  ];
 }
 
 function PeopleAccess({ draft, response }: {
@@ -115,13 +129,13 @@ function PeopleAccess({ draft, response }: {
     ...selectedTools.filter((tool) => !knownTools.has(tool)).map((tool) => ({ id: tool, label: tool, group: s.unavailableTools })),
     ...[...owners.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([tool, plugin]) => ({ id: tool, label: tool, group: plugin })),
   ];
-  const accountOptions = [
-    { value: '', label: s.accountNone },
-    ...(policy?.elowenUser && !users.some((user) => user.username === policy.elowenUser)
-      ? [{ value: policy.elowenUser, label: policy.elowenUser }]
-      : []),
-    ...users.map((user) => ({ value: user.username, label: user.name ? `${user.name} · @${user.username}` : `@${user.username}` })),
-  ];
+  const accountOptions = accountOptionsFor(policy, users, s.accountNone).map((option) => ({
+    value: option.value,
+    label: option.label,
+    icon: option.user
+      ? <C.Avatar name={option.user.name || option.user.username} user={option.user} size="sm" />
+      : <UserCheck size={15} />,
+  }));
   const inherited = policies.some((item) => item.roleId === '*');
 
   return (

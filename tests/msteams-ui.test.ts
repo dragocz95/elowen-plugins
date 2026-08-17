@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { directPolicyIndex, effectivePersonPolicy, globalSettingsDetail, linkedUserFor, matchesPerson, upsertDirectPolicy } from '../plugins/msteams/web-src/TeamsWorkspace';
+import { accountOptionsFor, directPolicyIndex, effectivePersonPolicy, globalSettingsDetail, linkedUserFor, matchesPerson, upsertDirectPolicy } from '../plugins/msteams/web-src/TeamsWorkspace';
 import type { PluginDetail, RolePolicy, TeamsPerson, User } from '../plugins/msteams/web-src/runtime';
 
 const person: TeamsPerson = {
@@ -59,9 +59,22 @@ describe('Teams person access matching', () => {
       { id: 1, username: 'filip', name: 'Filip', avatar: '1.png' },
       { id: 2, username: 'michal', name: 'Michal' },
     ];
-    expect(linkedUserFor([{ ...policy('aad-1'), elowenUser: 'filip' }], person, users)).toBe(users[0]);
+    expect(linkedUserFor([{ ...policy('aad-1'), elowenUser: 'FILIP' }], person, users)).toBe(users[0]);
     expect(linkedUserFor([{ ...policy('aad-1'), elowenUser: '2' }], person, users)).toBe(users[1]);
     expect(linkedUserFor([policy('*')], person, users)).toBeUndefined();
+  });
+
+  it('keeps the selected numeric account reference attached to its avatar option', () => {
+    const users: User[] = [
+      { id: 1, username: 'filip', name: 'Filip', avatar: '1.png' },
+      { id: 2, username: 'michal', name: 'Michal', avatar: '2.png' },
+    ];
+    const options = accountOptionsFor({ ...policy('aad-1'), elowenUser: '2' }, users, 'No account');
+    expect(options).toMatchObject([
+      { value: '', label: 'No account' },
+      { value: 'filip', user: users[0] },
+      { value: '2', label: 'Michal · @michal', user: users[1] },
+    ]);
   });
 
   it('keeps role policies in the shared draft but removes their duplicate generic settings fields', () => {
