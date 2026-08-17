@@ -122,9 +122,9 @@ export class DiscordAdapter {
   modelOptions(channelId, models) {
     const current = this.state.get(channelId).model;
     return models.map((mo) => ({
-      label: mo.model.slice(0, 100),
+      label: `${mo.providerLabel} / ${mo.model}`.slice(0, 100),
       value: `${mo.provider}::${mo.model}`.slice(0, 100),
-      description: mo.providerLabel.slice(0, 100),
+      description: `${mo.provider}/${mo.model}`.slice(0, 100),
       default: current ? current.provider === mo.provider && current.model === mo.model : mo.default === true,
     }));
   }
@@ -689,7 +689,7 @@ export class DiscordAdapter {
         // OpenAI OAuth descriptor so the next turn cannot send priority service_tier to another API.
         this.state.patch(i.channel_id, { model: { provider, model }, ...(!selected?.fastAvailable ? { fast: false } : {}) });
       }
-      return this.respond(i, 7, { content: this.msg.modelSet(model), components: [] });
+      return this.respond(i, 7, { content: this.msg.modelSet(provider && model ? `${provider}/${model}` : model), components: [] });
     }
   }
 

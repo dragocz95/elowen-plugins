@@ -1,7 +1,7 @@
 // Discord text/format helpers. The transport-neutral pieces (stripForSpeech, extractImageRefs,
 // stripThinking, parseModelExec, the fenced-split core) live in elowen-plugin-shared/format; only Discord's
 // own chunk size, mention/name resolution, reply-quote and subtext footer stay here.
-import { splitContent as splitAtChunk, extractImageRefs, stripThinking, parseModelExec, stripForSpeech, runtimeFooter, stripRuntimeFooter } from 'elowen-plugin-shared/format';
+import { splitContent as splitAtChunk, extractImageRefs, stripThinking, parseModelExec, stripForSpeech, stripRuntimeFooter } from 'elowen-plugin-shared/format';
 export { extractImageRefs, stripThinking, parseModelExec, stripForSpeech };
 
 export const CHUNK = 1990;
@@ -59,9 +59,17 @@ export function buildReplyContext(ref, ourId) {
  *  the reader (`stripRuntimeFooter`), so the two can never drift into recognising different shapes. */
 const FOOTER_FENCE = { open: '-# ', close: '' };
 
-/** Runtime footer: `model · 42 %` as Discord subtext under the final answer. Empty
- *  when the idle event carried no usable data (defensive: never render a `?%` footer). */
-export const footerLine = (idle) => runtimeFooter(idle, FOOTER_FENCE);
+/** Runtime footer: `provider/model · 42 %` as Discord subtext under the final answer. Empty when the
+ *  idle event carried no usable data (defensive: never render a `?%` footer). The core sends the canonical
+ *  qualified identity; unlike the legacy shared formatter, do not discard the billing-relevant provider. */
+export const footerLine = (idle) => {
+  const parts = [];
+  const model = typeof idle?.model === 'string' ? idle.model.trim() : '';
+  if (model) parts.push(model);
+  const pct = idle?.usage?.percent;
+  if (Number.isFinite(pct) && pct >= 0) parts.push(`${Math.round(pct)} %`);
+  return parts.length ? `${FOOTER_FENCE.open}${parts.join(' · ')}` : '';
+};
 
 /** Drop our own trailing footer from a message before it is fed back as prompt context. */
 export const withoutFooter = (text) => stripRuntimeFooter(text, FOOTER_FENCE);
