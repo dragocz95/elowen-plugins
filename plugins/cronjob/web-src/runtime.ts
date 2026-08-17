@@ -87,6 +87,7 @@ interface CronRuntime {
 type PluginPageComponent = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[]; surface: 'page' | 'deck' }>;
 interface CronRegistration {
   requiresApiVersion: number;
+  pages?: Record<string, PluginPageComponent>;
   settings?: Record<string, PluginPageComponent>;
 }
 interface HostWindow {

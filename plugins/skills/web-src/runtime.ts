@@ -67,6 +67,7 @@ interface SkillsRuntime {
 type PluginPageComponent = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[]; surface: 'page' | 'deck' }>;
 interface SkillsRegistration {
   requiresApiVersion: number;
+  pages?: Record<string, PluginPageComponent>;
   settings?: Record<string, PluginPageComponent>;
 }
 interface HostWindow {

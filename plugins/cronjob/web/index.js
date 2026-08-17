@@ -596,6 +596,7 @@ function JobsSettings({ surface }) {
 // plugins/cronjob/web-src/index.tsx
 registerCronUi({
   requiresApiVersion: 1,
+  pages: { "": JobsSettings },
   settings: {
     "jobs": JobsSettings
   }

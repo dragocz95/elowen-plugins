@@ -336,6 +336,7 @@ function SkillsSettings({ surface }) {
 // plugins/skills/web-src/index.tsx
 registerSkillsUi({
   requiresApiVersion: 1,
+  pages: { "": SkillsSettings },
   settings: {
     "skills": SkillsSettings
   }
