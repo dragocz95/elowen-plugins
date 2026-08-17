@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { directPolicyIndex, matchesPerson, upsertDirectPolicy } from '../plugins/msteams/web-src/TeamsWorkspace';
-import type { RolePolicy, TeamsPerson } from '../plugins/msteams/web-src/runtime';
+import { directPolicyIndex, effectivePersonPolicy, globalSettingsDetail, linkedUserFor, matchesPerson, upsertDirectPolicy } from '../plugins/msteams/web-src/TeamsWorkspace';
+import type { PluginDetail, RolePolicy, TeamsPerson, User } from '../plugins/msteams/web-src/runtime';
 
 const person: TeamsPerson = {
   key: 'aad-1',
@@ -45,5 +45,39 @@ describe('Teams person access matching', () => {
     expect(updated.map((entry) => entry.roleId)).toEqual(['aad-1', '19:channel', '*']);
     expect(updated.filter((entry) => entry.roleId === 'aad-1')).toHaveLength(1);
     expect(updated[0]).toEqual(existing);
+  });
+
+  it('uses first-match semantics for effective per-person admin access', () => {
+    const direct = { ...policy('aad-1'), admin: false };
+    const wildcard = { ...policy('*'), admin: true };
+    expect(effectivePersonPolicy([direct, wildcard], person)).toBe(direct);
+    expect(effectivePersonPolicy([wildcard, direct], person)).toBe(wildcard);
+  });
+
+  it('resolves the linked Elowen account for avatar fallback by username or numeric id', () => {
+    const users: User[] = [
+      { id: 1, username: 'filip', name: 'Filip', avatar: '1.png' },
+      { id: 2, username: 'michal', name: 'Michal' },
+    ];
+    expect(linkedUserFor([{ ...policy('aad-1'), elowenUser: 'filip' }], person, users)).toBe(users[0]);
+    expect(linkedUserFor([{ ...policy('aad-1'), elowenUser: '2' }], person, users)).toBe(users[1]);
+    expect(linkedUserFor([policy('*')], person, users)).toBeUndefined();
+  });
+
+  it('keeps role policies in the shared draft but removes their duplicate generic settings fields', () => {
+    const detail = {
+      name: 'msteams',
+      configSchema: [
+        { key: 'sec_connection', type: 'section', label: 'Connection' },
+        { key: 'appId', type: 'string', label: 'App ID' },
+        { key: 'sec_roles', type: 'section', label: 'Role policies' },
+        { key: 'rolePolicies', type: 'rolePolicies', label: 'Role policies' },
+      ],
+      config: { rolePolicies: [policy('*')] },
+      secretsSet: [],
+    } as unknown as PluginDetail;
+
+    expect(globalSettingsDetail(detail).configSchema.map((field) => field.key)).toEqual(['sec_connection', 'appId']);
+    expect(detail.config.rolePolicies).toEqual([policy('*')]);
   });
 });

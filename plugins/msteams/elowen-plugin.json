@@ -8,7 +8,7 @@
   "provides": {
     "platforms": ["msteams"],
     "httpRoutes": ["messages"],
-    "apiRoutes": ["/plugins/msteams/app-package", "/plugins/msteams/people"],
+    "apiRoutes": ["/plugins/msteams/app-package", "/plugins/msteams/people", "/plugins/msteams/people/:id/avatar"],
     "tools": [
       "TeamsSend",
       "TeamsMessagePerson",
@@ -97,7 +97,7 @@
     { "key": "productName", "label": "Publisher name in Teams", "type": "string", "hint": "Publisher shown on the app package (the manifest's developer name). Empty = the configured app name." },
     { "key": "notifyConversationId", "label": "Notification conversation", "type": "string", "hint": "Where proactive messages (cron/tick results) are posted — a Teams conversation ID the bot has already seen, or a person (e-mail / Entra object ID / display name) whose 1:1 chat the bot opens itself. Empty = no proactive pushes." },
     { "key": "sec_proactive", "label": "Reaching people first", "type": "section", "hint": "The bot can start a chat with someone instead of only answering. It remembers everyone it meets (name, Entra object ID, UPN and their 1:1 chat) from incoming messages and conversation rosters — no extra Microsoft permission — and TeamsMessagePerson writes to them by e-mail or name. The settings below are only needed for people the bot has never seen." },
-    { "key": "graphLookup", "label": "Microsoft Graph lookup", "type": "boolean", "default": false, "hint": "Off: the bot can only write to people it has already met in Teams. On: an unknown e-mail is resolved against the tenant directory and the Teams app is installed for that person so a chat can be opened. Requires the APPLICATION permissions User.ReadBasic.All and TeamsAppInstallation.ReadWriteSelfForUser.All with tenant admin consent." },
+    { "key": "graphLookup", "label": "Microsoft Graph lookup", "type": "boolean", "default": false, "hint": "Off: the bot can only write to people it has already met in Teams. On: an unknown e-mail is resolved against the tenant directory and the Teams app is installed for that person so a chat can be opened. Requires the APPLICATION permissions User.ReadBasic.All and TeamsAppInstallation.ReadWriteSelfForUser.All with tenant admin consent. Directory avatars additionally use ProfilePhoto.Read.All; without it the workspace falls back to the linked Elowen account avatar." },
     { "key": "graphCatalogAppId", "label": "Teams catalog app ID", "type": "string", "visibleWhen": { "key": "graphLookup", "equals": true }, "hint": "The app's ID in the organisation's Teams catalog (Teams admin center → Manage apps → the uploaded Elowen app). Needed to install the app for a user who does not have it yet; leave empty if the app is deployed by Teams app policy." },
     { "key": "sec_replies", "label": "Replies & behavior", "type": "section", "hint": "When and how the bot answers." },
     { "key": "respondWithoutMention", "label": "Respond without mention", "type": "boolean", "default": true, "hint": "On: in group chats the bot answers every message from a mapped sender. Off: it only answers when @mentioned. In team channels, messages without a mention are delivered only after ChannelMessage.Read.Group consent is active." },

@@ -35,7 +35,7 @@
     },
     "graphLookup": {
       "label": "Vyhľadávanie cez Microsoft Graph",
-      "hint": "Vypnuté: bot môže písať len ľuďom, ktorých už v Teams stretol. Zapnuté: neznámy e-mail sa dohľadá v adresári tenantu a aplikácia Teams sa danému človeku nainštaluje, aby sa dal chat otvoriť. Vyžaduje APLIKAČNÉ oprávnenia User.ReadBasic.All a TeamsAppInstallation.ReadWriteSelfForUser.All so súhlasom správcu tenantu."
+      "hint": "Vypnuté: bot môže písať len ľuďom, ktorých už v Teams stretol. Zapnuté: neznámy e-mail sa dohľadá v adresári tenantu a aplikácia Teams sa danému človeku nainštaluje, aby sa dal chat otvoriť. Vyžaduje APLIKAČNÉ oprávnenia User.ReadBasic.All a TeamsAppInstallation.ReadWriteSelfForUser.All so súhlasom správcu tenantu. Fotky z adresára navyše používajú ProfilePhoto.Read.All; bez neho sa zobrazí avatar prepojeného účtu Elowen."
     },
     "graphCatalogAppId": {
       "label": "ID aplikácie v katalógu Teams",

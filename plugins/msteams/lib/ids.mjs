@@ -73,10 +73,12 @@ export function isOwner(key, from) {
   return k === String(from?.aadObjectId ?? '') || k === String(from?.id ?? '');
 }
 
-/** Whether any of the sender's identifiers maps to a policy flagged `admin: true` — the operator. */
+/** Whether the sender's effective first-match policy grants operator access. Admin commands must use
+ * the same ordered policy resolution as the normal access descriptor. */
 export function senderIsAdmin(ids, policies) {
   const list = Array.isArray(policies) ? policies : [];
-  return list.some((p) => p.roleId && p.admin === true && ids.some((id) => matchesId(p.roleId, id)));
+  const policy = list.find((p) => p.roleId && ids.some((id) => matchesId(p.roleId, id)));
+  return policy?.admin === true;
 }
 
 /** The name a human sees for a message sender. */

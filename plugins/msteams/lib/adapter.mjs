@@ -147,6 +147,7 @@ export class MsTeamsAdapter {
 
   listen(onMessage) { this.handler = onMessage; }
   control(api) { this.ctl = api; }
+  async personPhoto(userId) { return this.graph ? this.graph.userPhoto(userId) : null; }
 
   /** The chat conversation reference for commands: the same identity onMessage reports (conversation id
    *  folded with the /new generation), so a command targets the exact session a message would. */

@@ -104,7 +104,7 @@ async function makeTools(adapter: unknown, gate: { admin?: boolean; owner?: bool
 }
 
 /** Global fetch stub — the ONLY seam Microsoft Graph rides (the connector is stubbed per adapter). */
-function stubFetch(route: (url: string, method: string) => { status: number; body: unknown } | undefined) {
+function stubFetch(route: (url: string, method: string) => { status: number; body: unknown; headers?: Record<string, string> } | undefined) {
   const seen: { url: string; method: string; body?: string }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: unknown, init?: { method?: string; body?: string }) => {
@@ -115,9 +115,12 @@ function stubFetch(route: (url: string, method: string) => { status: number; bod
     return {
       ok: hit.status >= 200 && hit.status < 300,
       status: hit.status,
-      headers: { get: () => null },
+      headers: { get: (name: string) => hit.headers?.[name.toLowerCase()] ?? null },
       text: async () => (typeof hit.body === 'string' ? hit.body : JSON.stringify(hit.body)),
       json: async () => hit.body,
+      arrayBuffer: async () => hit.body instanceof Uint8Array
+        ? hit.body.buffer.slice(hit.body.byteOffset, hit.body.byteOffset + hit.body.byteLength)
+        : new TextEncoder().encode(String(hit.body ?? '')).buffer,
     };
   }) as unknown as typeof fetch;
   return { seen, restore: () => { globalThis.fetch = original; } };
@@ -144,6 +147,7 @@ describe('msteams plugin registration', () => {
     expect([...reg.rootApiRoutes.keys()].sort()).toEqual([
       '/plugins/msteams/app-package',
       '/plugins/msteams/people',
+      '/plugins/msteams/people/:id/avatar',
     ]);
   });
 
@@ -160,7 +164,7 @@ describe('msteams plugin registration', () => {
 describe('msteams identity + role mapping', () => {
   it('exposes a sorted browser-safe people directory without routing secrets', async () => {
     const { peopleForUi } = await import(join(repoRoot, 'plugins/msteams/index.mjs')) as {
-      peopleForUi: (people: Record<string, unknown>[]) => Record<string, unknown>[];
+      peopleForUi: (people: Record<string, unknown>[], profilePhotos?: boolean) => Record<string, unknown>[];
     };
     const result = peopleForUi([
       { key: 'b', name: 'Zoe', upn: 'zoe@example.com', aad: 'aad-z', id: '29:z', conv: 'a:private', url: 'https://smba.test/secret', at: 123 },
@@ -169,10 +173,12 @@ describe('msteams identity + role mapping', () => {
     expect(result.map((person) => person.name)).toEqual(['Alex', 'Zoe']);
     expect(result[1]).toEqual({
       key: 'b', name: 'Zoe', upn: 'zoe@example.com', aadObjectId: 'aad-z', teamsId: '29:z',
-      hasPersonalChat: true, lastSeenAt: 123,
+      teamsAvatarUrl: '', hasPersonalChat: true, lastSeenAt: 123,
     });
     expect(JSON.stringify(result)).not.toContain('smba.test');
     expect(JSON.stringify(result)).not.toContain('a:private');
+    expect(peopleForUi([{ key: 'a', aad: 'aad/a' }], true)[0]?.teamsAvatarUrl)
+      .toBe('/api/plugins/msteams/people/aad%2Fa/avatar');
   });
 
   it('matches Entra GUIDs exactly and UPN/email case-insensitively', async () => {
@@ -314,6 +320,18 @@ describe('msteams identity + role mapping', () => {
     expect(matchesId('*', '')).toBe(false);
     // Only a bare star is the wildcard; anything else stays a literal id.
     expect(matchesId('*@contoso.com', 'alex@contoso.com')).toBe(false);
+  });
+
+  it('uses the same first matching policy for admin commands and normal access', async () => {
+    const { senderIsAdmin } = await import(join(repoRoot, 'plugins/msteams/index.mjs')) as {
+      senderIsAdmin: (ids: string[], policies: unknown[]) => boolean;
+    };
+    const policies = [
+      { roleId: '*', admin: false },
+      { roleId: 'aad-1', admin: true },
+    ];
+    expect(senderIsAdmin(['aad-1'], policies)).toBe(false);
+    expect(senderIsAdmin(['aad-1'], [...policies].reverse())).toBe(true);
   });
 
   it('routes a mapped personal message to the brain and replies via the connector', async () => {
@@ -1361,6 +1379,36 @@ describe('msteams proactive person messaging', () => {
       expect(await adapter.lookupPeople('michal@contoso.com')).toMatchObject([{ aad: 'aad-9', conv: 'a:dm-michal' }]);
     } finally {
       fetched.restore();
+    }
+  });
+
+  it('proxies a small Graph profile photo and backs off after denied consent', async () => {
+    const success = await makeAdapter({ graphLookup: true });
+    const fetched = stubFetch((url) => {
+      if (url === TOKEN_URL) return { status: 200, body: { access_token: 'graph-tok', expires_in: 3600 } };
+      if (url.endsWith('/users/aad%2F1/photos/48x48/$value')) {
+        return { status: 200, body: new Uint8Array([1, 2, 3]), headers: { 'content-type': 'image/jpeg' } };
+      }
+      return undefined;
+    });
+    try {
+      await expect(success.adapter.personPhoto('aad/1')).resolves.toMatchObject({ contentType: 'image/jpeg' });
+      expect([...((await success.adapter.personPhoto('aad/1'))?.body ?? [])]).toEqual([1, 2, 3]);
+    } finally {
+      fetched.restore();
+    }
+
+    const denied = await makeAdapter({ graphLookup: true });
+    const refused = stubFetch((url) => url === TOKEN_URL
+      ? { status: 200, body: { access_token: 'graph-tok', expires_in: 3600 } }
+      : { status: 403, body: {} });
+    try {
+      await expect(denied.adapter.personPhoto('aad-1')).resolves.toBeNull();
+      await expect(denied.adapter.personPhoto('aad-2')).resolves.toBeNull();
+      expect(refused.seen.filter((call) => call.url.startsWith('https://graph.microsoft.com'))).toHaveLength(1);
+      expect(denied.warnings.join(' ')).toContain('ProfilePhoto.Read.All');
+    } finally {
+      refused.restore();
     }
   });
 

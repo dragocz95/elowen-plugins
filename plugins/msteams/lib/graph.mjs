@@ -13,6 +13,7 @@ const GRAPH_SCOPE = 'https://graph.microsoft.com/.default';
 
 /** Application permissions each call needs, quoted back to the operator when Graph refuses. */
 const PERM_READ_USERS = 'User.ReadBasic.All';
+const PERM_READ_PROFILE_PHOTOS = 'ProfilePhoto.Read.All';
 const PERM_INSTALL_APP = 'TeamsAppInstallation.ReadWriteSelfForUser.All';
 /** Unlike the two above, this one is NOT granted in the Entra portal: it is resource-specific consent,
  *  which a TEAM OWNER approves when the app is installed into their team. Graph accepts it in place of
@@ -77,6 +78,26 @@ export class GraphClient {
     if (hits.length === 1) return user(hits[0]);
     if (hits.length > 1) throw new Error(`Microsoft Graph matched ${hits.length} tenant users for "${address}" — address the person by their Entra object id instead.`);
     return null;
+  }
+
+  /** A small directory photo for the admin workspace. Missing photos and missing optional consent are
+   * normal: the browser falls back to the linked Elowen account avatar, then initials. */
+  async userPhoto(userId) {
+    const id = String(userId ?? '').trim();
+    if (!id || Date.now() < (this.profilePhotosDeniedUntil ?? 0)) return null;
+    const res = await fetch(`${GRAPH_BASE}/users/${encodeURIComponent(id)}/photos/48x48/$value`, {
+      headers: { authorization: `Bearer ${await this.tokens.token()}` },
+    });
+    if (res.status === 401 || res.status === 403) {
+      this.profilePhotosDeniedUntil = Date.now() + 5 * 60_000;
+      this.log?.warn?.(`msteams Graph profile photos unavailable — grant the APPLICATION permission "${PERM_READ_PROFILE_PHOTOS}" with admin consent; linked Elowen avatars remain available`);
+      return null;
+    }
+    if (!res.ok) return null;
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.toLowerCase().startsWith('image/')) return null;
+    const body = new Uint8Array(await res.arrayBuffer());
+    return body.byteLength > 0 && body.byteLength <= 1024 * 1024 ? { body, contentType } : null;
   }
 
   /**

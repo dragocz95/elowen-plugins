@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download, KeyRound, MessageCircle, Search, Settings2, ShieldCheck, UserCheck, Users } from 'lucide-react';
-import { apiJson, runtime, type ConfigField, type PeopleResponse, type PluginDetail, type RolePolicy, type TeamsPerson } from './runtime';
+import { apiJson, runtime, type ConfigField, type PeopleResponse, type PluginDetail, type RolePolicy, type TeamsPerson, type User } from './runtime';
 
 type WorkspaceTab = 'people' | 'settings';
 type PersonFilter = 'all' | 'mapped' | 'unmapped';
@@ -26,6 +26,10 @@ export function directPolicyIndex(policies: RolePolicy[], person: TeamsPerson): 
   return broad < 0 || direct < broad ? direct : -1;
 }
 
+export function effectivePersonPolicy(policies: RolePolicy[], person: TeamsPerson): RolePolicy | undefined {
+  return policies.find((policy) => policy.roleId.trim() === '*' || matchesPerson(policy, person));
+}
+
 /** Insert or relocate one person's policy before every conversation/wildcard fallback. */
 export function upsertDirectPolicy(policies: RolePolicy[], person: TeamsPerson, nextPolicy: RolePolicy): RolePolicy[] {
   const existing = policies.find((policy) => matchesPerson(policy, person));
@@ -41,6 +45,21 @@ function primaryId(person: TeamsPerson): string {
 
 function policiesOf(values: Record<string, unknown>): RolePolicy[] {
   return Array.isArray(values.rolePolicies) ? values.rolePolicies as RolePolicy[] : [];
+}
+
+/** Person access owns rolePolicies. The global settings tab keeps the same draft but must not expose a
+ * second editor for the same ordered authorization list. Existing fallback policies stay persisted. */
+export function globalSettingsDetail(detail: PluginDetail): PluginDetail {
+  return {
+    ...detail,
+    configSchema: detail.configSchema.filter((field) => field.key !== 'sec_roles' && field.key !== 'rolePolicies'),
+  };
+}
+
+export function linkedUserFor(policies: RolePolicy[], person: TeamsPerson, users: User[]): User | undefined {
+  const index = directPolicyIndex(policies, person);
+  const ref = index >= 0 ? String(policies[index]?.elowenUser ?? '').trim() : '';
+  return ref ? users.find((user) => user.username === ref || String(user.id) === ref) : undefined;
 }
 
 function PeopleAccess({ draft, response }: {
@@ -68,6 +87,7 @@ function PeopleAccess({ draft, response }: {
   const selected = response.people.find((person) => person.key === selectedKey) ?? visible[0] ?? null;
   const policyIndex = selected === null ? -1 : directPolicyIndex(policies, selected);
   const policy = policyIndex >= 0 ? policies[policyIndex]! : null;
+  const selectedUser = selected === null ? undefined : linkedUserFor(policies, selected, users);
 
   const replacePolicies = (next: RolePolicy[]) => draft.setValue('rolePolicies', next);
   const createPolicy = () => {
@@ -140,6 +160,7 @@ function PeopleAccess({ draft, response }: {
           <div className="flex min-w-0 flex-col gap-2">
             {visible.map((person) => {
               const mapped = directPolicyIndex(policies, person) >= 0;
+              const linkedUser = linkedUserFor(policies, person, users);
               const active = selected?.key === person.key;
               return (
                 <button
@@ -148,7 +169,7 @@ function PeopleAccess({ draft, response }: {
                   onClick={() => setSelectedKey(person.key)}
                   className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? 'border-accent/60 bg-accent/10' : 'border-border bg-surface hover:border-border-strong hover:bg-elevated/50'}`}
                 >
-                  <C.Avatar name={person.name || person.upn || s.personFallback} size="md" />
+                  <C.Avatar name={person.name || person.upn || s.personFallback} src={person.teamsAvatarUrl} user={linkedUser} size="md" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold text-text">{person.name || s.personFallback}</span>
                     <span className="block truncate text-xs text-text-muted">{person.upn || person.aadObjectId}</span>
@@ -166,7 +187,7 @@ function PeopleAccess({ draft, response }: {
             {selected === null ? null : (
               <div className="flex flex-col gap-5">
                 <div className="flex items-start gap-3">
-                  <C.Avatar name={selected.name || selected.upn || s.personFallback} size="lg" />
+                  <C.Avatar name={selected.name || selected.upn || s.personFallback} src={selected.teamsAvatarUrl} user={selectedUser} size="lg" />
                   <div className="min-w-0 flex-1">
                     <h2 className="truncate text-base font-semibold text-text">{selected.name || s.personFallback}</h2>
                     <p className="truncate text-sm text-text-muted">{selected.upn || selected.aadObjectId}</p>
@@ -280,7 +301,7 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
   const policies = policiesOf(draft.values);
   const mappedCount = people?.people.filter((person) => directPolicyIndex(policies, person) >= 0).length ?? 0;
   const openChats = people?.people.filter((person) => person.hasPersonalChat).length ?? 0;
-  const adminCount = policies.filter((policy) => policy.admin === true).length;
+  const adminCount = people === null ? '—' : people.people.filter((person) => effectivePersonPolicy(policies, person)?.admin === true).length;
   const configured = Boolean(String(draft.values.appId ?? '').trim() && String(draft.values.tenantId ?? '').trim() && detail.secretsSet.includes('appPassword'));
   const overlay = detail.i18n?.[locale]?.fields ?? {};
   const fieldLabel = (field: ConfigField) => overlay[field.key]?.label ?? field.label;
@@ -337,9 +358,10 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
         <C.SettingsDocument>
           <C.PluginConfigEditor
             name="msteams"
-            detail={detail}
+            detail={globalSettingsDetail(detail)}
             draft={draft}
             mode="all"
+            showAppPackage={false}
             fieldLabel={fieldLabel}
             fieldHint={fieldHint}
             fieldOptions={fieldOptions}

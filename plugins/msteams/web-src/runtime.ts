@@ -6,6 +6,7 @@ export interface TeamsPerson {
   upn: string;
   aadObjectId: string;
   teamsId: string;
+  teamsAvatarUrl?: string;
   hasPersonalChat: boolean;
   lastSeenAt: number | null;
 }
@@ -51,7 +52,7 @@ interface QueryResult<T> {
   refetch(): void;
 }
 
-interface User { id: number; username: string; name?: string }
+export interface User { id: number; username: string; name?: string; avatar?: string }
 interface Project { id: number; slug: string; name?: string }
 interface PluginInfo { name: string; enabled: boolean; hasIcon?: boolean; provides: { tools?: string[] } }
 interface ConfigDraft {

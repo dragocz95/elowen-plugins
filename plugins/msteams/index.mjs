@@ -16,13 +16,14 @@ export { makeTokenVerifier } from './lib/auth.mjs';
 export { ConnectorClient } from './lib/connector.mjs';
 
 /** Browser-safe projection of the learned Teams directory. Routing details stay daemon-only. */
-export function peopleForUi(people) {
+export function peopleForUi(people, profilePhotos = false) {
   return people.map((person) => ({
     key: String(person.key),
     name: typeof person.name === 'string' ? person.name : '',
     upn: typeof person.upn === 'string' ? person.upn : '',
     aadObjectId: typeof person.aad === 'string' ? person.aad : '',
     teamsId: typeof person.id === 'string' ? person.id : '',
+    teamsAvatarUrl: profilePhotos && person.aad ? `/api/plugins/msteams/people/${encodeURIComponent(String(person.aad))}/avatar` : '',
     hasPersonalChat: Boolean(person.conv),
     lastSeenAt: Number(person.at) || null,
   })).sort((a, b) => a.name.localeCompare(b.name) || a.upn.localeCompare(b.upn));
@@ -63,7 +64,19 @@ export function register(ctx) {
     rootMount: '/plugins/msteams/people', path: '', method: 'GET', access: 'admin',
     handler: async (req) => {
       if (req.path !== '') return { status: 404, body: { error: 'not found' } };
-      return { body: { active: adapter !== null, people: peopleForUi(people.list()) } };
+      return { body: { active: adapter !== null, people: peopleForUi(people.list(), Boolean(adapter?.graph)) } };
+    },
+  });
+  ctx.registerApiRoute({
+    rootMount: '/plugins/msteams/people/:id/avatar', path: '', method: 'GET', access: 'admin',
+    handler: async (req) => {
+      if (req.path !== '' || !adapter) return { status: 404, body: { error: 'not found' } };
+      const photo = await adapter.personPhoto(req.params.id).catch((error) => {
+        ctx.logger.warn(`msteams profile photo: ${error?.message ?? error}`);
+        return null;
+      });
+      if (!photo) return { status: 404, body: { error: 'not found' } };
+      return { body: photo.body, headers: { 'content-type': photo.contentType, 'cache-control': 'private, max-age=300' } };
     },
   });
 

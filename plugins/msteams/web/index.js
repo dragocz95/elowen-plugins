@@ -216,6 +216,9 @@ function directPolicyIndex(policies, person) {
   const broad = policies.findIndex(isBroadPolicy);
   return broad < 0 || direct < broad ? direct : -1;
 }
+function effectivePersonPolicy(policies, person) {
+  return policies.find((policy) => policy.roleId.trim() === "*" || matchesPerson(policy, person));
+}
 function upsertDirectPolicy(policies, person, nextPolicy) {
   const existing = policies.find((policy) => matchesPerson(policy, person));
   const next = policies.filter((policy) => !matchesPerson(policy, person));
@@ -228,6 +231,17 @@ function primaryId(person) {
 }
 function policiesOf(values) {
   return Array.isArray(values.rolePolicies) ? values.rolePolicies : [];
+}
+function globalSettingsDetail(detail) {
+  return {
+    ...detail,
+    configSchema: detail.configSchema.filter((field) => field.key !== "sec_roles" && field.key !== "rolePolicies")
+  };
+}
+function linkedUserFor(policies, person, users) {
+  const index = directPolicyIndex(policies, person);
+  const ref = index >= 0 ? String(policies[index]?.elowenUser ?? "").trim() : "";
+  return ref ? users.find((user) => user.username === ref || String(user.id) === ref) : void 0;
 }
 function PeopleAccess({ draft, response }) {
   const { components: C, hooks } = runtime();
@@ -250,6 +264,7 @@ function PeopleAccess({ draft, response }) {
   const selected = response.people.find((person) => person.key === selectedKey) ?? visible[0] ?? null;
   const policyIndex = selected === null ? -1 : directPolicyIndex(policies, selected);
   const policy = policyIndex >= 0 ? policies[policyIndex] : null;
+  const selectedUser = selected === null ? void 0 : linkedUserFor(policies, selected, users);
   const replacePolicies = (next) => draft.setValue("rolePolicies", next);
   const createPolicy = () => {
     if (selected === null) return;
@@ -301,6 +316,7 @@ function PeopleAccess({ draft, response }) {
     response.people.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleEmptyTitle, description: s.peopleEmptyDescription, icon: Users }) }) : visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleNoResults, description: s.peopleNoResultsDescription, icon: Search }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceRegister, { className: "grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(18rem,0.8fr)_minmax(24rem,1.2fr)]", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex min-w-0 flex-col gap-2", children: visible.map((person) => {
         const mapped = directPolicyIndex(policies, person) >= 0;
+        const linkedUser = linkedUserFor(policies, person, users);
         const active = selected?.key === person.key;
         return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
           "button",
@@ -309,7 +325,7 @@ function PeopleAccess({ draft, response }) {
             onClick: () => setSelectedKey(person.key),
             className: `flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? "border-accent/60 bg-accent/10" : "border-border bg-surface hover:border-border-strong hover:bg-elevated/50"}`,
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: person.name || person.upn || s.personFallback, size: "md" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: person.name || person.upn || s.personFallback, src: person.teamsAvatarUrl, user: linkedUser, size: "md" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "min-w-0 flex-1", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-sm font-semibold text-text", children: person.name || s.personFallback }),
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-xs text-text-muted", children: person.upn || person.aadObjectId })
@@ -328,7 +344,7 @@ function PeopleAccess({ draft, response }) {
       }) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "min-w-0 rounded-xl border border-border bg-elevated/30 p-5", children: selected === null ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-start gap-3", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: selected.name || selected.upn || s.personFallback, size: "lg" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: selected.name || selected.upn || s.personFallback, src: selected.teamsAvatarUrl, user: selectedUser, size: "lg" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0 flex-1", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "truncate text-base font-semibold text-text", children: selected.name || s.personFallback }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "truncate text-sm text-text-muted", children: selected.upn || selected.aadObjectId }),
@@ -430,7 +446,7 @@ function LoadedWorkspace({ detail }) {
   const policies = policiesOf(draft.values);
   const mappedCount = people?.people.filter((person) => directPolicyIndex(policies, person) >= 0).length ?? 0;
   const openChats = people?.people.filter((person) => person.hasPersonalChat).length ?? 0;
-  const adminCount = policies.filter((policy) => policy.admin === true).length;
+  const adminCount = people === null ? "\u2014" : people.people.filter((person) => effectivePersonPolicy(policies, person)?.admin === true).length;
   const configured = Boolean(String(draft.values.appId ?? "").trim() && String(draft.values.tenantId ?? "").trim() && detail.secretsSet.includes("appPassword"));
   const overlay = detail.i18n?.[locale]?.fields ?? {};
   const fieldLabel = (field) => overlay[field.key]?.label ?? field.label;
@@ -473,9 +489,10 @@ function LoadedWorkspace({ detail }) {
         C.PluginConfigEditor,
         {
           name: "msteams",
-          detail,
+          detail: globalSettingsDetail(detail),
           draft,
           mode: "all",
+          showAppPackage: false,
           fieldLabel,
           fieldHint,
           fieldOptions,
