@@ -23,6 +23,7 @@
   },
   "web": {
     "entry": "web/index.js",
+    "css": "web/index.css",
     "requiresApiVersion": 2,
     "nav": [
       { "label": "Microsoft Teams", "icon": "MessagesSquare", "route": "" }
