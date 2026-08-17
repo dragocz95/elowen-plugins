@@ -14,6 +14,13 @@ const GRAPH_SCOPE = 'https://graph.microsoft.com/.default';
 /** Application permissions each call needs, quoted back to the operator when Graph refuses. */
 const PERM_READ_USERS = 'User.ReadBasic.All';
 const PERM_INSTALL_APP = 'TeamsAppInstallation.ReadWriteSelfForUser.All';
+/** Unlike the two above, this one is NOT granted in the Entra portal: it is resource-specific consent,
+ *  which a TEAM OWNER approves when the app is installed into their team. Graph accepts it in place of
+ *  the tenant-wide ChannelMessage.Read.All, and it is the least-privileged option the reference lists. */
+const PERM_READ_CHANNEL_MESSAGES = 'ChannelMessage.Read.Group';
+
+/** Graph caps a replies page at 50 and rejects most OData parameters on that collection. */
+const MAX_REPLIES = 50;
 
 const escapeFilter = (value) => String(value).replace(/'/g, "''");
 
@@ -91,6 +98,67 @@ export class GraphClient {
     }
     throw new Error(`Microsoft Graph could not install the app for this user (${res.status}). ${consentHelp(this.cfg?.appId, PERM_INSTALL_APP)}`);
   }
+
+  /** One channel thread as `{ id, name, text }` rows, oldest-first. See {@link readThread}. */
+  async readChannelThread(teamGroupId, channelId, rootMessageId, limit) {
+    return readThread(this, teamGroupId, channelId, rootMessageId, limit);
+  }
+}
+
+/**
+ * One channel THREAD, oldest-first: the root post followed by its replies.
+ *
+ * This is the only way to see what was said in a channel before the bot was mentioned — the Bot
+ * Connector delivers a conversation's past to nobody, so without this a thread reads as a single
+ * message with no context. Failure is NOT fatal to a turn: the caller falls back to whatever the bot
+ * itself witnessed, so a tenant that never granted the consent simply keeps the old behaviour.
+ *
+ * `teamGroupId` is the team's AAD group id (captured from an inbound activity's channelData) — the
+ * conversation id alone cannot address this API.
+ */
+async function readThread(client, teamGroupId, channelId, rootMessageId, limit = MAX_REPLIES) {
+  const team = encodeURIComponent(String(teamGroupId));
+  const channel = encodeURIComponent(String(channelId));
+  const root = encodeURIComponent(String(rootMessageId));
+  const base = `/teams/${team}/channels/${channel}/messages/${root}`;
+  const top = Math.min(Math.max(Number(limit) || 0, 1), MAX_REPLIES);
+  const [head, replies] = await Promise.all([
+    client.call('GET', base, undefined, PERM_READ_CHANNEL_MESSAGES),
+    client.call('GET', `${base}/replies?$top=${top}`, undefined, PERM_READ_CHANNEL_MESSAGES),
+  ]);
+  const rows = [
+    ...(head.ok && head.data ? [head.data] : []),
+    // Replies come back newest-first; the transcript reads oldest-first like every other history block.
+    ...(Array.isArray(replies.data?.value) ? [...replies.data.value].reverse() : []),
+  ];
+  return rows.map(threadMessage).filter((m) => m && m.text);
+}
+
+/** A Graph chatMessage → the shape the transcript wants, or null for anything not worth a line:
+ *  a deleted message (tombstone with no body) or a system event ("X added Y to the team"). */
+function threadMessage(raw) {
+  if (!raw || raw.deletedDateTime || raw.messageType !== 'message') return null;
+  const body = raw.body?.contentType === 'html' ? htmlToText(raw.body?.content) : String(raw.body?.content ?? '').trim();
+  if (!body) return null;
+  const who = raw.from?.user?.displayName || raw.from?.application?.displayName || 'Unknown';
+  return { id: raw.id ? String(raw.id) : '', name: String(who), text: body };
+}
+
+/** Teams stores message bodies as HTML. The transcript is plain text, and a model reading raw markup
+ *  would quote tags back — so block-level tags become line breaks and the rest is dropped. */
+function htmlToText(html) {
+  return String(html ?? '')
+    .replace(/<\s*(br|\/p|\/div|\/li|\/tr)\s*\/?>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&amp;/gi, '&')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function user(raw) {

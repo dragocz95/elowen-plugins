@@ -8,6 +8,11 @@ const SCOPE = 'https://api.botframework.com/.default';
 /** Retry-once pause on a 429, capped so a stuck rate limit can't wedge a turn. */
 const MAX_RETRY_AFTER_MS = 15_000;
 
+/** The flag that makes a post visible to one person instead of the whole conversation. */
+function targetedQuery(targeted) {
+  return targeted ? '?isTargetedActivity=true' : '';
+}
+
 export class ConnectorClient {
   constructor(cfg, logger) {
     this.cfg = cfg;
@@ -43,15 +48,20 @@ export class ConnectorClient {
     return text ? JSON.parse(text) : null;
   }
 
-  /** Reply threaded under an inbound activity; returns the new activity id. */
-  async reply(serviceUrl, conversationId, replyToId, activity) {
-    const out = await this.call(serviceUrl, 'POST', `/v3/conversations/${encodeURIComponent(conversationId)}/activities/${encodeURIComponent(replyToId)}`, activity);
+  /** Reply threaded under an inbound activity; returns the new activity id.
+   *
+   *  `targeted` answers a targeted message PRIVATELY — only the person who sent it sees the reply. It is
+   *  a different call, not a different payload: without the query flag the same activity is posted to the
+   *  whole channel, which for an answer to a message nobody else could see is a disclosure, not a bug in
+   *  formatting. The activity must then carry `recipient`; Teams rejects it with 400 otherwise. */
+  async reply(serviceUrl, conversationId, replyToId, activity, targeted = false) {
+    const out = await this.call(serviceUrl, 'POST', `/v3/conversations/${encodeURIComponent(conversationId)}/activities/${encodeURIComponent(replyToId)}${targetedQuery(targeted)}`, activity);
     return out?.id;
   }
 
   /** Free-standing message into a conversation; returns the new activity id. */
-  async send(serviceUrl, conversationId, activity) {
-    const out = await this.call(serviceUrl, 'POST', `/v3/conversations/${encodeURIComponent(conversationId)}/activities`, activity);
+  async send(serviceUrl, conversationId, activity, targeted = false) {
+    const out = await this.call(serviceUrl, 'POST', `/v3/conversations/${encodeURIComponent(conversationId)}/activities${targetedQuery(targeted)}`, activity);
     return out?.id;
   }
 
@@ -62,6 +72,25 @@ export class ConnectorClient {
 
   async remove(serviceUrl, conversationId, activityId) {
     await this.call(serviceUrl, 'DELETE', `/v3/conversations/${encodeURIComponent(conversationId)}/activities/${encodeURIComponent(activityId)}`);
+  }
+
+  /** Push the bytes of a consented file to the one-shot URL Teams handed us.
+   *
+   *  This one deliberately does NOT go through `call`: the upload URL is pre-authenticated, and Microsoft
+   *  answers 401 when an Authorization header rides along — so the bot's bearer, correct on every other
+   *  call in this client, is the one thing that must not be sent. One request, so the range is the whole
+   *  file; splitting into 320 KiB fragments only becomes necessary past 60 MiB, far above our cap. */
+  async upload(uploadUrl, data) {
+    const res = await fetch(String(uploadUrl), {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'content-length': String(data.length),
+        'content-range': `bytes 0-${data.length - 1}/${data.length}`,
+      },
+      body: data,
+    });
+    if (!res.ok) throw new Error(`file upload → ${res.status}: ${(await res.text()).slice(0, 200)}`);
   }
 
   /** The transient "…" indicator Teams shows while the agent works. */

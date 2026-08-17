@@ -45,7 +45,7 @@ The plugin builds the sideloadable package itself from the live config — there
   the **first ten** entries of `helpCommands()` (`:126`) — the host's live chat commands plus a synthetic
   `display` entry the plugin appends itself (`lib/adapter.mjs:929-934`). The same list backs `/help`.
 
-Upload it in **Teams admin center → Manage apps**. `tests/msteams.test.ts:333` verifies the
+Upload it in **Teams admin center → Manage apps**. `tests/plugins/msteamsPlugin.test.ts:333` verifies the
 ZIP framing, the manifest id/botId/scopes/icons and that both PNGs are really there.
 
 ## 3. The webhook route
@@ -101,11 +101,14 @@ beyond cosmetics:
 Access is per **sender**, not per channel — but a policy whose `roleId` is a conversation id grants the
 whole room, which is how a channel-wide policy is expressed. The matched policy contributes the project
 scope, the role prompt, and an optional per-role tool allowlist; the conversation's own state contributes
-the model, reasoning level and fast flag (`packages/plugin-shared/access.mjs`, `buildRoleAccess`).
+the model, reasoning level and fast flag (`elowen-plugin-shared/access.mjs`, `buildRoleAccess`).
 
-Note that `admin: true` in a role policy grants the **operator role inside the chat**; it does not grant
-the owner's control-plane tools. The owner gate used by `TeamsSend`, `TeamsMessagePerson` and `TeamsApi`
-is a different check — `ctx.currentIdentity()?.owner === true` (`lib/tools.mjs:20`).
+`admin: true` in a role policy grants the **operator role inside the chat** — the slash commands, and the
+curated `Teams*` tools including the three that send (`TeamsSend`, `TeamsMessagePerson`, `TeamsSendFile`),
+which gate on `ctx.isAdminSession()`. It does NOT make that person the instance operator: `TeamsApi`
+drives the raw bot credentials and stays behind `ctx.currentIdentity()?.owner === true` (`lib/tools.mjs`),
+which is a single account — the first admin by creation order — and cannot be granted from plugin config.
+
 
 ## 5. The notify (cron) target
 
@@ -131,7 +134,7 @@ Every way a push can be dropped has its own warning:
 ## 6. The optional Microsoft Graph layer
 
 **Off by default.** With `graphLookup` unset or false, no `GraphClient` is constructed at all
-(`lib/adapter.mjs:96`), so no Graph call is even possible — `tests/msteams.test.ts:720`
+(`lib/adapter.mjs:96`), so no Graph call is even possible — `tests/plugins/msteamsPlugin.test.ts:720`
 asserts zero outbound requests on an unknown e-mail in that state.
 
 Layer 1 (the people directory) needs **no Microsoft permission whatsoever**: it is assembled from inbound
@@ -150,7 +153,7 @@ Both are **application** permissions on the bot's app registration, and both nee
 Path: *Entra admin center → App registrations → the bot's app → API permissions → Add a permission →
 Microsoft Graph → Application permissions → the permission → Grant admin consent for the tenant.* The
 plugin quotes exactly this back at you when Graph answers 401/403, instead of forwarding a bare status
-(`lib/graph.mjs:21-22`, `:44-46`). Pinned by `tests/msteams.test.ts:770`.
+(`lib/graph.mjs:21-22`, `:44-46`). Pinned by `tests/plugins/msteamsPlugin.test.ts:770`.
 
 Additionally, installing the app for a user requires **`graphCatalogAppId`** — the app's id in the org
 Teams catalog (*Teams admin center → Manage apps → the uploaded Elowen app*), which is **not** the bot's
@@ -189,7 +192,7 @@ the app) counts as success (`lib/graph.mjs:88`).
 | `image download failed: …` (`:482`) | error | An inbound image exceeded `maxImageBytes` or the download failed; the turn continues with `[Attachment: image (download failed or too large)]`. |
 | `image upload failed: …` (`:630`) | error | An outbound generated image could not be attached; the text still went out. |
 | `msteams directory: could not persist <key>: …` (`lib/directory.mjs:86`) | warn | The people directory could not be written. Harmless in itself — it is re-learned from the next roster read. |
-| `stateStore: failed to persist …` (`packages/plugin-shared/stateStore.mjs:27`) | error | The state file could not be written; this one is re-thrown, so the command that caused it fails visibly rather than confirming a change that never stuck. |
+| `stateStore: failed to persist …` (`elowen-plugin-shared/stateStore.mjs:27`) | error | The state file could not be written; this one is re-thrown, so the command that caused it fails visibly rather than confirming a change that never stuck. |
 
 Two quiet failure modes with **no log line at all**, worth knowing about:
 
@@ -198,7 +201,7 @@ Two quiet failure modes with **no log line at all**, worth knowing about:
 
 Secrets never appear in any of this: the token layer echoes the *response* of a failed token call and
 never the request that carried the secret (`lib/token.mjs:44-46`), and
-`tests/msteams.test.ts:859` asserts the app password is absent from tool output, the log,
+`tests/plugins/msteamsPlugin.test.ts:859` asserts the app password is absent from tool output, the log,
 the persisted state file and every outbound connector payload.
 
 ## 8. What a redeploy or config save does — and does not — change

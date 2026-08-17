@@ -33,7 +33,7 @@ The plugin registers the app-package API route unconditionally, then requires al
 `appPassword` and `tenantId` before it does anything else (`plugins/msteams/index.mjs:39-45`). With any
 of them missing it logs `enabled but appId/appPassword/tenantId are not all configured — not connecting`
 and returns: **no platform, no webhook, no tools**. Pinned by
-`tests/msteams.test.ts:130` (no platform / no http routes without credentials) and
+`tests/plugins/msteamsPlugin.test.ts:130` (no platform / no http routes without credentials) and
 `:136` (both appear once configured).
 
 ### Azure / Teams prerequisites
@@ -112,9 +112,23 @@ withholds them. The manifest also sets `"icons": { "Teams*": "💼" }` (`:22`) a
 `"showOutput": ["Teams*"]` (`:23`), which makes every tool's output visible in the transcript rather
 than hidden by the default policy.
 
-The gating is pinned by tests: `tests/msteams.test.ts:820` (non-operator is refused
-`TeamsMessagePerson` and **nothing is sent**), `:828` (`TeamsFindPerson` outside an admin session),
-`:834` (operator path succeeds), `:842` (no recipient named → refuses rather than guesses).
+Access to these tools comes in two tiers, matching how the Discord plugin splits the same problem:
+
+- **Curated tools** — `TeamsFindPerson`, `TeamsChatInfo`, `TeamsMembers`, `TeamsMemberInfo`,
+  `TeamsListConversations`, `TeamsSend`, `TeamsMessagePerson`, `TeamsSendFile` — need an **admin role**
+  (`ctx.isAdminSession()`). Sending a message is ordinary work for a trusted colleague; which of these a
+  given role may actually call is then narrowed by that role's own tool allowlist.
+- **`TeamsApi`** stays with the **instance operator** (`ctx.currentIdentity()?.owner === true`), because
+  it drives the raw bot credentials and can reach anything they can. An `admin: true` role policy does
+  not grant it — a role is handed out in plugin config, the operator is a single account, and deriving
+  one from the other would silently widen what every role policy is worth.
+
+Both refusals name the tier that was missed and who can grant it, rather than only saying no.
+
+The gating is pinned by tests in `tests/plugins/msteamsPlugin.test.ts`: an admin role may send
+(`TeamsMessagePerson` succeeds), the curated senders are refused without one and **nothing is sent**,
+`TeamsApi` is refused for an admin-but-not-owner caller and accepted for the operator, and a send with
+no recipient named refuses rather than guesses.
 
 ## Proactive messaging (since `701144dd`)
 
@@ -131,7 +145,7 @@ app for that user so a chat can be opened. It requires the **application** permi
 `graphCatalogAppId` for the install. What an admin must do, and what happens when they have not done it,
 is in [operations.md](operations.md#the-optional-microsoft-graph-layer).
 
-Test `tests/msteams.test.ts:720` asserts that with the switch off **nothing leaves the
+Test `tests/plugins/msteamsPlugin.test.ts:720` asserts that with the switch off **nothing leaves the
 process** on an unknown e-mail — the stubbed global `fetch` records zero calls.
 
 ## File map
@@ -159,22 +173,23 @@ process** on an unknown e-mail — the stubbed global `fetch` records zero calls
 
 `index.mjs:12-15` also re-exports `matchesId`, `senderIds`, `senderIsAdmin`, `displayNameOf`,
 `splitContent`, `footerLine`, `CHUNK`, `makeTokenVerifier` and `ConnectorClient` from the plugin entry.
-That is the surface the unit tests import (`tests/msteams.test.ts:148`, `:382`) — treat it as
-load-bearing rather than incidental.
+That is the surface the unit tests import (`tests/plugins/msteamsPlugin.test.ts:148`, `:382`) — treat it
+as load-bearing rather than incidental.
 
 ## Verify it works
 
-From the root of this registry:
+**In the repo**, from the registry repository root:
 
 ```bash
-npm run test:ui -- tests/msteams.test.ts   # 54 tests, the behavioural contract
-npm run test:e2e:msteams                   # a real published daemon + a fake Bot Framework
+npx vitest run tests/plugins/msteamsPlugin.test.ts   # 52 tests, the behavioural contract
+npx vitest run tests/plugins/manifest.test.ts        # every bundled manifest parses
+node scripts/check-languages.mjs                     # i18n covers every manifest string
+npm run test:e2e:msteams                             # builds, then a real daemon + a fake Bot Framework
 ```
 
-The E2E scenario (`tests/e2e/msteams/run.mjs`) boots the published `elowen` daemon, installs this plugin
-into its data directory the way the marketplace does, drives a signed activity into the real webhook,
-checks the async threaded reply and the in-place live-trace edits, and asserts that a garbage JWT
-bounces with 401 without ever reaching the brain.
+The E2E scenario (`tests/e2e/msteams/run.mjs`) drives a signed activity into the
+real webhook, checks the async threaded reply and the in-place live-trace edits, and asserts that a
+garbage JWT bounces with 401 without ever reaching the brain.
 
 **On a running instance:**
 

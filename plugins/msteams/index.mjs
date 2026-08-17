@@ -21,6 +21,13 @@ export function register(ctx) {
   // the registered platforms and 503'd when it found none. Registering it after the credential check
   // would turn that into a 404 on an enabled-but-unconfigured instance.
   let adapter = null;
+  const agentName = typeof ctx.config.agentName === 'string' && ctx.config.agentName.trim()
+    ? ctx.config.agentName.trim()
+    : 'Elowen';
+  const productName = typeof ctx.config.productName === 'string' && ctx.config.productName.trim()
+    ? ctx.config.productName.trim()
+    : agentName;
+  const fileStem = agentName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'elowen';
   ctx.registerApiRoute({
     rootMount: '/plugins/msteams/app-package', path: '', method: 'GET', access: 'admin',
     handler: async (req) => {
@@ -30,7 +37,7 @@ export function register(ctx) {
         body: new Uint8Array(adapter.appPackage()),
         headers: {
           'content-type': 'application/zip',
-          'content-disposition': 'attachment; filename="elowen-teams-app.zip"',
+          'content-disposition': `attachment; filename="${fileStem}-teams-app.zip"`,
         },
       };
     },
@@ -49,9 +56,12 @@ export function register(ctx) {
   // chatCommands passes LAZILY (a function) so a plugin registered after msteams — or a live reload —
   // is always reflected in /help and dispatch.
   adapter = new MsTeamsAdapter(
-    { ...ctx.config, appId, appPassword, tenantId },
+    { ...ctx.config, appId, appPassword, tenantId, agentName, productName },
     ctx.logger, state, ctx.listModels, imageDirs, ctx.resolveProvider, ctx.answerQuestion,
     () => ctx.chatCommands('msteams'),
+    // Accounts a rolePolicy may name in `elowenUser`, so a Teams sender can act as their own Elowen
+    // user. Read live: an account added after startup must be nameable without restarting the plugin.
+    () => ctx.host.stores().usersRead.list(),
   );
   ctx.registerHttpRoute({ path: 'messages', handler: (req) => adapter.handleWebhook(req) });
   ctx.registerPlatform(adapter);

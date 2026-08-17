@@ -25,6 +25,10 @@ export const MESSAGES = {
     noSession: '💤 No active conversation in this chat yet.',
     status: (model, pct, tokens) => `🧠 ${model}\n📊 Context ${pct}% · ${tokens} tokens`,
     askExpired: '⏱ This question expired.',
+    fileExpired: '⏱ That file offer is no longer available. Ask for the file again.',
+    fileDeclined: (n) => `✋ Declined — ${n} was not sent.`,
+    fileFailed: (n) => `⚠️ ${n} could not be uploaded. Please try again.`,
+    fileSent: (n) => `✅ Sent ${n}.`,
     askAnswered: (s) => `✅ Answered\n${s}`,
     askForSomeoneElse: 'This question is for someone else.',
     help: (name, commands) => [
@@ -53,6 +57,10 @@ export const MESSAGES = {
     noSession: '💤 V tomto chatu zatím není žádná aktivní konverzace.',
     status: (model, pct, tokens) => `🧠 ${model}\n📊 Kontext ${pct}% · ${tokens} tokenů`,
     askExpired: '⏱ Tento dotaz vypršel.',
+    fileExpired: '⏱ Nabídka souboru už není platná. Vyžádejte si soubor prosím znovu.',
+    fileDeclined: (n) => `✋ Odmítnuto — soubor ${n} nebyl odeslán.`,
+    fileFailed: (n) => `⚠️ Soubor ${n} se nepodařilo nahrát. Zkuste to prosím znovu.`,
+    fileSent: (n) => `✅ Soubor ${n} odeslán.`,
     askAnswered: (s) => `✅ Odpovězeno\n${s}`,
     askForSomeoneElse: 'Na tuhle otázku odpovídá někdo jiný.',
     help: (name, commands) => [
@@ -81,6 +89,10 @@ export const MESSAGES = {
     noSession: '💤 V tomto chate zatiaľ nie je žiadna aktívna konverzácia.',
     status: (model, pct, tokens) => `🧠 ${model}\n📊 Kontext ${pct}% · ${tokens} tokenov`,
     askExpired: '⏱ Táto otázka vypršala.',
+    fileExpired: '⏱ Ponuka súboru už nie je platná. Vyžiadajte si súbor prosím znova.',
+    fileDeclined: (n) => `✋ Odmietnuté — súbor ${n} nebol odoslaný.`,
+    fileFailed: (n) => `⚠️ Súbor ${n} sa nepodarilo nahrať. Skúste to prosím znova.`,
+    fileSent: (n) => `✅ Súbor ${n} odoslaný.`,
     askAnswered: (s) => `✅ Zodpovedané\n${s}`,
     askForSomeoneElse: 'Na túto otázku odpovedá niekto iný.',
     help: (name, commands) => [

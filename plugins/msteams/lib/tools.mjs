@@ -1,6 +1,8 @@
 // Admin/owner-gated Teams* tools: outbound messaging, conversation/member inspection and raw
 // connector access. All of them ride the Bot Connector API only — no Graph permissions involved,
 // except TeamsMessagePerson's optional last resort, which stays behind a config switch that is off.
+import { readFile } from 'node:fs/promises';
+import { basename, isAbsolute } from 'node:path';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { personLine } from './directory.mjs';
@@ -16,20 +18,39 @@ const memberLine = (m) => [
 ].filter(Boolean).join(' · ');
 
 export function registerTools(ctx, adapter) {
-  const adminGate = () => { if (!ctx.isAdminSession()) throw new Error('available only in an admin session'); };
-  const ownerGate = (name) => { if (ctx.currentIdentity?.()?.owner !== true) throw new Error(`${name} is only available to the operator`); };
+  // Two tiers, matching how the Discord plugin splits the same problem.
+  //
+  // CURATED tools — look up a person, read a roster, send a message, hand over a file — are ordinary
+  // work a trusted colleague does, so an admin role reaches them. What a given role may actually call is
+  // then narrowed by that role's own tool allowlist, which is where per-person scoping belongs.
+  //
+  // RAW connector access is the exception and stays with the operator: TeamsApi drives the bot
+  // credentials directly and can reconfigure or drain anything they touch. An admin-mapped role is not
+  // the same thing as the instance operator — a role is granted in plugin config, the operator is one
+  // account — so deriving one from the other would quietly widen the blast radius of every role policy.
+  //
+  // Both messages say what the caller is missing AND who can grant it; a bare "not allowed" leaves the
+  // person guessing which of the two tiers they hit, which is exactly the confusion this replaced.
+  const adminGate = (name) => {
+    if (ctx.isAdminSession()) return;
+    throw new Error(`${name} needs an admin role. The operator grants it by setting "admin": true on your entry in the Microsoft Teams plugin's role policies, and by making sure ${name} is not excluded by that role's tool list.`);
+  };
+  const ownerGate = (name) => {
+    if (ctx.currentIdentity?.()?.owner === true) return;
+    throw new Error(`${name} is reserved for the instance operator — a single account (the first admin), not a role. An "admin": true role policy does NOT grant it, because this tool drives the raw bot credentials. Ask the operator to run it, or use TeamsSend / TeamsMessagePerson / TeamsSendFile, which an admin role may call.`);
+  };
 
   // Send a message into any conversation the bot can reach — OWNER only.
   ctx.registerTool(defineTool({
     name: 'TeamsSend', label: 'Teams send message',
-    description: 'Send a Microsoft Teams message into a conversation by its conversation id (a chat the bot has already seen). Operator only.',
+    description: 'Send a Microsoft Teams message into a conversation by its conversation id (a chat the bot has already seen). Requires an admin role.',
     parameters: Type.Object({
       conversationId: Type.String({ description: 'Teams conversation id, e.g. "19:…@thread.tacv2" or "a:…"' }),
       text: Type.String({ description: 'Message text (markdown)' }),
     }),
     execute: async (_id, p) => {
       try {
-        ownerGate('TeamsSend');
+        adminGate('TeamsSend');
         adapter.requireServiceUrl(String(p.conversationId));
         await adapter.send(String(p.conversationId), String(p.text ?? ''));
         return ok(`Sent to ${p.conversationId}.`);
@@ -41,7 +62,7 @@ export function registerTools(ctx, adapter) {
   // TeamsSend: an unsolicited direct message is the most intrusive thing this plugin can do.
   ctx.registerTool(defineTool({
     name: 'TeamsMessagePerson', label: 'Teams message a person',
-    description: 'Send a Microsoft Teams message directly to a PERSON — addressed by e-mail/UPN, Entra object id, "29:…" account id or display name, no conversation id needed. The bot opens (or reuses) the 1:1 chat itself. Use it for "tell Michal the build broke". An ambiguous name is refused with the candidates rather than guessed — check first with TeamsFindPerson. Operator only.',
+    description: 'Send a Microsoft Teams message directly to a PERSON — addressed by e-mail/UPN, Entra object id, "29:…" account id or display name, no conversation id needed. The bot opens (or reuses) the 1:1 chat itself. Use it for "tell Michal the build broke". An ambiguous name is refused with the candidates rather than guessed — check first with TeamsFindPerson. Requires an admin role.',
     parameters: Type.Object({
       text: Type.String({ description: 'Message text (markdown)' }),
       email: Type.Optional(Type.String({ description: 'The person\'s e-mail / UPN' })),
@@ -51,7 +72,7 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        ownerGate('TeamsMessagePerson');
+        adminGate('TeamsMessagePerson');
         const target = {
           email: p.email ? String(p.email) : undefined,
           aadObjectId: p.aadObjectId ? String(p.aadObjectId) : undefined,
@@ -76,10 +97,10 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
+        adminGate('TeamsFindPerson');
         const query = String(p.query ?? '').trim();
         if (!query) return ok('Error: give something to look for.');
-        const found = adapter.lookupPeople(query);
+        const found = await adapter.lookupPeople(query);
         if (!found.length) return ok(adapter.unknownPersonHelp(query));
         const lines = found.slice(0, 25).map((person) => `· ${personLine(person)}`);
         if (found.length > 25) lines.push(`… and ${found.length - 25} more`);
@@ -94,7 +115,7 @@ export function registerTools(ctx, adapter) {
     parameters: Type.Object({ conversationId: Type.String({ description: 'Teams conversation id' }) }),
     execute: async (_id, p) => {
       try {
-        adminGate();
+        adminGate('TeamsChatInfo');
         const id = String(p.conversationId);
         const ref = adapter.state.get(id).ref ?? {};
         const members = await adapter.readRoster(id);
@@ -114,7 +135,7 @@ export function registerTools(ctx, adapter) {
     parameters: Type.Object({ conversationId: Type.String({ description: 'Teams conversation id' }) }),
     execute: async (_id, p) => {
       try {
-        adminGate();
+        adminGate('TeamsMembers');
         const id = String(p.conversationId);
         const list = await adapter.readRoster(id);
         const lines = list.slice(0, 50).map(memberLine);
@@ -133,7 +154,7 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
+        adminGate('TeamsMemberInfo');
         const id = String(p.conversationId);
         const m = await adapter.connector.member(adapter.requireServiceUrl(id), id, String(p.userId));
         return ok(memberLine(m));
@@ -149,7 +170,7 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
+        adminGate('TeamsListConversations');
         const out = await adapter.callApi('GET', p.continuationToken
           ? `/v3/conversations?continuationToken=${encodeURIComponent(p.continuationToken)}`
           : '/v3/conversations');
@@ -161,10 +182,46 @@ export function registerTools(ctx, adapter) {
     },
   }));
 
+  // Hand a file to a PERSON — OWNER only, like every other outbound tool here.
+  ctx.registerTool(defineTool({
+    name: 'TeamsSendFile', label: 'Teams send a file',
+    description: 'Offer a file from disk to a PERSON in their 1:1 Teams chat — addressed by e-mail/UPN, Entra object id, "29:…" account id or display name. Teams shows them a consent card first (the file lands in their OneDrive), and the upload happens when they accept, so this tool returns as soon as the offer is posted, not when the file arrives. Files cannot be sent into a channel or a group chat — post a link there instead. Requires an admin role.',
+    parameters: Type.Object({
+      path: Type.String({ description: 'Absolute path of the file to send' }),
+      email: Type.Optional(Type.String({ description: 'The person\'s e-mail / UPN' })),
+      aadObjectId: Type.Optional(Type.String({ description: 'The person\'s Entra object id (a GUID)' })),
+      userId: Type.Optional(Type.String({ description: 'The person\'s Teams account id ("29:…")' })),
+      name: Type.Optional(Type.String({ description: 'The person\'s display name — must match exactly one known person' })),
+      description: Type.Optional(Type.String({ description: 'One line shown on the consent card; defaults to the file name' })),
+    }),
+    execute: async (_id, p) => {
+      try {
+        adminGate('TeamsSendFile');
+        const target = {
+          email: p.email ? String(p.email) : undefined,
+          aadObjectId: p.aadObjectId ? String(p.aadObjectId) : undefined,
+          userId: p.userId ? String(p.userId) : undefined,
+          name: p.name ? String(p.name) : undefined,
+        };
+        if (!target.email && !target.aadObjectId && !target.userId && !target.name) {
+          return ok('Error: name the recipient with one of email, aadObjectId, userId or name.');
+        }
+        const filePath = String(p.path);
+        if (!isAbsolute(filePath)) return ok('Error: give an absolute path.');
+        let data;
+        try { data = await readFile(filePath); } catch (e) { return ok(`Error: cannot read ${filePath}: ${e?.message ?? e}`); }
+        const person = await adapter.findPerson(target);
+        const conversationId = await adapter.conversationForPerson(person);
+        await adapter.offerFile(conversationId, basename(filePath), data, p.description ? String(p.description) : undefined);
+        return ok(`Offered ${basename(filePath)} (${data.length} bytes) to ${person.name || person.upn || person.aad || person.id}; it uploads once they accept.`);
+      } catch (e) { return fail(e); }
+    },
+  }));
+
   // Raw Bot Connector access for the OWNER: any method+path the bot credentials can call.
   ctx.registerTool(defineTool({
     name: 'TeamsApi', label: 'Teams Bot Connector API',
-    description: 'Call the Bot Connector REST API directly: an HTTP method plus a path like "/v3/conversations/{id}/members", with an optional JSON body — full connector surface. Operator only.',
+    description: 'Call the Bot Connector REST API directly: an HTTP method plus a path like "/v3/conversations/{id}/members", with an optional JSON body — full connector surface. Reserved for the instance operator, because it drives the raw bot credentials; an admin role cannot call it. For sending a message use TeamsSend or TeamsMessagePerson instead.',
     parameters: Type.Object({
       method: Type.String({ description: 'HTTP method: GET, POST, PUT or DELETE' }),
       path: Type.String({ description: 'Connector path, e.g. "/v3/conversations" (the service host is implied)' }),

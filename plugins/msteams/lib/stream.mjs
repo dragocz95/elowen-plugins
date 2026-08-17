@@ -18,7 +18,8 @@ export async function postWithImages(adapter, conversationId, text, replyToId) {
   const pieces = splitContent(body);
   for (let i = 0; i < pieces.length; i++) {
     // Thread the first text piece under the trigger only when no image preceded it (else the image carried it).
-    await adapter.tmSend(conversationId, pieces[i], i === 0 && !data.length && replyToId ? { replyToId } : {});
+    // `ai` marks it as model-written, which is what earns the Teams "AI generated" label and the feedback pair.
+    await adapter.tmSend(conversationId, pieces[i], { ai: true, ...(i === 0 && !data.length && replyToId ? { replyToId } : {}) });
   }
 }
 
@@ -26,7 +27,9 @@ export async function postWithImages(adapter, conversationId, text, replyToId) {
 // same tm* helpers the plugin tests mock. Create returns the new activity id (null on failure), edit
 // returns whether the edit landed, remove is best-effort delete.
 const transport = {
-  create: (a, conversationId, content, extra) => a.tmSend(conversationId, content, extra),
+  // A live message carries the model's own words, so it is labelled as AI on creation and on every edit
+  // (tmEdit infers it: a text edit is the streamed answer, a card edit is a control this plugin drew).
+  create: (a, conversationId, content, extra) => a.tmSend(conversationId, content, { ai: true, ...extra }),
   edit: (a, conversationId, activityId, content) => a.tmEdit(conversationId, activityId, content),
   remove: (a, conversationId, activityId) => a.tmDelete(conversationId, activityId),
   replyRef: (replyToId) => ({ replyToId }),
