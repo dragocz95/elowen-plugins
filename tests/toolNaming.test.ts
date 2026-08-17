@@ -32,7 +32,6 @@ const CONFIG = {
   telegram: { botToken: 'tok', rolePolicies: [] },
   msteams: { appId: 'a', appPassword: 'p', tenantId: 't', rolePolicies: [] },
   whatsapp: { rolePolicies: [] },
-  mem0: { endpoint: 'https://mem0.example.invalid' },
   'image-gen': { provider: 'openai' },
   'image-edit': { provider: 'openai' },
 };

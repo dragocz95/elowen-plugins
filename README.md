@@ -48,12 +48,7 @@ UI can never ship a second React.
 ## Plugins
 
 - **todo** — the agent keeps a live todo checklist for multi-step work and shows it to you as it goes.
-- **mem0** — long-term memory backed by a self-hosted [mem0](https://github.com/mem0ai/mem0) server;
-  the brain saves durable facts and recalls them across conversations.
 - **image-gen**, **image-edit** — generate and edit images through the OpenAI Images API.
 - **web** — web research: WebSearch (Tavily or Serper) and WebFetch.
 - **mcp** — bridge external MCP servers into the agent.
 - **codebase** — semantic code index: search repositories by meaning rather than literal text.
-- **security-scan** — scan code for dangerous patterns before relying on it.
-- **formatters** — format files the assistant writes with the project's own formatter.
-- **dev-commands** — curated developer slash-commands (`/commit`, `/review`, `/test`, …).
