@@ -33,7 +33,7 @@
     "rolePolicies": { "label": "Rolové politiky", "hint": "Vyhrává první odpovídající politika; odesílatelé bez politiky jsou ignorováni. ID je Entra object ID odesílatele (GUID), jeho UPN/e-mail, celé ID konverzace (povolí všem v daném chatu), nebo * pro kohokoli \u2014 politiku s * nechte poslední, nad pojmenovanými je pohltí všechny. Klíč `admin` odemkne lomítkové příkazy a nástroje Teams (odeslání zprávy, vyhledání osoby), ale nedělá z daného člověka operátora instance — tím je jediný účet a pouze on smí použít přímý přístup ke konektoru. Klíč `elowenUser` (uživatelské jméno nebo id účtu) nechá odesílatele jednat pod jeho vlastním účtem, s jeho přihlašovacími údaji k pluginům a soukromou pamětí; politika s * ho ignoruje." }
   },
   "web": {
-    "nav": { "": "Microsoft Teams" },
+    "nav": { "": "MS Teams" },
     "strings": {
       "title": "Microsoft Teams",
       "workspaceEyebrow": "Microsoft 365",

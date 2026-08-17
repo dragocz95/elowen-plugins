@@ -27,7 +27,7 @@
     "requiresApiVersion": 2,
     "adminOnly": true,
     "nav": [
-      { "label": "Microsoft Teams", "icon": "MessagesSquare", "route": "" }
+      { "label": "MS Teams", "icon": "MessagesSquare", "route": "" }
     ],
     "strings": {
       "title": "Microsoft Teams",
