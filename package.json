@@ -32,7 +32,7 @@
     "better-sqlite3": "^11.0.0",
     "dompurify": "^3.4.13",
     "elowen": "^0.28.1",
-    "elowen-plugin-shared": "0.1.1",
+    "elowen-plugin-shared": "^0.1.2",
     "elowen-plugin-ui-kit": "^0.2.0",
     "grammy": "^1.45.1",
     "jose": "^5.10.0",

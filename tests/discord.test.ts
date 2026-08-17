@@ -357,8 +357,10 @@ describe('discord LiveMessage (tool progress)', () => {
       LiveMessage: new (adapter: unknown, channelId: string) => { onEvent: (e: unknown) => void; finalize: (reply?: string) => Promise<void> };
       footerLine: (idle: unknown) => string;
     };
-    // Unit: provider identity preserved, percent rounded, missing data → no fragment / empty line.
-    expect(footerLine({ model: 'anthropic/claude-sonnet-5', usage: { percent: 41.6 } })).toBe('-# anthropic/claude-sonnet-5 · 42 %');
+    // Unit: provider dropped (a chat footer is not where anyone picks a model or reconciles spend, so the
+    // qualified identity stays in the CLI status line and the web pickers), percent rounded, missing data
+    // → no fragment / empty line.
+    expect(footerLine({ model: 'anthropic/claude-sonnet-5', usage: { percent: 41.6 } })).toBe('-# claude-sonnet-5 · 42 %');
     expect(footerLine({ model: 'gpt-5' })).toBe('-# gpt-5');
     expect(footerLine(null)).toBe('');
     // Integration: the footer rides the final message; cfg.runtimeFooter === false disables it.
@@ -371,7 +373,7 @@ describe('discord LiveMessage (tool progress)', () => {
     const lmOn = new LiveMessage(on.adapter, 'chan');
     lmOn.onEvent({ type: 'idle', model: 'openai/gpt-5', usage: { percent: 12 } });
     await lmOn.finalize('Hotovo.');
-    expect(on.posts).toEqual(['Hotovo.\n\n-# openai/gpt-5 · 12 %']);
+    expect(on.posts).toEqual(['Hotovo.\n\n-# gpt-5 · 12 %']);
     const off = mk({ runtimeFooter: false });
     const lmOff = new LiveMessage(off.adapter, 'chan');
     lmOff.onEvent({ type: 'idle', model: 'openai/gpt-5', usage: { percent: 12 } });
@@ -792,7 +794,7 @@ describe('discord answer streaming (live reply edits, two-bubble model)', () => 
       lm.onEvent({ type: 'idle', model: 'openai/gpt-5', usage: { percent: 30 } });
       await vi.advanceTimersByTimeAsync(1300);
       await lm.finalize('Final clean answer.');
-      expect(edits.get('m1')).toBe('Final clean answer.\n\n-# openai/gpt-5 · 30 %'); // reply wins over the draft, footer once
+      expect(edits.get('m1')).toBe('Final clean answer.\n\n-# gpt-5 · 30 %'); // reply wins over the draft, footer once
     } finally { vi.useRealTimers(); }
   });
 
@@ -1580,7 +1582,7 @@ describe('discord plugin prompt-commands (native registration + RAW dispatch)', 
     it('round-trips: whatever footerLine writes, withoutFooter takes back off', async () => {
       const { footerLine, withoutFooter } = await loadFormat();
       const footer = footerLine({ model: 'alibaba/qwen3.8-max-preview', usage: { percent: 4 } });
-      expect(footer).toBe('-# alibaba/qwen3.8-max-preview · 4 %');
+      expect(footer).toBe('-# qwen3.8-max-preview · 4 %');
       expect(withoutFooter(`Hotovo.\n\n${footer}`)).toBe('Hotovo.');
       // Model-only footer (no context percentage) comes off just the same.
       expect(withoutFooter(`Hotovo.\n\n${footerLine({ model: 'gpt-5' })}`)).toBe('Hotovo.');
