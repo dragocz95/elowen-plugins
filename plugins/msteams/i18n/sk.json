@@ -146,6 +146,7 @@
     }
   },
   "web": {
+    "nav": { "": "Microsoft Teams" },
     "strings": {
       "title": "Microsoft Teams",
       "workspaceEyebrow": "Microsoft 365",
