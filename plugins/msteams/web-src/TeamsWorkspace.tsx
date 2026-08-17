@@ -28,9 +28,10 @@ export function directPolicyIndex(policies: RolePolicy[], person: TeamsPerson): 
 
 /** Insert or relocate one person's policy before every conversation/wildcard fallback. */
 export function upsertDirectPolicy(policies: RolePolicy[], person: TeamsPerson, nextPolicy: RolePolicy): RolePolicy[] {
+  const existing = policies.find((policy) => matchesPerson(policy, person));
   const next = policies.filter((policy) => !matchesPerson(policy, person));
   const broad = next.findIndex(isBroadPolicy);
-  next.splice(broad < 0 ? next.length : broad, 0, nextPolicy);
+  next.splice(broad < 0 ? next.length : broad, 0, existing ?? nextPolicy);
   return next;
 }
 

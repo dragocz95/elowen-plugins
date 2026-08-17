@@ -217,9 +217,10 @@ function directPolicyIndex(policies, person) {
   return broad < 0 || direct < broad ? direct : -1;
 }
 function upsertDirectPolicy(policies, person, nextPolicy) {
+  const existing = policies.find((policy) => matchesPerson(policy, person));
   const next = policies.filter((policy) => !matchesPerson(policy, person));
   const broad = next.findIndex(isBroadPolicy);
-  next.splice(broad < 0 ? next.length : broad, 0, nextPolicy);
+  next.splice(broad < 0 ? next.length : broad, 0, existing ?? nextPolicy);
   return next;
 }
 function primaryId(person) {
