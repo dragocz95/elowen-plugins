@@ -84,17 +84,21 @@ export function registerTools(ctx, adapter) {
         }
         const identity = ctx.currentIdentity?.();
         const sender = identity?.elowenUsername || identity?.userId || 'another Elowen agent';
-        const { person, conversationId, relay } = await adapter.messagePerson(target, String(p.text ?? ''), {
+        const { person, conversationId, relay, delivery, deliveredParts, totalParts } = await adapter.messagePerson(target, String(p.text ?? ''), {
           relay: { sender, senderUserId: identity?.elowenUserId },
         });
-        const wake = relay?.error
-          ? ` The message was delivered, but the recipient agent handoff was incomplete: ${relay.error}`
-          : relay?.woken
-            ? ' The recipient’s Elowen agent was also woken in that chat.'
-            : relay?.sameAccount
-              ? ' The recipient uses the same Elowen account, so no second agent wake was needed.'
-              : ' No mapped recipient Elowen account was available to wake.';
-        return ok(`Sent to ${person.name || person.upn || person.aad || person.id} (chat ${conversationId}).${wake}`);
+        const recipient = person.name || person.upn || person.aad || person.id;
+        if (delivery === 'agent') return ok(`Delivered to ${recipient} through the recipient’s Elowen agent (chat ${conversationId}).`);
+        if (delivery === 'partial') return ok(`The recipient agent ran for ${recipient}, but its Teams reply was incomplete: ${relay.error}`);
+        if (delivery === 'direct-partial') return ok(`Teams accepted only ${deliveredParts} of ${totalParts} direct message parts for ${recipient} (chat ${conversationId}); the message was not recorded as fully delivered.`);
+        const fallback = relay?.error
+          ? ` The recipient agent handoff failed before delivering a reply, so the original message was sent directly: ${relay.error}`
+          : relay?.sameAccount
+            ? ' The recipient uses the same Elowen account, so the message was sent directly without another agent wake.'
+            : relay?.woken
+              ? ' The recipient agent produced no reply, so the original message was sent directly.'
+              : ' No mapped recipient Elowen account was available, so the message was sent directly.';
+        return ok(`Sent to ${recipient} (chat ${conversationId}).${fallback}`);
       } catch (e) { return fail(e); }
     },
   }));
