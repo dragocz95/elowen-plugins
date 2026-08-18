@@ -138,7 +138,6 @@ export class TeamsAccountLinking {
     if (!resource?.signInLink) throw new TeamsAccountError('sign_in_unavailable', 'Microsoft sign-in is temporarily unavailable.');
     return {
       type: 'message',
-      text,
       attachments: [{
         contentType: 'application/vnd.microsoft.card.oauth',
         content: {

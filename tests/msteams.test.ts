@@ -311,7 +311,7 @@ describe('msteams identity + role mapping', () => {
     const { adapter, warnings } = await makeAdapter(
       { rolePolicies: [
         { roleId: 'aad-9', name: 'Ghost', projectIds: [1], elowenUser: 'nobody' },
-        { roleId: '*', name: 'Company', projectIds: [1], elowenUser: 'filip' },
+        { roleId: ' * ', name: 'Company', projectIds: [1], elowenUser: 'filip' },
       ] },
       { users },
     );
@@ -371,10 +371,10 @@ describe('msteams identity + role mapping', () => {
     expect(reply?.args[3]).toMatchObject({ type: 'message', textFormat: 'markdown', text: 'brain says hi' });
   });
 
-  it('runs an authenticated Teams sender as the verified linked account', async () => {
+  it('keeps an explicit admin-managed account without forcing self-service OAuth', async () => {
     const accountLinking = {
-      authenticate: async () => ({ status: 'authorized', user: { id: 7 } }),
-      signInActivity: async () => ({}),
+      authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
+      signInActivity: vi.fn(async () => ({})),
     };
     const { adapter } = await makeAdapter(
       { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1], elowenUser: 'filip' }] },
@@ -383,7 +383,26 @@ describe('msteams identity + role mapping', () => {
     const seen: Record<string, unknown>[] = [];
     adapter.listen(async (src) => { seen.push(src); return undefined; });
     await adapter.onActivity(activity());
-    expect(seen[0]?.access).toMatchObject({ projectIds: [1], actAsUserId: 7 });
+    expect(seen[0]?.access).toMatchObject({ projectIds: [1], actAsUserId: 1 });
+    expect(accountLinking.authenticate).not.toHaveBeenCalled();
+    expect(accountLinking.signInActivity).not.toHaveBeenCalled();
+  });
+
+  it('never applies an admin-managed account policy in a shared conversation', async () => {
+    const accountLinking = {
+      authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
+      signInActivity: vi.fn(async () => ({})),
+    };
+    const { adapter, calls } = await makeAdapter(
+      { accountLinking: true, rolePolicies: [{ roleId: 'a:shared', projectIds: [1], elowenUser: 'filip' }] },
+      { accountLinking, users: [{ id: 1, username: 'filip', isAdmin: true }] },
+    );
+    let turns = 0;
+    adapter.listen(async () => { turns++; return 'private data'; });
+    await adapter.onActivity(activity({ conversation: { id: 'a:shared', conversationType: 'groupChat', tenantId: 'tenant-guid' } }));
+    expect(turns).toBe(0);
+    expect(accountLinking.authenticate).not.toHaveBeenCalled();
+    expect(calls.find((call) => call.kind === 'reply')?.args[3]).toMatchObject({ text: expect.stringContaining('personal chat') });
   });
 
   it('sends an OAuth card in personal chat and never starts the brain before sign-in', async () => {

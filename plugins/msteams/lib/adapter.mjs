@@ -225,12 +225,18 @@ export class MsTeamsAdapter {
     return { status: 200, body: {} };
   }
 
-  async authorizeAccount(activity) {
+  async authorizeAccount(activity, access) {
     if (this.cfg.accountLinking !== true) return { id: null };
+    // An explicit admin-managed policy is already an authoritative account binding. Keep that account
+    // instead of forcing its owner through self-service OAuth or provisioning a duplicate local user.
+    // Wildcard policies never carry actAsUserId (accountFor rejects them), so company-wide onboarding
+    // still has to prove an enabled same-tenant Member through Microsoft. Shared conversations remain
+    // personal-only even when their conversation id has an explicit policy naming a local account.
     if (activity.conversation?.conversationType !== 'personal') {
       await this.tmSend(activity.conversation.id, this.msg.accountPersonalOnly(this.agentLabel()), { replyToId: activity.id });
       return null;
     }
+    if (Number.isInteger(access?.actAsUserId)) return { id: access.actAsUserId };
     if (!this.accountLinking) {
       await this.tmSend(activity.conversation.id, this.msg.accountAccessUnavailable, { replyToId: activity.id }).catch(() => {});
       return null;
@@ -666,7 +672,7 @@ export class MsTeamsAdapter {
   accountFor(policy) {
     const wanted = String(policy?.elowenUser ?? '').trim();
     if (!wanted) return undefined;
-    if (policy.roleId === WILDCARD) {
+    if (String(policy?.roleId ?? '').trim() === WILDCARD) {
       this.log.warn('msteams: ignoring elowenUser on the "*" policy — a policy matching everyone must not act as one account');
       return undefined;
     }
@@ -743,7 +749,7 @@ export class MsTeamsAdapter {
     const ids = senderIds(from, conv.id, upn);
     let { access } = this.inboundAccessFor(ids, conv.id);
     if (!access) return; // unmapped sender in policy-only mode → stay silent
-    const account = await this.authorizeAccount(m);
+    const account = await this.authorizeAccount(m, access);
     if (!account) return;
     if (Number.isInteger(account.id)) access = { ...access, actAsUserId: account.id };
 

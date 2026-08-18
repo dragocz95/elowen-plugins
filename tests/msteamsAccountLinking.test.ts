@@ -127,6 +127,7 @@ describe('TeamsAccountLinking', () => {
         }),
       })],
     }));
+    expect(card).not.toHaveProperty('text');
     expect(JSON.stringify(card)).not.toContain(cfg.appPassword);
   });
 });
