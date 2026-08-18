@@ -1,6 +1,6 @@
 {
   "name": "msteams",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "apiVersion": "1",
   "capabilities": { "reads": ["stores"], "mutates": ["users"] },
   "description": "Microsoft Teams bot (Azure Bot Framework): message it in a personal chat, group chat or team channel and it answers from Elowen AI. Incoming activities arrive on the daemon webhook /hooks/msteams/messages (validated against Microsoft's JWT); replies, typing indicators and images go out through the Bot Connector REST API. Slash commands (/model, /reasoning, /display, /new, /help) with Adaptive Card pickers, AskUserQuestion as tappable cards, live tool activity, proactive cron/tick pushes and a downloadable Teams app package. Chat tools (admin sessions): conversation & member info, member lists, list conversations and person lookup; plus send a message to any chat, message a person proactively by e-mail or name (the bot opens the 1:1 chat itself), and raw connector access (operator). Each rolePolicy maps an Entra object ID / UPN / conversation ID to allowed Elowen projects + a role prompt.",
@@ -55,13 +55,13 @@
       "peopleNoResultsDescription": "Change the search or access filter.",
       "badgeMapped": "Configured",
       "badgeInherited": "Fallback access",
-      "badgeUnmapped": "No access",
+      "badgeUnmapped": "Default access",
       "chatOpen": "Personal chat",
       "removeAccess": "Remove direct access",
       "inheritedTitle": "This person uses the fallback policy",
       "inheritedDescription": "Create a direct policy to give this person their own account, projects, tools or instructions.",
-      "unmappedTitle": "This person has no access",
-      "unmappedDescription": "Create a policy before the bot can answer this person.",
+      "unmappedTitle": "This person has no individual policy",
+      "unmappedDescription": "When organisation member sign-in is enabled, this person can sign in and use their own account access. Otherwise, create a policy before the bot can respond.",
       "configureAccess": "Configure access",
       "accountLabel": "Elowen account",
       "accountHint": "Runs Teams turns as this account, including its private memory and per-account plugin credentials.",
@@ -94,6 +94,7 @@
     { "key": "appPassword", "label": "Client secret", "type": "secret", "required": true, "hint": "A client secret from the app registration (Certificates & secrets). Used to call the Bot Connector API." },
     { "key": "tenantId", "label": "Tenant ID", "type": "string", "required": true, "hint": "Your Entra Directory (tenant) ID — the bot authenticates against this tenant (single-tenant app registration)." },
     { "key": "accountLinking", "label": "Require Microsoft account sign-in", "type": "boolean", "default": false, "hint": "In personal chats, verify every Teams sender through a delegated Azure Bot OAuth connection, allow only enabled member accounts from this tenant, and run the turn as that person's Elowen account. Shared chats are refused to protect private memory and credentials. Access and refresh tokens remain in Bot Framework Token Service." },
+    { "key": "accountAccessMode", "label": "Who may sign in", "type": "enum", "default": "policies", "visibleWhen": { "key": "accountLinking", "equals": true }, "options": [ { "value": "policies", "label": "Configured people only" }, { "value": "tenant_members", "label": "All active organisation members" } ], "hint": "Configured people only requires a matching role policy before sign-in is offered. All active organisation members lets any enabled Member account from this tenant sign in and receive its own Elowen account; explicit role policies still override defaults, and no * policy is needed." },
     { "key": "oauthConnectionName", "label": "OAuth connection name", "type": "string", "visibleWhen": { "key": "accountLinking", "equals": true }, "hint": "The exact connection name configured on the Azure Bot resource. Use the Microsoft Entra ID v2 provider, this tenant, delegated User.Read, redirect URI https://token.botframework.com/.auth/web/redirect, and leave Token Exchange URL empty." },
     { "key": "agentName", "label": "App name in Teams", "type": "string", "hint": "Name of the app and of the bot in the downloadable app package — what people see in the organisation's Teams catalog and in /help. Empty = Elowen. Set it when that name collides with another app already in the catalog." },
     { "key": "productName", "label": "Publisher name in Teams", "type": "string", "hint": "Publisher shown on the app package (the manifest's developer name). Empty = the configured app name." },
@@ -121,6 +122,6 @@
     { "key": "maxUploadImages", "label": "Max images per reply", "type": "number", "min": 1, "max": 10, "step": 1, "placeholder": "4", "default": 4, "hint": "How many generated images the bot attaches to a single outgoing reply." },
     { "key": "askTimeoutMs", "label": "Question timeout (ms)", "type": "number", "min": 30000, "max": 1800000, "step": 30000, "placeholder": "360000", "default": 360000, "hint": "How long a pending AskUserQuestion card stays answerable." },
     { "key": "sec_roles", "label": "Role policies", "type": "section", "hint": "Map Teams senders to allowed projects, a role prompt and the tools the bot may use." },
-    { "key": "rolePolicies", "label": "Role policies", "type": "rolePolicies", "hint": "First matching policy wins; senders with no mapped policy are ignored. The ID is the sender's Entra object ID (a GUID), their UPN/email, a whole conversation ID (grants everyone in that chat), or * for every sender \u2014 keep a * policy last, above the named ones it swallows them all. `admin` unlocks slash commands and curated Teams tools (send a message, look someone up); it does NOT make that person the instance operator, which is a single account and the only one who may use raw connector access. Set `elowenUser` (an Elowen username or account id) to run that sender's turns as their own account, with that account's plugin credentials and private memory; the * policy ignores it." }
+    { "key": "rolePolicies", "label": "Role policies", "type": "rolePolicies", "hint": "First matching policy wins. Senders with no policy are ignored in configured-people mode; organisation-member sign-in can instead verify and provision them without a * policy. The ID is the sender's Entra object ID (a GUID), their UPN/email, a whole conversation ID (grants everyone in that chat), or * for every sender \u2014 keep a * policy last, above the named ones it swallows them all. `admin` unlocks slash commands and curated Teams tools (send a message, look someone up); it does NOT make that person the instance operator, which is a single account and the only one who may use raw connector access. Set `elowenUser` (an Elowen username or account id) to run that sender's turns as their own account, with that account's plugin credentials and private memory; the * policy ignores it." }
   ]
 }

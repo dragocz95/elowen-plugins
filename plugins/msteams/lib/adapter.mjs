@@ -257,7 +257,7 @@ export class MsTeamsAdapter {
     this.rememberConversation(activity);
     const upn = await this.resolveUpn(activity.serviceUrl, activity.conversation.id, activity.from);
     const ids = senderIds(activity.from, activity.conversation.id, upn);
-    if (!this.accessFor(ids, activity.conversation.id).access) return;
+    if (!this.inboundAccessFor(ids, activity.conversation.id).access) return;
     try {
       const result = await this.accountLinking.authenticate(activity, { magicCode: activity?.value?.state });
       const text = result.status === 'authorized' ? this.msg.signInComplete : this.msg.signInIncomplete;
@@ -639,6 +639,16 @@ export class MsTeamsAdapter {
     };
   }
 
+  /** Admission for an inbound turn. Explicit role policies still win; tenant-member onboarding only
+   *  supplies a minimal pre-auth descriptor when no policy matched. Once OAuth succeeds, actAsUserId
+   *  makes the host use the verified account's own projects and tool grants, so this fallback grants
+   *  neither admin nor project access and cannot become a shared company identity. */
+  inboundAccessFor(ids, conversationId) {
+    const mapped = this.accessFor(ids, conversationId);
+    if (mapped.access || this.cfg.accountLinking !== true || this.cfg.accountAccessMode !== 'tenant_members') return mapped;
+    return { access: buildRoleAccess({ projectIds: [] }, this.state.get(String(conversationId))) };
+  }
+
   /**
    * The Elowen account a policy's sender acts as, from the policy's `elowenUser` (a username or a
    * numeric id), or undefined when the policy names none.
@@ -731,8 +741,8 @@ export class MsTeamsAdapter {
 
     const upn = await this.resolveUpn(m.serviceUrl, conv.id, from);
     const ids = senderIds(from, conv.id, upn);
-    let { access } = this.accessFor(ids, conv.id);
-    if (!access) return; // unmapped sender → stay silent
+    let { access } = this.inboundAccessFor(ids, conv.id);
+    if (!access) return; // unmapped sender in policy-only mode → stay silent
     const account = await this.authorizeAccount(m);
     if (!account) return;
     if (Number.isInteger(account.id)) access = { ...access, actAsUserId: account.id };

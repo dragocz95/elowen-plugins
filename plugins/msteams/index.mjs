@@ -2,7 +2,8 @@
 // webhook /hooks/msteams/messages (Microsoft's JWT is validated there); replies, typing indicators and
 // media go out through the Bot Connector REST API with an Entra client-credentials token. Each sender —
 // an Entra object ID, a UPN/email, or a whole conversation id — resolves via this plugin's rolePolicies
-// to the Elowen projects they may touch plus an optional role prompt. Unmapped senders are ignored.
+// to the Elowen projects they may touch plus an optional role prompt. Unmapped senders are ignored unless
+// delegated account linking explicitly admits verified active tenant members.
 import { join } from 'node:path';
 import { StateStore } from './lib/state.mjs';
 import { MsTeamsAdapter } from './lib/adapter.mjs';

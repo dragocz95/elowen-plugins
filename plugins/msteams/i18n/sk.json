@@ -21,6 +21,14 @@
       "label": "Vyžadovať prihlásenie účtom Microsoft",
       "hint": "V osobných chatoch overí každého odosielateľa v Teams prostredníctvom delegovaného pripojenia OAuth služby Azure Bot, povolí iba aktívne členské účty tohto tenantu a konverzáciu spustí pod účtom Elowen danej osoby. Zdieľané chaty odmietne z dôvodu ochrany súkromnej pamäte a prihlasovacích údajov. Prístupové a obnovovacie tokeny zostávajú v službe Bot Framework Token Service."
     },
+    "accountAccessMode": {
+      "label": "Kto sa môže prihlásiť",
+      "hint": "Voľba Iba nastavení ľudia ponúkne prihlásenie len osobám so zodpovedajúcim pravidlom roly. Voľba Všetci aktívni členovia organizácie umožní prihlásenie každému aktívnemu členskému účtu tohto tenantu a vytvorí mu vlastný účet Elowen; konkrétne pravidlá rolí majú naďalej prednosť a pravidlo * nie je potrebné.",
+      "options": {
+        "policies": "Iba nastavení ľudia",
+        "tenant_members": "Všetci aktívni členovia organizácie"
+      }
+    },
     "oauthConnectionName": {
       "label": "Názov pripojenia OAuth",
       "hint": "Presný názov pripojenia nastaveného v prostriedku Azure Bot. Použite poskytovateľa Microsoft Entra ID v2, tento tenant, delegované oprávnenie User.Read, adresu presmerovania https://token.botframework.com/.auth/web/redirect a ponechajte adresu Token Exchange URL prázdnu."
@@ -154,7 +162,7 @@
     },
     "rolePolicies": {
       "label": "Pravidlá rolí",
-      "hint": "Vyhráva prvé zodpovedajúce pravidlo; odosielatelia bez pravidla sú ignorovaní. ID je Entra object ID odosielateľa (GUID), jeho UPN/e-mail, celé ID konverzácie (povolí všetkým v danom chate), alebo * pre kohukoľvek — pravidlo s * nechajte posledné, nad pomenovanými ich pohltí všetky. Kľúč `admin` odomkne lomkové príkazy a nástroje Teams (odoslanie správy, vyhľadanie osoby), ale nerobí z daného človeka operátora inštancie — tým je jediný účet a iba on smie použiť priamy prístup ku konektoru. Kľúč `elowenUser` (používateľské meno alebo id účtu) nechá odosielateľa konať pod jeho vlastným účtom, s jeho prihlasovacími údajmi k pluginom a súkromnou pamäťou; pravidlo s * ho ignoruje."
+      "hint": "Vyhráva prvé zodpovedajúce pravidlo. V režime iba nastavených ľudí sú odosielatelia bez pravidla ignorovaní; prihlásenie členov organizácie ich môže overiť a založiť aj bez pravidla *. ID je Entra object ID odosielateľa (GUID), jeho UPN/e-mail, celé ID konverzácie (povolí všetkým v danom chate), alebo * pre kohukoľvek — pravidlo s * nechajte posledné, nad pomenovanými ich pohltí všetky. Kľúč `admin` odomkne lomkové príkazy a nástroje Teams (odoslanie správy, vyhľadanie osoby), ale nerobí z daného človeka operátora inštancie — tým je jediný účet a iba on smie použiť priamy prístup ku konektoru. Kľúč `elowenUser` (používateľské meno alebo id účtu) nechá odosielateľa konať pod jeho vlastným účtom, s jeho prihlasovacími údajmi k pluginom a súkromnou pamäťou; pravidlo s * ho ignoruje."
     }
   },
   "web": {
@@ -185,13 +193,13 @@
       "peopleNoResultsDescription": "Zmeňte vyhľadávanie alebo filter prístupu.",
       "badgeMapped": "Nastavené",
       "badgeInherited": "Predvolený prístup",
-      "badgeUnmapped": "Bez prístupu",
+      "badgeUnmapped": "Predvolený prístup",
       "chatOpen": "Osobný chat",
       "removeAccess": "Odobrať priamy prístup",
       "inheritedTitle": "Táto osoba používa predvolené pravidlo",
       "inheritedDescription": "Vytvorte priame pravidlo, ak má mať vlastný účet, projekty, nástroje alebo pokyny.",
-      "unmappedTitle": "Táto osoba nemá prístup",
-      "unmappedDescription": "Skôr než jej bot bude môcť odpovedať, vytvorte pravidlo.",
+      "unmappedTitle": "Táto osoba nemá vlastné pravidlo",
+      "unmappedDescription": "Pri povolenom prihlásení členov organizácie sa môže prihlásiť a použiť prístup svojho účtu. Inak pred odpoveďou bota vytvorte pravidlo.",
       "configureAccess": "Nastaviť prístup",
       "accountLabel": "Účet Elowen",
       "accountHint": "Konverzácie v Teams budú prebiehať pod týmto účtom vrátane jeho súkromnej pamäte a prihlasovacích údajov k pluginom.",

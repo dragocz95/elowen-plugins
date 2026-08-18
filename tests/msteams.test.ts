@@ -404,6 +404,53 @@ describe('msteams identity + role mapping', () => {
     });
   });
 
+  it('offers sign-in to an unmapped sender when all tenant members may onboard', async () => {
+    const accountLinking = {
+      authenticate: async () => ({ status: 'sign_in_required' }),
+      signInActivity: async () => ({ type: 'message', attachments: [{ contentType: 'application/vnd.microsoft.card.oauth' }] }),
+    };
+    const { adapter, calls } = await makeAdapter(
+      { accountLinking: true, accountAccessMode: 'tenant_members', rolePolicies: [] },
+      { accountLinking },
+    );
+    adapter.listen(async () => { throw new Error('brain must wait for sign-in'); });
+    await adapter.onActivity(activity());
+    expect(calls.find((call) => call.kind === 'reply')?.args[3]).toMatchObject({
+      attachments: [{ contentType: 'application/vnd.microsoft.card.oauth' }],
+    });
+  });
+
+  it('runs an authenticated unmapped tenant member through their own account', async () => {
+    const accountLinking = {
+      authenticate: async () => ({ status: 'authorized', user: { id: 7 } }),
+      signInActivity: async () => ({}),
+    };
+    const { adapter } = await makeAdapter(
+      { accountLinking: true, accountAccessMode: 'tenant_members', rolePolicies: [] },
+      { accountLinking },
+    );
+    const seen: Record<string, unknown>[] = [];
+    adapter.listen(async (src) => { seen.push(src); return undefined; });
+    await adapter.onActivity(activity());
+    expect(seen[0]?.access).toMatchObject({ admin: false, projectIds: [], actAsUserId: 7 });
+  });
+
+  it('keeps policy-only onboarding closed to unmapped senders', async () => {
+    let authentications = 0;
+    const accountLinking = {
+      authenticate: async () => { authentications++; return { status: 'sign_in_required' }; },
+      signInActivity: async () => ({}),
+    };
+    const { adapter, calls } = await makeAdapter(
+      { accountLinking: true, accountAccessMode: 'policies', rolePolicies: [] },
+      { accountLinking },
+    );
+    adapter.listen(async () => 'never');
+    await adapter.onActivity(activity());
+    expect(authentications).toBe(0);
+    expect(calls.filter((call) => call.kind === 'reply')).toHaveLength(0);
+  });
+
   it('refuses linked-account turns in shared chats before authentication or brain access', async () => {
     let authentications = 0;
     let turns = 0;
@@ -412,7 +459,7 @@ describe('msteams identity + role mapping', () => {
       signInActivity: async () => { throw new Error('must not build a channel OAuth card'); },
     };
     const { adapter, calls } = await makeAdapter(
-      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] },
+      { accountLinking: true, accountAccessMode: 'tenant_members', rolePolicies: [] },
       { accountLinking },
     );
     adapter.listen(async () => { turns++; return 'private data'; });
@@ -455,6 +502,26 @@ describe('msteams identity + role mapping', () => {
     }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(attempts).toHaveLength(1);
+  });
+
+  it('completes signin/verifyState for an unmapped tenant member without a wildcard policy', async () => {
+    const attempts: { magicCode?: string }[] = [];
+    const accountLinking = {
+      authenticate: async (_incoming: unknown, options?: { magicCode?: string }) => {
+        attempts.push(options ?? {});
+        return { status: 'authorized', user: { id: 7 } };
+      },
+      signInActivity: async () => ({}),
+    };
+    const { adapter, calls } = await makeAdapter(
+      { accountLinking: true, accountAccessMode: 'tenant_members', rolePolicies: [] },
+      { accountLinking },
+    );
+    await adapter.onInvoke(activity({ type: 'invoke', name: 'signin/verifyState', value: { state: '123456' } }));
+    await vi.waitFor(() => expect(attempts).toEqual([{ magicCode: '123456' }]));
+    expect(calls.find((call) => call.kind === 'reply')?.args[3]).toMatchObject({
+      text: expect.stringContaining('linked'),
+    });
   });
 
   it('drops an unmapped sender without any outbound traffic', async () => {
