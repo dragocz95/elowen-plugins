@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { StateStore } from './lib/state.mjs';
 import { MsTeamsAdapter } from './lib/adapter.mjs';
 import { PeopleDirectory } from './lib/directory.mjs';
+import { TeamsAccountLinking } from './lib/accountLinking.mjs';
 import { registerTools } from './lib/tools.mjs';
 import { platformImageDirs } from 'elowen-plugin-shared/images';
 
@@ -14,6 +15,7 @@ export { matchesId, senderIds, senderIsAdmin, displayNameOf } from './lib/ids.mj
 export { splitContent, footerLine, CHUNK } from './lib/format.mjs';
 export { makeTokenVerifier } from './lib/auth.mjs';
 export { ConnectorClient } from './lib/connector.mjs';
+export { TeamsAccountError, TeamsAccountLinking } from './lib/accountLinking.mjs';
 
 /** Browser-safe projection of the learned Teams directory. Routing details stay daemon-only. */
 export function peopleForUi(people, profilePhotos = false) {
@@ -88,15 +90,28 @@ export function register(ctx) {
     return;
   }
   const imageDirs = platformImageDirs(dataDir);
+  const config = { ...ctx.config, appId, appPassword, tenantId, agentName, productName };
+  let accountLinking = null;
+  if (config.accountLinking === true) {
+    const connectionName = typeof config.oauthConnectionName === 'string' ? config.oauthConnectionName.trim() : '';
+    if (connectionName) {
+      config.oauthConnectionName = connectionName;
+      accountLinking = new TeamsAccountLinking(config, ctx.host.externalUsers(), ctx.logger);
+    } else {
+      // Keep the transport up for diagnostics, but every mapped message fails closed in the adapter.
+      ctx.logger.error('msteams account linking enabled without oauthConnectionName — account access denied');
+    }
+  }
   // chatCommands passes LAZILY (a function) so a plugin registered after msteams — or a live reload —
   // is always reflected in /help and dispatch.
   adapter = new MsTeamsAdapter(
-    { ...ctx.config, appId, appPassword, tenantId, agentName, productName },
+    config,
     ctx.logger, state, ctx.listModels, imageDirs, ctx.resolveProvider, ctx.answerQuestion,
     () => ctx.chatCommands('msteams'),
     // Accounts a rolePolicy may name in `elowenUser`, so a Teams sender can act as their own Elowen
     // user. Read live: an account added after startup must be nameable without restarting the plugin.
     () => ctx.host.stores().usersRead.list(),
+    accountLinking,
   );
   ctx.registerHttpRoute({ path: 'messages', handler: (req) => adapter.handleWebhook(req) });
   ctx.registerPlatform(adapter);

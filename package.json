@@ -30,6 +30,7 @@
     "@types/node": "^22.0.0",
     "baileys": "^7.0.0-rc13",
     "better-sqlite3": "^11.0.0",
+    "botframework-connector": "^4.23.3",
     "dompurify": "^3.4.13",
     "elowen": "^0.28.1",
     "elowen-plugin-shared": "^0.1.2",

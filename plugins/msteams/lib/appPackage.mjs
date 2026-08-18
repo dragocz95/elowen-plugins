@@ -200,7 +200,7 @@ function appManifest(cfg, commands, now) {
       ],
     }],
     permissions: ['identity', 'messageTeamMembers'],
-    validDomains: [],
+    validDomains: cfg.accountLinking === true ? ['token.botframework.com'] : [],
     // Resource-specific consent, declared only when the operator asks for it. ChannelMessage.Read.Group
     // is what Teams accepts INSTEAD of the tenant-wide ChannelMessage.Read.All, and it buys two things
     // at once: the bot starts receiving every message in the channels of a team it is installed in

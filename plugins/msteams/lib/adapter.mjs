@@ -4,6 +4,7 @@
 // callback deadline is far shorter than a long agent turn). On top of plain chat: a stateful live tool
 // trace (edited in place), AskUserQuestion as Adaptive Cards, slash commands with card pickers, per-chat
 // model/reasoning/display settings and image round-trips.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { ConnectorClient } from './connector.mjs';
 import { GraphClient } from './graph.mjs';
 import { PeopleDirectory, personLine } from './directory.mjs';
@@ -115,9 +116,10 @@ function cfgNum(cfg, key, def, min, max) {
 
 export class MsTeamsAdapter {
   name = 'msteams';
-  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], listUsers = () => []) {
+  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], listUsers = () => [], accountLinking = null) {
     this.cfg = cfg;
     this.listUsers = listUsers;
+    this.accountLinking = accountLinking;
     this.log = logger;
     this.state = state;
     this.listModels = listModels;
@@ -141,10 +143,10 @@ export class MsTeamsAdapter {
     // is held in memory: Teams gives us the upload URL only in the accept invoke, so the bytes have to
     // outlive the offer. Swept on every new offer and every answer so a declined one cannot leak.
     this.pendingFiles = new Map();
-    // conversationId → the private-reply descriptor of the targeted turn running there right now. Held
-    // only for the duration of that turn (see onActivity's finally), so an ordinary message afterwards
-    // goes back to answering the whole conversation.
-    this.targetedTurns = new Map();
+    // The private-reply descriptor belongs to one async turn, not to the conversation. Two people may
+    // invoke targeted commands in the same channel concurrently; a conversation-global map can swap
+    // their recipients or publish one answer. Async context follows every progress/image send in the turn.
+    this.targetedTurn = new AsyncLocalStorage();
     this.askSeq = 0;
     this.msg = MESSAGES[cfg.language] ?? MESSAGES.en; // service texts
   }
@@ -214,7 +216,56 @@ export class MsTeamsAdapter {
       void this.onFileConsent(activity).catch((e) => this.log.error(`msteams file consent failed: ${e?.message ?? e}`));
       return { status: 200, body: {} };
     }
+    if (activity?.name === 'signin/verifyState') {
+      // Token Service and Graph are network hops. Ack Teams immediately, then complete the binding through
+      // the connector so a slow directory response cannot make Teams retry the invoke.
+      void this.completeAccountSignIn(activity).catch((e) => this.log.error(`msteams account sign-in failed: ${e?.code ?? e?.name ?? 'unknown'}`));
+      return { status: 200, body: {} };
+    }
     return { status: 200, body: {} };
+  }
+
+  async authorizeAccount(activity) {
+    if (this.cfg.accountLinking !== true) return { id: null };
+    if (activity.conversation?.conversationType !== 'personal') {
+      await this.tmSend(activity.conversation.id, this.msg.accountPersonalOnly(this.agentLabel()), { replyToId: activity.id });
+      return null;
+    }
+    if (!this.accountLinking) {
+      await this.tmSend(activity.conversation.id, this.msg.accountAccessUnavailable, { replyToId: activity.id }).catch(() => {});
+      return null;
+    }
+    try {
+      const result = await this.accountLinking.authenticate(activity);
+      if (result.status === 'authorized') return { id: result.user.id };
+      const card = await this.accountLinking.signInActivity(activity, this.msg.signInPrompt, this.msg.signInButton);
+      await this.connector.reply(activity.serviceUrl, activity.conversation.id, activity.id, card);
+      return null;
+    } catch (error) {
+      this.log.warn(`msteams account verification denied: ${error?.code ?? error?.name ?? 'unknown'}`);
+      await this.tmSend(activity.conversation.id, this.msg.accountAccessDenied(error?.code), { replyToId: activity.id }).catch(() => {});
+      return null;
+    }
+  }
+
+  async completeAccountSignIn(activity) {
+    if (this.cfg.accountLinking !== true || !this.accountLinking || !activity?.conversation?.id) return;
+    if (activity.conversation?.conversationType !== 'personal') {
+      await this.tmSend(activity.conversation.id, this.msg.accountPersonalOnly(this.agentLabel()), { replyToId: activity.id }).catch(() => {});
+      return;
+    }
+    this.rememberConversation(activity);
+    const upn = await this.resolveUpn(activity.serviceUrl, activity.conversation.id, activity.from);
+    const ids = senderIds(activity.from, activity.conversation.id, upn);
+    if (!this.accessFor(ids, activity.conversation.id).access) return;
+    try {
+      const result = await this.accountLinking.authenticate(activity, { magicCode: activity?.value?.state });
+      const text = result.status === 'authorized' ? this.msg.signInComplete : this.msg.signInIncomplete;
+      await this.tmSend(activity.conversation.id, text, { replyToId: activity.id });
+    } catch (error) {
+      this.log.warn(`msteams account sign-in denied: ${error?.code ?? error?.name ?? 'unknown'}`);
+      await this.tmSend(activity.conversation.id, this.msg.accountAccessDenied(error?.code), { replyToId: activity.id }).catch(() => {});
+    }
   }
 
   /** The thumbs up/down under an AI-labelled answer. Teams stores NOTHING — it hands the vote to the bot
@@ -645,18 +696,13 @@ export class MsTeamsAdapter {
     }
   }
 
-  /** A targeted turn answers privately for as long as it runs — see tmSend. The registration lives here,
-   *  around the WHOLE turn including the slash-command branch, because a slash command is the main way a
-   *  targeted message arrives and its reply must not land in front of the channel either. */
+  /** A targeted turn answers privately for as long as it runs — see tmSend. The async context wraps the
+   *  WHOLE turn including the slash-command branch, because a slash command is the main way a targeted
+   *  message arrives and its reply must not land in front of the channel either. */
   async onActivity(m) {
     const targeted = this.targetedFor(m);
-    const conversationId = m?.conversation?.id ? String(m.conversation.id) : null;
-    if (targeted && conversationId) this.targetedTurns.set(conversationId, targeted);
-    try {
-      await this.handleActivity(m);
-    } finally {
-      if (targeted && conversationId) this.targetedTurns.delete(conversationId);
-    }
+    if (!targeted) return this.handleActivity(m);
+    return this.targetedTurn.run(targeted, () => this.handleActivity(m));
   }
 
   async handleActivity(m) {
@@ -669,21 +715,25 @@ export class MsTeamsAdapter {
     // The transcript records what the CONVERSATION said, so it is written above the gates below: a
     // message that answers no mention, or comes from someone with no role mapping, is still background
     // that a later session in this chat will want. Bot-control commands are excluded (see CONTROL_ONLY).
+    // Account-linked turns are personal-only: never persist shared-chat text into that private mode.
+    const kind = conv.conversationType ?? 'personal';
     const said = this.resolveMentions(m);
     const saidCmd = said.startsWith('/') ? String(said.slice(1).trim().split(/\s+/)[0] ?? '').toLowerCase() : '';
-    if (!saidCmd || !CONTROL_ONLY.has(saidCmd)) {
+    if ((!saidCmd || !CONTROL_ONLY.has(saidCmd)) && !(this.cfg.accountLinking === true && kind !== 'personal')) {
       this.recordHistory(conv.id, { name: displayNameOf(from), text: said, activityId: m.id });
     }
 
     // Personal chats always respond. Group chats respond per config; a team-channel post reaches the
     // bot only when @mentioned anyway, and the mention gate doubles as the guard for group chats too.
-    const kind = conv.conversationType ?? 'personal';
     if (kind !== 'personal' && this.cfg.respondWithoutMention === false && !this.isForMe(m)) return;
 
     const upn = await this.resolveUpn(m.serviceUrl, conv.id, from);
     const ids = senderIds(from, conv.id, upn);
-    const { access } = this.accessFor(ids, conv.id);
+    let { access } = this.accessFor(ids, conv.id);
     if (!access) return; // unmapped sender → stay silent
+    const account = await this.authorizeAccount(m);
+    if (!account) return;
+    if (Number.isInteger(account.id)) access = { ...access, actAsUserId: account.id };
 
     let text = said;
 
@@ -865,15 +915,10 @@ export class MsTeamsAdapter {
     const base = extra.card
       ? { type: 'message', attachments: [extra.card] }
       : await this.textActivity(conversationId, serviceUrl, content, extra.ai === true);
-    // A private reply, visible only to the person who sent the targeted message. The turn registers
-    // itself in `targetedTurns` for the duration, because not every outgoing piece of a turn carries a
-    // reply reference we could key on — the tool-progress bubble is created bare by the shared live
-    // engine, and posting THAT publicly would leak the question through the trace of answering it.
-    //
-    // The window is the turn, so a proactive push that lands inside it is sent privately too. That is the
-    // direction to fail in: the recipient still sees it, and nothing reaches people who could not see the
-    // question. The reverse — a public answer to a private message — cannot be taken back.
-    const targeted = extra.targeted ?? this.targetedTurns.get(String(conversationId)) ?? null;
+    // A private reply, visible only to the person who sent the targeted message. Not every outgoing piece
+    // carries a reply reference — the shared live engine creates its progress bubble bare — so the async
+    // turn context is the audience source of truth. It cannot be overwritten by another turn in the chat.
+    const targeted = extra.targeted ?? this.targetedTurn.getStore() ?? null;
     const activity = targeted ? withTargeting(base, targeted) : base;
     try {
       return extra.replyToId
@@ -949,7 +994,7 @@ export class MsTeamsAdapter {
     const base = { type: 'message', attachments, ...(text ? { text } : {}), ...(entities.length ? { entities } : {}) };
     // An image is part of the answer, so it follows the answer's audience: a picture posted publicly
     // would expose a privately asked question just as plainly as the text would.
-    const targeted = this.targetedTurns.get(String(conversationId)) ?? null;
+    const targeted = this.targetedTurn.getStore() ?? null;
     const message = targeted ? withTargeting(base, targeted) : base;
     await this.connector.send(serviceUrl, conversationId, message, targeted != null).catch((e) => this.log.error(`image upload failed: ${e?.message ?? e}`));
   }

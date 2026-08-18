@@ -17,6 +17,14 @@
       "label": "ID tenantu",
       "hint": "Directory (tenant) ID vášho Entra — bot sa overuje voči tomuto tenantu (registrácia pre jeden tenant)."
     },
+    "accountLinking": {
+      "label": "Vyžadovať prihlásenie účtom Microsoft",
+      "hint": "V osobných chatoch overí každého odosielateľa v Teams prostredníctvom delegovaného pripojenia OAuth služby Azure Bot, povolí iba aktívne členské účty tohto tenantu a konverzáciu spustí pod účtom Elowen danej osoby. Zdieľané chaty odmietne z dôvodu ochrany súkromnej pamäte a prihlasovacích údajov. Prístupové a obnovovacie tokeny zostávajú v službe Bot Framework Token Service."
+    },
+    "oauthConnectionName": {
+      "label": "Názov pripojenia OAuth",
+      "hint": "Presný názov pripojenia nastaveného v prostriedku Azure Bot. Použite poskytovateľa Microsoft Entra ID v2, tento tenant, delegované oprávnenie User.Read, adresu presmerovania https://token.botframework.com/.auth/web/redirect a ponechajte adresu Token Exchange URL prázdnu."
+    },
     "agentName": {
       "label": "Názov aplikácie v Teams",
       "hint": "Názov aplikácie a bota v stiahnuteľnom balíku — to, čo ľudia vidia v katalógu Teams vašej organizácie a v príkaze /help. Prázdne = Elowen. Vyplňte, ak sa tento názov kryje s inou aplikáciou, ktorá už v katalógu je."
@@ -77,7 +85,7 @@
     },
     "toolMessageMode": {
       "label": "Rozloženie správ nástrojov",
-      "hint": "Jedna správa sa priebežne edituje; per-tool odošle správu za každé volanie nástroja.",
+      "hint": "Jedna správa sa priebežne upravuje; pri voľbe „Správa za každý nástroj“ sa odošle samostatná správa pre každé volanie nástroja.",
       "options": {
         "single": "Jedna živá správa",
         "per_tool": "Správa za každý nástroj"
@@ -142,7 +150,7 @@
     },
     "sec_roles": {
       "label": "Pravidlá rolí",
-      "hint": "Mapujú odosielateľov v Teams na povolené projekty, prompt roly a nástroje, ktoré smie bot použiť."
+      "hint": "Mapujú odosielateľov v Teams na povolené projekty, pokyny roly a nástroje, ktoré smie bot použiť."
     },
     "rolePolicies": {
       "label": "Pravidlá rolí",

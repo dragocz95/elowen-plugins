@@ -125,7 +125,7 @@ async function main() {
 
     // 2) Enable the plugin — PATCH /plugins/:name hot-reloads the registry; the adapter validates the
     //    credentials eagerly against the fake token endpoint.
-    const enable = await patch(baseUrl, '/plugins/msteams', token, { enabled: true });
+    const enable = await patch(baseUrl, '/plugins/msteams', token, { enabled: true, acknowledgeGrants: ['users'] });
     assert(enable.status === 200, `PATCH /plugins/msteams → 200 (got ${enable.status}: ${enable.text})`);
     await fake.waitForCall((calls) => calls.some((c) => c.path === '/oauth/token'), 20_000, 'eager credential check (POST /oauth/token)');
     console.log('PASS wiring: msteams plugin enabled and authenticated against the fake token endpoint.');

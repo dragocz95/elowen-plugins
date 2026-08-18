@@ -17,9 +17,11 @@ type AdapterModule = {
     cfg: Record<string, unknown>, logger: typeof log, state: unknown, listModels: () => Promise<unknown[]>,
     imageDirs?: string[], resolveProvider?: () => null, answerQuestion?: (id: string, answers: unknown[]) => boolean,
     chatCommands?: () => { name: string; description: string; kind: string }[],
+    listUsers?: () => { id: number; username: string; isAdmin: boolean }[], accountLinking?: unknown,
   ) => {
     handleWebhook: (req: { method: string; headers: Record<string, string>; json: () => Promise<unknown> }) => Promise<{ status?: number }>;
     onActivity: (m: unknown) => Promise<void>;
+    onInvoke: (m: unknown) => Promise<{ status: number }>;
     onCardAction: (m: unknown) => Promise<void>;
     postAsk: (convId: string, replyToId: string, askerId: string, id: string, questions: unknown[]) => Promise<void>;
     listen: (h: (src: Record<string, unknown>, text: string, onEvent?: (e: Record<string, unknown>) => void) => Promise<string | undefined>) => void;
@@ -51,6 +53,10 @@ async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
   answers?: { id: string; answers: unknown[] }[];
   models?: unknown[];
   users?: { id: number; username: string; isAdmin: boolean }[];
+  accountLinking?: {
+    authenticate: (activity: unknown, options?: { magicCode?: string }) => Promise<{ status: string; user?: { id: number } }>;
+    signInActivity: (activity: unknown, text: string, button: string) => Promise<Record<string, unknown>>;
+  };
 } = {}) {
   const { MsTeamsAdapter } = await import(join(repoRoot, 'plugins/msteams/lib/adapter.mjs')) as AdapterModule;
   const state = new MemoryState();
@@ -68,6 +74,7 @@ async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
     (id, answers) => { (opts.answers ??= []).push({ id, answers }); return true; },
     () => [],
     () => opts.users ?? [],
+    opts.accountLinking ?? null,
   );
   // Quiet transport for unit tests: no network, capture the outbound calls.
   const calls: { kind: string; args: unknown[] }[] = [];
@@ -160,6 +167,20 @@ describe('msteams plugin registration', () => {
     expect(reg.platforms.map((p) => p.name)).toEqual(['msteams']);
     expect([...reg.httpRoutes.keys()]).toEqual(['msteams/messages']);
   });
+
+  it('requires the capability-gated external account seam when account linking is enabled', async () => {
+    const externalUsers = {
+      resolve: () => null,
+      linkOrProvision: () => ({ user: { id: 7, username: 'alex', isAdmin: false }, created: true }),
+    };
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['msteams'], logger: log,
+      config: { msteams: { ...CREDS, accountLinking: true, oauthConnectionName: 'Chetty delegated access', rolePolicies: [] } },
+      host: { externalUsers },
+    });
+    expect(reg.platforms.map((p) => p.name)).toEqual(['msteams']);
+    expect(reg.pluginCapabilities.get('msteams')?.mutates).toContain('users');
+  });
 });
 
 describe('msteams identity + role mapping', () => {
@@ -225,7 +246,10 @@ describe('msteams identity + role mapping', () => {
       readFile(join(repoRoot, 'plugins/msteams/index.mjs'), 'utf8'),
     ]);
     expect(index).toContain('ctx.host.stores()');
-    expect((JSON.parse(manifest) as { capabilities?: { reads?: string[] } }).capabilities?.reads).toContain('stores');
+    expect(index).toContain('ctx.host.externalUsers()');
+    const capabilities = (JSON.parse(manifest) as { capabilities?: { reads?: string[]; mutates?: string[] } }).capabilities;
+    expect(capabilities?.reads).toContain('stores');
+    expect(capabilities?.mutates).toContain('users');
   });
 
   it('declares every setting index.mjs reads off the plugin config', async () => {
@@ -347,6 +371,92 @@ describe('msteams identity + role mapping', () => {
     expect(reply?.args[3]).toMatchObject({ type: 'message', textFormat: 'markdown', text: 'brain says hi' });
   });
 
+  it('runs an authenticated Teams sender as the verified linked account', async () => {
+    const accountLinking = {
+      authenticate: async () => ({ status: 'authorized', user: { id: 7 } }),
+      signInActivity: async () => ({}),
+    };
+    const { adapter } = await makeAdapter(
+      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1], elowenUser: 'filip' }] },
+      { accountLinking, users: [{ id: 1, username: 'filip', isAdmin: true }] },
+    );
+    const seen: Record<string, unknown>[] = [];
+    adapter.listen(async (src) => { seen.push(src); return undefined; });
+    await adapter.onActivity(activity());
+    expect(seen[0]?.access).toMatchObject({ projectIds: [1], actAsUserId: 7 });
+  });
+
+  it('sends an OAuth card in personal chat and never starts the brain before sign-in', async () => {
+    const accountLinking = {
+      authenticate: async () => ({ status: 'sign_in_required' }),
+      signInActivity: async () => ({ type: 'message', attachments: [{ contentType: 'application/vnd.microsoft.card.oauth' }] }),
+    };
+    const { adapter, calls } = await makeAdapter(
+      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] },
+      { accountLinking },
+    );
+    let turns = 0;
+    adapter.listen(async () => { turns++; return undefined; });
+    await adapter.onActivity(activity());
+    expect(turns).toBe(0);
+    expect(calls.find((call) => call.kind === 'reply')?.args[3]).toMatchObject({
+      type: 'message', attachments: [{ contentType: 'application/vnd.microsoft.card.oauth' }],
+    });
+  });
+
+  it('refuses linked-account turns in shared chats before authentication or brain access', async () => {
+    let authentications = 0;
+    let turns = 0;
+    const accountLinking = {
+      authenticate: async () => { authentications++; return { status: 'authorized', user: { id: 7 } }; },
+      signInActivity: async () => { throw new Error('must not build a channel OAuth card'); },
+    };
+    const { adapter, calls } = await makeAdapter(
+      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] },
+      { accountLinking },
+    );
+    adapter.listen(async () => { turns++; return 'private data'; });
+    await adapter.onActivity(activity({
+      conversation: { id: '19:channel', conversationType: 'channel', tenantId: 'tenant-guid' },
+    }));
+    expect(authentications).toBe(0);
+    expect(turns).toBe(0);
+    expect(calls.find((call) => call.kind === 'reply')?.args[3]).toMatchObject({
+      text: expect.stringContaining('personal chat'),
+    });
+  });
+
+  it('completes signin/verifyState only for a sender allowed by role policy', async () => {
+    const attempts: { magicCode?: string }[] = [];
+    const accountLinking = {
+      authenticate: async (_incoming: unknown, options?: { magicCode?: string }) => {
+        attempts.push(options ?? {});
+        return { status: 'authorized', user: { id: 7 } };
+      },
+      signInActivity: async () => ({}),
+    };
+    const { adapter, calls } = await makeAdapter(
+      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] },
+      { accountLinking },
+    );
+    await adapter.onInvoke(activity({ type: 'invoke', name: 'signin/verifyState', value: { state: '123456' } }));
+    await vi.waitFor(() => expect(attempts).toEqual([{ magicCode: '123456' }]));
+    expect(calls.find((call) => call.kind === 'reply')?.args[3]).toMatchObject({
+      text: expect.stringContaining('linked'),
+    });
+
+    await adapter.onInvoke(activity({
+      type: 'invoke', name: 'signin/verifyState', value: { state: '999999' },
+      from: { id: '29:other', aadObjectId: 'aad-other', name: 'Other' },
+    }));
+    await adapter.onInvoke(activity({
+      type: 'invoke', name: 'signin/verifyState', value: { state: '654321' },
+      conversation: { id: '19:channel', conversationType: 'channel', tenantId: 'tenant-guid' },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(attempts).toHaveLength(1);
+  });
+
   it('drops an unmapped sender without any outbound traffic', async () => {
     const { adapter, calls } = await makeAdapter({ rolePolicies: [] });
     adapter.listen(async () => 'never');
@@ -425,6 +535,40 @@ describe('msteams identity + role mapping', () => {
     expect(replies[0]!.args[4]).toBe(true);
     expect(replies[1]!.args[4]).toBe(false);
     expect(replies[1]!.args[3]).not.toHaveProperty('recipient');
+  });
+
+  it('keeps targeted and public audiences isolated during concurrent turns in one channel', async () => {
+    const { adapter, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] });
+    let releasePrivate!: () => void;
+    let privateStarted!: () => void;
+    const privateHold = new Promise<void>((resolve) => { releasePrivate = resolve; });
+    const started = new Promise<void>((resolve) => { privateStarted = resolve; });
+    adapter.listen(async (_src, text) => {
+      if (text.includes('private question')) {
+        privateStarted();
+        await privateHold;
+        return 'private answer';
+      }
+      return 'public answer';
+    });
+    const channel = (over: Record<string, unknown> = {}) => activity({
+      conversation: { id: 'a:chan', conversationType: 'channel', tenantId: 't' }, ...over,
+    });
+    const privateTurn = adapter.onActivity(channel({
+      id: 'private-in', text: 'private question',
+      recipient: { id: '28:bot', name: 'Elowen', isTargeted: true },
+    }));
+    await started;
+    await adapter.onActivity(channel({ id: 'public-in', text: 'public question' }));
+    releasePrivate();
+    await privateTurn;
+
+    const publicReply = calls.find((c) => c.kind === 'reply' && c.args[2] === 'public-in');
+    const privateReply = calls.find((c) => c.kind === 'reply' && c.args[2] === 'private-in');
+    expect(publicReply?.args[4]).toBe(false);
+    expect(publicReply?.args[3]).not.toHaveProperty('recipient');
+    expect(privateReply?.args[4]).toBe(true);
+    expect(privateReply?.args[3]).toMatchObject({ recipient: { id: '29:enc' } });
   });
 });
 
@@ -627,6 +771,18 @@ describe('msteams proactive notify + app package', () => {
     expect(manifest.bots[0]!.commandLists.find((l) => l.scopes.includes('personal'))?.triggers).toEqual(['mention']);
     // Teams draws the slash itself and inserts the bare title — a stored "/help" would arrive as "//help".
     expect(group?.commands.every((c) => !c.title.startsWith('/'))).toBe(true);
+  });
+
+  it('allows the Bot Framework sign-in domain only when account linking is enabled', async () => {
+    const manifestOf = (adapter: { appPackage: () => Buffer }) => {
+      const zip = adapter.appPackage();
+      const nameLen = zip.readUInt16LE(26);
+      return JSON.parse(zip.subarray(30 + nameLen, 30 + nameLen + zip.readUInt32LE(18)).toString()) as { validDomains: string[] };
+    };
+    const disabled = await makeAdapter({ accountLinking: false });
+    const enabled = await makeAdapter({ accountLinking: true });
+    expect(manifestOf(disabled.adapter).validDomains).toEqual([]);
+    expect(manifestOf(enabled.adapter).validDomains).toEqual(['token.botframework.com']);
   });
 
   it('carries the configured app and publisher names into the app package', async () => {
