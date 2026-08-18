@@ -73,8 +73,9 @@ function pushCard(ctx, todos) {
   });
 }
 
-/** Per-identity/per-workdir lists in one JSON map. Legacy flat-array data is intentionally not exposed:
- *  its owner is unknowable, so surfacing it after an upgrade could leak one user's task text to another. */
+/** Per-conversation lists in one JSON map. Data written under an older, coarser key is intentionally not
+ *  exposed: the conversation that owns it is unknowable, so surfacing it after an upgrade would replay the
+ *  very leak this keying prevents — and legacy flat-array data has no knowable owner at all. */
 class TodoStore {
   constructor(file) { this.file = file; }
 
@@ -100,9 +101,17 @@ class TodoStore {
   }
 }
 
-/** The authenticated Elowen account when available, otherwise the raw platform sender. Appending the
- *  live workdir keeps independent git projects from sharing a checklist in the same user session. */
+/** A checklist belongs to ONE conversation, so the brain session id is the key. Anything coarser is a
+ *  leak: keyed by account and working directory, a brand-new web conversation — or a CLI `/resume` onto
+ *  it — inherited whatever checklist another conversation of the same user happened to leave in the same
+ *  checkout, two `in_progress` items and all. The session id is read from the host's own turn scope, so
+ *  the plugin cannot widen it. The owner prefix stays for defence in depth; it never widens the key.
+ *
+ *  Null when the turn carries no conversation. There is nothing to own the list then, and a shared
+ *  fallback bucket is exactly the leak, so callers refuse rather than guess. */
 function keyFor(ctx) {
+  const sessionId = ctx.currentSessionId?.();
+  if (!sessionId) return null;
   const identity = ctx.currentIdentity?.();
   const owner = !identity
     ? 'shared'
@@ -111,8 +120,7 @@ function keyFor(ctx) {
       : identity.platform && identity.userId
         ? `${identity.platform}:${identity.userId}`
         : 'shared';
-  const workDir = ctx.currentWorkDir?.();
-  return workDir ? `${owner}@${workDir}` : owner;
+  return `${owner}#${sessionId}`;
 }
 
 export function register(ctx) {
@@ -133,8 +141,10 @@ export function register(ctx) {
     }),
     execute: async (_id, params) => {
       try {
+        const key = keyFor(ctx);
+        if (!key) throw new Error('a todo checklist belongs to a conversation, and this turn has none');
         const todos = (params.todos ?? []).map(normalizeTodo).filter(Boolean);
-        store.write(keyFor(ctx), todos);
+        store.write(key, todos);
         pushCard(ctx, todos);
         const completed = todos.filter((todo) => todo.status === 'completed').length;
         return ok(`Todo list updated (${completed}/${todos.length} done). It is visible in the todo panel; do not repeat it in the reply.`);
@@ -151,7 +161,8 @@ export function register(ctx) {
     parameters: Type.Object({}),
     execute: async () => {
       try {
-        const todos = store.read(keyFor(ctx));
+        const key = keyFor(ctx);
+        const todos = key ? store.read(key) : [];
         pushCard(ctx, todos);
         return ok(renderMarkdown(todos));
       } catch (error) {
@@ -163,7 +174,8 @@ export function register(ctx) {
   // State changes every turn, so keep it cache-safe in the ephemeral user message. With the host's
   // placement-aware API it follows the user's actual request; an empty list adds no dynamic tokens.
   ctx.registerTurnContext(() => {
-    const todos = store.read(keyFor(ctx));
+    const key = keyFor(ctx);
+    const todos = key ? store.read(key) : [];
     return todos.length ? renderTurnContext(todos) : '';
   }, { placement: 'after-user' });
 

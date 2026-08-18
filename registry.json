@@ -155,7 +155,7 @@
     },
     {
       "name": "todo",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "description": "Task todo list: the agent keeps a live checklist for multi-step work and shows it to you as it goes.",
       "category": "automation",
       "author": "Elowen",

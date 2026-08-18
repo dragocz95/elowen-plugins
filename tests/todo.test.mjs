@@ -15,6 +15,7 @@ test('todo keeps its live state and update protocol together after the user mess
   const cards = [];
   const ctx = {
     currentIdentity: () => ({ elowenUserId: 7 }),
+    currentSessionId: () => 'brain-7-abc',
     currentWorkDir: () => '/srv/project',
     dataDir: () => dataDir,
     emitCard: (card) => cards.push(card),
@@ -53,7 +54,7 @@ test('todo keeps its live state and update protocol together after the user mess
   assert.match(block, /Do not repeat the checklist in the reply/);
 
   const stored = JSON.parse(readFileSync(join(dataDir, 'todos.json'), 'utf8'));
-  assert.deepEqual(Object.keys(stored), ['u7@/srv/project']);
+  assert.deepEqual(Object.keys(stored), ['u7#brain-7-abc']);
   assert.equal(cards.at(-1)?.id, 'todos');
   assert.match(systemPrompt, /multi-step task/i);
   assert.match(systemPrompt, /TodoWrite/);
@@ -64,6 +65,6 @@ test('todo manifest and marketplace registry expose the same release version', (
   const manifest = JSON.parse(readFileSync(new URL('../plugins/todo/elowen-plugin.json', import.meta.url), 'utf8'));
   const registry = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
   const catalog = registry.plugins.find((plugin) => plugin.name === 'todo');
-  assert.equal(manifest.version, '0.5.0');
+  assert.equal(manifest.version, '0.6.0');
   assert.equal(catalog?.version, manifest.version);
 });
