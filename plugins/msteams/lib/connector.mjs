@@ -81,16 +81,53 @@ export class ConnectorClient {
    *  call in this client, is the one thing that must not be sent. One request, so the range is the whole
    *  file; splitting into 320 KiB fragments only becomes necessary past 60 MiB, far above our cap. */
   async upload(uploadUrl, data) {
-    const res = await fetch(String(uploadUrl), {
-      method: 'PUT',
-      headers: {
-        'content-type': 'application/octet-stream',
-        'content-length': String(data.length),
-        'content-range': `bytes 0-${data.length - 1}/${data.length}`,
-      },
-      body: data,
-    });
-    if (!res.ok) throw new Error(`file upload → ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const url = String(uploadUrl);
+    // A bare `fetch failed` says nothing: undici hides the real reason (DNS, TLS, reset, timeout) in the
+    // cause chain, so a transport failure was indistinguishable from a refusal. Name the host and unwind
+    // that chain — the URL itself never goes to the log, it is a pre-authenticated one-shot credential.
+    const host = (() => { try { return new URL(url).host; } catch { return 'invalid-url'; } })();
+    const attempt = async () => {
+      const started = Date.now();
+      try {
+        const res = await fetch(url, {
+          method: 'PUT',
+          headers: {
+            // No content-length: it is a forbidden request header, computed from the body. Setting it by
+            // hand made undici reject the request before the network with `invalid content-length header`,
+            // so every consented file failed instantly. A plain `node` script accepts it — the daemon
+            // wraps global fetch (openrouterMeter), and the re-dispatch is where the duplicate is caught.
+            'content-type': 'application/octet-stream',
+            'content-range': `bytes 0-${data.length - 1}/${data.length}`,
+          },
+          body: data,
+        });
+        if (!res.ok) throw new Error(`file upload → ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        this.log?.info?.(`msteams file upload ok: ${data.length} B to ${host} in ${Date.now() - started} ms`);
+      } catch (error) {
+        // Both halves matter: the code says WHICH undici guard fired, the message says WHY. Logging only
+        // the code left `UND_ERR_INVALID_ARG` with no hint at which argument was rejected.
+        const chain = [];
+        for (let e = error; e && chain.length < 4; e = e.cause) {
+          chain.push([e.code ?? e.errno, String(e.message ?? '').slice(0, 120)].filter(Boolean).join(': '));
+        }
+        const body = `${data?.constructor?.name ?? typeof data}/${data?.byteLength ?? data?.length ?? '?'}B`;
+        error.uploadDetail = `${host}, body ${body}, url ${url.length} chars, after ${Date.now() - started} ms — ${chain.join(' ← ')}`;
+        throw error;
+      }
+    };
+    try {
+      await attempt();
+    } catch (error) {
+      // Retry ONLY a transport failure, never a rejection: an HTTP status means the service saw the bytes
+      // and answered, so resending them would upload the file twice. `fetch` throwing means it never got
+      // that far, and Teams' upload URL stays valid until it does.
+      if (!/^file upload → \d/.test(String(error?.message ?? ''))) {
+        this.log?.warn?.(`msteams file upload retrying after transport failure (${error.uploadDetail ?? error?.message})`);
+        await attempt();
+        return;
+      }
+      throw error;
+    }
   }
 
   /** The transient "…" indicator Teams shows while the agent works. */

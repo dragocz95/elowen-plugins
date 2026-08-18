@@ -88,3 +88,78 @@ describe('ConnectorClient.download size guard', () => {
     expect(buf.byteLength).toBe(10);
   });
 });
+
+/** A consented file goes to a one-shot pre-authenticated URL. `fetch` rejecting there means the bytes
+ *  never reached the service, which is both worth retrying and worth naming: the bare "fetch failed"
+ *  undici throws hid the reason (DNS, TLS, reset) and made a dropped connection look like a refusal. */
+describe('ConnectorClient.upload transport failures', () => {
+  async function uploader(logger = log) {
+    const { ConnectorClient } = await import(join(repoRoot, 'plugins/msteams/lib/connector.mjs')) as {
+      ConnectorClient: new (cfg: Record<string, unknown>, logger: typeof log) => {
+        upload: (url: string, data: Buffer) => Promise<void>;
+        token: () => Promise<string>;
+      };
+    };
+    const client = new ConnectorClient({ appId: 'a', appPassword: 'b', tenantId: 't' }, logger);
+    Object.assign(client, { token: async () => 'tok' });
+    return client;
+  }
+
+  it('retries once when the connection never reached the service, then succeeds', async () => {
+    const client = await uploader();
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      if (++calls === 1) {
+        const err = new Error('fetch failed');
+        (err as Error & { cause?: unknown }).cause = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+        throw err;
+      }
+      return { ok: true, status: 201, text: async () => '' };
+    }) as unknown as typeof fetch;
+
+    await client.upload('https://chettyai-my.sharepoint.com/personal/x/upload', Buffer.alloc(8));
+    expect(calls).toBe(2);
+  });
+
+  /** `content-length` is a forbidden request header the runtime derives from the body. Sending it by hand
+   *  made undici reject every consented upload with `invalid content-length header` before any byte left
+   *  the process — invisible to a plain `node` probe, because the daemon wraps global fetch. */
+  it('lets the runtime set content-length instead of declaring it', async () => {
+    const client = await uploader();
+    let sent: Record<string, string> = {};
+    globalThis.fetch = (async (_url: string, init: { headers: Record<string, string> }) => {
+      sent = init.headers;
+      return { ok: true, status: 201, text: async () => '' };
+    }) as unknown as typeof fetch;
+
+    await client.upload('https://x/upload', Buffer.alloc(64));
+    expect(Object.keys(sent).map((k) => k.toLowerCase())).not.toContain('content-length');
+    expect(sent['content-range']).toBe('bytes 0-63/64'); // the range Teams does require stays
+  });
+
+  it('never resends after an HTTP rejection — the service already took the bytes', async () => {
+    const client = await uploader();
+    let calls = 0;
+    globalThis.fetch = (async () => { calls++; return { ok: false, status: 409, text: async () => 'conflict' }; }) as unknown as typeof fetch;
+
+    await expect(client.upload('https://x/upload', Buffer.alloc(4))).rejects.toThrow(/409/);
+    expect(calls).toBe(1);
+  });
+
+  it('names the host and the unwound cause instead of a bare "fetch failed"', async () => {
+    const warnings: string[] = [];
+    const client = await uploader({ info() {}, warn: (m: string) => { warnings.push(m); }, error() {} } as unknown as typeof log);
+    globalThis.fetch = (async () => {
+      const err = new Error('fetch failed');
+      (err as Error & { cause?: unknown }).cause = Object.assign(new Error('getaddrinfo ENOTFOUND'), { code: 'ENOTFOUND' });
+      throw err;
+    }) as unknown as typeof fetch;
+
+    const failure = await client.upload('https://chettyai-my.sharepoint.com/personal/x/upload', Buffer.alloc(16)).catch((e: Error & { uploadDetail?: string }) => e);
+    expect(failure.uploadDetail).toContain('chettyai-my.sharepoint.com');
+    expect(failure.uploadDetail).toContain('ENOTFOUND'); // the cause undici buries
+    expect(failure.uploadDetail).toContain("16B");
+    expect(warnings.join(' ')).toContain('retrying'); // the retry is visible, not silent
+    expect(failure.uploadDetail).not.toContain('/personal/x/upload'); // the one-shot URL stays out of the log
+  });
+});

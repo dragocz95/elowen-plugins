@@ -542,7 +542,9 @@ export class MsTeamsAdapter {
     try {
       await this.connector.upload(info.uploadUrl, pend.data);
     } catch (e) {
-      this.log.error(`msteams file upload failed for ${pend.name}: ${e?.message ?? e}`);
+      // `uploadDetail` carries the host, byte count, elapsed time and the unwound cause chain that a bare
+      // "fetch failed" swallows — without it this line could not tell a refusal from a dropped connection.
+      this.log.error(`msteams file upload failed for ${pend.name}: ${e?.message ?? e}${e?.uploadDetail ? ` [${e.uploadDetail}]` : ''}`);
       await this.tmEdit(pend.conversationId, pend.activityId, '', settledCard(this.msg.fileFailed(pend.name)));
       return;
     }
