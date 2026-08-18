@@ -751,8 +751,9 @@ export class MsTeamsAdapter {
       // the caller only logs when the whole webhook promise rejects, which this catch prevents, so an
       // operator reading the daemon log sees a healthy service while every turn is dying in the chat.
       this.log.error(`msteams turn failed in ${conv.id}: ${e?.stack ?? e?.message ?? e}`);
-      if (stream) await stream.fail(e?.message ?? e); // settle live tools before the error reply lands below them
-      await this.tmSend(conv.id, this.msg.error(e?.message ?? e), { replyToId: m.id }).catch(() => {});
+      const errorMessage = this.msg.error(e?.message ?? e);
+      const handled = stream ? await stream.fail(errorMessage) : false;
+      if (!handled) await this.tmSend(conv.id, errorMessage, { replyToId: m.id }).catch(() => {});
     }
   }
 

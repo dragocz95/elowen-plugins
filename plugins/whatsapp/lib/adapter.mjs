@@ -368,10 +368,11 @@ export class WhatsAppAdapter {
       if (reactions && !isSteered(reply)) void this.react(m.key, '✅').catch(() => {});
     } catch (e) {
       clearInterval(typing);
-      if (stream) await stream.fail(e?.message ?? e); // settle live tools before the error reply lands below them
+      const errorMessage = this.msg.error(e?.message ?? e);
+      const handled = stream ? await stream.fail(errorMessage) : false;
       void this.sock.sendPresenceUpdate('paused', chatJid).catch(() => {});
       if (reactions) void this.react(m.key, '❌').catch(() => {});
-      await this.sendText(chatJid, this.msg.error(e?.message ?? e), m).catch(() => {});
+      if (!handled) await this.sendText(chatJid, errorMessage, m).catch(() => {});
     }
   }
 

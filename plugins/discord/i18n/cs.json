@@ -78,8 +78,8 @@
       "options": { "single": "Jedna živá zpráva", "per_tool": "Jedna zpráva na nástroj" }
     },
     "deleteToolActivityAfterTurn": {
-      "label": "Odstranit aktivitu nástrojů po turnu",
-      "hint": "Po odeslání finální odpovědi smaže samostatnou zprávu nebo zprávy s průběhem nástrojů."
+      "label": "Nahradit průběh finální odpovědí",
+      "hint": "Během práce zobrazí jednu živou zprávu s průběhem a na konci ji přepíše finální odpovědí. Žádná zpráva se nemaže; živé odpovědi a rozložení po nástrojích se nepoužijí."
     },
     "reactions": {
       "label": "Stavové reakce",

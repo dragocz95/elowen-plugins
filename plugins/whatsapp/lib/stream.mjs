@@ -27,6 +27,7 @@ const transport = {
   edit: (a, jid, key, content) =>
     a.sock.sendMessage(jid, { text: content, edit: key }).then(() => true, () => false),
   remove: (a, jid, key) => a.sock.sendMessage(jid, { delete: key }).catch(() => {}),
+  replyRef: (quoted) => ({ quoted }),
   hasImages: (a) => typeof a.resolveImageFiles === 'function' && typeof a.sendImages === 'function',
   // Forward the trigger quote exactly like postWithImages does for text: the image reply keeps its link
   // to the message it answers. The adapter quotes only the first image (matching sendText's first piece).

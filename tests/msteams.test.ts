@@ -1043,14 +1043,17 @@ describe('msteams conversation history backfill', () => {
 });
 
 describe('msteams live trace layout', () => {
+  const loadLiveMessage = async () => (await import(join(repoRoot, 'plugins/msteams/lib/stream.mjs'))) as {
+    LiveMessage: new (a: unknown, c: string, r?: string, k?: string, d?: unknown) => {
+      onEvent: (e: Record<string, unknown>) => void;
+      finalize: (reply?: string) => Promise<void>;
+    };
+  };
+
   it('puts every tool row on its own line', async () => {
     // Teams treats a single newline as a soft wrap, so the shared engine's default join rendered the
     // whole trace as one run-on paragraph: "Skill … ToolSearch … CronAdd …" side by side.
-    const { LiveMessage } = await import(join(repoRoot, 'plugins/msteams/lib/stream.mjs')) as {
-      LiveMessage: new (a: unknown, c: string, r?: string, k?: string, d?: unknown) => {
-        onEvent: (e: Record<string, unknown>) => void;
-      };
-    };
+    const { LiveMessage } = await loadLiveMessage();
     let content = '';
     const adapter = {
       cfg: { runtimeFooter: false },
@@ -1067,6 +1070,31 @@ describe('msteams live trace layout', () => {
     expect(rows.length).toBeGreaterThan(1);
     expect(rows.some((l) => l.includes('Skill') && l.includes('CronAdd'))).toBe(false);
     expect(content).toContain('\n\n');
+  });
+
+  it('edits the replied progress activity into the final answer without deleting it', async () => {
+    const { LiveMessage } = await loadLiveMessage();
+    const sends: { text: string; extra: Record<string, unknown> }[] = [];
+    const edits: string[] = [];
+    let deletes = 0;
+    const adapter = {
+      cfg: { runtimeFooter: false, deleteToolActivityAfterTurn: true },
+      tmSend: async (_c: string, text: string, extra: Record<string, unknown>) => {
+        sends.push({ text, extra });
+        return 'mid-1';
+      },
+      tmEdit: async (_c: string, _id: string, text: string) => { edits.push(text); return true; },
+      tmDelete: async () => { deletes++; },
+    };
+    const lm = new LiveMessage(adapter, 'a:conv1', 'question-1');
+    lm.onEvent({ type: 'tool', id: 'a', name: 'Read', detail: 'config', icon: '📄' });
+    await new Promise((r) => setTimeout(r, 0));
+    await lm.finalize('Final answer.');
+
+    expect(sends).toHaveLength(1);
+    expect(sends[0].extra).toMatchObject({ replyToId: 'question-1' });
+    expect(edits.at(-1)).toBe('Final answer.');
+    expect(deletes).toBe(0);
   });
 });
 

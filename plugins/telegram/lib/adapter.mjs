@@ -335,9 +335,10 @@ export class TelegramAdapter {
       if (reactions && !isSteered(replyText)) void this.react(chatId, m.message_id, '👍').catch(() => {});
     } catch (e) {
       clearInterval(typing);
-      if (stream) await stream.fail(e?.message ?? e); // settle live tools before the error reply lands below them
+      const errorMessage = this.msg.error(e?.message ?? e);
+      const handled = stream ? await stream.fail(errorMessage) : false;
       if (reactions) void this.react(chatId, m.message_id, '👎').catch(() => {});
-      await this.reply(chatId, this.msg.error(e?.message ?? e), m.message_id).catch(() => {});
+      if (!handled) await this.reply(chatId, errorMessage, m.message_id).catch(() => {});
     }
   }
 

@@ -115,10 +115,10 @@
     },
     {
       "key": "deleteToolActivityAfterTurn",
-      "label": "Remove tool activity after turn",
+      "label": "Replace tool activity with answer",
       "type": "boolean",
       "default": false,
-      "hint": "Delete the separate tool-progress message or messages after the final answer is posted."
+      "hint": "Show one live progress message while the agent works, then replace that same message with the final answer. No message is deleted; live-answer and per-tool layouts are overridden."
     },
     {
       "key": "reactions",

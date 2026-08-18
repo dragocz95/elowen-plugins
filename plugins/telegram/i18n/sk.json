@@ -62,8 +62,8 @@
       "options": { "single": "Jedna živá správa", "per_tool": "Jedna správa na nástroj" }
     },
     "deleteToolActivityAfterTurn": {
-      "label": "Odstrániť aktivitu nástrojov po turne",
-      "hint": "Po odoslaní finálnej odpovede zmaže samostatnú správu alebo správy s priebehom nástrojov."
+      "label": "Nahradiť priebeh finálnou odpoveďou",
+      "hint": "Počas práce zobrazí jednu živú správu s priebehom a na konci ju prepíše finálnou odpoveďou. Žiadna správa sa nemaže; živé odpovede a rozloženie po nástrojoch sa nepoužijú."
     },
     "reactions": {
       "label": "Stavové reakcie",

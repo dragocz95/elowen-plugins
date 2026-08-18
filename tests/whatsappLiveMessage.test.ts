@@ -129,6 +129,18 @@ describe('whatsapp LiveMessage (edit lifecycle)', () => {
     expect(state.answers).toEqual(['Hello there']);
   });
 
+  it('replaces tool progress with the final answer instead of leaving a deletion tombstone', async () => {
+    const { LiveMessage } = await load();
+    const { adapter, state } = fakeAdapter(undefined, { deleteToolActivityAfterTurn: true });
+    const lm = new LiveMessage(adapter, 'jid@s', { key: { id: 'question' } });
+    lm.onEvent({ type: 'tool', id: 'a', name: 'Read', detail: 'config', icon: '📄' });
+    await new Promise((r) => setTimeout(r, 0));
+    await lm.finalize('Final answer.');
+    expect(state.progress).toBe('Final answer.');
+    expect(state.answers).toEqual([]);
+    expect(state.deletes).toBe(0);
+  });
+
   it('keeps the NEWEST rows when the trace outgrows the WhatsApp message limit', async () => {
     const { LiveMessage } = await load();
     const { adapter, state } = fakeAdapter();

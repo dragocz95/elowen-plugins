@@ -463,9 +463,10 @@ export class DiscordAdapter {
       if (reactions) { await this.unreact(m.channel_id, m.id, '👀').catch(() => {}); if (!isSteered(reply)) void this.react(m.channel_id, m.id, '✅').catch(() => {}); }
     } catch (e) {
       clearInterval(typing);
-      if (stream) await stream.fail(e?.message ?? e); // settle live tools before the error reply lands below them
+      const errorMessage = this.msg.error(e?.message ?? e);
+      const handled = stream ? await stream.fail(errorMessage) : false;
       if (reactions) { await this.unreact(m.channel_id, m.id, '👀').catch(() => {}); void this.react(m.channel_id, m.id, '❌').catch(() => {}); }
-      await this.reply(m.channel_id, this.msg.error(e?.message ?? e)).catch(() => {});
+      if (!handled) await this.reply(m.channel_id, errorMessage).catch(() => {});
     }
   }
 
@@ -501,8 +502,9 @@ export class DiscordAdapter {
       else if (reply) await this.reply(channelId, reply);
     } catch (e) {
       clearInterval(typing);
-      if (stream) await stream.fail(e?.message ?? e);
-      await this.reply(channelId, this.msg.error(e?.message ?? e)).catch(() => {});
+      const errorMessage = this.msg.error(e?.message ?? e);
+      const handled = stream ? await stream.fail(errorMessage) : false;
+      if (!handled) await this.reply(channelId, errorMessage).catch(() => {});
     }
   }
 
