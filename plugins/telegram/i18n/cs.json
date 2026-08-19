@@ -66,8 +66,8 @@
       "hint": "Během práce zobrazí jednu živou zprávu s průběhem a na konci ji přepíše finální odpovědí. Žádná zpráva se nemaže; živé odpovědi a rozložení po nástrojích se nepoužijí."
     },
     "reactions": {
-      "label": "Stavové reakce",
-      "hint": "Reaguje 👀 při přemýšlení, 👍/👎 po dokončení (Telegram povoluje jen omezenou sadu reakčních emoji; nepodporované se přeskočí)."
+      "label": "Reakce během zpracování",
+      "hint": "Zobrazuje stav zpracování pomocí podporovaných reakcí na příchozí zprávě."
     },
     "runtimeFooter": {
       "label": "Stavový řádek",

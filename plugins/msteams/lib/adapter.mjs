@@ -20,6 +20,7 @@ import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { observesLiveEvents, resolveDisplaySettings, updateDisplayOverrides } from 'elowen-plugin-shared/display';
 import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, imageMimeType } from 'elowen-plugin-shared/images';
+import { isSteered } from 'elowen-plugin-shared/turnResult';
 
 /** The `/display` axes and their values — mirrors the resolution sets in _shared/display.mjs. */
 const DISPLAY_AXES = {
@@ -71,6 +72,9 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const FILE_TTL_MS = 900000;
 const TYPING_INTERVAL_MS = 8000;
 const CONTEXT_MAX = 40;
+const REACTION_PROCESSING = '1f440_eyes';
+const REACTION_DONE = '2705_whiteheavycheckmark';
+const REACTION_FAILED = '274c_crossmark';
 
 /** Backfill bounds, mirroring the Discord adapter's so one answer reads the same on either surface:
  *  at most 100 remembered messages, each line trimmed to 400 characters, the whole block to 6000. */
@@ -798,6 +802,12 @@ export class MsTeamsAdapter {
 
     const typing = setInterval(() => void this.connector.typing(m.serviceUrl, conv.id).catch(() => {}), TYPING_INTERVAL_MS);
     void this.connector.typing(m.serviceUrl, conv.id).catch(() => {});
+    const reactions = this.cfg.reactions !== false && Boolean(m.id) && m.recipient?.isTargeted !== true;
+    const addReaction = (type) => this.connector.addReaction(m.serviceUrl, conv.id, m.id, type)
+      .catch((e) => this.log.warn(`msteams add reaction ${type} failed in ${conv.id}: ${e?.message ?? e}`));
+    const deleteReaction = (type) => this.connector.deleteReaction(m.serviceUrl, conv.id, m.id, type)
+      .catch((e) => this.log.warn(`msteams delete reaction ${type} failed in ${conv.id}: ${e?.message ?? e}`));
+    const reactionStarted = reactions ? addReaction(REACTION_PROCESSING) : Promise.resolve();
 
     // Image turns steer to the configured vision model — the chat's normal model may be text-only.
     const vision = images.length ? parseModelExec(this.cfg.visionModel) : null;
@@ -827,6 +837,11 @@ export class MsTeamsAdapter {
       // Recorded from the model's own text, BEFORE the runtime footer is appended on the way out — the
       // footer is our metadata, and a model shown it as history starts forging that line itself.
       if (replyText) this.recordHistory(conv.id, { role: 'assistant', name: this.agentLabel(), text: replyText });
+      if (reactions) {
+        await reactionStarted;
+        await deleteReaction(REACTION_PROCESSING);
+        if (!isSteered(replyText)) void addReaction(REACTION_DONE);
+      }
     } catch (e) {
       clearInterval(typing);
       // Logged as well as replied. A turn that fails here reaches the person who asked and NOBODY else:
@@ -835,6 +850,11 @@ export class MsTeamsAdapter {
       this.log.error(`msteams turn failed in ${conv.id}: ${e?.stack ?? e?.message ?? e}`);
       const errorMessage = this.msg.error(e?.message ?? e);
       const handled = stream ? await stream.fail(errorMessage) : false;
+      if (reactions) {
+        await reactionStarted;
+        await deleteReaction(REACTION_PROCESSING);
+        void addReaction(REACTION_FAILED);
+      }
       if (!handled) await this.tmSend(conv.id, errorMessage, { replyToId: m.id }).catch(() => {});
     }
   }

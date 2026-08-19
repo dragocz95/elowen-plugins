@@ -82,8 +82,8 @@
       "hint": "Počas práce zobrazí jednu živú správu s priebehom a na konci ju prepíše finálnou odpoveďou. Žiadna správa sa nemaže; živé odpovede a rozloženie po nástrojoch sa nepoužijú."
     },
     "reactions": {
-      "label": "Stavové reakcie",
-      "hint": "Reaguje 👀 pri premýšľaní, ✅/❌ po dokončení."
+      "label": "Reakcie počas spracovania",
+      "hint": "Zobrazuje stav spracovania pomocou reakcií na prichádzajúcej správe."
     },
     "respondWithoutMention": {
       "label": "Odpovedať bez zmienky",

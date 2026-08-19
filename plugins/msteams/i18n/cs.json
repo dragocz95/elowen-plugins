@@ -24,6 +24,7 @@
     "toolOutput": { "label": "Detail výstupu nástrojů", "hint": "Kolik z výsledku každého nástroje průběžná zpráva ponechá po jeho dokončení.", "options": { "hidden": "Pouze stav", "summary": "Krátké shrnutí", "tail": "Poslední část výstupu" } },
     "toolMessageMode": { "label": "Rozložení zpráv nástrojů", "hint": "Jedna zpráva se průběžně upravuje; při volbě „Zpráva za každý nástroj“ se odešle samostatná zpráva pro každé volání nástroje.", "options": { "single": "Jedna živá zpráva", "per_tool": "Zpráva za každý nástroj" } },
     "deleteToolActivityAfterTurn": { "label": "Nahradit průběh finální odpovědí", "hint": "Během práce zobrazí jednu živou zprávu s průběhem a na konci ji přepíše finální odpovědí. Žádná zpráva se nemaže; živé odpovědi a rozložení po nástrojích se nepoužijí." },
+    "reactions": { "label": "Reakce během zpracování", "hint": "Zobrazuje stav zpracování pomocí reakcí na příchozí zprávě." },
     "runtimeFooter": { "label": "Řádek s běhovými údaji", "hint": "Připojí pod finální odpověď malý řádek „model · kontext %“." },
     "showReasoning": { "label": "Zobrazit uvažování", "hint": "Streamovat uvažování modelu do průběžné zprávy (modely s rozšířeným myšlením). Ve výchozím stavu vypnuto — obvykle jde o šum." },
     "language": { "label": "Jazyk služebních zpráv", "hint": "Jazyk vlastních zpráv bota (chyby, odpovědi příkazů). Samotný agent odpovídá jazykem uživatele.", "options": { "en": "Angličtina", "cs": "Čeština", "sk": "Slovenština" } },

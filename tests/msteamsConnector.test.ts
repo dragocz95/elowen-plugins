@@ -14,6 +14,8 @@ async function loadConnector() {
   const { ConnectorClient } = await import(join(repoRoot, 'plugins/msteams/lib/connector.mjs')) as {
     ConnectorClient: new (cfg: Record<string, unknown>, logger: typeof log) => {
       download: (url: string, maxBytes: number) => Promise<Buffer>;
+      addReaction: (serviceUrl: string, conversationId: string, activityId: string, reactionType: string) => Promise<void>;
+      deleteReaction: (serviceUrl: string, conversationId: string, activityId: string, reactionType: string) => Promise<void>;
       token: () => Promise<string>;
     };
   };
@@ -24,6 +26,36 @@ async function loadConnector() {
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
+
+describe('ConnectorClient message reactions', () => {
+  it('honors Retry-After seconds and dates with an exponential fallback and cap', async () => {
+    const { retryAfterMs } = await import(join(repoRoot, 'plugins/msteams/lib/connector.mjs')) as {
+      retryAfterMs: (value: string | null, attempt?: number, now?: number) => number;
+    };
+    const now = Date.parse('2026-08-19T12:00:00Z');
+    expect(retryAfterMs('2', 0, now)).toBe(2000);
+    expect(retryAfterMs('Wed, 19 Aug 2026 12:00:07 GMT', 0, now)).toBe(7000);
+    expect(retryAfterMs(null, 2, now)).toBe(4000);
+    expect(retryAfterMs('60', 0, now)).toBe(15_000);
+  });
+
+  it('adds and removes the bot reaction through the official Connector routes', async () => {
+    const client = await loadConnector();
+    const calls: { url: string; method: string; body?: unknown }[] = [];
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      calls.push({ url: String(input), method: String(init?.method), body: init?.body });
+      return { ok: true, status: 204, headers: { get: () => null }, text: async () => '' };
+    }) as unknown as typeof fetch;
+
+    await client.addReaction('https://smba.example.test/', 'a:conv/1', 'activity/1', '1f440_eyes');
+    await client.deleteReaction('https://smba.example.test/', 'a:conv/1', 'activity/1', '1f440_eyes');
+
+    expect(calls).toEqual([
+      { url: 'https://smba.example.test/v3/conversations/a%3Aconv%2F1/activities/activity%2F1/reactions/1f440_eyes', method: 'PUT', body: undefined },
+      { url: 'https://smba.example.test/v3/conversations/a%3Aconv%2F1/activities/activity%2F1/reactions/1f440_eyes', method: 'DELETE', body: undefined },
+    ]);
+  });
+});
 
 describe('ConnectorClient.download size guard', () => {
   it('rejects a declared-oversized attachment without ever reading the body', async () => {

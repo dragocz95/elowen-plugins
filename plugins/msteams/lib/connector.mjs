@@ -5,8 +5,17 @@ import { TokenSource } from './token.mjs';
 
 const SCOPE = 'https://api.botframework.com/.default';
 
-/** Retry-once pause on a 429, capped so a stuck rate limit can't wedge a turn. */
+/** Retry pause on a 429, capped so a stuck rate limit can't wedge a turn. */
 const MAX_RETRY_AFTER_MS = 15_000;
+
+export function retryAfterMs(value, attempt = 0, now = Date.now()) {
+  const seconds = Number(value);
+  const requested = Number.isFinite(seconds) && seconds >= 0
+    ? seconds * 1000
+    : Math.max(Date.parse(String(value ?? '')) - now, 0);
+  const fallback = 1000 * (2 ** attempt);
+  return Math.min(Math.max(requested || fallback, 1000), MAX_RETRY_AFTER_MS);
+}
 
 /** The flag that makes a post visible to one person instead of the whole conversation. */
 function targetedQuery(targeted) {
@@ -26,8 +35,8 @@ export class ConnectorClient {
     return this.tokens.token();
   }
 
-  /** One connector call against the activity's serviceUrl. 429 waits Retry-After once, then rethrows. */
-  async call(serviceUrl, method, path, body, attempt = 0) {
+  /** One connector call against the activity's serviceUrl. 429 waits Retry-After with bounded retries. */
+  async call(serviceUrl, method, path, body, attempt = 0, maxRetries = 1) {
     const base = String(serviceUrl ?? '').replace(/\/+$/, '');
     if (!base) throw new Error('connector call without a serviceUrl');
     const res = await fetch(`${base}${path}`, {
@@ -38,10 +47,9 @@ export class ConnectorClient {
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
-    if (res.status === 429 && attempt === 0) {
-      const wait = Math.min(Math.max(Number(res.headers.get('retry-after')) || 1, 1) * 1000, MAX_RETRY_AFTER_MS);
-      await new Promise((r) => setTimeout(r, wait));
-      return this.call(serviceUrl, method, path, body, 1);
+    if (res.status === 429 && attempt < maxRetries) {
+      await new Promise((r) => setTimeout(r, retryAfterMs(res.headers.get('retry-after'), attempt)));
+      return this.call(serviceUrl, method, path, body, attempt + 1, maxRetries);
     }
     if (!res.ok) throw new Error(`connector ${method} ${path} → ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const text = await res.text();
@@ -72,6 +80,16 @@ export class ConnectorClient {
 
   async remove(serviceUrl, conversationId, activityId) {
     await this.call(serviceUrl, 'DELETE', `/v3/conversations/${encodeURIComponent(conversationId)}/activities/${encodeURIComponent(activityId)}`);
+  }
+
+  /** Add a bot-owned reaction to an activity. */
+  async addReaction(serviceUrl, conversationId, activityId, reactionType) {
+    await this.call(serviceUrl, 'PUT', `/v3/conversations/${encodeURIComponent(conversationId)}/activities/${encodeURIComponent(activityId)}/reactions/${encodeURIComponent(reactionType)}`, undefined, 0, 3);
+  }
+
+  /** Remove a bot-owned reaction from an activity. */
+  async deleteReaction(serviceUrl, conversationId, activityId, reactionType) {
+    await this.call(serviceUrl, 'DELETE', `/v3/conversations/${encodeURIComponent(conversationId)}/activities/${encodeURIComponent(activityId)}/reactions/${encodeURIComponent(reactionType)}`, undefined, 0, 3);
   }
 
   /** Push the bytes of a consented file to the one-shot URL Teams handed us.

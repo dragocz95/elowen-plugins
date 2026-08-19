@@ -85,6 +85,8 @@ async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
     send: async (...args: unknown[]) => { calls.push({ kind: 'send', args }); return `act-s${++sendSeq}`; },
     update: async (...args: unknown[]) => { calls.push({ kind: 'update', args }); },
     remove: async (...args: unknown[]) => { calls.push({ kind: 'remove', args }); },
+    addReaction: async (...args: unknown[]) => { calls.push({ kind: 'addReaction', args }); },
+    deleteReaction: async (...args: unknown[]) => { calls.push({ kind: 'deleteReaction', args }); },
     member: async () => ({ userPrincipalName: 'alex@contoso.com' }),
     download: async () => Buffer.from('img'),
     token: async () => 'tok',
@@ -394,6 +396,38 @@ describe('msteams identity + role mapping', () => {
     expect(seen[0]!.text).toBe('Alex Rivera wrote: hello there');
     const reply = calls.find((c) => c.kind === 'reply');
     expect(reply?.args[3]).toMatchObject({ type: 'message', textFormat: 'markdown', text: 'brain says hi' });
+    expect(calls.filter((c) => c.kind.endsWith('Reaction'))).toEqual([
+      { kind: 'addReaction', args: ['https://smba.test/emea', 'a:conv1', 'in-1', '1f440_eyes'] },
+      { kind: 'deleteReaction', args: ['https://smba.test/emea', 'a:conv1', 'in-1', '1f440_eyes'] },
+      { kind: 'addReaction', args: ['https://smba.test/emea', 'a:conv1', 'in-1', '2705_whiteheavycheckmark'] },
+    ]);
+  });
+
+  it('can disable processing reactions', async () => {
+    const { adapter, calls } = await makeAdapter({ reactions: false, rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] });
+    adapter.listen(async () => 'done');
+    await adapter.onActivity(activity());
+    expect(calls.filter((c) => c.kind.endsWith('Reaction'))).toEqual([]);
+  });
+
+  it('keeps a reaction failure non-fatal but visible to operators', async () => {
+    const { adapter, warnings } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] });
+    Object.assign(adapter.connector, { addReaction: async () => { throw new Error('reaction refused'); } });
+    adapter.listen(async () => 'done');
+    await adapter.onActivity(activity());
+    expect(warnings.join(' ')).toContain('msteams add reaction');
+    expect(warnings.join(' ')).toContain('reaction refused');
+  });
+
+  it('replaces the processing reaction with a failure reaction when the turn fails', async () => {
+    const { adapter, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] });
+    adapter.listen(async () => { throw new Error('boom'); });
+    await adapter.onActivity(activity());
+    expect(calls.filter((c) => c.kind.endsWith('Reaction'))).toEqual([
+      { kind: 'addReaction', args: ['https://smba.test/emea', 'a:conv1', 'in-1', '1f440_eyes'] },
+      { kind: 'deleteReaction', args: ['https://smba.test/emea', 'a:conv1', 'in-1', '1f440_eyes'] },
+      { kind: 'addReaction', args: ['https://smba.test/emea', 'a:conv1', 'in-1', '274c_crossmark'] },
+    ]);
   });
 
   it('uses the verified Entra binding instead of a legacy admin-managed account mapping', async () => {
@@ -629,6 +663,7 @@ describe('msteams identity + role mapping', () => {
     expect(reply?.args[3]).toMatchObject({ recipient: { id: '29:enc', name: 'Alex Rivera' } });
     expect((reply?.args[3] as { entities?: { type: string; messageId?: string }[] }).entities)
       .toContainEqual({ type: 'targetedMessageInfo', messageId: 'in-1' });
+    expect(calls.filter((c) => c.kind.endsWith('Reaction'))).toEqual([]);
   });
 
   it('leaves an ordinary channel reply public, and stops targeting once the turn ends', async () => {
