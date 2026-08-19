@@ -25,6 +25,44 @@ describe('discord plugin', () => {
   });
 });
 
+describe('DiscordReadChannel message ids', () => {
+  const loadTool = async (messages: unknown[]) => {
+    const { registerTools } = await import(join(repoRoot, 'plugins/discord/lib/tools.mjs')) as {
+      registerTools: (ctx: unknown, adapter: unknown) => void;
+    };
+    const tools: { name: string; execute: (id: string, p: unknown) => Promise<{ content: { text: string }[] }> }[] = [];
+    registerTools(
+      { registerTool: (t: never) => tools.push(t), isAdminSession: () => true, config: {} },
+      { rest: async () => messages },
+    );
+    return tools.find((t) => t.name === 'DiscordReadChannel')!;
+  };
+
+  it('prefixes every line with the message id so pin/delete have something to act on', async () => {
+    const tool = await loadTool([
+      { id: '222', author: { username: 'bob' }, content: 'second' },
+      { id: '111', author: { username: 'alice' }, content: 'first' },
+    ]);
+    const text = (await tool.execute('t', { channelId: '9' })).content[0].text;
+    // Discord returns newest first; the tool reverses to chronological order.
+    expect(text.split('\n')).toEqual(['111  alice: first', '222  bob: second']);
+  });
+
+  it('drops whole lines when trimming, so a truncated snowflake can never be used as an id', async () => {
+    // Enough messages to blow past the 6000-character budget.
+    const many = Array.from({ length: 200 }, (_, i) => ({
+      id: String(100000000000000000 + i),
+      author: { username: 'u' },
+      content: 'x'.repeat(60),
+    }));
+    const text = (await loadTool(many)).execute('t', { channelId: '9' });
+    const lines = (await text).content[0].text.split('\n');
+    expect(lines.join('\n').length).toBeLessThanOrEqual(6000);
+    // Every surviving line still carries a complete 18-digit snowflake.
+    for (const line of lines) expect(line).toMatch(/^\d{18} {2}u: x+$/);
+  });
+});
+
 describe('discord splitContent (code-block-aware chunking)', () => {
   it('never breaks a fenced code block across a chunk boundary', async () => {
     const { splitContent } = await import(join(repoRoot, 'plugins/discord/index.mjs')) as { splitContent: (t: string) => string[] };

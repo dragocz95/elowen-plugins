@@ -85,8 +85,9 @@ export function registerTools(ctx, adapter) {
       'Read the recent message history of a Discord channel or thread by id and return it in chronological order, oldest first.',
       'Use it to load the conversation context of another channel or thread — catching up on what was discussed, summarising a thread, or checking whether something was already answered somewhere else.',
       'channelId is the channel or thread snowflake (get it from DiscordListChannels), and limit sets how many of the most recent messages to fetch: default 30, clamped to 1..100.',
-      'Each line is "author: text", with a trailing "[n attachment(s)]" marker when a message carries files; whitespace is collapsed to one line per message.',
-      'Caveat: message IDS ARE NOT RETURNED, so this cannot give you the id needed by DiscordPinMessage or DiscordDeleteMessage — use DiscordListPins or DiscordApi for that. The output is trimmed to the last 6000 characters, embeds and reactions are omitted, and the tool works only in an admin session.',
+      'Each line is "messageId  author: text", with a trailing "[n attachment(s)]" marker when a message carries files; whitespace is collapsed to one line per message.',
+      'The leading id is what DiscordPinMessage, DiscordUnpinMessage and DiscordDeleteMessage expect, so reading a channel is enough to act on any message in it.',
+      'Caveat: when the history exceeds 6000 characters the OLDEST lines are dropped (never a partial line, so an id is never truncated), embeds and reactions are omitted, and the tool works only in an admin session.',
     ].join(' '),
     parameters: Type.Object({
       channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) whose messages should be read' }),
@@ -97,9 +98,11 @@ export function registerTools(ctx, adapter) {
         adminGate();
         const limit = Math.min(Math.max(1, Number(p.limit) || 30), 100);
         const msgs = (await adapter.rest('GET', `/channels/${encodeURIComponent(p.channelId)}/messages?limit=${limit}`)) ?? [];
-        const lines = msgs.reverse().map((m) => `${m.author?.username ?? m.author?.id ?? '?'}: ${(m.content ?? '').replace(/\s+/g, ' ').trim()}${m.attachments?.length ? `  [${m.attachments.length} attachment(s)]` : ''}`);
-        const text = lines.join('\n') || '(no messages)';
-        return ok(text.length > 6000 ? text.slice(-6000) : text);
+        const lines = msgs.reverse().map((m) => `${m.id}  ${m.author?.username ?? m.author?.id ?? '?'}: ${(m.content ?? '').replace(/\s+/g, ' ').trim()}${m.attachments?.length ? `  [${m.attachments.length} attachment(s)]` : ''}`);
+        // Drop whole lines from the oldest end, never a character slice: a half-cut snowflake would read as a
+        // valid message id and send the next pin/delete at the wrong message.
+        while (lines.length > 1 && lines.join('\n').length > 6000) lines.shift();
+        return ok(lines.join('\n') || '(no messages)');
       } catch (e) { return fail(e); }
     },
   }));
@@ -294,7 +297,7 @@ export function registerTools(ctx, adapter) {
     name: 'DiscordListPins', label: 'List Discord pins',
     description: [
       'List the pinned messages of a Discord channel or thread as "message id  author: text" lines.',
-      'Use it to see what is currently pinned, and — because DiscordReadChannel does not return message ids — as the practical way to obtain a messageId for DiscordUnpinMessage or DiscordDeleteMessage.',
+      'Use it to see what is currently pinned; for a message that is not pinned, read the channel with DiscordReadChannel, which returns the message id on every line.',
       'channelId is the numeric snowflake of the channel or thread; get it from DiscordListChannels.',
       'Each message body is collapsed to one line and cut after 120 characters, so it is a preview, not the full text; attachments and embeds are not shown. Returns "(no pins)" for an empty channel. Read-only and admin-session only.',
     ].join(' '),
@@ -342,7 +345,7 @@ export function registerTools(ctx, adapter) {
     description: [
       'Pin an existing message to the top of its Discord channel or thread, so members can find it from the channel\'s pinned-messages list.',
       'Use it to highlight an announcement, a set of rules, a summary or any message someone asks to "pin" or keep visible.',
-      'channelId and messageId are numeric snowflakes and must belong together — the message has to live in that channel; DiscordListPins is the easiest source of message ids, since DiscordReadChannel does not return them.',
+      'channelId and messageId are numeric snowflakes and must belong together — the message has to live in that channel; DiscordReadChannel prints the id at the start of every line, and DiscordListPins lists the already-pinned ones.',
       'A Discord channel holds at most 50 pins, and pinning beyond that limit fails with an HTTP error text. DiscordUnpinMessage reverses this without deleting anything. Requires an admin session.',
     ].join(' '),
     parameters: Type.Object({
@@ -384,7 +387,7 @@ export function registerTools(ctx, adapter) {
     description: [
       'Permanently delete a single message from a Discord channel or thread.',
       'Use it to remove one specific message — a mistaken post, spam, or something a person asks to take down; to clear many messages at once use DiscordPurgeMessages instead of calling this in a loop.',
-      'channelId and messageId are numeric snowflakes and must match: the message has to live in that channel. DiscordListPins is one way to obtain a message id, since DiscordReadChannel does not return them.',
+      'channelId and messageId are numeric snowflakes and must match: the message has to live in that channel. DiscordReadChannel prints the id at the start of every line, which is the usual way to find the message you mean.',
       'DESTRUCTIVE AND IRREVERSIBLE — the message and its attachments are gone from Discord with no undo, so verify the target before calling. Requires an admin session, and deleting someone else\'s message needs the MANAGE_MESSAGES permission or Discord answers HTTP 403.',
     ].join(' '),
     parameters: Type.Object({
