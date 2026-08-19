@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, KeyRound, MessageCircle, RefreshCw, Search, Settings2, ShieldCheck, UserCheck, Users } from 'lucide-react';
 import { apiJson, runtime, type ConfigField, type PeopleResponse, type PluginDetail, type RolePolicy, type TeamsAccountDetail, type TeamsIdentity, type TeamsPerson, type User } from './runtime';
 
@@ -121,11 +121,10 @@ function formatTimestamp(value: string | number | null | undefined): string {
   return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
-function IdentityCard({ person, users, response, onResponseChange }: {
+function IdentityCard({ person, users, onDetail }: {
   person: TeamsPerson;
   users: User[];
-  response: PeopleResponse;
-  onResponseChange(response: PeopleResponse): void;
+  onDetail(aadObjectId: string, detail: TeamsAccountDetail): void;
 }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('msteams');
@@ -149,17 +148,17 @@ function IdentityCard({ person, users, response, onResponseChange }: {
       .then((value) => {
         if (!live) return;
         setDetail(value);
-        onResponseChange(peopleWithAccountDetail(response, person.aadObjectId, value));
+        onDetail(person.aadObjectId, value);
       })
       .catch((reason) => { if (live) setError(utils.apiErrorMessage(reason)); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [person.aadObjectId]);
+  }, [onDetail, person.aadObjectId, utils]);
 
   const applyDetail = (value: TeamsAccountDetail) => {
     setDetail(value);
     setError(null);
-    onResponseChange(peopleWithAccountDetail(response, person.aadObjectId, value));
+    onDetail(person.aadObjectId, value);
   };
   const bind = async (user: User, replace: boolean) => {
     setPending(true);
@@ -273,10 +272,10 @@ function IdentityCard({ person, users, response, onResponseChange }: {
   );
 }
 
-function PeopleAccess({ draft, response, onResponseChange }: {
+function PeopleAccess({ draft, response, onIdentityDetail }: {
   draft: ReturnType<ReturnType<typeof runtime>['hooks']['usePluginConfigDraft']>;
   response: PeopleResponse;
-  onResponseChange(response: PeopleResponse): void;
+  onIdentityDetail(aadObjectId: string, detail: TeamsAccountDetail): void;
 }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('msteams');
@@ -411,7 +410,7 @@ function PeopleAccess({ draft, response, onResponseChange }: {
                   {policy ? <C.Button variant="ghost" onClick={removePolicy}>{s.removeAccess}</C.Button> : null}
                 </div>
 
-                {accountLinking ? <IdentityCard key={selected.key} person={selected} users={users} response={response} onResponseChange={onResponseChange} /> : null}
+                {accountLinking ? <IdentityCard key={selected.key} person={selected} users={users} onDetail={onIdentityDetail} /> : null}
 
                 {policy === null ? (
                   <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 text-center">
@@ -508,6 +507,9 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
   const [tab, setTab] = useState<WorkspaceTab>('people');
   const [people, setPeople] = useState<PeopleResponse | null>(null);
   const [peopleError, setPeopleError] = useState<string | null>(null);
+  const updateIdentityDetail = useCallback((aadObjectId: string, account: TeamsAccountDetail) => {
+    setPeople((current) => current ? peopleWithAccountDetail(current, aadObjectId, account) : current);
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -572,7 +574,7 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
           <C.ControlSurfaceDocument><C.ControlSurfaceState tone="danger"><C.ErrorState message={`${s.peopleLoadError} — ${peopleError}`} /></C.ControlSurfaceState></C.ControlSurfaceDocument>
         ) : people === null ? (
           <C.ControlSurfaceDocument><C.ControlSurfaceState><C.LoadingState variant="list" /></C.ControlSurfaceState></C.ControlSurfaceDocument>
-        ) : <PeopleAccess draft={draft} response={people} onResponseChange={setPeople} />
+        ) : <PeopleAccess draft={draft} response={people} onIdentityDetail={updateIdentityDetail} />
       ) : (
         <C.SettingsDocument>
           <C.PluginConfigEditor

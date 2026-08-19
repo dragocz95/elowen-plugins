@@ -300,7 +300,7 @@ function formatTimestamp(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "\u2014" : new Intl.DateTimeFormat(void 0, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
-function IdentityCard({ person, users, response, onResponseChange }) {
+function IdentityCard({ person, users, onDetail }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("msteams");
   const [detail, setDetail] = (0, import_react3.useState)(null);
@@ -323,7 +323,7 @@ function IdentityCard({ person, users, response, onResponseChange }) {
     void apiJson(accountDetailPath(person.aadObjectId)).then((value) => {
       if (!live) return;
       setDetail(value);
-      onResponseChange(peopleWithAccountDetail(response, person.aadObjectId, value));
+      onDetail(person.aadObjectId, value);
     }).catch((reason) => {
       if (live) setError(utils.apiErrorMessage(reason));
     }).finally(() => {
@@ -332,11 +332,11 @@ function IdentityCard({ person, users, response, onResponseChange }) {
     return () => {
       live = false;
     };
-  }, [person.aadObjectId]);
+  }, [onDetail, person.aadObjectId, utils]);
   const applyDetail = (value) => {
     setDetail(value);
     setError(null);
-    onResponseChange(peopleWithAccountDetail(response, person.aadObjectId, value));
+    onDetail(person.aadObjectId, value);
   };
   const bind = async (user, replace) => {
     setPending(true);
@@ -448,7 +448,7 @@ function IdentityCard({ person, users, response, onResponseChange }) {
     )
   ] });
 }
-function PeopleAccess({ draft, response, onResponseChange }) {
+function PeopleAccess({ draft, response, onIdentityDetail }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("msteams");
   const users = hooks.useUsers().data ?? [];
@@ -558,7 +558,7 @@ function PeopleAccess({ draft, response, onResponseChange }) {
           ] }),
           policy ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: removePolicy, children: s.removeAccess }) : null
         ] }),
-        accountLinking ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(IdentityCard, { person: selected, users, response, onResponseChange }, selected.key) : null,
+        accountLinking ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(IdentityCard, { person: selected, users, onDetail: onIdentityDetail }, selected.key) : null,
         policy === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 text-center", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserCheck, { size: 28, className: "text-text-muted", "aria-hidden": true }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
@@ -639,6 +639,9 @@ function LoadedWorkspace({ detail }) {
   const [tab, setTab] = (0, import_react3.useState)("people");
   const [people, setPeople] = (0, import_react3.useState)(null);
   const [peopleError, setPeopleError] = (0, import_react3.useState)(null);
+  const updateIdentityDetail = (0, import_react3.useCallback)((aadObjectId, account) => {
+    setPeople((current) => current ? peopleWithAccountDetail(current, aadObjectId, account) : current);
+  }, []);
   (0, import_react3.useEffect)(() => {
     let live = true;
     void apiJson("/plugins/msteams/people").then((value) => {
@@ -692,7 +695,7 @@ function LoadedWorkspace({ detail }) {
         onChange: (value) => setTab(value),
         ariaLabel: s.title
       },
-      children: tab === "people" ? peopleError !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: `${s.peopleLoadError} \u2014 ${peopleError}` }) }) }) : people === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PeopleAccess, { draft, response: people, onResponseChange: setPeople }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SettingsDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      children: tab === "people" ? peopleError !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: `${s.peopleLoadError} \u2014 ${peopleError}` }) }) }) : people === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PeopleAccess, { draft, response: people, onIdentityDetail: updateIdentityDetail }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SettingsDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         C.PluginConfigEditor,
         {
           name: "msteams",

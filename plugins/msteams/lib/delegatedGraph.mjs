@@ -105,7 +105,7 @@ export class DelegatedGraphClient {
             : {}),
           signal: AbortSignal.timeout(this.timeoutMs),
         });
-      } catch (error) {
+      } catch {
         last = new DelegatedGraphError('Microsoft Graph is temporarily unavailable.', { permission: options.permission });
         if (attempt < attempts) { await sleep(150 * attempt); continue; }
         throw last;
