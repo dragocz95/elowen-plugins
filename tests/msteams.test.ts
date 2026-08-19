@@ -1709,7 +1709,7 @@ describe('msteams proactive person messaging', () => {
     const fetched = stubFetch((url) => {
       if (url === TOKEN_URL) return { status: 200, body: { access_token: 'graph-tok', expires_in: 3600 } };
       if (url.endsWith('/messages/100')) {
-        return { status: 200, body: { id: '100', messageType: 'message', from: { user: { displayName: 'Michal' } }, body: { contentType: 'html', content: '<p>Deploy je venku</p>' } } };
+        return { status: 200, body: { id: '100', messageType: 'message', from: { user: { displayName: 'Michal' } }, body: { contentType: 'html', content: '<p>Deploy je venku</p>' }, attachments: [{ name: 'report.pdf', contentType: 'application/pdf' }] } };
       }
       if (url.includes('/messages/100/replies')) {
         return { status: 200, body: { value: [
@@ -1724,7 +1724,7 @@ describe('msteams proactive person messaging', () => {
     try {
       const history = await adapter.buildHistory(conversationId, '102');
       expect(history).toEqual([
-        expect.objectContaining({ id: '100', role: 'user', author: { name: 'Michal' }, text: 'Deploy je venku' }),
+        expect.objectContaining({ id: '100', role: 'user', author: { name: 'Michal' }, text: 'Deploy je venku', attachments: [{ name: 'report.pdf', mimeType: 'application/pdf', kind: 'file' }] }),
         expect.objectContaining({ id: '101', role: 'user', author: { name: 'Lukáš' }, text: 'super' }),
       ]);
       // The message being answered right now is the prompt, not background, and system events are noise.

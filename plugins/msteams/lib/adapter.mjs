@@ -461,6 +461,7 @@ export class MsTeamsAdapter {
         role: m.role === 'assistant' ? 'assistant' : 'user',
         author: { ...(m.authorId ? { id: m.authorId } : {}), name: m.name },
         text: m.text,
+        ...(m.attachments?.length ? { attachments: m.attachments } : {}),
         ...(m.timestamp ? { timestamp: m.timestamp } : {}),
       }));
     } catch (e) {

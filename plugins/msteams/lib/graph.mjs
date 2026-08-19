@@ -159,8 +159,13 @@ async function readThread(client, teamGroupId, channelId, rootMessageId, limit =
  *  a deleted message (tombstone with no body) or a system event ("X added Y to the team"). */
 function threadMessage(raw) {
   if (!raw || raw.deletedDateTime || raw.messageType !== 'message') return null;
+  const attachments = (Array.isArray(raw.attachments) ? raw.attachments : []).slice(0, 8).map((attachment) => ({
+    name: String(attachment?.name ?? '').slice(0, 200),
+    mimeType: String(attachment?.contentType ?? '').slice(0, 120),
+    kind: String(attachment?.contentType ?? '').startsWith('image/') ? 'image' : 'file',
+  }));
   const body = raw.body?.contentType === 'html' ? htmlToText(raw.body?.content) : String(raw.body?.content ?? '').trim();
-  if (!body) return null;
+  if (!body && !attachments.length) return null;
   const application = raw.from?.application;
   const user = raw.from?.user;
   const who = user?.displayName || application?.displayName || 'Unknown';
@@ -169,7 +174,8 @@ function threadMessage(raw) {
     role: application ? 'assistant' : 'user',
     authorId: String(user?.id || application?.id || ''),
     name: String(who),
-    text: body,
+    text: body || '[Attachment]',
+    attachments,
     timestamp: raw.createdDateTime ? String(raw.createdDateTime) : '',
   };
 }
