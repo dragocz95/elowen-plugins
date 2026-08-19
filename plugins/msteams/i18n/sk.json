@@ -31,8 +31,11 @@
     },
     "oauthConnectionName": {
       "label": "Názov pripojenia OAuth",
-      "hint": "Presný názov pripojenia nastaveného v prostriedku Azure Bot. Použite poskytovateľa Microsoft Entra ID v2, tento tenant, delegované oprávnenie User.Read, adresu presmerovania https://token.botframework.com/.auth/web/redirect a ponechajte adresu Token Exchange URL prázdnu."
+      "hint": "Presný názov pripojenia nastaveného v prostriedku Azure Bot. Použite poskytovateľa Microsoft Entra ID v2, tento tenant, delegované oprávnenia Microsoft 365, adresu presmerovania https://token.botframework.com/.auth/web/redirect a ponechajte adresu Token Exchange URL prázdnu."
     },
+    "sec_m365": { "label": "Nástroje Microsoft 365", "hint": "Delegované nástroje Graph vždy konajú v mene prihlásenej osoby a fungujú iba v jej osobnom chate Teams. Tokeny zostávajú v službe Bot Framework Token Service." },
+    "m365AccessMode": { "label": "Prístup k Microsoft 365", "hint": "Režim iba na čítanie blokuje všetky externé zmeny. Čítanie a zápis aj naďalej najskôr zobrazí náhľad a zmenu vykoná až po výslovnom potvrdení konkrétnej operácie.", "options": { "read_only": "Iba na čítanie", "read_write": "Čítanie a zápis" } },
+    "m365MaxTransferBytes": { "label": "Limit prenosu súborov Microsoft", "hint": "Najväčší súbor, ktorý možno jedným volaním stiahnuť z Microsoft 365 alebo doň nahrať. Väčšie súbory používajú obnoviteľnú reláciu nahrávania Microsoft." },
     "agentName": {
       "label": "Názov aplikácie v Teams",
       "hint": "Názov aplikácie a bota v stiahnuteľnom balíku — to, čo ľudia vidia v katalógu Teams vašej organizácie a v príkaze /help. Prázdne = Elowen. Vyplňte, ak sa tento názov kryje s inou aplikáciou, ktorá už v katalógu je."
@@ -162,7 +165,7 @@
     },
     "rolePolicies": {
       "label": "Pravidlá rolí",
-      "hint": "Vyhráva prvé zodpovedajúce pravidlo. V režime iba nastavených ľudí sú odosielatelia bez pravidla ignorovaní; prihlásenie členov organizácie ich môže overiť a založiť aj bez pravidla *. ID je Entra object ID odosielateľa (GUID), jeho UPN/e-mail, celé ID konverzácie (povolí všetkým v danom chate), alebo * pre kohukoľvek — pravidlo s * nechajte posledné, nad pomenovanými ich pohltí všetky. Kľúč `admin` odomkne lomkové príkazy a nástroje Teams (odoslanie správy, vyhľadanie osoby), ale nerobí z daného človeka operátora inštancie — tým je jediný účet a iba on smie použiť priamy prístup ku konektoru. Kľúč `elowenUser` (používateľské meno alebo id účtu) nechá odosielateľa konať pod jeho vlastným účtom, s jeho prihlasovacími údajmi k pluginom a súkromnou pamäťou; pravidlo s * ho ignoruje."
+      "hint": "Vyhráva prvé zodpovedajúce pravidlo. V režime iba nastavených ľudí sú odosielatelia bez pravidla ignorovaní; prihlásenie členov organizácie ich môže overiť a založiť aj bez pravidla *. ID je Entra object ID odosielateľa (GUID), jeho UPN/e-mail, celé ID konverzácie (povolí všetkým v danom chate), alebo * pre kohukoľvek — pravidlo s * nechajte posledné. Kľúč `admin` odomkne lomkové príkazy a vybrané nástroje Teams; projekty, nástroje a doplňujúce pokyny zostávajú súčasťou pravidla. Pri zapnutom prihlásení je jediným zdrojom účtu väzba identity Entra zobrazená v časti Ľudia a prístup."
     }
   },
   "web": {
@@ -202,7 +205,33 @@
       "unmappedDescription": "Pri povolenom prihlásení členov organizácie sa môže prihlásiť a použiť prístup svojho účtu. Inak pred odpoveďou bota vytvorte pravidlo.",
       "configureAccess": "Nastaviť prístup",
       "accountLabel": "Účet Elowen",
-      "accountHint": "Konverzácie v Teams budú prebiehať pod týmto účtom vrátane jeho súkromnej pamäte a prihlasovacích údajov k pluginom.",
+      "accountHint": "Staršie mapovanie účtu používané iba pri vypnutom prihlasovaní účtom Microsoft.",
+      "identityTitle": "Identita Microsoft",
+      "identityConnected": "Prepojené cez Microsoft Entra ID",
+      "identityNeedsSignIn": "Vyžaduje prihlásenie k Microsoftu",
+      "identityNotLinked": "Neprepojené",
+      "identityLoading": "Overujem reláciu Microsoft…",
+      "identityForceSignIn": "Vynútiť nové prihlásenie",
+      "identityMicrosoftProfile": "Profil Microsoft",
+      "identityAccountEnabled": "Aktívny účet",
+      "identityAccountDisabled": "Zakázaný účet",
+      "identityElowenAccount": "Prepojený účet Elowen",
+      "identityAdmin": "Správca",
+      "identityNoElowenAccount": "Táto identita Entra nie je prepojená s účtom Elowen.",
+      "identityLinkAccount": "Prepojiť účet Elowen",
+      "identityChangeAccount": "Zmeniť prepojený účet",
+      "identityLinkAccountHint": "Identitou účtu je nemenné Entra object ID. Meno ani e-mail sa nikdy neodhadujú.",
+      "identityPersonalChatOpen": "Osobný chat je dostupný",
+      "identityPersonalChatMissing": "Osobný chat zatiaľ nie je otvorený",
+      "identityLastSeen": "Naposledy videný: {value}",
+      "identitySessionActive": "Relácia Microsoft je aktívna",
+      "identitySessionSignedOut": "Relácia Microsoft je odhlásená",
+      "identityLinkedAt": "Prepojené: {value}",
+      "identityVerifiedAt": "Overené: {value}",
+      "identitySaving": "Ukladám zmenu identity…",
+      "identityReplaceTitle": "Zmeniť prepojený účet Elowen?",
+      "identityReplaceDescription": "Táto identita Entra bude konať ako @{username}. Súkromná pamäť a prihlasovacie údaje pluginov patria tomuto účtu.",
+      "identityReplaceConfirm": "Zmeniť účet",
       "adminLabel": "Správca Teams",
       "adminHint": "Povolí administrátorské lomkové príkazy a vybrané nástroje Teams. Neudeľuje oprávnenie operátora inštancie.",
       "projectsLabel": "Povolené projekty",

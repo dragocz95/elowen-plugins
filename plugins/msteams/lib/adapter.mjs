@@ -670,6 +670,9 @@ export class MsTeamsAdapter {
    * silently lands on the wrong identity is worse than one that plainly does not work.
    */
   accountFor(policy) {
+    // With delegated account linking enabled, the immutable Entra identity binding is the only account
+    // source. `elowenUser` remains a legacy seam for installations that deliberately run without OAuth.
+    if (this.cfg.accountLinking === true) return undefined;
     const wanted = String(policy?.elowenUser ?? '').trim();
     if (!wanted) return undefined;
     if (String(policy?.roleId ?? '').trim() === WILDCARD) {
@@ -794,7 +797,7 @@ export class MsTeamsAdapter {
     if (vision) turnAccess = applyVisionModel(access, vision, await this.listModels().catch(() => []));
 
     try {
-      const replyText = await this.handler(
+      const runTurn = () => this.handler(
         {
           platform: 'msteams', userId: String(from.aadObjectId || from.id), userName: senderName, roleIds: ids,
           channelId: convoKey, access: turnAccess,
@@ -807,6 +810,9 @@ export class MsTeamsAdapter {
         promptSlash ?? prefixed,
         onEvent,
       );
+      const replyText = typeof this.accountLinking?.runWithActivity === 'function'
+        ? await this.accountLinking.runWithActivity(m, runTurn)
+        : await runTurn();
       clearInterval(typing);
       if (stream) await stream.finalize(replyText);
       else if (replyText) await postWithImages(this, conv.id, replyText, m.id);

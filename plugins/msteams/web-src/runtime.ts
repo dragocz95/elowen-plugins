@@ -1,5 +1,17 @@
 import type { ComponentType } from 'react';
 
+export interface TeamsIdentityUser {
+  id: number;
+  username: string;
+  isAdmin: boolean;
+}
+
+export interface TeamsIdentity {
+  linked: boolean;
+  user?: TeamsIdentityUser;
+  linkedAt?: string;
+}
+
 export interface TeamsPerson {
   key: string;
   name: string;
@@ -9,6 +21,22 @@ export interface TeamsPerson {
   teamsAvatarUrl?: string;
   hasPersonalChat: boolean;
   lastSeenAt: number | null;
+  identity?: TeamsIdentity;
+}
+
+export interface TeamsAccountProfile {
+  id: string;
+  displayName: string;
+  userPrincipalName: string;
+  mail: string;
+  accountEnabled: boolean;
+  userType: string;
+}
+
+export interface TeamsAccountDetail extends TeamsIdentity {
+  signedIn: boolean;
+  verifiedAt?: string;
+  profile?: TeamsAccountProfile;
 }
 
 export interface PeopleResponse {
@@ -89,6 +117,7 @@ interface TeamsComponents {
   LoadingState: AnyComponent;
   ErrorState: AnyComponent;
   EmptyState: AnyComponent;
+  ConfirmDialog: AnyComponent;
   Button: AnyComponent;
   Input: AnyComponent;
   Avatar: AnyComponent;

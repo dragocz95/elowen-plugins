@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, KeyRound, MessageCircle, Search, Settings2, ShieldCheck, UserCheck, Users } from 'lucide-react';
-import { apiJson, runtime, type ConfigField, type PeopleResponse, type PluginDetail, type RolePolicy, type TeamsPerson, type User } from './runtime';
+import { Download, KeyRound, MessageCircle, RefreshCw, Search, Settings2, ShieldCheck, UserCheck, Users } from 'lucide-react';
+import { apiJson, runtime, type ConfigField, type PeopleResponse, type PluginDetail, type RolePolicy, type TeamsAccountDetail, type TeamsIdentity, type TeamsPerson, type User } from './runtime';
 
 type WorkspaceTab = 'people' | 'settings';
 type PersonFilter = 'all' | 'mapped' | 'unmapped';
@@ -56,13 +56,52 @@ export function globalSettingsDetail(detail: PluginDetail): PluginDetail {
   };
 }
 
-export function linkedUserFor(policies: RolePolicy[], person: TeamsPerson, users: User[]): User | undefined {
+export function linkedUserFor(person: TeamsPerson, users: User[]): User | undefined {
+  const identityUser = person.identity?.user;
+  if (!identityUser) return undefined;
+  return users.find((user) => user.id === identityUser.id || user.username.toLowerCase() === identityUser.username.toLowerCase());
+}
+
+function linkedPolicyUserFor(policies: RolePolicy[], person: TeamsPerson, users: User[]): User | undefined {
   const index = directPolicyIndex(policies, person);
   const ref = index >= 0 ? String(policies[index]?.elowenUser ?? '').trim() : '';
   return ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : undefined;
 }
 
-export function accountOptionsFor(policy: RolePolicy | null, users: User[], noneLabel: string): { value: string; label: string; user?: User }[] {
+export function shouldShowLegacyAccountSelector(accountLinking: boolean): boolean {
+  return !accountLinking;
+}
+
+export function accountDetailPath(aadObjectId: string): string {
+  return `/plugins/msteams/people/${encodeURIComponent(aadObjectId)}/account`;
+}
+
+export function accountIdentityFromDetail(detail: TeamsAccountDetail): TeamsIdentity {
+  return {
+    linked: detail.linked,
+    ...(detail.user ? { user: { id: detail.user.id, username: detail.user.username, isAdmin: detail.user.isAdmin } } : {}),
+    ...(detail.linkedAt ? { linkedAt: detail.linkedAt } : {}),
+  };
+}
+
+export function bindAccountRequest(userId: number, replace = false): RequestInit {
+  return {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ userId, ...(replace ? { replace: true } : {}) }),
+  };
+}
+
+export function peopleWithAccountDetail(response: PeopleResponse, aadObjectId: string, detail: TeamsAccountDetail): PeopleResponse {
+  return {
+    ...response,
+    people: response.people.map((person) => person.aadObjectId === aadObjectId
+      ? { ...person, identity: accountIdentityFromDetail(detail) }
+      : person),
+  };
+}
+
+function legacyAccountOptions(policy: RolePolicy | null, users: User[], noneLabel: string): { value: string; label: string; user?: User }[] {
   const ref = String(policy?.elowenUser ?? '').trim();
   const selected = ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : undefined;
   return [
@@ -76,9 +115,168 @@ export function accountOptionsFor(policy: RolePolicy | null, users: User[], none
   ];
 }
 
-function PeopleAccess({ draft, response }: {
+function formatTimestamp(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === '') return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
+function IdentityCard({ person, users, response, onResponseChange }: {
+  person: TeamsPerson;
+  users: User[];
+  response: PeopleResponse;
+  onResponseChange(response: PeopleResponse): void;
+}) {
+  const { components: C, hooks, utils } = runtime();
+  const s = hooks.usePluginStrings('msteams');
+  const [detail, setDetail] = useState<TeamsAccountDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [replacement, setReplacement] = useState<User | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setDetail(null);
+    setError(null);
+    setReplacement(null);
+    if (!person.aadObjectId) {
+      setLoading(false);
+      return () => { live = false; };
+    }
+    setLoading(true);
+    void apiJson<TeamsAccountDetail>(accountDetailPath(person.aadObjectId))
+      .then((value) => {
+        if (!live) return;
+        setDetail(value);
+        onResponseChange(peopleWithAccountDetail(response, person.aadObjectId, value));
+      })
+      .catch((reason) => { if (live) setError(utils.apiErrorMessage(reason)); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [person.aadObjectId]);
+
+  const applyDetail = (value: TeamsAccountDetail) => {
+    setDetail(value);
+    setError(null);
+    onResponseChange(peopleWithAccountDetail(response, person.aadObjectId, value));
+  };
+  const bind = async (user: User, replace: boolean) => {
+    setPending(true);
+    setError(null);
+    try {
+      applyDetail(await apiJson<TeamsAccountDetail>(accountDetailPath(person.aadObjectId), bindAccountRequest(user.id, replace)));
+      setReplacement(null);
+    } catch (reason) {
+      setError(utils.apiErrorMessage(reason));
+    } finally {
+      setPending(false);
+    }
+  };
+  const signOut = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      applyDetail(await apiJson<TeamsAccountDetail>(`${accountDetailPath(person.aadObjectId).replace(/\/account$/, '')}/signout`, { method: 'POST' }));
+    } catch (reason) {
+      setError(utils.apiErrorMessage(reason));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const identity = detail ?? { linked: person.identity?.linked === true, user: person.identity?.user, linkedAt: person.identity?.linkedAt, signedIn: false };
+  const linkedHostUser = identity.user
+    ? users.find((user) => user.id === identity.user?.id || user.username.toLowerCase() === identity.user?.username.toLowerCase())
+    : undefined;
+  const accountOptions = users.map((user) => ({
+    value: String(user.id),
+    label: user.name ? `${user.name} · @${user.username}` : `@${user.username}`,
+    icon: <C.Avatar name={user.name || user.username} user={user} size="sm" />,
+  }));
+  const statusLabel = identity.linked ? (identity.signedIn ? s.identityConnected : s.identityNeedsSignIn) : s.identityNotLinked;
+  const profile = detail?.profile;
+
+  return (
+    <section className="rounded-xl border border-border bg-surface p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{s.identityTitle}</p>
+          <div className="mt-2 flex items-center gap-2">
+            <C.Badge tone={identity.signedIn ? 'success' : identity.linked ? 'warning' : undefined}>{statusLabel}</C.Badge>
+            {loading ? <span className="text-xs text-text-muted">{s.identityLoading}</span> : null}
+          </div>
+        </div>
+        <C.Button variant="ghost" icon={RefreshCw} disabled={pending || !person.aadObjectId} onClick={() => void signOut()}>
+          {s.identityForceSignIn}
+        </C.Button>
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-text">{s.identityMicrosoftProfile}</p>
+          <p className="text-sm text-text">{profile?.displayName || person.name || s.personFallback}</p>
+          <p className="break-all text-xs text-text-muted">{profile?.userPrincipalName || person.upn || '—'}</p>
+          {profile?.mail && profile.mail !== profile.userPrincipalName ? <p className="break-all text-xs text-text-muted">{profile.mail}</p> : null}
+          <p className="break-all font-mono text-[11px] text-text-subtle">{profile?.id || person.aadObjectId || '—'}</p>
+          {profile ? <p className="text-xs text-text-muted">{profile.userType} · {profile.accountEnabled ? s.identityAccountEnabled : s.identityAccountDisabled}</p> : null}
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-text">{s.identityElowenAccount}</p>
+          {identity.user ? (
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-elevated/40 p-3">
+              <C.Avatar name={linkedHostUser?.name || identity.user.username} user={linkedHostUser} size="md" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-text">{linkedHostUser?.name || `@${identity.user.username}`}</p>
+                <p className="truncate text-xs text-text-muted">@{identity.user.username}</p>
+              </div>
+              {identity.user.isAdmin ? <C.Badge tone="accent">{s.identityAdmin}</C.Badge> : null}
+            </div>
+          ) : <p className="text-xs text-text-muted">{s.identityNoElowenAccount}</p>}
+          <C.Field label={identity.user ? s.identityChangeAccount : s.identityLinkAccount} hint={s.identityLinkAccountHint}>
+            <C.SelectMenu
+              value={identity.user ? String(identity.user.id) : ''}
+              onChange={(value: string) => {
+                const user = users.find((candidate) => String(candidate.id) === value);
+                if (!user || user.id === identity.user?.id) return;
+                if (identity.linked) setReplacement(user);
+                else void bind(user, false);
+              }}
+              options={accountOptions}
+              label={identity.user ? s.identityChangeAccount : s.identityLinkAccount}
+              disabled={pending}
+            />
+          </C.Field>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-3 text-xs text-text-muted">
+        <span>{person.hasPersonalChat ? s.identityPersonalChatOpen : s.identityPersonalChatMissing}</span>
+        <span>{s.identityLastSeen.replace('{value}', formatTimestamp(person.lastSeenAt))}</span>
+        <span>{identity.signedIn ? s.identitySessionActive : s.identitySessionSignedOut}</span>
+        {identity.linkedAt ? <span>{s.identityLinkedAt.replace('{value}', formatTimestamp(identity.linkedAt))}</span> : null}
+        {detail?.verifiedAt ? <span>{s.identityVerifiedAt.replace('{value}', formatTimestamp(detail.verifiedAt))}</span> : null}
+      </div>
+      {pending ? <p className="mt-3 text-xs text-text-muted" aria-live="polite">{s.identitySaving}</p> : null}
+      {error ? <p className="mt-3 text-xs text-danger" role="alert">{error}</p> : null}
+
+      <C.ConfirmDialog
+        open={replacement !== null}
+        title={s.identityReplaceTitle}
+        description={replacement ? s.identityReplaceDescription.replace('{username}', replacement.username) : ''}
+        confirmLabel={s.identityReplaceConfirm}
+        onConfirm={() => { if (replacement) void bind(replacement, true); }}
+        onClose={() => setReplacement(null)}
+      />
+    </section>
+  );
+}
+
+function PeopleAccess({ draft, response, onResponseChange }: {
   draft: ReturnType<ReturnType<typeof runtime>['hooks']['usePluginConfigDraft']>;
   response: PeopleResponse;
+  onResponseChange(response: PeopleResponse): void;
 }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('msteams');
@@ -101,7 +299,10 @@ function PeopleAccess({ draft, response }: {
   const selected = response.people.find((person) => person.key === selectedKey) ?? visible[0] ?? null;
   const policyIndex = selected === null ? -1 : directPolicyIndex(policies, selected);
   const policy = policyIndex >= 0 ? policies[policyIndex]! : null;
-  const selectedUser = selected === null ? undefined : linkedUserFor(policies, selected, users);
+  const accountLinking = draft.values.accountLinking === true;
+  const selectedUser = selected === null
+    ? undefined
+    : accountLinking ? linkedUserFor(selected, users) : linkedPolicyUserFor(policies, selected, users);
 
   const replacePolicies = (next: RolePolicy[]) => draft.setValue('rolePolicies', next);
   const createPolicy = () => {
@@ -129,7 +330,7 @@ function PeopleAccess({ draft, response }: {
     ...selectedTools.filter((tool) => !knownTools.has(tool)).map((tool) => ({ id: tool, label: tool, group: s.unavailableTools })),
     ...[...owners.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([tool, plugin]) => ({ id: tool, label: tool, group: plugin })),
   ];
-  const accountOptions = accountOptionsFor(policy, users, s.accountNone).map((option) => ({
+  const legacyOptions = legacyAccountOptions(policy, users, s.accountNone).map((option) => ({
     value: option.value,
     label: option.label,
     icon: option.user
@@ -174,7 +375,7 @@ function PeopleAccess({ draft, response }: {
           <div className="flex min-w-0 flex-col gap-2">
             {visible.map((person) => {
               const mapped = directPolicyIndex(policies, person) >= 0;
-              const linkedUser = linkedUserFor(policies, person, users);
+              const linkedUser = accountLinking ? linkedUserFor(person, users) : linkedPolicyUserFor(policies, person, users);
               const active = selected?.key === person.key;
               return (
                 <button
@@ -210,6 +411,8 @@ function PeopleAccess({ draft, response }: {
                   {policy ? <C.Button variant="ghost" onClick={removePolicy}>{s.removeAccess}</C.Button> : null}
                 </div>
 
+                {accountLinking ? <IdentityCard key={selected.key} person={selected} users={users} response={response} onResponseChange={onResponseChange} /> : null}
+
                 {policy === null ? (
                   <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 text-center">
                     <UserCheck size={28} className="text-text-muted" aria-hidden />
@@ -221,14 +424,16 @@ function PeopleAccess({ draft, response }: {
                   </div>
                 ) : (
                   <>
-                    <C.Field label={s.accountLabel} hint={s.accountHint}>
-                      <C.SelectMenu
-                        value={policy.elowenUser ?? ''}
-                        onChange={(value: string) => patchPolicy({ elowenUser: value || undefined })}
-                        options={accountOptions}
-                        label={s.accountLabel}
-                      />
-                    </C.Field>
+                    {shouldShowLegacyAccountSelector(accountLinking) ? (
+                      <C.Field label={s.accountLabel} hint={s.accountHint}>
+                        <C.SelectMenu
+                          value={policy.elowenUser ?? ''}
+                          onChange={(value: string) => patchPolicy({ elowenUser: value || undefined })}
+                          options={legacyOptions}
+                          label={s.accountLabel}
+                        />
+                      </C.Field>
+                    ) : null}
 
                     <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface p-3">
                       <C.Toggle checked={policy.admin === true} onChange={(value: boolean) => patchPolicy({ admin: value })} label={s.adminLabel} />
@@ -367,7 +572,7 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
           <C.ControlSurfaceDocument><C.ControlSurfaceState tone="danger"><C.ErrorState message={`${s.peopleLoadError} — ${peopleError}`} /></C.ControlSurfaceState></C.ControlSurfaceDocument>
         ) : people === null ? (
           <C.ControlSurfaceDocument><C.ControlSurfaceState><C.LoadingState variant="list" /></C.ControlSurfaceState></C.ControlSurfaceDocument>
-        ) : <PeopleAccess draft={draft} response={people} />
+        ) : <PeopleAccess draft={draft} response={people} onResponseChange={setPeople} />
       ) : (
         <C.SettingsDocument>
           <C.PluginConfigEditor

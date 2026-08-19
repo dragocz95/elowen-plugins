@@ -157,6 +157,14 @@ var MessageCircle = createLucideIcon("MessageCircle", [
   ["path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z", key: "vv11sd" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/refresh-cw.js
+var RefreshCw = createLucideIcon("RefreshCw", [
+  ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
+  ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
+  ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
+  ["path", { d: "M8 16H3v5", key: "1cv678" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/search.js
 var Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
@@ -238,12 +246,43 @@ function globalSettingsDetail(detail) {
     configSchema: detail.configSchema.filter((field) => field.key !== "sec_roles" && field.key !== "rolePolicies")
   };
 }
-function linkedUserFor(policies, person, users) {
+function linkedUserFor(person, users) {
+  const identityUser = person.identity?.user;
+  if (!identityUser) return void 0;
+  return users.find((user) => user.id === identityUser.id || user.username.toLowerCase() === identityUser.username.toLowerCase());
+}
+function linkedPolicyUserFor(policies, person, users) {
   const index = directPolicyIndex(policies, person);
   const ref = index >= 0 ? String(policies[index]?.elowenUser ?? "").trim() : "";
   return ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : void 0;
 }
-function accountOptionsFor(policy, users, noneLabel) {
+function shouldShowLegacyAccountSelector(accountLinking) {
+  return !accountLinking;
+}
+function accountDetailPath(aadObjectId) {
+  return `/plugins/msteams/people/${encodeURIComponent(aadObjectId)}/account`;
+}
+function accountIdentityFromDetail(detail) {
+  return {
+    linked: detail.linked,
+    ...detail.user ? { user: { id: detail.user.id, username: detail.user.username, isAdmin: detail.user.isAdmin } } : {},
+    ...detail.linkedAt ? { linkedAt: detail.linkedAt } : {}
+  };
+}
+function bindAccountRequest(userId, replace = false) {
+  return {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ userId, ...replace ? { replace: true } : {} })
+  };
+}
+function peopleWithAccountDetail(response, aadObjectId, detail) {
+  return {
+    ...response,
+    people: response.people.map((person) => person.aadObjectId === aadObjectId ? { ...person, identity: accountIdentityFromDetail(detail) } : person)
+  };
+}
+function legacyAccountOptions(policy, users, noneLabel) {
   const ref = String(policy?.elowenUser ?? "").trim();
   const selected = ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : void 0;
   return [
@@ -256,7 +295,160 @@ function accountOptionsFor(policy, users, noneLabel) {
     }))
   ];
 }
-function PeopleAccess({ draft, response }) {
+function formatTimestamp(value) {
+  if (value === null || value === void 0 || value === "") return "\u2014";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "\u2014" : new Intl.DateTimeFormat(void 0, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+function IdentityCard({ person, users, response, onResponseChange }) {
+  const { components: C, hooks, utils } = runtime();
+  const s = hooks.usePluginStrings("msteams");
+  const [detail, setDetail] = (0, import_react3.useState)(null);
+  const [loading, setLoading] = (0, import_react3.useState)(false);
+  const [pending, setPending] = (0, import_react3.useState)(false);
+  const [error, setError] = (0, import_react3.useState)(null);
+  const [replacement, setReplacement] = (0, import_react3.useState)(null);
+  (0, import_react3.useEffect)(() => {
+    let live = true;
+    setDetail(null);
+    setError(null);
+    setReplacement(null);
+    if (!person.aadObjectId) {
+      setLoading(false);
+      return () => {
+        live = false;
+      };
+    }
+    setLoading(true);
+    void apiJson(accountDetailPath(person.aadObjectId)).then((value) => {
+      if (!live) return;
+      setDetail(value);
+      onResponseChange(peopleWithAccountDetail(response, person.aadObjectId, value));
+    }).catch((reason) => {
+      if (live) setError(utils.apiErrorMessage(reason));
+    }).finally(() => {
+      if (live) setLoading(false);
+    });
+    return () => {
+      live = false;
+    };
+  }, [person.aadObjectId]);
+  const applyDetail = (value) => {
+    setDetail(value);
+    setError(null);
+    onResponseChange(peopleWithAccountDetail(response, person.aadObjectId, value));
+  };
+  const bind = async (user, replace) => {
+    setPending(true);
+    setError(null);
+    try {
+      applyDetail(await apiJson(accountDetailPath(person.aadObjectId), bindAccountRequest(user.id, replace)));
+      setReplacement(null);
+    } catch (reason) {
+      setError(utils.apiErrorMessage(reason));
+    } finally {
+      setPending(false);
+    }
+  };
+  const signOut = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      applyDetail(await apiJson(`${accountDetailPath(person.aadObjectId).replace(/\/account$/, "")}/signout`, { method: "POST" }));
+    } catch (reason) {
+      setError(utils.apiErrorMessage(reason));
+    } finally {
+      setPending(false);
+    }
+  };
+  const identity = detail ?? { linked: person.identity?.linked === true, user: person.identity?.user, linkedAt: person.identity?.linkedAt, signedIn: false };
+  const linkedHostUser = identity.user ? users.find((user) => user.id === identity.user?.id || user.username.toLowerCase() === identity.user?.username.toLowerCase()) : void 0;
+  const accountOptions = users.map((user) => ({
+    value: String(user.id),
+    label: user.name ? `${user.name} \xB7 @${user.username}` : `@${user.username}`,
+    icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: user.name || user.username, user, size: "sm" })
+  }));
+  const statusLabel = identity.linked ? identity.signedIn ? s.identityConnected : s.identityNeedsSignIn : s.identityNotLinked;
+  const profile = detail?.profile;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "rounded-xl border border-border bg-surface p-4", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-start justify-between gap-3", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs font-medium uppercase tracking-wide text-text-muted", children: s.identityTitle }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-2 flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: identity.signedIn ? "success" : identity.linked ? "warning" : void 0, children: statusLabel }),
+          loading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs text-text-muted", children: s.identityLoading }) : null
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", icon: RefreshCw, disabled: pending || !person.aadObjectId, onClick: () => void signOut(), children: s.identityForceSignIn })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-4 grid gap-4 sm:grid-cols-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs font-semibold text-text", children: s.identityMicrosoftProfile }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-text", children: profile?.displayName || person.name || s.personFallback }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all text-xs text-text-muted", children: profile?.userPrincipalName || person.upn || "\u2014" }),
+        profile?.mail && profile.mail !== profile.userPrincipalName ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all text-xs text-text-muted", children: profile.mail }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all font-mono text-[11px] text-text-subtle", children: profile?.id || person.aadObjectId || "\u2014" }),
+        profile ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "text-xs text-text-muted", children: [
+          profile.userType,
+          " \xB7 ",
+          profile.accountEnabled ? s.identityAccountEnabled : s.identityAccountDisabled
+        ] }) : null
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs font-semibold text-text", children: s.identityElowenAccount }),
+        identity.user ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-3 rounded-lg border border-border bg-elevated/40 p-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: linkedHostUser?.name || identity.user.username, user: linkedHostUser, size: "md" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0 flex-1", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "truncate text-sm font-medium text-text", children: linkedHostUser?.name || `@${identity.user.username}` }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "truncate text-xs text-text-muted", children: [
+              "@",
+              identity.user.username
+            ] })
+          ] }),
+          identity.user.isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "accent", children: s.identityAdmin }) : null
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-text-muted", children: s.identityNoElowenAccount }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: identity.user ? s.identityChangeAccount : s.identityLinkAccount, hint: s.identityLinkAccountHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          C.SelectMenu,
+          {
+            value: identity.user ? String(identity.user.id) : "",
+            onChange: (value) => {
+              const user = users.find((candidate) => String(candidate.id) === value);
+              if (!user || user.id === identity.user?.id) return;
+              if (identity.linked) setReplacement(user);
+              else void bind(user, false);
+            },
+            options: accountOptions,
+            label: identity.user ? s.identityChangeAccount : s.identityLinkAccount,
+            disabled: pending
+          }
+        ) })
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-3 text-xs text-text-muted", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: person.hasPersonalChat ? s.identityPersonalChatOpen : s.identityPersonalChatMissing }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: s.identityLastSeen.replace("{value}", formatTimestamp(person.lastSeenAt)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: identity.signedIn ? s.identitySessionActive : s.identitySessionSignedOut }),
+      identity.linkedAt ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: s.identityLinkedAt.replace("{value}", formatTimestamp(identity.linkedAt)) }) : null,
+      detail?.verifiedAt ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: s.identityVerifiedAt.replace("{value}", formatTimestamp(detail.verifiedAt)) }) : null
+    ] }),
+    pending ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-xs text-text-muted", "aria-live": "polite", children: s.identitySaving }) : null,
+    error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-xs text-danger", role: "alert", children: error }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      C.ConfirmDialog,
+      {
+        open: replacement !== null,
+        title: s.identityReplaceTitle,
+        description: replacement ? s.identityReplaceDescription.replace("{username}", replacement.username) : "",
+        confirmLabel: s.identityReplaceConfirm,
+        onConfirm: () => {
+          if (replacement) void bind(replacement, true);
+        },
+        onClose: () => setReplacement(null)
+      }
+    )
+  ] });
+}
+function PeopleAccess({ draft, response, onResponseChange }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("msteams");
   const users = hooks.useUsers().data ?? [];
@@ -277,7 +469,8 @@ function PeopleAccess({ draft, response }) {
   const selected = response.people.find((person) => person.key === selectedKey) ?? visible[0] ?? null;
   const policyIndex = selected === null ? -1 : directPolicyIndex(policies, selected);
   const policy = policyIndex >= 0 ? policies[policyIndex] : null;
-  const selectedUser = selected === null ? void 0 : linkedUserFor(policies, selected, users);
+  const accountLinking = draft.values.accountLinking === true;
+  const selectedUser = selected === null ? void 0 : accountLinking ? linkedUserFor(selected, users) : linkedPolicyUserFor(policies, selected, users);
   const replacePolicies = (next) => draft.setValue("rolePolicies", next);
   const createPolicy = () => {
     if (selected === null) return;
@@ -303,7 +496,7 @@ function PeopleAccess({ draft, response }) {
     ...selectedTools.filter((tool) => !knownTools.has(tool)).map((tool) => ({ id: tool, label: tool, group: s.unavailableTools })),
     ...[...owners.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([tool, plugin]) => ({ id: tool, label: tool, group: plugin }))
   ];
-  const accountOptions = accountOptionsFor(policy, users, s.accountNone).map((option) => ({
+  const legacyOptions = legacyAccountOptions(policy, users, s.accountNone).map((option) => ({
     value: option.value,
     label: option.label,
     icon: option.user ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: option.user.name || option.user.username, user: option.user, size: "sm" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserCheck, { size: 15 })
@@ -329,7 +522,7 @@ function PeopleAccess({ draft, response }) {
     response.people.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleEmptyTitle, description: s.peopleEmptyDescription, icon: Users }) }) : visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleNoResults, description: s.peopleNoResultsDescription, icon: Search }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceRegister, { className: "grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(18rem,0.8fr)_minmax(24rem,1.2fr)]", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex min-w-0 flex-col gap-2", children: visible.map((person) => {
         const mapped = directPolicyIndex(policies, person) >= 0;
-        const linkedUser = linkedUserFor(policies, person, users);
+        const linkedUser = accountLinking ? linkedUserFor(person, users) : linkedPolicyUserFor(policies, person, users);
         const active = selected?.key === person.key;
         return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
           "button",
@@ -365,6 +558,7 @@ function PeopleAccess({ draft, response }) {
           ] }),
           policy ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: removePolicy, children: s.removeAccess }) : null
         ] }),
+        accountLinking ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(IdentityCard, { person: selected, users, response, onResponseChange }, selected.key) : null,
         policy === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 text-center", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserCheck, { size: 28, className: "text-text-muted", "aria-hidden": true }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
@@ -373,15 +567,15 @@ function PeopleAccess({ draft, response }) {
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: KeyRound, onClick: createPolicy, children: s.configureAccess })
         ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.accountLabel, hint: s.accountHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          shouldShowLegacyAccountSelector(accountLinking) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.accountLabel, hint: s.accountHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             C.SelectMenu,
             {
               value: policy.elowenUser ?? "",
               onChange: (value) => patchPolicy({ elowenUser: value || void 0 }),
-              options: accountOptions,
+              options: legacyOptions,
               label: s.accountLabel
             }
-          ) }),
+          ) }) : null,
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface p-3", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: policy.admin === true, onChange: (value) => patchPolicy({ admin: value }), label: s.adminLabel }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
@@ -498,7 +692,7 @@ function LoadedWorkspace({ detail }) {
         onChange: (value) => setTab(value),
         ariaLabel: s.title
       },
-      children: tab === "people" ? peopleError !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: `${s.peopleLoadError} \u2014 ${peopleError}` }) }) }) : people === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PeopleAccess, { draft, response: people }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SettingsDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      children: tab === "people" ? peopleError !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: `${s.peopleLoadError} \u2014 ${peopleError}` }) }) }) : people === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PeopleAccess, { draft, response: people, onResponseChange: setPeople }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SettingsDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         C.PluginConfigEditor,
         {
           name: "msteams",

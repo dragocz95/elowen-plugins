@@ -105,7 +105,7 @@ const EXPECTED_CAPABILITIES = {
   editor: { reads: ['project-files', 'stores'] },
   lsp: { network: true },
   mcp: { network: true },
-  msteams: { reads: ['stores'], mutates: ['users'] },
+  msteams: { reads: ['project-files', 'stores'], mutates: ['users'] },
   skills: { reads: ['stores'] },
   work: {
     reads: ['brain-worker', 'config', 'controls', 'db', 'elowen-cli', 'git', 'inference', 'prompts', 'stores', 'tmux'],

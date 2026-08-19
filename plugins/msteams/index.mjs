@@ -10,6 +10,7 @@ import { MsTeamsAdapter } from './lib/adapter.mjs';
 import { PeopleDirectory } from './lib/directory.mjs';
 import { TeamsAccountLinking } from './lib/accountLinking.mjs';
 import { registerTools } from './lib/tools.mjs';
+import { registerMicrosoftTools } from './lib/microsoftTools.mjs';
 import { platformImageDirs } from 'elowen-plugin-shared/images';
 
 export { matchesId, senderIds, senderIsAdmin, displayNameOf } from './lib/ids.mjs';
@@ -19,17 +20,21 @@ export { ConnectorClient } from './lib/connector.mjs';
 export { TeamsAccountError, TeamsAccountLinking } from './lib/accountLinking.mjs';
 
 /** Browser-safe projection of the learned Teams directory. Routing details stay daemon-only. */
-export function peopleForUi(people, profilePhotos = false) {
-  return people.map((person) => ({
-    key: String(person.key),
-    name: typeof person.name === 'string' ? person.name : '',
-    upn: typeof person.upn === 'string' ? person.upn : '',
-    aadObjectId: typeof person.aad === 'string' ? person.aad : '',
-    teamsId: typeof person.id === 'string' ? person.id : '',
-    teamsAvatarUrl: profilePhotos && person.aad ? `/api/plugins/msteams/people/${encodeURIComponent(String(person.aad))}/avatar` : '',
-    hasPersonalChat: Boolean(person.conv),
-    lastSeenAt: Number(person.at) || null,
-  })).sort((a, b) => a.name.localeCompare(b.name) || a.upn.localeCompare(b.upn));
+export function peopleForUi(people, profilePhotos = false, bindingFor = () => null) {
+  return people.map((person) => {
+    const binding = person.aad ? bindingFor(person.aad) : null;
+    return {
+      key: String(person.key),
+      name: typeof person.name === 'string' ? person.name : '',
+      upn: typeof person.upn === 'string' ? person.upn : '',
+      aadObjectId: typeof person.aad === 'string' ? person.aad : '',
+      teamsId: typeof person.id === 'string' ? person.id : '',
+      teamsAvatarUrl: profilePhotos && person.aad ? `/api/plugins/msteams/people/${encodeURIComponent(String(person.aad))}/avatar` : '',
+      hasPersonalChat: Boolean(person.conv),
+      lastSeenAt: Number(person.at) || null,
+      identity: binding ? { linked: true, user: binding.user, ...(binding.linkedAt ? { linkedAt: binding.linkedAt } : {}) } : { linked: false },
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name) || a.upn.localeCompare(b.upn));
 }
 
 export function register(ctx) {
@@ -39,6 +44,7 @@ export function register(ctx) {
   // the registered platforms and 503'd when it found none. Registering it after the credential check
   // would turn that into a 404 on an enabled-but-unconfigured instance.
   let adapter = null;
+  let accountLinking = null;
   const dataDir = ctx.dataDir();
   const state = new StateStore(join(dataDir, 'channel-state.json'));
   const people = new PeopleDirectory(state, ctx.logger);
@@ -67,7 +73,49 @@ export function register(ctx) {
     rootMount: '/plugins/msteams/people', path: '', method: 'GET', access: 'admin',
     handler: async (req) => {
       if (req.path !== '') return { status: 404, body: { error: 'not found' } };
-      return { body: { active: adapter !== null, people: peopleForUi(people.list(), Boolean(adapter?.graph)) } };
+      return {
+        body: {
+          active: adapter !== null,
+          people: peopleForUi(people.list(), Boolean(adapter?.graph), (objectId) => accountLinking?.bindingFor(objectId) ?? null),
+        },
+      };
+    },
+  });
+  ctx.registerApiRoute({
+    rootMount: '/plugins/msteams/people/:id/account', path: '', method: 'GET', access: 'admin',
+    handler: async (req) => {
+      if (req.path !== '' || !accountLinking) return { status: accountLinking ? 404 : 503, body: { error: accountLinking ? 'not found' : 'Microsoft account linking is not configured' } };
+      const { person } = people.resolve({ aadObjectId: req.params.id });
+      if (!person) return { status: 404, body: { error: 'Teams person not found' } };
+      return { body: await accountLinking.accountStatus(person) };
+    },
+  });
+  ctx.registerApiRoute({
+    rootMount: '/plugins/msteams/people/:id/account', path: '', method: 'PATCH', access: 'admin',
+    handler: async (req) => {
+      if (req.path !== '' || !accountLinking) return { status: accountLinking ? 404 : 503, body: { error: accountLinking ? 'not found' : 'Microsoft account linking is not configured' } };
+      const { person } = people.resolve({ aadObjectId: req.params.id });
+      if (!person) return { status: 404, body: { error: 'Teams person not found' } };
+      const body = await req.json();
+      const userId = Number(body?.userId);
+      if (!Number.isInteger(userId) || userId <= 0) return { status: 400, body: { error: 'userId must be a positive integer' } };
+      try {
+        await accountLinking.linkExisting(person, userId, body?.replace === true);
+        return { body: await accountLinking.accountStatus(person) };
+      } catch (error) {
+        const conflict = /already|linked|replace|conflict/i.test(String(error?.message ?? ''));
+        return { status: conflict ? 409 : 400, body: { error: error?.message ?? String(error) } };
+      }
+    },
+  });
+  ctx.registerApiRoute({
+    rootMount: '/plugins/msteams/people/:id/signout', path: '', method: 'POST', access: 'admin',
+    handler: async (req) => {
+      if (req.path !== '' || !accountLinking) return { status: accountLinking ? 404 : 503, body: { error: accountLinking ? 'not found' : 'Microsoft account linking is not configured' } };
+      const { person } = people.resolve({ aadObjectId: req.params.id });
+      if (!person) return { status: 404, body: { error: 'Teams person not found' } };
+      await accountLinking.signOutPerson(person);
+      return { body: await accountLinking.accountStatus(person) };
     },
   });
   ctx.registerApiRoute({
@@ -92,7 +140,6 @@ export function register(ctx) {
   }
   const imageDirs = platformImageDirs(dataDir);
   const config = { ...ctx.config, appId, appPassword, tenantId, agentName, productName };
-  let accountLinking = null;
   if (config.accountLinking === true) {
     const connectionName = typeof config.oauthConnectionName === 'string' ? config.oauthConnectionName.trim() : '';
     if (connectionName) {
@@ -117,5 +164,6 @@ export function register(ctx) {
   ctx.registerHttpRoute({ path: 'messages', handler: (req) => adapter.handleWebhook(req) });
   ctx.registerPlatform(adapter);
   registerTools(ctx, adapter);
-  ctx.logger.info('msteams platform registered (webhook /hooks/msteams/messages + chat tools)');
+  registerMicrosoftTools(ctx, accountLinking, config);
+  ctx.logger.info('msteams platform registered (webhook /hooks/msteams/messages + Teams and delegated Microsoft 365 tools)');
 }

@@ -110,15 +110,15 @@
     },
     {
       "name": "msteams",
-      "version": "0.4.1",
-      "description": "Microsoft Teams bot with delegated Entra account linking, private slash commands, proactive messaging, file consent, Adaptive Cards and a downloadable Teams app package.",
+      "version": "0.5.0",
+      "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
       "author": "Elowen",
       "apiVersion": "1",
       "provides": {
         "platforms": 1,
-        "tools": 9,
-        "apiRoutes": 2
+        "tools": 17,
+        "apiRoutes": 5
       }
     },
     {

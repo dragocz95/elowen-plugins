@@ -155,7 +155,9 @@ describe('msteams plugin registration', () => {
     expect([...reg.rootApiRoutes.keys()].sort()).toEqual([
       '/plugins/msteams/app-package',
       '/plugins/msteams/people',
+      '/plugins/msteams/people/:id/account',
       '/plugins/msteams/people/:id/avatar',
+      '/plugins/msteams/people/:id/signout',
     ]);
   });
 
@@ -186,7 +188,7 @@ describe('msteams plugin registration', () => {
 describe('msteams identity + role mapping', () => {
   it('exposes a sorted browser-safe people directory without routing secrets', async () => {
     const { peopleForUi } = await import(join(repoRoot, 'plugins/msteams/index.mjs')) as {
-      peopleForUi: (people: Record<string, unknown>[], profilePhotos?: boolean) => Record<string, unknown>[];
+      peopleForUi: (people: Record<string, unknown>[], profilePhotos?: boolean, bindingFor?: (id: string) => Record<string, unknown> | null) => Record<string, unknown>[];
     };
     const result = peopleForUi([
       { key: 'b', name: 'Zoe', upn: 'zoe@example.com', aad: 'aad-z', id: '29:z', conv: 'a:private', url: 'https://smba.test/secret', at: 123 },
@@ -195,12 +197,15 @@ describe('msteams identity + role mapping', () => {
     expect(result.map((person) => person.name)).toEqual(['Alex', 'Zoe']);
     expect(result[1]).toEqual({
       key: 'b', name: 'Zoe', upn: 'zoe@example.com', aadObjectId: 'aad-z', teamsId: '29:z',
-      teamsAvatarUrl: '', hasPersonalChat: true, lastSeenAt: 123,
+      teamsAvatarUrl: '', hasPersonalChat: true, lastSeenAt: 123, identity: { linked: false },
     });
     expect(JSON.stringify(result)).not.toContain('smba.test');
     expect(JSON.stringify(result)).not.toContain('a:private');
     expect(peopleForUi([{ key: 'a', aad: 'aad/a' }], true)[0]?.teamsAvatarUrl)
       .toBe('/api/plugins/msteams/people/aad%2Fa/avatar');
+    expect(peopleForUi([{ key: 'a', aad: 'aad-a' }], false, () => ({
+      user: { id: 7, username: 'alex', isAdmin: false }, linkedAt: '2026-08-19T01:00:00.000Z', accessToken: 'must-not-leak',
+    }))[0]?.identity).toEqual({ linked: true, user: { id: 7, username: 'alex', isAdmin: false }, linkedAt: '2026-08-19T01:00:00.000Z' });
   });
 
   it('matches Entra GUIDs exactly and UPN/email case-insensitively', async () => {
@@ -249,22 +254,27 @@ describe('msteams identity + role mapping', () => {
     expect(index).toContain('ctx.host.externalUsers()');
     const capabilities = (JSON.parse(manifest) as { capabilities?: { reads?: string[]; mutates?: string[] } }).capabilities;
     expect(capabilities?.reads).toContain('stores');
+    expect(capabilities?.reads).toContain('project-files');
     expect(capabilities?.mutates).toContain('users');
   });
 
-  it('declares every setting index.mjs reads off the plugin config', async () => {
+  it('declares every setting the plugin reads off its config', async () => {
     // The daemon filters a config PATCH through configSchema and DROPS an undeclared key without a word:
     // the request succeeds, the value never lands. So a setting the code reads but the manifest omits is
     // unreachable in the quietest possible way — the app package took its name from ctx.config.agentName
     // while every attempt to set it reported success and changed nothing. Verified against production.
-    const [manifest, index] = await Promise.all([
+    const [manifest, index, microsoftTools] = await Promise.all([
       readFile(join(repoRoot, 'plugins/msteams/elowen-plugin.json'), 'utf8'),
       readFile(join(repoRoot, 'plugins/msteams/index.mjs'), 'utf8'),
+      readFile(join(repoRoot, 'plugins/msteams/lib/microsoftTools.mjs'), 'utf8'),
     ]);
     const declared = new Set(
       (JSON.parse(manifest) as { configSchema?: { key: string }[] }).configSchema?.map((f) => f.key) ?? [],
     );
-    const read = [...index.matchAll(/ctx\.config\.([A-Za-z0-9_]+)/g)].map((m) => m[1]);
+    const read = [
+      ...index.matchAll(/ctx\.config\.([A-Za-z0-9_]+)/g),
+      ...microsoftTools.matchAll(/cfg\.([A-Za-z0-9_]+)/g),
+    ].map((m) => m[1]);
     expect(read).toContain('agentName');
     expect(read.filter((key) => !declared.has(key))).toEqual([]);
   });
@@ -275,12 +285,16 @@ describe('msteams identity + role mapping', () => {
     // provides.tools, the plugin loads in an error state, and the tool simply does not exist at runtime —
     // TeamsSendFile spent a day like that while its own unit tests passed, because they register it
     // directly and never consult the manifest.
-    const [manifest, tools] = await Promise.all([
+    const [manifest, tools, microsoftTools] = await Promise.all([
       readFile(join(repoRoot, 'plugins/msteams/elowen-plugin.json'), 'utf8'),
       readFile(join(repoRoot, 'plugins/msteams/lib/tools.mjs'), 'utf8'),
+      readFile(join(repoRoot, 'plugins/msteams/lib/microsoftTools.mjs'), 'utf8'),
     ]);
     const declared = new Set((JSON.parse(manifest) as { provides?: { tools?: string[] } }).provides?.tools ?? []);
-    const registered = [...tools.matchAll(/name: '(Teams[A-Za-z]+)'/g)].map((m) => m[1]!);
+    const registered = [
+      ...tools.matchAll(/name: '(Teams[A-Za-z]+)'/g),
+      ...microsoftTools.matchAll(/register\(ctx, '(Microsoft[A-Za-z]+)'/g),
+    ].map((m) => m[1]!);
     expect(registered.length).toBeGreaterThan(0);
     expect(registered.filter((name) => !declared.has(name))).toEqual([]);
     // And the reverse: a name left in the manifest after its tool is gone advertises a tool nobody serves.
@@ -304,6 +318,17 @@ describe('msteams identity + role mapping', () => {
     expect(adapter.accessFor(['aad-2'], 'a:c').access).toMatchObject({ actAsUserId: 2 });
     // A policy naming no account stays anonymous rather than borrowing someone's.
     expect(adapter.accessFor(['aad-3'], 'a:c').access).not.toHaveProperty('actAsUserId');
+  });
+
+  it('ignores legacy elowenUser mappings when delegated account linking is enabled', async () => {
+    const { adapter } = await makeAdapter(
+      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1], elowenUser: 'filip' }] },
+      { users: [{ id: 1, username: 'filip', isAdmin: true }], accountLinking: {
+        authenticate: async () => ({ status: 'authorized', user: { id: 1 } }),
+        signInActivity: async () => ({ type: 'message' }),
+      } },
+    );
+    expect(adapter.accessFor(['aad-1'], 'a:c').access).not.toHaveProperty('actAsUserId');
   });
 
   it('refuses to hand a whole company one identity, or to guess at an unknown name', async () => {
@@ -371,7 +396,7 @@ describe('msteams identity + role mapping', () => {
     expect(reply?.args[3]).toMatchObject({ type: 'message', textFormat: 'markdown', text: 'brain says hi' });
   });
 
-  it('keeps an explicit admin-managed account without forcing self-service OAuth', async () => {
+  it('uses the verified Entra binding instead of a legacy admin-managed account mapping', async () => {
     const accountLinking = {
       authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
       signInActivity: vi.fn(async () => ({})),
@@ -383,8 +408,8 @@ describe('msteams identity + role mapping', () => {
     const seen: Record<string, unknown>[] = [];
     adapter.listen(async (src) => { seen.push(src); return undefined; });
     await adapter.onActivity(activity());
-    expect(seen[0]?.access).toMatchObject({ projectIds: [1], actAsUserId: 1 });
-    expect(accountLinking.authenticate).not.toHaveBeenCalled();
+    expect(seen[0]?.access).toMatchObject({ projectIds: [1], actAsUserId: 7 });
+    expect(accountLinking.authenticate).toHaveBeenCalledTimes(1);
     expect(accountLinking.signInActivity).not.toHaveBeenCalled();
   });
 

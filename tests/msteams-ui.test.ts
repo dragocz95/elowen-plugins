@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { accountOptionsFor, directPolicyIndex, effectivePersonPolicy, globalSettingsDetail, linkedUserFor, matchesPerson, upsertDirectPolicy } from '../plugins/msteams/web-src/TeamsWorkspace';
-import type { PluginDetail, RolePolicy, TeamsPerson, User } from '../plugins/msteams/web-src/runtime';
+import {
+  accountDetailPath,
+  accountIdentityFromDetail,
+  bindAccountRequest,
+  directPolicyIndex,
+  effectivePersonPolicy,
+  globalSettingsDetail,
+  linkedUserFor,
+  matchesPerson,
+  peopleWithAccountDetail,
+  shouldShowLegacyAccountSelector,
+  upsertDirectPolicy,
+} from '../plugins/msteams/web-src/TeamsWorkspace';
+import type { PluginDetail, RolePolicy, TeamsAccountDetail, TeamsPerson, User } from '../plugins/msteams/web-src/runtime';
 
 const person: TeamsPerson = {
   key: 'aad-1',
@@ -10,8 +22,25 @@ const person: TeamsPerson = {
   teamsId: '29:encrypted',
   hasPersonalChat: true,
   lastSeenAt: 123,
+  identity: { linked: true, user: { id: 2, username: 'michal', isAdmin: false }, linkedAt: '2026-08-19T01:00:00Z' },
 };
 const policy = (roleId: string): RolePolicy => ({ roleId, name: 'Alex', projectIds: [] });
+
+const accountDetail: TeamsAccountDetail = {
+  linked: true,
+  user: { id: 2, username: 'michal', isAdmin: false },
+  linkedAt: '2026-08-19T01:00:00Z',
+  signedIn: true,
+  verifiedAt: '2026-08-19T02:00:00Z',
+  profile: {
+    id: 'aad-1',
+    displayName: 'Alex Rivera',
+    userPrincipalName: 'alex@example.com',
+    mail: 'alex@example.com',
+    accountEnabled: true,
+    userType: 'Member',
+  },
+};
 
 describe('Teams person access matching', () => {
   it('matches Entra and Teams ids exactly', () => {
@@ -54,27 +83,39 @@ describe('Teams person access matching', () => {
     expect(effectivePersonPolicy([wildcard, direct], person)).toBe(wildcard);
   });
 
-  it('resolves the linked Elowen account for avatar fallback by username or numeric id', () => {
+  it('resolves the linked account from person.identity rather than rolePolicy.elowenUser', () => {
     const users: User[] = [
       { id: 1, username: 'filip', name: 'Filip', avatar: '1.png' },
       { id: 2, username: 'michal', name: 'Michal' },
     ];
-    expect(linkedUserFor([{ ...policy('aad-1'), elowenUser: 'FILIP' }], person, users)).toBe(users[0]);
-    expect(linkedUserFor([{ ...policy('aad-1'), elowenUser: '2' }], person, users)).toBe(users[1]);
-    expect(linkedUserFor([policy('*')], person, users)).toBeUndefined();
+    expect(linkedUserFor(person, users)).toBe(users[1]);
+    expect(linkedUserFor({ ...person, identity: undefined }, users)).toBeUndefined();
   });
 
-  it('keeps the selected numeric account reference attached to its avatar option', () => {
-    const users: User[] = [
-      { id: 1, username: 'filip', name: 'Filip', avatar: '1.png' },
-      { id: 2, username: 'michal', name: 'Michal', avatar: '2.png' },
-    ];
-    const options = accountOptionsFor({ ...policy('aad-1'), elowenUser: '2' }, users, 'No account');
-    expect(options).toMatchObject([
-      { value: '', label: 'No account' },
-      { value: 'filip', user: users[0] },
-      { value: '2', label: 'Michal · @michal', user: users[1] },
-    ]);
+  it('hides the legacy role-policy account selector while account linking is enabled', () => {
+    expect(shouldShowLegacyAccountSelector(true)).toBe(false);
+    expect(shouldShowLegacyAccountSelector(false)).toBe(true);
+  });
+
+  it('projects account detail into PeopleResponse without session, profile, or secret fields', () => {
+    const detailWithSecrets = { ...accountDetail, accessToken: 'secret', claims: { oid: 'aad-1' } } as TeamsAccountDetail & { accessToken: string; claims: object };
+    const identity = accountIdentityFromDetail(detailWithSecrets);
+    const updated = peopleWithAccountDetail({ active: true, people: [person] }, person.aadObjectId, detailWithSecrets);
+
+    expect(identity).toEqual({ linked: true, user: accountDetail.user, linkedAt: accountDetail.linkedAt });
+    expect(updated.people[0]?.identity).toEqual(identity);
+    expect(JSON.stringify(updated)).not.toContain('secret');
+    expect(JSON.stringify(updated)).not.toContain('claims');
+    expect(JSON.stringify(updated)).not.toContain('profile');
+  });
+
+  it('builds encoded detail paths and minimal bind requests without forwarding secrets', () => {
+    const request = bindAccountRequest(42, true);
+    expect(accountDetailPath('aad/object')).toBe('/plugins/msteams/people/aad%2Fobject/account');
+    expect(request.method).toBe('PATCH');
+    expect(JSON.parse(String(request.body))).toEqual({ userId: 42, replace: true });
+    expect(JSON.stringify(request)).not.toContain('token');
+    expect(JSON.stringify(request)).not.toContain('claims');
   });
 
   it('keeps role policies in the shared draft but removes their duplicate generic settings fields', () => {

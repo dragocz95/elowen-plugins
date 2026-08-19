@@ -36,6 +36,7 @@ function harness(options: {
   const tokenClient = {
     getUserToken: vi.fn(async () => options.accessToken === undefined ? { token: token() } : (options.accessToken ? { token: options.accessToken } : null)),
     getSignInResource: vi.fn(async () => ({ signInLink: 'https://token.botframework.com/signin' })),
+    signOutUser: vi.fn(async () => undefined),
   };
   const fetch = vi.fn(async () => ({
     ok: options.graphOk ?? true,
@@ -52,7 +53,10 @@ function harness(options: {
     },
   }));
   const externalUsers = {
+    resolve: vi.fn(() => ({ id: 7, username: 'alex', isAdmin: false })),
+    describe: vi.fn(() => ({ user: { id: 7, username: 'alex', isAdmin: false }, linkedAt: '2026-08-19T01:00:00.000Z' })),
     linkOrProvision: vi.fn(() => ({ user: { id: 7, username: 'alex', isAdmin: false }, created: true })),
+    linkExisting: vi.fn(() => ({ user: { id: 7, username: 'alex', isAdmin: false }, linkedAt: '2026-08-19T01:00:00.000Z' })),
   };
   const linking = new TeamsAccountLinking(cfg, externalUsers, { info() {}, warn() {}, error() {} }, { tokenClient, fetch });
   return { linking, tokenClient, fetch, externalUsers };
@@ -129,5 +133,51 @@ describe('TeamsAccountLinking', () => {
     }));
     expect(card).not.toHaveProperty('text');
     expect(JSON.stringify(card)).not.toContain(cfg.appPassword);
+  });
+
+  it('exposes a delegated token only inside the matching personal Teams turn', async () => {
+    const { linking } = harness();
+    await expect(linking.delegatedSession({ platform: 'msteams', userId: OBJECT_ID })).rejects.toMatchObject({ code: 'personal_turn_required' });
+
+    await linking.runWithActivity(activity(), async () => {
+      await expect(linking.delegatedSession({ platform: 'web', userId: OBJECT_ID })).rejects.toMatchObject({ code: 'turn_identity_mismatch' });
+      await expect(linking.delegatedSession({ platform: 'msteams', userId: 'other' })).rejects.toMatchObject({ code: 'turn_identity_mismatch' });
+      await expect(linking.delegatedSession({ platform: 'msteams', userId: OBJECT_ID })).resolves.toMatchObject({
+        token: expect.stringMatching(/^header\./), subjectId: OBJECT_ID, tenantId: TENANT,
+      });
+    });
+
+    await expect(linking.runWithActivity(activity({ conversation: { id: '19:group', conversationType: 'groupChat', tenantId: TENANT } }),
+      () => linking.delegatedSession({ platform: 'msteams', userId: OBJECT_ID })))
+      .rejects.toMatchObject({ code: 'personal_turn_required' });
+  });
+
+  it('isolates concurrent delegated turns by immutable Entra subject', async () => {
+    const otherObjectId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const { linking } = harness();
+    vi.mocked(linking.tokens.getUserToken).mockImplementation(async (userId: string) => ({ token: userId === '29:other' ? token({ oid: otherObjectId }) : token() }));
+    vi.mocked(linking.fetch).mockImplementation(async (_url: string, init?: RequestInit) => {
+      const authorization = String((init as { headers?: { authorization?: string } })?.headers?.authorization ?? '');
+      const id = authorization.includes(token({ oid: otherObjectId })) ? otherObjectId : OBJECT_ID;
+      return { ok: true, json: async () => ({ id, displayName: id, userPrincipalName: `${id}@example.com`, mail: `${id}@example.com`, accountEnabled: true, userType: 'Member' }) } as Response;
+    });
+    const one = linking.runWithActivity(activity(), async () => (await linking.delegatedSession({ platform: 'msteams', userId: OBJECT_ID })).subjectId);
+    const two = linking.runWithActivity(activity({ from: { id: '29:other', aadObjectId: otherObjectId } }), async () => {
+      return (await linking.delegatedSession({ platform: 'msteams', userId: otherObjectId })).subjectId;
+    });
+    await expect(Promise.all([one, two])).resolves.toEqual([OBJECT_ID, otherObjectId]);
+  });
+
+  it('serves safe account status, explicit binding and sign-out without returning tokens', async () => {
+    const { linking, tokenClient, externalUsers } = harness();
+    const person = { aad: OBJECT_ID, id: '29:teams-user' };
+    const status = await linking.accountStatus(person);
+    expect(status).toMatchObject({ linked: true, signedIn: true, user: { id: 7, username: 'alex' }, profile: { id: OBJECT_ID } });
+    expect(JSON.stringify(status)).not.toContain('signature');
+
+    await linking.linkExisting(person, 7, true);
+    expect(externalUsers.linkExisting).toHaveBeenCalledWith({ provider: 'msteams', tenantId: TENANT, subjectId: OBJECT_ID, userId: 7, replace: true });
+    await linking.signOutPerson(person);
+    expect(tokenClient.signOutUser).toHaveBeenCalledWith('29:teams-user', cfg.oauthConnectionName, 'msteams');
   });
 });
