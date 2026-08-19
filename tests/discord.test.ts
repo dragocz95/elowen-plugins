@@ -1645,16 +1645,19 @@ describe('discord plugin prompt-commands (native registration + RAW dispatch)', 
         // newest-first, the order Discord's API returns
         { content: 'Filipe, hotovo.\n\n-# qwen3.8-max-preview · 4 %', author: { id: 'BOT', username: 'Elowen', bot: true } },
         { content: 'build passed\n-# ci-runner #481', author: { id: 'CI', username: 'CI', bot: true } },
-        { content: 'a co tohle\n-# můj vlastní subtext', author: { id: 'U1', username: 'dragocz95' } },
+        { content: 'a co tohle\n-# můj vlastní subtext', author: { id: 'U1', username: 'dragocz95' }, attachments: [{ filename: 'report.pdf', content_type: 'application/pdf' }] },
       ];
       const history = await adapter.fetchHistory('C', 'before');
+      expect(history.map((message) => message.author.name)).toEqual(['dragocz95', 'CI', 'Elowen']);
+      expect(history.map((message) => message.role)).toEqual(['user', 'assistant', 'assistant']);
       // Our footer is gone…
-      expect(history).toContain('[Elowen] Filipe, hotovo.');
-      expect(history).not.toContain('qwen3.8-max-preview');
+      expect(history.at(-1)?.text).toBe('Filipe, hotovo.');
+      expect(JSON.stringify(history)).not.toContain('qwen3.8-max-preview');
       // …but another bot's trailing subtext is ITS text, not our metadata…
-      expect(history).toContain('-# ci-runner #481');
+      expect(history[1]?.text).toContain('-# ci-runner #481');
       // …and a person's own subtext line is theirs and survives verbatim.
-      expect(history).toContain('-# můj vlastní subtext');
+      expect(history[0]?.text).toContain('-# můj vlastní subtext');
+      expect(history[0]?.attachments).toEqual([{ name: 'report.pdf', mimeType: 'application/pdf', kind: 'file' }]);
     });
 
     // The reply quote is the OTHER door into the prompt, and unlike history it fires on every single reply

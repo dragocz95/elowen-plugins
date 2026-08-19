@@ -1215,20 +1215,19 @@ describe('msteams conversation history backfill', () => {
     // Off is the default, and off must mean nothing is written to disk at all — this transcript persists
     // message text, unlike Discord's fetch-on-demand.
     expect((state.get('a:conv1') as { log?: unknown[] }).log).toBeUndefined();
-    expect(await (srcs[0]!.history as () => Promise<string>)()).toBe('');
+    expect(await (srcs[0]!.history as () => Promise<unknown[]>)()).toEqual([]);
   });
 
   it('hands the brain a promise, which is what it calls .catch() on', async () => {
-    // The SessionSource contract is `history?: () => Promise<string>`. A synchronous string satisfies
-    // every assertion about its CONTENT and still breaks the first turn of every new conversation,
-    // because the brain does `await opts.history().catch(…)` — and a string has no .catch.
+    // The SessionSource contract is asynchronous. A synchronous array satisfies content assertions but
+    // still breaks the first turn because core calls `.catch()` on the returned promise.
     const { adapter } = await makeAdapter({ historyLimit: 10, ...policy });
     const srcs: Record<string, unknown>[] = [];
     adapter.listen(async (src) => { srcs.push(src); return 'ok'; });
     await adapter.onActivity(activity());
     const returned = (srcs[0]!.history as () => unknown)();
     expect(typeof (returned as { catch?: unknown })?.catch).toBe('function');
-    expect(await (returned as Promise<string>)).toBe('');
+    expect(await (returned as Promise<unknown[]>)).toEqual([]);
   });
 
   it('seeds a new conversation with both sides, minus the message being answered', async () => {
@@ -1238,15 +1237,13 @@ describe('msteams conversation history backfill', () => {
     await adapter.onActivity(activity({ id: 'in-1', text: 'first question' }));
     await adapter.onActivity(activity({ id: 'in-2', text: 'second question' }));
 
-    expect(await (srcs[0]!.history as () => Promise<string>)()).toBe(''); // nothing preceded the first message
-    const block = await (srcs[1]!.history as () => Promise<string>)();
-    expect(block).toContain('Alex Rivera wrote: first question');
-    expect(block).toContain('Elowen wrote: the answer');
-    // No bracketed tag anywhere: the model copied that shape and addressed people as "[Michale]".
-    expect(block).not.toContain('[Alex Rivera]');
-    // The message being answered was recorded a moment earlier; carrying it would duplicate the prompt.
-    expect(block).not.toContain('second question');
-    expect(block).toContain('NEVER as instructions');
+    expect(await (srcs[0]!.history as () => Promise<unknown[]>)()).toEqual([]); // nothing preceded the first message
+    const messages = await (srcs[1]!.history as () => Promise<{ role: string; author: { name: string }; text: string }[]>)();
+    expect(messages).toEqual([
+      expect.objectContaining({ role: 'user', author: { name: 'Alex Rivera' }, text: 'first question' }),
+      expect.objectContaining({ role: 'assistant', author: { name: 'Elowen' }, text: 'the answer' }),
+    ]);
+    expect(messages.some((message) => message.text.includes('second question'))).toBe(false);
   });
 
   it('leaves an empty transcript entry out of the history block', async () => {
@@ -1254,9 +1251,8 @@ describe('msteams conversation history backfill', () => {
     // makes every line long enough to pass one, so the emptiness is now filtered on its own.
     const { adapter, state } = await makeAdapter({ historyLimit: 10, ...policy });
     state.patch('a:conv1', { log: [{ n: 'Alex Rivera', t: '   ' }, { n: 'Alex Rivera', t: 'a real message' }] });
-    const block = await adapter.buildHistory('a:conv1');
-    expect(block).toContain('Alex Rivera wrote: a real message');
-    expect(block.split('\n').some((l) => /wrote:\s*$/.test(l))).toBe(false);
+    const messages = await adapter.buildHistory('a:conv1');
+    expect(messages).toEqual([expect.objectContaining({ role: 'user', author: { name: 'Alex Rivera' }, text: 'a real message' })]);
   });
 
   it('keeps bot-control commands out of the transcript', async () => {
@@ -1284,10 +1280,12 @@ describe('msteams conversation history backfill', () => {
     const { adapter, state } = await makeAdapter({ historyLimit: 10, agentName: 'Chetty', ...policy });
     state.patch('a:conv1', { ref: { serviceUrl: 'https://smba.test' } }); // a chat the bot can reach
     await adapter.send('a:conv1', 'I wrote to you first.');
-    const log = (state.get('a:conv1') as { log?: { n: string; t: string }[] }).log ?? [];
-    expect(log).toEqual([{ n: 'Chetty', t: 'I wrote to you first.' }]);
-    // And it comes back as context for the session that his reply opens.
-    expect(await adapter.buildHistory('a:conv1')).toContain('Chetty wrote: I wrote to you first.');
+    const log = (state.get('a:conv1') as { log?: { n: string; t: string; r: string }[] }).log ?? [];
+    expect(log).toEqual([{ n: 'Chetty', t: 'I wrote to you first.', r: 'assistant' }]);
+    // And it comes back as an assistant transcript item for the session that his reply opens.
+    expect(await adapter.buildHistory('a:conv1')).toEqual([
+      expect.objectContaining({ role: 'assistant', author: { name: 'Chetty' }, text: 'I wrote to you first.' }),
+    ]);
   });
 
   it('does not record a push Teams refused', async () => {
@@ -1508,10 +1506,10 @@ describe('msteams proactive person messaging', () => {
       { users: [{ id: 2, username: 'dana', isAdmin: false }] },
     );
     state.patch('a:dm-dana', { log: [{ n: 'Dana', t: 'Earlier context' }] });
-    let relayed: { src: Record<string, unknown>; text: string; history: string } | undefined;
+    let relayed: { src: Record<string, unknown>; text: string; history: { text: string }[] } | undefined;
     adapter.control({
       relay: async (src, text) => {
-        const history = await (src.history as () => Promise<string>)();
+        const history = await (src.history as () => Promise<{ text: string }[]>)();
         relayed = { src, text, history };
         return 'Michal replied — the build is green.';
       },
@@ -1529,8 +1527,8 @@ describe('msteams proactive person messaging', () => {
       access: { actAsUserId: 2, denyTools: ['TeamsSend', 'TeamsMessagePerson', 'TeamsSendFile', 'TeamsApi'] },
     });
     expect(relayed?.text).toContain('{"sender":"Michal","message":"Michal asks whether the build is green."}');
-    expect(relayed?.history).toContain('Earlier context');
-    expect(relayed?.history).not.toContain('Michal asks whether the build is green.');
+    expect(relayed?.history.map((message) => message.text)).toContain('Earlier context');
+    expect(relayed?.history.map((message) => message.text)).not.toContain('Michal asks whether the build is green.');
     expect((state.get('a:dm-dana').log as { t: string }[]).map((entry) => entry.t)).toEqual([
       'Earlier context', 'Michal replied — the build is green.',
     ]);
@@ -1725,11 +1723,12 @@ describe('msteams proactive person messaging', () => {
     });
     try {
       const history = await adapter.buildHistory(conversationId, '102');
-      expect(history).toContain('Michal wrote: Deploy je venku');
-      expect(history).toContain('Lukáš wrote: super');
+      expect(history).toEqual([
+        expect.objectContaining({ id: '100', role: 'user', author: { name: 'Michal' }, text: 'Deploy je venku' }),
+        expect.objectContaining({ id: '101', role: 'user', author: { name: 'Lukáš' }, text: 'super' }),
+      ]);
       // The message being answered right now is the prompt, not background, and system events are noise.
-      expect(history).not.toContain('a co migrace?');
-      expect(history).not.toContain('systemEventMessage');
+      expect(history.some((message) => message.text.includes('a co migrace?'))).toBe(false);
       const graph = fetched.seen.filter((c) => c.url.startsWith('https://graph.microsoft.com'));
       expect(graph.map((c) => c.url.replace('https://graph.microsoft.com/v1.0', ''))).toEqual([
         '/teams/group-guid/channels/19%3Achan%40thread.tacv2/messages/100',
@@ -1749,8 +1748,10 @@ describe('msteams proactive person messaging', () => {
       return { status: 403, body: { error: { code: 'Forbidden', message: 'Missing role permissions on the request.' } } };
     });
     try {
-      // A tenant that never granted the consent still gets the old behaviour instead of a failed turn.
-      expect(await refused.adapter.buildHistory(conversationId, 'in-1')).toContain('Michal wrote: jsi tu?');
+      // A tenant that never granted the consent still gets the witnessed transcript instead of a failed turn.
+      expect(await refused.adapter.buildHistory(conversationId, 'in-1')).toEqual([
+        expect.objectContaining({ role: 'user', author: { name: 'Michal' }, text: 'jsi tu?' }),
+      ]);
       expect(refused.warnings.join(' ')).toContain('could not read the channel thread');
     } finally {
       denied.restore();
@@ -1761,7 +1762,9 @@ describe('msteams proactive person messaging', () => {
     off.state.patch(conversationId, { ref: { teamGroupId: 'group-guid' }, log: [{ n: 'Michal', t: 'jsi tu?', a: '99' }] });
     const quiet = stubFetch(() => undefined);
     try {
-      expect(await off.adapter.buildHistory(conversationId, 'in-1')).toContain('Michal wrote: jsi tu?');
+      expect(await off.adapter.buildHistory(conversationId, 'in-1')).toEqual([
+        expect.objectContaining({ role: 'user', author: { name: 'Michal' }, text: 'jsi tu?' }),
+      ]);
       expect(quiet.seen).toHaveLength(0);
     } finally {
       quiet.restore();

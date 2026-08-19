@@ -161,8 +161,17 @@ function threadMessage(raw) {
   if (!raw || raw.deletedDateTime || raw.messageType !== 'message') return null;
   const body = raw.body?.contentType === 'html' ? htmlToText(raw.body?.content) : String(raw.body?.content ?? '').trim();
   if (!body) return null;
-  const who = raw.from?.user?.displayName || raw.from?.application?.displayName || 'Unknown';
-  return { id: raw.id ? String(raw.id) : '', name: String(who), text: body };
+  const application = raw.from?.application;
+  const user = raw.from?.user;
+  const who = user?.displayName || application?.displayName || 'Unknown';
+  return {
+    id: raw.id ? String(raw.id) : '',
+    role: application ? 'assistant' : 'user',
+    authorId: String(user?.id || application?.id || ''),
+    name: String(who),
+    text: body,
+    timestamp: raw.createdDateTime ? String(raw.createdDateTime) : '',
+  };
 }
 
 /** Teams stores message bodies as HTML. The transcript is plain text, and a model reading raw markup
