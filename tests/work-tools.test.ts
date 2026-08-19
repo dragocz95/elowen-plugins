@@ -274,18 +274,18 @@ describe('work plugin tool registration (owner gate + per-call credential)', () 
  *
  *  The existing name-only assertion in tools.test.ts sorts the names, so it cannot see a reworded
  *  description or a widened schema at all. This can. */
-const BASELINE = 
+const BASELINE =
 [
   {
     "name": "ElowenListTasks",
     "label": "List tasks",
-    "description": "List tasks in the Elowen projects, with each task's id, title, status and project. Optionally narrow to one project with project_id. Use it to see what work exists or is in progress, to find the next task after finishing one, or to get an overview before planning. Call it before ElowenCreateTask so you do not create a duplicate of a task that already exists.",
+    "description": "List the tasks tracked in the Elowen control plane — the persistent work items, tickets and to-dos that belong to your projects — returning each task's id, title, status and project as JSON. Use it to see what work exists or is in progress, to answer \"what am I working on\", to pick the next task after finishing one, or to get an overview before planning. Call it before ElowenCreateTask so you do not create a duplicate of a task that already exists, and use it to obtain the task id the other Elowen task tools need. This is the control plane's durable task list, not the ephemeral in-conversation checklist kept by TodoWrite. Pass project_id to narrow the listing to a single project; omit it to list tasks across every project you may see. It is read-only and creates nothing. For a single task's full detail — description, result summary, dependencies, changed files — call ElowenGetTask instead. The tool works only in the owner's own chat session and needs a linked Elowen account; otherwise it answers with a refusal.",
     "parameters": {
       "type": "object",
       "properties": {
         "project_id": {
           "type": "number",
-          "description": "Only list tasks in this project"
+          "description": "Numeric id of a project to list tasks from; omit to list tasks from every accessible project"
         }
       }
     }
@@ -293,7 +293,7 @@ const BASELINE =
   {
     "name": "ElowenCreateTask",
     "label": "Create task",
-    "description": "Create a task in an Elowen project. Tasks are the unit of organized work — each belongs to a project and carries a title, a description and a status that tracks it through its lifecycle. Use this when the request is genuinely multi-step, when the work needs a visible checklist to stay on track, or when the user asks for it. Do not create a task for a single trivial action — just do the work. Check ElowenListTasks first to avoid duplicating an existing task. A new task starts `open`; move it through its lifecycle with ElowenUpdateTask as the work proceeds.",
+    "description": "Create a new task, ticket or work item in an Elowen project in the control plane. Tasks are the unit of organized work: each one belongs to a project and carries a title, an optional description and a status that tracks it through its lifecycle, and each can later be picked up by an agent. Use it when the request is genuinely multi-step, when the work needs a durable record that survives this conversation, when something should be remembered for later, or when the user simply asks to add a task. Do not create a task for a single trivial action — just do the work — and do not use it for a private in-conversation checklist, which is what TodoWrite is for. To have a whole goal decomposed into several tasks at once, call ElowenPlan instead. title should be a brief actionable imperative naming the outcome, project_id is the numeric id of the owning project (a task never exists standalone — get the id from ElowenListTasks), and description carries the context needed to resume the work after an interruption. Check ElowenListTasks first so you do not duplicate an existing task. The new task starts in status `open`; move it on with ElowenUpdateTask as the work proceeds. The created task is returned as JSON, including the id you will need later. This tool writes to the control plane and works only in the owner's own chat session with a linked Elowen account.",
     "parameters": {
       "type": "object",
       "required": [
@@ -319,7 +319,7 @@ const BASELINE =
   {
     "name": "ElowenUpdateTask",
     "label": "Update task",
-    "description": "Update an existing Elowen task: move it through its lifecycle, rename it, or revise its description. Status values are open, in_progress, blocked, closed, cancelled — set `in_progress` when you start the work and `closed` when it is genuinely finished, `blocked` when something outside your control stops it, and `cancelled` when it is no longer wanted. Only close a task you have actually completed: a partial implementation, a failing test or an unresolved error means it stays in_progress. Get the task id from ElowenListTasks or from what ElowenCreateTask returned.",
+    "description": "Update an existing task in the Elowen control plane: change its status to move it through its lifecycle, rename it, or revise its description. This is how a task gets marked as started, finished, blocked or cancelled. Status values are open, in_progress, blocked, closed, cancelled — set `in_progress` when you start the work and `closed` when it is genuinely finished, `blocked` when something outside your control stops it, and `cancelled` when it is no longer wanted. Only close a task you have actually completed: a partial implementation, a failing test or an unresolved error means it stays in_progress. task_id identifies the task and comes from ElowenListTasks or from what ElowenCreateTask returned; title and description replace those fields outright rather than appending to them. Pass at least one of status, title or description — an empty update is refused with an error instead of silently doing nothing. To halt a task an agent is actively running, prefer ElowenStopTask, which also handles the running session; to read a task before changing it, use ElowenGetTask. The updated task is returned as JSON. This tool writes to the control plane and works only in the owner's own chat session.",
     "parameters": {
       "type": "object",
       "required": [
@@ -369,7 +369,7 @@ const BASELINE =
   {
     "name": "ElowenPlan",
     "label": "Plan a goal",
-    "description": "Ask Elowen to break a goal into a task plan for a project.",
+    "description": "Ask the Elowen control plane to break a larger goal down into a plan: the planner decomposes the goal into an epic with phase tasks and their dependencies inside the given project, so the work can then be picked up by agents. Use it when the user describes a whole feature, project or objective rather than a single work item — \"we need user authentication\", \"prepare the release\" — and you want a structured breakdown instead of writing one task by hand. For a single known work item call ElowenCreateTask instead, and to see what already exists before planning call ElowenListTasks. goal is the objective in plain language, stated with enough context and constraints for the planner to split it sensibly, and project_id is the numeric id of the project the resulting tasks belong to. Planning is asynchronous: the call returns the planner job as JSON rather than the finished task list, so poll ElowenListTasks afterwards to see the tasks that were created. It writes to the control plane, may create several tasks at once, and works only in the owner's own chat session with a linked Elowen account.",
     "parameters": {
       "type": "object",
       "required": [
@@ -378,10 +378,12 @@ const BASELINE =
       ],
       "properties": {
         "goal": {
-          "type": "string"
+          "type": "string",
+          "description": "The objective to decompose, in plain language with the relevant context and constraints, e.g. \"add e-mail based password reset to the web app\""
         },
         "project_id": {
-          "type": "number"
+          "type": "number",
+          "description": "Numeric id of the project the planned tasks are created in (from ElowenListTasks)"
         }
       }
     }
@@ -389,7 +391,7 @@ const BASELINE =
   {
     "name": "ElowenGetTask",
     "label": "Get task",
-    "description": "Get a single task by its id, including its title, status, description, result summary, outcome, labels, dependencies and changed files. Use it to inspect a task's full state before updating or closing it.",
+    "description": "Read one task from the Elowen control plane in full detail by its id: title, status, project, description, result summary, outcome, labels, dependencies on other tasks and the files it changed, returned as JSON. Use it to inspect a task's complete state before updating, stopping or closing it, to check what a task actually asked for, or to see which other tasks it depends on. For an overview of many tasks call ElowenListTasks, which returns only id, title, status and project; for just the agent's reported result and token usage call ElowenTaskOutput. task_id is the task identifier as returned by ElowenListTasks or ElowenCreateTask. The tool is read-only and changes nothing. An unknown id comes back as an API error rather than an empty task. It works only in the owner's own chat session and needs a linked Elowen account.",
     "parameters": {
       "type": "object",
       "required": [
@@ -398,7 +400,7 @@ const BASELINE =
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "Id of the task to retrieve"
+          "description": "Id of the task to retrieve, as returned by ElowenListTasks or ElowenCreateTask"
         }
       }
     }
@@ -406,7 +408,7 @@ const BASELINE =
   {
     "name": "ElowenStopTask",
     "label": "Stop task",
-    "description": "Stop a running task: revert its status to open (so it can be re-spawned) or cancel it entirely. If the task has a live agent session, that session is stopped first so a second agent cannot spawn alongside it. Use this when a task is stuck, producing wrong results, or no longer needed.",
+    "description": "Stop a task that an agent is working on in the Elowen control plane: either hand it back by reverting its status to `open`, so it can be picked up or re-spawned later, or cancel it outright. Use it when an agent is stuck, looping, producing wrong results, or when the work is simply no longer wanted. To see which agents are actually running first, call ElowenListSessions; to change any other field of a task, or to close a task that genuinely finished, use ElowenUpdateTask instead. task_id identifies the task, from ElowenListTasks or ElowenListSessions. cancel defaults to false, which reverts the task to `open`; set it to true to move the task to `cancelled` permanently. Mechanically this is a status change, not a kill signal: the agent's tmux session is reaped by the background janitor once the task is closed or cancelled, so a task merely reverted to `open` may still have its session lingering for a moment — check ElowenListSessions if that matters. The updated task comes back as JSON. It writes to the control plane and works only in the owner's own chat session.",
     "parameters": {
       "type": "object",
       "required": [
@@ -415,11 +417,11 @@ const BASELINE =
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "Id of the task to stop"
+          "description": "Id of the task to stop, from ElowenListTasks or ElowenListSessions"
         },
         "cancel": {
           "type": "boolean",
-          "description": "Cancel the task permanently (default: revert to open for re-spawn)"
+          "description": "True cancels the task permanently; false or omitted reverts it to open so it can be re-spawned"
         }
       }
     }
@@ -427,7 +429,7 @@ const BASELINE =
   {
     "name": "ElowenTaskOutput",
     "label": "Task output",
-    "description": "Read a task's agent-reported result summary, outcome and token/cost usage. Returns the result_summary and outcome the agent recorded when it closed the task, plus usage statistics (or \"no usage recorded\" when none exists). Use it to review what a completed task actually did.",
+    "description": "Read what an agent reported for a task in the Elowen control plane: the result summary and outcome it recorded when it closed the task, together with the token and cost usage that task consumed, composed into one JSON object. Use it to review what a finished task actually did, to report progress or results back to the user, or to check how expensive a piece of agent work was. For the task's full record — description, status, labels, dependencies, changed files — call ElowenGetTask; for the list of tasks call ElowenListTasks. task_id is the task identifier from ElowenListTasks or ElowenGetTask. The tool is read-only. A task that has not finished yet simply has null in result_summary and outcome, and when no usage was recorded the usage field reads \"no usage recorded\" — neither is an error. An unknown id returns an API error. It works only in the owner's own chat session with a linked Elowen account.",
     "parameters": {
       "type": "object",
       "required": [
@@ -436,7 +438,7 @@ const BASELINE =
       "properties": {
         "task_id": {
           "type": "string",
-          "description": "Id of the task to read output from"
+          "description": "Id of the task whose reported result and usage should be read"
         }
       }
     }

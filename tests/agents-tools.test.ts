@@ -14,10 +14,13 @@ import { registerWorkTools } from '../plugins/work/dist/tools.js';
 
 // ---- from tests/plugins/agents/toolParity.test.ts ----
 
-/** PROMPT-CACHE PARITY BASELINE for the brain tools that moved into the agents plugin (F2 step 6).
+/** PROMPT-CACHE BASELINE for the brain tools that moved into the agents plugin (F2 step 6).
  *  The advertised bytes of a tool (name, description, parameter schema) feed the model's cached prompt
- *  prefix, so they are pinned here EXACTLY as the core built-ins shipped them. Changing any of these
- *  strings invalidates every cached prompt — if that is intended, update the baseline consciously.
+ *  prefix, so they are pinned here and any change invalidates every cached prompt. These began as the
+ *  core built-ins' exact bytes; they were rewritten deliberately once hosted tool search made the
+ *  description the retrieval index rather than documentation, so the baseline now records the plugin's
+ *  own advertised bytes. It still exists to keep the NEXT change deliberate — if a diff here is
+ *  intended, update the baseline consciously; if it is not, it just cost every user a cache miss.
  *  The advertised ORDER did change once with the extraction (plugin tools compose after the core
  *  groups); the ordered-set test below makes that position visible and locked. */
 
@@ -25,13 +28,13 @@ const BASELINE = [
   {
     name: 'ElowenListMissions',
     label: 'List missions',
-    description: 'List Elowen autopilot missions.',
+    description: 'List the Elowen autopilot missions in the control plane: the autonomous multi-agent runs that drive an epic\'s tasks to completion, each with its id, epic, state and — for a PR-native mission — the pull request currently attached to it. Use it to see what autopilot work is under way before engaging another mission, pausing or disengaging one, or reporting progress on a goal you planned earlier. Missions are the mission-level view: for the individual agent processes running right now call ElowenListSessions, and for the underlying task records call ElowenListTasks. It takes no parameters and is read-only — nothing is engaged, paused or disengaged by calling it. The result covers live missions plus disengaged ones whose pull request is still pending, filtered to the projects you may see, so an empty list means no mission is running rather than that missions are unavailable. It works only in the owner\'s own chat session and only while the task subsystem is loaded; otherwise it answers with a plain refusal.',
     parameters: { type: 'object', properties: {} },
   },
   {
     name: 'ElowenListSessions',
     label: 'List sessions',
-    description: 'List the running Elowen agent sessions — the background worker/pilot/overseer agents launched in tmux for your projects, each with its role and project. This is NOT the list of CLI chat clients or brain conversations: an empty result means no agent is currently running, not that nobody is connected. Use it to see what agent work is live before spawning more or stopping one.',
+    description: 'List the Elowen agent sessions running right now in the control plane — the background worker, pilot and overseer agents launched in tmux for your projects — each with its session name, role, task and project. Use it to see what agent work is actually live before spawning another agent, before stopping one with ElowenStopTask, or when someone asks what the agents are doing at the moment. For the mission-level view above these processes call ElowenListMissions, and for the task records themselves call ElowenListTasks. This is NOT a list of CLI chat clients, connected users or brain conversations: an empty result means no agent is currently running, not that nobody is connected. It takes no parameters, is read-only, and never starts or stops anything. Results are limited to the projects you may see. It works only in the owner\'s own chat session and only while the task subsystem is loaded; otherwise it answers with a plain refusal rather than an empty list.',
     parameters: { type: 'object', properties: {} },
   },
 ];
