@@ -1342,6 +1342,57 @@ describe('msteams conversation history backfill', () => {
   });
 });
 
+describe('msteams interleaved final ordering', () => {
+  it('sends a stale final as a new anchored reply and keeps the ordered control as an edit', async () => {
+    const interleaved = await makeAdapter({
+      rolePolicies: [{ roleId: 'aad-1', projectIds: [] }], streaming: true,
+      deleteToolActivityAfterTurn: true, runtimeFooter: false, reactions: false,
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let progress!: () => void;
+    const progressPosted = new Promise<void>((resolve) => { progress = resolve; });
+    const originalReply = interleaved.adapter.connector.reply as (...args: unknown[]) => Promise<unknown>;
+    interleaved.adapter.connector.reply = async (...args: unknown[]) => {
+      const result = await originalReply(...args);
+      if ((args[3] as { text?: string })?.text?.includes('Read')) progress();
+      return result;
+    };
+    interleaved.adapter.listen(async (_src, _text, onEvent) => {
+      onEvent?.({ type: 'tool', id: 't1', name: 'Read', detail: 'config', icon: '📄' });
+      await gate;
+      return 'Final answer.';
+    });
+    const first = interleaved.adapter.onActivity(activity({ id: 'in-1' }));
+    await progressPosted;
+    await interleaved.adapter.onActivity(activity({
+      id: 'in-2', text: 'newer visible message',
+      from: { id: '29:other', aadObjectId: 'aad-2', name: 'Dana' },
+    }));
+    release();
+    await first;
+
+    const replies = interleaved.calls.filter((c) => c.kind === 'reply');
+    expect(replies).toHaveLength(2);
+    expect(replies[0].args[2]).toBe('in-1');
+    expect(replies[1].args[2]).toBe('in-1');
+    expect((replies[1].args[3] as { text?: string }).text).toBe('Final answer.');
+    expect(interleaved.calls.filter((c) => c.kind === 'update').some((c) => (c.args[3] as { text?: string })?.text === 'Final answer.')).toBe(false);
+
+    const ordered = await makeAdapter({
+      rolePolicies: [{ roleId: 'aad-1', projectIds: [] }], streaming: true,
+      deleteToolActivityAfterTurn: true, runtimeFooter: false, reactions: false,
+    });
+    ordered.adapter.listen(async (_src, _text, onEvent) => {
+      onEvent?.({ type: 'tool', id: 't1', name: 'Read', detail: 'config', icon: '📄' });
+      return 'Final answer.';
+    });
+    await ordered.adapter.onActivity(activity({ id: 'in-1' }));
+    expect(ordered.calls.filter((c) => c.kind === 'reply')).toHaveLength(1);
+    expect((ordered.calls.filter((c) => c.kind === 'update').at(-1)?.args[3] as { text?: string }).text).toBe('Final answer.');
+  });
+});
+
 describe('msteams live trace layout', () => {
   const loadLiveMessage = async () => (await import(join(repoRoot, 'plugins/msteams/lib/stream.mjs'))) as {
     LiveMessage: new (a: unknown, c: string, r?: string, k?: string, d?: unknown) => {

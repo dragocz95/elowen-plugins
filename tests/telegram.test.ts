@@ -270,3 +270,65 @@ describe('telegram reply quote', () => {
     expect(seen[0]).toBe('[Replying to Bob: "tohle\n— můj vlastní řádek"]\n[Anna] a proč?');
   });
 });
+
+describe('telegram interleaved final ordering', () => {
+  const makeAdapter = async () => {
+    const { TelegramAdapter } = await import(join(repoRoot, 'plugins/telegram/lib/adapter.mjs')) as { TelegramAdapter: new (...args: unknown[]) => any };
+    const adapter = new TelegramAdapter(
+      {
+        language: 'en', rolePolicies: [{ roleId: '42' }], reactions: false,
+        streaming: true, deleteToolActivityAfterTurn: true, runtimeFooter: false,
+      },
+      log, { get: () => ({}), patch: () => {} }, async () => [],
+    );
+    adapter.botId = 7;
+    adapter.bot = { api: { sendChatAction: async () => {} } };
+    const sends: { text: string; extra: any }[] = [];
+    const edits: string[] = [];
+    adapter.tgSend = async (_chatId: number, text: string, extra: any = {}) => { sends.push({ text, extra }); return sends.length; };
+    adapter.tgEdit = async (_chatId: number, _messageId: number, text: string) => { edits.push(text); return true; };
+    adapter.tgDelete = async () => {};
+    const turn = (messageId: number, userId: number) => ({
+      message: { message_id: messageId, chat: { id: 5, type: 'private' }, from: { id: userId, first_name: userId === 42 ? 'Anna' : 'Bob' }, text: `message ${messageId}` },
+    });
+    return { adapter, sends, edits, turn };
+  };
+
+  it('sends a stale final as a new anchored reply and keeps the ordered control as an edit', async () => {
+    const interleaved = await makeAdapter();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let progress!: () => void;
+    const progressPosted = new Promise<void>((resolve) => { progress = resolve; });
+    const originalSend = interleaved.adapter.tgSend;
+    interleaved.adapter.tgSend = async (chatId: number, text: string, extra: any = {}) => {
+      const result = await originalSend(chatId, text, extra);
+      if (text.includes('Read')) progress();
+      return result;
+    };
+    interleaved.adapter.listen(async (_src: unknown, _text: string, onEvent: (e: unknown) => void) => {
+      onEvent({ type: 'tool', id: 't1', name: 'Read', detail: 'config', icon: '📄' });
+      await gate;
+      return 'Final answer.';
+    });
+    const first = interleaved.adapter.onMessage(interleaved.turn(1, 42));
+    await progressPosted;
+    await interleaved.adapter.onMessage(interleaved.turn(2, 99)); // visible, but rejected by access
+    release();
+    await first;
+
+    expect(interleaved.sends).toHaveLength(2);
+    expect(interleaved.sends[0].extra.reply_parameters.message_id).toBe(1);
+    expect(interleaved.sends[1]).toMatchObject({ text: 'Final answer.', extra: { reply_parameters: { message_id: 1 } } });
+    expect(interleaved.edits).not.toContain('Final answer.');
+
+    const ordered = await makeAdapter();
+    ordered.adapter.listen(async (_src: unknown, _text: string, onEvent: (e: unknown) => void) => {
+      onEvent({ type: 'tool', id: 't1', name: 'Read', detail: 'config', icon: '📄' });
+      return 'Final answer.';
+    });
+    await ordered.adapter.onMessage(ordered.turn(1, 42));
+    expect(ordered.sends).toHaveLength(1);
+    expect(ordered.edits.at(-1)).toBe('Final answer.');
+  });
+});

@@ -14,6 +14,7 @@ import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
 import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { isSteered } from 'elowen-plugin-shared/turnResult';
+import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger images are noted, not downloaded (cfg: maxImageBytes)
 const MAX_IMAGES = 4;                    // default vision cap per message (cfg: maxImages)
@@ -59,6 +60,7 @@ export class TelegramAdapter {
     this.stopped = false;
     this.pendingAsks = new Map();    // token → { id, chatId, messageId, questions, askerId, selected, awaitingText, title, desc, createdAt }
     this.pendingPickers = new Map(); // chatId → { kind:'model', models, messageId, page, createdAt } | { kind:'context', sessions, messageId, page, createdAt }
+    this.conversationOrder = createConversationOrderTracker();
     this.askSeq = 0;                 // short-token counter for ask callback_data (keeps it under 64 bytes)
     this.msg = MESSAGES[cfg.language] ?? MESSAGES.en; // service texts
   }
@@ -232,6 +234,7 @@ export class TelegramAdapter {
     if (!from) return;
     const chat = m.chat;
     const chatId = chat.id;
+    const orderMarker = this.conversationOrder.mark(chatId);
 
     // Free-text answer to a parked AskUserQuestion ("✏️ Other"): if this chat has a pending ask awaiting
     // text from THIS sender, consume the message as that answer — not as a new brain turn.
@@ -299,7 +302,9 @@ export class TelegramAdapter {
 
     const reactions = this.cfg.reactions !== false;
     const display = resolveDisplaySettings(this.cfg, this.state.get(String(chatId)));
-    const stream = observesLiveEvents(display, this.cfg) ? new LiveMessage(this, chatId, m.message_id, from.id, display) : null;
+    const stream = observesLiveEvents(display, this.cfg)
+      ? new LiveMessage(this, chatId, m.message_id, from.id, display, { collapseStillOrdered: () => this.conversationOrder.isCurrent(orderMarker) })
+      : null;
     // Even with live streaming OFF, AskUserQuestion must still render its choice message — otherwise the
     // parked turn hangs until the timeout. Route events through the stream when present, else handle only `ask`.
     const onEvent = stream

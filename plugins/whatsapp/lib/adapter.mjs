@@ -16,6 +16,7 @@ import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { isSteered } from 'elowen-plugin-shared/turnResult';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
 import { resolveImageFiles } from 'elowen-plugin-shared/images';
+import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger inbound images are noted, not downloaded (cfg: maxImageBytes)
 const MAX_IMAGES = 4;                    // default vision cap per message (cfg: maxImages)
@@ -95,6 +96,7 @@ export class WhatsAppAdapter {
     this.sentStore = new Map(); // messageId → sent proto message (for getMessage retries + edits)
     this.pendingAsks = new Map(); // askId → { jid, askerJid, questions, selected, awaitingText, key, createdAt }
     this.pendingMenus = new Map(); // jid → { kind:'model'|'thinking'|'context', title, options, entries, page, createdAt }
+    this.conversationOrder = createConversationOrderTracker();
     this.msg = MESSAGES[cfg.language] ?? MESSAGES.en;
   }
 
@@ -277,17 +279,10 @@ export class WhatsAppAdapter {
 
   // ── inbound ──
 
-  async onUpsert(up) {
-    if (up.type !== 'notify') return; // 'append' = history sync; only act on genuinely new messages
-    for (const m of up.messages ?? []) {
-      await this.onMessage(m).catch((e) => this.log.error(`message failed: ${e?.message ?? e}`));
-    }
-  }
-
-  async onMessage(m) {
-    if (!this.handler || !m.message || m.key?.fromMe) return;
+  visibleMessageIdentity(m) {
+    if (!this.handler || !m.message || m.key?.fromMe) return null;
     const chatJid = m.key.remoteJid;
-    if (!chatJid || chatJid === 'status@broadcast') return;
+    if (!chatJid || chatJid === 'status@broadcast') return null;
     const group = isGroup(chatJid);
     // Baileys 7 LID addressing: `remoteJid`/`participant` may be an internal `…@lid` id, with the real
     // phone-number JID in the `…Alt` field. Prefer the phone-number JID so sender policies (written as
@@ -295,7 +290,27 @@ export class WhatsAppAdapter {
     const lidSender = group ? (m.key.participant || m.participant || '') : chatJid;
     const pnSender = group ? (m.key.participantAlt || '') : (m.key.remoteJidAlt || '');
     const senderJid = pnSender || lidSender;
-    if (!senderJid) return;
+    return senderJid ? { chatJid, group, senderJid } : null;
+  }
+
+  async onUpsert(up) {
+    if (up.type !== 'notify') return; // 'append' = history sync; only act on genuinely new messages
+    // Baileys may put several newly arrived messages in one upsert. Mark the whole visible batch before
+    // awaiting the first turn, otherwise a later message in the same batch would look older than its reply.
+    const batch = (up.messages ?? []).map((m) => {
+      const identity = this.visibleMessageIdentity(m);
+      return { m, identity, orderMarker: identity ? this.conversationOrder.mark(identity.chatJid) : null };
+    });
+    for (const item of batch) {
+      await this.onMessage(item.m, item.identity, item.orderMarker).catch((e) => this.log.error(`message failed: ${e?.message ?? e}`));
+    }
+  }
+
+  async onMessage(m, ingressIdentity = null, ingressMarker = null) {
+    const identity = ingressIdentity ?? this.visibleMessageIdentity(m);
+    if (!identity) return;
+    const { chatJid, group, senderJid } = identity;
+    const orderMarker = ingressMarker ?? this.conversationOrder.mark(chatJid);
     if (m.message) this.sentStore.set(m.key.id, m.message); // cache for getMessage retries
 
     const rawText = this.extractText(m.message);
@@ -337,7 +352,9 @@ export class WhatsAppAdapter {
 
     const reactions = this.cfg.reactions !== false;
     const streaming = this.cfg.streaming !== false;
-    const stream = streaming ? new LiveMessage(this, chatJid, m, senderJid) : null;
+    const stream = streaming
+      ? new LiveMessage(this, chatJid, m, senderJid, { collapseStillOrdered: () => this.conversationOrder.isCurrent(orderMarker) })
+      : null;
     const onEvent = stream
       ? (e) => stream.onEvent(e)
       : (e) => { if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(chatJid, m, senderJid, e.id, e.questions).catch(() => {}); };

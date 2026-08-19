@@ -57,7 +57,7 @@ const LiveBase = createLiveMessage({ transport, style, CHUNK, splitContent, post
  *  "this message was deleted" tombstone in every client — so the answer stays ONE clean message sent after
  *  the run settles, quoted to the trigger, while tool activity streams into the progress bubble. */
 export class LiveMessage extends LiveBase {
-  constructor(adapter, jid, quoted, askerJid) {
-    super(adapter, jid, quoted, askerJid, { ...resolveDisplaySettings(adapter.cfg), answerMode: 'final' });
+  constructor(adapter, jid, quoted, askerJid, options = {}) {
+    super(adapter, jid, quoted, askerJid, { ...resolveDisplaySettings(adapter.cfg), answerMode: 'final' }, options);
   }
 }

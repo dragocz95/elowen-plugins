@@ -203,3 +203,78 @@ describe('whatsapp failed turn (ordering against the error reply)', () => {
     expect(sends[sends.length - 1]).toContain('boom'); // …and the ⚠️ error reply is the LAST message
   });
 });
+
+describe('whatsapp interleaved final ordering', () => {
+  const CHAT = '120363000000000000@g.us';
+  const ANNA = '420111222333@s.whatsapp.net';
+  const BOB = '420444555666@s.whatsapp.net';
+  const log = { info() {}, warn() {}, error() {} };
+
+  const makeAdapter = async () => {
+    const { WhatsAppAdapter } = await import(join(repoRoot, 'plugins/whatsapp/lib/adapter.mjs')) as { WhatsAppAdapter: new (...args: unknown[]) => any };
+    const adapter = new WhatsAppAdapter(
+      {
+        language: 'en', senderPolicies: [{ roleId: ANNA }], reactions: false,
+        streaming: true, deleteToolActivityAfterTurn: true, runtimeFooter: false,
+      },
+      log, { get: () => ({}), patch: () => {} }, async () => [], [], '', '', () => false, () => [],
+    );
+    const sends: { msg: any; extra: any }[] = [];
+    adapter.meId = '420999888777@s.whatsapp.net';
+    adapter.sock = {
+      sendPresenceUpdate: async () => {},
+      groupMetadata: async () => ({ subject: 'Team' }),
+      sendMessage: async (_jid: string, msg: any, extra: any = {}) => {
+        sends.push({ msg, extra });
+        return { key: msg.edit ?? { id: `k${sends.length}` }, message: msg };
+      },
+    };
+    const message = (id: string, participant: string) => ({
+      key: { remoteJid: CHAT, participant, fromMe: false, id },
+      pushName: participant === ANNA ? 'Anna' : 'Bob',
+      message: { conversation: `message ${id}` },
+    });
+    return { adapter, sends, message };
+  };
+
+  it('pre-marks a multi-message upsert and keeps the ordered control as an edit', async () => {
+    const interleaved = await makeAdapter();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let progress!: () => void;
+    const progressPosted = new Promise<void>((resolve) => { progress = resolve; });
+    const originalSend = interleaved.adapter.sock.sendMessage;
+    interleaved.adapter.sock.sendMessage = async (jid: string, msg: any, extra: any = {}) => {
+      const result = await originalSend(jid, msg, extra);
+      if (msg.text?.includes('Read')) progress();
+      return result;
+    };
+    interleaved.adapter.listen(async (_src: unknown, _text: string, onEvent: (e: unknown) => void) => {
+      onEvent({ type: 'tool', id: 't1', name: 'Read', detail: 'config', icon: '📄' });
+      await gate;
+      return 'Final answer.';
+    });
+    const upsert = interleaved.adapter.onUpsert({
+      type: 'notify',
+      messages: [interleaved.message('M1', ANNA), interleaved.message('M2', BOB)],
+    });
+    await progressPosted;
+    release();
+    await upsert;
+
+    const creates = interleaved.sends.filter((s) => !s.msg.edit && !s.msg.react);
+    expect(creates).toHaveLength(2);
+    expect(creates[0].extra.quoted.key.id).toBe('M1');
+    expect(creates[1]).toMatchObject({ msg: { text: 'Final answer.' }, extra: { quoted: { key: { id: 'M1' } } } });
+    expect(interleaved.sends.some((s) => s.msg.edit && s.msg.text === 'Final answer.')).toBe(false);
+
+    const ordered = await makeAdapter();
+    ordered.adapter.listen(async (_src: unknown, _text: string, onEvent: (e: unknown) => void) => {
+      onEvent({ type: 'tool', id: 't1', name: 'Read', detail: 'config', icon: '📄' });
+      return 'Final answer.';
+    });
+    await ordered.adapter.onMessage(ordered.message('M1', ANNA));
+    expect(ordered.sends.filter((s) => !s.msg.edit && !s.msg.react)).toHaveLength(1);
+    expect(ordered.sends.filter((s) => s.msg.edit).at(-1)?.msg.text).toBe('Final answer.');
+  });
+});

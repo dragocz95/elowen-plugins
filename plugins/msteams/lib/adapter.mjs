@@ -21,6 +21,7 @@ import { observesLiveEvents, resolveDisplaySettings, updateDisplayOverrides } fr
 import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, imageMimeType } from 'elowen-plugin-shared/images';
 import { isSteered } from 'elowen-plugin-shared/turnResult';
+import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
 
 /** The `/display` axes and their values — mirrors the resolution sets in _shared/display.mjs. */
 const DISPLAY_AXES = {
@@ -143,6 +144,7 @@ export class MsTeamsAdapter {
     this.rosterCache = new Map();    // conversationId → { at, members } for outbound mention resolution
     this.pendingAsks = new Map();    // token → { id, conversationId, activityId, questions, askerId, selected, createdAt }
     this.pendingPickers = new Map(); // conversationId → { kind, options, activityId, page, senderId, createdAt, sessions? }
+    this.conversationOrder = createConversationOrderTracker();
     // token → { conversationId, activityId, name, data, createdAt }. A file offered but not yet accepted
     // is held in memory: Teams gives us the upload URL only in the accept invoke, so the bytes have to
     // outlive the offer. Swept on every new offer and every answer so a declined one cannot leak.
@@ -742,6 +744,9 @@ export class MsTeamsAdapter {
     const conv = m.conversation;
     const from = m.from;
     if (!conv?.id || !from || from.id === m.recipient?.id) return; // no conversation, or our own echo
+    const targetedOrder = this.targetedTurn.getStore();
+    const orderKey = targetedOrder ? `${conv.id}:target:${from.id}` : `${conv.id}:public`;
+    const orderMarker = this.conversationOrder.mark(orderKey);
     this.rememberConversation(m);
     this.sweepStaleAsks();
 
@@ -793,7 +798,9 @@ export class MsTeamsAdapter {
     const convoKey = `${conv.id}#${gen}`;
 
     const display = resolveDisplaySettings(this.cfg, this.state.get(String(conv.id)));
-    const stream = observesLiveEvents(display, this.cfg) ? new LiveMessage(this, conv.id, m.id, ownerKey(from), display) : null;
+    const stream = observesLiveEvents(display, this.cfg)
+      ? new LiveMessage(this, conv.id, m.id, ownerKey(from), display, { collapseStillOrdered: () => this.conversationOrder.isCurrent(orderMarker) })
+      : null;
     // Even with live streaming OFF, AskUserQuestion must still render its card — otherwise the parked
     // turn hangs until the timeout. Route events through the stream when present, else handle only `ask`.
     const onEvent = stream

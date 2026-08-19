@@ -1315,6 +1315,70 @@ describe('discord onMessage context pipeline', () => {
     await adapter.onMessage({ type: 4, guild_id: 'G', channel_id: '100', id: 'SYS', author: { id: 'U1', username: 'anna' }, member: { roles: ['R1'] }, content: '' });
     expect(fired).toBe(false);
   });
+
+  it('keeps an interleaved final below newer ingress, while an ordered turn still collapses by edit', async () => {
+    const make = async () => {
+      const reg = await loadPlugins({
+        dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log,
+        config: { discord: {
+          botToken: 'tok', rolePolicies: [{ roleId: 'R1', projectIds: [1] }], reactions: false,
+          streaming: true, deleteToolActivityAfterTurn: true, runtimeFooter: false,
+        } },
+      });
+      const adapter = reg.platforms[0] as any;
+      adapter.botId = 'BOT';
+      const calls: { method: string; path: string; body: any }[] = [];
+      let seq = 0;
+      adapter.rest = async (method: string, path: string, body: any = {}) => {
+        calls.push({ method, path, body });
+        if (method === 'GET') return { id: '100', name: 'general', type: 0 };
+        return { id: `out-${++seq}` };
+      };
+      const message = (id: string, role = 'R1') => ({
+        type: 0, guild_id: 'G', channel_id: '100', id,
+        author: { id: role === 'R1' ? 'U1' : 'U2', username: role === 'R1' ? 'anna' : 'bob' },
+        member: { roles: role ? [role] : [] }, content: id,
+      });
+      return { adapter, calls, message };
+    };
+
+    const interleaved = await make();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let progress!: () => void;
+    const progressPosted = new Promise<void>((resolve) => { progress = resolve; });
+    const originalRest = interleaved.adapter.rest;
+    interleaved.adapter.rest = async (method: string, path: string, body: any = {}) => {
+      const result = await originalRest(method, path, body);
+      if (method === 'POST' && body.content?.includes('Read')) progress();
+      return result;
+    };
+    interleaved.adapter.listen(async (_src: unknown, _text: string, onEvent: (e: unknown) => void) => {
+      onEvent({ type: 'tool', id: 't1', name: 'Read', detail: 'config', icon: '📄' });
+      await gate;
+      return 'Final answer.';
+    });
+    const first = interleaved.adapter.onMessage(interleaved.message('M1'));
+    await progressPosted;
+    await interleaved.adapter.onMessage(interleaved.message('M2', '')); // visible, but rejected by access
+    release();
+    await first;
+
+    const posts = interleaved.calls.filter((c) => c.method === 'POST' && c.path === '/channels/100/messages');
+    expect(posts).toHaveLength(2);
+    expect(posts[0].body.message_reference?.message_id).toBe('M1');
+    expect(posts[1].body).toMatchObject({ content: 'Final answer.', message_reference: { message_id: 'M1' } });
+    expect(interleaved.calls.filter((c) => c.method === 'PATCH').some((c) => c.body.content === 'Final answer.')).toBe(false);
+
+    const ordered = await make();
+    ordered.adapter.listen(async (_src: unknown, _text: string, onEvent: (e: unknown) => void) => {
+      onEvent({ type: 'tool', id: 't1', name: 'Read', detail: 'config', icon: '📄' });
+      return 'Final answer.';
+    });
+    await ordered.adapter.onMessage(ordered.message('M1'));
+    expect(ordered.calls.filter((c) => c.method === 'POST' && c.path === '/channels/100/messages')).toHaveLength(1);
+    expect(ordered.calls.filter((c) => c.method === 'PATCH').at(-1)?.body.content).toBe('Final answer.');
+  });
 });
 
 describe('discord buildAskComponents (AskUserQuestion rendering)', () => {
