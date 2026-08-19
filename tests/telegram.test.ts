@@ -7,6 +7,68 @@ import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+describe('telegram chat and member lookups', () => {
+  type Tool = { name: string; execute: (id: string, p: unknown) => Promise<{ content: { text: string }[] }> };
+  const loadTools = async (api: Record<string, unknown>): Promise<Tool[]> => {
+    const { registerTools } = await import(join(repoRoot, 'plugins/telegram/lib/tools.mjs')) as {
+      registerTools: (ctx: unknown, adapter: unknown) => void;
+    };
+    const tools: Tool[] = [];
+    registerTools(
+      { registerTool: (t: never) => tools.push(t), isAdminSession: () => true, config: {} },
+      { requireBot: () => ({ api }) },
+    );
+    return tools;
+  };
+  const run = async (api: Record<string, unknown>, name: string, params: unknown) => {
+    const tool = (await loadTools(api)).find((t) => t.name === name)!;
+    return (await tool.execute('t', params)).content[0].text;
+  };
+
+  it('reports the pinned message id so it can be unpinned', async () => {
+    const text = await run(
+      { getChat: async () => ({ id: -100, type: 'supergroup', pinned_message: { message_id: 42, text: 'Read  the\nrules' } }) },
+      'TelegramChatInfo', { chatId: '-100' },
+    );
+    expect(text).toContain('pinned: 42 — Read the rules');
+  });
+
+  it('says so explicitly when nothing is pinned, and survives a pin with no text', async () => {
+    expect(await run({ getChat: async () => ({ id: 1, type: 'group' }) }, 'TelegramChatInfo', { chatId: '1' }))
+      .toContain('pinned: none');
+    expect(await run(
+      { getChat: async () => ({ id: 1, type: 'group', pinned_message: { message_id: 7 } }) },
+      'TelegramChatInfo', { chatId: '1' },
+    )).toContain('pinned: 7 (no text)');
+  });
+
+  it('lists the administrator rights the response actually granted', async () => {
+    const text = await run(
+      {
+        getChatMember: async () => ({
+          status: 'administrator', user: { id: 5, first_name: 'Ada' },
+          custom_title: 'Boss', is_anonymous: true,
+          can_delete_messages: true, can_pin_messages: true, can_promote_members: false,
+        }),
+      },
+      'TelegramMemberInfo', { chatId: '1', userId: 5 },
+    );
+    expect(text).toContain('rights: can_delete_messages, can_pin_messages');
+    expect(text).not.toContain('can_promote_members'); // not granted → not advertised
+    expect(text).toContain('title: Boss');
+    expect(text).toContain('anonymous: true');
+  });
+
+  it('leaves the rights line out for an ordinary member', async () => {
+    const text = await run(
+      { getChatMember: async () => ({ status: 'member', user: { id: 9, first_name: 'Bo' } }) },
+      'TelegramMemberInfo', { chatId: '1', userId: 9 },
+    );
+    expect(text).toContain('status: member');
+    expect(text).not.toContain('rights:');
+  });
+});
+
 describe('telegram plugin', () => {
   it('registers no platform without a botToken (warns instead of crashing)', async () => {
     const reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['telegram'], logger: log });

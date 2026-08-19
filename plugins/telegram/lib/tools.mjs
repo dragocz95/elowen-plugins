@@ -44,7 +44,8 @@ export function registerTools(ctx, adapter) {
       'Read the profile of one Telegram chat through the Bot API getChat method and report its id, type (private, group, supergroup or channel), title, public @username, description and whether it is a forum with topics.',
       'Use it to confirm which group or channel an id actually points at before posting, renaming, moderating or creating a topic in it, and to learn whether topics are available at all.',
       'chatId is a numeric chat id or a public @channelusername; the bot must be a member of the chat (or the chat must be public) or the Bot API rejects the lookup.',
-      'Read-only and safe to call. It does NOT list members or messages — use TelegramGetMembersCount for the member count, TelegramMemberInfo for one person, and note that the pinned message and photo are not included in the output.',
+      'It also reports the currently pinned message as "pinned: <messageId> — <text>", which is the id TelegramUnpinMessage needs; chats with nothing pinned say so explicitly.',
+      'Read-only and safe to call. It does NOT list members or messages — use TelegramGetMembersCount for the member count and TelegramMemberInfo for one person. The chat photo is not included.',
     ].join(' '),
     parameters: Type.Object({ chatId: Type.String({ description: 'Chat to inspect: numeric id or public @channelusername' }) }),
     execute: async (_id, p) => {
@@ -56,6 +57,13 @@ export function registerTools(ctx, adapter) {
         if (c.username) out.push(`username: @${c.username}`);
         if (c.description) out.push(`description: ${c.description}`);
         if (c.is_forum) out.push('forum: true');
+        // getChat carries the pinned Message; without its id there is no way to reach TelegramUnpinMessage
+        // except raw TelegramApi. A pinned photo or poll has no text, so say it is pinned regardless.
+        const pinned = c.pinned_message;
+        if (pinned) {
+          const body = String(pinned.text ?? pinned.caption ?? '').replace(/\s+/g, ' ').trim();
+          out.push(`pinned: ${pinned.message_id}${body ? ` — ${body.length > 200 ? `${body.slice(0, 200)}…` : body}` : ' (no text)'}`);
+        } else out.push('pinned: none');
         return ok(out.join('\n'));
       } catch (e) { return fail(e); }
     },
@@ -85,7 +93,8 @@ export function registerTools(ctx, adapter) {
       'Look up one participant of a Telegram chat by numeric user id via the Bot API getChatMember method and report their id, first and last name, @username and membership status (creator, administrator, member, restricted, left or kicked).',
       'Use it to verify that a person is really in a group, to check whether they are an admin or already banned, or to resolve a user id to a name before mentioning them.',
       'chatId is a numeric chat id or a public @channelusername and userId must be the numeric Telegram user id — a phone number or an @username of a private person will not work here.',
-      'Read-only and safe to call. The status field is the only permission signal returned: the detailed can_* administrator rights are NOT included, so fetch them with TelegramApi (getChatMember) if you need the exact rights.',
+      'For an administrator it also lists the granted can_* rights (can_delete_messages, can_pin_messages, can_restrict_members and so on) plus any custom title, so you can tell in advance whether a moderation call will be allowed.',
+      'Read-only and safe to call. A member with no administrator rights simply has no rights line.',
     ].join(' '),
     parameters: Type.Object({
       chatId: Type.String({ description: 'Chat the person belongs to: numeric id or public @channelusername' }),
@@ -96,9 +105,16 @@ export function registerTools(ctx, adapter) {
         adminGate();
         const m = await api().getChatMember(chat(p.chatId), Number(p.userId));
         const u = m.user ?? {};
+        // Read the can_* rights off the response itself rather than a hard-coded list: Telegram keeps
+        // adding them (can_manage_topics, can_post_stories…) and an enumeration here would silently omit
+        // whichever right is newest. Only granted ones are listed, so an ordinary member prints nothing.
+        const rights = Object.keys(m).filter((key) => key.startsWith('can_') && m[key] === true).sort();
         return ok([
           `id: ${u.id}`, `name: ${[u.first_name, u.last_name].filter(Boolean).join(' ')}`,
           u.username ? `username: @${u.username}` : null, `status: ${m.status}`,
+          m.custom_title ? `title: ${m.custom_title}` : null,
+          m.is_anonymous === true ? 'anonymous: true' : null,
+          rights.length ? `rights: ${rights.join(', ')}` : null,
         ].filter(Boolean).join('\n'));
       } catch (e) { return fail(e); }
     },
