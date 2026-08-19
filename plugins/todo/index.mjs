@@ -129,15 +129,19 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'TodoWrite',
     label: 'Write todos',
-    description: 'Create or replace the current todo checklist — the user sees it live in the todo panel. '
-      + 'Use it for genuinely multi-step work: three or more distinct steps, several sub-tasks, or a user request that lists multiple things to do. Skip it for a single trivial action — just do the work. '
-      + 'Pass the FULL ordered list every time, keep at most one item in_progress, mark items completed the moment they finish (never batch completions), and update the list at every status transition or scope change.',
+    description: [
+      'Create or replace the todo checklist — the shared task list, plan and progress tracker for THIS conversation, which the user watches live in the todo panel while you work.',
+      'Use it for genuinely multi-step work: three or more distinct steps, several sub-tasks, a plan you want visible, or a user request that lists multiple things to do. Skip it for a single trivial action — just do the work instead of tracking it. To read back the list you already wrote without changing it, use TodoRead.',
+      'This is a full replace, not an append: pass the FULL ordered list of todos every time, including the items that are already done, because anything you leave out is deleted. Each item takes a `title` (a short imperative task, `text` is an accepted alias) and a `status` of pending, in_progress or completed; common spellings such as "todo", "doing" or "done" are normalized, and an unknown status falls back to pending.',
+      'Update the checklist immediately at every transition — when a step starts, finishes, becomes blocked, or when the scope of the work changes — rather than batching updates at the end. Keep at most one item in_progress and mark work completed the moment it is actually finished, not when you plan to finish it.',
+      'The checklist belongs to one conversation and is not shared with other conversations or accounts; a turn with no conversation behind it (for example a scheduled cron run) is refused with an error. The panel renders the list for the user, so do not repeat the checklist as text in your reply.',
+    ].join(' '),
     parameters: Type.Object({
       todos: Type.Array(Type.Object({
-        title: Type.Optional(Type.String({ description: 'Short imperative task title' })),
-        text: Type.Optional(Type.String({ description: 'Alias for title' })),
-        status: Type.Optional(Type.String({ description: 'pending | in_progress | completed' })),
-      }), { description: 'The full ordered todo list' }),
+        title: Type.Optional(Type.String({ description: 'Short imperative task title, e.g. "Add regression test for the auth guard". The alias fields text, content and task are also accepted.' })),
+        text: Type.Optional(Type.String({ description: 'Alias for title — use title unless you are porting an existing list' })),
+        status: Type.Optional(Type.String({ description: 'Task state: "pending", "in_progress" or "completed". Aliases such as todo/open, doing/active/wip and done/finished are normalized; anything unknown becomes pending.' })),
+      }), { description: 'The FULL ordered todo list, replacing the previous checklist entirely — include already completed items or they are lost' }),
     }),
     execute: async (_id, params) => {
       try {
@@ -157,7 +161,11 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'TodoRead',
     label: 'Read todos',
-    description: 'Return the current todo checklist as a markdown checklist.',
+    description: [
+      'Return the todo checklist of the current conversation — the shared task list and progress state — rendered as a markdown checklist, with completed items as "[x]" and the item currently in progress marked with an hourglass.',
+      'Use it to re-orient yourself on what is still open and what is already done: after a long or compacted conversation, when resuming interrupted multi-step work, or when the user asks what remains to be done. It takes no parameters and only reads the list for the conversation you are in; to add, reorder or change the status of any item, call TodoWrite with the full list.',
+      'Reading also refreshes the todo panel the user sees, so the displayed plan matches the stored one. When no checklist has been created yet, or the turn has no conversation behind it, the result is simply an empty list rather than an error.',
+    ].join(' '),
     parameters: Type.Object({}),
     execute: async () => {
       try {

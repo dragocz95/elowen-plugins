@@ -36,13 +36,25 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'EditImage', label: 'Edit image',
-    description: 'Edit an existing image from a text instruction (image-to-image). Provide the source as '
-      + 'a repo file path or a public image URL. Returns a markdown image that renders in the chat.',
+    description: [
+      'Edit, modify, retouch or restyle an image that already exists (image-to-image) by describing the change',
+      'in words: remove or add an object, change the background or colours, redraw it in another style, clean it',
+      'up or extend it. The source must be given either as path — a picture file inside your accessible',
+      'repositories, PNG or JPEG — or as url, a public http(s) link to the picture; give exactly one of them, and',
+      'when neither is present the call is refused. To create a picture from nothing but a description use',
+      'GenerateImage instead, since this tool always needs a source image. Put the desired change in instruction',
+      '("make the sky orange", "remove the person on the left"), and set size to 1024x1024, 1536x1024, 1024x1536',
+      'or auto to keep the model\'s own choice. The result is a new PNG saved in the plugin data directory and',
+      'returned as a markdown image that renders inline in the web chat; the original file is never overwritten.',
+      'Image models are slow, so a call may take up to two minutes and then time out, the edit is a fresh render',
+      'rather than a pixel-exact patch of the source, and the tool is unavailable until an image provider is',
+      'configured in settings.',
+    ].join(' '),
     parameters: Type.Object({
-      instruction: Type.String({ description: 'What to change about the image' }),
-      path: Type.Optional(Type.String({ description: 'Source image: a file within your accessible repositories' })),
-      url: Type.Optional(Type.String({ description: 'Source image: a public http(s) URL' })),
-      size: Type.Optional(Type.String({ description: '1024x1024 | 1536x1024 | 1024x1536 | auto' })),
+      instruction: Type.String({ description: 'What to change about the image, e.g. "remove the background and make it transparent white"' }),
+      path: Type.Optional(Type.String({ description: 'Source image as a file path inside your accessible repositories, e.g. "assets/logo.png" (PNG or JPEG). Use this or url, not both.' })),
+      url: Type.Optional(Type.String({ description: 'Source image as a public http(s) URL. Use this or path, not both.' })),
+      size: Type.Optional(Type.String({ description: 'Output resolution: "1024x1024" (square), "1536x1024" (landscape), "1024x1536" (portrait) or "auto". Any other value is treated as "auto".' })),
     }),
     execute: async (_id, p) => {
       try {

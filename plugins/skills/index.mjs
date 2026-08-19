@@ -354,12 +354,17 @@ export function register(ctx) {
   // `/skill:name` on its own. This plugin only LOADS skills and offers the admin write tools below.
   ctx.registerTool(defineTool({
     name: 'CreateSkill', label: 'Create skill',
-    description: 'Create (or overwrite) a reusable markdown skill. It is applied live: available in your system prompt from the next message onward. An admin writes an instance-wide skill (every session sees it) unless scope is "personal"; everyone else writes their own.',
+    description: [
+      'Save a reusable skill — a named markdown procedure, workflow or set of standing instructions that you can follow again in later conversations — as a file the agent loads automatically.',
+      'Use it when a workflow keeps repeating (a deployment checklist, a report format, how a specific client wants things done) or when the user asks you to remember a procedure permanently. It is for durable know-how, not for facts about a person or project: store those as a memory instead, and use TodoWrite for the steps of the task you are doing right now.',
+      'The `name` is a kebab-case identifier (a-z, digits and dashes, up to 64 characters) and also the file name; `description` is the single line that tells your future self when this skill applies, so write it as a trigger condition; `content` is the markdown body with the actual instructions. `scope` decides who gets it: "instance" makes it visible in every session on this instance and requires an admin session, "personal" keeps it to your own account. Unspecified means instance-wide for an admin and personal for everyone else.',
+      'Writing an existing personal skill of yours overwrites it, but a name that collides with a bundled or instance-wide skill is refused rather than shadowed, and non-admins cannot write the shared set. The new skill is applied live and appears in the available-skills list from your next message; use ListSkills to see what already exists and DeleteSkill to remove one.',
+    ].join(' '),
     parameters: Type.Object({
-      name: Type.String({ description: 'kebab-case identifier, e.g. deploy-checklist' }),
-      description: Type.String({ description: 'One line: when to use this skill' }),
-      content: Type.String({ description: 'The skill body (markdown instructions)' }),
-      scope: Type.Optional(Type.String({ description: '"instance" (everyone, admin only) or "personal" (yours only). Default: instance for an admin, personal otherwise.' })),
+      name: Type.String({ description: 'kebab-case identifier and file name, e.g. "deploy-checklist" (a-z, 0-9 and dashes, max 64 chars)' }),
+      description: Type.String({ description: 'One line describing WHEN to use this skill — it is the trigger the agent matches on later, e.g. "Use when releasing a new backend version"' }),
+      content: Type.String({ description: 'The skill body: markdown instructions, steps, rules and examples the agent should follow when the skill applies' }),
+      scope: Type.Optional(Type.String({ description: '"instance" = shared with every session on this instance (admin sessions only), "personal" = only your own account. Default: instance for an admin, personal otherwise.' })),
     }),
     execute: async (_id, p) => {
       try {
@@ -397,7 +402,11 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'ListSkills', label: 'List skills',
-    description: 'List the skills available to you (bundled, instance-wide, and your own).',
+    description: [
+      'List every skill available in this session — the reusable markdown procedures and workflows the agent can follow — with each name, its scope tag and the one-line description that says when it applies.',
+      'Use it to check what know-how is already saved before writing a new skill with CreateSkill, to find the exact name you need for DeleteSkill, or when the user asks what you can do or what instructions you have been given. It takes no parameters.',
+      'Three sets are shown: bundled skills that ship with the plugin, instance-wide skills shared by every session, and your own personal ones. It never reveals other accounts private skills. Entries flagged "/skill only" are hidden from automatic matching and run only when invoked explicitly; the listing shows names and descriptions, not the full instruction bodies, so read the skill file itself when you need the steps.',
+    ].join(' '),
     parameters: Type.Object({}),
     execute: async () => {
       try {
@@ -421,8 +430,13 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'DeleteSkill', label: 'Delete skill',
-    description: 'Delete one of your own skills by name (bundled skills cannot be deleted; deleting an instance-wide skill is admin only).',
-    parameters: Type.Object({ name: Type.String() }),
+    description: [
+      'Permanently delete a saved skill by name, removing that reusable procedure from the agent instructions from the next message onward.',
+      'Use it when a stored workflow is obsolete, wrong or was superseded — for example after the user says to forget a procedure. To change a skill rather than drop it, call CreateSkill with the same name to overwrite it, and use ListSkills first to confirm the exact name.',
+      'Your own personal skills are removed directly; deleting an instance-wide skill that every session sees requires an admin session, and bundled skills that ship with the plugin cannot be deleted at all. Both flat "<name>.md" files and directory-form skills are handled — for a directory skill the whole folder, including its support files, is removed.',
+      'This is irreversible: the file is unlinked with no backup and no undo, so confirm before deleting somebody elses shared skill. A name you may not touch, and a name that does not exist, return the same refusal.',
+    ].join(' '),
+    parameters: Type.Object({ name: Type.String({ description: 'The exact kebab-case skill name to delete, as shown by ListSkills, e.g. "deploy-checklist"' }) }),
     execute: async (_id, p) => {
       try {
         if (!NAME_RE.test(p.name)) return ok('Error: invalid skill name.');

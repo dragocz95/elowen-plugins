@@ -145,8 +145,21 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'WebSearch', label: 'Web search',
-    description: 'Search the web and get titles, URLs and content snippets. For recent software, documentation or events, include the current year in the query. Results are short snippets — follow up with WebFetch on the most relevant URL when you need the full page, and cite the URLs you used in your reply.',
-    parameters: Type.Object({ query: Type.String({ description: 'Search query' }) }),
+    description: [
+      'Search the internet through Google/Tavily and get back a ranked list of web results — page title, URL and',
+      'a short content snippet each, plus a direct answer paragraph when the backend has one. Use it to look',
+      'something up online: current news and events, prices, opening hours, company or product information,',
+      'library documentation, error messages, release notes, or any fact that is not in the repository and may',
+      'have changed since training. When you already know the exact page you want, skip this and call WebFetch on',
+      'that URL; for code inside the user\'s own project use CodebaseSearch or Search instead, because this tool',
+      'only sees the public web. Put a natural-language question or keywords in query, and include the current',
+      'year for anything recent ("Node 24 release notes 2026") so stale pages rank lower.',
+      'Results are only snippets of a few hundred characters, so follow up with WebFetch on the most relevant URL',
+      'when you need the full text, and cite the URLs you used in your reply. Roughly five results come back per',
+      'call (configurable, at most ten), and the tool answers with a short explanation instead of results when no',
+      'Tavily or Serper API key is configured in the web plugin settings.',
+    ].join(' '),
+    parameters: Type.Object({ query: Type.String({ description: 'What to search for, as a natural-language question or keywords, e.g. "typebox optional union example 2026"' }) }),
     execute: async (_id, p) => {
       const selected = resolveSearchProvider(ctx.config);
       if (selected.message) return ok(selected.message);
@@ -162,8 +175,20 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'WebFetch', label: 'Fetch web page',
-    description: 'Fetch a public http(s) URL and return its readable text content: HTML is stripped to text, redirects are followed, and the output is truncated at 20k characters. Read-only; private and loopback URLs are refused. Pages rendered entirely in JavaScript may return little or nothing — prefer an API or feed URL when one exists.',
-    parameters: Type.Object({ url: Type.String({ description: 'Absolute http(s) URL' }) }),
+    description: [
+      'Open a public web page, article, documentation page, API endpoint or feed by its URL and return the',
+      'readable text: HTML markup, scripts, styles and navigation are stripped away, JSON and plain text come',
+      'back as-is, and up to three redirects are followed. Use it to actually read a link the user sent, or to',
+      'get the full content behind a WebSearch snippet; when you do not have a URL yet, run WebSearch first,',
+      'and for files inside the user\'s repositories use Read rather than this tool. The url parameter must be an',
+      'absolute http(s) address including the scheme, for example "https://example.com/docs/api".',
+      'The request is read-only — it never posts, logs in or submits forms — and it times out after 20 seconds,',
+      'while the returned text is cut off at 20 000 characters with a "[truncated]" marker. URLs that resolve to',
+      'a private, loopback or link-local address are refused at every redirect hop, so internal services cannot be',
+      'reached through it. A page rendered entirely by JavaScript, or one behind a login or bot wall, may come',
+      'back nearly empty; prefer an API, RSS or raw-file URL when one exists.',
+    ].join(' '),
+    parameters: Type.Object({ url: Type.String({ description: 'Absolute http(s) URL of the page to fetch, e.g. "https://example.com/blog/post"; private and loopback addresses are refused' }) }),
     execute: async (_id, p) => {
       try {
         const res = await fetchGuarded(p.url, {

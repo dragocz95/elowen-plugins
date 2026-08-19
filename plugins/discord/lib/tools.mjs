@@ -10,11 +10,18 @@ export function registerTools(ctx, adapter) {
   // whatever the bot's permissions allow. The token never leaves the plugin; admin sessions only.
   ctx.registerTool(defineTool({
     name: 'DiscordApi', label: 'Discord API',
-    description: 'Call the Discord REST API (v10) with the bot token — server management: delete messages (DELETE /channels/{id}/messages/{msgId}, bulk POST /channels/{id}/messages/bulk-delete with {"messages":[ids]} for <14d messages), manage roles (PUT/DELETE /guilds/{gid}/members/{uid}/roles/{roleId}), fetch messages (GET /channels/{id}/messages?limit=50), edit channels, and anything else the API offers. Operator only.',
+    description: [
+      'Call any Discord REST API v10 endpoint directly with the bot token — the raw escape hatch for Discord server management when no curated Discord* tool covers what you need.',
+      'Typical uses: delete a message (DELETE /channels/{id}/messages/{msgId}), bulk-delete messages younger than 14 days (POST /channels/{id}/messages/bulk-delete with {"messages":[ids]}), grant or revoke a role (PUT or DELETE /guilds/{gid}/members/{uid}/roles/{roleId}), fetch messages (GET /channels/{id}/messages?limit=50), edit channel settings, manage bans, invites, emojis and webhooks.',
+      'Prefer the structured wrappers first — DiscordListChannels, DiscordReadChannel, DiscordDeleteMessage, DiscordPurgeMessages, DiscordAssignRole and friends — because they validate the arguments for you; reach for this tool only for an endpoint they do not expose.',
+      'OWNER/OPERATOR ONLY and highly DESTRUCTIVE: the raw bot token can delete channels, ban members and reconfigure the entire guild, so the call is refused for anyone who is not the operator, even an admin session.',
+      'method is the HTTP verb, path must start with "/" (query string included), and body is a JSON string parsed before sending — invalid JSON is rejected without any request being made.',
+      'The response is the pretty-printed JSON returned by Discord, "(no content)" for a 204, and it is truncated after 4000 characters; a non-2xx status comes back as an "Error: discord API … → HTTP <status>" text rather than an exception, and 429 rate limits are retried automatically.',
+    ].join(' '),
     parameters: Type.Object({
-      method: Type.Union([Type.Literal('GET'), Type.Literal('POST'), Type.Literal('PATCH'), Type.Literal('PUT'), Type.Literal('DELETE')]),
-      path: Type.String({ description: 'API path starting with /, e.g. /channels/123/messages?limit=20' }),
-      body: Type.Optional(Type.String({ description: 'JSON request body, when the endpoint takes one' })),
+      method: Type.Union([Type.Literal('GET'), Type.Literal('POST'), Type.Literal('PATCH'), Type.Literal('PUT'), Type.Literal('DELETE')], { description: 'HTTP method for the Discord REST call: GET to read, POST to create, PATCH to modify, PUT to set/add, DELETE to remove' }),
+      path: Type.String({ description: 'API path starting with /, relative to the Discord API v10 base, query string included — e.g. /channels/123/messages?limit=20 or /guilds/456/members/789/roles/321' }),
+      body: Type.Optional(Type.String({ description: 'JSON request body as a string, when the endpoint takes one — e.g. {"name":"general"} or {"messages":["1","2"]}. Must parse as JSON; omit for GET and DELETE.' })),
     }),
     execute: async (_id, p) => {
       try {
@@ -51,8 +58,14 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordListChannels', label: 'List Discord channels',
-    description: 'List the guild\'s channels AND active threads (id, type, name, parent) so you can pick one to read or post to.',
-    parameters: Type.Object({ guildId: Type.Optional(Type.String({ description: 'Guild id (defaults to the configured one)' })) }),
+    description: [
+      'List every channel of a Discord guild (server) together with its currently active threads, so you can pick the right channel or thread id before reading or posting.',
+      'Use it as the first step whenever a request names a channel by name rather than by id — "read the #support channel", "post into the release thread" — because every other Discord* tool wants the numeric id.',
+      'Each line is "id  [type]  name (parent …)", where type is text, voice, category, news, thread, private-thread, stage, forum or active-thread; the parent tells you which category or channel it hangs under.',
+      'guildId is optional and defaults to the guild configured for this plugin; pass it only for a different server.',
+      'Available only in an admin session — it fails with "available only in an admin session" elsewhere. Archived threads are NOT included, and for details about a single channel use DiscordChannelInfo instead.',
+    ].join(' '),
+    parameters: Type.Object({ guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })) }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -68,10 +81,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordReadChannel', label: 'Read Discord channel',
-    description: 'Read recent messages from a channel or thread by id (oldest→newest) — use it to load context from another thread. Returns "author: text" lines.',
+    description: [
+      'Read the recent message history of a Discord channel or thread by id and return it in chronological order, oldest first.',
+      'Use it to load the conversation context of another channel or thread — catching up on what was discussed, summarising a thread, or checking whether something was already answered somewhere else.',
+      'channelId is the channel or thread snowflake (get it from DiscordListChannels), and limit sets how many of the most recent messages to fetch: default 30, clamped to 1..100.',
+      'Each line is "author: text", with a trailing "[n attachment(s)]" marker when a message carries files; whitespace is collapsed to one line per message.',
+      'Caveat: message IDS ARE NOT RETURNED, so this cannot give you the id needed by DiscordPinMessage or DiscordDeleteMessage — use DiscordListPins or DiscordApi for that. The output is trimmed to the last 6000 characters, embeds and reactions are omitted, and the tool works only in an admin session.',
+    ].join(' '),
     parameters: Type.Object({
-      channelId: Type.String({ description: 'Channel or thread id' }),
-      limit: Type.Optional(Type.Number({ description: 'How many recent messages (default 30, max 100)' })),
+      channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) whose messages should be read' }),
+      limit: Type.Optional(Type.Number({ description: 'How many of the most recent messages to fetch — default 30, clamped to the range 1..100' })),
     }),
     execute: async (_id, p) => {
       try {
@@ -87,8 +106,13 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordListRoles', label: 'List Discord roles',
-    description: 'List the guild\'s roles (id, name) — get a roleId here before assigning/removing it.',
-    parameters: Type.Object({ guildId: Type.Optional(Type.String()) }),
+    description: [
+      'List all roles defined in a Discord guild (server) as "id  name" lines.',
+      'Use it to resolve a role name a person mentions — "give her the moderator role", "who can post in announcements" — into the numeric roleId that DiscordAssignRole and DiscordRemoveRole require.',
+      'guildId is optional and defaults to the guild configured for this plugin.',
+      'Only ids and names are returned: permissions, colour, position, mentionability and member counts are not — read those with DiscordApi (GET /guilds/{id}/roles) if you need them. Requires an admin session.',
+    ].join(' '),
+    parameters: Type.Object({ guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })) }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -100,8 +124,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordListMembers', label: 'List Discord members',
-    description: 'List guild members (id, username, role ids) — needs the SERVER MEMBERS privileged intent. Use it to find a user id before assigning a role.',
-    parameters: Type.Object({ guildId: Type.Optional(Type.String()), limit: Type.Optional(Type.Number({ description: 'default 50, max 200' })) }),
+    description: [
+      'List the members of a Discord guild (server) as "id  username  roles:[…]" lines, so you can see who is on the server and which roles they hold.',
+      'Use it to browse the membership or to find a user id before assigning a role; when you already know part of the name, DiscordSearchMembers is the faster and more targeted tool, and for one specific person use DiscordMemberInfo.',
+      'guildId defaults to the configured guild, and limit caps how many members are returned — default 50, clamped to 1..200.',
+      'Requires the bot to have the SERVER MEMBERS privileged intent enabled in the Discord developer portal; without it Discord rejects the request and you get an HTTP error text. Admin session only, and the listing is a single page — there is no pagination cursor here.',
+    ].join(' '),
+    parameters: Type.Object({
+      guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })),
+      limit: Type.Optional(Type.Number({ description: 'How many members to list — default 50, clamped to the range 1..200' })),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -114,8 +146,17 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordAssignRole', label: 'Assign Discord role',
-    description: 'DESTRUCTIVE. Give a guild member a role (a role can grant permissions). Get ids from DiscordListMembers + DiscordListRoles.',
-    parameters: Type.Object({ userId: Type.String(), roleId: Type.String(), guildId: Type.Optional(Type.String()) }),
+    description: [
+      'Grant a role to a member of a Discord guild (server).',
+      'Use it when someone should get access, moderator rights or a marker role; resolve the ids first with DiscordSearchMembers or DiscordListMembers for userId and DiscordListRoles for roleId, and use DiscordRemoveRole to take a role away again.',
+      'guildId defaults to the configured guild; userId and roleId are numeric snowflakes.',
+      'SENSITIVE AND EFFECTIVELY DESTRUCTIVE: a role can carry permissions, so this can hand a person moderator or administrator power over the server, and in this deployment role ids also map to the assistant\'s own admin access. Confirm the exact role before calling. Requires an admin session, and the bot\'s own highest role must sit above the role being granted, otherwise Discord answers with an HTTP 403 error text.',
+    ].join(' '),
+    parameters: Type.Object({
+      userId: Type.String({ description: 'Discord user id (numeric snowflake) of the guild member who should receive the role' }),
+      roleId: Type.String({ description: 'Discord role id (numeric snowflake) to grant — get it from DiscordListRoles' }),
+      guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -127,8 +168,17 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordRemoveRole', label: 'Remove Discord role',
-    description: 'DESTRUCTIVE. Remove a role from a guild member.',
-    parameters: Type.Object({ userId: Type.String(), roleId: Type.String(), guildId: Type.Optional(Type.String()) }),
+    description: [
+      'Revoke a role from a member of a Discord guild (server).',
+      'Use it to withdraw access or moderator rights someone should no longer have; DiscordAssignRole is the inverse, and DiscordMemberInfo shows which roles a person currently holds.',
+      'guildId defaults to the configured guild; userId and roleId are numeric snowflakes taken from DiscordListMembers and DiscordListRoles.',
+      'DESTRUCTIVE: removing a role immediately strips every permission and channel visibility it granted, and it can also revoke that person\'s admin access to the assistant. The role itself is not deleted, only the membership. Requires an admin session, and the bot\'s highest role must outrank the role being removed.',
+    ].join(' '),
+    parameters: Type.Object({
+      userId: Type.String({ description: 'Discord user id (numeric snowflake) of the guild member losing the role' }),
+      roleId: Type.String({ description: 'Discord role id (numeric snowflake) to revoke — get it from DiscordListRoles or DiscordMemberInfo' }),
+      guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -145,8 +195,13 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordServerInfo', label: 'Discord server info',
-    description: 'Guild overview: name, id, owner, approximate member/online counts, channel and role totals.',
-    parameters: Type.Object({ guildId: Type.Optional(Type.String({ description: 'Guild id (defaults to the configured one)' })) }),
+    description: [
+      'Give a one-screen overview of a Discord guild (server): its name, id, owner id, approximate member and online counts, and the total number of channels and roles.',
+      'Use it to answer "how big is the server", "who owns it", "how many people are online" or to sanity-check that the bot is connected to the guild you think it is.',
+      'guildId is optional and defaults to the guild configured for this plugin.',
+      'It is a read-only summary — for the actual channel list use DiscordListChannels, for roles DiscordListRoles, and for members DiscordListMembers. Member and presence counts are Discord\'s approximations, not exact figures. Requires an admin session.',
+    ].join(' '),
+    parameters: Type.Object({ guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })) }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -165,8 +220,13 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordChannelInfo', label: 'Discord channel info',
-    description: 'Details of one channel or thread by id: type, name, topic, parent, NSFW, slowmode, archived/locked (threads).',
-    parameters: Type.Object({ channelId: Type.String({ description: 'Channel or thread id' }) }),
+    description: [
+      'Show the settings of a single Discord channel or thread by id: type, name, topic, parent category, NSFW flag, slowmode interval, and for threads whether they are archived or locked.',
+      'Use it to check the state of one specific channel before changing it — for instance to confirm a thread really is archived before reopening it with DiscordArchiveThread, or to see which category a channel belongs to.',
+      'To discover the channelId in the first place, or to see the whole server at once, use DiscordListChannels instead.',
+      'channelId is the numeric snowflake of a channel or thread. Optional fields are omitted when empty, permission overwrites and member lists are not included, and the tool is read-only and admin-session only.',
+    ].join(' '),
+    parameters: Type.Object({ channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) to inspect' }) }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -184,8 +244,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordMemberInfo', label: 'Discord member info',
-    description: 'Details of one guild member by user id: username, nickname, role ids, joined date.',
-    parameters: Type.Object({ userId: Type.String(), guildId: Type.Optional(Type.String()) }),
+    description: [
+      'Show the guild profile of one Discord member by user id: username, server nickname, the role ids they hold and the date they joined the server.',
+      'Use it to check what access a specific person has before granting or revoking a role, or to confirm you picked the right user after a name lookup.',
+      'When you only know a name, resolve the userId first with DiscordSearchMembers; to see everyone at once use DiscordListMembers.',
+      'guildId defaults to the configured guild. Roles come back as ids only — pair them with DiscordListRoles to get names. Read-only, requires an admin session, and an unknown user id returns an HTTP 404 error text.',
+    ].join(' '),
+    parameters: Type.Object({
+      userId: Type.String({ description: 'Discord user id (numeric snowflake) of the guild member to inspect' }),
+      guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -201,11 +269,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordSearchMembers', label: 'Search Discord members',
-    description: 'Find guild members whose username/nickname starts with a query string (id, username, nick). Use it to resolve a user id from a name.',
+    description: [
+      'Search the members of a Discord guild (server) by name and return the matches as "id  username (nick)" lines.',
+      'This is the fastest way to turn a person\'s name into the userId that DiscordAssignRole, DiscordRemoveRole, DiscordMemberInfo and DiscordAddThreadMember need.',
+      'query is matched as a PREFIX against username and server nickname, so a substring from the middle of a name will not match; limit caps the results at default 10, clamped to 1..100, and guildId defaults to the configured guild.',
+      'Prefer this over DiscordListMembers whenever you have a name to go on. Returns "(no matches)" when nothing matches, and requires an admin session.',
+    ].join(' '),
     parameters: Type.Object({
-      query: Type.String({ description: 'Name prefix to match' }),
-      guildId: Type.Optional(Type.String()),
-      limit: Type.Optional(Type.Number({ description: 'default 10, max 100' })),
+      query: Type.String({ description: 'Name prefix to match against username and server nickname — e.g. "mar" finds "martin"; matching is prefix-only, not substring' }),
+      guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })),
+      limit: Type.Optional(Type.Number({ description: 'Maximum number of matching members to return — default 10, clamped to the range 1..100' })),
     }),
     execute: async (_id, p) => {
       try {
@@ -219,8 +292,13 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordListPins', label: 'List Discord pins',
-    description: 'List the pinned messages of a channel (id, author, text) — get a message id before unpinning.',
-    parameters: Type.Object({ channelId: Type.String() }),
+    description: [
+      'List the pinned messages of a Discord channel or thread as "message id  author: text" lines.',
+      'Use it to see what is currently pinned, and — because DiscordReadChannel does not return message ids — as the practical way to obtain a messageId for DiscordUnpinMessage or DiscordDeleteMessage.',
+      'channelId is the numeric snowflake of the channel or thread; get it from DiscordListChannels.',
+      'Each message body is collapsed to one line and cut after 120 characters, so it is a preview, not the full text; attachments and embeds are not shown. Returns "(no pins)" for an empty channel. Read-only and admin-session only.',
+    ].join(' '),
+    parameters: Type.Object({ channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) whose pinned messages should be listed' }) }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -232,12 +310,17 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordCreateThread', label: 'Create Discord thread',
-    description: 'Create a public thread. If messageId is given the thread hangs off that message; otherwise a standalone thread is created in the channel.',
+    description: [
+      'Create a new public thread in a Discord text channel and return its id and name.',
+      'Use it to split a side discussion out of a busy channel, to open a thread for a topic or ticket, or to give a specific message its own conversation.',
+      'Pass messageId to hang the thread off that existing message; omit it and a standalone public thread is created directly in the channel. name is the thread title, and autoArchiveMinutes must be one of 60, 1440, 4320 or 10080 — any other value silently falls back to 1440 (one day).',
+      'The parent channelId must be a normal text channel; you cannot create a thread inside another thread. Nothing is posted into the thread — use the normal channel reply flow for that, DiscordAddThreadMember to pull people in, and DiscordArchiveThread or DiscordLockThread to close it later. Requires an admin session.',
+    ].join(' '),
     parameters: Type.Object({
-      channelId: Type.String({ description: 'Parent text channel id' }),
-      name: Type.String({ description: 'Thread name' }),
-      messageId: Type.Optional(Type.String({ description: 'Anchor message id (omit for a standalone thread)' })),
-      autoArchiveMinutes: Type.Optional(Type.Number({ description: '60, 1440, 4320 or 10080 (default 1440)' })),
+      channelId: Type.String({ description: 'Id (numeric snowflake) of the parent text channel the thread is created in — not another thread' }),
+      name: Type.String({ description: 'Title of the new thread as it appears in the channel list, e.g. "Release 2.4 checklist"' }),
+      messageId: Type.Optional(Type.String({ description: 'Id of an existing message to anchor the thread to; omit for a standalone thread created directly in the channel' })),
+      autoArchiveMinutes: Type.Optional(Type.Number({ description: 'Inactivity period after which Discord auto-archives the thread — 60, 1440, 4320 or 10080 minutes; any other value falls back to 1440' })),
     }),
     execute: async (_id, p) => {
       try {
@@ -256,8 +339,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordPinMessage', label: 'Pin Discord message',
-    description: 'Pin a message in its channel.',
-    parameters: Type.Object({ channelId: Type.String(), messageId: Type.String() }),
+    description: [
+      'Pin an existing message to the top of its Discord channel or thread, so members can find it from the channel\'s pinned-messages list.',
+      'Use it to highlight an announcement, a set of rules, a summary or any message someone asks to "pin" or keep visible.',
+      'channelId and messageId are numeric snowflakes and must belong together — the message has to live in that channel; DiscordListPins is the easiest source of message ids, since DiscordReadChannel does not return them.',
+      'A Discord channel holds at most 50 pins, and pinning beyond that limit fails with an HTTP error text. DiscordUnpinMessage reverses this without deleting anything. Requires an admin session.',
+    ].join(' '),
+    parameters: Type.Object({
+      channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) containing the message' }),
+      messageId: Type.String({ description: 'Id (numeric snowflake) of the message to pin — it must live in the given channel' }),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -269,8 +360,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordUnpinMessage', label: 'Unpin Discord message',
-    description: 'Remove a pinned message (does NOT delete it).',
-    parameters: Type.Object({ channelId: Type.String(), messageId: Type.String() }),
+    description: [
+      'Unpin a message from a Discord channel or thread, removing it from the channel\'s pinned list.',
+      'Use it to clear an outdated announcement or to make room when the 50-pin limit is reached; DiscordPinMessage is the inverse operation.',
+      'channelId and messageId are numeric snowflakes — list the current pins with DiscordListPins to get the right messageId.',
+      'This is NOT destructive to the message: it stays in the channel history and only loses its pinned status. To actually remove it use DiscordDeleteMessage. Requires an admin session, and unpinning a message that is not pinned returns an HTTP error text.',
+    ].join(' '),
+    parameters: Type.Object({
+      channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) the message is pinned in' }),
+      messageId: Type.String({ description: 'Id (numeric snowflake) of the pinned message to unpin — get it from DiscordListPins' }),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -282,8 +381,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordDeleteMessage', label: 'Delete Discord message',
-    description: 'DESTRUCTIVE. Permanently delete ONE message by id.',
-    parameters: Type.Object({ channelId: Type.String(), messageId: Type.String() }),
+    description: [
+      'Permanently delete a single message from a Discord channel or thread.',
+      'Use it to remove one specific message — a mistaken post, spam, or something a person asks to take down; to clear many messages at once use DiscordPurgeMessages instead of calling this in a loop.',
+      'channelId and messageId are numeric snowflakes and must match: the message has to live in that channel. DiscordListPins is one way to obtain a message id, since DiscordReadChannel does not return them.',
+      'DESTRUCTIVE AND IRREVERSIBLE — the message and its attachments are gone from Discord with no undo, so verify the target before calling. Requires an admin session, and deleting someone else\'s message needs the MANAGE_MESSAGES permission or Discord answers HTTP 403.',
+    ].join(' '),
+    parameters: Type.Object({
+      channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) containing the message' }),
+      messageId: Type.String({ description: 'Id (numeric snowflake) of the message to delete permanently — verify it before calling, there is no undo' }),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -295,12 +402,18 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordPurgeMessages', label: 'Purge Discord messages',
-    description: 'DESTRUCTIVE. Bulk-delete recent messages from a channel/thread. Fetches up to maxMessages (newest first), skips pinned unless includePinned, then deletes them (bulk for <14-day messages, one-by-one for older, throttled). Always run with dryRun:true first to see the count.',
+    description: [
+      'Bulk-delete recent messages from a Discord channel or thread — the tool for "clear this channel", "wipe the last 200 messages" or cleaning up a spam flood.',
+      'It pages through the history newest first up to maxMessages, drops pinned messages unless includePinned is set, then deletes what remains: messages younger than 14 days go through Discord\'s bulk-delete endpoint in chunks of 100, older ones are removed one by one, both throttled to respect rate limits.',
+      'ALWAYS call it with dryRun:true first — that only counts and reports how many messages would be deleted without touching anything — and only then repeat the exact same arguments with dryRun off.',
+      'maxMessages defaults to 100 and is clamped to 1..5000, channelId is the numeric snowflake of the channel or thread.',
+      'EXTREMELY DESTRUCTIVE AND IRREVERSIBLE: deleted Discord messages cannot be recovered, and a large purge over old messages takes minutes because each one is a separate throttled request. It deletes messages from EVERY author, not just the bot\'s own. For a single message use DiscordDeleteMessage. Requires an admin session and the MANAGE_MESSAGES permission.',
+    ].join(' '),
     parameters: Type.Object({
-      channelId: Type.String(),
-      maxMessages: Type.Optional(Type.Number({ description: '1..5000 (default 100)' })),
-      includePinned: Type.Optional(Type.Boolean({ description: 'also delete pinned messages (default false)' })),
-      dryRun: Type.Optional(Type.Boolean({ description: 'count only, delete nothing (default false)' })),
+      channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) to purge messages from' }),
+      maxMessages: Type.Optional(Type.Number({ description: 'Upper bound on how many recent messages to consider, newest first — default 100, clamped to the range 1..5000' })),
+      includePinned: Type.Optional(Type.Boolean({ description: 'Set true to delete pinned messages as well; default false keeps every pinned message untouched' })),
+      dryRun: Type.Optional(Type.Boolean({ description: 'Set true to only count and report the messages that would be deleted, deleting nothing — always do this first (default false)' })),
     }),
     execute: async (_id, p) => {
       try {
@@ -341,12 +454,17 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordCreateChannel', label: 'Create Discord channel',
-    description: 'Create a channel in the guild. type is one of: text, voice, news, stage, forum (default text). Optionally nest under a category id.',
+    description: [
+      'Create a new channel in a Discord guild (server) and return its id and name.',
+      'Use it when someone asks for a new channel for a topic, project or client; for a category (the collapsible group that holds channels) use DiscordCreateCategory, and for a thread inside an existing channel use DiscordCreateThread.',
+      'type selects the kind of channel — text, voice, news, stage or forum — and anything else, including an unknown word, falls back to a plain text channel. parentId nests the new channel under an existing category; get that id from DiscordListChannels.',
+      'guildId defaults to the configured guild. The channel is created with the category\'s or server\'s default permissions — no overwrites are set here, so use DiscordApi if it needs restricted access. Requires an admin session and the MANAGE_CHANNELS permission.',
+    ].join(' '),
     parameters: Type.Object({
-      name: Type.String(),
-      type: Type.Optional(Type.String({ description: 'text | voice | news | stage | forum (default text)' })),
-      parentId: Type.Optional(Type.String({ description: 'Category id to nest under' })),
-      guildId: Type.Optional(Type.String()),
+      name: Type.String({ description: 'Name of the new channel, e.g. "release-notes" — Discord lowercases and hyphenates text channel names' }),
+      type: Type.Optional(Type.String({ description: 'Kind of channel: text, voice, news, stage or forum — case-insensitive, defaults to text, and an unrecognised value also becomes text' })),
+      parentId: Type.Optional(Type.String({ description: 'Id of an existing category to nest the channel under; omit to place it at the top level' })),
+      guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })),
     }),
     execute: async (_id, p) => {
       try {
@@ -362,8 +480,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordCreateCategory', label: 'Create Discord category',
-    description: 'Create a category (channel group) in the guild.',
-    parameters: Type.Object({ name: Type.String(), guildId: Type.Optional(Type.String()) }),
+    description: [
+      'Create a category in a Discord guild (server) — the collapsible group header that channels are sorted under — and return its id and name.',
+      'Use it when organising a server into sections; afterwards pass the returned id as parentId to DiscordCreateChannel to place new channels inside it.',
+      'name is the category label and guildId defaults to the configured guild.',
+      'It creates the container only, no channels inside it, and sets no permission overwrites. Existing channels are not moved into it — do that with DiscordApi (PATCH /channels/{id} with parent_id). Requires an admin session and the MANAGE_CHANNELS permission.',
+    ].join(' '),
+    parameters: Type.Object({
+      name: Type.String({ description: 'Display name of the new category, e.g. "Projects"' }),
+      guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -375,8 +501,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordRenameChannel', label: 'Rename Discord channel',
-    description: 'Rename a channel, thread or category by id.',
-    parameters: Type.Object({ channelId: Type.String(), name: Type.String() }),
+    description: [
+      'Rename an existing Discord channel, thread or category and report the name Discord actually stored.',
+      'Use it for tidying up naming, fixing a typo in a channel name, or retitling a thread; nothing else about the channel changes — topic, category, permissions and message history all stay as they are.',
+      'channelId is the numeric snowflake of the channel, thread or category (from DiscordListChannels) and name is the new name.',
+      'Discord normalises text channel names to lowercase with hyphens, so the stored name may differ from what you passed; the returned confirmation shows the real result. Renaming is rate-limited by Discord to roughly twice per ten minutes per channel. Requires an admin session and the MANAGE_CHANNELS permission.',
+    ].join(' '),
+    parameters: Type.Object({
+      channelId: Type.String({ description: 'Discord channel, thread or category id (numeric snowflake) to rename' }),
+      name: Type.String({ description: 'New name — Discord lowercases and hyphenates text channel names, so the stored value may differ' }),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -388,8 +522,13 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordDeleteChannel', label: 'Delete Discord channel',
-    description: 'DESTRUCTIVE. Permanently delete a channel, thread or category by id (a category delete does NOT delete its children, they become uncategorized).',
-    parameters: Type.Object({ channelId: Type.String() }),
+    description: [
+      'Permanently delete a Discord channel, thread or category by id.',
+      'Use it only for a genuine cleanup request such as removing an obsolete channel; if the goal is merely to stop a thread from being used, DiscordArchiveThread or DiscordLockThread is the reversible choice, and to clear messages while keeping the channel use DiscordPurgeMessages.',
+      'channelId is the numeric snowflake of the channel, thread or category — confirm it with DiscordListChannels or DiscordChannelInfo before calling, because the argument is easy to mix up.',
+      'EXTREMELY DESTRUCTIVE AND IRREVERSIBLE: the channel and its entire message history are gone with no undo. Deleting a CATEGORY does not delete the channels inside it — they survive and simply become uncategorised. Requires an admin session and the MANAGE_CHANNELS permission.',
+    ].join(' '),
+    parameters: Type.Object({ channelId: Type.String({ description: 'Discord channel, thread or category id (numeric snowflake) to delete permanently — there is no undo, so verify it first' }) }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -401,8 +540,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordArchiveThread', label: 'Archive Discord thread',
-    description: 'Archive (archived:true) or reopen (archived:false) a thread by id.',
-    parameters: Type.Object({ threadId: Type.String(), archived: Type.Optional(Type.Boolean({ description: 'default true' })) }),
+    description: [
+      'Archive a Discord thread — closing it and hiding it from the active thread list — or reopen an archived one.',
+      'Use it to wrap up a finished discussion, or to bring an old thread back when the topic returns. It is fully REVERSIBLE: nothing is deleted and the whole message history stays readable, which makes it the safe alternative to DiscordDeleteChannel.',
+      'threadId is the thread\'s numeric snowflake (from DiscordListChannels, which shows active threads). archived defaults to true; pass archived:false to reopen. Only an explicit false reopens — any other value archives.',
+      'It affects threads only, not regular channels, and it does not stop people from posting: an archived thread reopens as soon as someone writes in it, so use DiscordLockThread when the thread must stay closed. Requires an admin session.',
+    ].join(' '),
+    parameters: Type.Object({
+      threadId: Type.String({ description: 'Discord thread id (numeric snowflake) to archive or reopen — regular channels are not accepted' }),
+      archived: Type.Optional(Type.Boolean({ description: 'true archives (closes) the thread, false reopens it — defaults to true' })),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -415,8 +562,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordLockThread', label: 'Lock Discord thread',
-    description: 'Lock (locked:true) or unlock a thread by id — a locked thread can\'t get new messages from non-moderators.',
-    parameters: Type.Object({ threadId: Type.String(), locked: Type.Optional(Type.Boolean({ description: 'default true' })) }),
+    description: [
+      'Lock a Discord thread so that only moderators can still post in it, or unlock it again.',
+      'Use it to stop a heated or finished discussion from continuing while keeping every message readable; it is REVERSIBLE and deletes nothing. Combine it with DiscordArchiveThread when the thread should also disappear from the active list — an archived but unlocked thread reopens the moment somebody writes in it.',
+      'threadId is the thread\'s numeric snowflake. locked defaults to true; pass locked:false to unlock. Only an explicit false unlocks — any other value locks.',
+      'It applies to threads only, not to regular channels: to silence a whole channel you need permission overwrites via DiscordApi. Requires an admin session and the MANAGE_THREADS permission.',
+    ].join(' '),
+    parameters: Type.Object({
+      threadId: Type.String({ description: 'Discord thread id (numeric snowflake) to lock or unlock — regular channels are not accepted' }),
+      locked: Type.Optional(Type.Boolean({ description: 'true locks the thread so only moderators can post, false unlocks it — defaults to true' })),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -429,8 +584,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordAddThreadMember', label: 'Add Discord thread member',
-    description: 'Add a guild member to a thread by user id.',
-    parameters: Type.Object({ threadId: Type.String(), userId: Type.String() }),
+    description: [
+      'Add a guild member to a Discord thread so the thread shows up for them and they receive its notifications.',
+      'Use it to pull the right people into a thread you just created with DiscordCreateThread, or when someone asks to be included in an ongoing discussion; DiscordRemoveThreadMember takes them back out.',
+      'threadId is the thread\'s numeric snowflake and userId the member\'s — resolve a name to a user id with DiscordSearchMembers first.',
+      'The person must already be a member of the guild and able to see the thread\'s parent channel, otherwise Discord answers with an HTTP error text; the thread must not be archived. This grants thread membership only, no roles or permissions. Requires an admin session.',
+    ].join(' '),
+    parameters: Type.Object({
+      threadId: Type.String({ description: 'Discord thread id (numeric snowflake) to add the member to' }),
+      userId: Type.String({ description: 'Discord user id (numeric snowflake) of the guild member to add — get it from DiscordSearchMembers' }),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();
@@ -442,8 +605,16 @@ export function registerTools(ctx, adapter) {
 
   ctx.registerTool(defineTool({
     name: 'DiscordRemoveThreadMember', label: 'Remove Discord thread member',
-    description: 'Remove a member from a thread by user id.',
-    parameters: Type.Object({ threadId: Type.String(), userId: Type.String() }),
+    description: [
+      'Remove a member from a Discord thread, so it disappears from their thread list and stops notifying them.',
+      'Use it when somebody was added to a thread by mistake or no longer needs to follow it; DiscordAddThreadMember is the inverse.',
+      'threadId and userId are numeric snowflakes — DiscordSearchMembers resolves a name to a user id.',
+      'This only ends thread membership: no message is deleted, the person keeps every role, and if the parent channel is public they can still read the thread and rejoin by posting in it. To really shut a thread down use DiscordLockThread. Requires an admin session and the MANAGE_THREADS permission for removing anyone other than the bot itself.',
+    ].join(' '),
+    parameters: Type.Object({
+      threadId: Type.String({ description: 'Discord thread id (numeric snowflake) to remove the member from' }),
+      userId: Type.String({ description: 'Discord user id (numeric snowflake) of the member to remove from the thread' }),
+    }),
     execute: async (_id, p) => {
       try {
         adminGate();

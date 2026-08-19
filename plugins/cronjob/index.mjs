@@ -1002,7 +1002,8 @@ export function register(ctx) {
       'Schedule a recurring prompt for yourself — daily summaries, periodic checks, recurring reminders. The prompt fires as a brain turn on the schedule you set. From an admin session the job belongs to the instance and reports to the notification channel (or notifyChannelId); otherwise it belongs to you, runs with your own rights, and reports here in your own conversation.',
       'The schedule takes either a plain form — "every 15m", "every 2h", "daily 07:30", "weekly sun 20:00" — or a standard 5-field cron expression ("*/5 * * * *", "0 9 * * 1-5", "0 0 1 * *"). The format is detected automatically; reach for cron only when the plain form cannot express the timing you need.',
       'For polling work, use the `check` guard: a cheap shell command that runs BEFORE the prompt. If it prints nothing (or fails), the scheduled turn is skipped entirely — no model call. If it prints output, the brain runs and receives that output. This is how you poll for new work without paying for a model call on every tick.',
-      'Use `hours` ("H-H", e.g. "5-21") to keep a job quiet outside active hours, `enabled: false` to create it paused, and `plain: true` to deliver the reply without the "⏰ job name" header. Returns the job id — pass it to CronRemove to cancel.',
+      'Use `hours` ("H-H", e.g. "5-21") to keep a job quiet outside active hours, `enabled: false` to create it paused, and `plain: true` to deliver the reply without the "⏰ job name" header. Returns the job id — pass it to CronRemove to cancel, and see everything currently scheduled with CronList.',
+      'This tool is only for work that REPEATS on a timer. To come back to something exactly once — a reminder later today, checking on a deploy in ten minutes — use ScheduleWakeup, which fires a single time and deletes itself. A new job never fires on creation; it waits for its next natural slot.',
     ].join(' '),
     parameters: Type.Object({
       name: Type.String({ description: 'Short human name for the job, shown in schedules and telemetry' }),
@@ -1042,6 +1043,7 @@ export function register(ctx) {
       'Schedule a ONE-SHOT wake-up for yourself after a delay ("in 30s", "in 20m", "in 2h") or at a time ("at 18:30") to run a prompt. Strictly one-shot — the job removes itself after firing. Scheduled from a user conversation, the wake-up resumes THAT conversation with its full existing context and replies there, so the follow-up lands where it was promised.',
       'Use it to check back on / verify something that changes over time but does not notify you — a CI run, a deploy, an external queue — in the same conversation. Do NOT use it to poll background work you started here: a background sub-agent and a background command both wake you on their own when they finish, so a wake-up on top of them only fires redundantly. If you want a safety net for work that might hang, set a LONG fallback ("in 30m") rather than a short poll.',
       'Pick the delay from how fast the watched thing actually changes, not from round numbers: a CI run that takes ~8 minutes deserves one "in 5m" check, not ten at 30s. For an idle tick with no specific signal, 20-30 minutes is the sane default.',
+      'It fires exactly once and then disappears, so it is the wrong tool for anything recurring — a daily summary, a reminder every Monday, a periodic poll belong in CronAdd, which repeats on a schedule until removed. A pending wake-up shows up in CronList and can be cancelled with CronRemove before it fires.',
     ].join(' '),
     parameters: Type.Object({
       name: Type.String({ description: 'Short, specific human name — "check-deploy" beats "wakeup". Shown in schedules and telemetry.' }),
@@ -1075,8 +1077,12 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'CronList', label: 'List jobs',
-    description: 'List scheduled jobs with their id, name, schedule, last run and last result — your own, or every job from an admin session. '
-      + 'Use it to see what is active, when each job last fired and what it produced — and to get the id you need for CronRemove.',
+    description: [
+      'List the scheduled jobs, timers and reminders that are currently set up: for each one its id, name, schedule, when it last ran and what that run produced.',
+      'Use it to answer what is scheduled, whether a recurring task is still active, when a job last fired and whether it succeeded — and to get the job id that CronRemove needs. It takes no parameters and changes nothing, so it is safe to call before deciding what to cancel.',
+      'Both kinds of entry appear here: recurring jobs created with CronAdd, and pending one-shot wake-ups from ScheduleWakeup, which are marked "one-shot" with their fire time. A wake-up that has already fired is gone, because a one-shot deletes itself after running.',
+      'You see your own jobs; an admin session sees every job on the instance, including instance-wide ones. A job that never ran yet reports its last run as "never".',
+    ].join(' '),
     parameters: Type.Object({}),
     execute: async () => {
       try {
@@ -1091,9 +1097,13 @@ export function register(ctx) {
 
   ctx.registerTool(defineTool({
     name: 'CronRemove', label: 'Remove job',
-    description: 'Remove a scheduled job by id (one of yours; any job from an admin session). It stops firing immediately. '
-      + 'Get the id from CronList, or from what CronAdd returned.',
-    parameters: Type.Object({ id: Type.String({ description: 'Job id, from CronList or CronAdd' }) }),
+    description: [
+      'Cancel a scheduled job by its id — deleting the recurring task, timer or reminder so it stops firing immediately and never runs again.',
+      'Use it when the user asks to stop, cancel or turn off something that was scheduled, or when a job you created is no longer needed. Get the id from CronList, or from the result CronAdd or ScheduleWakeup returned when the job was created; the id is required, and there is no way to cancel by name.',
+      'It removes both recurring schedules and pending one-shot wake-ups. The deletion is permanent and cannot be undone — the job definition, including its prompt and schedule, is gone, so recreate it with CronAdd if it is needed again. To pause a recurring job instead of losing it, disable it rather than removing it.',
+      'You may remove your own jobs; an admin session may remove any job on the instance. An id that does not exist and an id belonging to someone else return the same error, so this cannot be used to discover what other people have scheduled.',
+    ].join(' '),
+    parameters: Type.Object({ id: Type.String({ description: 'The job id to cancel, exactly as shown by CronList or returned by CronAdd / ScheduleWakeup' }) }),
     execute: async (_id, p) => {
       try {
         const jobs = store.all();

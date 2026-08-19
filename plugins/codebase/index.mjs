@@ -580,18 +580,29 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'CodebaseSearch', label: 'Codebase search',
     description: [
-      'Semantic (meaning-based) search over the accessible repositories: find the code/docs most relevant',
-      'to a natural-language query, ranked by embedding similarity — not literal text matching.',
-      'Use it to locate where a concept/behavior lives ("where do we verify a JWT", "the retry backoff logic")',
-      'when you do not know the exact identifier. For exact strings/regex/symbols prefer Search.',
-      'Output is the top matches as `path:startLine-endLine [symbol] (score)` with a short snippet; results',
-      'below the relevance floor are dropped. Requires an embedding model configured in Settings → Memory.',
+      'Semantic, meaning-based search over the SOURCE CODE of the user\'s own project repositories: functions,',
+      'classes, modules, configuration and the markdown files that live in those repositories, ranked by',
+      'embedding similarity rather than literal text matching. This searches the USER\'S codebase — it is not a',
+      'lookup of the agent\'s own documentation, product manual, skills or memories, and it knows nothing about',
+      'anything outside the repositories you may access. Use it to find where a concept or behaviour is',
+      'implemented when you do not know the identifier: "where do we verify a JWT", "the retry backoff logic",',
+      '"how are uploads validated". When you already know the exact string, symbol or regular expression, prefer',
+      'the files plugin\'s Search, which is faster and exact; use WebSearch for anything on the public internet.',
+      'Put a natural-language sentence in query; raise or lower k to control how many hits come back (default',
+      'from configuration, hard cap 50); narrow with repo to one repository root you have access to, and with',
+      'pathGlob to a subset of paths such as "src/**/*.ts".',
+      'Each hit is printed as `path:startLine-endLine [symbol] (score)` followed by a short snippet of a few',
+      'lines — it is an excerpt, not the whole file, so read the file afterwards with Read before editing.',
+      'Hits below the configured relevance floor are dropped, so an empty answer means nothing scored well, not',
+      'that the file is absent. The tool needs an embedding model configured in Settings → Memory and a built',
+      'index: when the index is still empty, an admin session triggers a background refresh, while a non-admin',
+      'session is told to ask an operator to run CodebaseReindex. Check coverage with CodebaseStatus.',
     ].join(' '),
     parameters: Type.Object({
-      query: Type.String({ description: 'Natural-language description of what you are looking for' }),
-      k: Type.Optional(Type.Number({ description: 'Max results to return (default from config, capped at 50)' })),
-      repo: Type.Optional(Type.String({ description: 'Restrict to this repository root (must be accessible)' })),
-      pathGlob: Type.Optional(Type.String({ description: 'Restrict to paths matching this glob, e.g. "src/**/*.ts"' })),
+      query: Type.String({ description: 'Natural-language description of the code or behaviour you are looking for, e.g. "where do we validate the upload size"' }),
+      k: Type.Optional(Type.Number({ description: 'Maximum number of matching chunks to return; defaults to the configured topK and is capped at 50' })),
+      repo: Type.Optional(Type.String({ description: 'Absolute path of a single repository root to search in; must be one of your accessible repositories' })),
+      pathGlob: Type.Optional(Type.String({ description: 'Restrict hits to repo-relative paths matching this glob, e.g. "src/**/*.ts" or "**/*.md"' })),
     }),
     execute: async (_id, p) => {
       try {
@@ -663,13 +674,23 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'CodebaseReindex', label: 'Codebase reindex',
     description: [
-      'Rebuild or refresh the semantic code index for the accessible repositories (incremental by default:',
-      'only changed/new files are re-embedded; pass full to rebuild from scratch). Admin sessions only —',
-      'it writes shared state and spends the embedding provider. Returns how many files/chunks were indexed.',
+      'Build or refresh the semantic index that CodebaseSearch searches: walk the accessible project',
+      'repositories, split every source and markdown file into chunks and embed them into the plugin\'s vector',
+      'index. Run it when a search returns nothing, when CodebaseStatus reports the index as stale or empty,',
+      'or after a large amount of code changed and you want the index caught up immediately instead of waiting',
+      'for the background refresh. It does not answer questions — to actually find code, call CodebaseSearch.',
+      'By default the pass is incremental: only new, changed or stale files are re-embedded, and files whose',
+      'content hash is unchanged are skipped. Set full to true to rebuild every file from scratch, which is much',
+      'slower and costs far more embedding calls. Narrow the work with repo to a single repository root you have',
+      'access to. This tool is ADMIN-ONLY, because it writes shared index state and spends the embedding',
+      'provider; a non-admin session gets a refusal. It also needs an embedding model configured in',
+      'Settings → Memory. Each pass is capped by a per-pass chunk budget, so a large repository may report',
+      'pending files and need several calls before it is fully indexed; the answer lists per repository how many',
+      'files changed, how many chunks were embedded, how many were pruned and how many are still pending.',
     ].join(' '),
     parameters: Type.Object({
-      repo: Type.Optional(Type.String({ description: 'Only reindex this repository root (must be accessible)' })),
-      full: Type.Optional(Type.Boolean({ description: 'Rebuild every file instead of only the changed ones' })),
+      repo: Type.Optional(Type.String({ description: 'Absolute path of a single repository root to reindex; must be accessible. Omit to cover every repository in scope.' })),
+      full: Type.Optional(Type.Boolean({ description: 'Rebuild and re-embed every file instead of only changed ones (slow and costly; default false)' })),
     }),
     execute: async (_id, p) => {
       try {
@@ -706,12 +727,19 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'CodebaseStatus', label: 'Codebase status',
     description: [
-      'Report the semantic index state per accessible repository: indexed chunk/file counts, when it was',
-      'last indexed, the embedding model/dimensions the vectors were built with, and whether any are stale',
-      "against the currently configured model. Use it to check coverage before relying on CodebaseSearch.",
+      'Report the health and coverage of the semantic code index, per accessible repository: how many files and',
+      'chunks are indexed, when each repository was last indexed, which embedding model and vector width the',
+      'stored vectors were built with, and whether any of them are stale against the model currently configured',
+      'in Settings → Memory. Use it to check whether CodebaseSearch can be trusted before relying on its answers,',
+      'or to diagnose why a search came back empty. It is read-only: it never indexes or embeds anything — to',
+      'actually build or refresh the index call CodebaseReindex, and to search the code call CodebaseSearch.',
+      'Pass repo to report on a single repository root you have access to, otherwise every repository in scope is',
+      'listed. A repository marked [STALE — reindex] still has vectors from an older embedding model and is',
+      'invisible to search until it is reindexed, and "No repositories indexed yet" means nothing has been',
+      'indexed at all.',
     ].join(' '),
     parameters: Type.Object({
-      repo: Type.Optional(Type.String({ description: 'Only report this repository root (must be accessible)' })),
+      repo: Type.Optional(Type.String({ description: 'Absolute path of a single repository root to report on; must be accessible. Omit to list every repository in scope.' })),
     }),
     execute: async (_id, p) => {
       try {

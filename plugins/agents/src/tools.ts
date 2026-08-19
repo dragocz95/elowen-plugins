@@ -8,9 +8,10 @@ import type { PluginContext } from 'elowen/dist/plugins/api.js';
 import type { AgentsRuntime } from './runtime.js';
 
 /** The subsystem's brain tools — ElowenListMissions + ElowenListSessions, moved out of the core
- *  Elowen* control plane (src/brain/tools) with byte-identical names, labels, descriptions and
- *  parameter schemas so a prompt cache sees the same tool bytes (only the advertised ORDER changed,
- *  a one-time invalidation the extraction plan accepts).
+ *  Elowen* control plane (src/brain/tools) with the same names, labels and parameter schemas. The
+ *  descriptions have since been rewritten for hosted tool search (the provider retrieves a deferred
+ *  tool by BM25 over name/description/argument text), so they no longer match the core originals
+ *  byte for byte.
  *
  *  Two deliberate differences from the core originals:
  *  - They execute IN-PROCESS against the plugin runtime instead of a localhost REST round-trip (the
@@ -54,7 +55,20 @@ export function registerAgentsTools(ctx: PluginContext, rt: () => AgentsRuntime)
 
   ctx.registerTool(defineTool({
     name: 'ElowenListMissions', label: 'List missions',
-    description: 'List Elowen autopilot missions.',
+    description: [
+      'List the Elowen autopilot missions in the control plane: the autonomous multi-agent runs that drive an',
+      'epic\'s tasks to completion, each with its id, epic, state and — for a PR-native mission — the pull',
+      'request currently attached to it.',
+      'Use it to see what autopilot work is under way before engaging another mission, pausing or disengaging',
+      'one, or reporting progress on a goal you planned earlier. Missions are the mission-level view: for the',
+      'individual agent processes running right now call ElowenListSessions, and for the underlying task records',
+      'call ElowenListTasks.',
+      'It takes no parameters and is read-only — nothing is engaged, paused or disengaged by calling it. The',
+      'result covers live missions plus disengaged ones whose pull request is still pending, filtered to the',
+      'projects you may see, so an empty list means no mission is running rather than that missions are',
+      'unavailable. It works only in the owner\'s own chat session and only while the task subsystem is loaded;',
+      'otherwise it answers with a plain refusal.',
+    ].join(' '),
     parameters: Type.Object({}),
     execute: async () => {
       if (denied()) return refusal;
@@ -65,7 +79,18 @@ export function registerAgentsTools(ctx: PluginContext, rt: () => AgentsRuntime)
 
   ctx.registerTool(defineTool({
     name: 'ElowenListSessions', label: 'List sessions',
-    description: 'List the running Elowen agent sessions — the background worker/pilot/overseer agents launched in tmux for your projects, each with its role and project. This is NOT the list of CLI chat clients or brain conversations: an empty result means no agent is currently running, not that nobody is connected. Use it to see what agent work is live before spawning more or stopping one.',
+    description: [
+      'List the Elowen agent sessions running right now in the control plane — the background worker, pilot and',
+      'overseer agents launched in tmux for your projects — each with its session name, role, task and project.',
+      'Use it to see what agent work is actually live before spawning another agent, before stopping one with',
+      'ElowenStopTask, or when someone asks what the agents are doing at the moment. For the mission-level view',
+      'above these processes call ElowenListMissions, and for the task records themselves call ElowenListTasks.',
+      'This is NOT a list of CLI chat clients, connected users or brain conversations: an empty result means no',
+      'agent is currently running, not that nobody is connected.',
+      'It takes no parameters, is read-only, and never starts or stops anything. Results are limited to the',
+      'projects you may see. It works only in the owner\'s own chat session and only while the task subsystem is',
+      'loaded; otherwise it answers with a plain refusal rather than an empty list.',
+    ].join(' '),
     parameters: Type.Object({}),
     execute: async () => {
       if (denied()) return refusal;
