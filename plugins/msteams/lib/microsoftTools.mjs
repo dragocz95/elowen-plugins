@@ -145,11 +145,11 @@ export function registerMicrosoftTools(ctx, linking, cfg) {
     async (p) => directory(await get(), p));
 
   register(ctx, 'MicrosoftSharePoint', 'Microsoft SharePoint',
-    'Search and manage SharePoint sites, lists, list items and modern pages. Actions: search_sites, get_site, list_lists, list_items, get_item, create_item, update_item, delete_item, list_pages, get_page, create_page, update_page, publish_page.',
+    'Search and manage SharePoint sites, lists, list items and modern pages. Actions: search_sites, get_site, list_lists, list_items, get_item, create_item, update_item, list_pages, get_page, create_page, update_page, publish_page. Deletion is disabled by policy.',
     async (p) => sharepoint(await get(), p));
 
   register(ctx, 'MicrosoftFiles', 'Microsoft files',
-    'Search and manage OneDrive or SharePoint drive items. Actions: search, list, get, read_text, download, upload, create_folder, copy, move, rename, delete, create_link, list_versions, restore_version.',
+    'Search and manage OneDrive or SharePoint drive items. Actions: search, list, get, read_text, download, upload, create_folder, copy, move, rename, create_link, list_versions, restore_version. Deletion is disabled by policy.',
     async (p) => files(await get(), ctx, p));
 
   register(ctx, 'MicrosoftOutlook', 'Microsoft Outlook',
@@ -226,14 +226,13 @@ async function sharepoint({ graph, cfg }, p) {
   const list = p.listId ? enc(p.listId) : '';
   if (action === 'list_items') return ok(await graph.page(`/sites/${site}/lists/${nonempty(list, 'listId')}/items?$expand=fields`, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: `/sites/${site}/lists/${list}/items`, permission: P.sites }));
   if (action === 'get_item') return ok(await graph.json('GET', `/sites/${site}/lists/${nonempty(list, 'listId')}/items/${enc(nonempty(p.itemId ?? p.id, 'itemId'))}?$expand=fields`, { permission: P.sites }));
-  if (['create_item', 'update_item', 'delete_item'].includes(action)) {
+  if (action === 'delete_item') throw new Error('SharePoint item deletion is disabled by policy.');
+  if (['create_item', 'update_item'].includes(action)) {
     const preview = { action, siteId: p.siteId, listId: p.listId, itemId: p.itemId ?? p.id, fields: trimObject(p.fields) };
     const gate = mutationGate(cfg, p, preview); if (gate.result) return gate.result;
     if (action === 'create_item') return ok(await graph.json('POST', `/sites/${site}/lists/${nonempty(list, 'listId')}/items`, { body: { fields: trimObject(p.fields) }, permission: P.sites }));
     const item = enc(nonempty(p.itemId ?? p.id, 'itemId'));
-    if (action === 'update_item') return ok(await graph.json('PATCH', `/sites/${site}/lists/${nonempty(list, 'listId')}/items/${item}/fields`, { body: trimObject(p.fields), ifMatch: p.etag, permission: P.sites }));
-    await graph.json('DELETE', `/sites/${site}/lists/${nonempty(list, 'listId')}/items/${item}`, { ifMatch: p.etag, permission: P.sites });
-    return ok({ deleted: true, itemId: p.itemId ?? p.id });
+    return ok(await graph.json('PATCH', `/sites/${site}/lists/${nonempty(list, 'listId')}/items/${item}/fields`, { body: trimObject(p.fields), ifMatch: p.etag, permission: P.sites }));
   }
   const pages = `/sites/${site}/pages`;
   if (action === 'list_pages') return ok(await graph.page(`${pages}/microsoft.graph.sitePage?$select=id,name,title,webUrl,createdDateTime,lastModifiedDateTime,publishingState`, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: pages, permission: P.sites }));
@@ -334,7 +333,8 @@ async function files({ graph, cfg }, ctx, p) {
     }
     return ok(await uploadLargeFile(graph, parent, name, data));
   }
-  const writes = ['create_folder', 'copy', 'move', 'rename', 'delete', 'create_link', 'restore_version'];
+  if (action === 'delete') throw new Error('Microsoft file deletion is disabled by policy.');
+  const writes = ['create_folder', 'copy', 'move', 'rename', 'create_link', 'restore_version'];
   if (writes.includes(action)) {
     const gate = mutationGate(cfg, p, { action, itemId: p.itemId ?? p.id, name: p.name, destinationId: p.destinationId, linkType: p.linkType, scope: p.scope }); if (gate.result) return gate.result;
     if (action === 'create_folder') {
@@ -343,7 +343,6 @@ async function files({ graph, cfg }, ctx, p) {
     if (action === 'copy') return ok(await graph.json('POST', itemPath(p, '/copy'), { body: { parentReference: { id: nonempty(p.destinationId, 'destinationId') }, ...(p.name ? { name: p.name } : {}) }, permission: P.files }));
     if (action === 'move') return ok(await graph.json('PATCH', itemPath(p), { body: { parentReference: { id: nonempty(p.destinationId, 'destinationId') } }, ifMatch: p.etag, permission: P.files }));
     if (action === 'rename') return ok(await graph.json('PATCH', itemPath(p), { body: { name: nonempty(p.name, 'name') }, ifMatch: p.etag, permission: P.files }));
-    if (action === 'delete') { await graph.json('DELETE', itemPath(p), { ifMatch: p.etag, permission: P.files }); return ok({ deleted: true }); }
     if (action === 'create_link') return ok(await graph.json('POST', itemPath(p, '/createLink'), { body: { type: p.linkType || 'view', scope: p.scope || 'organization' }, permission: P.files }));
     return ok(await graph.json('POST', itemPath(p, `/versions/${enc(nonempty(p.id, 'version id'))}/restoreVersion`), { body: {}, permission: P.files }));
   }

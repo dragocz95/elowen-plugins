@@ -11,7 +11,7 @@ afterEach(async () => {
   await rm(tempRoot, { recursive: true, force: true });
 });
 
-type Tool = { execute(id: string, params: Record<string, unknown>): Promise<{ content: { text: string }[] }> };
+type Tool = { description: string; execute(id: string, params: Record<string, unknown>): Promise<{ content: { text: string }[] }> };
 
 function harness(config: Record<string, unknown> = { m365AccessMode: 'read_write' }, subjectId = 'aad-1') {
   const tools = new Map<string, Tool>();
@@ -132,6 +132,40 @@ describe('delegated Microsoft 365 tools', () => {
     const denied = await other.run('MicrosoftExcel', { action: 'read_range', itemId: 'book-1', worksheet: 'Sheet1', range: 'A1', session: created.session });
     expect(denied).toContain('another Microsoft identity');
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('hard-disables SharePoint item and drive-item deletion before Graph is called', async () => {
+    globalThis.fetch = vi.fn();
+    const { tools, run } = harness();
+    expect(tools.get('MicrosoftSharePoint')?.description).not.toContain('delete_item');
+    expect(tools.get('MicrosoftFiles')?.description).not.toMatch(/Actions:.*\bdelete\b/);
+
+    const item = await run('MicrosoftSharePoint', {
+      action: 'delete_item', siteId: 'site-1', listId: 'list-1', itemId: 'item-1', commit: true,
+    });
+    const file = await run('MicrosoftFiles', { action: 'delete', itemId: 'file-1', commit: true });
+
+    expect(item).toContain('deletion is disabled by policy');
+    expect(file).toContain('deletion is disabled by policy');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps SharePoint updates and drive-item renames available', async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ Title: 'Updated' }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'file-1', name: 'renamed.txt' }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+
+    expect(await run('MicrosoftSharePoint', {
+      action: 'update_item', siteId: 'site-1', listId: 'list-1', itemId: 'item-1', fields: { Title: 'Updated' }, commit: true,
+    })).toContain('Updated');
+    expect(await run('MicrosoftFiles', { action: 'rename', itemId: 'file-1', name: 'renamed.txt', commit: true })).toContain('renamed.txt');
+
+    const calls = vi.mocked(globalThis.fetch).mock.calls;
+    expect(String(calls[0]?.[0])).toContain('/sites/site-1/lists/list-1/items/item-1/fields');
+    expect(calls[0]?.[1]?.method).toBe('PATCH');
+    expect(String(calls[1]?.[0])).toContain('/me/drive/items/file-1');
+    expect(calls[1]?.[1]?.method).toBe('PATCH');
   });
 
   it('requires Planner etags for destructive writes', async () => {
