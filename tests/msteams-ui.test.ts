@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   accountDetailPath,
   accountIdentityFromDetail,
+  accountLinkOptions,
   bindAccountRequest,
   directPolicyIndex,
   effectivePersonPolicy,
@@ -90,6 +91,20 @@ describe('Teams person access matching', () => {
     ];
     expect(linkedUserFor(person, users)).toBe(users[1]);
     expect(linkedUserFor({ ...person, identity: undefined }, users)).toBeUndefined();
+  });
+
+  it('gives an unlinked identity its own option so the field cannot read as linked to the first account', () => {
+    const users: User[] = [
+      { id: 1, username: 'filip', name: 'Filip' },
+      { id: 2, username: 'michal', name: 'Michal' },
+    ];
+
+    const unlinked = accountLinkOptions(undefined, users, 'No linked account');
+    expect(unlinked[0]).toEqual({ value: '', label: 'No linked account' });
+
+    const linked = accountLinkOptions(2, users, 'No linked account');
+    expect(linked.some((option) => option.value === '')).toBe(false);
+    expect(linked.map((option) => option.value)).toEqual(['1', '2']);
   });
 
   it('hides the legacy role-policy account selector while account linking is enabled', () => {

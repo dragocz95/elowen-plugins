@@ -101,6 +101,22 @@ export function peopleWithAccountDetail(response: PeopleResponse, aadObjectId: s
   };
 }
 
+/**
+ * SelectMenu resolves a value that matches no option to the first one, so an identity with no linked
+ * account would render as if the first account in the list were already linked. The unlinked state
+ * therefore needs an option of its own; once an account is linked the field only offers replacements.
+ */
+export function accountLinkOptions(linkedUserId: number | undefined, users: User[], noneLabel: string): { value: string; label: string; user?: User }[] {
+  return [
+    ...(linkedUserId === undefined ? [{ value: '', label: noneLabel }] : []),
+    ...users.map((user) => ({
+      value: String(user.id),
+      label: user.name ? `${user.name} · @${user.username}` : `@${user.username}`,
+      user,
+    })),
+  ];
+}
+
 function legacyAccountOptions(policy: RolePolicy | null, users: User[], noneLabel: string): { value: string; label: string; user?: User }[] {
   const ref = String(policy?.elowenUser ?? '').trim();
   const selected = ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : undefined;
@@ -188,10 +204,12 @@ function IdentityCard({ person, users, onDetail }: {
   const linkedHostUser = identity.user
     ? users.find((user) => user.id === identity.user?.id || user.username.toLowerCase() === identity.user?.username.toLowerCase())
     : undefined;
-  const accountOptions = users.map((user) => ({
-    value: String(user.id),
-    label: user.name ? `${user.name} · @${user.username}` : `@${user.username}`,
-    icon: <C.Avatar name={user.name || user.username} user={user} size="sm" />,
+  const accountOptions = accountLinkOptions(identity.user?.id, users, s.accountNone).map((option) => ({
+    value: option.value,
+    label: option.label,
+    icon: option.user
+      ? <C.Avatar name={option.user.name || option.user.username} user={option.user} size="sm" />
+      : <UserCheck size={15} />,
   }));
   const statusLabel = identity.linked ? (identity.signedIn ? s.identityConnected : s.identityNeedsSignIn) : s.identityNotLinked;
   const profile = detail?.profile;

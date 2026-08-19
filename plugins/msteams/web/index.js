@@ -282,6 +282,16 @@ function peopleWithAccountDetail(response, aadObjectId, detail) {
     people: response.people.map((person) => person.aadObjectId === aadObjectId ? { ...person, identity: accountIdentityFromDetail(detail) } : person)
   };
 }
+function accountLinkOptions(linkedUserId, users, noneLabel) {
+  return [
+    ...linkedUserId === void 0 ? [{ value: "", label: noneLabel }] : [],
+    ...users.map((user) => ({
+      value: String(user.id),
+      label: user.name ? `${user.name} \xB7 @${user.username}` : `@${user.username}`,
+      user
+    }))
+  ];
+}
 function legacyAccountOptions(policy, users, noneLabel) {
   const ref = String(policy?.elowenUser ?? "").trim();
   const selected = ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : void 0;
@@ -363,10 +373,10 @@ function IdentityCard({ person, users, onDetail }) {
   };
   const identity = detail ?? { linked: person.identity?.linked === true, user: person.identity?.user, linkedAt: person.identity?.linkedAt, signedIn: false };
   const linkedHostUser = identity.user ? users.find((user) => user.id === identity.user?.id || user.username.toLowerCase() === identity.user?.username.toLowerCase()) : void 0;
-  const accountOptions = users.map((user) => ({
-    value: String(user.id),
-    label: user.name ? `${user.name} \xB7 @${user.username}` : `@${user.username}`,
-    icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: user.name || user.username, user, size: "sm" })
+  const accountOptions = accountLinkOptions(identity.user?.id, users, s.accountNone).map((option) => ({
+    value: option.value,
+    label: option.label,
+    icon: option.user ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: option.user.name || option.user.username, user: option.user, size: "sm" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserCheck, { size: 15 })
   }));
   const statusLabel = identity.linked ? identity.signedIn ? s.identityConnected : s.identityNeedsSignIn : s.identityNotLinked;
   const profile = detail?.profile;
