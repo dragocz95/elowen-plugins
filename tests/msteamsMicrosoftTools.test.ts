@@ -186,6 +186,40 @@ describe('delegated Microsoft 365 tools', () => {
     expect(calls[1]?.[1]?.method).toBe('PATCH');
   });
 
+  it('searches SharePoint content with normalized hits and an opaque cursor', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      value: [{ hitsContainers: [{ total: 3, moreResultsAvailable: true, hits: [{
+        rank: 1, summary: '<c0>Retence</c0> tabulka<ddd/>',
+        resource: {
+          '@odata.type': '#microsoft.graph.driveItem', id: 'file-1', name: 'Retence.xlsx',
+          webUrl: 'https://contoso.sharepoint.com/sites/team/Retence.xlsx', lastModifiedDateTime: '2026-08-20T00:00:00Z',
+          parentReference: { siteId: 'site-1', driveId: 'drive-1', sharepointIds: { listId: 'list-1', listItemId: '7' } },
+          file: { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+        },
+      }] }] }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+    const first = JSON.parse(await run('MicrosoftSharePoint', { action: 'search_content', query: 'Retence', limit: 2 }));
+    expect(first).toMatchObject({
+      summary: '1 of 3 matches', untrusted: true,
+      items: [{ untrusted: true, kind: 'driveItem', id: 'file-1', name: 'Retence.xlsx', summary: 'Retence tabulka', siteId: 'site-1', driveId: 'drive-1' }],
+    });
+    expect(first.nextCursor).toBeTypeOf('string');
+    await run('MicrosoftSharePoint', { action: 'search_content', query: 'Retence', limit: 2, cursor: first.nextCursor });
+    const calls = vi.mocked(globalThis.fetch).mock.calls;
+    expect(calls.map((call) => [String(call[0]), call[1]?.method])).toEqual([
+      ['https://graph.microsoft.com/v1.0/search/query', 'POST'],
+      ['https://graph.microsoft.com/v1.0/search/query', 'POST'],
+    ]);
+    expect(calls.map((call) => JSON.parse(String(call[1]?.body)).requests[0].from)).toEqual([0, 2]);
+    const edgeCursor = Buffer.from(JSON.stringify({ kind: 'sharepoint-search', query: 'Retence', from: 990 })).toString('base64url');
+    const edge = JSON.parse(await run('MicrosoftSharePoint', { action: 'search_content', query: 'Retence', limit: 50, cursor: edgeCursor }));
+    expect(edge).not.toHaveProperty('nextCursor');
+    expect(JSON.parse(String(vi.mocked(globalThis.fetch).mock.calls[2]?.[1]?.body)).requests[0]).toMatchObject({ from: 990, size: 10 });
+    expect(await run('MicrosoftSharePoint', { action: 'search_content', query: 'Other', cursor: first.nextCursor })).toContain('cursor belongs to a different');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+  });
+
   it('previews page and calendar mutations without create-only identifiers', async () => {
     globalThis.fetch = vi.fn();
     const { run } = harness();

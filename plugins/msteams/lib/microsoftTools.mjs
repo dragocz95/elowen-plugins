@@ -46,6 +46,17 @@ const fail = (error) => {
 };
 const trimObject = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 const limitOf = (p) => Math.min(Math.max(Number(p.limit) || 20, 1), 50);
+const SEARCH_MAX_RESULTS = 1_000;
+const searchCursor = (query, from) => Buffer.from(JSON.stringify({ kind: 'sharepoint-search', query, from })).toString('base64url');
+const searchOffset = (cursor, query) => {
+  if (!cursor) return 0;
+  let parsed;
+  try { parsed = JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8')); } catch { parsed = null; }
+  if (parsed?.kind !== 'sharepoint-search' || parsed.query !== query || !Number.isSafeInteger(parsed.from) || parsed.from < 0 || parsed.from >= SEARCH_MAX_RESULTS) {
+    throw new TypeError('Search cursor belongs to a different Microsoft SharePoint query.');
+  }
+  return parsed.from;
+};
 const quoted = (value) => String(value).replace(/'/g, "''");
 const workbookSessions = new Map();
 const WORKBOOK_SESSION_TTL_MS = 10 * 60_000;
@@ -154,7 +165,7 @@ export function registerMicrosoftTools(ctx, linking, cfg) {
     async (p) => directory(await get(), p));
 
   register(ctx, 'MicrosoftSharePoint', 'Microsoft SharePoint',
-    'Search and manage SharePoint sites, lists, list items and modern pages. Actions: search_sites, get_site, list_lists, list_items, get_item, create_item, update_item, list_pages, get_page, create_page, update_page, publish_page. Deletion is disabled by policy.',
+    'Search and manage SharePoint content, sites, lists, list items and modern pages. Actions: search_content, search_sites, get_site, list_lists, list_items, get_item, create_item, update_item, list_pages, get_page, create_page, update_page, publish_page. Deletion is disabled by policy.',
     async (p) => sharepoint(await get(), p));
 
   register(ctx, 'MicrosoftFiles', 'Microsoft files',
@@ -228,6 +239,46 @@ async function directory({ graph }, p) {
 
 async function sharepoint({ graph, cfg }, p) {
   const action = nonempty(p.action, 'action');
+  if (action === 'search_content') {
+    const query = nonempty(p.query, 'query');
+    const limit = limitOf(p);
+    const from = searchOffset(p.cursor, query);
+    const size = Math.min(limit, SEARCH_MAX_RESULTS - from);
+    const data = await graph.json('POST', '/search/query', {
+      body: { requests: [{ entityTypes: ['driveItem', 'listItem', 'list'], query: { queryString: query }, from, size }] },
+      permission: P.sites,
+    });
+    const containers = (data?.value ?? []).flatMap((response) => response?.hitsContainers ?? []);
+    const seen = new Set();
+    const items = containers.flatMap((container) => container?.hits ?? []).flatMap((hit) => {
+      const resource = hit?.resource;
+      if (!resource || typeof resource !== 'object') return [];
+      const key = String(resource.webUrl || `${resource['@odata.type']}:${resource.id || hit.hitId}`);
+      if (seen.has(key)) return [];
+      seen.add(key);
+      const refs = resource.parentReference ?? {};
+      const ids = refs.sharepointIds ?? resource.sharepointIds ?? {};
+      return [{
+        untrusted: true,
+        rank: hit.rank,
+        kind: String(resource['@odata.type'] ?? '').replace('#microsoft.graph.', ''),
+        id: resource.id ?? hit.hitId,
+        name: resource.name ?? resource.displayName ?? resource.title,
+        summary: htmlToText(hit.summary).slice(0, 1_000),
+        webUrl: resource.webUrl,
+        lastModifiedDateTime: resource.lastModifiedDateTime,
+        siteId: refs.siteId ?? resource.siteId,
+        driveId: refs.driveId,
+        listId: ids.listId,
+        listItemId: ids.listItemId,
+        mimeType: resource.file?.mimeType,
+      }];
+    });
+    const more = containers.some((container) => container?.moreResultsAvailable === true);
+    const nextFrom = from + size;
+    const total = Math.max(items.length, ...containers.map((container) => Number(container?.total) || 0));
+    return ok({ items, ...(more && nextFrom < SEARCH_MAX_RESULTS ? { nextCursor: searchCursor(query, nextFrom) } : {}), summary: `${items.length} of ${total} matches`, untrusted: true });
+  }
   if (action === 'search_sites') return ok(await graph.page(`/sites?search=${enc(nonempty(p.query, 'query'))}`, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: '/sites', permission: P.sites }));
   const site = enc(nonempty(p.siteId, 'siteId'));
   if (action === 'get_site') return ok(await graph.json('GET', `/sites/${site}`, { permission: P.sites }));
