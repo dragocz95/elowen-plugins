@@ -424,6 +424,21 @@ describe('msteams identity + role mapping', () => {
     ]);
   });
 
+  // `direct` decides whether the host may load the sender's PERSONAL skills into the turn and let a
+  // scheduled job report back here, so it must mean "only this one person can read it". Teams says
+  // `personal` for a 1:1 chat; anything else — including an activity that omits the field — is a room.
+  it('marks a 1:1 chat direct, and everything else NOT direct, including a missing conversationType', async () => {
+    const { adapter } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] });
+    const seen: Record<string, unknown>[] = [];
+    adapter.listen(async (src) => { seen.push(src as Record<string, unknown>); return 'ok'; });
+
+    await adapter.onActivity(activity());
+    await adapter.onActivity(activity({ conversation: { id: 'a:group', conversationType: 'groupChat', tenantId: 'tenant-guid' } }));
+    await adapter.onActivity(activity({ conversation: { id: 'a:unknown', tenantId: 'tenant-guid' } }));
+
+    expect(seen.map((s) => s.direct)).toEqual([true, false, false]);
+  });
+
   it('can disable processing reactions', async () => {
     const { adapter, calls } = await makeAdapter({ reactions: false, rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] });
     adapter.listen(async () => 'done');

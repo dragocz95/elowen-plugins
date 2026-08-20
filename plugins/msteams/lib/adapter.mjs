@@ -836,7 +836,10 @@ export class MsTeamsAdapter {
           // The host cannot tell them apart on its own (both become `brain-ch-*`), and it uses this to
           // decide whether the conversation may carry its sender's personal skills and receive their
           // scheduled jobs — so it must stay exactly "only this one person can read it".
-          direct: kind === 'personal',
+          // Read from the activity rather than from `kind`, which defaults a MISSING conversationType to
+          // 'personal' for history purposes: here that default would fail open and hand a shared room a
+          // private conversation's rights. Absent means unknown, and unknown means shared.
+          direct: conv.conversationType === 'personal',
           channelName: kind !== 'personal' ? (conv.name || undefined) : undefined,
           images: images.length ? images : undefined,
           // MUST be async: the brain calls `opts.history().catch(…)` on the result, so a plain string
