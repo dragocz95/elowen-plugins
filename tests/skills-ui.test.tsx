@@ -44,20 +44,20 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
 
     await waitFor(() => expect(toggles()).toHaveLength(2));
     const [alpha, beta] = toggles();
-    expect(alpha).not.toBeChecked();
-    expect(beta).not.toBeChecked();
+    expect(alpha).toBeChecked();
+    expect(beta).toBeChecked();
 
     fireEvent.click(alpha!);
-    // Optimistic: alpha flips before the PATCH resolves, and only alpha is greyed out.
-    await waitFor(() => expect(alpha).toBeChecked());
+    // Optimistic: alpha turns automatic use off before the PATCH resolves, and only alpha is greyed out.
+    await waitFor(() => expect(alpha).not.toBeChecked());
     expect(alpha).toBeDisabled();
     expect(beta).not.toBeDisabled();
-    expect(beta).not.toBeChecked();
+    expect(beta).toBeChecked();
 
-    // Once the server confirms (and the refetch lands the updated list), alpha stays on and re-enables.
+    // Once the server confirms (and the refetch lands the updated list), alpha stays off and re-enables.
     resolvePatch();
     await waitFor(() => expect(alpha).toBeEnabled());
-    expect(alpha).toBeChecked();
+    expect(alpha).not.toBeChecked();
   });
 
   it('rolls the toggle back when the PATCH fails', async () => {
@@ -71,10 +71,11 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
 
     await waitFor(() => expect(toggles()).toHaveLength(2));
     const [alpha] = toggles();
+    expect(alpha).toBeChecked();
     fireEvent.click(alpha!);
-    await waitFor(() => expect(alpha).toBeChecked()); // optimistic flip, held while the PATCH is pending
+    await waitFor(() => expect(alpha).not.toBeChecked()); // optimistic flip, held while the PATCH is pending
     rejectPatch();
-    await waitFor(() => expect(alpha).not.toBeChecked()); // rolled back on error
+    await waitFor(() => expect(alpha).toBeChecked()); // rolled back on error
   });
 
   it('creates a skill through the editor form (list → add → save)', async () => {
@@ -92,6 +93,7 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     fireEvent.click((await screen.findAllByRole('button', { name: strings.add }))[0]!);
     // The form lives in the workspace detail drawer; the page behind it has a search box of its own.
     const form = within(await screen.findByRole('dialog'));
+    expect(form.getByRole('switch', { name: strings.disableModelInvocation })).toBeChecked();
     fireEvent.change(form.getByPlaceholderText('deploy-checklist'), { target: { value: 'my-skill' } });
     const inputs = form.getAllByRole('textbox');
     fireEvent.change(inputs[1]!, { target: { value: 'When to use it.' } });

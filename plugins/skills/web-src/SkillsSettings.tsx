@@ -31,9 +31,9 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
   // the caller), an instance-wide one explicitly, and — for an admin cleaning up — someone else's by id.
   const targetOwner = (skill: PluginSkill): SkillOwner => (skill.owner === null ? 'instance' : skill.owner);
 
-  const toggleInvocation = (skill: PluginSkill, next: boolean) => {
+  const toggleInvocation = (skill: PluginSkill, enabled: boolean) => {
     update.mutate(
-      { name: skill.name, owner: targetOwner(skill), patch: { disableModelInvocation: next } },
+      { name: skill.name, owner: targetOwner(skill), patch: { disableModelInvocation: !enabled } },
       { onError: (e) => toast(utils.apiErrorMessage(e), 'error') },
     );
   };
@@ -104,8 +104,8 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
         )}
         renderRowControl={(skill: PluginSkill) => (
           <C.Toggle
-            checked={skill.disableModelInvocation}
-            onChange={(next: boolean) => toggleInvocation(skill, next)}
+            checked={!skill.disableModelInvocation}
+            onChange={(enabled: boolean) => toggleInvocation(skill, enabled)}
             label={s.disableModelInvocation}
             disabled={update.isPending && update.variables?.name === skill.name && update.variables?.owner === targetOwner(skill)}
           />
@@ -130,8 +130,8 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
             ) : null}
             <label className="flex items-center gap-2">
               <C.Toggle
-                checked={form.disableModelInvocation}
-                onChange={(next: boolean) => patch({ disableModelInvocation: next })}
+                checked={!form.disableModelInvocation}
+                onChange={(enabled: boolean) => patch({ disableModelInvocation: !enabled })}
                 label={s.disableModelInvocation}
               />
               <span className="flex flex-col">

@@ -187,9 +187,9 @@ function SkillsSettings({ surface }) {
   const remove = hooks.useDeletePluginSkill();
   const [creating, setCreating] = (0, import_react3.useState)(false);
   const targetOwner = (skill) => skill.owner === null ? "instance" : skill.owner;
-  const toggleInvocation = (skill, next) => {
+  const toggleInvocation = (skill, enabled) => {
     update.mutate(
-      { name: skill.name, owner: targetOwner(skill), patch: { disableModelInvocation: next } },
+      { name: skill.name, owner: targetOwner(skill), patch: { disableModelInvocation: !enabled } },
       { onError: (e) => toast(utils.apiErrorMessage(e), "error") }
     );
   };
@@ -258,8 +258,8 @@ function SkillsSettings({ surface }) {
       renderRowControl: (skill) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         C.Toggle,
         {
-          checked: skill.disableModelInvocation,
-          onChange: (next) => toggleInvocation(skill, next),
+          checked: !skill.disableModelInvocation,
+          onChange: (enabled) => toggleInvocation(skill, enabled),
           label: s.disableModelInvocation,
           disabled: update.isPending && update.variables?.name === skill.name && update.variables?.owner === targetOwner(skill)
         }
@@ -282,8 +282,8 @@ function SkillsSettings({ surface }) {
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             C.Toggle,
             {
-              checked: form.disableModelInvocation,
-              onChange: (next) => patch({ disableModelInvocation: next }),
+              checked: !form.disableModelInvocation,
+              onChange: (enabled) => patch({ disableModelInvocation: !enabled }),
               label: s.disableModelInvocation
             }
           ),

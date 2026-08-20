@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "apiVersion": "1",
   "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
   "entry": "index.mjs",
@@ -62,8 +62,8 @@
       "created": "Skill saved",
       "updated": "Skill updated",
       "deleted": "Skill deleted",
-      "disableModelInvocation": "Hide from the model",
-      "disableModelInvocationHint": "The model won’t offer this skill on its own — it stays available only via /skill:name.",
+      "disableModelInvocation": "Use automatically",
+      "disableModelInvocationHint": "On: the model can select this skill automatically. Off: it stays available only via /skill:name.",
       "manualOnlyBadge": "manual only",
       "helpName": "kebab-case: lowercase letters, digits and dashes (e.g. “deploy-checklist”).",
       "helpDescription": "One line: when the assistant should use this skill.",
