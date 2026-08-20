@@ -5,6 +5,7 @@ import { Type } from 'typebox';
 import { DelegatedGraphClient, DelegatedGraphError, bounded, htmlToText } from './delegatedGraph.mjs';
 
 const P = {
+  me: 'User.Read',
   directory: 'User.Read.All / GroupMember.Read.All',
   people: 'People.Read',
   sites: 'Sites.ReadWrite.All',
@@ -184,7 +185,7 @@ export function registerMicrosoftTools(ctx, linking, cfg) {
 async function directory({ graph }, p) {
   const action = nonempty(p.action, 'action');
   const select = '$select=id,displayName,userPrincipalName,mail,jobTitle,department,officeLocation,accountEnabled,userType';
-  if (action === 'me') return ok(await graph.json('GET', `/me?${select}`, { permission: P.directory }));
+  if (action === 'me') return ok(await graph.json('GET', `/me?${select}`, { permission: P.me }));
   if (action === 'search_people') {
     const query = nonempty(p.query, 'query');
     if (String(p.scope ?? p.resource) === 'relevant') {
@@ -244,12 +245,23 @@ async function sharepoint({ graph, cfg }, p) {
   }
   const pages = `/sites/${site}/pages`;
   if (action === 'list_pages') return ok(await graph.page(`${pages}/microsoft.graph.sitePage?$select=id,name,title,webUrl,createdDateTime,lastModifiedDateTime,publishingState`, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: pages, permission: P.sites }));
+  if (action === 'create_page') {
+    const input = trimObject(p.fields);
+    const body = {
+      ...input,
+      name: nonempty(input.name, 'fields.name'),
+      title: nonempty(input.title, 'fields.title'),
+      pageLayout: String(input.pageLayout ?? '').trim() || 'article',
+      '@odata.type': '#microsoft.graph.sitePage',
+    };
+    const gate = mutationGate(cfg, p, { action, siteId: p.siteId, page: body }); if (gate.result) return gate.result;
+    return ok(await graph.json('POST', pages, { body, permission: P.sites }));
+  }
   const page = enc(nonempty(p.pageId ?? p.id, 'pageId'));
   if (action === 'get_page') return ok(await graph.json('GET', `${pages}/${page}/microsoft.graph.sitePage?$expand=canvasLayout`, { permission: P.sites }));
-  if (['create_page', 'update_page', 'publish_page'].includes(action)) {
+  if (['update_page', 'publish_page'].includes(action)) {
     const body = trimObject(p.fields);
     const gate = mutationGate(cfg, p, { action, siteId: p.siteId, pageId: p.pageId ?? p.id, page: body }); if (gate.result) return gate.result;
-    if (action === 'create_page') return ok(await graph.json('POST', `${pages}`, { body: { '@odata.type': '#microsoft.graph.sitePage', ...body }, permission: P.sites }));
     if (action === 'update_page') return ok(await graph.json('PATCH', `${pages}/${page}/microsoft.graph.sitePage`, { body, ifMatch: p.etag, permission: P.sites }));
     await graph.json('POST', `${pages}/${page}/microsoft.graph.sitePage/publish`, { body: {}, permission: P.sites });
     return ok({ published: true, pageId: p.pageId ?? p.id });
@@ -414,8 +426,11 @@ async function outlook({ graph, cfg }, p) {
       const schedules = p.to ?? p.attendees ?? [];
       return ok(await graph.json('POST', `${base}/calendar/getSchedule`, { body: { schedules, startTime: { dateTime: nonempty(p.start, 'start'), timeZone: nonempty(p.timeZone, 'timeZone') }, endTime: { dateTime: nonempty(p.end, 'end'), timeZone: nonempty(p.timeZone, 'timeZone') }, availabilityViewInterval: 30 }, permission: P.calendar }));
     }
-    const eventBody = { subject: String(p.subject ?? ''), body: messageBody(p), start: { dateTime: nonempty(p.start, 'start'), timeZone: nonempty(p.timeZone, 'timeZone') }, end: { dateTime: nonempty(p.end, 'end'), timeZone: nonempty(p.timeZone, 'timeZone') }, attendees: (p.attendees ?? []).map((address) => ({ emailAddress: { address }, type: 'required' })) };
-    if (action === 'create_event') { const gate = mutationGate(cfg, p, { action, subject: p.subject, start: p.start, end: p.end, attendees: p.attendees ?? [] }); if (gate.result) return gate.result; return ok(await graph.json('POST', `${base}${calendar}/events`, { body: eventBody, permission: P.calendar })); }
+    if (action === 'create_event') {
+      const eventBody = { subject: String(p.subject ?? ''), body: messageBody(p), start: { dateTime: nonempty(p.start, 'start'), timeZone: nonempty(p.timeZone, 'timeZone') }, end: { dateTime: nonempty(p.end, 'end'), timeZone: nonempty(p.timeZone, 'timeZone') }, attendees: (p.attendees ?? []).map((address) => ({ emailAddress: { address }, type: 'required' })) };
+      const gate = mutationGate(cfg, p, { action, subject: p.subject, start: p.start, end: p.end, attendees: p.attendees ?? [] }); if (gate.result) return gate.result;
+      return ok(await graph.json('POST', `${base}${calendar}/events`, { body: eventBody, permission: P.calendar }));
+    }
     const event = enc(nonempty(p.id, 'event id'));
     if (action === 'update_event') { const gate = mutationGate(cfg, p, { action, eventId: p.id, changes: trimObject(p.fields) }); if (gate.result) return gate.result; return ok(await graph.json('PATCH', `${base}/events/${event}`, { body: trimObject(p.fields), ifMatch: p.etag, permission: P.calendar })); }
     if (action === 'cancel_event') { const gate = mutationGate(cfg, p, { action, eventId: p.id, comment: p.comment }); if (gate.result) return gate.result; await graph.json('POST', `${base}/events/${event}/cancel`, { body: { comment: String(p.comment ?? '') }, permission: P.calendar }); return ok({ cancelled: true }); }
@@ -467,11 +482,26 @@ async function tasks({ graph, cfg }, p) {
     if (action === 'get') return ok(await graph.json('GET', `/planner/tasks/${enc(nonempty(p.id, 'task id'))}`, { permission: P.planner }));
     if (['create_task', 'update_task', 'complete_task', 'delete_task', 'create_bucket', 'update_bucket', 'create_plan'].includes(action)) {
       const changes = { ...trimObject(p.fields) };
-      if (p.subject) changes.title = p.subject;
+      const bucketAction = action === 'create_bucket' || action === 'update_bucket';
+      if (p.subject) changes[bucketAction ? 'name' : 'title'] = p.subject;
       if (p.bucketId) changes.bucketId = p.bucketId;
       if (p.planId) changes.planId = p.planId;
       if (p.assignments) changes.assignments = Object.fromEntries(p.assignments.map((id) => [id, { '@odata.type': '#microsoft.graph.plannerAssignment', orderHint: ' !' }]));
       if (action === 'complete_task') changes.percentComplete = 100;
+      if (action === 'create_task') {
+        changes.planId = nonempty(changes.planId, 'planId');
+        changes.title = nonempty(changes.title, 'subject');
+      }
+      if (action === 'create_bucket') {
+        changes.planId = nonempty(changes.planId, 'planId');
+        changes.name = nonempty(changes.name, 'subject');
+        changes.orderHint ??= ' !';
+      }
+      if (action === 'create_plan') {
+        const groupId = nonempty(p.groupId, 'groupId');
+        changes.title = nonempty(changes.title, 'subject');
+        changes.container = { url: `https://graph.microsoft.com/v1.0/groups/${groupId}` };
+      }
       const gate = mutationGate(cfg, p, { action, service, id: p.id, changes }); if (gate.result) return gate.result;
       if (action === 'create_task') return ok(await graph.json('POST', '/planner/tasks', { body: changes, permission: P.planner }));
       if (action === 'create_bucket') return ok(await graph.json('POST', '/planner/buckets', { body: changes, permission: P.planner }));

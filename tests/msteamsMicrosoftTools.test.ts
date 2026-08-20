@@ -186,6 +186,64 @@ describe('delegated Microsoft 365 tools', () => {
     expect(calls[1]?.[1]?.method).toBe('PATCH');
   });
 
+  it('previews page and calendar mutations without create-only identifiers', async () => {
+    globalThis.fetch = vi.fn();
+    const { run } = harness();
+    const cases = [
+      ['MicrosoftSharePoint', { action: 'create_page', siteId: 'site-1', fields: { name: 'smoke.aspx', title: 'Smoke' } }],
+      ['MicrosoftOutlook', { resource: 'calendar', action: 'update_event', id: 'event-1', fields: { subject: 'Updated' } }],
+      ['MicrosoftOutlook', { resource: 'calendar', action: 'cancel_event', id: 'event-1', comment: 'Cancelled' }],
+      ['MicrosoftOutlook', { resource: 'calendar', action: 'respond_event', id: 'event-1', response: 'accept' }],
+    ] as const;
+    for (const [tool, params] of cases) expect(await run(tool, params)).toContain('"committed": false');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('validates and normalizes SharePoint page creation', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ id: 'page-1' }), { status: 201, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+    await run('MicrosoftSharePoint', {
+      action: 'create_page', siteId: 'site-1', commit: true,
+      fields: { name: 'smoke.aspx', title: 'Smoke', pageLayout: '   ', '@odata.type': '#unsafe' },
+    });
+    expect(JSON.parse(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[1]?.body))).toEqual({
+      name: 'smoke.aspx', title: 'Smoke', pageLayout: 'article', '@odata.type': '#microsoft.graph.sitePage',
+    });
+    globalThis.fetch = vi.fn();
+    expect(await run('MicrosoftSharePoint', { action: 'create_page', siteId: 'site-1', fields: { title: 'Missing name' } })).toContain('fields.name is required');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('builds valid Planner create payloads', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ id: 'created' }), { status: 201, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+    await run('MicrosoftTasks', { service: 'planner', action: 'create_task', planId: 'plan-1', subject: 'Task', commit: true });
+    await run('MicrosoftTasks', { service: 'planner', action: 'create_bucket', planId: 'plan-1', subject: 'Bucket', commit: true });
+    await run('MicrosoftTasks', { service: 'planner', action: 'create_plan', groupId: 'group-1', subject: 'Plan', commit: true });
+    const calls = vi.mocked(globalThis.fetch).mock.calls;
+    expect(calls.map((call) => [String(call[0]), call[1]?.method])).toEqual([
+      ['https://graph.microsoft.com/v1.0/planner/tasks', 'POST'],
+      ['https://graph.microsoft.com/v1.0/planner/buckets', 'POST'],
+      ['https://graph.microsoft.com/v1.0/planner/plans', 'POST'],
+    ]);
+    expect(calls.map((call) => JSON.parse(String(call[1]?.body)))).toEqual([
+      { title: 'Task', planId: 'plan-1' },
+      { name: 'Bucket', planId: 'plan-1', orderHint: ' !' },
+      { title: 'Plan', container: { url: 'https://graph.microsoft.com/v1.0/groups/group-1' } },
+    ]);
+    globalThis.fetch = vi.fn();
+    expect(await run('MicrosoftTasks', { service: 'planner', action: 'create_plan', subject: 'Plan' })).toContain('groupId is required');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('reports User.Read as the permission for the signed-in profile', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ error: { code: 'Authorization_RequestDenied', message: 'Denied' } }), { status: 403, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+    const text = await run('MicrosoftDirectory', { action: 'me' });
+    expect(text).toContain('Delegated permission for this operation: User.Read');
+    expect(text).not.toContain('User.Read.All');
+  });
+
   it('requires Planner etags for destructive writes', async () => {
     globalThis.fetch = vi.fn();
     const { run } = harness();
