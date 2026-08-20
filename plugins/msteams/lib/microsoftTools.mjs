@@ -173,11 +173,11 @@ export function registerMicrosoftTools(ctx, linking, cfg) {
     async (p) => files(await get(), ctx, p));
 
   register(ctx, 'MicrosoftOutlook', 'Microsoft Outlook',
-    'Use Outlook mail, calendar or contacts. Set resource=mail|calendar|contacts. Mail actions: search, list, get, create_draft, send_draft, send, reply, forward, move, archive, delete. Calendar: list_calendars, list_events, get_event, availability, create_event, update_event, cancel_event, respond_event. Contacts: search, list, get, create, update, delete.',
+    'Use Outlook mail, calendar or contacts. Set resource=mail|calendar|contacts. Mail actions: search, list, get, create_draft, send_draft, send, reply, forward, move, archive. Calendar: list_calendars, list_events, get_event, availability, create_event, update_event, respond_event. Contacts: search, list, get, create, update. Destructive actions are disabled by policy.',
     async (p) => outlook(await get(), p));
 
   register(ctx, 'MicrosoftTasks', 'Microsoft tasks',
-    'Use Microsoft To Do or Planner. Set service=todo|planner. Actions cover lists/plans/buckets/tasks plus get, create, update, complete and delete.',
+    'Use Microsoft To Do or Planner. Set service=todo|planner. Actions cover lists/plans/buckets/tasks plus get, create, update and complete. Destructive actions are disabled by policy.',
     async (p) => tasks(await get(), p));
 
   register(ctx, 'MicrosoftOneNote', 'Microsoft OneNote',
@@ -442,6 +442,7 @@ async function outlook({ graph, cfg }, p) {
       if (data?.body?.content) data.body = { ...data.body, content: htmlToText(data.body.content) };
       return ok(data);
     }
+    if (action === 'delete') throw new Error('Microsoft mail deletion is disabled by policy.');
     const draft = { subject: String(p.subject ?? ''), body: messageBody(p), toRecipients: recipients(p.to), ccRecipients: recipients(p.cc) };
     if (action === 'create_draft') {
       const gate = mutationGate(cfg, p, { action, mailbox: p.userId || 'me', subject: draft.subject, to: p.to ?? [], cc: p.cc ?? [] }); if (gate.result) return gate.result;
@@ -463,7 +464,6 @@ async function outlook({ graph, cfg }, p) {
       const gate = mutationGate(cfg, p, { action, messageId: p.messageId ?? p.id, destinationId }); if (gate.result) return gate.result;
       return ok(await graph.json('POST', `${base}/messages/${message}/move`, { body: { destinationId }, permission: P.mail }));
     }
-    if (action === 'delete') { const gate = mutationGate(cfg, p, { action, messageId: p.messageId ?? p.id }); if (gate.result) return gate.result; await graph.json('DELETE', `${base}/messages/${message}`, { permission: P.mail }); return ok({ deleted: true }); }
   }
   if (resource === 'calendar') {
     if (action === 'list_calendars') return ok(await graph.page(`${base}/calendars?$select=id,name,color,canEdit,canShare,owner`, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: `${base}/calendars`, permission: P.calendar }));
@@ -477,6 +477,7 @@ async function outlook({ graph, cfg }, p) {
       const schedules = p.to ?? p.attendees ?? [];
       return ok(await graph.json('POST', `${base}/calendar/getSchedule`, { body: { schedules, startTime: { dateTime: nonempty(p.start, 'start'), timeZone: nonempty(p.timeZone, 'timeZone') }, endTime: { dateTime: nonempty(p.end, 'end'), timeZone: nonempty(p.timeZone, 'timeZone') }, availabilityViewInterval: 30 }, permission: P.calendar }));
     }
+    if (action === 'cancel_event') throw new Error('Microsoft calendar cancellation is disabled by policy.');
     if (action === 'create_event') {
       const eventBody = { subject: String(p.subject ?? ''), body: messageBody(p), start: { dateTime: nonempty(p.start, 'start'), timeZone: nonempty(p.timeZone, 'timeZone') }, end: { dateTime: nonempty(p.end, 'end'), timeZone: nonempty(p.timeZone, 'timeZone') }, attendees: (p.attendees ?? []).map((address) => ({ emailAddress: { address }, type: 'required' })) };
       const gate = mutationGate(cfg, p, { action, subject: p.subject, start: p.start, end: p.end, attendees: p.attendees ?? [] }); if (gate.result) return gate.result;
@@ -484,7 +485,6 @@ async function outlook({ graph, cfg }, p) {
     }
     const event = enc(nonempty(p.id, 'event id'));
     if (action === 'update_event') { const gate = mutationGate(cfg, p, { action, eventId: p.id, changes: trimObject(p.fields) }); if (gate.result) return gate.result; return ok(await graph.json('PATCH', `${base}/events/${event}`, { body: trimObject(p.fields), ifMatch: p.etag, permission: P.calendar })); }
-    if (action === 'cancel_event') { const gate = mutationGate(cfg, p, { action, eventId: p.id, comment: p.comment }); if (gate.result) return gate.result; await graph.json('POST', `${base}/events/${event}/cancel`, { body: { comment: String(p.comment ?? '') }, permission: P.calendar }); return ok({ cancelled: true }); }
     if (action === 'respond_event') {
       const response = nonempty(p.response, 'response'); if (!['accept', 'decline', 'tentativelyAccept'].includes(response)) throw new TypeError('response must be accept, decline or tentativelyAccept.');
       const gate = mutationGate(cfg, p, { action, eventId: p.id, response, comment: p.comment }); if (gate.result) return gate.result;
@@ -497,12 +497,12 @@ async function outlook({ graph, cfg }, p) {
       return ok(await graph.page(`${base}/contacts?$select=id,displayName,givenName,surname,emailAddresses,businessPhones,mobilePhone,companyName${filter}`, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: `${base}/contacts`, permission: P.contacts }));
     }
     if (action === 'get') return ok(await graph.json('GET', `${base}/contacts/${enc(nonempty(p.id, 'contact id'))}`, { permission: P.contacts }));
-    if (['create', 'update', 'delete'].includes(action)) {
+    if (action === 'delete') throw new Error('Microsoft contact deletion is disabled by policy.');
+    if (['create', 'update'].includes(action)) {
       const body = trimObject(p.fields); const gate = mutationGate(cfg, p, { action, contactId: p.id, fields: body }); if (gate.result) return gate.result;
       if (action === 'create') return ok(await graph.json('POST', `${base}/contacts`, { body, permission: P.contacts }));
       const id = enc(nonempty(p.id, 'contact id'));
-      if (action === 'update') return ok(await graph.json('PATCH', `${base}/contacts/${id}`, { body, ifMatch: p.etag, permission: P.contacts }));
-      await graph.json('DELETE', `${base}/contacts/${id}`, { ifMatch: p.etag, permission: P.contacts }); return ok({ deleted: true });
+      return ok(await graph.json('PATCH', `${base}/contacts/${id}`, { body, ifMatch: p.etag, permission: P.contacts }));
     }
   }
   throw new TypeError(`Unknown MicrosoftOutlook resource/action: ${resource}/${action}`);
@@ -517,12 +517,12 @@ async function tasks({ graph, cfg }, p) {
     const base = `${lists}/${list}/tasks`;
     if (action === 'list_tasks') return ok(await graph.page(base, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: base, permission: P.tasks }));
     if (action === 'get') return ok(await graph.json('GET', `${base}/${enc(nonempty(p.id, 'task id'))}`, { permission: P.tasks }));
-    if (['create', 'update', 'complete', 'delete'].includes(action)) {
+    if (action === 'delete') throw new Error('Microsoft To Do deletion is disabled by policy.');
+    if (['create', 'update', 'complete'].includes(action)) {
       const changes = { ...trimObject(p.fields), ...(p.subject ? { title: p.subject } : {}), ...(action === 'complete' ? { status: 'completed' } : {}) };
       const gate = mutationGate(cfg, p, { action, service, taskListId: p.taskListId ?? p.listId, taskId: p.id, changes }); if (gate.result) return gate.result;
       if (action === 'create') return ok(await graph.json('POST', base, { body: changes, permission: P.tasks }));
       const id = enc(nonempty(p.id, 'task id'));
-      if (action === 'delete') { await graph.json('DELETE', `${base}/${id}`, { ifMatch: p.etag, permission: P.tasks }); return ok({ deleted: true }); }
       return ok(await graph.json('PATCH', `${base}/${id}`, { body: changes, ifMatch: p.etag, permission: P.tasks }));
     }
   }
@@ -531,7 +531,8 @@ async function tasks({ graph, cfg }, p) {
     if (action === 'list_buckets') { const plan = enc(nonempty(p.planId, 'planId')); return ok(await graph.page(`/planner/plans/${plan}/buckets`, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: `/planner/plans/${plan}/buckets`, permission: P.planner })); }
     if (action === 'list_tasks') { const plan = enc(nonempty(p.planId, 'planId')); return ok(await graph.page(`/planner/plans/${plan}/tasks`, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: `/planner/plans/${plan}/tasks`, permission: P.planner })); }
     if (action === 'get') return ok(await graph.json('GET', `/planner/tasks/${enc(nonempty(p.id, 'task id'))}`, { permission: P.planner }));
-    if (['create_task', 'update_task', 'complete_task', 'delete_task', 'create_bucket', 'update_bucket', 'create_plan'].includes(action)) {
+    if (action === 'delete_task') throw new Error('Microsoft Planner task deletion is disabled by policy.');
+    if (['create_task', 'update_task', 'complete_task', 'create_bucket', 'update_bucket', 'create_plan'].includes(action)) {
       const changes = { ...trimObject(p.fields) };
       const bucketAction = action === 'create_bucket' || action === 'update_bucket';
       if (p.subject) changes[bucketAction ? 'name' : 'title'] = p.subject;
@@ -558,7 +559,6 @@ async function tasks({ graph, cfg }, p) {
       if (action === 'create_bucket') return ok(await graph.json('POST', '/planner/buckets', { body: changes, permission: P.planner }));
       if (action === 'create_plan') return ok(await graph.json('POST', '/planner/plans', { body: changes, permission: P.planner }));
       const id = enc(nonempty(p.id, 'id'));
-      if (action === 'delete_task') { await graph.json('DELETE', `/planner/tasks/${id}`, { ifMatch: nonempty(p.etag, 'etag'), permission: P.planner }); return ok({ deleted: true }); }
       const kind = action === 'update_bucket' ? 'buckets' : 'tasks';
       return ok(await graph.json('PATCH', `/planner/${kind}/${id}`, { body: changes, ifMatch: nonempty(p.etag, 'etag'), permission: P.planner }));
     }

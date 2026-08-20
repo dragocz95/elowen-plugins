@@ -152,19 +152,25 @@ describe('delegated Microsoft 365 tools', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it('hard-disables SharePoint item and drive-item deletion before Graph is called', async () => {
+  it('hard-disables destructive Microsoft 365 actions before Graph is called', async () => {
     globalThis.fetch = vi.fn();
     const { tools, run } = harness();
     expect(tools.get('MicrosoftSharePoint')?.description).not.toContain('delete_item');
     expect(tools.get('MicrosoftFiles')?.description).not.toMatch(/Actions:.*\bdelete\b/);
+    expect(tools.get('MicrosoftOutlook')?.description).not.toMatch(/\b(delete|cancel_event)\b/);
+    expect(tools.get('MicrosoftTasks')?.description).not.toMatch(/\b(delete|delete_task)\b/);
 
-    const item = await run('MicrosoftSharePoint', {
-      action: 'delete_item', siteId: 'site-1', listId: 'list-1', itemId: 'item-1', commit: true,
-    });
-    const file = await run('MicrosoftFiles', { action: 'delete', itemId: 'file-1', commit: true });
+    const results = await Promise.all([
+      run('MicrosoftSharePoint', { action: 'delete_item', siteId: 'site-1', listId: 'list-1', itemId: 'item-1', commit: true }),
+      run('MicrosoftFiles', { action: 'delete', itemId: 'file-1', commit: true }),
+      run('MicrosoftOutlook', { resource: 'mail', action: 'delete', messageId: 'message-1', commit: true }),
+      run('MicrosoftOutlook', { resource: 'calendar', action: 'cancel_event', id: 'event-1', commit: true }),
+      run('MicrosoftOutlook', { resource: 'contacts', action: 'delete', id: 'contact-1', commit: true }),
+      run('MicrosoftTasks', { service: 'todo', action: 'delete', taskListId: 'list-1', id: 'task-1', commit: true }),
+      run('MicrosoftTasks', { service: 'planner', action: 'delete_task', id: 'task-1', etag: 'etag', commit: true }),
+    ]);
 
-    expect(item).toContain('deletion is disabled by policy');
-    expect(file).toContain('deletion is disabled by policy');
+    for (const result of results) expect(result).toMatch(/(deletion|cancellation) is disabled by policy/);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
@@ -226,7 +232,6 @@ describe('delegated Microsoft 365 tools', () => {
     const cases = [
       ['MicrosoftSharePoint', { action: 'create_page', siteId: 'site-1', fields: { name: 'smoke.aspx', title: 'Smoke' } }],
       ['MicrosoftOutlook', { resource: 'calendar', action: 'update_event', id: 'event-1', fields: { subject: 'Updated' } }],
-      ['MicrosoftOutlook', { resource: 'calendar', action: 'cancel_event', id: 'event-1', comment: 'Cancelled' }],
       ['MicrosoftOutlook', { resource: 'calendar', action: 'respond_event', id: 'event-1', response: 'accept' }],
     ] as const;
     for (const [tool, params] of cases) expect(await run(tool, params)).toContain('"committed": false');
@@ -278,10 +283,10 @@ describe('delegated Microsoft 365 tools', () => {
     expect(text).not.toContain('User.Read.All');
   });
 
-  it('requires Planner etags for destructive writes', async () => {
+  it('requires Planner etags for updates', async () => {
     globalThis.fetch = vi.fn();
     const { run } = harness();
-    const text = await run('MicrosoftTasks', { service: 'planner', action: 'delete_task', id: 'task-1', commit: true });
+    const text = await run('MicrosoftTasks', { service: 'planner', action: 'update_task', id: 'task-1', fields: { title: 'Updated' }, commit: true });
     expect(text).toContain('etag is required');
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
