@@ -152,6 +152,18 @@ describe('delegated Microsoft 365 tools', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it('lists joined Teams without the unsupported $top query option', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ value: [
+      { id: 'team-1', displayName: 'One' }, { id: 'team-2', displayName: 'Two' },
+    ] }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+    const result = JSON.parse(await run('MicrosoftTeams', { action: 'list_joined_teams', limit: 1 }));
+    expect(result).toMatchObject({ items: [{ id: 'team-1' }], summary: '1 joined teams' });
+    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0]!;
+    expect(String(url)).toBe('https://graph.microsoft.com/v1.0/me/joinedTeams?$select=id,displayName,description,webUrl,isArchived');
+    expect(init?.method).toBe('GET');
+  });
+
   it('hard-disables destructive Microsoft 365 actions before Graph is called', async () => {
     globalThis.fetch = vi.fn();
     const { tools, run } = harness();

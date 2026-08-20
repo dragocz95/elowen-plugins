@@ -637,7 +637,12 @@ async function teams({ graph, cfg }, p) {
   if (action === 'list_chats') return ok(await graph.page('/me/chats?$expand=members,lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc', { limit: limitOf(p), cursor: p.cursor, cursorPrefix: '/me/chats', permission: P.teams }));
   if (action === 'get_chat') return ok(await graph.json('GET', `/chats/${enc(nonempty(p.chatId ?? p.id, 'chatId'))}?$expand=members,lastMessagePreview`, { permission: P.teams }));
   if (action === 'list_chat_messages') { const chat = enc(nonempty(p.chatId, 'chatId')); return ok(await graph.page(`/chats/${chat}/messages`, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: `/chats/${chat}/messages`, permission: P.teams })); }
-  if (action === 'list_joined_teams') return ok(await graph.page('/me/joinedTeams?$select=id,displayName,description,webUrl,isArchived', { limit: limitOf(p), cursor: p.cursor, cursorPrefix: '/me/joinedTeams', permission: P.teams }));
+  if (action === 'list_joined_teams') {
+    if (p.cursor) throw new TypeError('Microsoft joined teams does not support pagination cursors.');
+    const data = await graph.json('GET', '/me/joinedTeams?$select=id,displayName,description,webUrl,isArchived', { permission: P.teams });
+    const items = Array.isArray(data?.value) ? data.value.slice(0, limitOf(p)) : [];
+    return ok({ items, summary: `${items.length} joined teams` });
+  }
   if (action === 'list_channels') { const team = enc(nonempty(p.teamId, 'teamId')); return ok(await graph.page(`/teams/${team}/channels?$select=id,displayName,description,webUrl,membershipType`, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: `/teams/${team}/channels`, permission: P.teams })); }
   if (action === 'list_channel_messages') { const team = enc(nonempty(p.teamId, 'teamId')); const channel = enc(nonempty(p.channelId, 'channelId')); return ok(await graph.page(`/teams/${team}/channels/${channel}/messages`, { limit: limitOf(p), cursor: p.cursor, cursorPrefix: `/teams/${team}/channels/${channel}/messages`, permission: P.teams })); }
   if (['send_chat_message', 'reply_chat_message', 'send_channel_message', 'reply_channel_message', 'react'].includes(action)) {
