@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { registerMicrosoftTools } from '../plugins/msteams/lib/microsoftTools.mjs';
 
@@ -119,6 +119,50 @@ describe('delegated Microsoft 365 tools', () => {
     expect(text).toContain('"sent": true');
     expect(text).not.toContain('delegated-secret-token');
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists mail attachments without pulling their encoded bytes into the reply', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ value: [
+      { '@odata.type': '#microsoft.graph.fileAttachment', id: 'att-1', name: 'invoice.pdf', contentType: 'application/pdf', size: 8192, isInline: false },
+      { '@odata.type': '#microsoft.graph.referenceAttachment', id: 'att-2', name: 'plan.xlsx', contentType: null, size: 0, isInline: false },
+    ] }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+    const text = await run('MicrosoftOutlook', { resource: 'mail', action: 'list_attachments', messageId: 'message-1' });
+    const requested = String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]);
+    expect(requested).toContain('/messages/message-1/attachments');
+    // The whole point of the $select: the default shape inlines contentBytes, so a single PDF would
+    // arrive as megabytes of base64 in the middle of the answer.
+    expect(requested).toContain('$select=id,name,contentType,size,isInline');
+    expect(text).toContain('invoice.pdf');
+    expect(text).toContain('"kind": "file"');
+    expect(text).toContain('"kind": "reference"'); // a link to a drive item, not bytes of its own
+    expect(text).not.toContain('contentBytes');
+  });
+
+  it('saves a mail attachment into the workspace through its $value stream', async () => {
+    await mkdir(tempRoot, { recursive: true });
+    globalThis.fetch = vi.fn(async () => new Response(new Uint8Array([37, 80, 68, 70]), {
+      status: 200, headers: { 'content-type': 'application/pdf' },
+    }));
+    const { run } = harness();
+    const text = await run('MicrosoftOutlook', {
+      resource: 'mail', action: 'download_attachment', messageId: 'message-1', attachmentId: 'att-1', targetPath: 'invoice.pdf',
+    });
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain('/messages/message-1/attachments/att-1/$value');
+    expect(text).toContain('"bytes": 4');
+    expect(new Uint8Array(await readFile(`${tempRoot}/invoice.pdf`))).toEqual(new Uint8Array([37, 80, 68, 70]));
+  });
+
+  it('refuses to decode a binary attachment as text and names the action that works', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(new Uint8Array([37, 80, 68, 70]), {
+      status: 200, headers: { 'content-type': 'application/pdf' },
+    }));
+    const { run } = harness();
+    const text = await run('MicrosoftOutlook', {
+      resource: 'mail', action: 'read_attachment_text', messageId: 'message-1', attachmentId: 'att-1',
+    });
+    expect(text).toContain('does not support application/pdf');
+    expect(text).toContain('download_attachment');
   });
 
   it('does not blindly retry a failed resumable upload chunk', async () => {

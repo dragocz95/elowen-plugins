@@ -46,6 +46,21 @@ const fail = (error) => {
 };
 const trimObject = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 const limitOf = (p) => Math.min(Math.max(Number(p.limit) || 20, 1), 50);
+const transferCap = (cfg) => Math.min(Math.max(Number(cfg.m365MaxTransferBytes) || 20 * 1024 * 1024, 1024), 250 * 1024 * 1024);
+/** What may be decoded straight into the reply instead of being written to the workspace. */
+const TEXTUAL_CONTENT = /^(text\/|application\/(json|xml|javascript|csv))/;
+const INLINE_TEXT_CAP = 1024 * 1024;
+
+/** Only a fileAttachment carries bytes of its own: an itemAttachment is a nested message or event, and a
+ *  referenceAttachment is nothing but a link to a drive item, which is why neither can be fetched as a
+ *  file and the reference kind has to be read through MicrosoftFiles instead. */
+function attachmentKind(odataType) {
+  const raw = String(odataType ?? '');
+  if (raw.endsWith('fileAttachment')) return 'file';
+  if (raw.endsWith('itemAttachment')) return 'item';
+  if (raw.endsWith('referenceAttachment')) return 'reference';
+  return 'unknown';
+}
 const SEARCH_MAX_RESULTS = 1_000;
 const searchCursor = (query, from) => Buffer.from(JSON.stringify({ kind: 'sharepoint-search', query, from })).toString('base64url');
 const searchOffset = (cursor, query) => {
@@ -90,6 +105,7 @@ const commonFields = {
   teamId: Type.Optional(Type.String()),
   channelId: Type.Optional(Type.String()),
   messageId: Type.Optional(Type.String()),
+  attachmentId: Type.Optional(Type.String()),
   calendarId: Type.Optional(Type.String()),
   taskListId: Type.Optional(Type.String()),
   planId: Type.Optional(Type.String()),
@@ -173,8 +189,8 @@ export function registerMicrosoftTools(ctx, linking, cfg) {
     async (p) => files(await get(), ctx, p));
 
   register(ctx, 'MicrosoftOutlook', 'Microsoft Outlook',
-    'Use Outlook mail, calendar or contacts. Set resource=mail|calendar|contacts. Mail actions: search, list, get, create_draft, send_draft, send, reply, forward, move, archive. Calendar: list_calendars, list_events, get_event, availability, create_event, update_event, respond_event. Contacts: search, list, get, create, update. Destructive actions are disabled by policy.',
-    async (p) => outlook(await get(), p));
+    'Use Outlook mail, calendar or contacts. Set resource=mail|calendar|contacts. Mail actions: search, list, get, list_attachments, read_attachment_text, download_attachment, create_draft, send_draft, send, reply, forward, move, archive. A message that reports hasAttachments only carries metadata, so read its files with list_attachments and then download_attachment (needs attachmentId plus targetPath; use read_attachment_text for plain text ones). Calendar: list_calendars, list_events, get_event, availability, create_event, update_event, respond_event. Contacts: search, list, get, create, update. Destructive actions are disabled by policy.',
+    async (p) => outlook(await get(), ctx, p));
 
   register(ctx, 'MicrosoftTasks', 'Microsoft tasks',
     'Use Microsoft To Do or Planner. Set service=todo|planner. Actions cover lists/plans/buckets/tasks plus get, create, update and complete. Destructive actions are disabled by policy.',
@@ -374,8 +390,8 @@ async function files({ graph, cfg }, ctx, p) {
   if (action === 'list') return ok(await graph.page(itemPath(p, '/children?$select=id,name,size,webUrl,file,folder,parentReference,lastModifiedDateTime'), { limit: limitOf(p), cursor: p.cursor, cursorPrefix: driveBase(p), permission: P.files }));
   if (action === 'get') return ok(await graph.json('GET', `${itemPath(p)}?$select=id,name,size,webUrl,file,folder,parentReference,lastModifiedDateTime,createdDateTime,eTag`, { permission: P.files }));
   if (action === 'read_text') {
-    const file = await graph.binary(itemPath(p, '/content'), { maxBytes: 1024 * 1024, permission: P.files });
-    if (!/^(text\/|application\/(json|xml|javascript|csv))/.test(file.contentType.toLowerCase())) throw new TypeError(`read_text does not support ${file.contentType}; use download with targetPath.`);
+    const file = await graph.binary(itemPath(p, '/content'), { maxBytes: INLINE_TEXT_CAP, permission: P.files });
+    if (!TEXTUAL_CONTENT.test(file.contentType.toLowerCase())) throw new TypeError(`read_text does not support ${file.contentType}; use download with targetPath.`);
     return ok({ contentType: file.contentType, text: new TextDecoder().decode(file.body) });
   }
   if (action === 'download') {
@@ -383,8 +399,7 @@ async function files({ graph, cfg }, ctx, p) {
     const root = ctx.currentWorkDir?.();
     if (!root) throw new Error('File download needs a project-bound turn.');
     const safe = ctx.host.projectFiles().safe(root, target, true);
-    const maxBytes = Math.min(Math.max(Number(cfg.m365MaxTransferBytes) || 20 * 1024 * 1024, 1024), 250 * 1024 * 1024);
-    const file = await graph.binary(itemPath(p, '/content'), { maxBytes, permission: P.files });
+    const file = await graph.binary(itemPath(p, '/content'), { maxBytes: transferCap(cfg), permission: P.files });
     await writeFile(safe, file.body);
     return ok({ saved: safe, bytes: file.body.byteLength, contentType: file.contentType });
   }
@@ -394,7 +409,7 @@ async function files({ graph, cfg }, ctx, p) {
     if (!root) throw new Error('File upload needs a project-bound turn.');
     const safe = ctx.host.projectFiles().safe(root, source, false);
     const data = await readFile(safe);
-    const maxBytes = Math.min(Math.max(Number(cfg.m365MaxTransferBytes) || 20 * 1024 * 1024, 1024), 250 * 1024 * 1024);
+    const maxBytes = transferCap(cfg);
     if (data.byteLength > maxBytes) throw new Error(`File exceeds the ${maxBytes} byte Microsoft transfer limit.`);
     const name = nonempty(p.name, 'name');
     const parent = p.parentId ? `${driveBase(p)}/items/${enc(p.parentId)}` : `${driveBase(p)}/root`;
@@ -425,7 +440,7 @@ function mailboxBase(p) { return p.userId ? `/users/${enc(p.userId)}` : '/me'; }
 function recipients(values) { return (values ?? []).map((address) => ({ emailAddress: { address: String(address) } })); }
 function messageBody(p) { return { contentType: String(p.bodyType ?? 'text').toUpperCase() === 'HTML' ? 'HTML' : 'Text', content: String(p.body ?? '') }; }
 
-async function outlook({ graph, cfg }, p) {
+async function outlook({ graph, cfg }, ctx, p) {
   const resource = nonempty(p.resource, 'resource');
   const action = nonempty(p.action, 'action');
   const base = mailboxBase(p);
@@ -441,6 +456,38 @@ async function outlook({ graph, cfg }, p) {
       const data = await graph.json('GET', `${base}/messages/${enc(nonempty(p.messageId ?? p.id, 'messageId'))}?$select=id,subject,from,toRecipients,ccRecipients,receivedDateTime,sentDateTime,isRead,hasAttachments,webLink,body`, { permission: P.mail });
       if (data?.body?.content) data.body = { ...data.body, content: htmlToText(data.body.content) };
       return ok(data);
+    }
+    if (action === 'list_attachments') {
+      const message = enc(nonempty(p.messageId ?? p.id, 'messageId'));
+      // The $select is what keeps this listing usable: asked for the default shape, Graph inlines
+      // contentBytes, so one 5 MB PDF would arrive as ~7 MB of base64 in the middle of the reply.
+      const data = await graph.json('GET', `${base}/messages/${message}/attachments?$select=id,name,contentType,size,isInline`, { permission: P.mail });
+      const items = (Array.isArray(data?.value) ? data.value : []).map((item) => ({
+        id: item?.id,
+        name: item?.name,
+        contentType: item?.contentType,
+        size: item?.size,
+        isInline: item?.isInline === true,
+        kind: attachmentKind(item?.['@odata.type']),
+      }));
+      return ok({ items });
+    }
+    if (action === 'read_attachment_text' || action === 'download_attachment') {
+      const message = enc(nonempty(p.messageId ?? p.id, 'messageId'));
+      const attachment = enc(nonempty(p.attachmentId, 'attachmentId'));
+      const path = `${base}/messages/${message}/attachments/${attachment}/$value`;
+      if (action === 'read_attachment_text') {
+        const file = await graph.binary(path, { maxBytes: INLINE_TEXT_CAP, permission: P.mail });
+        if (!TEXTUAL_CONTENT.test(file.contentType.toLowerCase())) throw new TypeError(`read_attachment_text does not support ${file.contentType}; use download_attachment with targetPath.`);
+        return ok({ contentType: file.contentType, text: new TextDecoder().decode(file.body) });
+      }
+      const target = nonempty(p.targetPath, 'targetPath');
+      const root = ctx.currentWorkDir?.();
+      if (!root) throw new Error('Attachment download needs a project-bound turn.');
+      const safe = ctx.host.projectFiles().safe(root, target, true);
+      const file = await graph.binary(path, { maxBytes: transferCap(cfg), permission: P.mail });
+      await writeFile(safe, file.body);
+      return ok({ saved: safe, bytes: file.body.byteLength, contentType: file.contentType });
     }
     if (action === 'delete') throw new Error('Microsoft mail deletion is disabled by policy.');
     const draft = { subject: String(p.subject ?? ''), body: messageBody(p), toRecipients: recipients(p.to), ccRecipients: recipients(p.cc) };
