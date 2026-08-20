@@ -357,27 +357,23 @@ export function register(ctx) {
     description: [
       'Save a reusable skill — a named markdown procedure, workflow or set of standing instructions that you can follow again in later conversations — as a file the agent loads automatically.',
       'Use it when a workflow keeps repeating (a deployment checklist, a report format, how a specific client wants things done) or when the user asks you to remember a procedure permanently. It is for durable know-how, not for facts about a person or project: store those as a memory instead, and use TodoWrite for the steps of the task you are doing right now.',
-      'The `name` is a kebab-case identifier (a-z, digits and dashes, up to 64 characters) and also the file name; `description` is the single line that tells your future self when this skill applies, so write it as a trigger condition; `content` is the markdown body with the actual instructions. `scope` decides who gets it: "instance" makes it visible in every session on this instance and requires an admin session, "personal" keeps it to your own account. Unspecified means instance-wide for an admin and personal for everyone else.',
+      'The `name` is a kebab-case identifier (a-z, digits and dashes, up to 64 characters) and also the file name; `description` is the single line that tells your future self when this skill applies, so write it as a trigger condition; `content` is the markdown body with the actual instructions. You MUST say who the skill is for with `scope`. "personal" keeps it to the account you are talking to and is what someone asking you to remember THEIR way of doing something wants; "instance" puts it in front of every session on this instance and is admin-only. When in doubt pick "personal": a person describing their own procedure is not asking to change everyone else\'s prompt, even if they happen to be an admin.',
       'Writing an existing personal skill of yours overwrites it, but a name that collides with a bundled or instance-wide skill is refused rather than shadowed, and non-admins cannot write the shared set. The new skill is applied live and appears in the available-skills list from your next message; use ListSkills to see what already exists and DeleteSkill to remove one.',
     ].join(' '),
     parameters: Type.Object({
       name: Type.String({ description: 'kebab-case identifier and file name, e.g. "deploy-checklist" (a-z, 0-9 and dashes, max 64 chars)' }),
       description: Type.String({ description: 'One line describing WHEN to use this skill — it is the trigger the agent matches on later, e.g. "Use when releasing a new backend version"' }),
       content: Type.String({ description: 'The skill body: markdown instructions, steps, rules and examples the agent should follow when the skill applies' }),
-      scope: Type.Optional(Type.String({ description: '"instance" = shared with every session on this instance (admin sessions only), "personal" = only your own account. Default: instance for an admin, personal otherwise.' })),
+      scope: Type.Union([Type.Literal('instance'), Type.Literal('personal')], { description: '"instance" = shared with every session on this instance, admin only. "personal" = only the account you are talking to. Required: being an admin says what someone MAY do, not what they meant, so this must not be guessed.' }),
     }),
     execute: async (_id, p) => {
       try {
         const me = callerId();
-        // Unspecified means what this tool always did: an admin's skill is instance-wide, so the operator's
-        // channels and sub-agents keep seeing it. A turn with no account behind it has no personal set at
-        // all, so that too can only mean the instance one — which `adminOnly` then refuses for a non-admin.
-        const explicit = p.scope === 'instance' || p.scope === 'personal' ? p.scope : null;
-        // Unspecified goes through the SAME resolver the HTTP route uses — not a second copy of the rule,
-        // which is how the two would end up answering "unspecified" differently.
-        const target = explicit === 'instance' ? { ok: true, owner: null, dir: instanceDir }
-          : explicit === 'personal' ? (me === null ? { ok: false } : { ok: true, owner: me, dir: userSkillsDir(me) })
-            : legacyTarget(ctx.isAdminSession(), me);
+        // `scope` used to be optional and default to "instance for an admin". That asked the wrong
+        // question: an admin writing themselves a note in their own chat is an admin session, so a private
+        // procedure silently became part of every session's prompt on this instance. The tool now asks.
+        const target = p.scope === 'instance' ? { ok: true, owner: null, dir: instanceDir }
+          : (me === null ? { ok: false } : { ok: true, owner: me, dir: userSkillsDir(me) });
         const wantsInstance = target.ok && target.owner === null;
         if (wantsInstance) adminOnly();
         // No account behind the turn AND not an admin session: there is no personal set to write to, and

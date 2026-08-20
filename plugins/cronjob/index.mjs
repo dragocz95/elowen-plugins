@@ -889,25 +889,52 @@ export function register(ctx) {
   };
   const jsonRes = (body, status = 200) => ({ status, body });
 
-  /** WHOSE job a tool call creates: null (the instance) from an admin session — the behaviour this plugin
-   *  has always had — otherwise the account behind the turn. Throws when there is neither, because a job
-   *  with no owner and no admin behind it would run unattended for nobody. */
-  const toolOwner = () => {
-    if (ctx.isAdminSession()) return null;
+  /** WHOSE job a tool call creates, decided by the caller's EXPLICIT choice rather than by the shape of
+   *  the session.
+   *
+   *  It used to read `if (ctx.isAdminSession()) return null`, which asked the wrong question: an admin
+   *  talking in their own private chat is an admin session, so "remind me tomorrow" silently became an
+   *  instance-wide job that reported to the notification channel instead of to the person who asked. Being
+   *  an admin says what someone MAY do, never what they MEANT — so the tool asks, and `scope` is required.
+   *
+   *  'instance' stays admin-only: an instance job runs with admin powers, may carry a shell check and may
+   *  report into any channel. */
+  const toolOwner = (scope) => {
+    if (scope === 'instance') {
+      if (!ctx.isAdminSession()) throw new Error('only an admin may schedule an instance-wide job — use scope "personal" for your own');
+      return null;
+    }
     const me = callerId();
     if (me === null) throw new Error('scheduling needs an Elowen account behind the conversation');
     return me;
   };
-  /** The jobs a tool call may see or address. Ownership is compared only when there IS a caller: an
-   *  instance job's owner is also null, so `ownerOf(j) === callerId()` would hand every instance job to
-   *  any turn without an account — and a sub-agent is exactly that, since a delegated identity carries no
-   *  `elowenUserId` (identity.ts) while still inheriting its parent's plugin grant. One delegation hop
-   *  from a granted colleague would otherwise expose the operator's job names, schedules and last results,
-   *  and let them be deleted by id. No account behind the turn and no admin session = nothing to see. */
+
+  /** May work scheduled here report back INTO this conversation? Only where exactly one person reads it:
+   *  the account's own chat, or a direct 1:1 platform chat. In a shared room the answer would land in
+   *  front of everyone else, so those keep reporting through the notification channel as before. */
+  const conversationTakesResults = () => {
+    const where = ctx.currentIdentity()?.conversation;
+    return where === 'own' || where === 'direct';
+  };
+  /** The jobs a tool call may see or address: the caller's own, plus the INSTANCE ones when they are an
+   *  admin — never another person's.
+   *
+   *  Ownership is compared only when there IS a caller: an instance job's owner is also null, so
+   *  `ownerOf(j) === callerId()` would hand every instance job to any turn without an account — and a
+   *  sub-agent is exactly that, since a delegated identity carries no `elowenUserId` (identity.ts) while
+   *  still inheriting its parent's plugin grant. One delegation hop from a granted colleague would
+   *  otherwise expose the operator's job names, schedules and last results, and let them be deleted by id.
+   *
+   *  It used to return EVERY job to an admin session. That reads fine on the web Automation page but not
+   *  in a chat, and a private chat is an admin session too: asking "what have I got scheduled?" in a DM
+   *  answered with other people's job names, schedules and last results, and let them be removed by id.
+   *  An admin still manages instance jobs from here — those are genuinely theirs — but a colleague's
+   *  personal reminder is not. The web routes are unaffected; they gate on `req.auth.admin` instead. */
   const visibleJobs = (jobs) => {
-    if (ctx.isAdminSession()) return jobs;
     const me = callerId();
-    return me === null ? [] : jobs.filter((j) => ownerOf(j) === me);
+    const admin = ctx.isAdminSession();
+    if (me === null) return admin ? jobs.filter((j) => ownerOf(j) === null) : [];
+    return jobs.filter((j) => ownerOf(j) === me || (admin && ownerOf(j) === null));
   };
 
   ctx.registerApiRoute({
@@ -1002,7 +1029,8 @@ export function register(ctx) {
   ctx.registerTool(defineTool({
     name: 'CronAdd', label: 'Schedule job',
     description: [
-      'Schedule a recurring prompt for yourself — daily summaries, periodic checks, recurring reminders. The prompt fires as a brain turn on the schedule you set. From an admin session the job belongs to the instance and reports to the notification channel (or notifyChannelId); otherwise it belongs to you, runs with your own rights, and reports here in your own conversation.',
+      'Schedule a recurring prompt — daily summaries, periodic checks, recurring reminders. The prompt fires as a brain turn on the schedule you set.',
+      'You MUST say who the job is for with `scope`. Use "personal" when a person asks for something for themselves ("remind ME every morning"): it belongs to their account, runs with their rights, and reports back into the conversation it was created in. Use "instance" only for automation that belongs to the whole instance, with no particular person behind it — that is admin-only, runs with admin powers and reports to the notification channel. When in doubt pick "personal": someone talking to you in their own chat is asking for themselves, even if they happen to be an admin.',
       'The schedule takes either a plain form — "every 15m", "every 2h", "daily 07:30", "weekly sun 20:00" — or a standard 5-field cron expression ("*/5 * * * *", "0 9 * * 1-5", "0 0 1 * *"). The format is detected automatically; reach for cron only when the plain form cannot express the timing you need.',
       'For polling work, use the `check` guard: a cheap shell command that runs BEFORE the prompt. If it prints nothing (or fails), the scheduled turn is skipped entirely — no model call. If it prints output, the brain runs and receives that output. This is how you poll for new work without paying for a model call on every tick.',
       'Use `hours` ("H-H", e.g. "5-21") to keep a job quiet outside active hours, `enabled: false` to create it paused, and `plain: true` to deliver the reply without the "⏰ job name" header. Returns the job id — pass it to CronRemove to cancel, and see everything currently scheduled with CronList.',
@@ -1010,6 +1038,7 @@ export function register(ctx) {
     ].join(' '),
     parameters: Type.Object({
       name: Type.String({ description: 'Short human name for the job, shown in schedules and telemetry' }),
+      scope: Type.Union([Type.Literal('personal'), Type.Literal('instance')], { description: 'Who the job is for. "personal" = the person you are talking to; it runs with their rights and reports back into this conversation. "instance" = the whole instance, admin only. Required: being an admin says what someone MAY do, not what they meant, so this must not be guessed.' }),
       schedule: Type.String({ description: '"every <N>m", "every <N>h", "daily HH:MM", "weekly <mon..sun> HH:MM", or a 5-field cron expression (e.g. "0 9 * * 1-5")' }),
       prompt: Type.String({ description: 'The prompt to run on schedule' }),
       check: Type.Optional(Type.String({ description: 'ADMIN ONLY (an instance job): ' + 'Optional cheap shell guard run BEFORE the prompt. If it prints nothing (or fails), the scheduled brain turn is skipped — no LLM call. If it prints output, the brain runs and receives that output. Use it to poll for new work without paying for a model call each tick, e.g. a collector script that only prints when there is something new.' })),
@@ -1021,21 +1050,30 @@ export function register(ctx) {
     }),
     execute: async (_id, p) => {
       try {
-        const owner = toolOwner();
+        const owner = toolOwner(p.scope);
         if (!parseSchedule(p.schedule)) return ok('Error: invalid schedule — use "every 15m", "every 2h", "daily 07:30", "weekly sun 20:00", or a 5-field cron expression like "0 9 * * 1-5".');
         const jobs = store.all();
         const id = newId();
         // "provider/model" → {provider, model}; a bare or malformed value is ignored (server default runs).
         const slash = typeof p.model === 'string' ? p.model.indexOf('/') : -1;
         const model = slash > 0 ? { provider: p.model.slice(0, slash), model: p.model.slice(slash + 1) } : undefined;
+        // A personal job remembers the conversation it was created in, exactly as ScheduleWakeup does, so
+        // "tell me here every morning" reports where it was promised instead of in the owner's default web
+        // chat. Only where one person reads: a shared room would put the answer in front of everyone else.
+        const origin = owner !== null && conversationTakesResults() && ctx.currentSessionId()
+          ? { originSessionId: ctx.currentSessionId(), originUserId: owner }
+          : undefined;
         // lastRun starts at creation time so a fresh job waits for its NEXT natural slot — a
         // "daily 06:00" created at 15:00 must not fire immediately.
-        const job = { id, name: p.name, schedule: p.schedule, prompt: p.prompt, check: p.check, hours: p.hours, notifyChannelId: p.notifyChannelId, plain: p.plain, model, enabled: p.enabled, ...(owner !== null ? { ownerUserId: owner } : {}), createdAt: new Date().toISOString(), lastRun: new Date().toISOString() };
+        const job = { id, name: p.name, schedule: p.schedule, prompt: p.prompt, check: p.check, hours: p.hours, notifyChannelId: p.notifyChannelId, plain: p.plain, model, enabled: p.enabled, ...(owner !== null ? { ownerUserId: owner } : {}), ...origin, createdAt: new Date().toISOString(), lastRun: new Date().toISOString() };
         const denied = owner !== null ? ownedJobError(job, jobs) : null;
         if (denied) return ok(`Error: ${denied}.`);
         jobs.push(job);
         store.save(jobs);
-        return ok(`Scheduled "${p.name}" (${p.schedule}) — id ${id}. ${owner === null ? 'Results accumulate in its own conversation.' : 'It will report here, in your own conversation.'}`);
+        const lands = owner === null
+          ? 'Results accumulate in its own conversation.'
+          : origin ? 'It will report here, in this conversation.' : 'It will report in your own conversation.';
+        return ok(`Scheduled "${p.name}" (${p.schedule}) — id ${id}. ${lands}`);
       } catch (e) { return fail(e); }
     },
   }));
@@ -1055,18 +1093,23 @@ export function register(ctx) {
     }),
     execute: async (_id, p) => {
       try {
-        const owner = toolOwner();
+        // Unlike CronAdd there is nothing to ask here: "come back to this later" is always for whoever is
+        // asking, so a turn with an account behind it always gets a personal wake-up. Only automation with
+        // no account at all — a job's own turn rescheduling itself — has nobody to own it and falls to the
+        // instance, where being an admin is genuinely the question.
+        const owner = toolOwner(callerId() === null ? 'instance' : 'personal');
         const runAt = parseOneShot(p.when, Date.now(), ctx.timezone());
         if (!runAt) return ok('Error: invalid time — use "in 30s", "in 20m", "in 2h" or "at 18:30".');
         const jobs = store.all();
         const id = newId();
-        // A wake-up scheduled from a USER conversation records its origin: at fire time the host runs
+        // A wake-up scheduled where exactly ONE person reads records its origin: at fire time the host runs
         // the prompt as a bound send into that conversation, so the reply lands where it was asked for.
-        // Channel/cron-originated schedules (session id `brain-ch-…`/`brain-task-…`, or no session at
-        // all) keep no origin and deliver through the notification channel as before.
+        // A shared room and a cron-of-cron turn keep no origin and deliver through the notification channel
+        // as before — there the answer would land in front of everyone else. This used to exclude every
+        // `brain-ch-…` id, which also excluded a private 1:1 chat, because the two were indistinguishable.
         const sid = ctx.currentSessionId();
         const uid = ctx.currentIdentity()?.elowenUserId;
-        const origin = sid && uid != null && !sid.startsWith('brain-ch-') && !sid.startsWith('brain-task-')
+        const origin = sid && uid != null && conversationTakesResults()
           ? { originSessionId: sid, originUserId: uid } : undefined;
         const job = { id, name: p.name, schedule: p.when, prompt: p.prompt, runAt: new Date(runAt).toISOString(), ...(owner !== null ? { ownerUserId: owner } : {}), createdAt: new Date().toISOString(), ...origin };
         const denied = owner !== null ? ownedJobError(job, jobs) : null;

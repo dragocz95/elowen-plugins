@@ -372,6 +372,10 @@ export class WhatsAppAdapter {
         {
           platform: 'whatsapp', userId: senderJid, userName: senderName, roleIds: [senderJid],
           channelId: convoKey, access: turnAccess,
+          // A non-group WhatsApp chat is a conversation with exactly one number. The host uses this to
+          // decide whether the conversation may carry its sender's personal skills and receive their
+          // scheduled jobs, so it must stay strictly "only this one person can read it".
+          direct: !group,
           channelName: group ? await this.groupSubject(chatJid) : undefined,
           images: images.length ? images : undefined,
         },

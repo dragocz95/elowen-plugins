@@ -89,11 +89,12 @@ describe('cronjob plugin', () => {
 
     await runWithPolicy(LIMITED, async () => {
       // Not an admin session AND no account behind the turn: there is nobody to own the job.
-      expect(asText(await add.execute('t', { name: 'x', schedule: 'every 15m', prompt: 'p' }, undefined as never, undefined as never))).toMatch(/needs an Elowen account/);
+      expect(asText(await add.execute('t', { name: 'x', scope: 'personal', schedule: 'every 15m', prompt: 'p' }, undefined as never, undefined as never))).toMatch(/needs an Elowen account/);
+      expect(asText(await add.execute('t', { name: 'x', scope: 'instance', schedule: 'every 15m', prompt: 'p' }, undefined as never, undefined as never))).toMatch(/only an admin/);
     });
     await runWithPolicy(ADMIN, async () => {
-      expect(asText(await add.execute('t', { name: 'ranní report', schedule: 'daily 07:30', prompt: 'shrň stav' }, undefined as never, undefined as never))).toMatch(/Scheduled/);
-      expect(asText(await add.execute('t', { name: 'bad', schedule: 'every 5s', prompt: 'p' }, undefined as never, undefined as never))).toMatch(/invalid schedule/);
+      expect(asText(await add.execute('t', { name: 'ranní report', scope: 'instance', schedule: 'daily 07:30', prompt: 'shrň stav' }, undefined as never, undefined as never))).toMatch(/Scheduled/);
+      expect(asText(await add.execute('t', { name: 'bad', scope: 'instance', schedule: 'every 5s', prompt: 'p' }, undefined as never, undefined as never))).toMatch(/invalid schedule/);
       const listed = asText(await list.execute('t', {}, undefined as never, undefined as never));
       expect(listed).toContain('ranní report');
       const jobs = JSON.parse(readFileSync(join(dataRoot, 'cronjob/jobs.json'), 'utf-8')) as { id: string }[];

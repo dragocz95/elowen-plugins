@@ -323,6 +323,10 @@ export class TelegramAdapter {
       const replyText = await this.handler(
         {
           platform: 'telegram', userId: String(from.id), userName: senderName, roleIds: ids, channelId: convoKey, access: turnAccess,
+          // Only a `private` chat is one-to-one. Deliberately NOT `!group`: that would also let a broadcast
+          // `channel` through, and the host uses this to decide whether the conversation may carry its
+          // sender's personal skills and receive their scheduled jobs.
+          direct: chat.type === 'private',
           channelName: group ? (chat.title || undefined) : undefined,
           images: images.length ? images : undefined,
         },

@@ -832,6 +832,11 @@ export class MsTeamsAdapter {
         {
           platform: 'msteams', userId: String(from.aadObjectId || from.id), userName: senderName, roleIds: ids,
           channelId: convoKey, access: turnAccess,
+          // Teams calls a 1:1 chat with the bot `personal`; a group chat or a team channel is never that.
+          // The host cannot tell them apart on its own (both become `brain-ch-*`), and it uses this to
+          // decide whether the conversation may carry its sender's personal skills and receive their
+          // scheduled jobs — so it must stay exactly "only this one person can read it".
+          direct: kind === 'personal',
           channelName: kind !== 'personal' ? (conv.name || undefined) : undefined,
           images: images.length ? images : undefined,
           // MUST be async: the brain calls `opts.history().catch(…)` on the result, so a plain string

@@ -269,11 +269,11 @@ describe('cron tools — scheduling for the account behind the turn', () => {
     const remove = reg.tools.find((t) => t.name === 'CronRemove')!;
 
     await runWithPolicy(LIMITED, async () => {
-      expect(asText(await add.execute('t', { name: 'mine', schedule: 'daily 07:30', prompt: 'p' }, undefined as never, undefined as never)))
+      expect(asText(await add.execute('t', { name: 'mine', scope: 'personal', schedule: 'daily 07:30', prompt: 'p' }, undefined as never, undefined as never)))
         .toContain('in your own conversation');
-      expect(asText(await add.execute('t', { name: 'guarded', schedule: 'daily 07:30', prompt: 'p', check: 'ls /' }, undefined as never, undefined as never)))
+      expect(asText(await add.execute('t', { name: 'guarded', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', check: 'ls /' }, undefined as never, undefined as never)))
         .toMatch(/shell check/);
-      expect(asText(await add.execute('t', { name: 'fast', schedule: 'every 1m', prompt: 'p' }, undefined as never, undefined as never)))
+      expect(asText(await add.execute('t', { name: 'fast', scope: 'personal', schedule: 'every 1m', prompt: 'p' }, undefined as never, undefined as never)))
         .toMatch(/shortest interval/);
     }, { identity: AMY });
 
@@ -281,9 +281,9 @@ describe('cron tools — scheduling for the account behind the turn', () => {
     expect(jobs).toHaveLength(1);
     expect(jobs[0]!.ownerUserId).toBe(4);
 
-    // An admin's own job stays an INSTANCE job — no owner key at all, exactly as before ownership existed.
+    // An admin asking for an INSTANCE job gets one — no owner key at all, exactly as before ownership existed.
     await runWithPolicy(ADMIN, async () => {
-      await add.execute('t', { name: 'instance', schedule: 'daily 08:00', prompt: 'p' }, undefined as never, undefined as never);
+      await add.execute('t', { name: 'instance', scope: 'instance', schedule: 'daily 08:00', prompt: 'p' }, undefined as never, undefined as never);
     });
     expect(readJobs(dataRoot).find((j) => j.name === 'instance')).not.toHaveProperty('ownerUserId');
 
@@ -303,5 +303,85 @@ describe('cron tools — scheduling for the account behind the turn', () => {
       expect(asText(await remove.execute('t', { id: String(jobs[0]!.id) }, undefined as never, undefined as never))).toMatch(/Removed/);
     }, { identity: AMY });
     expect(readJobs(dataRoot)).toHaveLength(1);
+  });
+
+  /** `conversation` ships in elowen 0.28.4; the registry still builds against the published types, so it
+   *  is attached structurally until that release lands on npm. */
+  const speakingIn = (id: TurnIdentity, where: 'own' | 'direct' | 'shared'): TurnIdentity =>
+    ({ ...id, conversation: where }) as TurnIdentity;
+
+  // The bug this all exists for: an ADMIN asking for something in their own chat used to get an
+  // instance-wide job, because the plugin read "is this an admin session?" instead of asking who it was
+  // for. Being an admin says what someone MAY do, never what they meant.
+  it('gives an admin asking for a personal job a personal job, not an instance-wide one', async () => {
+    const dataRoot = freshDataRoot();
+    const { reg } = await loadCron(dataRoot);
+    const add = reg.tools.find((t) => t.name === 'CronAdd')!;
+    const boss = speakingIn({ platform: 'msteams', userId: '29:x', elowenUserId: 7, admin: true, owner: true }, 'direct');
+
+    await runWithPolicy(ADMIN, async () => {
+      expect(asText(await add.execute('t', { name: 'my digest', scope: 'personal', schedule: 'daily 07:30', prompt: 'p' }, undefined as never, undefined as never)))
+        .toContain('report here');
+    }, { identity: boss, sessionId: 'brain-ch-msteams-personal-1' });
+
+    const [job] = readJobs(dataRoot);
+    expect(job!.ownerUserId).toBe(7); // theirs, not the instance's
+    // …and it remembers WHERE it was asked for, so the answer comes back to the chat that asked rather
+    // than to the notification channel. This is what CronAdd never stored before.
+    expect(job!.originSessionId).toBe('brain-ch-msteams-personal-1');
+    expect(job!.originUserId).toBe(7);
+  });
+
+  // A shared room must NOT become the reply address: the job would answer in front of everyone else.
+  it('keeps no origin for a job scheduled in a shared room', async () => {
+    const dataRoot = freshDataRoot();
+    const { reg } = await loadCron(dataRoot);
+    const add = reg.tools.find((t) => t.name === 'CronAdd')!;
+    const inRoom = speakingIn({ ...AMY, platform: 'discord' }, 'shared');
+
+    await runWithPolicy(LIMITED, async () => {
+      expect(asText(await add.execute('t', { name: 'room job', scope: 'personal', schedule: 'daily 07:30', prompt: 'p' }, undefined as never, undefined as never)))
+        .toContain('in your own conversation');
+    }, { identity: inRoom, sessionId: 'brain-ch-discord-1' });
+
+    const [job] = readJobs(dataRoot);
+    expect(job!.ownerUserId).toBe(4);
+    expect(job).not.toHaveProperty('originSessionId');
+  });
+
+  it('refuses an instance job to a non-admin, whatever the conversation', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, []); // so an empty result means "refused", not "the store was never created"
+    const { reg } = await loadCron(dataRoot);
+    const add = reg.tools.find((t) => t.name === 'CronAdd')!;
+
+    await runWithPolicy(LIMITED, async () => {
+      expect(asText(await add.execute('t', { name: 'sneaky', scope: 'instance', schedule: 'daily 07:30', prompt: 'p' }, undefined as never, undefined as never)))
+        .toMatch(/only an admin/);
+    }, { identity: speakingIn(AMY, 'direct') });
+    expect(readJobs(dataRoot)).toHaveLength(0);
+  });
+
+  // An admin chatting privately is still an admin session, so CronList used to answer with EVERYONE's
+  // jobs — names, schedules and last results — and CronRemove would delete them by id.
+  it('never shows an admin another account\'s personal job, but still shows the instance ones', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [
+      dueJob({ id: 'amys', name: 'amy private reminder', ownerUserId: 4 }),
+      dueJob({ id: 'shared', name: 'instance digest' }),
+    ]);
+    const { reg } = await loadCron(dataRoot);
+    const list = reg.tools.find((t) => t.name === 'CronList')!;
+    const remove = reg.tools.find((t) => t.name === 'CronRemove')!;
+    const boss = speakingIn({ platform: 'msteams', userId: '29:x', elowenUserId: 7, admin: true, owner: true }, 'direct');
+
+    await runWithPolicy(ADMIN, async () => {
+      const listed = asText(await list.execute('t', {}, undefined as never, undefined as never));
+      expect(listed).toContain('instance digest');
+      expect(listed).not.toContain('amy private reminder');
+      expect(asText(await remove.execute('t', { id: 'amys' }, undefined as never, undefined as never))).toMatch(/no job with id/);
+    }, { identity: boss });
+
+    expect(readJobs(dataRoot).map((j) => j.id).sort()).toEqual(['amys', 'shared']);
   });
 });

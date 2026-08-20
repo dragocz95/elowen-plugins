@@ -28,7 +28,7 @@
     },
     {
       "name": "cronjob",
-      "version": "0.1.2",
+      "version": "0.2.0",
       "description": "Scheduler: recurring prompts, one-shot wake-ups and shell collectors that wake the agent on a schedule, with a jobs screen in Settings.",
       "category": "automation",
       "author": "Elowen",
@@ -110,7 +110,7 @@
     },
     {
       "name": "msteams",
-      "version": "0.5.11",
+      "version": "0.5.12",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
       "author": "Elowen",
@@ -123,7 +123,7 @@
     },
     {
       "name": "skills",
-      "version": "0.1.2",
+      "version": "0.2.0",
       "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
       "category": "automation",
       "author": "Elowen",
@@ -143,7 +143,7 @@
     },
     {
       "name": "telegram",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "description": "Telegram bot: chat with Elowen in a private chat, group or forum topic, with slash commands, inline keyboards and live message editing.",
       "category": "chat",
       "author": "Elowen",
@@ -177,7 +177,7 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",
       "author": "Elowen",

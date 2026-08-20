@@ -336,7 +336,7 @@ test('bundled skills plugin', async (t) => {
     const dataRoot = tmpDir('skills');
     let reloads = 0;
     const reg = loadPlugin({ dataRoot, requestReload: () => { reloads += 1; } });
-    const out = await asTurn(reg, OWNER_TURN, () => runTool(reg, 'CreateSkill', { name: 'ship-it', description: 'how to ship a release', content: 'do the thing' }));
+    const out = await asTurn(reg, OWNER_TURN, () => runTool(reg, 'CreateSkill', { name: 'ship-it', scope: 'instance', description: 'how to ship a release', content: 'do the thing' }));
     assert.ok(out.content[0].text.includes('next message')); // the message no longer says "after a restart"
     assert.equal(reloads, 1); // the missing link: the tool now requests a live apply
     // A fresh load (what the reload performs) picks the new skill up from the data dir.
@@ -390,19 +390,34 @@ test('skills plugin creator tools', async (t) => {
     await asTurn(reg, LIMITED_TURN, async () => {
       // No account behind the turn and no admin session: neither set is writable, and the refusal names
       // both so the caller knows which of the two is missing.
-      const refusal = asText(await runTool(reg, 'CreateSkill', { name: 'x', description: 'd', content: 'c' }));
+      const refusal = asText(await runTool(reg, 'CreateSkill', { name: 'x', scope: 'personal', description: 'd', content: 'c' }));
       assert.match(refusal, /admin session/);
       assert.match(refusal, /no account behind it/);
     });
     await asTurn(reg, ADMIN_TURN, async () => {
-      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'Bad Name', description: 'd', content: 'c' })), /kebab-case/);
-      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'deploy-checklist', description: 'Kdy nasazovat', content: 'Kroky…' })), /saved/);
+      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'Bad Name', scope: 'instance', description: 'd', content: 'c' })), /kebab-case/);
+      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'deploy-checklist', scope: 'instance', description: 'Kdy nasazovat', content: 'Kroky…' })), /saved/);
       const file = join(dataRoot, 'skills/deploy-checklist.md');
       assert.ok(readFileSync(file, 'utf-8').includes('name: deploy-checklist'));
       assert.ok(asText(await runTool(reg, 'ListSkills', {})).includes('deploy-checklist (instance)'));
       assert.match(asText(await runTool(reg, 'DeleteSkill', { name: 'deploy-checklist' })), /deleted/);
       assert.equal(existsSync(file), false);
     });
+  });
+
+  // `scope` used to be optional and default to "instance for an admin". An admin noting down their own
+  // way of doing something — in their own chat, where nobody else is — therefore edited every session's
+  // prompt on the instance. Being an admin says what someone MAY do, never what they meant.
+  await t.test('an ADMIN asking for a personal skill gets a personal one, not an instance-wide one', async () => {
+    const dataRoot = tmpDir('pdata');
+    const reg = loadPlugin({ dataRoot });
+    const boss = { ...turnFor(7), admin: true, owner: true };
+
+    await asTurn(reg, boss, async () => {
+      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'my-way', scope: 'personal', description: 'd', content: 'c' })), /personal/);
+    });
+    assert.equal(existsSync(join(dataRoot, 'skills/users/7/my-way.md')), true);
+    assert.equal(existsSync(join(dataRoot, 'skills/my-way.md')), false); // NOT in everyone's prompt
   });
 
   // A turn that belongs to an account writes into THAT account's set by default; the instance set stays
@@ -414,7 +429,7 @@ test('skills plugin creator tools', async (t) => {
     const bob = turnFor(5);
 
     await asTurn(reg, amy, async () => {
-      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'amy-skill', description: 'd', content: 'c' })), /personal/);
+      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'amy-skill', scope: 'personal', description: 'd', content: 'c' })), /personal/);
       assert.equal(existsSync(join(dataRoot, 'skills/users/4/amy-skill.md')), true);
       assert.equal(existsSync(join(dataRoot, 'skills/amy-skill.md')), false);
       // A non-admin cannot promote it to the shared set.
@@ -430,7 +445,7 @@ test('skills plugin creator tools', async (t) => {
   await t.test('user-created skills register on the next plugin load', async () => {
     const dataRoot = tmpDir('pdata');
     const reg1 = loadPlugin({ dataRoot });
-    await asTurn(reg1, ADMIN_TURN, () => runTool(reg1, 'CreateSkill', { name: 'novy-skill', description: 'test', content: 'obsah' }));
+    await asTurn(reg1, ADMIN_TURN, () => runTool(reg1, 'CreateSkill', { name: 'novy-skill', scope: 'instance', description: 'test', content: 'obsah' }));
     const reg2 = loadPlugin({ dataRoot });
     assert.equal(reg2.skills.some((s) => s.name === 'novy-skill'), true);
   });

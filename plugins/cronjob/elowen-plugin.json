@@ -1,6 +1,6 @@
 {
   "name": "cronjob",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "apiVersion": "1",
   "requiresCore": "0.28.5",
   "description": "Scheduled prompts: recurring jobs (\"every 30m\", \"daily 07:30\") and one-shot wake-ups (\"in 20m\", \"at 18:30\") that run as the brain's own conversations. An admin's jobs belong to the instance and run with full owner powers; a job somebody else schedules runs with that person's own rights and reports into their own conversation.",

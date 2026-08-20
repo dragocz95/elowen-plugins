@@ -14,7 +14,10 @@ const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(repoRoot, 'plugins');
 const ADMIN: Policy = { allowedProjectIds: 'all', allowedPaths: () => [] };
-const OWNER: TurnIdentity = { platform: 'elowen', userId: '1', elowenUserId: 1, admin: true, owner: true };
+// `conversation` ships in elowen 0.28.4; the registry still builds against the published types, so it is
+// attached structurally until that release lands on npm. 'own' = the account's own Elowen chat, which is
+// what a wake-up scheduled from the web UI is created in.
+const OWNER = { platform: 'elowen', userId: '1', elowenUserId: 1, admin: true, owner: true, conversation: 'own' } as TurnIdentity;
 const asText = (r: { content: { text?: string }[] }) => (r.content[0] as { text: string }).text;
 
 let dirs: string[] = [];
@@ -57,18 +60,44 @@ describe('ScheduleWakeup origin capture', () => {
     expect(jobs[0]).toMatchObject({ originSessionId: 'brain-1-abc', originUserId: 1 });
   });
 
+  // A 1:1 Teams/WhatsApp chat gets a `brain-ch-…` id like a shared room does. Binding used to be refused
+  // on that prefix alone, so "remind me in an hour" asked in a private chat answered into the notification
+  // channel — or nowhere. What matters is whether anyone ELSE reads, which the turn now states.
+  it('binds a wake-up asked for in a direct 1:1 chat, but not one asked for in a shared room', async () => {
+    const dataRoot = freshDataRoot();
+    const { reg } = await loadCron(dataRoot);
+    const wakeup = reg.tools.find((t) => t.name === 'ScheduleWakeup')!;
+    const dm = { platform: 'msteams', userId: '29:x', elowenUserId: 1, admin: true, owner: true, conversation: 'direct' } as TurnIdentity;
+
+    const bound = await runWithPolicy(ADMIN, async () =>
+      asText(await wakeup.execute('t', { name: 'dm', when: 'in 30s', prompt: 'p' }, undefined as never, undefined as never)),
+    { identity: dm, sessionId: 'brain-ch-msteams-personal-1' });
+    expect(bound).toContain('reply in this conversation');
+
+    const room = await runWithPolicy(ADMIN, async () =>
+      asText(await wakeup.execute('t', { name: 'room', when: 'in 30s', prompt: 'p' }, undefined as never, undefined as never)),
+    { identity: { ...dm, platform: 'discord', conversation: 'shared' } as TurnIdentity, sessionId: 'brain-ch-discord-1' });
+    expect(room).not.toContain('reply in this conversation');
+
+    const jobs = JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8')) as Record<string, unknown>[];
+    expect(jobs.find((j) => j.name === 'dm')).toMatchObject({ originSessionId: 'brain-ch-msteams-personal-1', originUserId: 1 });
+    expect(jobs.find((j) => j.name === 'room')).not.toHaveProperty('originSessionId');
+  });
+
   it('keeps NO origin for channel/task-originated schedules and for turns without an Elowen account', async () => {
     const dataRoot = freshDataRoot();
     const { reg } = await loadCron(dataRoot);
     const wakeup = reg.tools.find((t) => t.name === 'ScheduleWakeup')!;
-    // A cron/channel session (brain-ch-…) must not bind — today's notify-channel behavior stays.
+    // A job's own turn runs in its channel session and is not a conversation with anybody — today's
+    // notify-channel behaviour stays. The turn is `shared` because nothing declared it direct.
+    const jobTurn = { ...OWNER, platform: 'cron', conversation: 'shared' } as TurnIdentity;
     await runWithPolicy(ADMIN, async () => {
       await wakeup.execute('t', { name: 'ch', when: 'in 30s', prompt: 'p' }, undefined as never, undefined as never);
-    }, { identity: OWNER, sessionId: 'brain-ch-cron-job-x' });
+    }, { identity: jobTurn, sessionId: 'brain-ch-cron-job-x' });
     // No elowenUserId (unlinked automation) → no origin either.
     const noAccount = await runWithPolicy(ADMIN, async () =>
       asText(await wakeup.execute('t', { name: 'anon', when: 'in 30s', prompt: 'p' }, undefined as never, undefined as never)),
-    { identity: { platform: 'cron', userId: 'cron', admin: true, owner: true }, sessionId: 'brain-1' });
+    { identity: { platform: 'cron', userId: 'cron', admin: true, owner: true, conversation: 'own' } as TurnIdentity, sessionId: 'brain-1' });
     expect(noAccount).not.toContain('reply in this conversation');
     const jobs = JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8')) as Record<string, unknown>[];
     expect(jobs).toHaveLength(2);
@@ -360,7 +389,7 @@ describe('cron control — pending wake-up origins (the retention seam)', () => 
     const wakeup = reg.tools.find((t) => t.name === 'ScheduleWakeup')!;
     await runWithPolicy(ADMIN, async () => {
       await wakeup.execute('t', { name: 'ch', when: 'in 30s', prompt: 'p' }, undefined as never, undefined as never);
-    }, { identity: OWNER, sessionId: 'brain-ch-cron-job-x' });
+    }, { identity: { ...OWNER, platform: 'cron', conversation: 'shared' } as TurnIdentity, sessionId: 'brain-ch-cron-job-x' });
     expect(reg.control('cron')!.pendingWakeupOriginSessionIds(1)).toEqual([]);
   });
 
