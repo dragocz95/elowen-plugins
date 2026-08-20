@@ -17,7 +17,11 @@ export interface CronJob {
   ownerUserId?: number | null;
   enabled?: boolean; runAt?: string; createdAt?: string; lastRun?: string; lastResult?: string;
 }
-export interface DiscordChannelOption { id: string; name: string; type: 'channel' | 'thread'; parentName?: string }
+export interface NotificationDestinationOption {
+  value: string; id: string; platform: string;
+  kind: 'channel' | 'thread' | 'chat' | 'person';
+  label: string; group?: string; subtitle?: string;
+}
 export interface BrainModelOption { provider: string; model: string }
 
 export interface ManageSelectionItem {
@@ -42,7 +46,7 @@ interface CronHooks {
   useToast(): { toast: (msg: string, tone?: 'ok' | 'error') => void };
   useCronJobs(enabled?: boolean): QueryResult<CronJob[]>;
   useMe(): QueryResult<{ user?: { id: number; is_admin: boolean; username: string } }>;
-  useDiscordChannels(): QueryResult<DiscordChannelOption[]>;
+  useNotificationDestinations(): QueryResult<NotificationDestinationOption[]>;
   useBrainModels(): QueryResult<BrainModelOption[]>;
   useSaveCronJob(): MutationResult<CronJob>;
   useDeleteCronJob(): MutationResult<string>;

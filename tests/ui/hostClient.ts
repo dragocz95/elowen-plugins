@@ -53,7 +53,7 @@ export interface PluginSkillRow {
 /** Shapes the jobs panel reads. They live in the plugin's own web-src/runtime.ts too — this side only
  *  needs enough of them to type the client, so the fields are deliberately loose. */
 export interface CronJobRow { id: string }
-export interface DiscordChannelOption { id: string; name: string }
+export interface NotificationDestinationOption { value: string; id: string; platform: string; kind: 'channel' | 'thread' | 'chat' | 'person'; label: string; group?: string; subtitle?: string }
 export interface BrainModelOption { id?: string; label?: string; provider?: string; providerLabel?: string; model?: string; source?: 'oauth' | 'api-key' | 'relay' }
 
 export interface PluginUiListing { name: string; url: string; apiVersion: number; strings: Record<string, string> }
@@ -95,7 +95,7 @@ export const elowenClient = {
   cronJobs: () => req<CronJobRow[]>('/plugins/cronjob/jobs'),
   saveCronJob: (job: CronJobRow) => req<{ ok: boolean }>(`/plugins/cronjob/jobs/${encodeURIComponent(job.id)}`, json(job, 'PUT')),
   deleteCronJob: (id: string) => req<{ ok: boolean }>(`/plugins/cronjob/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  discordChannels: () => req<DiscordChannelOption[]>('/plugins/discord/channels'),
+  notificationDestinations: () => req<NotificationDestinationOption[]>('/plugins/destinations'),
   brainModels: () => req<BrainModelOption[]>('/brain/models'),
   // The editor panel's project-file calls. These are the plugin's OWN grandfathered routes (its manifest
   // lists them under provides.apiRoutes), so the URLs are the contract its node side is tested against.

@@ -37,6 +37,44 @@ export function peopleForUi(people, profilePhotos = false, bindingFor = () => nu
   }).sort((a, b) => a.name.localeCompare(b.name) || a.upn.localeCompare(b.upn));
 }
 
+/** Browser-safe proactive-message targets learned from real Teams traffic. Connector routing details
+ * (serviceUrl, tenant, bot id) stay inside channel-state.json and never cross the API boundary. */
+export function notificationDestinationsForUi(state, people) {
+  const destinations = [];
+  const seen = new Set();
+  for (const person of people.list()) {
+    const id = typeof person.conv === 'string' ? person.conv.trim() : '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    destinations.push({
+      id,
+      kind: 'person',
+      label: person.name || person.upn || 'Teams direct chat',
+      group: 'Microsoft Teams · Direct chats',
+      ...(person.upn ? { subtitle: person.upn } : {}),
+    });
+  }
+  for (const [id, entry] of Object.entries(state.all())) {
+    if (id.startsWith('_') || seen.has(id) || !entry || typeof entry !== 'object') continue;
+    const ref = entry.ref;
+    if (!ref || typeof ref !== 'object' || typeof ref.serviceUrl !== 'string') continue;
+    const type = String(ref.conversationType ?? '');
+    const channel = type === 'channel';
+    const label = String(ref.channelName ?? ref.conversationName ?? '').trim()
+      || `${channel ? 'Teams channel' : 'Teams chat'} · ${id.slice(0, 18)}${id.length > 18 ? '…' : ''}`;
+    seen.add(id);
+    destinations.push({
+      id,
+      kind: channel ? 'channel' : 'chat',
+      label,
+      group: channel
+        ? (ref.teamName ? `Microsoft Teams · ${ref.teamName}` : 'Microsoft Teams · Channels')
+        : 'Microsoft Teams · Chats',
+    });
+  }
+  return destinations;
+}
+
 export function register(ctx) {
   // The sideloadable app package (manifest + icons) an admin uploads to the org's Teams app catalog,
   // built by the live adapter from the current config. Registered UP FRONT and reporting 503 while no
@@ -48,6 +86,10 @@ export function register(ctx) {
   const dataDir = ctx.dataDir();
   const state = new StateStore(join(dataDir, 'channel-state.json'));
   const people = new PeopleDirectory(state, ctx.logger);
+  ctx.registerNotificationDestinationProvider({
+    platform: 'msteams',
+    list: () => notificationDestinationsForUi(state, people),
+  });
   const agentName = typeof ctx.config.agentName === 'string' && ctx.config.agentName.trim()
     ? ctx.config.agentName.trim()
     : 'Elowen';

@@ -71,7 +71,7 @@ export function ensurePluginUiRuntime(): void {
       usePluginSkills: H.usePluginSkills, useCreatePluginSkill: H.useCreatePluginSkill,
       useUpdatePluginSkill: H.useUpdatePluginSkill, useDeletePluginSkill: H.useDeletePluginSkill,
       useCronJobs: H.useCronJobs, useSaveCronJob: H.useSaveCronJob, useDeleteCronJob: H.useDeleteCronJob,
-      useDiscordChannels: H.useDiscordChannels, useBrainModels: H.useBrainModels,
+      useNotificationDestinations: H.useNotificationDestinations, useBrainModels: H.useBrainModels,
       useAutoSaveStatus: H.useAutoSaveStatus,
       useProjectFiles: H.useProjectFiles, useProjectFile: H.useProjectFile, useProjectFileAtHead: H.useProjectFileAtHead,
       useProjectCommit: H.useProjectCommit, useProjectCommitFileDiff: H.useProjectCommitFileDiff,

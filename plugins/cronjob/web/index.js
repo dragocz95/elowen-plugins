@@ -228,35 +228,31 @@ var X = createLucideIcon("X", [
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var PAGE_SIZE = 20;
 var textareaClass = "w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm text-text placeholder:text-text-muted focus:border-accent";
-function ChannelField({ value, onChange, channels }) {
+function DestinationField({ value, onChange, destinations }) {
   const { components: C, hooks } = runtime();
   const { t } = hooks.useTranslation();
   const s = hooks.usePluginStrings("cronjob");
   const [open, setOpen] = (0, import_react3.useState)(false);
-  const selected = channels.find((ch) => ch.id === value);
-  const icon = (type) => type === "thread" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 12, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Hash, { size: 12, "aria-hidden": true });
-  const toItem = (ch) => ({
-    id: ch.id,
-    label: ch.name,
-    group: ch.type,
-    groupLabel: ch.type === "thread" ? t.managePicker.groupThreads : t.managePicker.groupChannels,
-    icon: icon(ch.type),
-    badges: ch.parentName ? [{ text: `#${ch.parentName}` }] : void 0
-  });
+  const selected = destinations.find((destination) => destination.value === value);
+  const icon = (kind) => kind === "channel" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Hash, { size: 12, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 12, "aria-hidden": true });
   const items = [
-    // Pinned rows: the guild-default destination, plus a saved id the guild no longer lists.
     { id: "", label: s.pillDefault, group: "" },
     ...value && !selected ? [{ id: value, label: value, group: "", icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Hash, { size: 12, "aria-hidden": true }) }] : [],
-    // Text channels first, then threads — one group each.
-    ...channels.filter((ch) => ch.type !== "thread").map(toItem),
-    ...channels.filter((ch) => ch.type === "thread").map(toItem)
+    ...destinations.map((destination) => ({
+      id: destination.value,
+      label: destination.label,
+      group: `${destination.platform}:${destination.group ?? destination.platform}`,
+      groupLabel: destination.group ?? destination.platform,
+      icon: icon(destination.kind),
+      badges: destination.subtitle ? [{ text: destination.subtitle }] : void 0
+    }))
   ];
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
       C.SelectionSummary,
       {
         countText: value ? "" : "\u2014",
-        samples: value ? [{ label: selected?.name ?? value, icon: icon(selected?.type ?? "channel") }] : [],
+        samples: value ? [{ label: selected?.label ?? value, icon: icon(selected?.kind ?? "channel") }] : [],
         moreCount: 0,
         onManage: () => setOpen(true),
         manageLabel: t.managePicker.manage
@@ -277,7 +273,7 @@ function ChannelField({ value, onChange, channels }) {
     )
   ] });
 }
-function CronJobRow({ job, persisted, ownerLabel, adminFields, channels, models, selected, onSelect, onClose, onRemoved }) {
+function CronJobRow({ job, persisted, ownerLabel, adminFields, destinations, models, selected, onSelect, onClose, onRemoved }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("cronjob");
   const { t } = hooks.useTranslation();
@@ -335,8 +331,8 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, channels, models,
   const enabled = draft.enabled !== false;
   const validSchedule = draft.runAt ? true : utils.isValidSchedule(draft.schedule);
   const lastRunMs = utils.parseTs(job.lastRun);
-  const destChannel = draft.notifyChannelId ? channels.find((ch) => ch.id === draft.notifyChannelId) : void 0;
-  const dest = draft.notifyChannelId ? destChannel?.name ?? draft.notifyChannelId : job.ownerUserId != null ? s.channelOwnerChat : null;
+  const destination = draft.notifyChannelId ? destinations.find((option) => option.value === draft.notifyChannelId) : void 0;
+  const dest = draft.notifyChannelId ? destination?.label ?? draft.notifyChannelId : job.ownerUserId != null ? s.channelOwnerChat : null;
   const name = draft.name || s.jobNew;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { interactive: true, selected, "aria-selected": selected, className: "group", children: [
@@ -361,7 +357,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, channels, models,
       ] }) }),
       ownerLabel !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { priority: "wide", title: ownerLabel, className: "truncate text-xs text-text-muted", children: ownerLabel }) : null,
       adminFields ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { priority: "wide", title: dest ?? s.channelDefault, className: "truncate text-xs text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "shrink-0", children: destChannel?.type === "thread" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 12, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Hash, { size: 12, "aria-hidden": true }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "shrink-0", children: destination && destination.kind !== "channel" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 12, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Hash, { size: 12, "aria-hidden": true }) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `truncate ${dest ? "" : "italic text-text-muted/65"}`, children: dest ?? s.channelDefault })
       ] }) }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { priority: "wide", title: lastRunMs != null ? new Date(lastRunMs).toLocaleString() : void 0, className: "whitespace-nowrap text-xs text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-1.5", children: [
@@ -399,11 +395,11 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, channels, models,
       ) }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.prompt, hint: s.helpPrompt, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", { value: draft.prompt, onChange: (e) => patch({ prompt: e.target.value }), rows: 8, className: textareaClass }) }),
       adminFields ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.channel, hint: s.helpChannel, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        ChannelField,
+        DestinationField,
         {
           value: draft.notifyChannelId ?? "",
           onChange: (v) => patch({ notifyChannelId: v || void 0 }),
-          channels
+          destinations
         }
       ) }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.model, hint: s.helpModel, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -445,7 +441,7 @@ function JobsSettings({ surface }) {
   const me = hooks.useMe();
   const myId = me.data?.user?.id ?? null;
   const isAdmin = me.data?.user?.is_admin === true;
-  const channels = hooks.useDiscordChannels();
+  const destinations = hooks.useNotificationDestinations();
   const models = hooks.useBrainModels();
   const [drafts, setDrafts] = (0, import_react3.useState)([]);
   const [selectedId, setSelectedId] = (0, import_react3.useState)(null);
@@ -516,7 +512,7 @@ function JobsSettings({ surface }) {
               persisted: saved.has(job.id),
               ownerLabel: isAdmin ? job.ownerUserId == null ? s.ownerInstance : job.ownerUserId === myId ? s.ownerMine : `#${job.ownerUserId}` : null,
               adminFields: isAdmin,
-              channels: channels.data ?? [],
+              destinations: destinations.data ?? [],
               models: models.data ?? [],
               selected: selectedId === job.id,
               onSelect: () => setSelectedId(job.id),

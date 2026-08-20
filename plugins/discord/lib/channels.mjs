@@ -25,28 +25,34 @@ export async function listGuildChannels(config) {
   try {
     const headers = { authorization: `Bot ${token}` };
     const base = `https://discord.com/api/v10/guilds/${encodeURIComponent(guildId)}`;
-    const [chRes, thRes] = await Promise.all([
-      fetch(`${base}/channels`, { headers }),
-      fetch(`${base}/threads/active`, { headers }),
-    ]);
-    if (!chRes.ok) return [];
-    const channels = await chRes.json();
-    const nameById = new Map(channels.map((ch) => [ch.id, ch.name]));
-    const typeById = new Map(channels.map((ch) => [ch.id, ch.type]));
-    const out = channels
-      .filter((ch) => ch.type === TEXT_CHANNEL)
-      .map((ch) => ({ id: ch.id, name: ch.name, type: 'channel' }));
-    if (thRes.ok) {
-      const { threads } = await thRes.json();
-      for (const th of threads ?? []) {
-        if (th.type !== PUBLIC_THREAD && th.type !== PRIVATE_THREAD) continue;
-        const parentType = typeById.get(th.parent_id ?? '');
-        if (parentType === FORUM || parentType === MEDIA) continue;
-        out.push({ id: th.id, name: th.name, type: 'thread', parentName: nameById.get(th.parent_id ?? '') });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const [chRes, thRes] = await Promise.all([
+        fetch(`${base}/channels`, { headers, signal: controller.signal }),
+        fetch(`${base}/threads/active`, { headers, signal: controller.signal }),
+      ]);
+      if (!chRes.ok) return [];
+      const channels = await chRes.json();
+      const nameById = new Map(channels.map((ch) => [ch.id, ch.name]));
+      const typeById = new Map(channels.map((ch) => [ch.id, ch.type]));
+      const out = channels
+        .filter((ch) => ch.type === TEXT_CHANNEL)
+        .map((ch) => ({ id: ch.id, name: ch.name, type: 'channel', parentName: nameById.get(ch.parent_id ?? '') }));
+      if (thRes.ok) {
+        const { threads } = await thRes.json();
+        for (const th of threads ?? []) {
+          if (th.type !== PUBLIC_THREAD && th.type !== PRIVATE_THREAD) continue;
+          const parentType = typeById.get(th.parent_id ?? '');
+          if (parentType === FORUM || parentType === MEDIA) continue;
+          out.push({ id: th.id, name: th.name, type: 'thread', parentName: nameById.get(th.parent_id ?? '') });
+        }
       }
+      cache = { at: Date.now(), data: out };
+      return out;
+    } finally {
+      clearTimeout(timeout);
     }
-    cache = { at: Date.now(), data: out };
-    return out;
   } catch {
     return []; // network failure → empty picker, never a leaked error detail
   }

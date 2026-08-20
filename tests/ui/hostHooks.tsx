@@ -130,9 +130,9 @@ export function createWrapper() {
 export const useCronJobs = (enabled = true) =>
   useQuery({ queryKey: ['cron-jobs'], queryFn: elowenClient.cronJobs, enabled });
 
-/** Text channels + active threads of the configured Discord guild (the cron destination picker). */
-export const useDiscordChannels = () =>
-  useQuery({ queryKey: ['discord-channels'], queryFn: elowenClient.discordChannels, staleTime: 60_000 });
+/** Proactive notification targets across enabled platform plugins. */
+export const useNotificationDestinations = () =>
+  useQuery({ queryKey: ['notification-destinations'], queryFn: elowenClient.notificationDestinations, staleTime: 60_000 });
 
 /** Pickable brain models across all configured providers. */
 export const useBrainModels = () =>

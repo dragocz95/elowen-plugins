@@ -20,6 +20,16 @@ export { LiveMessage } from './lib/stream.mjs';
 export { resolveDisplaySettings, updateDisplayOverrides } from './lib/display.mjs';
 
 export function register(ctx) {
+  ctx.registerNotificationDestinationProvider({
+    platform: 'discord',
+    list: async () => (await listGuildChannels(ctx.config)).map((channel) => ({
+      id: channel.id,
+      kind: channel.type,
+      label: channel.type === 'channel' ? `#${channel.name}` : channel.name,
+      group: channel.parentName ? `Discord · ${channel.parentName}` : 'Discord',
+    })),
+  });
+
   // Registered BEFORE the token check: an instance with the plugin on but no bot token still shows a
   // channel picker, and it must answer "no destinations" rather than 404 — which is exactly what this
   // said as a core route. Bailing out first would turn an empty picker into a broken one.

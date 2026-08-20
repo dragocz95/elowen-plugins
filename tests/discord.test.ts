@@ -14,6 +14,7 @@ describe('discord plugin', () => {
   it('registers no platform without a botToken (warns instead of crashing)', async () => {
     const reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log });
     expect(reg.platforms).toHaveLength(0);
+    expect(reg.notificationDestinationProviders.has('discord')).toBe(true);
   });
 
   it('registers the platform adapter when a botToken is configured', async () => {

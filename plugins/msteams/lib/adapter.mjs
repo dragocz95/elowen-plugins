@@ -311,12 +311,18 @@ export class MsTeamsAdapter {
     // captured whenever it shows up and kept when a later activity omits it (an invoke or a card action
     // carries no team block, and dropping the id would cost us the only copy we have).
     const groupId = activity?.channelData?.team?.aadGroupId ?? prior?.teamGroupId;
+    const teamName = activity?.channelData?.team?.name ?? prior?.teamName;
+    const channelName = activity?.channelData?.channel?.name ?? prior?.channelName;
+    const conversationName = conv.name ?? prior?.conversationName;
     const ref = {
       serviceUrl: activity.serviceUrl,
       conversationType: conv.conversationType,
       tenantId: conv.tenantId,
       botId: activity.recipient?.id,
       ...(groupId ? { teamGroupId: String(groupId) } : {}),
+      ...(teamName ? { teamName: String(teamName) } : {}),
+      ...(channelName ? { channelName: String(channelName) } : {}),
+      ...(conversationName ? { conversationName: String(conversationName) } : {}),
     };
     if (JSON.stringify(prior) !== JSON.stringify(ref)) this.state.patch(String(conv.id), { ref });
     if (this.state.get('_meta').serviceUrl !== activity.serviceUrl) this.state.patch('_meta', { serviceUrl: activity.serviceUrl });
@@ -1332,8 +1338,13 @@ export class MsTeamsAdapter {
    *  account id or display name) — a person's 1:1 chat is opened and remembered. No-op (with a warn)
    *  until the bot has seen at least one activity: proactive sends ride the last known serviceUrl. */
   async notify(text, channelId, notice) {
-    const target = (typeof channelId === 'string' && channelId.trim().replace(/#\d+$/, ''))
+    let target = (typeof channelId === 'string' && channelId.trim().replace(/#\d+$/, ''))
       || (typeof this.cfg.notifyConversationId === 'string' ? this.cfg.notifyConversationId.trim() : '');
+    if (target.startsWith('destination:')) {
+      if (!target.startsWith('destination:msteams:')) throw new Error('msteams notification destination belongs to another platform');
+      try { target = decodeURIComponent(target.slice('destination:msteams:'.length)); }
+      catch { throw new Error('msteams notification destination is malformed'); }
+    }
     // Nowhere to send is a CONFIGURATION gap, not a normal no-op: a cron job that names no channel
     // delivers here, and returning in silence means its result — already paid for with a real turn — is
     // dropped every single run with nothing anywhere to say so.

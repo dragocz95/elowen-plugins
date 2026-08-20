@@ -872,6 +872,9 @@ export function register(ctx) {
       return `invalid schedule "${String(j.schedule)}" — use "every 15m", "every 2h", "daily 07:30", "weekly sun 20:00" or a 5-field cron expression`;
     }
     if (j.check !== undefined && typeof j.check !== 'string') return 'check must be omitted or a string';
+    if (j.notifyChannelId !== undefined && (typeof j.notifyChannelId !== 'string' || !j.notifyChannelId.trim())) {
+      return 'notifyChannelId must be omitted or a non-empty string';
+    }
     if (j.plain !== undefined && typeof j.plain !== 'boolean') return 'plain must be omitted or a boolean';
     if (j.model !== undefined) {
       const m = j.model;

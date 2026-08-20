@@ -248,6 +248,14 @@ describe('cron jobs routes', () => {
     expect((await app.request('/plugins/cronjob/jobs/x', put(adminTok, { name: 'n', schedule: 'every 1h' }))).status).toBe(400);
   });
 
+  it('accepts only a non-empty string as notifyChannelId', async () => {
+    const { app, adminTok } = setup();
+    for (const notifyChannelId of [null, [], {}, '']) {
+      expect((await save(app, adminTok, job({ notifyChannelId: notifyChannelId as never }))).status, JSON.stringify(notifyChannelId)).toBe(400);
+    }
+    expect((await save(app, adminTok, job({ notifyChannelId: 'destination:msteams:a%3Achat' }))).status).toBe(200);
+  });
+
   // Cronjob is a user-grantable plugin: an account the admin has not granted it reaches nothing, and the
   // refusal happens in the core HTTP gate before the plugin sees the request.
   it('rejects an ungranted non-admin (403) on GET, save and DELETE', async () => {

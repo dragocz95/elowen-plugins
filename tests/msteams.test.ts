@@ -153,6 +153,7 @@ describe('msteams plugin registration', () => {
   it('registers no platform or route without full credentials', async () => {
     const reg = await loadPlugins({ dirs: [join(repoRoot, 'plugins')], enabled: ['msteams'], logger: log });
     expect(reg.platforms).toHaveLength(0);
+    expect(reg.notificationDestinationProviders.has('msteams')).toBe(true);
     expect(reg.httpRoutes.size).toBe(0);
     expect([...reg.rootApiRoutes.keys()].sort()).toEqual([
       '/plugins/msteams/app-package',
@@ -208,6 +209,26 @@ describe('msteams identity + role mapping', () => {
     expect(peopleForUi([{ key: 'a', aad: 'aad-a' }], false, () => ({
       user: { id: 7, username: 'alex', isAdmin: false }, linkedAt: '2026-08-19T01:00:00.000Z', accessToken: 'must-not-leak',
     }))[0]?.identity).toEqual({ linked: true, user: { id: 7, username: 'alex', isAdmin: false }, linkedAt: '2026-08-19T01:00:00.000Z' });
+  });
+
+  it('projects direct chats and known conversations without leaking connector routes', async () => {
+    const { notificationDestinationsForUi } = await import(join(repoRoot, 'plugins/msteams/index.mjs')) as {
+      notificationDestinationsForUi: (state: { all(): Record<string, unknown> }, people: { list(): Record<string, unknown>[] }) => Record<string, unknown>[];
+    };
+    const result = notificationDestinationsForUi({
+      all: () => ({
+        '_people': {},
+        'a:direct': { ref: { serviceUrl: 'https://smba.test/secret', conversationType: 'personal' } },
+        '19:channel': { ref: { serviceUrl: 'https://smba.test/secret', conversationType: 'channel', teamName: 'Sales', channelName: 'General' } },
+      }),
+    }, {
+      list: () => [{ conv: 'a:direct', name: 'Filip', upn: 'filip@example.com' }],
+    });
+    expect(result).toEqual([
+      { id: 'a:direct', kind: 'person', label: 'Filip', group: 'Microsoft Teams · Direct chats', subtitle: 'filip@example.com' },
+      { id: '19:channel', kind: 'channel', label: 'General', group: 'Microsoft Teams · Sales' },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('smba.test');
   });
 
   it('matches Entra GUIDs exactly and UPN/email case-insensitively', async () => {
@@ -846,6 +867,13 @@ describe('msteams proactive notify + app package', () => {
     const sent = calls.find((c) => c.kind === 'send');
     expect(sent?.args[0]).toBe('https://smba.test/emea');
     expect(sent?.args[2]).toMatchObject({ type: 'message', text: 'nightly build done' });
+  });
+
+  it('unwraps an encoded destination stored by the generic config picker', async () => {
+    const { adapter, state, calls } = await makeAdapter({ notifyConversationId: 'destination:msteams:a%3Aconv1' });
+    state.patch('a:conv1', { ref: { serviceUrl: 'https://smba.test/emea' } });
+    await adapter.notify('nightly build done');
+    expect(calls.find((call) => call.kind === 'send')?.args[1]).toBe('a:conv1');
   });
 
   it('opens a personal conversation for an unseen user target and reuses it', async () => {

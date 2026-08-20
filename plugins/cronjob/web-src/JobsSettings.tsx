@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, CalendarClock, Check, ChevronLeft, ChevronRight, Clock, Hash, MessageSquare, PauseCircle, Plus, Search, Timer, Trash2, X } from 'lucide-react';
-import { runtime, type BrainModelOption, type CronJob, type DiscordChannelOption, type ManageSelectionItem } from './runtime';
+import { runtime, type BrainModelOption, type CronJob, type NotificationDestinationOption, type ManageSelectionItem } from './runtime';
 
 /** One page of jobs, matching the register size the built-in workspaces page at. */
 const PAGE_SIZE = 20;
@@ -8,38 +8,33 @@ type Filter = 'all' | 'active' | 'paused';
 
 const textareaClass = 'w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm text-text placeholder:text-text-muted focus:border-accent';
 
-/** Single-select destination channel: the current pick as a compact chip ("—" = the guild's default
- *  channel) + a Manage modal grouping the guild's text channels and active threads. A saved id the
- *  guild no longer lists stays visible as a pinned, selected row so it is never silently lost. */
-function ChannelField({ value, onChange, channels }: { value: string; onChange: (v: string) => void; channels: DiscordChannelOption[] }) {
+/** Single-select notification target across every enabled platform. A saved opaque value whose provider
+ *  is currently unavailable stays pinned, so opening and saving the editor never silently drops it. */
+function DestinationField({ value, onChange, destinations }: { value: string; onChange: (v: string) => void; destinations: NotificationDestinationOption[] }) {
   const { components: C, hooks } = runtime();
   const { t } = hooks.useTranslation();
   const s = hooks.usePluginStrings('cronjob');
   const [open, setOpen] = useState(false);
-  const selected = channels.find((ch) => ch.id === value);
-  const icon = (type: DiscordChannelOption['type']) =>
-    type === 'thread' ? <MessageSquare size={12} aria-hidden /> : <Hash size={12} aria-hidden />;
-  const toItem = (ch: DiscordChannelOption): ManageSelectionItem => ({
-    id: ch.id,
-    label: ch.name,
-    group: ch.type,
-    groupLabel: ch.type === 'thread' ? t.managePicker.groupThreads : t.managePicker.groupChannels,
-    icon: icon(ch.type),
-    badges: ch.parentName ? [{ text: `#${ch.parentName}` }] : undefined,
-  });
+  const selected = destinations.find((destination) => destination.value === value);
+  const icon = (kind: NotificationDestinationOption['kind']) =>
+    kind === 'channel' ? <Hash size={12} aria-hidden /> : <MessageSquare size={12} aria-hidden />;
   const items: ManageSelectionItem[] = [
-    // Pinned rows: the guild-default destination, plus a saved id the guild no longer lists.
     { id: '', label: s.pillDefault, group: '' },
     ...(value && !selected ? [{ id: value, label: value, group: '', icon: <Hash size={12} aria-hidden /> }] : []),
-    // Text channels first, then threads — one group each.
-    ...channels.filter((ch) => ch.type !== 'thread').map(toItem),
-    ...channels.filter((ch) => ch.type === 'thread').map(toItem),
+    ...destinations.map((destination) => ({
+      id: destination.value,
+      label: destination.label,
+      group: `${destination.platform}:${destination.group ?? destination.platform}`,
+      groupLabel: destination.group ?? destination.platform,
+      icon: icon(destination.kind),
+      badges: destination.subtitle ? [{ text: destination.subtitle }] : undefined,
+    })),
   ];
   return (
     <>
       <C.SelectionSummary
         countText={value ? '' : '—'}
-        samples={value ? [{ label: selected?.name ?? value, icon: icon(selected?.type ?? 'channel') }] : []}
+        samples={value ? [{ label: selected?.label ?? value, icon: icon(selected?.kind ?? 'channel') }] : []}
         moreCount={0}
         onManage={() => setOpen(true)}
         manageLabel={t.managePicker.manage}
@@ -70,7 +65,7 @@ function ChannelField({ value, onChange, channels }: { value: string; onChange: 
  *  last result); `draft` holds what the user is typing. When the server's copy changes and the row has no
  *  unsaved edit, the draft adopts it — otherwise a job the brain's cron tools changed behind this page's
  *  back would be shown stale and overwritten by the row's next save. */
-function CronJobRow({ job, persisted, ownerLabel, adminFields, channels, models, selected, onSelect, onClose, onRemoved }: {
+function CronJobRow({ job, persisted, ownerLabel, adminFields, destinations, models, selected, onSelect, onClose, onRemoved }: {
   job: CronJob;
   persisted: boolean;
   /** Who owns the job, for the admin's owner column; null hides the column (everyone else sees only their own). */
@@ -79,7 +74,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, channels, models,
    *  on the host) and the destination channel (it belongs to the operator). The server refuses both on an
    *  owned job, so offering them to somebody whose save would be rejected is worse than not showing them. */
   adminFields: boolean;
-  channels: DiscordChannelOption[];
+  destinations: NotificationDestinationOption[];
   models: BrainModelOption[];
   selected: boolean;
   onSelect: () => void;
@@ -161,11 +156,11 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, channels, models,
   const enabled = draft.enabled !== false;
   const validSchedule = draft.runAt ? true : utils.isValidSchedule(draft.schedule);
   const lastRunMs = utils.parseTs(job.lastRun);
-  const destChannel = draft.notifyChannelId ? channels.find((ch) => ch.id === draft.notifyChannelId) : undefined;
+  const destination = draft.notifyChannelId ? destinations.find((option) => option.value === draft.notifyChannelId) : undefined;
   // An OWNED job has no channel destination at all — it reports in its owner's own conversation and no
   // channel may be set on it, so naming the notification channel here would describe a delivery that
   // never happens. Only an instance job falls back to "default channel".
-  const dest = draft.notifyChannelId ? destChannel?.name ?? draft.notifyChannelId
+  const dest = draft.notifyChannelId ? destination?.label ?? draft.notifyChannelId
     : job.ownerUserId != null ? s.channelOwnerChat : null;
   const name = draft.name || s.jobNew;
 
@@ -206,7 +201,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, channels, models,
           <C.DataTableCell priority="wide" title={dest ?? s.channelDefault} className="truncate text-xs text-text-muted">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="shrink-0">
-                {destChannel?.type === 'thread' ? <MessageSquare size={12} aria-hidden /> : <Hash size={12} aria-hidden />}
+                {destination && destination.kind !== 'channel' ? <MessageSquare size={12} aria-hidden /> : <Hash size={12} aria-hidden />}
               </span>
               <span className={`truncate ${dest ? '' : 'italic text-text-muted/65'}`}>{dest ?? s.channelDefault}</span>
             </span>
@@ -277,10 +272,10 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, channels, models,
             </C.Field>
             {adminFields ? (
               <C.Field label={s.channel} hint={s.helpChannel}>
-                <ChannelField
+                <DestinationField
                   value={draft.notifyChannelId ?? ''}
                   onChange={(v) => patch({ notifyChannelId: v || undefined })}
-                  channels={channels}
+                  destinations={destinations}
                 />
               </C.Field>
             ) : null}
@@ -333,7 +328,7 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
   const me = hooks.useMe();
   const myId = me.data?.user?.id ?? null;
   const isAdmin = me.data?.user?.is_admin === true;
-  const channels = hooks.useDiscordChannels();
+  const destinations = hooks.useNotificationDestinations();
   const models = hooks.useBrainModels();
   const [drafts, setDrafts] = useState<CronJob[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -413,7 +408,7 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
             persisted={saved.has(job.id)}
             ownerLabel={isAdmin ? (job.ownerUserId == null ? s.ownerInstance : job.ownerUserId === myId ? s.ownerMine : `#${job.ownerUserId}`) : null}
             adminFields={isAdmin}
-            channels={channels.data ?? []}
+            destinations={destinations.data ?? []}
             models={models.data ?? []}
             selected={selectedId === job.id}
             onSelect={() => setSelectedId(job.id)}

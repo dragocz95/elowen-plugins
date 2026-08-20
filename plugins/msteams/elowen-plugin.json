@@ -1,12 +1,14 @@
 {
   "name": "msteams",
-  "version": "0.5.9",
+  "version": "0.5.10",
   "apiVersion": "1",
+  "requiresCore": "0.28.5",
   "capabilities": { "reads": ["stores", "project-files"], "mutates": ["users"] },
   "description": "Microsoft Teams bot (Azure Bot Framework): message it in a personal chat, group chat or team channel and it answers from Elowen AI. Incoming activities arrive on the daemon webhook /hooks/msteams/messages (validated against Microsoft's JWT); replies, typing indicators and images go out through the Bot Connector REST API. Slash commands (/model, /reasoning, /display, /new, /help) with Adaptive Card pickers, AskUserQuestion as tappable cards, live tool activity, proactive cron/tick pushes and a downloadable Teams app package. Chat tools (admin sessions): conversation & member info, member lists, list conversations and person lookup; plus send a message to any chat, message a person proactively by e-mail or name (the bot opens the 1:1 chat itself), and raw connector access (operator). Each rolePolicy maps an Entra object ID / UPN / conversation ID to allowed Elowen projects + a role prompt.",
   "entry": "index.mjs",
   "provides": {
     "platforms": ["msteams"],
+    "destinations": ["msteams"],
     "httpRoutes": ["messages"],
     "apiRoutes": ["/plugins/msteams/app-package", "/plugins/msteams/people", "/plugins/msteams/people/:id/account", "/plugins/msteams/people/:id/signout", "/plugins/msteams/people/:id/avatar"],
     "tools": [
@@ -135,7 +137,7 @@
     { "key": "m365MaxTransferBytes", "label": "Microsoft file transfer limit", "type": "number", "min": 1048576, "max": 262144000, "step": 1048576, "default": 20971520, "advanced": true, "hint": "Maximum file size downloaded from or uploaded to Microsoft 365 in one tool call. Larger uploads use a resumable Microsoft upload session." },
     { "key": "agentName", "label": "App name in Teams",  "type": "string", "hint": "Name of the app and of the bot in the downloadable app package — what people see in the organisation's Teams catalog and in /help. Empty = Elowen. Set it when that name collides with another app already in the catalog." },
     { "key": "productName", "label": "Publisher name in Teams", "type": "string", "hint": "Publisher shown on the app package (the manifest's developer name). Empty = the configured app name." },
-    { "key": "notifyConversationId", "label": "Notification conversation", "type": "string", "hint": "Where proactive messages (cron/tick results) are posted — a Teams conversation ID the bot has already seen, or a person (e-mail / Entra object ID / display name) whose 1:1 chat the bot opens itself. Empty = no proactive pushes." },
+    { "key": "notifyConversationId", "label": "Notification conversation", "type": "destination", "hint": "Where proactive messages (cron/tick results) are posted. Empty = no proactive pushes." },
     { "key": "sec_proactive", "label": "Reaching people first", "type": "section", "hint": "The bot can start a chat with someone instead of only answering. It remembers everyone it meets (name, Entra object ID, UPN and their 1:1 chat) from incoming messages and conversation rosters — no extra Microsoft permission — and TeamsMessagePerson writes to them by e-mail or name. The settings below are only needed for people the bot has never seen." },
     { "key": "graphLookup", "label": "Microsoft Graph lookup", "type": "boolean", "default": false, "hint": "Off: the bot can only write to people it has already met in Teams. On: an unknown e-mail is resolved against the tenant directory and the Teams app is installed for that person so a chat can be opened. Requires the APPLICATION permissions User.ReadBasic.All and TeamsAppInstallation.ReadWriteSelfForUser.All with tenant admin consent. Directory avatars additionally use ProfilePhoto.Read.All; without it the workspace falls back to the linked Elowen account avatar." },
     { "key": "graphCatalogAppId", "label": "Teams catalog app ID", "type": "string", "visibleWhen": { "key": "graphLookup", "equals": true }, "hint": "The app's ID in the organisation's Teams catalog (Teams admin center → Manage apps → the uploaded Elowen app). Needed to install the app for a user who does not have it yet; leave empty if the app is deployed by Teams app policy." },

@@ -56,7 +56,7 @@ test('committed web bundles have every utility in host or plugin CSS', async (t)
   assert.ok(hostCssFiles.length > 0, 'published host CSS chunks were not found');
   const hostCss = hostCssFiles.map((name) => readFileSync(join(hostCssDir, name), 'utf8')).join('\n');
 
-  assert.equal(hasUtilitySelector(hostCss, 'h-36'), false, 'self-check failed: published host CSS now covers h-36');
+  assert.equal(hasUtilitySelector(hostCss, 'h-44'), false, 'self-check failed: published host CSS now covers h-44');
 
   const tempDir = mkdtempSync(join(tmpdir(), 'elowen-plugin-css-'));
   t.after(() => rmSync(tempDir, { recursive: true, force: true }));

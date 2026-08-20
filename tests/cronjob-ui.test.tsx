@@ -5,7 +5,7 @@ import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { JobsSettings } from '../plugins/cronjob/web-src/JobsSettings';
 import manifest from '../plugins/cronjob/elowen-plugin.json' with { type: 'json' };
 import { ToastProvider, createWrapper } from './ui/hostHooks';
-import type { BrainModelOption, CronJob, DiscordChannelOption } from '../plugins/cronjob/web-src/runtime';
+import type { BrainModelOption, CronJob, NotificationDestinationOption } from '../plugins/cronjob/web-src/runtime';
 
 // The moved editor resolves everything through window.ElowenUiRuntime — install the REAL runtime,
 // so this exercises the production contract the bundle runs against.
@@ -19,9 +19,10 @@ const strings = (manifest as { web: { strings: Record<string, string> } }).web.s
 const job = (over: Partial<CronJob>): CronJob =>
   ({ id: 'j1', name: 'digest', schedule: 'daily 06:00', prompt: 'do it', enabled: true, createdAt: '2026-01-01T00:00:00Z', ...over });
 
-const CHANNELS: DiscordChannelOption[] = [
-  { id: '100', name: 'general', type: 'channel' },
-  { id: '200', name: 'bug-hunt', type: 'thread', parentName: 'general' },
+const DESTINATIONS: NotificationDestinationOption[] = [
+  { value: 'destination:discord:100', id: '100', platform: 'discord', kind: 'channel', label: '#general', group: 'Discord' },
+  { value: 'destination:discord:200', id: '200', platform: 'discord', kind: 'thread', label: 'bug-hunt', group: 'Discord · general' },
+  { value: 'destination:msteams:a%3Afilip', id: 'a:filip', platform: 'msteams', kind: 'person', label: 'Filip', group: 'Microsoft Teams · Direct chats' },
 ];
 const MODELS: BrainModelOption[] = [
   { provider: 'anthropic', providerLabel: 'Anthropic', model: 'claude-sonnet-4-5', exec: 'brain', source: 'api-key', contextWindow: 200000, contextWindowSet: false },
@@ -33,7 +34,7 @@ setDefaults(
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 7, username: 'filip', is_admin: true } })),
   // The core repo served these from its app-wide msw setup; here the file owns its whole surface.
   // Individual tests still shadow them — the 503 destinations case is the point of that.
-  http.get('/api/plugins/discord/channels', () => HttpResponse.json(CHANNELS)),
+  http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
   http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
 );
 beforeAll(() => listen()); afterEach(() => { cleanup(); resetHandlers(); }); afterAll(() => close());
@@ -41,7 +42,7 @@ beforeAll(() => listen()); afterEach(() => { cleanup(); resetHandlers(); }); aft
 async function mountWith(jobs: CronJob[]) {
   use(
     http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json(jobs)),
-    http.get('/api/plugins/discord/channels', () => HttpResponse.json(CHANNELS)),
+    http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
     http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
     http.put('/api/plugins/cronjob/jobs/:id', () => HttpResponse.json({ ok: true })),
   );
@@ -79,7 +80,7 @@ describe('cronjob JobsSettings — error state', () => {
     use(
       http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 9, username: 'amy', is_admin: false } })),
       http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job({ id: 'mine', name: 'my digest', ownerUserId: 9 })])),
-      http.get('/api/plugins/discord/channels', () => HttpResponse.json(CHANNELS)),
+      http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
       http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
     );
     const { wrapper: Wrapper } = createWrapper();
@@ -102,7 +103,7 @@ describe('cronjob JobsSettings — error state', () => {
         attempts += 1;
         return attempts === 1 ? HttpResponse.json({ error: 'boom' }, { status: 500 }) : HttpResponse.json([job({})]);
       }),
-      http.get('/api/plugins/discord/channels', () => HttpResponse.json(CHANNELS)),
+      http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
       http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
     );
     const { wrapper: Wrapper } = createWrapper();
@@ -113,15 +114,12 @@ describe('cronjob JobsSettings — error state', () => {
     expect(await screen.findByText('digest')).toBeInTheDocument();
   });
 
-  // The destinations come from the DISCORD plugin's own root mount now, so with discord off the
-  // platform answers 503 — into a section owned by a different, enabled plugin. Production shape on
-  // this instance is exactly that combination. The editor must degrade the way it did when the list
-  // came back empty for want of a bot token: a picker offering what it can, not an error state thrown
-  // over the whole cron editor, and not a saved destination the user can no longer see.
-  it('stays usable when the discord plugin is disabled (503 destinations)', async () => {
+  // A disabled provider simply contributes no rows to the core aggregate. The editor must keep a saved
+  // opaque destination visible instead of treating the empty catalog as a page-level failure.
+  it('stays usable when the selected platform provider is disabled', async () => {
     use(
-      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job({ notifyChannelId: '100' })])),
-      http.get('/api/plugins/discord/channels', () => HttpResponse.json({ error: 'discord plugin is disabled' }, { status: 503 })),
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job({ notifyChannelId: 'destination:discord:100' })])),
+      http.get('/api/plugins/destinations', () => HttpResponse.json([])),
       http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
     );
     const { wrapper: Wrapper } = createWrapper();
@@ -130,11 +128,11 @@ describe('cronjob JobsSettings — error state', () => {
     fireEvent.click(await screen.findByText('digest'));
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull(); // no error state for the section
     // The configured destination is still shown — as its raw id, since nothing can resolve the name.
-    expect(screen.getAllByText('100').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('destination:discord:100').length).toBeGreaterThan(0);
     // And the picker still opens, with the guild default and that id pinned, so the job stays editable.
     fireEvent.click(screen.getAllByRole('button', { name: 'Manage' })[0]!);
     expect(await screen.findByRole('button', { name: '(default)' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '100' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'destination:discord:100' })).toHaveAttribute('aria-pressed', 'true');
   });
 });
 
@@ -152,20 +150,20 @@ const manageButtons = () => screen.getAllByRole('button', { name: 'Manage' });
 
 describe('cronjob JobsSettings destination channel', () => {
   it('picking a channel in the single-select modal replaces the destination', async () => {
-    await mountWith([job({ notifyChannelId: '100' })]);
+    await mountWith([job({ notifyChannelId: 'destination:discord:100' })]);
     fireEvent.click(manageButtons()[0]);
-    // Text channels and threads land in their own groups; the guild default is pinned.
-    expect(await screen.findByRole('heading', { name: 'Channels' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Threads' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Discord' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Discord · general' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Microsoft Teams · Direct chats' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '(default)' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'general' })).toHaveAttribute('aria-pressed', 'true');
-    // Single-select: picking the thread replaces the pick.
-    fireEvent.click(screen.getByRole('button', { name: 'bug-hunt #general' }));
-    expect(screen.getByRole('button', { name: 'general' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: '#general' })).toHaveAttribute('aria-pressed', 'true');
+    // Single-select: picking the Teams target replaces the Discord pick.
+    fireEvent.click(screen.getByRole('button', { name: 'Filip' }));
+    expect(screen.getByRole('button', { name: '#general' })).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     // Modal closed; the summary chip (and the row-header badge) now show the new destination.
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull());
-    expect(screen.getAllByText('bug-hunt').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Filip').length).toBeGreaterThan(0);
   });
 
   it('a saved channel id the guild no longer lists stays visible and selected', async () => {
@@ -177,7 +175,7 @@ describe('cronjob JobsSettings destination channel', () => {
   });
 
   it('picking the pinned default clears the destination', async () => {
-    await mountWith([job({ notifyChannelId: '100' })]);
+    await mountWith([job({ notifyChannelId: 'destination:discord:100' })]);
     fireEvent.click(manageButtons()[0]);
     fireEvent.click(await screen.findByRole('button', { name: '(default)' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
@@ -194,7 +192,7 @@ describe('cronjob JobsSettings writes', () => {
   const mount = (jobs: CronJob[], writes: { id: string; body: unknown }[], deletes: string[]) => {
     use(
       http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json(jobs)),
-      http.get('/api/plugins/discord/channels', () => HttpResponse.json(CHANNELS)),
+      http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
       http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
       http.put('/api/plugins/cronjob/jobs/:id', async ({ request, params }) => {
         writes.push({ id: String(params.id), body: await request.json() });
@@ -249,7 +247,7 @@ describe('a cron job row', () => {
   const mount = (jobs: CronJob[], calls: { writes: { id: string; body: unknown }[]; deletes: string[] }, deleteStatus = 200) => {
     use(
       http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json(jobs)),
-      http.get('/api/plugins/discord/channels', () => HttpResponse.json(CHANNELS)),
+      http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
       http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
       http.put('/api/plugins/cronjob/jobs/:id', async ({ request, params }) => {
         const body = (await request.json()) as CronJob;
