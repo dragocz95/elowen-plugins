@@ -2,11 +2,12 @@
 // Jobs persist in the plugin's data dir; a lightweight scheduler (platform adapter) ticks every 30 s
 // and feeds due prompts back into the brain via the host's channel handler.
 //
-// A job either belongs to the INSTANCE (no ownerUserId — created by an admin, runs with admin powers and
-// reports to the notification channel, exactly as every job did before ownership existed) or to ONE
-// account: that job runs as its owner (`access.actAsUserId`, so the host applies that account's project
-// policy, tool deny-list and plugin grants), reports into that person's own conversation, and may not
-// run a shell guard or address a notification channel.
+// A job either belongs to the INSTANCE (no ownerUserId — runs with owner powers and reports through the
+// notification channel, exactly as every job did before ownership existed) or to ONE account: that job
+// runs as its owner (`access.actAsUserId`, so the host applies that account's project policy, tool deny-list
+// and plugin grants), reports into that person's own conversation, and may not run a shell guard or address
+// a notification channel. CronAdd may create instance jobs only for the operator; the legacy HTTP route
+// retains its existing admin authorization.
 import { defineTool, loadSkillsFromDir } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { exec } from 'node:child_process';
@@ -22,7 +23,7 @@ const PLUGIN_NAME = 'cronjob';
 
 // `exec` runs the command through the PLATFORM default shell (/bin/sh -c on POSIX, cmd.exe /d /s /c on
 // Windows), so a job's check collector works cross-platform — hardcoding /bin/sh broke every cron on
-// Windows, which has no /bin/sh. Jobs are admin-only, so the shell command is trusted (as it always was).
+// Windows, which has no /bin/sh. Checks are an instance-job capability; CronAdd exposes them owner-only.
 const execAsync = promisify(exec);
 // Scheduler defaults — user-overridable via configSchema (see register()); these are the values used
 // when a key is unset, and stay the source of truth the existing tests rely on.
@@ -145,8 +146,8 @@ export function resolveSessionIdleMs(value) {
 }
 
 /** Run a job's optional cheap guard command and classify the outcome, so the scheduler can decide
- *  whether the (expensive) brain turn is even worth running. Admin-authored (jobs are admin-only), run
- *  through the platform default shell like the brain's own Bash. Returns:
+ *  whether the (expensive) brain turn is even worth running. Instance jobs only; CronAdd exposes this through
+ *  owner-only instance scope. The command runs through the platform default shell like the brain's Bash. Returns:
  *   - { skip:true }  → nothing to do (empty stdout) or the check errored → DON'T spend an LLM turn.
  *   - { skip:false, output } → fresh data on stdout → run the brain turn and feed it this output. */
 export async function runCheck(command, logger, timeoutMs = DEFAULT_CHECK_TIMEOUT_MS) {
@@ -498,9 +499,10 @@ class CronAdapter {
       // Capture the turn's idle event (model + context usage) so the proactive push can carry the same
       // runtime footer a streamed reply gets — the handler forwards this onEvent into the brain session.
       let idle = null;
-      // Where the host actually ran the turn (its `session` event). When it matches the job's recorded
-      // origin, the reply already landed in the originating conversation — no Discord echo needed.
-      let deliveredTo = null;
+      // Whether the host confirmed delivery into the recorded origin. Direct platform chats are confirmed
+      // only by the host's `delivery` event, emitted after the platform adapter accepts the result. Owner-chat
+      // bound sends retain their session-route confirmation because the conversation itself is the sink.
+      let boundDelivery = false;
       // Did the turn emit real output (a tool call, assistant text or a diff)? If it did before failing,
       // the run had side effects and must NOT be retried; only a failure that produced nothing is safe.
       let sawWork = false;
@@ -513,7 +515,11 @@ class CronAdapter {
       // owned job names no session, so the host delivers into its owner's own default conversation. An
       // instance job has neither and reports through the notification channel as before.
       const origin = job.originSessionId && job.originUserId != null
-        ? { sessionId: job.originSessionId, userId: job.originUserId }
+        ? {
+            sessionId: job.originSessionId,
+            userId: job.originUserId,
+            ...(typeof job.originDeliveryTarget === 'string' ? { deliveryTarget: job.originDeliveryTarget } : {}),
+          }
         : (owner !== null ? { userId: owner } : undefined);
       // A bound run replays INTO a real conversation, so frame the prompt: without this the model reads
       // its own schedule as the user speaking just now. (The channel fallback keeps its wake-up context
@@ -543,7 +549,9 @@ class CronAdapter {
       };
       const onEvent = (e) => {
         if (e?.type === 'idle') idle = e;
-        if (e?.type === 'session') deliveredTo = e.sessionId;
+        if (origin?.deliveryTarget !== undefined && e?.type === 'delivery') boundDelivery = true;
+        if (origin !== undefined && origin.deliveryTarget === undefined && e?.type === 'session'
+          && (origin.sessionId === undefined || e.sessionId === origin.sessionId)) boundDelivery = true;
         if (e?.type === 'tool' || e?.type === 'text' || e?.type === 'diff') sawWork = true;
       };
       // Bounded retry: a request-time failure — a transient relay/gateway/network blip that threw before
@@ -554,7 +562,7 @@ class CronAdapter {
       // per-turn accumulators each attempt.
       let reply;
       for (let attempt = 1; ; attempt++) {
-        idle = null; deliveredTo = null; sawWork = false;
+        idle = null; boundDelivery = false; sawWork = false;
         try { reply = await this.handler(src, userText, onEvent); break; }
         catch (e) {
           if (attempt < this.turnAttempts && !sawWork && !job.runAt) {
@@ -569,15 +577,11 @@ class CronAdapter {
       // One-shots were already removed before running; recurring jobs record their last result.
       if (!job.runAt) this.store.patch(job.id, { lastResult: String(reply ?? '').slice(0, 500) });
       const trimmed = String(reply ?? '').trim();
-      // Origin-bound delivery: a successful reply already landed (and streamed) in the originating
-      // conversation — the conversation IS the delivery, so skip the proactive Discord echo. But a FAILED
-      // wake-up (reply starts with "Error:") may have reached no one: the handler can throw AFTER emitting
-      // its `session` event, so deliveredTo already matches the origin while nothing actually landed — and
-      // if no bound-stream client is attached the user never learns it failed. Echo those to the
-      // notification channel so a failed scheduled wake-up is never silently lost.
-      const boundDelivery = origin !== undefined && deliveredTo !== null
-        && (origin.sessionId === undefined || deliveredTo === origin.sessionId);
-      if (boundDelivery && !trimmed.startsWith('Error:')) continue;
+      // Origin-bound delivery: a successful result already landed in the originating conversation, so the
+      // generic notification sink must not send it a second time. Direct platform origins are confirmed only
+      // after adapter delivery; owner-chat bound sends keep their existing session confirmation. A failed
+      // turn emits neither confirmation, so instance wake-ups can still fall back to the notification channel.
+      if (boundDelivery && (origin?.deliveryTarget !== undefined || !trimmed.startsWith('Error:'))) continue;
       // An owned job NEVER echoes to the notification channel: that channel belongs to the operator, and
       // this result belongs to somebody else. When the bound delivery could not land (the owner has no
       // conversation yet, or it changed hands) the outcome stays in the job's own last-result field,
@@ -773,8 +777,8 @@ export function register(ctx) {
 
   /** Whether the account owning a job may run its shell guard. Fail CLOSED: when the host cannot answer
    *  (a process with no store seam), the guard does not run — a shell command is the one thing here that
-   *  must never execute on an assumption. An instance job has no owner and is admin-authored by
-   *  construction, which is exactly what it meant before ownership existed. */
+   *  must never execute on an assumption. An instance job has no account owner and is privileged by scope:
+   *  CronAdd creation is operator-only, while the legacy HTTP route keeps its existing admin authorization. */
   const ownerIsAdmin = (userId) => {
     if (userId === null || userId === undefined) return true;
     try { return ctx.host.stores().usersRead.isAdmin(userId) === true; }
@@ -794,20 +798,20 @@ export function register(ctx) {
   /** The account behind the current turn, or null (an unlinked sender, a cron-of-cron turn). */
   const callerId = () => ctx.currentIdentity()?.elowenUserId ?? null;
 
-  /** Why this account may not store this job, or null when it may. Instance jobs (admin authors) keep
-   *  every capability they always had; an owned job is deliberately narrower, because it runs unattended
-   *  on the operator's machine at a schedule its owner chose. */
+  /** Why this account may not store this personal job, or null when it may. Instance jobs keep every
+   *  privileged capability they always had; CronAdd's instance scope is operator-only. A personal job is
+   *  deliberately narrower because it runs unattended on the operator's machine at its owner's schedule. */
   const ownedJobError = (job, jobs) => {
     if (typeof job.check === 'string' && job.check.trim()) {
-      return 'a shell check may only be used on an instance job (admin)';
+      return 'a shell check requires an instance job; CronAdd instance scope is operator-only';
     }
     if (typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim()) {
-      return 'your jobs report into your own conversation; a notification channel can only be set by an admin';
+      return 'personal jobs report into their own conversation; CronAdd notification channel delivery requires operator-only instance scope';
     }
     const parsed = parseSchedule(job.schedule);
     // A 5-field cron expression can express "every minute" in ways a simple bound cannot catch, so the
     // plain forms — which the interval floor below fully covers — are the ones offered per account.
-    if (parsed?.kind === 'cron') return 'cron expressions are an admin tool — use "every 30m", "daily 07:30" or "weekly mon 09:00"';
+    if (parsed?.kind === 'cron') return 'cron expressions require operator-only instance scope — use "every 30m", "daily 07:30" or "weekly mon 09:00"';
     if (parsed?.kind === 'interval' && parsed.ms < minIntervalMs) {
       return `the shortest interval you can schedule is every ${Math.round(minIntervalMs / 60_000)}m`;
     }
@@ -897,11 +901,11 @@ export function register(ctx) {
    *  instance-wide job that reported to the notification channel instead of to the person who asked. Being
    *  an admin says what someone MAY do, never what they MEANT — so the tool asks, and `scope` is required.
    *
-   *  'instance' stays admin-only: an instance job runs with admin powers, may carry a shell check and may
-   *  report into any channel. */
+   *  'instance' stays owner-only: an instance job runs with owner powers, may carry a shell check and may
+   *  report into any channel. A foreign admin session is broad project access, not authority over the instance. */
   const toolOwner = (scope) => {
     if (scope === 'instance') {
-      if (!ctx.isAdminSession()) throw new Error('only an admin may schedule an instance-wide job — use scope "personal" for your own');
+      if (ctx.currentIdentity()?.owner !== true) throw new Error('only the instance owner may schedule an instance-wide job — use scope "personal" for your own');
       return null;
     }
     const me = callerId();
@@ -909,12 +913,18 @@ export function register(ctx) {
     return me;
   };
 
-  /** May work scheduled here report back INTO this conversation? Only where exactly one person reads it:
-   *  the account's own chat, or a direct 1:1 platform chat. In a shared room the answer would land in
-   *  front of everyone else, so those keep reporting through the notification channel as before. */
-  const conversationTakesResults = () => {
+  /** Persist the current one-person conversation as an origin. Direct adapters also supply an opaque
+   *  delivery target so core can deliver the completed scheduled result through that exact adapter path. */
+  const conversationOrigin = (userId) => {
+    const sessionId = ctx.currentSessionId();
     const where = ctx.currentIdentity()?.conversation;
-    return where === 'own' || where === 'direct';
+    if (!sessionId || (where !== 'own' && where !== 'direct')) return undefined;
+    const deliveryTarget = where === 'direct' ? ctx.currentDeliveryTarget?.() : undefined;
+    return {
+      originSessionId: sessionId,
+      originUserId: userId,
+      ...(typeof deliveryTarget === 'string' ? { originDeliveryTarget: deliveryTarget } : {}),
+    };
   };
   /** The jobs a tool call may see or address: the caller's own, plus the INSTANCE ones when they are an
    *  admin — never another person's.
@@ -1030,7 +1040,7 @@ export function register(ctx) {
     name: 'CronAdd', label: 'Schedule job',
     description: [
       'Schedule a recurring prompt — daily summaries, periodic checks, recurring reminders. The prompt fires as a brain turn on the schedule you set.',
-      'You MUST say who the job is for with `scope`. Use "personal" when a person asks for something for themselves ("remind ME every morning"): it belongs to their account, runs with their rights, and reports back into the conversation it was created in. Use "instance" only for automation that belongs to the whole instance, with no particular person behind it — that is admin-only, runs with admin powers and reports to the notification channel. When in doubt pick "personal": someone talking to you in their own chat is asking for themselves, even if they happen to be an admin.',
+      'You MUST say who the job is for with `scope`. Use "personal" when a person asks for something for themselves ("remind ME every morning"): it belongs to their account, runs with their rights, and reports back into the conversation it was created in. Use "instance" only for automation that belongs to the whole instance, with no particular person behind it — that is owner-only, runs with owner powers and reports to the notification channel. When in doubt pick "personal": someone talking to you in their own chat is asking for themselves, even if they happen to be an admin.',
       'The schedule takes either a plain form — "every 15m", "every 2h", "daily 07:30", "weekly sun 20:00" — or a standard 5-field cron expression ("*/5 * * * *", "0 9 * * 1-5", "0 0 1 * *"). The format is detected automatically; reach for cron only when the plain form cannot express the timing you need.',
       'For polling work, use the `check` guard: a cheap shell command that runs BEFORE the prompt. If it prints nothing (or fails), the scheduled turn is skipped entirely — no model call. If it prints output, the brain runs and receives that output. This is how you poll for new work without paying for a model call on every tick.',
       'Use `hours` ("H-H", e.g. "5-21") to keep a job quiet outside active hours, `enabled: false` to create it paused, and `plain: true` to deliver the reply without the "⏰ job name" header. Returns the job id — pass it to CronRemove to cancel, and see everything currently scheduled with CronList.',
@@ -1038,12 +1048,12 @@ export function register(ctx) {
     ].join(' '),
     parameters: Type.Object({
       name: Type.String({ description: 'Short human name for the job, shown in schedules and telemetry' }),
-      scope: Type.Union([Type.Literal('personal'), Type.Literal('instance')], { description: 'Who the job is for. "personal" = the person you are talking to; it runs with their rights and reports back into this conversation. "instance" = the whole instance, admin only. Required: being an admin says what someone MAY do, not what they meant, so this must not be guessed.' }),
+      scope: Type.Union([Type.Literal('personal'), Type.Literal('instance')], { description: 'Who the job is for. "personal" = the person you are talking to; it runs with their rights and reports back into this conversation. "instance" = the whole instance, owner only. Required: broad admin access does not grant authority over instance automation, and scope must not be guessed.' }),
       schedule: Type.String({ description: '"every <N>m", "every <N>h", "daily HH:MM", "weekly <mon..sun> HH:MM", or a 5-field cron expression (e.g. "0 9 * * 1-5")' }),
       prompt: Type.String({ description: 'The prompt to run on schedule' }),
-      check: Type.Optional(Type.String({ description: 'ADMIN ONLY (an instance job): ' + 'Optional cheap shell guard run BEFORE the prompt. If it prints nothing (or fails), the scheduled brain turn is skipped — no LLM call. If it prints output, the brain runs and receives that output. Use it to poll for new work without paying for a model call each tick, e.g. a collector script that only prints when there is something new.' })),
+      check: Type.Optional(Type.String({ description: 'OWNER ONLY (an instance job): ' + 'Optional cheap shell guard run BEFORE the prompt. If it prints nothing (or fails), the scheduled brain turn is skipped — no LLM call. If it prints output, the brain runs and receives that output. Use it to poll for new work without paying for a model call each tick, e.g. a collector script that only prints when there is something new.' })),
       hours: Type.Optional(Type.String({ description: 'Active-hours window "H-H" (e.g. "5-21") — outside it the job stays quiet' })),
-      notifyChannelId: Type.Optional(Type.String({ description: 'Deliver results to this channel/thread instead of the default notification channel. Admin sessions only — your own jobs always report in your own conversation.' })),
+      notifyChannelId: Type.Optional(Type.String({ description: 'Deliver results to this channel/thread instead of the default notification channel. Instance-owner scope only — personal jobs always report in their own conversation.' })),
       plain: Type.Optional(Type.Boolean({ description: 'true = deliver the reply as-is, without the "⏰ job name" header line — for persona messages in a dedicated channel' })),
       model: Type.Optional(Type.String({ description: 'Run this job on a specific brain model, as "provider/model" (e.g. "anthropic/claude-sonnet-5"). Empty = the server default.' })),
       enabled: Type.Optional(Type.Boolean({ description: 'false = create the job paused' })),
@@ -1060,9 +1070,7 @@ export function register(ctx) {
         // A personal job remembers the conversation it was created in, exactly as ScheduleWakeup does, so
         // "tell me here every morning" reports where it was promised instead of in the owner's default web
         // chat. Only where one person reads: a shared room would put the answer in front of everyone else.
-        const origin = owner !== null && conversationTakesResults() && ctx.currentSessionId()
-          ? { originSessionId: ctx.currentSessionId(), originUserId: owner }
-          : undefined;
+        const origin = owner !== null ? conversationOrigin(owner) : undefined;
         // lastRun starts at creation time so a fresh job waits for its NEXT natural slot — a
         // "daily 06:00" created at 15:00 must not fire immediately.
         const job = { id, name: p.name, schedule: p.schedule, prompt: p.prompt, check: p.check, hours: p.hours, notifyChannelId: p.notifyChannelId, plain: p.plain, model, enabled: p.enabled, ...(owner !== null ? { ownerUserId: owner } : {}), ...origin, createdAt: new Date().toISOString(), lastRun: new Date().toISOString() };
@@ -1071,7 +1079,7 @@ export function register(ctx) {
         jobs.push(job);
         store.save(jobs);
         const lands = owner === null
-          ? 'Results accumulate in its own conversation.'
+          ? 'It will report through the notification channel.'
           : origin ? 'It will report here, in this conversation.' : 'It will report in your own conversation.';
         return ok(`Scheduled "${p.name}" (${p.schedule}) — id ${id}. ${lands}`);
       } catch (e) { return fail(e); }
@@ -1096,21 +1104,19 @@ export function register(ctx) {
         // Unlike CronAdd there is nothing to ask here: "come back to this later" is always for whoever is
         // asking, so a turn with an account behind it always gets a personal wake-up. Only automation with
         // no account at all — a job's own turn rescheduling itself — has nobody to own it and falls to the
-        // instance, where being an admin is genuinely the question.
+        // instance, which requires the operator identity just like explicit CronAdd instance scope.
         const owner = toolOwner(callerId() === null ? 'instance' : 'personal');
         const runAt = parseOneShot(p.when, Date.now(), ctx.timezone());
         if (!runAt) return ok('Error: invalid time — use "in 30s", "in 20m", "in 2h" or "at 18:30".');
         const jobs = store.all();
         const id = newId();
-        // A wake-up scheduled where exactly ONE person reads records its origin: at fire time the host runs
-        // the prompt as a bound send into that conversation, so the reply lands where it was asked for.
+        // A wake-up scheduled where exactly ONE person reads records its origin: owner chat resumes the
+        // bound conversation, while a direct platform chat carries its opaque delivery target back to core.
         // A shared room and a cron-of-cron turn keep no origin and deliver through the notification channel
         // as before — there the answer would land in front of everyone else. This used to exclude every
         // `brain-ch-…` id, which also excluded a private 1:1 chat, because the two were indistinguishable.
-        const sid = ctx.currentSessionId();
         const uid = ctx.currentIdentity()?.elowenUserId;
-        const origin = sid && uid != null && conversationTakesResults()
-          ? { originSessionId: sid, originUserId: uid } : undefined;
+        const origin = uid != null ? conversationOrigin(uid) : undefined;
         const job = { id, name: p.name, schedule: p.when, prompt: p.prompt, runAt: new Date(runAt).toISOString(), ...(owner !== null ? { ownerUserId: owner } : {}), createdAt: new Date().toISOString(), ...origin };
         const denied = owner !== null ? ownedJobError(job, jobs) : null;
         if (denied) return ok(`Error: ${denied}.`);
@@ -1127,7 +1133,7 @@ export function register(ctx) {
       'List the scheduled jobs, timers and reminders that are currently set up: for each one its id, name, schedule, when it last ran and what that run produced.',
       'Use it to answer what is scheduled, whether a recurring task is still active, when a job last fired and whether it succeeded — and to get the job id that CronRemove needs. It takes no parameters and changes nothing, so it is safe to call before deciding what to cancel.',
       'Both kinds of entry appear here: recurring jobs created with CronAdd, and pending one-shot wake-ups from ScheduleWakeup, which are marked "one-shot" with their fire time. A wake-up that has already fired is gone, because a one-shot deletes itself after running.',
-      'You see your own jobs; an admin session sees every job on the instance, including instance-wide ones. A job that never ran yet reports its last run as "never".',
+      'You see your own jobs, plus instance-wide jobs when your session has admin access; another account\'s personal jobs stay private. A job that never ran yet reports its last run as "never".',
     ].join(' '),
     parameters: Type.Object({}),
     execute: async () => {
@@ -1147,7 +1153,7 @@ export function register(ctx) {
       'Cancel a scheduled job by its id — deleting the recurring task, timer or reminder so it stops firing immediately and never runs again.',
       'Use it when the user asks to stop, cancel or turn off something that was scheduled, or when a job you created is no longer needed. Get the id from CronList, or from the result CronAdd or ScheduleWakeup returned when the job was created; the id is required, and there is no way to cancel by name.',
       'It removes both recurring schedules and pending one-shot wake-ups. The deletion is permanent and cannot be undone — the job definition, including its prompt and schedule, is gone, so recreate it with CronAdd if it is needed again. To pause a recurring job instead of losing it, disable it rather than removing it.',
-      'You may remove your own jobs; an admin session may remove any job on the instance. An id that does not exist and an id belonging to someone else return the same error, so this cannot be used to discover what other people have scheduled.',
+      'You may remove your own jobs, plus instance-wide jobs when your session has admin access. Another account\'s personal job remains inaccessible. An id that does not exist and an id belonging to someone else return the same error, so this cannot be used to discover what other people have scheduled.',
     ].join(' '),
     parameters: Type.Object({ id: Type.String({ description: 'The job id to cancel, exactly as shown by CronList or returned by CronAdd / ScheduleWakeup' }) }),
     execute: async (_id, p) => {
@@ -1162,13 +1168,13 @@ export function register(ctx) {
   }));
 
   // The retention janitor's seam (the host reads it via registry.control('cron')): which of this user's
-  // conversations still have a PENDING wake-up scheduled INTO them. Only ScheduleWakeup ever records an
-  // origin, and a one-shot is deleted at fire time (and by CronRemove), so presence in the store IS
-  // pendingness. The janitor must not purge these conversations — the wake-up would lose its context
-  // and fall back to the notification channel.
+  // conversations still have a PENDING wake-up scheduled INTO them. Recurring personal jobs may also carry
+  // origins, so the runAt filter is what makes this specifically a pending-wake-up hold. A one-shot is
+  // deleted at fire time (and by CronRemove), so presence in the store IS pendingness. The janitor must not
+  // purge these conversations — the wake-up would lose its context and delivery route.
   ctx.registerControl('cron', {
     pendingWakeupOriginSessionIds: (userId) => store.all()
-      .filter((j) => typeof j.originSessionId === 'string' && j.originUserId === userId)
+      .filter((j) => typeof j.runAt === 'string' && typeof j.originSessionId === 'string' && j.originUserId === userId)
       .map((j) => j.originSessionId),
   });
 

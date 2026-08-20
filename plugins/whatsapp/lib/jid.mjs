@@ -14,6 +14,12 @@ export function sameId(a, b) {
 /** Whether a JID is a group chat (…@g.us) rather than a direct chat. */
 export function isGroup(jid) { return typeof jid === 'string' && jid.endsWith('@g.us'); }
 
+/** Whether a chat JID is one the assistant may handle: a group or a personal PN/LID chat. Status,
+ *  newsletters, broadcast lists and future non-chat namespaces are rejected rather than treated as direct. */
+export function isSupportedChat(jid) {
+  return isGroup(jid) || (typeof jid === 'string' && (jid.endsWith('@s.whatsapp.net') || jid.endsWith('@lid')));
+}
+
 /** The bare phone number of a personal JID (…@s.whatsapp.net / …@lid) — digits only. */
 export function numberOf(jid) { return jidDecode(jid)?.user ?? String(jid ?? '').replace(/[@:].*$/, ''); }
 

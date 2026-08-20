@@ -14,9 +14,8 @@ const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(repoRoot, 'plugins');
 const ADMIN: Policy = { allowedProjectIds: 'all', allowedPaths: () => [] };
-// `conversation` ships in elowen 0.28.4; the registry still builds against the published types, so it is
-// attached structurally until that release lands on npm. 'own' = the account's own Elowen chat, which is
-// what a wake-up scheduled from the web UI is created in.
+// `conversation` is part of the Elowen 0.28.6 scheduled-delivery contract. 'own' = the account's own
+// Elowen chat, which is what a wake-up scheduled from the web UI is created in.
 const OWNER = { platform: 'elowen', userId: '1', elowenUserId: 1, admin: true, owner: true, conversation: 'own' } as TurnIdentity;
 const asText = (r: { content: { text?: string }[] }) => (r.content[0] as { text: string }).text;
 
@@ -381,6 +380,16 @@ describe('cron control — pending wake-up origins (the retention seam)', () => 
     const control = reg.control('cron')!;
     expect(control.pendingWakeupOriginSessionIds(1)).toEqual(['brain-1-abc']);
     expect(control.pendingWakeupOriginSessionIds(2)).toEqual([]); // another user's sweep sees nothing
+  });
+
+  it('does not treat a recurring job origin as a pending wake-up hold', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [{
+      id: 'recurring', name: 'digest', schedule: 'daily 08:00', prompt: 'p',
+      originSessionId: 'brain-1-recurring', originUserId: 1, createdAt: new Date().toISOString(),
+    }]);
+    const { reg } = await loadCron(dataRoot);
+    expect(reg.control('cron')!.pendingWakeupOriginSessionIds(1)).toEqual([]);
   });
 
   it('an originless wake-up (channel/task-scheduled) protects nothing', async () => {

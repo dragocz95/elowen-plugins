@@ -89,6 +89,7 @@ export function register(ctx) {
   /** The account behind the current request/turn, or null when there is none (cron, an unlinked sender). */
   const callerId = () => ctx.currentIdentity()?.elowenUserId ?? null;
   const adminOnly = () => { if (!ctx.isAdminSession()) throw new Error('instance-wide skills can only be managed from an admin session'); };
+  const ownerOnly = () => { if (ctx.currentIdentity()?.owner !== true) throw new Error('instance-wide skills can only be created by the instance owner'); };
 
   // ── Admin skills API (root mounts, grandfathered core URLs): bundled .md skills ship inside this
   // plugin folder (read-only), user skills live in the plugin's writable data dir — the same files
@@ -177,10 +178,9 @@ export function register(ctx) {
   const buildSkillBody = (front, content) => `---\n${stringifyYaml(front).trimEnd()}\n---\n\n${content}\n`;
   const jsonRes = (body, status = 200) => ({ status, body });
 
-  // Where a write goes when the caller did NOT say: exactly where it went before personal sets existed —
-  // an admin's skill is instance-wide (their Discord channels and every other session still see it), and
-  // anyone else has only their own set. Shared by the API and the CreateSkill tool so the two can never
-  // answer "unspecified" differently.
+  // HTTP compatibility for clients that omit `?owner=`: preserve the route's historical auth-based target.
+  // An API admin writes the instance set; anyone else writes their own set. The CreateSkill tool does NOT
+  // use this fallback — its explicit `scope` is gated independently on instance-owner identity.
   const legacyTarget = (isAdmin, me) => {
     if (isAdmin) return { ok: true, owner: null, dir: instanceDir };
     if (me === null) return { ok: false };
@@ -357,14 +357,14 @@ export function register(ctx) {
     description: [
       'Save a reusable skill — a named markdown procedure, workflow or set of standing instructions that you can follow again in later conversations — as a file the agent loads automatically.',
       'Use it when a workflow keeps repeating (a deployment checklist, a report format, how a specific client wants things done) or when the user asks you to remember a procedure permanently. It is for durable know-how, not for facts about a person or project: store those as a memory instead, and use TodoWrite for the steps of the task you are doing right now.',
-      'The `name` is a kebab-case identifier (a-z, digits and dashes, up to 64 characters) and also the file name; `description` is the single line that tells your future self when this skill applies, so write it as a trigger condition; `content` is the markdown body with the actual instructions. You MUST say who the skill is for with `scope`. "personal" keeps it to the account you are talking to and is what someone asking you to remember THEIR way of doing something wants; "instance" puts it in front of every session on this instance and is admin-only. When in doubt pick "personal": a person describing their own procedure is not asking to change everyone else\'s prompt, even if they happen to be an admin.',
-      'Writing an existing personal skill of yours overwrites it, but a name that collides with a bundled or instance-wide skill is refused rather than shadowed, and non-admins cannot write the shared set. The new skill is applied live and appears in the available-skills list from your next message; use ListSkills to see what already exists and DeleteSkill to remove one.',
+      'The `name` is a kebab-case identifier (a-z, digits and dashes, up to 64 characters) and also the file name; `description` is the single line that tells your future self when this skill applies, so write it as a trigger condition; `content` is the markdown body with the actual instructions. You MUST say who the skill is for with `scope`. "personal" keeps it to the account you are talking to and is what someone asking you to remember THEIR way of doing something wants; "instance" puts it in front of every session on this instance and is owner-only. When in doubt pick "personal": a person describing their own procedure is not asking to change everyone else\'s prompt, even if they happen to be an admin.',
+      'Writing an existing personal skill of yours overwrites it, but a name that collides with a bundled or instance-wide skill is refused rather than shadowed, and only the instance owner can write the shared set. The new skill is applied live and appears in the available-skills list from your next message; use ListSkills to see what already exists and DeleteSkill to remove one.',
     ].join(' '),
     parameters: Type.Object({
       name: Type.String({ description: 'kebab-case identifier and file name, e.g. "deploy-checklist" (a-z, 0-9 and dashes, max 64 chars)' }),
       description: Type.String({ description: 'One line describing WHEN to use this skill — it is the trigger the agent matches on later, e.g. "Use when releasing a new backend version"' }),
       content: Type.String({ description: 'The skill body: markdown instructions, steps, rules and examples the agent should follow when the skill applies' }),
-      scope: Type.Union([Type.Literal('instance'), Type.Literal('personal')], { description: '"instance" = shared with every session on this instance, admin only. "personal" = only the account you are talking to. Required: being an admin says what someone MAY do, not what they meant, so this must not be guessed.' }),
+      scope: Type.Union([Type.Literal('instance'), Type.Literal('personal')], { description: '"instance" = shared with every session on this instance, owner only. "personal" = only the account you are talking to. Required: broad admin access does not grant authority over the instance-wide prompt, and scope must not be guessed.' }),
     }),
     execute: async (_id, p) => {
       try {
@@ -375,10 +375,10 @@ export function register(ctx) {
         const target = p.scope === 'instance' ? { ok: true, owner: null, dir: instanceDir }
           : (me === null ? { ok: false } : { ok: true, owner: me, dir: userSkillsDir(me) });
         const wantsInstance = target.ok && target.owner === null;
-        if (wantsInstance) adminOnly();
-        // No account behind the turn AND not an admin session: there is no personal set to write to, and
-        // the shared one is admin-only. Say both, so the caller knows which of the two to fix.
-        if (!target.ok) return ok('Error: this turn has no account behind it, so there is no personal skill set to write to — and writing the instance-wide set needs an admin session.');
+        if (wantsInstance) ownerOnly();
+        // No account behind the turn: there is no personal set to write to. The shared set remains a
+        // separate owner-only choice, so say both constraints rather than implying broad admin access helps.
+        if (!target.ok) return ok('Error: this turn has no account behind it, so there is no personal skill set to write to — and writing the instance-wide set requires the instance owner.');
         const dir = target.dir;
         if (!NAME_RE.test(p.name)) return ok('Error: name must be kebab-case (a-z, 0-9, dashes), max 64 chars.');
         // Refuse rather than shadow: a personal skill with an instance skill's name would register twice

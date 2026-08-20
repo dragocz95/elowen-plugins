@@ -8,7 +8,7 @@ import QRCode from 'qrcode';
 import { rmSync, mkdirSync } from 'node:fs';
 import { parseModelExec, buildReplyContext, splitContent, stripThinking, withoutFooter } from './format.mjs';
 import { parseAskReply } from './ask.mjs';
-import { sameId, isGroup, numberOf, toJid, senderIsAdmin } from './jid.mjs';
+import { sameId, isGroup, isSupportedChat, numberOf, toJid, senderIsAdmin } from './jid.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage } from './stream.mjs';
 import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
@@ -282,7 +282,7 @@ export class WhatsAppAdapter {
   visibleMessageIdentity(m) {
     if (!this.handler || !m.message || m.key?.fromMe) return null;
     const chatJid = m.key.remoteJid;
-    if (!chatJid || chatJid === 'status@broadcast') return null;
+    if (!isSupportedChat(chatJid)) return null;
     const group = isGroup(chatJid);
     // Baileys 7 LID addressing: `remoteJid`/`participant` may be an internal `…@lid` id, with the real
     // phone-number JID in the `…Alt` field. Prefer the phone-number JID so sender policies (written as

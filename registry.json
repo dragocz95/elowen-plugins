@@ -33,6 +33,7 @@
       "category": "automation",
       "author": "Elowen",
       "apiVersion": "1",
+      "requiresCore": "0.28.6",
       "provides": {
         "tools": 4,
         "apiRoutes": 1,

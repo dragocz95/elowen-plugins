@@ -284,7 +284,7 @@ describe('cron tools — scheduling for the account behind the turn', () => {
     // An admin asking for an INSTANCE job gets one — no owner key at all, exactly as before ownership existed.
     await runWithPolicy(ADMIN, async () => {
       await add.execute('t', { name: 'instance', scope: 'instance', schedule: 'daily 08:00', prompt: 'p' }, undefined as never, undefined as never);
-    });
+    }, { identity: { platform: 'elowen', userId: '1', elowenUserId: 1, admin: true, owner: true } });
     expect(readJobs(dataRoot).find((j) => j.name === 'instance')).not.toHaveProperty('ownerUserId');
 
     // Another account sees neither job, and cannot remove one it cannot see.
@@ -305,8 +305,7 @@ describe('cron tools — scheduling for the account behind the turn', () => {
     expect(readJobs(dataRoot)).toHaveLength(1);
   });
 
-  /** `conversation` ships in elowen 0.28.4; the registry still builds against the published types, so it
-   *  is attached structurally until that release lands on npm. */
+  /** `conversation` is part of the Elowen 0.28.6 scheduled-delivery contract. */
   const speakingIn = (id: TurnIdentity, where: 'own' | 'direct' | 'shared'): TurnIdentity =>
     ({ ...id, conversation: where }) as TurnIdentity;
 
@@ -349,7 +348,7 @@ describe('cron tools — scheduling for the account behind the turn', () => {
     expect(job).not.toHaveProperty('originSessionId');
   });
 
-  it('refuses an instance job to a non-admin, whatever the conversation', async () => {
+  it('refuses an instance job to a non-owner, whatever the conversation', async () => {
     const dataRoot = freshDataRoot();
     writeJobs(dataRoot, []); // so an empty result means "refused", not "the store was never created"
     const { reg } = await loadCron(dataRoot);
@@ -357,7 +356,7 @@ describe('cron tools — scheduling for the account behind the turn', () => {
 
     await runWithPolicy(LIMITED, async () => {
       expect(asText(await add.execute('t', { name: 'sneaky', scope: 'instance', schedule: 'daily 07:30', prompt: 'p' }, undefined as never, undefined as never)))
-        .toMatch(/only an admin/);
+        .toMatch(/instance owner/);
     }, { identity: speakingIn(AMY, 'direct') });
     expect(readJobs(dataRoot)).toHaveLength(0);
   });

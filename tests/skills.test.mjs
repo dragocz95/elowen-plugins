@@ -68,8 +68,10 @@ const asTurn = async (plugin, { admin = false, identity = null }, fn) => {
   try { return await fn(); } finally { plugin.session.identity = null; plugin.session.adminSession = false; }
 };
 
-/** `runWithPolicy(ADMIN, …)` with no identity: every project in reach, nobody behind the turn. */
-const ADMIN_TURN = { admin: true, identity: null };
+/** An owner-policy turn with no Elowen account id: may write the instance set, but has no personal set. */
+const ADMIN_TURN = { admin: true, identity: { platform: 'elowen', userId: '1', admin: true, owner: true } };
+/** Broad admin policy from a foreign identity: not authority over the instance-wide prompt. */
+const FOREIGN_ADMIN_TURN = { admin: true, identity: { platform: 'discord', userId: '2', elowenUserId: 2, admin: true, owner: false } };
 /** `runWithPolicy(LIMITED, …)` with no identity: neither an admin session nor an account. */
 const LIMITED_TURN = { admin: false, identity: null };
 /** A limited turn that DOES belong to an account. */
@@ -388,11 +390,15 @@ test('skills plugin creator tools', async (t) => {
     const reg = loadPlugin({ dataRoot });
 
     await asTurn(reg, LIMITED_TURN, async () => {
-      // No account behind the turn and no admin session: neither set is writable, and the refusal names
-      // both so the caller knows which of the two is missing.
+      // No account behind the turn: neither a personal target nor owner authority for the shared set.
       const refusal = asText(await runTool(reg, 'CreateSkill', { name: 'x', scope: 'personal', description: 'd', content: 'c' }));
-      assert.match(refusal, /admin session/);
+      assert.match(refusal, /instance owner/);
       assert.match(refusal, /no account behind it/);
+    });
+    await asTurn(reg, FOREIGN_ADMIN_TURN, async () => {
+      const refusal = asText(await runTool(reg, 'CreateSkill', { name: 'foreign-shared', scope: 'instance', description: 'd', content: 'c' }));
+      assert.match(refusal, /instance owner/);
+      assert.equal(existsSync(join(dataRoot, 'skills/foreign-shared.md')), false);
     });
     await asTurn(reg, ADMIN_TURN, async () => {
       assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'Bad Name', scope: 'instance', description: 'd', content: 'c' })), /kebab-case/);
@@ -433,7 +439,7 @@ test('skills plugin creator tools', async (t) => {
       assert.equal(existsSync(join(dataRoot, 'skills/users/4/amy-skill.md')), true);
       assert.equal(existsSync(join(dataRoot, 'skills/amy-skill.md')), false);
       // A non-admin cannot promote it to the shared set.
-      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'amy-shared', description: 'd', content: 'c', scope: 'instance' })), /admin session/);
+      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'amy-shared', description: 'd', content: 'c', scope: 'instance' })), /instance owner/);
       assert.ok(asText(await runTool(reg, 'ListSkills', {})).includes('amy-skill (personal)'));
     });
 

@@ -88,9 +88,9 @@ describe('cronjob plugin', () => {
     const remove = reg.tools.find((t) => t.name === 'CronRemove')!;
 
     await runWithPolicy(LIMITED, async () => {
-      // Not an admin session AND no account behind the turn: there is nobody to own the job.
+      // No account and no owner identity: there is neither a personal target nor instance authority.
       expect(asText(await add.execute('t', { name: 'x', scope: 'personal', schedule: 'every 15m', prompt: 'p' }, undefined as never, undefined as never))).toMatch(/needs an Elowen account/);
-      expect(asText(await add.execute('t', { name: 'x', scope: 'instance', schedule: 'every 15m', prompt: 'p' }, undefined as never, undefined as never))).toMatch(/only an admin/);
+      expect(asText(await add.execute('t', { name: 'x', scope: 'instance', schedule: 'every 15m', prompt: 'p' }, undefined as never, undefined as never))).toMatch(/instance owner/);
     });
     await runWithPolicy(ADMIN, async () => {
       expect(asText(await add.execute('t', { name: 'ranní report', scope: 'instance', schedule: 'daily 07:30', prompt: 'shrň stav' }, undefined as never, undefined as never))).toMatch(/Scheduled/);
@@ -100,6 +100,6 @@ describe('cronjob plugin', () => {
       const jobs = JSON.parse(readFileSync(join(dataRoot, 'cronjob/jobs.json'), 'utf-8')) as { id: string }[];
       expect(asText(await remove.execute('t', { id: jobs[0]!.id }, undefined as never, undefined as never))).toMatch(/Removed/);
       expect(asText(await list.execute('t', {}, undefined as never, undefined as never))).toBe('No scheduled jobs.');
-    });
+    }, { identity: OWNER });
   });
 });
