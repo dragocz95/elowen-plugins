@@ -26,9 +26,17 @@ const nonempty = (value, label) => {
 };
 const json = (value, max) => bounded(value, max);
 const ok = (value) => ({ content: [{ type: 'text', text: typeof value === 'string' ? value : json(value) }], details: {} });
+const PERMISSION_ERROR_CODES = new Set([
+  'accessdenied', 'authorization_requestdenied', 'authorizationdenied',
+  'erroraccessdenied', 'forbidden', 'insufficientprivileges',
+]);
+const permissionHint = (error) => error.permission && error.status === 403
+  && PERMISSION_ERROR_CODES.has(String(error.code ?? '').toLowerCase())
+  ? ` Delegated permission for this operation: ${error.permission}.`
+  : '';
 const fail = (error) => {
   if (error instanceof DelegatedGraphError) {
-    const permission = error.permission ? ` Required delegated permission: ${error.permission}.` : '';
+    const permission = permissionHint(error);
     const retry = error.retryAfter ? ` Retry after ${error.retryAfter}s.` : '';
     const request = error.requestId ? ` Request ID: ${error.requestId}.` : '';
     return ok(`Error: ${error.message}${permission}${retry}${request}`);

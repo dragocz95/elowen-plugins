@@ -57,6 +57,24 @@ describe('delegated Microsoft 365 tools', () => {
     expect(text).not.toContain('delegated-secret-token');
   });
 
+  it('shows permission context only for classified authorization failures', async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'itemNotFound', message: 'Item not found' } }), {
+        status: 404, headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'Authorization_RequestDenied', message: 'Access denied' } }), {
+        status: 403, headers: { 'content-type': 'application/json' },
+      }));
+    const { run } = harness();
+
+    const missing = await run('MicrosoftFiles', { action: 'search', query: 'missing' });
+    expect(missing).toContain('Item not found');
+    expect(missing).not.toContain('delegated permission');
+
+    const denied = await run('MicrosoftSharePoint', { action: 'search_sites', query: 'chetty' });
+    expect(denied).toContain('Delegated permission for this operation: Sites.ReadWrite.All');
+  });
+
   it('escapes apostrophes inside Graph OData string literals', async () => {
     globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ value: [] }), { status: 200, headers: { 'content-type': 'application/json' } }));
     const { run } = harness();
