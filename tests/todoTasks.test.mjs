@@ -137,16 +137,19 @@ test('Task V2 task state is isolated per conversation', async (t) => {
   assert.deepEqual(json(await h.tool('TaskList').execute('4', {})).tasks.map((task) => task.subject), ['Session A']);
 });
 
-test('work, agents, older hosts and missing DB keep the legacy Todo tools', (t) => {
+test('work, agents and hosts older than Elowen 0.28.8 keep the legacy Todo tools', (t) => {
   for (const setup of [
     { enabled: ['work'] },
     { enabled: ['agents'] },
     { enabled: ['work', 'agents'] },
     { enabled: [], options: { noAccessor: true } },
-    { enabled: [], options: { dbUnavailable: true } },
   ]) {
     const h = harness(t, setup.enabled, setup.options);
     assert.deepEqual(h.tools.map((tool) => tool.name).sort(), ['TodoRead', 'TodoWrite']);
     assert.doesNotMatch(h.prompts.join('\n'), /TaskCreate/);
   }
+});
+
+test('session-task DB failures propagate without registering the legacy surface', (t) => {
+  assert.throws(() => harness(t, [], { dbUnavailable: true }), /no database wired/);
 });

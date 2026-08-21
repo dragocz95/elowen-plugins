@@ -85,6 +85,30 @@ async function loadEveryRegistryPlugin() {
   }
 }
 
+describe('todo session-task failure policy', () => {
+  it('lets a DB wiring failure reach the loader as a skipped plugin error', async () => {
+    const errors: string[] = [];
+    const originalContextFor = PluginRegistry.prototype.contextFor;
+    const contextSpy = vi.spyOn(PluginRegistry.prototype, 'contextFor').mockImplementation(function (...args) {
+      const ctx = originalContextFor.apply(this, args);
+      (ctx as typeof ctx & { isPluginEnabled(name: string): boolean }).isPluginEnabled = () => false;
+      return ctx;
+    });
+    try {
+      const registry = await loadPlugins({
+        dirs: [pluginDir],
+        enabled: ['todo'],
+        logger: { info() {}, warn() {}, error: (message) => errors.push(message) },
+        pluginDb: () => { throw new Error('simulated todo DB outage'); },
+      });
+      expect(registry.tools).toEqual([]);
+      expect(errors).toEqual(['plugin skipped: todo: simulated todo DB outage']);
+    } finally {
+      contextSpy.mockRestore();
+    }
+  });
+});
+
 describe('tool naming convention', () => {
   // The first load imports every plugin's module graph, which costs well over vitest's 5s default under
   // the full suite's parallel load; later loads hit the module cache. Only this test needs the headroom.

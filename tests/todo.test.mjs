@@ -98,7 +98,7 @@ test('todo manifest and marketplace registry expose the same release version', (
   const manifest = JSON.parse(readFileSync(new URL('../plugins/todo/elowen-plugin.json', import.meta.url), 'utf8'));
   const registry = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
   const catalog = registry.plugins.find((plugin) => plugin.name === 'todo');
-  assert.equal(manifest.version, '0.8.0');
+  assert.equal(manifest.version, '0.8.1');
   assert.equal(catalog?.version, manifest.version);
   assert.deepEqual(manifest.provides.tools, ['TodoWrite', 'TodoRead', 'TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList']);
   assert.deepEqual(manifest.planSafe, ['TodoWrite', 'TodoRead', 'TaskGet', 'TaskList']);
