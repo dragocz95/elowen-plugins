@@ -826,8 +826,8 @@ export class MsTeamsAdapter {
     try {
       const runTurn = () => this.handler(
         {
-          platform: 'msteams', userId: String(from.aadObjectId || from.id), userName: senderName, roleIds: ids,
-          channelId: convoKey, access: turnAccess,
+          platform: 'msteams', userId: String(from.aadObjectId || from.id), userName: senderName,
+          verifiedEmail: upn || undefined, roleIds: ids, channelId: convoKey, access: turnAccess,
           ...(promptSlash ? { promptCommand: true } : {}),
           // Teams calls a 1:1 chat with the bot `personal`; a group chat or a team channel is never that.
           // The host cannot tell them apart on its own (both become `brain-ch-*`), and it uses this to
