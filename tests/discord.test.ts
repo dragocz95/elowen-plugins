@@ -1222,6 +1222,35 @@ describe('discord context helpers', () => {
 });
 
 describe('discord onMessage context pipeline', () => {
+  it('classifies only a fetched 1:1 DM channel as direct', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log,
+      config: { discord: { botToken: 'tok', rolePolicies: [{ roleId: 'R1', projectIds: [1] }], toolActivity: 'off' } },
+    });
+    const adapter = reg.platforms[0] as any;
+    const channelTypes: Record<string, number> = { dm: 1, group: 3, guild: 0 };
+    adapter.rest = async (method: string, path: string) => {
+      if (method === 'GET') {
+        const channelId = path.split('/').pop()!;
+        return { id: channelId, name: channelId, type: channelTypes[channelId] };
+      }
+      return {};
+    };
+    adapter.respond = async () => undefined;
+    const direct: boolean[] = [];
+    adapter.listen(async (src: { direct: boolean }) => { direct.push(src.direct); return undefined; });
+
+    for (const channelId of ['dm', 'group', 'guild']) {
+      await adapter.dispatchSlashPrompt({
+        id: `i-${channelId}`, application_id: 'app', token: 'token', channel_id: channelId,
+        ...(channelId === 'guild' ? { guild_id: 'G' } : {}),
+        member: { user: { id: 'U1', username: 'anna' }, roles: ['R1'] },
+      }, '/test');
+    }
+
+    expect(direct).toEqual([true, false, false]);
+  });
+
   it('strips the bot mention, resolves other mentions, prefixes the speaker, quotes the reply, notes non-image attachments, and carries channel metadata', async () => {
     const reg = await loadPlugins({
       dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log,

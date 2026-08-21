@@ -42,7 +42,7 @@
     },
     {
       "name": "discord",
-      "version": "0.3.8",
+      "version": "0.3.9",
       "requiresCore": "0.28.7",
       "description": "Discord bot: chat with Elowen in a server channel, thread or DM, with slash commands, live message editing and per-role project access.",
       "category": "chat",

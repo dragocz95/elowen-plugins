@@ -31,6 +31,10 @@ function cfgNum(cfg, key, def, min, max) {
   return Math.min(Math.max(Number(cfg?.[key]) || def, min), max);
 }
 
+function isDirectChannel(meta) {
+  return meta?.type === 1; // Discord channel type 1 is a 1:1 DM; unknown types fail closed as shared.
+}
+
 /** Split a message's attachments into vision-ready images (downloaded + base64, capped) and textual
  *  notes for everything else (audio/video/documents — Elowen has no STT, the agent just learns a file
  *  arrived). Attachment URLs are public CDN links; no auth header is needed. */
@@ -84,7 +88,7 @@ export class DiscordAdapter {
     this.sessionId = null;    // gateway session for RESUME
     this.resumeUrl = null;    // gateway host to RESUME against
     this.awaitingAck = false; // heartbeat sent, ACK (op 11) not yet seen → zombie detection
-    this.channelMeta = new Map(); // channel id → { name, topic }; names change rarely, never invalidated
+    this.channelMeta = new Map(); // channel id → { name, topic, type }; metadata changes rarely, never invalidated
     this.msg = MESSAGES[cfg.language] ?? MESSAGES.en; // gateway service texts
     // Testability seam: point REST + gateway at a local fake when configured (the E2E suite injects a fake
     // Discord API here). Pure passthrough — unset means the real discord.com endpoints, so production is
@@ -347,7 +351,7 @@ export class DiscordAdapter {
     return messages.reverse();
   }
 
-  /** Channel metadata (name/topic) via REST, cached forever — names change rarely; a stale entry
+  /** Channel metadata (name/topic/type) via REST, cached forever — metadata changes rarely; a stale entry
    *  self-heals on daemon restart. A thread carries no topic, so its parent lends name + topic. */
   async channelInfo(channelId) {
     const cached = this.channelMeta.get(channelId);
@@ -360,7 +364,7 @@ export class DiscordAdapter {
       if (parent?.name) name = `${parent.name} › ${name}`;
       if (!topic && typeof parent?.topic === 'string') topic = parent.topic;
     }
-    const meta = { name, topic };
+    const meta = { name, topic, type: Number.isInteger(ch?.type) ? ch.type : undefined };
     this.channelMeta.set(channelId, meta);
     return meta;
   }
@@ -455,7 +459,7 @@ export class DiscordAdapter {
       const reply = await this.handler(
         {
           platform: 'discord', userId: m.author.id, userName: displayNameOf(m), roleIds, channelId: convoKey, access: turnAccess,
-          direct: !m.guild_id,
+          direct: isDirectChannel(meta),
           channelName: meta?.name || undefined, channelTopic: meta?.topic || undefined,
           images: images.length ? images : undefined,
           history: () => this.fetchHistory(m.channel_id, m.id),
@@ -504,7 +508,7 @@ export class DiscordAdapter {
     try {
       const reply = await this.handler(
         { platform: 'discord', userId: author.id, userName: displayNameOf({ member: i.member, author }), roleIds, channelId: convoKey, access,
-          promptCommand: true, direct: !i.guild_id,
+          promptCommand: true, direct: isDirectChannel(meta),
           channelName: meta?.name || undefined, channelTopic: meta?.topic || undefined },
         promptText,
         onEvent,
