@@ -1,14 +1,18 @@
 {
   "name": "todo",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "apiVersion": "1",
   "description": "Task todo list: the agent keeps a live checklist for multi-step work and shows it to you as it goes.",
   "entry": "index.mjs",
-  "provides": {
-    "tools": ["TodoWrite", "TodoRead"]
+  "capabilities": {
+    "reads": ["db"]
   },
-  "planSafe": ["TodoWrite"],
+  "provides": {
+    "tools": ["TodoWrite", "TodoRead", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList"]
+  },
+  "planSafe": ["TodoWrite", "TodoRead", "TaskGet", "TaskList"],
   "icons": {
-    "Todo*": "📋"
+    "Todo*": "📋",
+    "Task*": "📋"
   }
 }

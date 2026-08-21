@@ -107,6 +107,7 @@ const EXPECTED_CAPABILITIES = {
   mcp: { network: true },
   msteams: { reads: ['project-files', 'stores'], mutates: ['users'] },
   skills: { reads: ['stores'] },
+  todo: { reads: ['db'] },
   work: {
     reads: ['brain-worker', 'config', 'controls', 'db', 'elowen-cli', 'git', 'inference', 'prompts', 'stores', 'tmux'],
     mutates: ['events'],
