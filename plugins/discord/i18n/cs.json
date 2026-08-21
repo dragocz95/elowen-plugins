@@ -1,5 +1,5 @@
 {
-  "description": "Discord bot: zmiňte ho a odpoví z Elowen AI. Slash příkazy (/model, /display, /new, /help), nastavení modelu a zobrazení pro každý kanál, živá aktivita nástrojů s nezávislým doručením odpovědi, stavové reakce a proaktivní cron/tick oznámení. Serverové nástroje (admin session): info o serveru/kanálu/členovi, výpis a hledání členů, role, piny, vlákna (vytvořit/archivovat/zamknout/členové), kanály (vytvořit/přejmenovat/smazat, kategorie) a správa zpráv (mazání/purge). Každá Discord role se mapuje na povolené projekty Elowen a prompt role.",
+  "description": "Discord bot: zmiňte ho a odpoví z Elowen AI. Slash příkazy (/model, /display, /new, /help), nastavení modelu a zobrazení pro každý kanál, živá aktivita nástrojů s nezávislým doručením odpovědi, stavové reakce a proaktivní cron/tick oznámení. Serverové nástroje (admin session): info o serveru/kanálu/členovi, výpis a hledání členů, role, piny, vlákna (vytvořit/archivovat/zamknout/členové), kanály (vytvořit/přejmenovat/smazat, kategorie) a správa zpráv (mazání/purge). Discord role řídí přístup, důvěryhodný administrátorský kontext a prompt místnosti; oprávnění se přebírají z propojeného účtu Elowen.",
   "fields": {
     "sec_connection": {
       "label": "Připojení",
@@ -19,7 +19,7 @@
     },
     "sec_roles": {
       "label": "Pravidla rolí",
-      "hint": "Mapování Discord rolí na povolené projekty, prompt role a nástroje, které smí bot použít."
+      "hint": "Mapování Discord rolí na přístup, důvěryhodný administrátorský kontext a prompt místnosti."
     },
     "sec_media": {
       "label": "Limity médií",
@@ -91,7 +91,7 @@
     },
     "rolePolicies": {
       "label": "Pravidla rolí",
-      "hint": "Vyhrává první odpovídající role. Uživatelé bez namapované role jsou ignorováni. Každá role může navíc omezit, které nástroje pro ni smí bot používat."
+      "hint": "Vyhrává první odpovídající role. Uživatelé bez namapované role jsou ignorováni. Projekty a oprávnění nástrojů se přebírají z propojeného účtu Elowen odesílatele."
     },
     "language": {
       "label": "Jazyk služebních zpráv",

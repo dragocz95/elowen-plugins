@@ -42,9 +42,9 @@
     },
     {
       "name": "discord",
-      "version": "0.3.9",
+      "version": "0.3.10",
       "requiresCore": "0.28.7",
-      "description": "Discord bot: chat with Elowen in a server channel, thread or DM, with slash commands, live message editing and per-role project access.",
+      "description": "Discord bot: chat with Elowen in a server channel, thread or DM, with slash commands, live message editing and role-based admission; account permissions come from the linked Elowen account.",
       "category": "chat",
       "author": "Elowen",
       "apiVersion": "1",
