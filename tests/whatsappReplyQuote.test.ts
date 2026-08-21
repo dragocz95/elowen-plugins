@@ -46,12 +46,12 @@ describe('whatsapp reply quote', () => {
   it('drops the footer when quoting our own message', async () => {
     const { adapter, seen } = await makeAdapter();
     await adapter.onMessage(turn(US, 'Hotovo.\n\n_qwen3.8-max-preview · 4 %_'));
-    expect(seen[0]).toBe('[Replying to 420999888777: "Hotovo."]\n[Anna] a proč?');
+    expect(seen[0]).toBe('[Replying to 420999888777: "Hotovo."]\na proč?');
   });
 
   it('keeps a person\'s own trailing italic line verbatim', async () => {
     const { adapter, seen } = await makeAdapter();
     await adapter.onMessage(turn(CHAT, 'tohle\n_můj vlastní řádek_'));
-    expect(seen[0]).toBe('[Replying to 420123456789: "tohle\n_můj vlastní řádek_"]\n[Anna] a proč?');
+    expect(seen[0]).toBe('[Replying to 420123456789: "tohle\n_můj vlastní řádek_"]\na proč?');
   });
 });

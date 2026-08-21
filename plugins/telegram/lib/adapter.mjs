@@ -285,8 +285,7 @@ export class TelegramAdapter {
     if (!text && images.length) text = '[The user sent an image]'; // an image-only turn must not be empty
     if (!text) return;
 
-    // Chat sessions are SHARED (one conversation per chat), so every message names its speaker — and a
-    // Telegram reply carries the quoted original as context.
+    // Quoted-reply context stays in the clean sender words; author attribution travels structurally.
     const reply = m.reply_to_message;
     // Quoting one of OUR messages must not carry the runtime footer back into the prompt: shown that line
     // as the house style, the model starts forging it itself, with a model name it never ran on. Someone
@@ -294,7 +293,7 @@ export class TelegramAdapter {
     const quoted = reply?.text ?? reply?.caption ?? '';
     const replyCtx = reply ? buildReplyContext(displayNameOf(reply.from), reply.from?.id === this.botId ? withoutFooter(quoted) : quoted) : '';
     const senderName = displayNameOf(from);
-    const prefixed = `${replyCtx ? `${replyCtx}\n` : ''}[${senderName}] ${text}`;
+    const cleanText = `${replyCtx ? `${replyCtx}\n` : ''}${text}`;
 
     // The conversation key folds in the /new "generation" so a reset yields a clean session.
     const gen = this.state.get(String(chatId)).gen ?? 0;
@@ -323,6 +322,7 @@ export class TelegramAdapter {
       const replyText = await this.handler(
         {
           platform: 'telegram', userId: String(from.id), userName: senderName, roleIds: ids, channelId: convoKey, access: turnAccess,
+          ...(promptSlash ? { promptCommand: true } : {}),
           // Only a `private` chat is one-to-one. Deliberately NOT `!group`: that would also let a broadcast
           // `channel` through, and the host uses this to decide whether the conversation may carry its
           // sender's personal skills and receive their scheduled jobs.
@@ -330,7 +330,7 @@ export class TelegramAdapter {
           channelName: group ? (chat.title || undefined) : undefined,
           images: images.length ? images : undefined,
         },
-        promptSlash ?? prefixed,
+        promptSlash ?? cleanText,
         onEvent,
       );
       clearInterval(typing);

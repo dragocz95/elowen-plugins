@@ -261,13 +261,13 @@ describe('telegram reply quote', () => {
   it('drops the footer when quoting our own message', async () => {
     const { adapter, seen } = await makeAdapter();
     await adapter.onMessage(turn({ from: { id: 7, first_name: 'Elowen', is_bot: true }, text: 'Hotovo.\n\n— qwen3.8-max-preview · 4 %' }));
-    expect(seen[0]).toBe('[Replying to Elowen: "Hotovo."]\n[Anna] a proč?');
+    expect(seen[0]).toBe('[Replying to Elowen: "Hotovo."]\na proč?');
   });
 
   it('keeps a person\'s own trailing dim line verbatim', async () => {
     const { adapter, seen } = await makeAdapter();
     await adapter.onMessage(turn({ from: { id: 99, first_name: 'Bob' }, text: 'tohle\n— můj vlastní řádek' }));
-    expect(seen[0]).toBe('[Replying to Bob: "tohle\n— můj vlastní řádek"]\n[Anna] a proč?');
+    expect(seen[0]).toBe('[Replying to Bob: "tohle\n— můj vlastní řádek"]\na proč?');
   });
 });
 

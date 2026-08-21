@@ -1253,7 +1253,7 @@ describe('discord onMessage context pipeline', () => {
     });
 
     expect(seen).toBeDefined();
-    expect(seen!.text).toBe('[Replying to Bobby: "původní zpráva"]\n[Anička] ahoj @Bobby mrkni na #general\n[Attachment: spec.pdf (application/pdf)]');
+    expect(seen!.text).toBe('[Replying to Bobby: "původní zpráva"]\nahoj @Bobby mrkni na #general\n[Attachment: spec.pdf (application/pdf)]');
     expect(seen!.src.userName).toBe('Anička');
     expect(seen!.src.channelName).toBe('general');
     expect(seen!.src.channelTopic).toBe('Team chat');
@@ -1648,15 +1648,18 @@ describe('discord plugin prompt-commands (native registration + RAW dispatch)', 
 
   it('routes a slash prompt-command RAW to the brain, args expanded into the macro', async () => {
     const { adapter } = await makeAdapter();
-    let captured: { text: string; channelId: string } | null = null;
-    adapter.handler = async (src: { channelId: string }, text: string) => { captured = { text, channelId: src.channelId }; return 'shipped'; };
+    let captured: { text: string; channelId: string; promptCommand?: boolean } | null = null;
+    adapter.handler = async (src: { channelId: string; promptCommand?: boolean }, text: string) => {
+      captured = { text, channelId: src.channelId, promptCommand: src.promptCommand };
+      return 'shipped';
+    };
     let posted: string | null = null;
     adapter.reply = async (_c: string, t: string) => { posted = t; };
     await adapter.onInteraction({
       type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'], user: { id: 'U1' } },
       data: { name: 'deploy', options: [{ name: 'args', value: 'prod now' }] },
     });
-    expect(captured).toEqual({ text: '/deploy prod now', channelId: 'C#0' }); // RAW slash → PI expands it
+    expect(captured).toEqual({ text: '/deploy prod now', channelId: 'C#0', promptCommand: true });
     expect(posted).toBe('shipped');
   });
 
@@ -1752,13 +1755,13 @@ describe('discord plugin prompt-commands (native registration + RAW dispatch)', 
         ...turn, id: 'M1', content: 'a proč?',
         referenced_message: { author: { id: 'BOT', username: 'Elowen' }, content: 'Hotovo.\n\n-# qwen3.8-max-preview · 4 %' },
       });
-      expect(seen[0]).toBe('[Replying to Elowen: "Hotovo."]\n[anna] a proč?');
+      expect(seen[0]).toBe('[Replying to Elowen: "Hotovo."]\na proč?');
 
       await adapter.onMessage({
         ...turn, id: 'M2', content: 'jak to myslíš?',
         referenced_message: { author: { id: 'U2', username: 'bob' }, content: 'tohle\n-# můj vlastní subtext' },
       });
-      expect(seen[1]).toBe('[Replying to bob: "tohle\n-# můj vlastní subtext"]\n[anna] jak to myslíš?');
+      expect(seen[1]).toBe('[Replying to bob: "tohle\n-# můj vlastní subtext"]\njak to myslíš?');
     });
   });
 });

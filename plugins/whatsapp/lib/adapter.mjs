@@ -345,7 +345,7 @@ export class WhatsAppAdapter {
 
     const senderName = m.pushName || numberOf(senderJid);
     const replyCtx = buildReplyContext(this.quotedName(m), this.quotedText(m));
-    const prefixed = `${replyCtx ? `${replyCtx}\n` : ''}[${senderName}] ${text}`;
+    const cleanText = `${replyCtx ? `${replyCtx}\n` : ''}${text}`;
 
     const gen = this.state.get(chatJid).gen ?? 0;
     const convoKey = `${chatJid}#${gen}`;
@@ -372,6 +372,7 @@ export class WhatsAppAdapter {
         {
           platform: 'whatsapp', userId: senderJid, userName: senderName, roleIds: [senderJid],
           channelId: convoKey, access: turnAccess,
+          ...(promptSlash ? { promptCommand: true } : {}),
           // A non-group WhatsApp chat is a conversation with exactly one number. The host uses this to
           // decide whether the conversation may carry its sender's personal skills and receive their
           // scheduled jobs, so it must stay strictly "only this one person can read it".
@@ -379,7 +380,7 @@ export class WhatsAppAdapter {
           channelName: group ? await this.groupSubject(chatJid) : undefined,
           images: images.length ? images : undefined,
         },
-        promptSlash ?? prefixed,
+        promptSlash ?? cleanText,
         onEvent,
       );
       clearInterval(typing);

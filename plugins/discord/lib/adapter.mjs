@@ -424,10 +424,9 @@ export class DiscordAdapter {
     if (!text && images.length) text = '[The user sent an image]'; // an image-only turn must not be empty
     if (!text) return;
 
-    // Channel sessions are SHARED (one conversation per channel), so every message names its speaker —
-    // and a Discord reply carries the quoted original as context.
+    // Quoted-reply context stays in the clean sender words; author attribution travels structurally.
     const replyCtx = buildReplyContext(m.referenced_message, this.botId);
-    const prefixed = `${replyCtx ? `${replyCtx}\n` : ''}[${displayNameOf(m)}] ${text}`;
+    const cleanText = `${replyCtx ? `${replyCtx}\n` : ''}${text}`;
 
     // The conversation key folds in the /new "generation" so a reset yields a clean session.
     const gen = this.state.get(m.channel_id).gen ?? 0;
@@ -456,11 +455,12 @@ export class DiscordAdapter {
       const reply = await this.handler(
         {
           platform: 'discord', userId: m.author.id, userName: displayNameOf(m), roleIds, channelId: convoKey, access: turnAccess,
+          direct: !m.guild_id,
           channelName: meta?.name || undefined, channelTopic: meta?.topic || undefined,
           images: images.length ? images : undefined,
           history: () => this.fetchHistory(m.channel_id, m.id),
         },
-        prefixed,
+        cleanText,
         onEvent,
       );
       clearInterval(typing);
@@ -504,6 +504,7 @@ export class DiscordAdapter {
     try {
       const reply = await this.handler(
         { platform: 'discord', userId: author.id, userName: displayNameOf({ member: i.member, author }), roleIds, channelId: convoKey, access,
+          promptCommand: true, direct: !i.guild_id,
           channelName: meta?.name || undefined, channelTopic: meta?.topic || undefined },
         promptText,
         onEvent,
