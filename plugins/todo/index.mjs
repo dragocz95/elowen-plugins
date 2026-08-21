@@ -19,18 +19,20 @@ const STATUS_ALIASES = {
 
 function normalizeTodo(value) {
   if (!value || typeof value !== 'object') return null;
-  const title = String(value.title ?? value.text ?? value.content ?? value.task ?? '').trim();
-  if (!title) return null;
+  const content = String(value.content ?? value.title ?? value.text ?? value.task ?? '').trim();
+  if (!content) return null;
+  const activeForm = String(value.activeForm ?? value.active_form ?? content).trim() || content;
+  const note = String(value.note ?? '').trim();
   const status = STATUS_ALIASES[String(value.status ?? '').toLowerCase().trim()] ?? 'pending';
-  return { title, status };
+  return note ? { content, status, activeForm, note } : { content, status, activeForm };
 }
 
 function renderMarkdown(todos) {
   if (!todos.length) return '_No todos yet._';
   return todos.map((todo) => {
-    if (todo.status === 'completed') return `- [x] ${todo.title}`;
-    if (todo.status === 'in_progress') return `- [ ] ⏳ ${todo.title}`;
-    return `- [ ] ${todo.title}`;
+    if (todo.status === 'completed') return `- [x] ${todo.content}`;
+    if (todo.status === 'in_progress') return `- [ ] ⏳ ${todo.content}`;
+    return `- [ ] ${todo.content}`;
   }).join('\n');
 }
 
@@ -46,7 +48,10 @@ function escapeXml(value) {
 /** Keep the changing list and the instructions that govern it adjacent, after the user's request. */
 function renderTurnContext(todos) {
   const items = todos
-    .map((todo) => `    <todo status="${todo.status}">${escapeXml(todo.title)}</todo>`)
+    .map((todo) => {
+      const note = todo.note ? `\n      <note>${escapeXml(todo.note)}</note>` : '';
+      return `    <todo status="${todo.status}" activeForm="${escapeXml(todo.activeForm)}">\n      <content>${escapeXml(todo.content)}</content>${note}\n    </todo>`;
+    })
     .join('\n');
   return [
     '<todo_context>',
@@ -56,7 +61,8 @@ function renderTurnContext(todos) {
     '  <todo_instructions>',
     '    Keep this checklist synchronized with the work.',
     '    Call `TodoWrite` with the FULL list immediately when a step starts, completes, becomes blocked, or scope changes.',
-    '    Keep at most one item `in_progress`; leave only genuinely unfinished work pending.',
+    '    Keep exactly one unfinished item `in_progress`; leave only genuinely unfinished work pending.',
+    '    `note` is private working context for the agent; never expose it in the todo panel or repeat it to the user.',
     '    Before the final answer, reconcile every item and mark finished work `completed`.',
     '    Do not repeat the checklist in the reply; the todo panel renders it for the user.',
     '  </todo_instructions>',
@@ -69,7 +75,10 @@ function pushCard(ctx, todos) {
     id: 'todos',
     title: 'Todos',
     pinned: true,
-    items: todos.map((todo) => ({ text: todo.title, status: todo.status })),
+    items: todos.map((todo) => ({
+      text: todo.status === 'in_progress' ? todo.activeForm : todo.content,
+      status: todo.status,
+    })),
   });
 }
 
@@ -132,25 +141,30 @@ export function register(ctx) {
     description: [
       'Create or replace the todo checklist — the shared task list, plan and progress tracker for THIS conversation, which the user watches live in the todo panel while you work.',
       'Use it for genuinely multi-step work: three or more distinct steps, several sub-tasks, a plan you want visible, or a user request that lists multiple things to do. Skip it for a single trivial action — just do the work instead of tracking it. To read back the list you already wrote without changing it, use TodoRead.',
-      'This is a full replace, not an append: pass the FULL ordered list of todos every time, including the items that are already done, because anything you leave out is deleted. Each item takes a `title` (a short imperative task, `text` is an accepted alias) and a `status` of pending, in_progress or completed; common spellings such as "todo", "doing" or "done" are normalized, and an unknown status falls back to pending.',
-      'Update the checklist immediately at every transition — when a step starts, finishes, becomes blocked, or when the scope of the work changes — rather than batching updates at the end. Keep at most one item in_progress and mark work completed the moment it is actually finished, not when you plan to finish it.',
+      'This is a full replace, not an append: pass the FULL ordered list of todos every time, including the items that are already done, because anything you leave out is deleted. Match the Claude Code contract for each item: `content` is the short imperative task shown in the checklist, `activeForm` is the present-continuous wording shown while it is in progress, and `status` is pending, in_progress or completed. The legacy fields `title` and `text` remain accepted for existing clients.',
+      'An optional `note` carries private working context for the agent — findings, a blocker, the next concrete action or a constraint. It is persisted and returned in turn context, but deliberately never shown in the todo panel or TodoRead output, so do not put user-facing progress there.',
+      'Update the checklist immediately at every transition — when a step starts, finishes, becomes blocked, or when the scope of the work changes — rather than batching updates at the end. Keep exactly one unfinished item in_progress and mark work completed the moment it is actually finished, not when you plan to finish it. When every item is completed the stored list and panel clear automatically, matching Claude Code.',
       'The checklist belongs to one conversation and is not shared with other conversations or accounts; a turn with no conversation behind it (for example a scheduled cron run) is refused with an error. The panel renders the list for the user, so do not repeat the checklist as text in your reply.',
     ].join(' '),
     parameters: Type.Object({
       todos: Type.Array(Type.Object({
-        title: Type.Optional(Type.String({ description: 'Short imperative task title, e.g. "Add regression test for the auth guard". The alias fields text, content and task are also accepted.' })),
-        text: Type.Optional(Type.String({ description: 'Alias for title — use title unless you are porting an existing list' })),
+        content: Type.Optional(Type.String({ description: 'Short imperative task shown in the checklist, e.g. "Run focused tests"' })),
+        activeForm: Type.Optional(Type.String({ description: 'Present-continuous wording shown while in progress, e.g. "Running focused tests"' })),
+        note: Type.Optional(Type.String({ description: 'Private agent-only working context for this step; persisted but hidden from the todo panel and TodoRead output' })),
+        title: Type.Optional(Type.String({ description: 'Legacy alias for content' })),
+        text: Type.Optional(Type.String({ description: 'Legacy alias for content' })),
         status: Type.Optional(Type.String({ description: 'Task state: "pending", "in_progress" or "completed". Aliases such as todo/open, doing/active/wip and done/finished are normalized; anything unknown becomes pending.' })),
-      }), { description: 'The FULL ordered todo list, replacing the previous checklist entirely — include already completed items or they are lost' }),
+      }), { description: 'The FULL ordered todo list, replacing the previous checklist entirely — include already completed items until the whole list is done' }),
     }),
     execute: async (_id, params) => {
       try {
         const key = keyFor(ctx);
         if (!key) throw new Error('a todo checklist belongs to a conversation, and this turn has none');
         const todos = (params.todos ?? []).map(normalizeTodo).filter(Boolean);
-        store.write(key, todos);
-        pushCard(ctx, todos);
         const completed = todos.filter((todo) => todo.status === 'completed').length;
+        const storedTodos = todos.length > 0 && completed === todos.length ? [] : todos;
+        store.write(key, storedTodos);
+        pushCard(ctx, storedTodos);
         return ok(`Todo list updated (${completed}/${todos.length} done). It is visible in the todo panel; do not repeat it in the reply.`);
       } catch (error) {
         return fail(error);
