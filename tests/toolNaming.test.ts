@@ -1,8 +1,9 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlugins, discoverPlugins } from 'elowen/dist/plugins/loader.js';
+import { PluginRegistry } from 'elowen/dist/plugins/registry.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
 import { ConfigStore } from 'elowen/dist/store/configStore.js';
 import { ProjectStore } from 'elowen/dist/store/projectStore.js';
@@ -48,13 +49,40 @@ async function loadEveryRegistryPlugin() {
     db, tasks: new TaskStore(db), readiness: new Readiness(db),
     config: new ConfigStore(db), projects: new ProjectStore(db),
   });
-  return loadPlugins({
-    dirs: [pluginDir], enabled: names, logger: log, config: CONFIG,
+  // Production injects the complete enabled-plugin set as ctx.isPluginEnabled(). The registry test still
+  // runs against the older published core package, so bridge that host seam until the dependency catches up.
+  let enabledForContext = names;
+  const originalContextFor = PluginRegistry.prototype.contextFor;
+  const contextSpy = vi.spyOn(PluginRegistry.prototype, 'contextFor').mockImplementation(function (...args) {
+    const ctx = originalContextFor.apply(this, args);
+    (ctx as typeof ctx & { isPluginEnabled(name: string): boolean }).isPluginEnabled =
+      (name) => enabledForContext.includes(name);
+    return ctx;
+  });
+  const load = (enabled: string[]) => loadPlugins({
+    dirs: [pluginDir], enabled, logger: log, config: CONFIG,
     pluginDb: (plugin: string) => makePluginDb(db, plugin, { canMigrate: true }),
     host,
     // The image plugins take their key from a central brain provider rather than their own secret field.
     resolveProvider: () => ({ apiKey: 'k', baseUrl: 'https://api.example.invalid/v1' }),
   });
+  try {
+    const registry = await load(names);
+    // Todo has two mutually exclusive real surfaces: legacy mode alongside work/agents, and session-task
+    // mode when loaded alone. Its manifest declares their union, so exercise the second mode and add only
+    // the tools absent from the all-enabled load before checking that union below.
+    enabledForContext = ['todo'];
+    const taskMode = await load(enabledForContext);
+    for (const tool of taskMode.tools) {
+      if (registry.toolOwner.has(tool.name)) continue;
+      registry.tools.push(tool);
+      const owner = taskMode.toolOwner.get(tool.name);
+      if (owner) registry.toolOwner.set(tool.name, owner);
+    }
+    return registry;
+  } finally {
+    contextSpy.mockRestore();
+  }
 }
 
 describe('tool naming convention', () => {
