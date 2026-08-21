@@ -159,13 +159,13 @@
     },
     {
       "name": "todo",
-      "version": "0.8.1",
-      "description": "Task todo list: the agent keeps a live checklist for multi-step work and shows it to you as it goes.",
+      "version": "0.9.0",
+      "description": "Session task list: the agent tracks multi-step work incrementally and shows progress live.",
       "category": "automation",
       "author": "Elowen",
       "apiVersion": "1",
       "provides": {
-        "tools": 6
+        "tools": 4
       }
     },
     {

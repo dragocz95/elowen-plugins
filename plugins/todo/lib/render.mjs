@@ -5,18 +5,6 @@ function unresolvedBlockers(task, tasks) {
   return task.blockedBy.filter((id) => byId.get(id)?.status !== 'completed');
 }
 
-export function pushLegacyCard(ctx, todos) {
-  ctx.emitCard({
-    id: 'todos',
-    title: 'Todos',
-    pinned: true,
-    items: todos.map((todo) => ({
-      text: todo.status === 'in_progress' ? todo.activeForm : todo.content,
-      status: todo.status,
-    })),
-  });
-}
-
 export function pushTaskCard(ctx, tasks) {
   ctx.emitCard({
     id: 'todos',
@@ -30,49 +18,6 @@ export function pushTaskCard(ctx, tasks) {
       return { text: `${text}${owner}${blocked}`, status: task.status };
     }),
   });
-}
-
-export function renderLegacyMarkdown(todos) {
-  if (!todos.length) return '_No todos yet._';
-  return todos.map((todo) => {
-    if (todo.status === 'completed') return `- [x] ${todo.content}`;
-    if (todo.status === 'in_progress') return `- [ ] ⏳ ${todo.content}`;
-    return `- [ ] ${todo.content}`;
-  }).join('\n');
-}
-
-export function renderTaskMarkdown(tasks) {
-  if (!tasks.length) return '_No tasks yet._';
-  return tasks.map((task) => {
-    const blockers = unresolvedBlockers(task, tasks);
-    const owner = task.owner ? ` (${task.owner})` : '';
-    const blocked = blockers.length ? ` [blocked by ${blockers.map((id) => `#${id}`).join(', ')}]` : '';
-    const check = task.status === 'completed' ? 'x' : ' ';
-    const progress = task.status === 'in_progress' ? ' ⏳' : '';
-    return `- [${check}]${progress} #${task.id} ${task.subject}${owner}${blocked}`;
-  }).join('\n');
-}
-
-export function renderLegacyContext(todos) {
-  const items = todos.map((todo) => {
-    const note = todo.note ? `\n      <note>${escapeXml(todo.note)}</note>` : '';
-    return `    <todo status="${todo.status}" activeForm="${escapeXml(todo.activeForm)}">\n      <content>${escapeXml(todo.content)}</content>${note}\n    </todo>`;
-  }).join('\n');
-  return [
-    '<todo_context>',
-    '  <todo_items>',
-    items,
-    '  </todo_items>',
-    '  <todo_instructions>',
-    '    Keep this checklist synchronized with the work.',
-    '    Call `TodoWrite` with the FULL list immediately when a step starts, completes, becomes blocked, or scope changes.',
-    '    Keep exactly one unfinished item `in_progress`; leave only genuinely unfinished work pending.',
-    '    `note` is private working context for the agent; never expose it in the todo panel or repeat it to the user.',
-    '    Before the final answer, reconcile every item and mark finished work `completed`.',
-    '    Do not repeat the checklist in the reply; the todo panel renders it for the user.',
-    '  </todo_instructions>',
-    '</todo_context>',
-  ].join('\n');
 }
 
 export function renderTaskContext(tasks) {

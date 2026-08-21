@@ -1,7 +1,7 @@
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { fail, keyFor, ok, parseObject } from './common.mjs';
-import { pushTaskCard, renderTaskContext, renderTaskMarkdown } from './render.mjs';
+import { pushTaskCard, renderTaskContext } from './render.mjs';
 
 const TASK_STATUSES = ['pending', 'in_progress', 'completed'];
 const TASK_STATUS_SCHEMA = Type.Union(TASK_STATUSES.map((status) => Type.Literal(status)));
@@ -349,20 +349,6 @@ export function registerTaskMode(ctx, db) {
     },
   }));
 
-  ctx.registerTool(defineTool({
-    name: 'TodoRead',
-    label: 'Read tasks',
-    description: 'Return the active session task list as a public markdown checklist and refresh the Todo panel. Private descriptions and metadata are omitted.',
-    parameters: Type.Object({}),
-    execute: async () => {
-      try {
-        const key = keyFor(ctx);
-        const tasks = syncCard(ctx, store, key);
-        return ok(renderTaskMarkdown(tasks));
-      } catch (error) { return fail(safeError(ctx, error)); }
-    },
-  }));
-
   ctx.registerTurnContext(() => {
     try {
       const key = keyFor(ctx);
@@ -375,8 +361,8 @@ export function registerTaskMode(ctx, db) {
   }, { placement: 'after-user' });
 
   ctx.registerSystemPromptFragment(
-    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskList`, `TodoRead`). Use it for genuinely multi-step work and update tasks incrementally by ID. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
+    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
   );
 
-  ctx.logger.info('session task tools registered (TaskCreate + TaskGet + TaskUpdate + TaskList + TodoRead)');
+  ctx.logger.info('session task tools registered (TaskCreate + TaskGet + TaskUpdate + TaskList)');
 }
