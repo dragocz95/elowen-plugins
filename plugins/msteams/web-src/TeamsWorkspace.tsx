@@ -62,16 +62,6 @@ export function linkedUserFor(person: TeamsPerson, users: User[]): User | undefi
   return users.find((user) => user.id === identityUser.id || user.username.toLowerCase() === identityUser.username.toLowerCase());
 }
 
-function linkedPolicyUserFor(policies: RolePolicy[], person: TeamsPerson, users: User[]): User | undefined {
-  const index = directPolicyIndex(policies, person);
-  const ref = index >= 0 ? String(policies[index]?.elowenUser ?? '').trim() : '';
-  return ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : undefined;
-}
-
-export function shouldShowLegacyAccountSelector(accountLinking: boolean): boolean {
-  return !accountLinking;
-}
-
 export function accountDetailPath(aadObjectId: string): string {
   return `/plugins/msteams/people/${encodeURIComponent(aadObjectId)}/account`;
 }
@@ -111,20 +101,6 @@ export function accountLinkOptions(linkedUserId: number | undefined, users: User
     ...(linkedUserId === undefined ? [{ value: '', label: noneLabel }] : []),
     ...users.map((user) => ({
       value: String(user.id),
-      label: user.name ? `${user.name} · @${user.username}` : `@${user.username}`,
-      user,
-    })),
-  ];
-}
-
-function legacyAccountOptions(policy: RolePolicy | null, users: User[], noneLabel: string): { value: string; label: string; user?: User }[] {
-  const ref = String(policy?.elowenUser ?? '').trim();
-  const selected = ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : undefined;
-  return [
-    { value: '', label: noneLabel },
-    ...(ref && !selected ? [{ value: ref, label: ref }] : []),
-    ...users.map((user) => ({
-      value: selected?.id === user.id ? ref : user.username,
       label: user.name ? `${user.name} · @${user.username}` : `@${user.username}`,
       user,
     })),
@@ -317,9 +293,7 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
   const policyIndex = selected === null ? -1 : directPolicyIndex(policies, selected);
   const policy = policyIndex >= 0 ? policies[policyIndex]! : null;
   const accountLinking = draft.values.accountLinking === true;
-  const selectedUser = selected === null
-    ? undefined
-    : accountLinking ? linkedUserFor(selected, users) : linkedPolicyUserFor(policies, selected, users);
+  const selectedUser = selected === null ? undefined : linkedUserFor(selected, users);
 
   const replacePolicies = (next: RolePolicy[]) => draft.setValue('rolePolicies', next);
   const createPolicy = () => {
@@ -347,13 +321,6 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
     ...selectedTools.filter((tool) => !knownTools.has(tool)).map((tool) => ({ id: tool, label: tool, group: s.unavailableTools })),
     ...[...owners.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([tool, plugin]) => ({ id: tool, label: tool, group: plugin })),
   ];
-  const legacyOptions = legacyAccountOptions(policy, users, s.accountNone).map((option) => ({
-    value: option.value,
-    label: option.label,
-    icon: option.user
-      ? <C.Avatar name={option.user.name || option.user.username} user={option.user} size="sm" />
-      : <UserCheck size={15} />,
-  }));
   const inherited = policies.some((item) => item.roleId === '*');
 
   return (
@@ -392,7 +359,7 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
           <div className="flex min-w-0 flex-col gap-2">
             {visible.map((person) => {
               const mapped = directPolicyIndex(policies, person) >= 0;
-              const linkedUser = accountLinking ? linkedUserFor(person, users) : linkedPolicyUserFor(policies, person, users);
+              const linkedUser = linkedUserFor(person, users);
               const active = selected?.key === person.key;
               return (
                 <button
@@ -441,17 +408,6 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
                   </div>
                 ) : (
                   <>
-                    {shouldShowLegacyAccountSelector(accountLinking) ? (
-                      <C.Field label={s.accountLabel} hint={s.accountHint}>
-                        <C.SelectMenu
-                          value={policy.elowenUser ?? ''}
-                          onChange={(value: string) => patchPolicy({ elowenUser: value || undefined })}
-                          options={legacyOptions}
-                          label={s.accountLabel}
-                        />
-                      </C.Field>
-                    ) : null}
-
                     <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface p-3">
                       <C.Toggle checked={policy.admin === true} onChange={(value: boolean) => patchPolicy({ admin: value })} label={s.adminLabel} />
                       <span>

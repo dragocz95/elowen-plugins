@@ -16,8 +16,7 @@ type AdapterModule = {
   MsTeamsAdapter: new (
     cfg: Record<string, unknown>, logger: typeof log, state: unknown, listModels: () => Promise<unknown[]>,
     imageDirs?: string[], resolveProvider?: () => null, answerQuestion?: (id: string, answers: unknown[]) => boolean,
-    chatCommands?: () => { name: string; description: string; kind: string }[],
-    listUsers?: () => { id: number; username: string; isAdmin: boolean }[], accountLinking?: unknown,
+    chatCommands?: () => { name: string; description: string; kind: string }[], accountLinking?: unknown,
   ) => {
     handleWebhook: (req: { method: string; headers: Record<string, string>; json: () => Promise<unknown> }) => Promise<{ status?: number }>;
     onActivity: (m: unknown) => Promise<void>;
@@ -52,10 +51,10 @@ class MemoryState {
 async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
   answers?: { id: string; answers: unknown[] }[];
   models?: unknown[];
-  users?: { id: number; username: string; isAdmin: boolean }[];
   accountLinking?: {
     authenticate: (activity: unknown, options?: { magicCode?: string }) => Promise<{ status: string; user?: { id: number } }>;
     signInActivity: (activity: unknown, text: string, button: string) => Promise<Record<string, unknown>>;
+    bindingFor?: (objectId: string) => { user: { id: number } } | null;
     runWithActivity?: (activity: unknown, fn: () => Promise<string | undefined>) => Promise<string | undefined>;
   };
 } = {}) {
@@ -74,7 +73,6 @@ async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
     { ...CREDS, ...cfg }, logger, state, async () => opts.models ?? [], [], () => null,
     (id, answers) => { (opts.answers ??= []).push({ id, answers }); return true; },
     () => [],
-    () => opts.users ?? [],
     opts.accountLinking ?? null,
   );
   // Quiet transport for unit tests: no network, capture the outbound calls.
@@ -266,15 +264,11 @@ describe('msteams identity + role mapping', () => {
     expect(adapter.accessFor(['aad-unknown'], 'a:conv2').access).toBeUndefined();
   });
 
-  it('declares the host capability it reads accounts through', async () => {
-    // The unit tests inject the account list, so they cannot see that the running plugin is refused it:
-    // ctx.host.stores() throws unless the manifest declares reads:['stores'], and the mapping then failed
-    // in production with the tests still green.
+  it('declares the host capability used for verified external accounts', async () => {
     const [manifest, index] = await Promise.all([
       readFile(join(repoRoot, 'plugins/msteams/elowen-plugin.json'), 'utf8'),
       readFile(join(repoRoot, 'plugins/msteams/index.mjs'), 'utf8'),
     ]);
-    expect(index).toContain('ctx.host.stores()');
     expect(index).toContain('ctx.host.externalUsers()');
     const capabilities = (JSON.parse(manifest) as { capabilities?: { reads?: string[]; mutates?: string[] } }).capabilities;
     expect(capabilities?.reads).toContain('stores');
@@ -323,52 +317,6 @@ describe('msteams identity + role mapping', () => {
     expect(registered.filter((name) => !declared.has(name))).toEqual([]);
     // And the reverse: a name left in the manifest after its tool is gone advertises a tool nobody serves.
     expect([...declared].filter((name) => !registered.includes(name))).toEqual([]);
-  });
-
-  it('runs a mapped sender as their own Elowen account, so per-user credentials resolve', async () => {
-    // Without this a Teams turn belongs to nobody: ctx.userConfig() has no account and every per-user
-    // plugin (Raynet credentials, personal memory) is dark. The host takes the handover via actAsUserId.
-    const users = [{ id: 1, username: 'filip', isAdmin: true }, { id: 2, username: 'Michal', isAdmin: true }];
-    const { adapter } = await makeAdapter(
-      { rolePolicies: [
-        { roleId: 'aad-1', name: 'DEV', projectIds: [1], elowenUser: 'filip' },
-        { roleId: 'aad-2', name: 'Founder', projectIds: [1], elowenUser: '2' },
-        { roleId: 'aad-3', name: 'Guest', projectIds: [1] },
-      ] },
-      { users },
-    );
-    expect(adapter.accessFor(['aad-1'], 'a:c').access).toMatchObject({ actAsUserId: 1 });
-    // A numeric id names the same account as the username does.
-    expect(adapter.accessFor(['aad-2'], 'a:c').access).toMatchObject({ actAsUserId: 2 });
-    // A policy naming no account stays anonymous rather than borrowing someone's.
-    expect(adapter.accessFor(['aad-3'], 'a:c').access).not.toHaveProperty('actAsUserId');
-  });
-
-  it('ignores legacy elowenUser mappings when delegated account linking is enabled', async () => {
-    const { adapter } = await makeAdapter(
-      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1], elowenUser: 'filip' }] },
-      { users: [{ id: 1, username: 'filip', isAdmin: true }], accountLinking: {
-        authenticate: async () => ({ status: 'authorized', user: { id: 1 } }),
-        signInActivity: async () => ({ type: 'message' }),
-      } },
-    );
-    expect(adapter.accessFor(['aad-1'], 'a:c').access).not.toHaveProperty('actAsUserId');
-  });
-
-  it('refuses to hand a whole company one identity, or to guess at an unknown name', async () => {
-    const users = [{ id: 1, username: 'filip', isAdmin: true }];
-    const { adapter, warnings } = await makeAdapter(
-      { rolePolicies: [
-        { roleId: 'aad-9', name: 'Ghost', projectIds: [1], elowenUser: 'nobody' },
-        { roleId: ' * ', name: 'Company', projectIds: [1], elowenUser: 'filip' },
-      ] },
-      { users },
-    );
-    // An unresolvable name must not fall through to some other account.
-    expect(adapter.accessFor(['aad-9'], 'a:c').access).not.toHaveProperty('actAsUserId');
-    // A wildcard maps nobody: everyone would otherwise share the operator's credentials and memory.
-    expect(adapter.accessFor(['aad-stranger'], 'a:c').access).not.toHaveProperty('actAsUserId');
-    expect(warnings.join(' ')).toContain('policy matching everyone must not act as one account');
   });
 
   it('serves everyone through a wildcard policy without swallowing the named ones', async () => {
@@ -440,23 +388,6 @@ describe('msteams identity + role mapping', () => {
     expect(seen.map((s) => s.direct)).toEqual([true, false, false]);
   });
 
-  it('rejects a wrong-tenant message before roster lookup or brain access', async () => {
-    const { adapter, calls, warnings } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] });
-    const member = vi.fn(async () => ({ userPrincipalName: 'alex@other.example' }));
-    Object.assign(adapter.connector, { member });
-    let turns = 0;
-    adapter.listen(async () => { turns++; return 'never'; });
-
-    await adapter.onActivity(activity({
-      conversation: { id: 'a:wrong', conversationType: 'personal', tenantId: 'other-tenant' },
-    }));
-
-    expect(turns).toBe(0);
-    expect(member).not.toHaveBeenCalled();
-    expect(calls).toHaveLength(0);
-    expect(warnings.join(' ')).toContain('wrong_tenant');
-  });
-
   it('can disable processing reactions', async () => {
     const { adapter, calls } = await makeAdapter({ reactions: false, rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] });
     adapter.listen(async () => 'done');
@@ -484,14 +415,14 @@ describe('msteams identity + role mapping', () => {
     ]);
   });
 
-  it('uses the verified Entra binding instead of a legacy admin-managed account mapping', async () => {
+  it('uses the verified Entra binding for a mapped personal sender', async () => {
     const accountLinking = {
       authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
       signInActivity: vi.fn(async () => ({})),
     };
     const { adapter } = await makeAdapter(
-      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1], elowenUser: 'filip' }] },
-      { accountLinking, users: [{ id: 1, username: 'filip', isAdmin: true }] },
+      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] },
+      { accountLinking },
     );
     const seen: Record<string, unknown>[] = [];
     adapter.listen(async (src) => { seen.push(src); return undefined; });
@@ -534,7 +465,7 @@ describe('msteams identity + role mapping', () => {
       text: 'do the thing',
       src: {
         userId: 'aad-1', verifiedEmail: 'alex@contoso.com', direct: false,
-        access: { projectIds: [1], denyTools: expect.arrayContaining(['Microsoft*']) },
+        access: { projectIds: [1] },
       },
     });
     expect(state.get('a:shared').log).toEqual([
@@ -565,13 +496,13 @@ describe('msteams identity + role mapping', () => {
     });
   });
 
-  it('offers sign-in to an unmapped sender when all tenant members may onboard', async () => {
+  it('offers sign-in to any unmapped personal sender', async () => {
     const accountLinking = {
       authenticate: async () => ({ status: 'sign_in_required' }),
       signInActivity: async () => ({ type: 'message', attachments: [{ contentType: 'application/vnd.microsoft.card.oauth' }] }),
     };
     const { adapter, calls } = await makeAdapter(
-      { accountLinking: true, accountAccessMode: 'tenant_members', rolePolicies: [] },
+      { accountLinking: true, rolePolicies: [] },
       { accountLinking },
     );
     adapter.listen(async () => { throw new Error('brain must wait for sign-in'); });
@@ -581,13 +512,13 @@ describe('msteams identity + role mapping', () => {
     });
   });
 
-  it('runs an authenticated unmapped tenant member through their own account', async () => {
+  it('runs an authenticated unmapped personal sender through their own account', async () => {
     const accountLinking = {
       authenticate: async () => ({ status: 'authorized', user: { id: 7 } }),
       signInActivity: async () => ({}),
     };
     const { adapter } = await makeAdapter(
-      { accountLinking: true, accountAccessMode: 'tenant_members', rolePolicies: [] },
+      { accountLinking: true, rolePolicies: [] },
       { accountLinking },
     );
     const seen: Record<string, unknown>[] = [];
@@ -596,29 +527,13 @@ describe('msteams identity + role mapping', () => {
     expect(seen[0]?.access).toMatchObject({ admin: false, projectIds: [], actAsUserId: 7 });
   });
 
-  it('keeps policy-only onboarding closed to unmapped senders', async () => {
-    let authentications = 0;
-    const accountLinking = {
-      authenticate: async () => { authentications++; return { status: 'sign_in_required' }; },
-      signInActivity: async () => ({}),
-    };
-    const { adapter, calls } = await makeAdapter(
-      { accountLinking: true, accountAccessMode: 'policies', rolePolicies: [] },
-      { accountLinking },
-    );
-    adapter.listen(async () => 'never');
-    await adapter.onActivity(activity());
-    expect(authentications).toBe(0);
-    expect(calls.filter((call) => call.kind === 'reply')).toHaveLength(0);
-  });
-
-  it('keeps tenant-member fallback personal-only and drops unmapped shared senders silently', async () => {
+  it('keeps onboarding personal-only and drops unlinked shared senders silently', async () => {
     const accountLinking = {
       authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
       signInActivity: vi.fn(async () => ({})),
     };
     const { adapter, calls } = await makeAdapter(
-      { accountLinking: true, accountAccessMode: 'tenant_members', rolePolicies: [] },
+      { accountLinking: true, rolePolicies: [] },
       { accountLinking },
     );
     let turns = 0;
@@ -635,7 +550,7 @@ describe('msteams identity + role mapping', () => {
     expect(calls.filter((call) => call.kind === 'reply')).toHaveLength(0);
   });
 
-  it('completes signin/verifyState only for a sender allowed by role policy', async () => {
+  it('completes signin/verifyState for an unmapped personal sender without a role policy', async () => {
     const attempts: { magicCode?: string }[] = [];
     const accountLinking = {
       authenticate: async (_incoming: unknown, options?: { magicCode?: string }) => {
@@ -645,34 +560,7 @@ describe('msteams identity + role mapping', () => {
       signInActivity: async () => ({}),
     };
     const { adapter, calls } = await makeAdapter(
-      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] },
-      { accountLinking },
-    );
-    await adapter.onInvoke(activity({ type: 'invoke', name: 'signin/verifyState', value: { state: '123456' } }));
-    await vi.waitFor(() => expect(attempts).toEqual([{ magicCode: '123456' }]));
-    expect(calls.find((call) => call.kind === 'reply')?.args[3]).toMatchObject({
-      text: expect.stringContaining('linked'),
-    });
-
-    await adapter.onInvoke(activity({
-      type: 'invoke', name: 'signin/verifyState', value: { state: '999999' },
-      from: { id: '29:other', aadObjectId: 'aad-other', name: 'Other' },
-    }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(attempts).toHaveLength(1);
-  });
-
-  it('completes signin/verifyState for an unmapped tenant member without a wildcard policy', async () => {
-    const attempts: { magicCode?: string }[] = [];
-    const accountLinking = {
-      authenticate: async (_incoming: unknown, options?: { magicCode?: string }) => {
-        attempts.push(options ?? {});
-        return { status: 'authorized', user: { id: 7 } };
-      },
-      signInActivity: async () => ({}),
-    };
-    const { adapter, calls } = await makeAdapter(
-      { accountLinking: true, accountAccessMode: 'tenant_members', rolePolicies: [] },
+      { accountLinking: true, rolePolicies: [] },
       { accountLinking },
     );
     await adapter.onInvoke(activity({ type: 'invoke', name: 'signin/verifyState', value: { state: '123456' } }));
@@ -688,7 +576,7 @@ describe('msteams identity + role mapping', () => {
       signInActivity: vi.fn(async () => ({})),
     };
     const { adapter, calls } = await makeAdapter(
-      { accountLinking: true, accountAccessMode: 'tenant_members', rolePolicies: [] },
+      { accountLinking: true, rolePolicies: [] },
       { accountLinking },
     );
     await expect(adapter.onInvoke(activity({
@@ -1625,8 +1513,13 @@ describe('msteams proactive person messaging', () => {
   ];
 
   /** An adapter that has met the roster of a team channel — the layer-1 case: no Graph anywhere. */
-  async function withRoster(cfg: Record<string, unknown> = {}, opts: { users?: { id: number; username: string; isAdmin: boolean }[] } = {}) {
-    const made = await makeAdapter(cfg, opts);
+  async function withRoster(cfg: Record<string, unknown> = {}, opts: { accountUserId?: number } = {}) {
+    const accountLinking = opts.accountUserId === undefined ? undefined : {
+      authenticate: async () => ({ status: 'authorized', user: { id: opts.accountUserId! } }),
+      signInActivity: async () => ({}),
+      bindingFor: (objectId: string) => objectId === 'aad-2' ? { user: { id: opts.accountUserId } } : null,
+    };
+    const made = await makeAdapter(cfg, { accountLinking });
     made.state.patch('_meta', { serviceUrl: 'https://smba.test/emea' });
     made.state.patch('a:team', { ref: { serviceUrl: 'https://smba.test/emea', conversationType: 'channel' } });
     Object.assign(made.adapter.connector, {
@@ -1693,8 +1586,8 @@ describe('msteams proactive person messaging', () => {
 
   it('wakes the mapped recipient account in the same durable chat and delivers its reply', async () => {
     const { adapter, calls, state } = await withRoster(
-      { historyLimit: 10, rolePolicies: [{ roleId: 'aad-2', projectIds: [7], elowenUser: 'dana' }] },
-      { users: [{ id: 2, username: 'dana', isAdmin: false }] },
+      { historyLimit: 10, rolePolicies: [{ roleId: 'aad-2', projectIds: [7] }] },
+      { accountUserId: 2 },
     );
     state.patch('a:dm-dana', { log: [{ n: 'Dana', t: 'Earlier context' }] });
     let relayed: { src: Record<string, unknown>; text: string; history: { text: string }[] } | undefined;
@@ -1715,7 +1608,7 @@ describe('msteams proactive person messaging', () => {
     expect(result.relay).toMatchObject({ woken: true, reply: 'Michal replied — the build is green.' });
     expect(relayed?.src).toMatchObject({
       platform: 'msteams', userId: 'aad-2', channelId: 'a:dm-dana#0',
-      access: { actAsUserId: 2, denyTools: ['TeamsSend', 'TeamsMessagePerson', 'TeamsSendFile', 'TeamsApi'] },
+      access: { projectIds: [7], denyTools: ['TeamsSend', 'TeamsMessagePerson', 'TeamsSendFile', 'TeamsApi'] },
     });
     expect(relayed?.text).toContain('{"sender":"Michal","message":"Michal asks whether the build is green."}');
     expect(relayed?.history.map((message) => message.text)).toContain('Earlier context');
@@ -1730,8 +1623,8 @@ describe('msteams proactive person messaging', () => {
 
   it('serializes cross-agent content as untrusted JSON instead of prompt framing', async () => {
     const { adapter, calls } = await withRoster(
-      { rolePolicies: [{ roleId: 'aad-2', projectIds: [], elowenUser: 'dana' }] },
-      { users: [{ id: 2, username: 'dana', isAdmin: false }] },
+      { rolePolicies: [{ roleId: 'aad-2', projectIds: [] }] },
+      { accountUserId: 2 },
     );
     let prompt = '';
     adapter.control({ relay: async (_src, text) => { prompt = text; return 'Safe recipient reply'; } });
@@ -1749,8 +1642,8 @@ describe('msteams proactive person messaging', () => {
 
   it('falls back to one direct message when the mapped relay fails before delivering anything', async () => {
     const { adapter, state, calls } = await withRoster(
-      { historyLimit: 10, rolePolicies: [{ roleId: 'aad-2', projectIds: [], elowenUser: 'dana' }] },
-      { users: [{ id: 2, username: 'dana', isAdmin: false }] },
+      { historyLimit: 10, rolePolicies: [{ roleId: 'aad-2', projectIds: [] }] },
+      { accountUserId: 2 },
     );
     adapter.control({ relay: async () => { throw new Error('relay unavailable'); } });
 
@@ -1782,8 +1675,8 @@ describe('msteams proactive person messaging', () => {
 
   it('does not persist a relay reply that Teams failed to deliver', async () => {
     const { adapter, state, calls } = await withRoster(
-      { historyLimit: 10, rolePolicies: [{ roleId: 'aad-2', projectIds: [], elowenUser: 'dana' }] },
-      { users: [{ id: 2, username: 'dana', isAdmin: false }] },
+      { historyLimit: 10, rolePolicies: [{ roleId: 'aad-2', projectIds: [] }] },
+      { accountUserId: 2 },
     );
     adapter.control({ relay: async () => `${'x'.repeat(20_000)}tail` });
     let sendCount = 0;
@@ -1803,8 +1696,8 @@ describe('msteams proactive person messaging', () => {
 
   it('does not re-enter the sender account when an agent messages its own mapped person', async () => {
     const { adapter } = await withRoster(
-      { rolePolicies: [{ roleId: 'aad-2', projectIds: [], elowenUser: 'dana' }] },
-      { users: [{ id: 2, username: 'dana', isAdmin: false }] },
+      { rolePolicies: [{ roleId: 'aad-2', projectIds: [] }] },
+      { accountUserId: 2 },
     );
     let relayCalls = 0;
     adapter.control({ relay: async () => { relayCalls += 1; return 'must not run'; } });
@@ -2064,8 +1957,13 @@ describe('msteams proactive person messaging', () => {
 describe('msteams person tools gating', () => {
   const roster = [{ id: '29:dana', name: 'Dana Novák', userPrincipalName: 'dana@contoso.com', aadObjectId: 'aad-2' }];
 
-  async function known(cfg: Record<string, unknown> = {}, opts: { users?: { id: number; username: string; isAdmin: boolean }[] } = {}) {
-    const made = await makeAdapter(cfg, opts);
+  async function known(cfg: Record<string, unknown> = {}, opts: { accountUserId?: number } = {}) {
+    const accountLinking = opts.accountUserId === undefined ? undefined : {
+      authenticate: async () => ({ status: 'authorized', user: { id: opts.accountUserId! } }),
+      signInActivity: async () => ({}),
+      bindingFor: (objectId: string) => objectId === 'aad-2' ? { user: { id: opts.accountUserId } } : null,
+    };
+    const made = await makeAdapter(cfg, { accountLinking });
     made.state.patch('_meta', { serviceUrl: 'https://smba.test/emea' });
     made.state.patch('a:team', { ref: { serviceUrl: 'https://smba.test/emea', conversationType: 'channel' } });
     Object.assign(made.adapter.connector, {
@@ -2082,8 +1980,8 @@ describe('msteams person tools gating', () => {
     // for something their role was meant to cover; what a role may actually call is narrowed by its own
     // tool allowlist, not by conflating admin with operator.
     const { adapter, calls } = await known(
-      { rolePolicies: [{ roleId: 'aad-2', projectIds: [], elowenUser: 'dana' }] },
-      { users: [{ id: 2, username: 'dana', isAdmin: false }] },
+      { rolePolicies: [{ roleId: 'aad-2', projectIds: [] }] },
+      { accountUserId: 2 },
     );
     let relayText = '';
     adapter.control({ relay: async (_src, text) => { relayText = text; return 'the build broke'; } });

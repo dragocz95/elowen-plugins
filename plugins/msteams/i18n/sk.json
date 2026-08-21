@@ -19,15 +19,7 @@
     },
     "accountLinking": {
       "label": "Prihlásenie k Microsoftu v osobnom chate",
-      "hint": "V osobných chatoch prihlási odosielateľa k Microsoftu, aby delegované nástroje pre poštu a súbory mohli konať v jeho mene a konverzácia mohla používať jeho účet Elowen. V zdieľaných chatoch sa identita odosielateľa z Teams overuje automaticky bez prihlásenia; prístup naďalej vyžaduje výslovné pravidlo roly pre osobu, konverzáciu alebo zástupný znak *. Prístupové a obnovovacie tokeny zostávajú v službe Bot Framework Token Service."
-    },
-    "accountAccessMode": {
-      "label": "Kto sa môže prihlásiť",
-      "hint": "Voľba Iba nastavení ľudia ponúkne prihlásenie v osobnom chate len osobám so zodpovedajúcim pravidlom roly. Voľba Všetci aktívni členovia organizácie umožní každému aktívnemu členskému účtu tohto tenantu prihlásiť sa v osobnom chate a získať vlastný účet Elowen; zdieľané chaty naďalej vyžadujú výslovné pravidlo roly.",
-      "options": {
-        "policies": "Iba nastavení ľudia",
-        "tenant_members": "Všetci aktívni členovia organizácie"
-      }
+      "hint": "Každý aktívny členský účet z tohto tenantu sa môže prihlásiť v osobnom chate a získať vlastný účet Elowen. Projekty a oprávnenia nástrojov prepojeného účtu sa potom použijú všade, kde daná osoba píše, vrátane zdieľaných kanálov a vlákien. Prístupové a obnovovacie tokeny zostávajú v službe Bot Framework Token Service."
     },
     "oauthConnectionName": {
       "label": "Názov pripojenia OAuth",
@@ -208,8 +200,6 @@
       "unmappedTitle": "Táto osoba nemá vlastné pravidlo",
       "unmappedDescription": "Pri povolenom prihlásení členov organizácie sa môže prihlásiť a použiť prístup svojho účtu. Inak pred odpoveďou bota vytvorte pravidlo.",
       "configureAccess": "Nastaviť prístup",
-      "accountLabel": "Účet Elowen",
-      "accountHint": "Staršie mapovanie účtu používané iba pri vypnutom prihlasovaní účtom Microsoft.",
       "identityTitle": "Identita Microsoft",
       "identityConnected": "Prepojené cez Microsoft Entra ID",
       "identityNeedsSignIn": "Vyžaduje prihlásenie k Microsoftu",

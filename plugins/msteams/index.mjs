@@ -17,7 +17,7 @@ export { matchesId, senderIds, senderIsAdmin, displayNameOf } from './lib/ids.mj
 export { splitContent, footerLine, CHUNK } from './lib/format.mjs';
 export { makeTokenVerifier } from './lib/auth.mjs';
 export { ConnectorClient } from './lib/connector.mjs';
-export { TeamsAccountError, TeamsAccountLinking, validateTeamsTenant } from './lib/accountLinking.mjs';
+export { TeamsAccountError, TeamsAccountLinking } from './lib/accountLinking.mjs';
 
 /** Browser-safe projection of the learned Teams directory. Routing details stay daemon-only. */
 export function peopleForUi(people, profilePhotos = false, bindingFor = () => null) {
@@ -198,9 +198,6 @@ export function register(ctx) {
     config,
     ctx.logger, state, ctx.listModels, imageDirs, ctx.resolveProvider, ctx.answerQuestion,
     () => ctx.chatCommands('msteams'),
-    // Accounts a rolePolicy may name in `elowenUser`, so a Teams sender can act as their own Elowen
-    // user. Read live: an account added after startup must be nameable without restarting the plugin.
-    () => ctx.host.stores().usersRead.list(),
     accountLinking,
   );
   ctx.registerHttpRoute({ path: 'messages', handler: (req) => adapter.handleWebhook(req) });

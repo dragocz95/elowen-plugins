@@ -9,7 +9,7 @@ import { ConnectorClient } from './connector.mjs';
 import { GraphClient } from './graph.mjs';
 import { PeopleDirectory, personLine } from './directory.mjs';
 import { makeTokenVerifier } from './auth.mjs';
-import { matchesId, senderIds, senderIsAdmin, displayNameOf, ownerKey, isOwner, threadRef, WILDCARD } from './ids.mjs';
+import { matchesId, senderIds, senderIsAdmin, displayNameOf, ownerKey, isOwner, threadRef } from './ids.mjs';
 import { parseModelExec, splitContent } from './format.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
@@ -22,7 +22,6 @@ import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, imageMimeType } from 'elowen-plugin-shared/images';
 import { isSteered } from 'elowen-plugin-shared/turnResult';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
-import { validateTeamsTenant } from './accountLinking.mjs';
 
 /** The `/display` axes and their values — mirrors the resolution sets in _shared/display.mjs. */
 const DISPLAY_AXES = {
@@ -122,9 +121,8 @@ function cfgNum(cfg, key, def, min, max) {
 
 export class MsTeamsAdapter {
   name = 'msteams';
-  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], listUsers = () => [], accountLinking = null) {
+  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], accountLinking = null) {
     this.cfg = cfg;
-    this.listUsers = listUsers;
     this.accountLinking = accountLinking;
     this.log = logger;
     this.state = state;
@@ -233,13 +231,8 @@ export class MsTeamsAdapter {
     return { status: 200, body: {} };
   }
 
-  async authorizeAccount(activity, access) {
+  async authorizeAccount(activity) {
     if (this.cfg.accountLinking !== true || activity.conversation?.conversationType !== 'personal') return { id: null };
-    // An explicit admin-managed policy is already an authoritative account binding. Keep that account
-    // instead of forcing its owner through self-service OAuth or provisioning a duplicate local user.
-    // Wildcard policies never carry actAsUserId (accountFor rejects them), so company-wide onboarding
-    // still has to prove an enabled same-tenant Member through Microsoft.
-    if (Number.isInteger(access?.actAsUserId)) return { id: access.actAsUserId };
     if (!this.accountLinking) {
       await this.tmSend(activity.conversation.id, this.msg.accountAccessUnavailable, { replyToId: activity.id }).catch(() => {});
       return null;
@@ -263,7 +256,7 @@ export class MsTeamsAdapter {
     this.rememberConversation(activity);
     const upn = await this.resolveUpn(activity.serviceUrl, activity.conversation.id, activity.from);
     const ids = senderIds(activity.from, activity.conversation.id, upn);
-    if (!this.inboundAccessFor(ids, activity.conversation.id, true).access) return;
+    if (!this.inboundAccessFor(ids, activity.conversation.id, true, activity.from?.aadObjectId).access) return;
     try {
       const result = await this.accountLinking.authenticate(activity, { magicCode: activity?.value?.state });
       const text = result.status === 'authorized' ? this.msg.signInComplete : this.msg.signInIncomplete;
@@ -650,58 +643,17 @@ export class MsTeamsAdapter {
     const policies = Array.isArray(this.cfg.rolePolicies) ? this.cfg.rolePolicies : [];
     const match = policies.find((p) => p.roleId && ids.some((id) => matchesId(p.roleId, id)));
     if (!match) return { access: undefined };
-    const actAsUserId = this.accountFor(match);
-    return {
-      access: {
-        ...buildRoleAccess(match, this.state.get(String(conversationId))),
-        ...(actAsUserId !== undefined ? { actAsUserId } : {}),
-      },
-    };
+    return { access: buildRoleAccess(match, this.state.get(String(conversationId))) };
   }
 
-  /** Admission for an inbound turn. Explicit role policies still win; tenant-member onboarding only
-   *  supplies a minimal pre-auth descriptor when no policy matched. Once OAuth succeeds, actAsUserId
-   *  makes the host use the verified account's own projects and tool grants, so this fallback grants
-   *  neither admin nor project access and cannot become a shared company identity. */
-  inboundAccessFor(ids, conversationId, personal = false) {
+  /** Admission for an inbound turn. Explicit role policies still win. Account linking also admits any
+   *  personal-chat sender for OAuth, and an already linked sender in a shared room for account resolution. */
+  inboundAccessFor(ids, conversationId, personal = false, objectId = '') {
     const mapped = this.accessFor(ids, conversationId);
-    if (mapped.access || !personal || this.cfg.accountLinking !== true || this.cfg.accountAccessMode !== 'tenant_members') return mapped;
+    if (mapped.access || this.cfg.accountLinking !== true) return mapped;
+    const linked = !personal && objectId && this.accountLinking?.bindingFor?.(objectId);
+    if (!personal && !linked) return mapped;
     return { access: buildRoleAccess({ projectIds: [] }, this.state.get(String(conversationId))) };
-  }
-
-  /**
-   * The Elowen account a policy's sender acts as, from the policy's `elowenUser` (a username or a
-   * numeric id), or undefined when the policy names none.
-   *
-   * Teams senders are not linkable in Account settings the way a Discord id is, so without this a turn
-   * from Teams belongs to NOBODY: `ctx.userConfig()` has no account to read and every per-user plugin —
-   * Raynet credentials, personal memory — is dark. The host already supports exactly this handover via
-   * `access.actAsUserId`, so naming the account here is all it takes, with no change to the host.
-   *
-   * Two things it deliberately refuses. A wildcard policy never maps: `*` matches the whole company, and
-   * pointing all of them at one account would hand everyone that person's credentials and memory. And an
-   * `elowenUser` naming nobody resolves to undefined rather than to some other account — a mapping that
-   * silently lands on the wrong identity is worse than one that plainly does not work.
-   */
-  accountFor(policy) {
-    // With delegated account linking enabled, personal turns use the immutable Entra binding and shared
-    // turns stay accountless. `elowenUser` remains a legacy seam only for installations without OAuth.
-    if (this.cfg.accountLinking === true) return undefined;
-    const wanted = String(policy?.elowenUser ?? '').trim();
-    if (!wanted) return undefined;
-    if (String(policy?.roleId ?? '').trim() === WILDCARD) {
-      this.log.warn('msteams: ignoring elowenUser on the "*" policy — a policy matching everyone must not act as one account');
-      return undefined;
-    }
-    let users = [];
-    try { users = this.listUsers() ?? []; }
-    catch (e) { this.log.warn(`msteams: cannot read accounts to map "${wanted}": ${e?.message ?? e}`); return undefined; }
-    const found = users.find((u) => String(u.id) === wanted || String(u.username ?? '').toLowerCase() === wanted.toLowerCase());
-    if (!found) {
-      this.log.warn(`msteams: policy "${policy.name || policy.roleId}" names Elowen user "${wanted}", which no account matches`);
-      return undefined;
-    }
-    return found.id;
   }
 
   /** The model selected for a conversation (per-chat override, else the catalog default). */
@@ -744,12 +696,6 @@ export class MsTeamsAdapter {
     const conv = m.conversation;
     const from = m.from;
     if (!conv?.id || !from || from.id === m.recipient?.id) return; // no conversation, or our own echo
-    try {
-      validateTeamsTenant(m, this.cfg.tenantId);
-    } catch (error) {
-      this.log.warn(`msteams turn denied: ${error?.code ?? error?.name ?? 'wrong_tenant'}`);
-      return;
-    }
     const targetedOrder = this.targetedTurn.getStore();
     const orderKey = targetedOrder ? `${conv.id}:target:${from.id}` : `${conv.id}:public`;
     const orderMarker = this.conversationOrder.mark(orderKey);
@@ -773,15 +719,11 @@ export class MsTeamsAdapter {
 
     const upn = await this.resolveUpn(m.serviceUrl, conv.id, from);
     const ids = senderIds(from, conv.id, upn);
-    let { access } = this.inboundAccessFor(ids, conv.id, personal);
+    let { access } = this.inboundAccessFor(ids, conv.id, personal, from.aadObjectId);
     if (!access) return; // unmapped sender in policy-only mode → stay silent
-    const account = await this.authorizeAccount(m, access);
+    const account = await this.authorizeAccount(m);
     if (!account) return;
     if (Number.isInteger(account.id)) access = { ...access, actAsUserId: account.id };
-    if (!personal) {
-      const denied = Array.isArray(access.denyTools) ? access.denyTools : [];
-      access = { ...access, denyTools: [...new Set([...denied, 'Microsoft*'])] };
-    }
 
     let text = said;
 
@@ -1256,13 +1198,15 @@ export class MsTeamsAdapter {
   async relayToPerson(person, conversationId, body, relay) {
     if (!relay || !this.ctl?.relay) return { woken: false };
     const ids = senderIds({ aadObjectId: person.aad, id: person.id }, conversationId, person.upn);
-    const { access } = this.accessFor(ids, conversationId);
-    // A wildcard/conversation role deliberately has no account mapping. Waking an owner-anchored generic
-    // session would attribute the colleague's exchange to the operator, so only a mapped account may run.
-    if (!access || !Number.isInteger(access.actAsUserId)) return { woken: false };
+    const binding = person.aad ? this.accountLinking?.bindingFor?.(person.aad) : null;
+    const accountUserId = Number(binding?.user?.id);
+    const { access } = this.inboundAccessFor(ids, conversationId, false, person.aad);
+    // Only a verified Entra binding may wake a recipient account. A role policy alone never supplies
+    // account identity or credentials.
+    if (!access || !Number.isInteger(accountUserId)) return { woken: false };
     // A tool can address its own person. Re-entering that same durable channel while its turn holds the
     // lock would deadlock (or steer into itself), so the physical message is enough and no wake is attempted.
-    if (Number(relay.senderUserId) === access.actAsUserId) return { woken: false, sameAccount: true };
+    if (Number(relay.senderUserId) === accountUserId) return { woken: false, sameAccount: true };
     const recipient = person.name || person.upn || person.aad || person.id || 'the recipient';
     const sender = String(relay.sender || 'another Elowen agent');
     const prompt = [

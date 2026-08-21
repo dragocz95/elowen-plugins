@@ -10,7 +10,6 @@ import {
   linkedUserFor,
   matchesPerson,
   peopleWithAccountDetail,
-  shouldShowLegacyAccountSelector,
   upsertDirectPolicy,
 } from '../plugins/msteams/web-src/TeamsWorkspace';
 import type { PluginDetail, RolePolicy, TeamsAccountDetail, TeamsPerson, User } from '../plugins/msteams/web-src/runtime';
@@ -66,7 +65,7 @@ describe('Teams person access matching', () => {
   });
 
   it('relocates an existing person policy without duplicating it or losing its access configuration', () => {
-    const existing = { ...policy('aad-1'), elowenUser: 'filip', admin: true, projectIds: [1], tools: ['RaynetSearch'], prompt: 'Private context' };
+    const existing = { ...policy('aad-1'), admin: true, projectIds: [1], tools: ['RaynetSearch'], prompt: 'Private context' };
     const updated = upsertDirectPolicy(
       [policy('19:channel'), existing, policy('*')],
       person,
@@ -84,7 +83,7 @@ describe('Teams person access matching', () => {
     expect(effectivePersonPolicy([wildcard, direct], person)).toBe(wildcard);
   });
 
-  it('resolves the linked account from person.identity rather than rolePolicy.elowenUser', () => {
+  it('resolves the linked account from the verified person identity', () => {
     const users: User[] = [
       { id: 1, username: 'filip', name: 'Filip', avatar: '1.png' },
       { id: 2, username: 'michal', name: 'Michal' },
@@ -105,11 +104,6 @@ describe('Teams person access matching', () => {
     const linked = accountLinkOptions(2, users, 'No linked account');
     expect(linked.some((option) => option.value === '')).toBe(false);
     expect(linked.map((option) => option.value)).toEqual(['1', '2']);
-  });
-
-  it('hides the legacy role-policy account selector while account linking is enabled', () => {
-    expect(shouldShowLegacyAccountSelector(true)).toBe(false);
-    expect(shouldShowLegacyAccountSelector(false)).toBe(true);
   });
 
   it('projects account detail into PeopleResponse without session, profile, or secret fields', () => {

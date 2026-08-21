@@ -90,7 +90,6 @@ describe('TeamsAccountLinking', () => {
   });
 
   it.each([
-    ['activity tenant', activity({ conversation: { id: '19:conversation', tenantId: 'other' } }), token(), 'wrong_tenant'],
     ['token tenant', activity(), token({ tid: 'other' }), 'wrong_tenant'],
     ['missing token subject', activity(), token({ oid: undefined }), 'identity_mismatch'],
     ['token subject', activity(), token({ oid: 'other' }), 'identity_mismatch'],

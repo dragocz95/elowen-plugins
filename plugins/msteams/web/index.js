@@ -251,14 +251,6 @@ function linkedUserFor(person, users) {
   if (!identityUser) return void 0;
   return users.find((user) => user.id === identityUser.id || user.username.toLowerCase() === identityUser.username.toLowerCase());
 }
-function linkedPolicyUserFor(policies, person, users) {
-  const index = directPolicyIndex(policies, person);
-  const ref = index >= 0 ? String(policies[index]?.elowenUser ?? "").trim() : "";
-  return ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : void 0;
-}
-function shouldShowLegacyAccountSelector(accountLinking) {
-  return !accountLinking;
-}
 function accountDetailPath(aadObjectId) {
   return `/plugins/msteams/people/${encodeURIComponent(aadObjectId)}/account`;
 }
@@ -287,19 +279,6 @@ function accountLinkOptions(linkedUserId, users, noneLabel) {
     ...linkedUserId === void 0 ? [{ value: "", label: noneLabel }] : [],
     ...users.map((user) => ({
       value: String(user.id),
-      label: user.name ? `${user.name} \xB7 @${user.username}` : `@${user.username}`,
-      user
-    }))
-  ];
-}
-function legacyAccountOptions(policy, users, noneLabel) {
-  const ref = String(policy?.elowenUser ?? "").trim();
-  const selected = ref ? users.find((user) => user.username.toLowerCase() === ref.toLowerCase() || String(user.id) === ref) : void 0;
-  return [
-    { value: "", label: noneLabel },
-    ...ref && !selected ? [{ value: ref, label: ref }] : [],
-    ...users.map((user) => ({
-      value: selected?.id === user.id ? ref : user.username,
       label: user.name ? `${user.name} \xB7 @${user.username}` : `@${user.username}`,
       user
     }))
@@ -480,7 +459,7 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
   const policyIndex = selected === null ? -1 : directPolicyIndex(policies, selected);
   const policy = policyIndex >= 0 ? policies[policyIndex] : null;
   const accountLinking = draft.values.accountLinking === true;
-  const selectedUser = selected === null ? void 0 : accountLinking ? linkedUserFor(selected, users) : linkedPolicyUserFor(policies, selected, users);
+  const selectedUser = selected === null ? void 0 : linkedUserFor(selected, users);
   const replacePolicies = (next) => draft.setValue("rolePolicies", next);
   const createPolicy = () => {
     if (selected === null) return;
@@ -506,11 +485,6 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
     ...selectedTools.filter((tool) => !knownTools.has(tool)).map((tool) => ({ id: tool, label: tool, group: s.unavailableTools })),
     ...[...owners.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([tool, plugin]) => ({ id: tool, label: tool, group: plugin }))
   ];
-  const legacyOptions = legacyAccountOptions(policy, users, s.accountNone).map((option) => ({
-    value: option.value,
-    label: option.label,
-    icon: option.user ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: option.user.name || option.user.username, user: option.user, size: "sm" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserCheck, { size: 15 })
-  }));
   const inherited = policies.some((item) => item.roleId === "*");
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceDocument, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex w-full flex-wrap items-center gap-3", children: [
@@ -532,7 +506,7 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
     response.people.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleEmptyTitle, description: s.peopleEmptyDescription, icon: Users }) }) : visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleNoResults, description: s.peopleNoResultsDescription, icon: Search }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceRegister, { className: "grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(18rem,0.8fr)_minmax(24rem,1.2fr)]", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex min-w-0 flex-col gap-2", children: visible.map((person) => {
         const mapped = directPolicyIndex(policies, person) >= 0;
-        const linkedUser = accountLinking ? linkedUserFor(person, users) : linkedPolicyUserFor(policies, person, users);
+        const linkedUser = linkedUserFor(person, users);
         const active = selected?.key === person.key;
         return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
           "button",
@@ -577,15 +551,6 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: KeyRound, onClick: createPolicy, children: s.configureAccess })
         ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          shouldShowLegacyAccountSelector(accountLinking) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.accountLabel, hint: s.accountHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            C.SelectMenu,
-            {
-              value: policy.elowenUser ?? "",
-              onChange: (value) => patchPolicy({ elowenUser: value || void 0 }),
-              options: legacyOptions,
-              label: s.accountLabel
-            }
-          ) }) : null,
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface p-3", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: policy.admin === true, onChange: (value) => patchPolicy({ admin: value }), label: s.adminLabel }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [

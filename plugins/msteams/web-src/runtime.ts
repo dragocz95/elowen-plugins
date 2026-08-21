@@ -51,7 +51,6 @@ export interface RolePolicy {
   prompt?: string;
   tools?: string[];
   admin?: boolean;
-  elowenUser?: string;
   [key: string]: unknown;
 }
 
