@@ -30,6 +30,7 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [] } = {
   const tools = [];
   const routes = [];
   const userRemoved = [];
+  const promptFragments = [];
   // The identity/admin state the host would install around a turn or an API request. It is ambient in
   // the daemon (AsyncLocalStorage); a mutable cell is the same thing for a single-threaded test.
   const session = { identity: null, adminSession: false };
@@ -37,7 +38,8 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [] } = {
     logger: log,
     dataDir: () => join(dataRoot, 'skills'),
     registerSkill: (skill, opts = {}) => { skills.push({ ...skill, ownerUserId: opts.ownerUserId ?? null }); },
-    registerTool: (tool) => tools.push(tool),
+    registerTool: (tool, opts = {}) => tools.push({ ...tool, ownerUserId: opts.ownerUserId ?? null }),
+    registerSystemPromptFragment: (fragment) => promptFragments.push(fragment),
     registerApiRoute: (route) => routes.push(route),
     registerUserRemoved: (fn) => userRemoved.push(fn),
     requestReload,
@@ -49,7 +51,7 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [] } = {
     host: { stores: () => ({ usersRead: { list: users } }) },
   };
   register(ctx);
-  return { skills, tools, routes, userRemoved, session };
+  return { skills, tools, routes, userRemoved, promptFragments, session };
 }
 
 /** Run `fn` as a TURN — the scope `runWithPolicy(policy, fn, { identity })` installs around a tool call.
@@ -78,8 +80,19 @@ const LIMITED_TURN = { admin: false, identity: null };
 const turnFor = (elowenUserId) => ({ admin: false, identity: { platform: 'elowen', userId: String(elowenUserId), elowenUserId, admin: false, owner: false } });
 
 const runTool = (plugin, name, params) => {
-  const tool = plugin.tools.find((t) => t.name === name);
-  assert.ok(tool, `tool ${name} must be registered`);
+  const tool = plugin.tools.find((t) => t.name === name && t.ownerUserId === null);
+  assert.ok(tool, `instance tool ${name} must be registered`);
+  return tool.execute('t', params);
+};
+
+/** Mirror PluginRegistry.toolsFor(): an owner-scoped definition wins over the instance definition with
+ *  the same name, while a shared/task session (`ownerUserId === null`) can only select the instance one. */
+const runScopedTool = (plugin, name, ownerUserId, params) => {
+  const candidates = plugin.tools.filter((tool) => tool.name === name
+    && (tool.ownerUserId === null || tool.ownerUserId === ownerUserId));
+  const tool = candidates.find((candidate) => candidate.ownerUserId === ownerUserId)
+    ?? candidates.find((candidate) => candidate.ownerUserId === null);
+  assert.ok(tool, `tool ${name} must be registered for owner ${ownerUserId ?? 'instance'}`);
   return tool.execute('t', params);
 };
 
@@ -326,9 +339,57 @@ test('bundled skills plugin', async (t) => {
     assert.ok(reg.skills.map((s) => s.name).includes('skill-creation'));
   });
 
-  await t.test('the registered skills format into a non-empty prompt block', () => {
+  await t.test('registers SkillLoad and tells the model to prefer it over reading SKILL.md directly', async () => {
     const reg = loadPlugin({ dataRoot: tmpDir('skills') });
     assert.ok(formatSkillsForPrompt(reg.skills).length > 0);
+    assert.ok(reg.promptFragments.some((fragment) => fragment.includes('SkillLoad')));
+    const loaded = asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'skill-creation' }));
+    assert.match(loaded, /Skill: skill-creation/);
+    assert.match(loaded, /Skill directory:/);
+    assert.match(loaded, /CreateSkill/);
+  });
+
+  await t.test('SkillLoad accepts only visible exact names and fails safely when a file disappears', async () => {
+    const dataRoot = tmpDir('skills');
+    const skillsDir = join(dataRoot, 'skills');
+    mkdirSync(skillsDir, { recursive: true });
+    const autoFile = join(skillsDir, 'auto-skill.md');
+    writeFileSync(autoFile, skillMd('auto-skill', 'load automatically'));
+    writeFileSync(join(skillsDir, 'manual-skill.md'), '---\nname: manual-skill\ndescription: explicit only\ndisable-model-invocation: true\n---\n\nsecret manual body\n');
+    const reg = loadPlugin({ dataRoot });
+    const instanceTool = reg.tools.find((tool) => tool.name === 'SkillLoad' && tool.ownerUserId === null);
+    assert.ok(instanceTool);
+    const schema = JSON.stringify(instanceTool.parameters);
+    assert.match(schema, /auto-skill/);
+    assert.doesNotMatch(schema, /manual-skill/);
+    const unavailable = 'Error: that skill is not available in this session. Use an exact name from the available-skills list.';
+    assert.equal(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'manual-skill' })), unavailable);
+    assert.equal(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'does-not-exist' })), unavailable);
+    rmSync(autoFile);
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'auto-skill' })), /missing or unreadable/);
+  });
+
+  await t.test('SkillLoad mirrors instance and personal session ownership without trusting turn identity', async () => {
+    const dataRoot = tmpDir('skills');
+    const skillsDir = join(dataRoot, 'skills');
+    mkdirSync(join(skillsDir, 'users', '7'), { recursive: true });
+    mkdirSync(join(skillsDir, 'users', '8'), { recursive: true });
+    writeFileSync(join(skillsDir, 'shared-skill.md'), skillMd('shared-skill', 'shared procedure'));
+    writeFileSync(join(skillsDir, 'users', '7', 'private-seven.md'), skillMd('private-seven', 'account seven only'));
+    writeFileSync(join(skillsDir, 'users', '8', 'private-eight.md'), skillMd('private-eight', 'account eight only'));
+    const reg = loadPlugin({ dataRoot });
+    const unavailable = 'Error: that skill is not available in this session. Use an exact name from the available-skills list.';
+
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'shared-skill' })), /Body of shared-skill/);
+    // A linked sender in a shared session still receives the INSTANCE tool chosen at spawn; the tool must
+    // not inspect currentIdentity() and widen itself to that sender's personal files at execute time.
+    await asTurn(reg, turnFor(7), async () => {
+      assert.equal(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'private-seven' })), unavailable);
+    });
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'shared-skill' })), /Body of shared-skill/);
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-seven' })), /Body of private-seven/);
+    assert.equal(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-eight' })), unavailable);
+    assert.equal(asText(await runScopedTool(reg, 'SkillLoad', 8, { name: 'private-seven' })), unavailable);
   });
 
   await t.test('CreateSkill writes the skill AND asks the host to apply it live (no restart)', async () => {

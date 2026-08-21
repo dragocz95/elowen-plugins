@@ -17,6 +17,41 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 // hygiene). Core matched routes first, so a skill with one of these names could never be edited.
 const RESERVED_NAMES = new Set(['config', 'icon', 'logs', 'contributions', 'hook-executions', 'data', 'restore', 'api', 'list']);
 
+/** One owner-scoped loader over the exact Skill[] registered into that session. Instance and personal
+ *  definitions intentionally share the same tool name: PluginRegistry.toolsFor() lets the personal one
+ *  replace the instance definition only in its owner's sessions, exactly as it filters skillsFor(). */
+function buildSkillLoadTool(skills, logger) {
+  const visible = skills.filter((skill) => !skill.disableModelInvocation);
+  if (visible.length === 0) return null;
+  const byName = new Map(visible.map((skill) => [skill.name, skill]));
+  const literals = visible.map((skill) => Type.Literal(skill.name));
+  const name = literals.length === 1
+    ? Type.Literal(visible[0].name, { description: 'Exact skill name from the available-skills list.' })
+    : Type.Union(literals, { description: 'Exact skill name from the available-skills list.' });
+
+  return defineTool({
+    name: 'SkillLoad', label: 'Load skill',
+    description: [
+      'Load the complete instructions for one available skill by its exact name.',
+      'Use this as soon as a task matches a skill description; do not open the skill file with Read.',
+      'The result includes the skill directory used to resolve relative paths in its instructions.',
+      'Only skills already visible in this session are accepted. Personal skills remain limited to their owner, instance skills are shared, and manual-only skills are invoked explicitly with /skill:<name> instead.',
+    ].join(' '),
+    parameters: Type.Object({ name }),
+    execute: async (_id, params) => {
+      const skill = byName.get(params.name);
+      if (!skill) return ok('Error: that skill is not available in this session. Use an exact name from the available-skills list.');
+      try {
+        const content = readFileSync(skill.filePath, 'utf-8');
+        return ok(`Skill: ${skill.name}\nSkill directory: ${skill.baseDir}\n\n${content}`);
+      } catch (error) {
+        logger.warn(`could not load skill '${skill.name}' from '${skill.filePath}': ${error instanceof Error ? error.message : error}`);
+        return ok(`Error: skill "${skill.name}" could not be loaded because its file is missing or unreadable.`);
+      }
+    },
+  });
+}
+
 /** Split a skill file into its leading `---` fenced YAML frontmatter and the markdown body — the
  *  regex mirrors src/shared/frontmatter.ts (this no-build plugin cannot import daemon sources):
  *  BOM-tolerant, CRLF-tolerant, and the block ends at the FIRST `---` line so a horizontal rule
@@ -60,6 +95,8 @@ export function register(ctx) {
         .map((e) => Number(e.name))
     : []);
 
+  const instanceSkills = [];
+  const personalSkills = new Map();
   let count = 0;
   for (const { dir, source } of [
     { dir: bundledDir, source: 'elowen-plugin:skills' },
@@ -68,14 +105,36 @@ export function register(ctx) {
     for (const skill of loadSkills(dir, source)) {
       if (dir === instanceDir && isPersonalPath(skill.filePath)) continue; // owned by one account, registered below
       ctx.registerSkill(skill);
+      instanceSkills.push(skill);
       count += 1;
     }
   }
   for (const ownerUserId of skillOwnerIds()) {
-    for (const skill of loadSkills(userSkillsDir(ownerUserId), 'elowen-user:skills')) {
+    const owned = loadSkills(userSkillsDir(ownerUserId), 'elowen-user:skills');
+    personalSkills.set(ownerUserId, owned);
+    for (const skill of owned) {
       ctx.registerSkill(skill, { ownerUserId });
       count += 1;
     }
+  }
+
+  // Register the instance definition first. A personal definition with the same name then shadows it only
+  // for that account through the registry's existing owner-scoped tool selection. The personal closure
+  // includes the shared skills too, so shadowing never removes capabilities the owner already had.
+  const instanceLoader = buildSkillLoadTool(instanceSkills, ctx.logger);
+  if (instanceLoader) ctx.registerTool(instanceLoader);
+  for (const [ownerUserId, owned] of personalSkills) {
+    if (!owned.some((skill) => !skill.disableModelInvocation)) continue;
+    const personalLoader = buildSkillLoadTool([...instanceSkills, ...owned], ctx.logger);
+    if (personalLoader) ctx.registerTool(personalLoader, { ownerUserId });
+  }
+  if (instanceLoader || [...personalSkills.values()].some((owned) => owned.some((skill) => !skill.disableModelInvocation))) {
+    ctx.registerSystemPromptFragment([
+      '<skill_loading>',
+      'When the SkillLoad tool is available, load matching skills with SkillLoad by exact name instead of reading their SKILL.md path directly.',
+      'SkillLoad returns the skill directory; resolve every relative reference in the instructions against that directory.',
+      '</skill_loading>',
+    ].join('\n'));
   }
 
   // An account is gone: drop its personal skills with it. Nothing else ever reaches this folder again
@@ -349,9 +408,8 @@ export function register(ctx) {
     },
   });
 
-  // Skill INVOCATION is fully PI-native: the resource loader's skillsOverride feeds these registered
-  // skills to PI, which advertises them (progressive disclosure) in the system prompt and expands
-  // `/skill:name` on its own. This plugin only LOADS skills and offers the admin write tools below.
+  // Explicit `/skill:name` expansion remains PI-native. Automatic model invocation uses the owner-scoped
+  // SkillLoad tool registered above, while the management tools below own the persistent skill catalog.
   ctx.registerTool(defineTool({
     name: 'CreateSkill', label: 'Create skill',
     description: [
@@ -401,7 +459,7 @@ export function register(ctx) {
     description: [
       'List every skill available in this session — the reusable markdown procedures and workflows the agent can follow — with each name, its scope tag and the one-line description that says when it applies.',
       'Use it to check what know-how is already saved before writing a new skill with CreateSkill, to find the exact name you need for DeleteSkill, or when the user asks what you can do or what instructions you have been given. It takes no parameters.',
-      'Three sets are shown: bundled skills that ship with the plugin, instance-wide skills shared by every session, and your own personal ones. It never reveals other accounts private skills. Entries flagged "/skill only" are hidden from automatic matching and run only when invoked explicitly; the listing shows names and descriptions, not the full instruction bodies, so read the skill file itself when you need the steps.',
+      'Three sets are shown: bundled skills that ship with the plugin, instance-wide skills shared by every session, and your own personal ones. It never reveals other accounts private skills. Entries flagged "/skill only" are hidden from automatic matching and run only when invoked explicitly; the listing shows names and descriptions, not the full instruction bodies, so use SkillLoad when you need the steps.',
     ].join(' '),
     parameters: Type.Object({}),
     execute: async () => {
@@ -468,5 +526,5 @@ export function register(ctx) {
     },
   }));
 
-  ctx.logger.info(`registered ${count} skill(s) + creator tools`);
+  ctx.logger.info(`registered ${count} skill(s) + loader and management tools`);
 }

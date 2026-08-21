@@ -1,12 +1,18 @@
 {
   "name": "skills",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "apiVersion": "1",
   "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
   "entry": "index.mjs",
   "provides": {
     "skills": [
       "*"
+    ],
+    "tools": [
+      "SkillLoad",
+      "CreateSkill",
+      "ListSkills",
+      "DeleteSkill"
     ],
     "apiRoutes": [
       "/plugins/skills",
@@ -25,11 +31,13 @@
     "DeleteSkill"
   ],
   "icons": {
+    "SkillLoad": "📚",
     "CreateSkill": "📖",
     "ListSkills": "📖",
     "DeleteSkill": "📖"
   },
   "planSafe": [
+    "SkillLoad",
     "ListSkills"
   ],
   "web": {
