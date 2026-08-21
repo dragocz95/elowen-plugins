@@ -46,7 +46,11 @@ export function buildAskCard(token, questions, { cs = false, selected = [] } = {
   if (!single) actions.push({ type: 'Action.Submit', title: cs ? 'Odeslat' : 'Submit', data: { ea: token, s: 1 } });
   if (questions.length === 1 && questions[0]?.custom !== false) {
     body.push({ type: 'Input.Text', id: 'other', placeholder: cs ? 'Vlastní odpověď…' : 'Your own answer…' });
-    actions.push({ type: 'Action.Submit', title: cs ? '✏️ Jinak' : '✏️ Other', data: { ea: token, ot: 1 } });
+    // Submits the free-text box above it, so it has to read as an ACTION. "Other" looked like one more
+    // choice: people tapped it expecting another option, then waited for a send button that never came.
+    // It also stays distinct from the plain Submit a multi-select question renders alongside it — two
+    // buttons both reading "Odeslat" would be worse than the original wording.
+    actions.push({ type: 'Action.Submit', title: cs ? '➤ Odeslat vlastní odpověď' : '➤ Send custom answer', data: { ea: token, ot: 1 } });
   }
   return card(body, actions);
 }
