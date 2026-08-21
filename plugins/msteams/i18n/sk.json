@@ -25,6 +25,13 @@
       "label": "Názov pripojenia OAuth",
       "hint": "Presný názov pripojenia nastaveného v prostriedku Azure Bot. Použite poskytovateľa Microsoft Entra ID v2, tento tenant, delegované oprávnenia Microsoft 365, adresu presmerovania https://token.botframework.com/.auth/web/redirect a ponechajte adresu Token Exchange URL prázdnu."
     },
+    "sec_sso": { "label": "Jednotné prihlásenie Microsoft", "hint": "Prihlásenie do webového rozhrania Elowen pomocou účtu Microsoft z tohto tenantu." },
+    "ssoEnabled": { "label": "Povoliť prihlásenie cez Microsoft", "hint": "Zobrazí na prihlasovacej stránke možnosť prihlásenia cez Microsoft, ak je správne nastavená verejná adresa presmerovania." },
+    "ssoRedirectBase": { "label": "Verejná adresa Elowen", "hint": "Absolútna verejná adresa HTTPS bez cesty, napríklad https://elowen.example.com. V registrácii aplikácie Entra nastavte adresu presmerovania na túto adresu doplnenú o /api/auth/sso/microsoft/callback." },
+    "ssoProvision": { "label": "Zakladanie účtov", "hint": "Určuje, kto si môže prvým prihlásením založiť účet. Voľba Celý tenant znamená, že účet v tejto inštancii môže získať ktokoľvek z tenantu.", "options": { "off": "Vypnuté", "tenant": "Celý tenant", "groups": "Vybrané skupiny" } },
+    "ssoAllowedGroups": { "label": "Povolené skupiny Entra", "hint": "Čiarkami oddelené ID skupín Entra, ktorých členovia si môžu založiť účet. Použije sa iba pri voľbe Vybrané skupiny." },
+    "ssoLinkByEmail": { "label": "Prepájať existujúce účty podľa e-mailu", "hint": "Pri prvej návšteve sa môže identita Microsoft prepojiť s práve jedným existujúcim neadministrátorským účtom s rovnakým e-mailom. E-mailový claim nie je overený a nemenný identifikátor; trvalá väzba sa po prepojení ukladá podľa Entra object ID." },
+    "ssoDefaultProjects": { "label": "Predvolené projekty nových účtov", "hint": "Čiarkami oddelené ID projektov, ktoré sa priradia novozaloženým účtom." },
     "sec_m365": { "label": "Nástroje Microsoft 365", "hint": "Delegované nástroje Graph vždy konajú v mene prihlásenej osoby a fungujú iba v jej osobnom chate Teams. Tokeny zostávajú v službe Bot Framework Token Service." },
     "m365AccessMode": { "label": "Prístup k Microsoft 365", "hint": "Režim iba na čítanie blokuje všetky externé zmeny. Čítanie a zápis aj naďalej najskôr zobrazí náhľad a zmenu vykoná až po výslovnom potvrdení konkrétnej operácie.", "options": { "read_only": "Iba na čítanie", "read_write": "Čítanie a zápis" } },
     "m365MaxTransferBytes": { "label": "Limit prenosu súborov Microsoft", "hint": "Najväčší súbor, ktorý možno jedným volaním stiahnuť z Microsoft 365 alebo doň nahrať. Väčšie súbory používajú obnoviteľnú reláciu nahrávania Microsoft." },

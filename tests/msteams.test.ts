@@ -296,9 +296,18 @@ describe('msteams identity + role mapping', () => {
       readFile(join(repoRoot, 'plugins/msteams/index.mjs'), 'utf8'),
       readFile(join(repoRoot, 'plugins/msteams/lib/microsoftTools.mjs'), 'utf8'),
     ]);
-    const declared = new Set(
-      (JSON.parse(manifest) as { configSchema?: { key: string }[] }).configSchema?.map((f) => f.key) ?? [],
-    );
+    const configSchema = (JSON.parse(manifest) as {
+      configSchema?: { key: string; default?: unknown }[];
+    }).configSchema ?? [];
+    const declared = new Set(configSchema.map((field) => field.key));
+    expect(Object.fromEntries(configSchema.map((field) => [field.key, field.default]))).toMatchObject({
+      ssoEnabled: false,
+      ssoRedirectBase: '',
+      ssoProvision: 'off',
+      ssoAllowedGroups: '',
+      ssoLinkByEmail: true,
+      ssoDefaultProjects: '',
+    });
     const read = [
       ...index.matchAll(/ctx\.config\.([A-Za-z0-9_]+)/g),
       ...microsoftTools.matchAll(/cfg\.([A-Za-z0-9_]+)/g),
