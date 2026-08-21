@@ -304,7 +304,6 @@ describe('msteams identity + role mapping', () => {
       ssoEnabled: false,
       ssoRedirectBase: '',
       ssoProvision: 'off',
-      ssoAllowedGroups: '',
       ssoLinkByEmail: true,
       ssoDefaultProjects: '',
     });
