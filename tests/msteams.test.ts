@@ -265,6 +265,15 @@ describe('msteams identity + role mapping', () => {
     expect(adapter.accessFor(['aad-unknown'], 'a:conv2').access).toBeUndefined();
   });
 
+  it('never derives account identity from a legacy conversation-role mapping', async () => {
+    const { adapter } = await makeAdapter({ rolePolicies: [
+      { roleId: 'a:shared', name: 'Whole room', elowenUser: 'owner', projectIds: [1] },
+    ] });
+    const access = adapter.accessFor(['aad-stranger', 'a:shared'], 'a:shared').access;
+    expect(access).toBeDefined();
+    expect(access).not.toHaveProperty('actAsUserId');
+  });
+
   it('declares the host capability used for verified external accounts', async () => {
     const [manifest, index] = await Promise.all([
       readFile(join(repoRoot, 'plugins/msteams/elowen-plugin.json'), 'utf8'),
