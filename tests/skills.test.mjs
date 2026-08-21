@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -339,10 +339,10 @@ test('bundled skills plugin', async (t) => {
     assert.ok(reg.skills.map((s) => s.name).includes('skill-creation'));
   });
 
-  await t.test('registers SkillLoad and tells the model to prefer it over reading SKILL.md directly', async () => {
+  await t.test('registers SkillLoad and preserves the Read fallback for skills from other plugins', async () => {
     const reg = loadPlugin({ dataRoot: tmpDir('skills') });
     assert.ok(formatSkillsForPrompt(reg.skills).length > 0);
-    assert.ok(reg.promptFragments.some((fragment) => fragment.includes('SkillLoad')));
+    assert.ok(reg.promptFragments.some((fragment) => fragment.includes('SkillLoad') && fragment.includes('other plugins') && fragment.includes('Read')));
     const loaded = asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'skill-creation' }));
     assert.match(loaded, /Skill: skill-creation/);
     assert.match(loaded, /Skill directory:/);
@@ -390,6 +390,20 @@ test('bundled skills plugin', async (t) => {
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-seven' })), /Body of private-seven/);
     assert.equal(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-eight' })), unavailable);
     assert.equal(asText(await runScopedTool(reg, 'SkillLoad', 8, { name: 'private-seven' })), unavailable);
+  });
+
+  await t.test('a symlink into a personal skill directory never promotes it to instance scope', async () => {
+    const dataRoot = tmpDir('skills');
+    const skillsDir = join(dataRoot, 'skills');
+    const privateDir = join(skillsDir, 'users', '7', 'private-linked');
+    mkdirSync(privateDir, { recursive: true });
+    writeFileSync(join(privateDir, 'SKILL.md'), skillMd('private-linked', 'account seven only'));
+    symlinkSync(privateDir, join(skillsDir, 'linked-from-instance'), 'dir');
+    const reg = loadPlugin({ dataRoot });
+    const unavailable = 'Error: that skill is not available in this session. Use an exact name from the available-skills list.';
+
+    assert.equal(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'private-linked' })), unavailable);
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-linked' })), /Body of private-linked/);
   });
 
   await t.test('CreateSkill writes the skill AND asks the host to apply it live (no restart)', async () => {
@@ -463,6 +477,7 @@ test('skills plugin creator tools', async (t) => {
     });
     await asTurn(reg, ADMIN_TURN, async () => {
       assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'Bad Name', scope: 'instance', description: 'd', content: 'c' })), /kebab-case/);
+      assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'users', scope: 'instance', description: 'd', content: 'c' })), /reserved/);
       assert.match(asText(await runTool(reg, 'CreateSkill', { name: 'deploy-checklist', scope: 'instance', description: 'Kdy nasazovat', content: 'Kroky…' })), /saved/);
       const file = join(dataRoot, 'skills/deploy-checklist.md');
       assert.ok(readFileSync(file, 'utf-8').includes('name: deploy-checklist'));

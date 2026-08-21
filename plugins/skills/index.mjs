@@ -7,7 +7,7 @@ import { Type } from 'typebox';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, basename, resolve, sep } from 'node:path';
-import { writeFileSync, unlinkSync, rmSync, rmdirSync, existsSync, statSync, readFileSync, readdirSync, mkdirSync } from 'node:fs';
+import { writeFileSync, unlinkSync, rmSync, rmdirSync, existsSync, statSync, readFileSync, readdirSync, mkdirSync, realpathSync } from 'node:fs';
 
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -15,15 +15,23 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 // Names that collide with the core per-plugin route family under /plugins/skills/* (PATCH
 // /plugins/:name/config would eat PATCH /plugins/skills/config, and the rest are reserved for URL
 // hygiene). Core matched routes first, so a skill with one of these names could never be edited.
-const RESERVED_NAMES = new Set(['config', 'icon', 'logs', 'contributions', 'hook-executions', 'data', 'restore', 'api', 'list']);
+const RESERVED_NAMES = new Set(['config', 'icon', 'logs', 'contributions', 'hook-executions', 'data', 'restore', 'api', 'list', 'users']);
 
 /** One owner-scoped loader over the exact Skill[] registered into that session. Instance and personal
  *  definitions intentionally share the same tool name: PluginRegistry.toolsFor() lets the personal one
  *  replace the instance definition only in its owner's sessions, exactly as it filters skillsFor(). */
 function buildSkillLoadTool(skills, logger) {
-  const visible = skills.filter((skill) => !skill.disableModelInvocation);
+  const byName = new Map();
+  for (const skill of skills) {
+    if (skill.disableModelInvocation) continue;
+    if (byName.has(skill.name)) {
+      logger.warn(`duplicate visible skill name '${skill.name}' ignored by SkillLoad (${skill.filePath})`);
+      continue;
+    }
+    byName.set(skill.name, skill);
+  }
+  const visible = [...byName.values()];
   if (visible.length === 0) return null;
-  const byName = new Map(visible.map((skill) => [skill.name, skill]));
   const literals = visible.map((skill) => Type.Literal(skill.name));
   const name = literals.length === 1
     ? Type.Literal(visible[0].name, { description: 'Exact skill name from the available-skills list.' })
@@ -32,10 +40,10 @@ function buildSkillLoadTool(skills, logger) {
   return defineTool({
     name: 'SkillLoad', label: 'Load skill',
     description: [
-      'Load the complete instructions for one available skill by its exact name.',
-      'Use this as soon as a task matches a skill description; do not open the skill file with Read.',
+      'Load the complete instructions for one available skill managed by the skills plugin, using an exact name offered by this tool.',
+      'Prefer this tool when its schema includes the matching skill; skills contributed by other plugins remain loadable through Read at the location shown in the available-skills list.',
       'The result includes the skill directory used to resolve relative paths in its instructions.',
-      'Only skills already visible in this session are accepted. Personal skills remain limited to their owner, instance skills are shared, and manual-only skills are invoked explicitly with /skill:<name> instead.',
+      'Personal skills remain limited to their owner and instance skills are shared. Manual-only skills are omitted; only the user can invoke one explicitly with /skill:<name>.',
     ].join(' '),
     parameters: Type.Object({ name }),
     execute: async (_id, params) => {
@@ -77,10 +85,14 @@ export function register(ctx) {
   // personal sets existed). That folder is a SKILL, not the personal root, and treating it as the root
   // would delete it from every prompt on upgrade — so the reservation only applies when it is not one.
   const usersRootIsPersonalStore = () => !existsSync(join(usersRoot, 'SKILL.md'));
+  const canonicalPath = (path) => {
+    try { return realpathSync(path); } catch { return resolve(path); }
+  };
   const isPersonalPath = (file) => {
     if (!usersRootIsPersonalStore()) return false;
-    const abs = resolve(file);
-    return abs === resolve(usersRoot) || abs.startsWith(resolve(usersRoot) + sep);
+    const abs = canonicalPath(file);
+    const root = canonicalPath(usersRoot);
+    return abs === root || abs.startsWith(root + sep);
   };
   // Both catalog surfaces (list/delete) go through PI's loader, not a raw `*.md` readdir, so they see
   // EVERY skill PI actually loads — including the `<name>/SKILL.md` directory form (PI treats a dir with a
@@ -131,7 +143,8 @@ export function register(ctx) {
   if (instanceLoader || [...personalSkills.values()].some((owned) => owned.some((skill) => !skill.disableModelInvocation))) {
     ctx.registerSystemPromptFragment([
       '<skill_loading>',
-      'When the SkillLoad tool is available, load matching skills with SkillLoad by exact name instead of reading their SKILL.md path directly.',
+      'Prefer SkillLoad when its schema offers the matching skill name.',
+      'Some available skills are contributed by other plugins and are not offered by SkillLoad; load those with Read at the location shown in the available-skills list.',
       'SkillLoad returns the skill directory; resolve every relative reference in the instructions against that directory.',
       '</skill_loading>',
     ].join('\n'));
@@ -439,6 +452,7 @@ export function register(ctx) {
         if (!target.ok) return ok('Error: this turn has no account behind it, so there is no personal skill set to write to — and writing the instance-wide set requires the instance owner.');
         const dir = target.dir;
         if (!NAME_RE.test(p.name)) return ok('Error: name must be kebab-case (a-z, 0-9, dashes), max 64 chars.');
+        if (RESERVED_NAMES.has(p.name)) return ok(`Error: "${p.name}" is reserved.`);
         // Refuse rather than shadow: a personal skill with an instance skill's name would register twice
         // and the two would fight over the same slot in the prompt.
         const collision = nameCollision(p.name, target.owner);
