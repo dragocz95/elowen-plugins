@@ -441,12 +441,9 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("msteams");
   const users = hooks.useUsers().data ?? [];
-  const projects = hooks.useProjects().data ?? [];
-  const plugins = hooks.usePlugins().data ?? [];
   const [search, setSearch] = (0, import_react3.useState)("");
   const [filter, setFilter] = (0, import_react3.useState)("all");
   const [selectedKey, setSelectedKey] = (0, import_react3.useState)(response.people[0]?.key ?? null);
-  const [toolsOpen, setToolsOpen] = (0, import_react3.useState)(false);
   const policies = policiesOf(draft.values);
   const visible = response.people.filter((person) => {
     const mapped = directPolicyIndex(policies, person) >= 0;
@@ -463,7 +460,7 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
   const replacePolicies = (next) => draft.setValue("rolePolicies", next);
   const createPolicy = () => {
     if (selected === null) return;
-    const nextPolicy = { roleId: primaryId(selected), name: selected.name || selected.upn || s.personFallback, projectIds: [], prompt: "", tools: [] };
+    const nextPolicy = { roleId: primaryId(selected), name: selected.name || selected.upn || s.personFallback, prompt: "" };
     replacePolicies(upsertDirectPolicy(policies, selected, nextPolicy));
   };
   const patchPolicy = (patch) => {
@@ -474,17 +471,6 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
     if (policyIndex < 0) return;
     replacePolicies(policies.filter((_, index) => index !== policyIndex));
   };
-  const owners = /* @__PURE__ */ new Map();
-  for (const plugin of plugins) {
-    if (!plugin.enabled) continue;
-    for (const tool of plugin.provides.tools ?? []) if (!owners.has(tool)) owners.set(tool, plugin.name);
-  }
-  const selectedTools = policy?.tools ?? [];
-  const knownTools = new Set(owners.keys());
-  const toolItems = [
-    ...selectedTools.filter((tool) => !knownTools.has(tool)).map((tool) => ({ id: tool, label: tool, group: s.unavailableTools })),
-    ...[...owners.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([tool, plugin]) => ({ id: tool, label: tool, group: plugin }))
-  ];
   const inherited = policies.some((item) => item.roleId === "*");
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceDocument, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex w-full flex-wrap items-center gap-3", children: [
@@ -558,39 +544,6 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block text-xs leading-relaxed text-text-muted", children: s.adminHint })
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.projectsLabel, hint: s.projectsHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap gap-x-4 gap-y-2 rounded-lg border border-border bg-surface p-3", children: [
-            projects.map((project) => {
-              const checked = policy.projectIds.includes(project.id);
-              return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex cursor-pointer items-center gap-2 text-sm text-text", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { onClick: () => patchPolicy({ projectIds: checked ? policy.projectIds.filter((id) => id !== project.id) : [...policy.projectIds, project.id] }), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Checkbox, { checked }) }),
-                project.name || project.slug
-              ] }, project.id);
-            }),
-            projects.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs text-text-muted", children: s.projectsEmpty }) : null
-          ] }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.toolsLabel, hint: s.toolsHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            C.SelectionSummary,
-            {
-              countText: selectedTools.length === 0 ? s.toolsAll : s.toolsCount.replace("{n}", String(selectedTools.length)),
-              samples: selectedTools.slice(0, 3).map((tool) => ({ label: tool })),
-              moreCount: Math.max(0, selectedTools.length - 3),
-              onManage: () => setToolsOpen(true),
-              manageLabel: s.manageTools
-            }
-          ) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            C.ManageSelectionModal,
-            {
-              title: s.toolsLabel,
-              open: toolsOpen,
-              onClose: () => setToolsOpen(false),
-              items: toolItems,
-              selected: new Set(selectedTools),
-              onSave: (next) => patchPolicy({ tools: [...next] }),
-              emptySelectionHint: s.toolsAll,
-              countLabel: (count) => s.toolsCount.replace("{n}", String(count))
-            }
-          ),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.promptLabel, hint: s.promptHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             "textarea",
             {

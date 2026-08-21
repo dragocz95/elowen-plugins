@@ -1,9 +1,8 @@
 // Microsoft Teams platform plugin: an Azure Bot Framework bot. Inbound activities arrive on the daemon
 // webhook /hooks/msteams/messages (Microsoft's JWT is validated there); replies, typing indicators and
-// media go out through the Bot Connector REST API with an Entra client-credentials token. Each sender —
-// an Entra object ID, a UPN/email, or a whole conversation id — resolves via this plugin's rolePolicies
-// to the Elowen projects they may touch plus an optional role prompt. Unmapped senders are ignored unless
-// personal-chat account linking explicitly admits verified active tenant members.
+// media go out through the Bot Connector REST API with an Entra client-credentials token. Role policies
+// admit shared-room senders and may add room instructions; project and tool permissions come only from
+// each sender's linked Elowen account. Personal-chat account linking admits verified tenant members for OAuth.
 import { join } from 'node:path';
 import { StateStore } from './lib/state.mjs';
 import { MsTeamsAdapter } from './lib/adapter.mjs';

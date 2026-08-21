@@ -181,6 +181,15 @@ export class TeamsAccountLinking {
     return user ? { user } : null;
   }
 
+  linkedAccountFor(objectId, verifiedEmail) {
+    const subjectId = normalized(objectId);
+    if (!subjectId) return null;
+    if (typeof this.externalUsers.resolvePlatformUser === 'function') {
+      return this.externalUsers.resolvePlatformUser(PROVIDER, subjectId, verifiedEmail);
+    }
+    return this.bindingFor(subjectId)?.user ?? null;
+  }
+
   async accountStatus(person) {
     const objectId = normalized(person?.aad);
     const teamsUserId = String(person?.id ?? '').trim();
@@ -218,10 +227,14 @@ export class TeamsAccountLinking {
     await this.tokens.signOutUser(teamsUserId, String(this.cfg.oauthConnectionName), CHANNEL);
   }
 
-  async signInActivity(activity, text, buttonTitle) {
+  async signInActivity(activity, text, buttonTitle, options = {}) {
     this.validateActivity(activity);
-    const resource = await this.tokens.getSignInResource(String(this.cfg.oauthConnectionName), activity);
-    if (!resource?.signInLink) throw new TeamsAccountError('sign_in_unavailable', 'Microsoft sign-in is temporarily unavailable.');
+    const resource = options.buttonValue
+      ? null
+      : await this.tokens.getSignInResource(String(this.cfg.oauthConnectionName), activity);
+    if (!options.buttonValue && !resource?.signInLink) {
+      throw new TeamsAccountError('sign_in_unavailable', 'Microsoft sign-in is temporarily unavailable.');
+    }
     return {
       type: 'message',
       attachments: [{
@@ -229,8 +242,8 @@ export class TeamsAccountLinking {
         content: {
           text,
           connectionName: String(this.cfg.oauthConnectionName),
-          buttons: [{ type: 'signin', title: buttonTitle, value: resource.signInLink }],
-          ...(resource.tokenExchangeResource ? { tokenExchangeResource: resource.tokenExchangeResource } : {}),
+          buttons: [{ type: options.buttonType ?? 'signin', title: buttonTitle, value: options.buttonValue ?? resource.signInLink }],
+          ...(resource?.tokenExchangeResource ? { tokenExchangeResource: resource.tokenExchangeResource } : {}),
         },
       }],
     };

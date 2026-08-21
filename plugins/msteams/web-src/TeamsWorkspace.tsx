@@ -274,12 +274,9 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('msteams');
   const users = hooks.useUsers().data ?? [];
-  const projects = hooks.useProjects().data ?? [];
-  const plugins = hooks.usePlugins().data ?? [];
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<PersonFilter>('all');
   const [selectedKey, setSelectedKey] = useState<string | null>(response.people[0]?.key ?? null);
-  const [toolsOpen, setToolsOpen] = useState(false);
 
   const policies = policiesOf(draft.values);
   const visible = response.people.filter((person) => {
@@ -298,7 +295,7 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
   const replacePolicies = (next: RolePolicy[]) => draft.setValue('rolePolicies', next);
   const createPolicy = () => {
     if (selected === null) return;
-    const nextPolicy = { roleId: primaryId(selected), name: selected.name || selected.upn || s.personFallback, projectIds: [], prompt: '', tools: [] };
+    const nextPolicy = { roleId: primaryId(selected), name: selected.name || selected.upn || s.personFallback, prompt: '' };
     replacePolicies(upsertDirectPolicy(policies, selected, nextPolicy));
   };
   const patchPolicy = (patch: Partial<RolePolicy>) => {
@@ -310,17 +307,6 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
     replacePolicies(policies.filter((_, index) => index !== policyIndex));
   };
 
-  const owners = new Map<string, string>();
-  for (const plugin of plugins) {
-    if (!plugin.enabled) continue;
-    for (const tool of plugin.provides.tools ?? []) if (!owners.has(tool)) owners.set(tool, plugin.name);
-  }
-  const selectedTools = policy?.tools ?? [];
-  const knownTools = new Set(owners.keys());
-  const toolItems = [
-    ...selectedTools.filter((tool) => !knownTools.has(tool)).map((tool) => ({ id: tool, label: tool, group: s.unavailableTools })),
-    ...[...owners.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([tool, plugin]) => ({ id: tool, label: tool, group: plugin })),
-  ];
   const inherited = policies.some((item) => item.roleId === '*');
 
   return (
@@ -416,42 +402,6 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
                       </span>
                     </label>
 
-                    <C.Field label={s.projectsLabel} hint={s.projectsHint}>
-                      <div className="flex flex-wrap gap-x-4 gap-y-2 rounded-lg border border-border bg-surface p-3">
-                        {projects.map((project) => {
-                          const checked = policy.projectIds.includes(project.id);
-                          return (
-                            <label key={project.id} className="flex cursor-pointer items-center gap-2 text-sm text-text">
-                              <span onClick={() => patchPolicy({ projectIds: checked ? policy.projectIds.filter((id) => id !== project.id) : [...policy.projectIds, project.id] })}>
-                                <C.Checkbox checked={checked} />
-                              </span>
-                              {project.name || project.slug}
-                            </label>
-                          );
-                        })}
-                        {projects.length === 0 ? <span className="text-xs text-text-muted">{s.projectsEmpty}</span> : null}
-                      </div>
-                    </C.Field>
-
-                    <C.Field label={s.toolsLabel} hint={s.toolsHint}>
-                      <C.SelectionSummary
-                        countText={selectedTools.length === 0 ? s.toolsAll : s.toolsCount.replace('{n}', String(selectedTools.length))}
-                        samples={selectedTools.slice(0, 3).map((tool) => ({ label: tool }))}
-                        moreCount={Math.max(0, selectedTools.length - 3)}
-                        onManage={() => setToolsOpen(true)}
-                        manageLabel={s.manageTools}
-                      />
-                    </C.Field>
-                    <C.ManageSelectionModal
-                      title={s.toolsLabel}
-                      open={toolsOpen}
-                      onClose={() => setToolsOpen(false)}
-                      items={toolItems}
-                      selected={new Set(selectedTools)}
-                      onSave={(next: Set<string>) => patchPolicy({ tools: [...next] })}
-                      emptySelectionHint={s.toolsAll}
-                      countLabel={(count: number) => s.toolsCount.replace('{n}', String(count))}
-                    />
 
                     <C.Field label={s.promptLabel} hint={s.promptHint}>
                       <textarea

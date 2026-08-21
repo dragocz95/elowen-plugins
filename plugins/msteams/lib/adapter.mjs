@@ -71,6 +71,7 @@ const ASK_TTL_MS = 360000;
  *  under that, because the bytes wait in memory between the offer and the answer. */
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const FILE_TTL_MS = 900000;
+const SHARED_SIGN_IN_TTL_MS = 15 * 60 * 1000;
 const TYPING_INTERVAL_MS = 8000;
 const CONTEXT_MAX = 40;
 const REACTION_PROCESSING = '1f440_eyes';
@@ -148,6 +149,9 @@ export class MsTeamsAdapter {
     // is held in memory: Teams gives us the upload URL only in the accept invoke, so the bytes have to
     // outlive the offer. Swept on every new offer and every answer so a declined one cannot leak.
     this.pendingFiles = new Map();
+    // One OAuth card per person per room within the cooldown. Shared-scope OAuth cannot complete, so the
+    // card opens the bot's personal chat instead; repeated mentions must not fill the room with cards.
+    this.sharedSignInOffers = new Map();
     // The private-reply descriptor belongs to one async turn, not to the conversation. Two people may
     // invoke targeted commands in the same channel concurrently; a conversation-global map can swap
     // their recipients or publish one answer. Async context follows every progress/image send in the turn.
@@ -231,6 +235,21 @@ export class MsTeamsAdapter {
     return { status: 200, body: {} };
   }
 
+  personalSignInLink() {
+    const url = new URL('https://teams.microsoft.com/l/chat/0/0');
+    url.searchParams.set('users', `28:${String(this.cfg.appId)}`);
+    url.searchParams.set('message', this.msg.signInButton);
+    return url.toString();
+  }
+
+  shouldOfferSharedSignIn(conversationId, senderId, now = Date.now()) {
+    for (const [key, offeredAt] of this.sharedSignInOffers) {
+      if (now - offeredAt >= SHARED_SIGN_IN_TTL_MS) this.sharedSignInOffers.delete(key);
+    }
+    const key = `${conversationId}\0${senderId}`;
+    return { key, offer: !this.sharedSignInOffers.has(key) };
+  }
+
   async authorizeAccount(activity) {
     if (this.cfg.accountLinking !== true || activity.conversation?.conversationType !== 'personal') return { id: null };
     if (!this.accountLinking) {
@@ -256,7 +275,7 @@ export class MsTeamsAdapter {
     this.rememberConversation(activity);
     const upn = await this.resolveUpn(activity.serviceUrl, activity.conversation.id, activity.from);
     const ids = senderIds(activity.from, activity.conversation.id, upn);
-    if (!this.inboundAccessFor(ids, activity.conversation.id, true, activity.from?.aadObjectId).access) return;
+    if (!this.inboundAccessFor(ids, activity.conversation.id, true).access) return;
     try {
       const result = await this.accountLinking.authenticate(activity, { magicCode: activity?.value?.state });
       const text = result.status === 'authorized' ? this.msg.signInComplete : this.msg.signInIncomplete;
@@ -646,13 +665,11 @@ export class MsTeamsAdapter {
     return { access: buildRoleAccess(match, this.state.get(String(conversationId))) };
   }
 
-  /** Admission for an inbound turn. Explicit role policies still win. Account linking also admits any
-   *  personal-chat sender for OAuth, and an already linked sender in a shared room for account resolution. */
-  inboundAccessFor(ids, conversationId, personal = false, objectId = '') {
+  /** Admission for an inbound turn. Shared conversations always require a matching role policy; account
+   * linking admits an unmapped sender only in personal chat so they can complete OAuth onboarding. */
+  inboundAccessFor(ids, conversationId, personal = false) {
     const mapped = this.accessFor(ids, conversationId);
-    if (mapped.access || this.cfg.accountLinking !== true) return mapped;
-    const linked = !personal && objectId && this.accountLinking?.bindingFor?.(objectId);
-    if (!personal && !linked) return mapped;
+    if (mapped.access || !personal || this.cfg.accountLinking !== true) return mapped;
     return { access: buildRoleAccess({ projectIds: [] }, this.state.get(String(conversationId))) };
   }
 
@@ -719,8 +736,36 @@ export class MsTeamsAdapter {
 
     const upn = await this.resolveUpn(m.serviceUrl, conv.id, from);
     const ids = senderIds(from, conv.id, upn);
-    let { access } = this.inboundAccessFor(ids, conv.id, personal, from.aadObjectId);
-    if (!access) return; // unmapped sender in policy-only mode → stay silent
+    let { access } = this.inboundAccessFor(ids, conv.id, personal);
+    if (!access) return; // no matching shared-room admission role → stay silent
+    let linkedAccount = null;
+    let linkedPlatformUserId;
+    if (!personal && this.accountLinking) {
+      for (const candidate of [...new Set([from.aadObjectId, from.id].filter(Boolean).map(String))]) {
+        const resolved = this.accountLinking.linkedAccountFor?.(candidate, upn);
+        if (!resolved) continue;
+        linkedAccount = resolved;
+        linkedPlatformUserId = candidate;
+        break;
+      }
+    }
+    if (!personal && this.cfg.accountLinking === true && !linkedAccount) {
+      const offer = this.shouldOfferSharedSignIn(conv.id, String(from.aadObjectId || from.id));
+      if (offer.offer && this.accountLinking) {
+        this.sharedSignInOffers.set(offer.key, Date.now());
+        try {
+          const card = await this.accountLinking.signInActivity(m, this.msg.signInPrompt, this.msg.signInButton, {
+            buttonType: 'openUrl',
+            buttonValue: this.personalSignInLink(),
+          });
+          await this.connector.reply(m.serviceUrl, conv.id, m.id, card);
+        } catch (error) {
+          this.sharedSignInOffers.delete(offer.key);
+          throw error;
+        }
+      }
+      return;
+    }
     const account = await this.authorizeAccount(m);
     if (!account) return;
     if (Number.isInteger(account.id)) access = { ...access, actAsUserId: account.id };
@@ -772,7 +817,8 @@ export class MsTeamsAdapter {
     try {
       const runTurn = () => this.handler(
         {
-          platform: 'msteams', userId: String(from.aadObjectId || from.id), userName: senderName,
+          platform: 'msteams', userId: String(linkedPlatformUserId || from.aadObjectId || from.id),
+          accountIds: [from.aadObjectId, from.id].filter(Boolean).map(String), userName: senderName,
           verifiedEmail: upn || undefined, roleIds: ids, channelId: convoKey, access: turnAccess,
           ...(promptSlash ? { promptCommand: true } : {}),
           // Teams calls a 1:1 chat with the bot `personal`; a group chat or a team channel is never that.
@@ -1200,7 +1246,7 @@ export class MsTeamsAdapter {
     const ids = senderIds({ aadObjectId: person.aad, id: person.id }, conversationId, person.upn);
     const binding = person.aad ? this.accountLinking?.bindingFor?.(person.aad) : null;
     const accountUserId = Number(binding?.user?.id);
-    const { access } = this.inboundAccessFor(ids, conversationId, false, person.aad);
+    const { access } = this.inboundAccessFor(ids, conversationId, false);
     // Only a verified Entra binding may wake a recipient account. A role policy alone never supplies
     // account identity or credentials.
     if (!access || !Number.isInteger(accountUserId)) return { woken: false };

@@ -53,6 +53,7 @@ function harness(options: {
     },
   }));
   const externalUsers = {
+    resolvePlatformUser: vi.fn(() => ({ id: 7, username: 'alex', isAdmin: false })),
     resolve: vi.fn(() => ({ id: 7, username: 'alex', isAdmin: false })),
     describe: vi.fn(() => ({ user: { id: 7, username: 'alex', isAdmin: false }, linkedAt: '2026-08-19T01:00:00.000Z' })),
     linkOrProvision: vi.fn(() => ({ user: { id: 7, username: 'alex', isAdmin: false }, created: true })),
@@ -63,6 +64,12 @@ function harness(options: {
 }
 
 describe('TeamsAccountLinking', () => {
+  it('uses the host platform resolver so explicit settings, OAuth bindings and verified e-mail agree', () => {
+    const { linking, externalUsers } = harness();
+    expect(linking.linkedAccountFor(OBJECT_ID.toUpperCase(), ' alex@chetty.ai ')).toMatchObject({ id: 7 });
+    expect(externalUsers.resolvePlatformUser).toHaveBeenCalledWith('msteams', OBJECT_ID, ' alex@chetty.ai ');
+  });
+
   it('verifies a tenant member through Graph and provisions only bounded identity data', async () => {
     const { linking, tokenClient, fetch, externalUsers } = harness();
 
@@ -132,6 +139,18 @@ describe('TeamsAccountLinking', () => {
     }));
     expect(card).not.toHaveProperty('text');
     expect(JSON.stringify(card)).not.toContain(cfg.appPassword);
+  });
+
+  it('reuses the OAuth card with an explicit personal-chat target without requesting a channel token', async () => {
+    const { linking, tokenClient } = harness({ accessToken: null });
+    const target = 'https://teams.microsoft.com/l/chat/0/0?users=28%3Aapp-guid';
+    const card = await linking.signInActivity(activity({
+      conversation: { id: '19:channel', conversationType: 'channel', tenantId: TENANT },
+    }), 'Sign in to continue.', 'Sign in', { buttonType: 'openUrl', buttonValue: target });
+    expect(tokenClient.getSignInResource).not.toHaveBeenCalled();
+    expect(card).toMatchObject({
+      attachments: [{ content: { buttons: [{ type: 'openUrl', title: 'Sign in', value: target }] } }],
+    });
   });
 
   it('exposes a delegated token only inside the matching personal Teams turn', async () => {

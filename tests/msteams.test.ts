@@ -53,8 +53,9 @@ async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
   models?: unknown[];
   accountLinking?: {
     authenticate: (activity: unknown, options?: { magicCode?: string }) => Promise<{ status: string; user?: { id: number } }>;
-    signInActivity: (activity: unknown, text: string, button: string) => Promise<Record<string, unknown>>;
+    signInActivity: (activity: unknown, text: string, button: string, options?: { buttonType?: string; buttonValue?: string }) => Promise<Record<string, unknown>>;
     bindingFor?: (objectId: string) => { user: { id: number } } | null;
+    linkedAccountFor?: (objectId: string, verifiedEmail?: string) => { id: number } | null;
     runWithActivity?: (activity: unknown, fn: () => Promise<string | undefined>) => Promise<string | undefined>;
   };
 } = {}) {
@@ -436,6 +437,8 @@ describe('msteams identity + role mapping', () => {
     const accountLinking = {
       authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
       signInActivity: vi.fn(async () => ({})),
+      bindingFor: vi.fn(() => ({ user: { id: 7 } })),
+      linkedAccountFor: vi.fn(() => ({ id: 7 })),
       runWithActivity: vi.fn(async (_incoming: unknown, fn: () => Promise<string | undefined>) => fn()),
     };
     const { adapter, calls, state } = await makeAdapter(
@@ -476,6 +479,30 @@ describe('msteams identity + role mapping', () => {
     expect(accountLinking.signInActivity).not.toHaveBeenCalled();
     expect(accountLinking.runWithActivity).toHaveBeenCalledTimes(1);
     expect(calls.filter((call) => call.kind === 'reply')).toHaveLength(0);
+  });
+
+  it('uses a linked 29: Teams id when the Entra object id has no account link', async () => {
+    const resolved: string[] = [];
+    const accountLinking = {
+      authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
+      signInActivity: vi.fn(async () => ({})),
+      linkedAccountFor: vi.fn((platformUserId: string) => {
+        resolved.push(platformUserId);
+        return platformUserId === '29:enc' ? { id: 7 } : null;
+      }),
+      runWithActivity: vi.fn(async (_incoming: unknown, fn: () => Promise<string | undefined>) => fn()),
+    };
+    const { adapter } = await makeAdapter(
+      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] },
+      { accountLinking },
+    );
+    const seen: Record<string, unknown>[] = [];
+    adapter.listen(async (src) => { seen.push(src); return undefined; });
+    await adapter.onActivity(activity({
+      conversation: { id: '19:channel', conversationType: 'channel', tenantId: 'tenant-guid' },
+    }));
+    expect(resolved).toEqual(['aad-1', '29:enc']);
+    expect(seen[0]).toMatchObject({ userId: '29:enc', accountIds: ['aad-1', '29:enc'] });
   });
 
   it('sends an OAuth card in personal chat and never starts the brain before sign-in', async () => {
@@ -527,7 +554,7 @@ describe('msteams identity + role mapping', () => {
     expect(seen[0]?.access).toMatchObject({ admin: false, projectIds: [], actAsUserId: 7 });
   });
 
-  it('keeps onboarding personal-only and drops unlinked shared senders silently', async () => {
+  it('keeps role admission and drops unmapped unlinked shared senders silently', async () => {
     const accountLinking = {
       authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
       signInActivity: vi.fn(async () => ({})),
@@ -548,6 +575,56 @@ describe('msteams identity + role mapping', () => {
     expect(accountLinking.authenticate).not.toHaveBeenCalled();
     expect(accountLinking.signInActivity).not.toHaveBeenCalled();
     expect(calls.filter((call) => call.kind === 'reply')).toHaveLength(0);
+  });
+
+  it('does not admit a linked shared sender without a matching role policy', async () => {
+    const accountLinking = {
+      authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
+      signInActivity: vi.fn(async () => ({})),
+      bindingFor: vi.fn(() => ({ user: { id: 7 } })),
+    };
+    const { adapter, calls } = await makeAdapter({ accountLinking: true, rolePolicies: [] }, { accountLinking });
+    let turns = 0;
+    adapter.listen(async () => { turns++; return 'never'; });
+    await adapter.onActivity(activity({
+      conversation: { id: '19:channel', conversationType: 'channel', tenantId: 'tenant-guid' },
+    }));
+    expect(turns).toBe(0);
+    expect(accountLinking.signInActivity).not.toHaveBeenCalled();
+    expect(calls.filter((call) => call.kind === 'reply')).toHaveLength(0);
+  });
+
+  it('replies once with the existing OAuth card for an admitted but unlinked shared sender', async () => {
+    const oauthCard = { type: 'message', attachments: [{ contentType: 'application/vnd.microsoft.card.oauth' }] };
+    let releaseCard!: () => void;
+    const cardReady = new Promise<void>((resolve) => { releaseCard = resolve; });
+    const accountLinking = {
+      authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
+      signInActivity: vi.fn(async () => { await cardReady; return oauthCard; }),
+      bindingFor: vi.fn(() => null),
+    };
+    const { adapter, calls } = await makeAdapter(
+      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [1], tools: ['MemorySearch'] }] },
+      { accountLinking },
+    );
+    let turns = 0;
+    adapter.listen(async () => { turns++; return 'never'; });
+    const incoming = activity({ conversation: { id: '19:channel', conversationType: 'channel', tenantId: 'tenant-guid' } });
+    const first = adapter.onActivity(incoming);
+    await vi.waitFor(() => expect(accountLinking.signInActivity).toHaveBeenCalledTimes(1));
+    const second = adapter.onActivity({ ...incoming, id: 'in-2' });
+    releaseCard();
+    await Promise.all([first, second]);
+    expect(turns).toBe(0);
+    expect(accountLinking.authenticate).not.toHaveBeenCalled();
+    expect(accountLinking.signInActivity).toHaveBeenCalledTimes(1);
+    expect(accountLinking.signInActivity).toHaveBeenCalledWith(
+      expect.anything(), 'Sign in with your organisation Microsoft account to continue.', 'Sign in',
+      { buttonType: 'openUrl', buttonValue: expect.stringMatching(/^https:\/\/teams\.microsoft\.com\/l\/chat\/0\/0\?.*users=28%3Aapp-guid/) },
+    );
+    expect(calls.filter((call) => call.kind === 'reply')).toEqual([
+      { kind: 'reply', args: ['https://smba.test/emea', '19:channel', 'in-1', oauthCard] },
+    ]);
   });
 
   it('completes signin/verifyState for an unmapped personal sender without a role policy', async () => {
@@ -1518,6 +1595,7 @@ describe('msteams proactive person messaging', () => {
       authenticate: async () => ({ status: 'authorized', user: { id: opts.accountUserId! } }),
       signInActivity: async () => ({}),
       bindingFor: (objectId: string) => objectId === 'aad-2' ? { user: { id: opts.accountUserId } } : null,
+      linkedAccountFor: (objectId: string) => objectId === 'aad-2' ? { id: opts.accountUserId! } : null,
     };
     const made = await makeAdapter(cfg, { accountLinking });
     made.state.patch('_meta', { serviceUrl: 'https://smba.test/emea' });
@@ -1962,6 +2040,7 @@ describe('msteams person tools gating', () => {
       authenticate: async () => ({ status: 'authorized', user: { id: opts.accountUserId! } }),
       signInActivity: async () => ({}),
       bindingFor: (objectId: string) => objectId === 'aad-2' ? { user: { id: opts.accountUserId } } : null,
+      linkedAccountFor: (objectId: string) => objectId === 'aad-2' ? { id: opts.accountUserId! } : null,
     };
     const made = await makeAdapter(cfg, { accountLinking });
     made.state.patch('_meta', { serviceUrl: 'https://smba.test/emea' });
@@ -1974,11 +2053,9 @@ describe('msteams person tools gating', () => {
     return made;
   }
 
-  it('lets an admin role send to a person — the curated tier, like the Discord wrappers', async () => {
-    // Sending a message is ordinary work a trusted colleague does. Reserving it for the single operator
-    // account was stricter than the equivalent Discord tools and left admins told they "lack rights"
-    // for something their role was meant to cover; what a role may actually call is narrowed by its own
-    // tool allowlist, not by conflating admin with operator.
+  it('lets a linked administrator account send to a person — the curated tier', async () => {
+    // Curated Teams tools follow the linked Elowen account's administration bit. The room role only admits
+    // the turn; it cannot grant this capability.
     const { adapter, calls } = await known(
       { rolePolicies: [{ roleId: 'aad-2', projectIds: [] }] },
       { accountUserId: 2 },
@@ -1992,7 +2069,7 @@ describe('msteams person tools gating', () => {
     expect(calls.filter((c) => c.kind === 'send')).toHaveLength(1);
   });
 
-  it('refuses the curated senders without an admin role, and says who grants one', async () => {
+  it('refuses curated senders without an administrator account and explains the account boundary', async () => {
     const { adapter, calls } = await known();
     const { run } = await makeTools(adapter, { admin: false, owner: false });
     for (const [name, params] of [
@@ -2001,13 +2078,13 @@ describe('msteams person tools gating', () => {
       ['TeamsSendFile', { path: '/etc/hostname', email: 'dana@contoso.com' }],
     ] as const) {
       const out = await run(name, params);
-      expect(out).toContain('needs an admin role');
-      expect(out).toContain('role policies'); // the message must say who can grant it, not just refuse
+      expect(out).toContain('linked Elowen administrator account');
+      expect(out).toContain('Room roles never grant tool permissions');
     }
     expect(calls.filter((c) => c.kind === 'send' || c.kind === 'create')).toHaveLength(0);
   });
 
-  it('keeps raw connector access with the operator, even for an admin role', async () => {
+  it('keeps raw connector access with the operator, even for an administrator account', async () => {
     // TeamsApi drives the bot credentials directly, so it stays one tier above the curated senders —
     // the same split the Discord plugin makes between DiscordApi and its wrappers.
     const { adapter } = await known();
@@ -2022,7 +2099,7 @@ describe('msteams person tools gating', () => {
   it('refuses TeamsFindPerson outside an admin session', async () => {
     const { adapter } = await known();
     const { run } = await makeTools(adapter, { admin: false, owner: false });
-    expect(await run('TeamsFindPerson', { query: 'dana' })).toContain('needs an admin role');
+    expect(await run('TeamsFindPerson', { query: 'dana' })).toContain('linked Elowen administrator account');
   });
 
   it('sends for the operator and reports the person and the chat', async () => {

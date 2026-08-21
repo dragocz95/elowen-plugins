@@ -1,5 +1,5 @@
 {
-  "description": "Bot pre Microsoft Teams (Azure Bot Framework): napíšte mu v osobnom chate, skupinovom chate alebo tímovom kanáli a odpovie z Elowen AI. Prichádzajúce aktivity prichádzajú na webhook démona /hooks/msteams/messages (overené proti JWT Microsoftu); odpovede, indikátor písania a obrázky odchádzajú cez Bot Connector REST API. Lomkové príkazy (/model, /reasoning, /display, /new, /help) s výberom cez Adaptive Cards, AskUserQuestion ako karty s tlačidlami, živý priebeh nástrojov, proaktívne správy z cronu/ticku a balíček aplikácie Teams na stiahnutie. Nástroje chatu (administrátorské relácie): informácie o konverzácii a členoch, výpisy členov a konverzácií a vyhľadanie osoby; plus odoslanie správy do ľubovoľného chatu, proaktívna správa konkrétnemu človeku podľa e-mailu alebo mena (bot si osobný chat založí sám) a priamy prístup ku konektoru (prevádzkovateľ). Každé pravidlo roly mapuje Entra object ID / UPN / ID konverzácie na povolené projekty Elowen a prompt roly.",
+  "description": "Bot pre Microsoft Teams (Azure Bot Framework): napíšte mu v osobnom chate, skupinovom chate alebo tímovom kanáli a odpovie z Elowen AI. Prichádzajúce aktivity prichádzajú na webhook démona /hooks/msteams/messages (overené proti JWT Microsoftu); odpovede, indikátor písania a obrázky odchádzajú cez Bot Connector REST API. Lomkové príkazy (/model, /reasoning, /display, /new, /help) s výberom cez Adaptive Cards, AskUserQuestion ako karty s tlačidlami, živý priebeh nástrojov, proaktívne správy z cronu/ticku a balíček aplikácie Teams na stiahnutie. Nástroje chatu (administrátorské relácie): informácie o konverzácii a členoch, výpisy členov a konverzácií a vyhľadanie osoby; plus odoslanie správy do ľubovoľného chatu, proaktívna správa konkrétnemu človeku podľa e-mailu alebo mena (bot si osobný chat založí sám) a priamy prístup ku konektoru (prevádzkovateľ). Každé pravidlo roly povoľuje vstup pre Entra object ID / UPN / ID konverzácie a môže pridať pokyny pre miestnosť; oprávnenia k projektom a nástrojom vždy určuje prepojený účet Elowen odosielateľa.",
   "fields": {
     "sec_connection": {
       "label": "Pripojenie",
@@ -157,11 +157,11 @@
     },
     "sec_roles": {
       "label": "Pravidlá rolí",
-      "hint": "Mapujú odosielateľov v Teams na povolené projekty, pokyny roly a nástroje, ktoré smie bot použiť."
+      "hint": "Určujú, ktorých odosielateľov v Teams bot prijme, a voliteľne pridávajú pokyny pre miestnosť."
     },
     "rolePolicies": {
       "label": "Pravidlá rolí",
-      "hint": "Vyhráva prvé zodpovedajúce pravidlo. V režime iba nastavených ľudí sú odosielatelia bez pravidla ignorovaní; prihlásenie členov organizácie ich môže overiť a založiť aj bez pravidla *. ID je Entra object ID odosielateľa (GUID), jeho UPN/e-mail, celé ID konverzácie (povolí všetkým v danom chate), alebo * pre kohukoľvek — pravidlo s * nechajte posledné. Kľúč `admin` odomkne lomkové príkazy a vybrané nástroje Teams; projekty, nástroje a doplňujúce pokyny zostávajú súčasťou pravidla. Pri zapnutom prihlásení je jediným zdrojom účtu väzba identity Entra zobrazená v časti Ľudia a prístup."
+      "hint": "Odosielateľa prijme prvé zodpovedajúce pravidlo. ID je Entra object ID odosielateľa (GUID), jeho UPN/e-mail, celé ID konverzácie (prijme všetkých v danom chate), alebo * pre kohokoľvek — pravidlo s * nechajte posledné. Kľúč `admin` povoľuje iba lomkové príkazy na správu miestnosti a dôveryhodný kontext miestnosti. Oprávnenia k projektom a nástrojom vždy určuje prepojený účet Elowen odosielateľa; prijatý neprepojený používateľ dostane existujúcu prihlasovaciu kartu a nespustí sa žiadny brain turn."
     }
   },
   "web": {
@@ -184,7 +184,6 @@
       "filterMapped": "Nastavené",
       "filterUnmapped": "Nenastavené",
       "personFallback": "Neznáma osoba",
-      "unavailableTools": "Už nedostupné",
       "accountNone": "Bez prepojeného účtu",
       "peopleEmptyTitle": "Bot zatiaľ nikoho nepozná",
       "peopleEmptyDescription": "Ľudia sa tu objavia po tom, čo ich bot uvidí v konverzácii alebo zozname členov. Oprávnenie Microsoft Graph nie je potrebné.",
@@ -194,12 +193,12 @@
       "badgeInherited": "Predvolený prístup",
       "badgeUnmapped": "Predvolený prístup",
       "chatOpen": "Osobný chat",
-      "removeAccess": "Odobrať priamy prístup",
+      "removeAccess": "Odobrať povolenie vstupu",
       "inheritedTitle": "Táto osoba používa predvolené pravidlo",
-      "inheritedDescription": "Vytvorte priame pravidlo, ak má mať vlastný účet, projekty, nástroje alebo pokyny.",
+      "inheritedDescription": "Vytvorte priame pravidlo, ak chcete túto osobu prijať výslovne alebo pridať pokyny pre miestnosť.",
       "unmappedTitle": "Táto osoba nemá vlastné pravidlo",
       "unmappedDescription": "Pri povolenom prihlásení členov organizácie sa môže prihlásiť a použiť prístup svojho účtu. Inak pred odpoveďou bota vytvorte pravidlo.",
-      "configureAccess": "Nastaviť prístup",
+      "configureAccess": "Nastaviť povolenie vstupu",
       "identityTitle": "Identita Microsoft",
       "identityConnected": "Prepojené cez Microsoft Entra ID",
       "identityNeedsSignIn": "Vyžaduje prihlásenie k Microsoftu",
@@ -227,15 +226,7 @@
       "identityReplaceDescription": "Táto identita Entra bude konať ako @{username}. Súkromná pamäť a prihlasovacie údaje pluginov patria tomuto účtu.",
       "identityReplaceConfirm": "Zmeniť účet",
       "adminLabel": "Správca Teams",
-      "adminHint": "Povolí administrátorské lomkové príkazy a vybrané nástroje Teams. Neudeľuje oprávnenie operátora inštancie.",
-      "projectsLabel": "Povolené projekty",
-      "projectsHint": "Vyberte projekty, ku ktorým smie táto osoba pristupovať cez Teams.",
-      "projectsEmpty": "Nie sú dostupné žiadne projekty.",
-      "toolsLabel": "Povolené nástroje",
-      "toolsHint": "Prázdny výber povoľuje všetky nástroje dostupné danému účtu.",
-      "toolsAll": "Všetky dostupné nástroje",
-      "toolsCount": "Vybraných nástrojov: {n}",
-      "manageTools": "Spravovať nástroje",
+      "adminHint": "Povolí lomkové príkazy na správu miestnosti a označí konverzáciu ako dôveryhodný kontext. Neudeľuje oprávnenia účtu, projektov, nástrojov ani operátora inštancie.",
       "promptLabel": "Doplňujúce pokyny",
       "promptHint": "Tieto pokyny sa pridajú iba ku konverzáciám tejto osoby v Teams.",
       "promptPlaceholder": "Napríklad: Odpovedajte stručne a zamerajte sa na obchodnú prevádzku.",

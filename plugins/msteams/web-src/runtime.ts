@@ -47,9 +47,7 @@ export interface PeopleResponse {
 export interface RolePolicy {
   roleId: string;
   name: string;
-  projectIds: number[];
   prompt?: string;
-  tools?: string[];
   admin?: boolean;
   [key: string]: unknown;
 }
@@ -80,8 +78,6 @@ interface QueryResult<T> {
 }
 
 export interface User { id: number; username: string; name?: string; avatar?: string }
-interface Project { id: number; slug: string; name?: string }
-interface PluginInfo { name: string; enabled: boolean; hasIcon?: boolean; provides: { tools?: string[] } }
 interface ConfigDraft {
   values: Record<string, unknown>;
   setValue(key: string, value: unknown): void;
@@ -97,8 +93,6 @@ interface TeamsHooks {
   usePluginDetail(plugin: string): QueryResult<PluginDetail>;
   usePluginConfigDraft(plugin: string, detail: Pick<PluginDetail, 'config' | 'configSchema'>): ConfigDraft;
   useUsers(): QueryResult<User[]>;
-  useProjects(): QueryResult<Project[]>;
-  usePlugins(): QueryResult<PluginInfo[]>;
 }
 
 type AnyComponent = ComponentType<any>;

@@ -31,26 +31,31 @@ class MemoryState {
 describe('msteams owner onboarding flow', () => {
   it('provisions an unknown tenant member and resolves each linked channel sender through their own account policy', async () => {
     const users = new Map<number, { id: number; username: string; name: string; is_admin: boolean }>();
+    const emails = new Map<number, string>();
+    const explicitSettings = new Map<string, number>();
     const bindings = new Map<string, number>();
     users.set(20, { id: 20, username: 'dana', name: PERSON_B.name, is_admin: false });
-    bindings.set(PERSON_B.objectId, 20);
+    emails.set(20, PERSON_B.email);
+    bindings.set(PERSON_B.objectId.toLowerCase(), 20);
 
     const externalUsers = {
       resolve: (_provider: string, _tenantId: string, subjectId: string) => {
-        const id = bindings.get(subjectId);
+        const id = bindings.get(subjectId.toLowerCase());
         return id === undefined ? null : users.get(id) ?? null;
       },
       describe: (_provider: string, _tenantId: string, subjectId: string) => {
-        const id = bindings.get(subjectId);
+        const id = bindings.get(subjectId.toLowerCase());
         const user = id === undefined ? undefined : users.get(id);
         return user ? { user } : null;
       },
-      linkOrProvision: (input: { subjectId: string; preferredUsername: string; name: string }) => {
-        const existingId = bindings.get(input.subjectId);
+      linkOrProvision: (input: { subjectId: string; preferredUsername: string; name: string; email?: string }) => {
+        const subjectId = input.subjectId.toLowerCase();
+        const existingId = bindings.get(subjectId);
         if (existingId !== undefined) return { user: users.get(existingId)!, created: false };
         const user = { id: 21, username: input.preferredUsername, name: input.name, is_admin: false };
         users.set(user.id, user);
-        bindings.set(input.subjectId, user.id);
+        if (input.email) emails.set(user.id, input.email.toLowerCase());
+        bindings.set(subjectId, user.id);
         return { user, created: true };
       },
     };
@@ -77,7 +82,10 @@ describe('msteams owner onboarding flow', () => {
     }, externalUsers, logger, { tokenClient, fetch: graphFetch });
 
     const adapter = new MsTeamsAdapter(
-      { appId: 'app', appPassword: 'secret', tenantId: TENANT, accountLinking: true, rolePolicies: [] },
+      { appId: 'app', appPassword: 'secret', tenantId: TENANT, accountLinking: true, rolePolicies: [
+        { roleId: PERSON_A.objectId, projectIds: [] },
+        { roleId: PERSON_B.objectId, projectIds: [] },
+      ] },
       logger, new MemoryState(), async () => [], [], () => null, () => false, () => [], linking as never,
     );
     const connectorCalls: { kind: string; args: unknown[] }[] = [];
@@ -100,6 +108,9 @@ describe('msteams owner onboarding flow', () => {
     const authorized = await linking.authenticate(activity());
     expect(authorized).toMatchObject({ status: 'authorized', created: true, user: { id: 21, username: 'alex' } });
     expect(externalUsers.resolve('msteams', TENANT, PERSON_A.objectId)).toMatchObject({ id: 21 });
+    // The signed-in account's stored mail deliberately differs from the roster UPN. Channel resolution must
+    // therefore use the external-identity row that sign-in wrote; verified-email fallback cannot save it.
+    emails.set(21, 'alex.private@example.com');
 
     const rejected = async (person: typeof PERSON_A, claims: Record<string, unknown>, profile: Record<string, unknown>) => {
       profiles.set(person.objectId, profile);
@@ -128,9 +139,18 @@ describe('msteams owner onboarding flow', () => {
     const sent: Array<Record<string, unknown>> = [];
     const identity = new IdentityResolver({
       platformOwner: () => 1,
-      resolvePlatformUser: (_platform: string, platformUserId: string) => {
-        const id = bindings.get(platformUserId);
-        const user = id === undefined ? undefined : users.get(id);
+      resolvePlatformUser: (_platform: string, platformUserId: string, verifiedEmail?: string) => {
+        const subjectId = platformUserId.trim().toLowerCase();
+        const explicitId = explicitSettings.get(subjectId);
+        const boundId = explicitId ?? bindings.get(subjectId);
+        let user = boundId === undefined ? undefined : users.get(boundId);
+        if (!user) {
+          const email = verifiedEmail?.trim().toLowerCase();
+          if (email) {
+            const matches = [...users.values()].filter((candidate) => emails.get(candidate.id)?.trim().toLowerCase() === email);
+            if (matches.length === 1) user = matches[0];
+          }
+        }
         return user ? { id: user.id, name: user.name, username: user.username, admin: user.is_admin } : null;
       },
       users: { get: (id: number) => users.get(id) },

@@ -125,9 +125,6 @@
     margin-block-start: calc(var(--space-2, 0.5rem) * var(--tw-space-y-reverse));
     margin-block-end: calc(var(--space-2, 0.5rem) * calc(1 - var(--tw-space-y-reverse)));
   }
-  .gap-x-4 {
-    column-gap: calc(var(--spacing, 0.25rem) * 4);
-  }
   .gap-x-5 {
     column-gap: calc(var(--spacing, 0.25rem) * 5);
   }
