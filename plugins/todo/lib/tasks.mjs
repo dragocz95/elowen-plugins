@@ -261,6 +261,10 @@ const SAFE_ERRORS = new Set([
   'dependency cycle detected',
 ]);
 
+const NOT_FOUND_HINT = 'This task ID does not exist — it was never created, or it was deleted. '
+  + 'Call TaskList for the current IDs and retry with one of them, or TaskCreate if this work is not on the list yet. '
+  + 'Do not retry this ID and do not guess another one.';
+
 function safeError(ctx, error) {
   const message = error instanceof Error ? error.message : String(error);
   if (SAFE_ERRORS.has(message)) return message;
@@ -275,7 +279,7 @@ export function registerTaskMode(ctx, db) {
   ctx.registerTool(defineTool({
     name: 'TaskCreate',
     label: 'Create task',
-    description: 'Create one pending task in the current conversation task list. Use subject for the short user-visible outcome, description for private working context, activeForm for present-continuous progress text, and metadata for private structured context.',
+    description: 'Create ONE NEW pending task in the current conversation task list and return the ID it was assigned. Use it only to add work that is not on the list yet — to change work that already exists, call TaskUpdate with that task ID instead. Use subject for the short user-visible outcome, description for private working context, activeForm for present-continuous progress text, and metadata for private structured context. Keep the returned ID: it is the only valid handle for later TaskGet and TaskUpdate calls.',
     parameters: Type.Object({
       subject: Type.String({ description: 'Brief user-visible title for the task' }),
       description: Type.String({ description: 'Private detail describing what needs to be done' }),
@@ -296,8 +300,8 @@ export function registerTaskMode(ctx, db) {
   ctx.registerTool(defineTool({
     name: 'TaskGet',
     label: 'Get task',
-    description: 'Retrieve one task by ID, including its private description and dependency graph. The detailed result is model-only and is not shown in the Todo panel.',
-    parameters: Type.Object({ taskId: Type.String({ description: 'Task ID from TaskCreate or TaskList' }) }),
+    description: 'Retrieve one EXISTING task by ID, including its private description and dependency graph. The detailed result is model-only and is not shown in the Todo panel. A null task means that ID does not exist; call TaskList to see the current IDs instead of trying other ones.',
+    parameters: Type.Object({ taskId: Type.String({ description: 'ID of an existing task, exactly as returned by TaskCreate or TaskList. Never invent or guess an ID.' }) }),
     execute: async (_id, { taskId }) => {
       try {
         const key = keyFor(ctx);
@@ -309,7 +313,7 @@ export function registerTaskMode(ctx, db) {
   ctx.registerTool(defineTool({
     name: 'TaskList',
     label: 'List tasks',
-    description: 'List the current conversation tasks with public status, owner and unresolved blockers. Private descriptions and metadata are omitted.',
+    description: 'List the current conversation tasks with public status, owner and unresolved blockers. Private descriptions and metadata are omitted. This is the authoritative set of task IDs: call it whenever you are unsure which tasks exist, and always after a TaskUpdate or TaskGet reported that an ID was not found. An empty list means there is nothing to update — create what you need with TaskCreate.',
     parameters: Type.Object({}),
     execute: async () => {
       try {
@@ -323,9 +327,9 @@ export function registerTaskMode(ctx, db) {
   ctx.registerTool(defineTool({
     name: 'TaskUpdate',
     label: 'Update task',
-    description: 'Update one task incrementally. Status is pending, in_progress, completed, or deleted. addBlockedBy adds prerequisites; addBlocks makes this task a prerequisite of other tasks. Dependency changes reject missing tasks, self-dependencies and cycles; repeated edges are idempotent.',
+    description: 'Update one EXISTING task incrementally, identified by an ID that TaskCreate returned or TaskList reported. It never creates a task: an unknown ID fails with error "task not found", and the fix is to call TaskList and retry with a current ID (or TaskCreate if the work is genuinely new) — never to guess another ID or repeat the same call. Status is pending, in_progress, completed, or deleted. addBlockedBy adds prerequisites; addBlocks makes this task a prerequisite of other tasks. Dependency changes reject missing tasks, self-dependencies and cycles; repeated edges are idempotent.',
     parameters: Type.Object({
-      taskId: Type.String({ description: 'Task ID to update' }),
+      taskId: Type.String({ description: 'ID of an existing task, exactly as returned by TaskCreate or TaskList. Never invent or guess an ID.' }),
       subject: Type.Optional(Type.String()),
       description: Type.Optional(Type.String()),
       activeForm: Type.Optional(Type.String()),
@@ -344,7 +348,14 @@ export function registerTaskMode(ctx, db) {
         syncCard(ctx, store, key);
         return ok(result);
       } catch (error) {
-        return ok({ success: false, taskId, updatedFields: [], error: safeError(ctx, error) });
+        const message = safeError(ctx, error);
+        // A missing ID is the one failure the model reliably retries blind — usually after the task was
+        // deleted, so the turn context no longer lists it either. Say what recovers it instead of leaving
+        // the model to guess another ID. The tool still refuses to create anything.
+        return ok({
+          success: false, taskId, updatedFields: [], error: message,
+          ...(message === 'task not found' ? { hint: NOT_FOUND_HINT } : {}),
+        });
       }
     },
   }));
@@ -361,7 +372,7 @@ export function registerTaskMode(ctx, db) {
   }, { placement: 'after-user' });
 
   ctx.registerSystemPromptFragment(
-    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
+    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. `TaskCreate` adds new work and returns its ID; `TaskUpdate` only changes a task that already exists and never creates one. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
   );
 
   ctx.logger.info('session task tools registered (TaskCreate + TaskGet + TaskUpdate + TaskList)');

@@ -125,6 +125,44 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   assert.deepEqual(json(await list.execute('18', {})).tasks.map((task) => task.id), ['4']);
 });
 
+test('an update against a deleted task refuses to create it and points at TaskList', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  const list = h.tool('TaskList');
+
+  await create.execute('1', { subject: 'Inspect auth', description: 'Check handling' });
+  await update.execute('2', { taskId: '1', status: 'deleted' });
+
+  const missing = json(await update.execute('3', { taskId: '1', status: 'in_progress' }));
+  assert.equal(missing.success, false);
+  assert.equal(missing.error, 'task not found');
+  assert.match(missing.hint, /TaskList/);
+  assert.match(missing.hint, /TaskCreate/);
+  // The refusal must not quietly resurrect the task: an update is never a create.
+  assert.deepEqual(json(await list.execute('4', {})).tasks, []);
+  // A guessed neighbouring ID fails exactly the same way rather than hitting some other task.
+  assert.equal(json(await update.execute('5', { taskId: '2', status: 'completed' })).error, 'task not found');
+
+  // With no tasks left the turn context is empty, so the recovery route has to live in the tool surface
+  // itself — that is where a model looping on a stale ID actually reads it.
+  assert.equal(h.turnContext(), '');
+  const surface = Object.fromEntries(h.tools.map((tool) => [tool.name, tool.description]));
+  assert.match(surface.TaskUpdate, /never creates/i);
+  assert.match(surface.TaskUpdate, /TaskList/);
+  assert.match(surface.TaskCreate, /TaskUpdate/);
+  assert.match(h.prompts.join('\n'), /[Nn]ever guess a task ID/);
+});
+
+test('the task context names the ids that exist and forbids guessing others', async (t) => {
+  const h = harness(t);
+  await h.tool('TaskCreate').execute('1', { subject: 'Inspect auth', description: 'Check handling' });
+  const context = h.turnContext();
+  assert.match(context, /only ids that exist/);
+  assert.match(context, /TaskUpdate only changes work that already exists and never creates it/);
+  assert.match(context, /not found[\s\S]*call TaskList/);
+});
+
 test('Task V2 task state is isolated per conversation', async (t) => {
   const h = harness(t);
   await h.tool('TaskCreate').execute('1', { subject: 'Session A', description: 'A' });
