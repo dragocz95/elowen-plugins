@@ -3,7 +3,7 @@
 // media go out through the Bot Connector REST API with an Entra client-credentials token. Each sender —
 // an Entra object ID, a UPN/email, or a whole conversation id — resolves via this plugin's rolePolicies
 // to the Elowen projects they may touch plus an optional role prompt. Unmapped senders are ignored unless
-// delegated account linking explicitly admits verified active tenant members.
+// personal-chat account linking explicitly admits verified active tenant members.
 import { join } from 'node:path';
 import { StateStore } from './lib/state.mjs';
 import { MsTeamsAdapter } from './lib/adapter.mjs';
@@ -17,7 +17,7 @@ export { matchesId, senderIds, senderIsAdmin, displayNameOf } from './lib/ids.mj
 export { splitContent, footerLine, CHUNK } from './lib/format.mjs';
 export { makeTokenVerifier } from './lib/auth.mjs';
 export { ConnectorClient } from './lib/connector.mjs';
-export { TeamsAccountError, TeamsAccountLinking } from './lib/accountLinking.mjs';
+export { TeamsAccountError, TeamsAccountLinking, validateTeamsTenant } from './lib/accountLinking.mjs';
 
 /** Browser-safe projection of the learned Teams directory. Routing details stay daemon-only. */
 export function peopleForUi(people, profilePhotos = false, bindingFor = () => null) {

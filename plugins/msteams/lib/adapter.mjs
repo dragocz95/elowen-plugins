@@ -22,6 +22,7 @@ import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, imageMimeType } from 'elowen-plugin-shared/images';
 import { isSteered } from 'elowen-plugin-shared/turnResult';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
+import { validateTeamsTenant } from './accountLinking.mjs';
 
 /** The `/display` axes and their values — mirrors the resolution sets in _shared/display.mjs. */
 const DISPLAY_AXES = {
@@ -223,6 +224,7 @@ export class MsTeamsAdapter {
       return { status: 200, body: {} };
     }
     if (activity?.name === 'signin/verifyState') {
+      if (activity?.conversation?.conversationType !== 'personal') return { status: 200, body: {} };
       // Token Service and Graph are network hops. Ack Teams immediately, then complete the binding through
       // the connector so a slow directory response cannot make Teams retry the invoke.
       void this.completeAccountSignIn(activity).catch((e) => this.log.error(`msteams account sign-in failed: ${e?.code ?? e?.name ?? 'unknown'}`));
@@ -232,16 +234,11 @@ export class MsTeamsAdapter {
   }
 
   async authorizeAccount(activity, access) {
-    if (this.cfg.accountLinking !== true) return { id: null };
+    if (this.cfg.accountLinking !== true || activity.conversation?.conversationType !== 'personal') return { id: null };
     // An explicit admin-managed policy is already an authoritative account binding. Keep that account
     // instead of forcing its owner through self-service OAuth or provisioning a duplicate local user.
     // Wildcard policies never carry actAsUserId (accountFor rejects them), so company-wide onboarding
-    // still has to prove an enabled same-tenant Member through Microsoft. Shared conversations remain
-    // personal-only even when their conversation id has an explicit policy naming a local account.
-    if (activity.conversation?.conversationType !== 'personal') {
-      await this.tmSend(activity.conversation.id, this.msg.accountPersonalOnly(this.agentLabel()), { replyToId: activity.id });
-      return null;
-    }
+    // still has to prove an enabled same-tenant Member through Microsoft.
     if (Number.isInteger(access?.actAsUserId)) return { id: access.actAsUserId };
     if (!this.accountLinking) {
       await this.tmSend(activity.conversation.id, this.msg.accountAccessUnavailable, { replyToId: activity.id }).catch(() => {});
@@ -261,15 +258,12 @@ export class MsTeamsAdapter {
   }
 
   async completeAccountSignIn(activity) {
-    if (this.cfg.accountLinking !== true || !this.accountLinking || !activity?.conversation?.id) return;
-    if (activity.conversation?.conversationType !== 'personal') {
-      await this.tmSend(activity.conversation.id, this.msg.accountPersonalOnly(this.agentLabel()), { replyToId: activity.id }).catch(() => {});
-      return;
-    }
+    if (this.cfg.accountLinking !== true || !this.accountLinking || !activity?.conversation?.id
+      || activity.conversation?.conversationType !== 'personal') return;
     this.rememberConversation(activity);
     const upn = await this.resolveUpn(activity.serviceUrl, activity.conversation.id, activity.from);
     const ids = senderIds(activity.from, activity.conversation.id, upn);
-    if (!this.inboundAccessFor(ids, activity.conversation.id).access) return;
+    if (!this.inboundAccessFor(ids, activity.conversation.id, true).access) return;
     try {
       const result = await this.accountLinking.authenticate(activity, { magicCode: activity?.value?.state });
       const text = result.status === 'authorized' ? this.msg.signInComplete : this.msg.signInIncomplete;
@@ -669,9 +663,9 @@ export class MsTeamsAdapter {
    *  supplies a minimal pre-auth descriptor when no policy matched. Once OAuth succeeds, actAsUserId
    *  makes the host use the verified account's own projects and tool grants, so this fallback grants
    *  neither admin nor project access and cannot become a shared company identity. */
-  inboundAccessFor(ids, conversationId) {
+  inboundAccessFor(ids, conversationId, personal = false) {
     const mapped = this.accessFor(ids, conversationId);
-    if (mapped.access || this.cfg.accountLinking !== true || this.cfg.accountAccessMode !== 'tenant_members') return mapped;
+    if (mapped.access || !personal || this.cfg.accountLinking !== true || this.cfg.accountAccessMode !== 'tenant_members') return mapped;
     return { access: buildRoleAccess({ projectIds: [] }, this.state.get(String(conversationId))) };
   }
 
@@ -690,8 +684,8 @@ export class MsTeamsAdapter {
    * silently lands on the wrong identity is worse than one that plainly does not work.
    */
   accountFor(policy) {
-    // With delegated account linking enabled, the immutable Entra identity binding is the only account
-    // source. `elowenUser` remains a legacy seam for installations that deliberately run without OAuth.
+    // With delegated account linking enabled, personal turns use the immutable Entra binding and shared
+    // turns stay accountless. `elowenUser` remains a legacy seam only for installations without OAuth.
     if (this.cfg.accountLinking === true) return undefined;
     const wanted = String(policy?.elowenUser ?? '').trim();
     if (!wanted) return undefined;
@@ -750,6 +744,12 @@ export class MsTeamsAdapter {
     const conv = m.conversation;
     const from = m.from;
     if (!conv?.id || !from || from.id === m.recipient?.id) return; // no conversation, or our own echo
+    try {
+      validateTeamsTenant(m, this.cfg.tenantId);
+    } catch (error) {
+      this.log.warn(`msteams turn denied: ${error?.code ?? error?.name ?? 'wrong_tenant'}`);
+      return;
+    }
     const targetedOrder = this.targetedTurn.getStore();
     const orderKey = targetedOrder ? `${conv.id}:target:${from.id}` : `${conv.id}:public`;
     const orderMarker = this.conversationOrder.mark(orderKey);
@@ -759,25 +759,29 @@ export class MsTeamsAdapter {
     // The transcript records what the CONVERSATION said, so it is written above the gates below: a
     // message that answers no mention, or comes from someone with no role mapping, is still background
     // that a later session in this chat will want. Bot-control commands are excluded (see CONTROL_ONLY).
-    // Account-linked turns are personal-only: never persist shared-chat text into that private mode.
     const kind = conv.conversationType ?? 'personal';
+    const personal = conv.conversationType === 'personal';
     const said = this.resolveMentions(m);
     const saidCmd = said.startsWith('/') ? String(said.slice(1).trim().split(/\s+/)[0] ?? '').toLowerCase() : '';
-    if ((!saidCmd || !CONTROL_ONLY.has(saidCmd)) && !(this.cfg.accountLinking === true && kind !== 'personal')) {
+    if (!saidCmd || !CONTROL_ONLY.has(saidCmd)) {
       this.recordHistory(conv.id, { role: 'user', name: displayNameOf(from), text: said, activityId: m.id });
     }
 
     // Personal chats always respond. Group chats respond per config; a team-channel post reaches the
     // bot only when @mentioned anyway, and the mention gate doubles as the guard for group chats too.
-    if (kind !== 'personal' && this.cfg.respondWithoutMention === false && !this.isForMe(m)) return;
+    if (!personal && this.cfg.respondWithoutMention === false && !this.isForMe(m)) return;
 
     const upn = await this.resolveUpn(m.serviceUrl, conv.id, from);
     const ids = senderIds(from, conv.id, upn);
-    let { access } = this.inboundAccessFor(ids, conv.id);
+    let { access } = this.inboundAccessFor(ids, conv.id, personal);
     if (!access) return; // unmapped sender in policy-only mode → stay silent
     const account = await this.authorizeAccount(m, access);
     if (!account) return;
     if (Number.isInteger(account.id)) access = { ...access, actAsUserId: account.id };
+    if (!personal) {
+      const denied = Array.isArray(access.denyTools) ? access.denyTools : [];
+      access = { ...access, denyTools: [...new Set([...denied, 'Microsoft*'])] };
+    }
 
     let text = said;
 
@@ -837,7 +841,7 @@ export class MsTeamsAdapter {
           // 'personal' for history purposes: here that default would fail open and hand a shared room a
           // private conversation's rights. Absent means unknown, and unknown means shared.
           direct: conv.conversationType === 'personal',
-          channelName: kind !== 'personal' ? (conv.name || undefined) : undefined,
+          channelName: !personal ? (conv.name || undefined) : undefined,
           images: images.length ? images : undefined,
           // MUST be async: the brain calls `opts.history().catch(…)` on the result, so a plain string
           // throws before the first turn of every new conversation ever reaches the model.

@@ -18,12 +18,12 @@
       "hint": "Directory (tenant) ID vášho Entra — bot sa overuje voči tomuto tenantu (registrácia pre jeden tenant)."
     },
     "accountLinking": {
-      "label": "Vyžadovať prihlásenie účtom Microsoft",
-      "hint": "V osobných chatoch overí každého odosielateľa v Teams prostredníctvom delegovaného pripojenia OAuth služby Azure Bot, povolí iba aktívne členské účty tohto tenantu a konverzáciu spustí pod účtom Elowen danej osoby. Zdieľané chaty odmietne z dôvodu ochrany súkromnej pamäte a prihlasovacích údajov. Prístupové a obnovovacie tokeny zostávajú v službe Bot Framework Token Service."
+      "label": "Prihlásenie k Microsoftu v osobnom chate",
+      "hint": "V osobných chatoch prihlási odosielateľa k Microsoftu, aby delegované nástroje pre poštu a súbory mohli konať v jeho mene a konverzácia mohla používať jeho účet Elowen. V zdieľaných chatoch sa identita odosielateľa z Teams overuje automaticky bez prihlásenia; prístup naďalej vyžaduje výslovné pravidlo roly pre osobu, konverzáciu alebo zástupný znak *. Prístupové a obnovovacie tokeny zostávajú v službe Bot Framework Token Service."
     },
     "accountAccessMode": {
       "label": "Kto sa môže prihlásiť",
-      "hint": "Voľba Iba nastavení ľudia ponúkne prihlásenie len osobám so zodpovedajúcim pravidlom roly. Voľba Všetci aktívni členovia organizácie umožní prihlásenie každému aktívnemu členskému účtu tohto tenantu a vytvorí mu vlastný účet Elowen; konkrétne pravidlá rolí majú naďalej prednosť a pravidlo * nie je potrebné.",
+      "hint": "Voľba Iba nastavení ľudia ponúkne prihlásenie v osobnom chate len osobám so zodpovedajúcim pravidlom roly. Voľba Všetci aktívni členovia organizácie umožní každému aktívnemu členskému účtu tohto tenantu prihlásiť sa v osobnom chate a získať vlastný účet Elowen; zdieľané chaty naďalej vyžadujú výslovné pravidlo roly.",
       "options": {
         "policies": "Iba nastavení ľudia",
         "tenant_members": "Všetci aktívni členovia organizácie"

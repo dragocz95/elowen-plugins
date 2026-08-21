@@ -19,6 +19,15 @@ export class TeamsAccountError extends Error {
 
 const normalized = (value) => String(value ?? '').trim().toLowerCase();
 
+export function validateTeamsTenant(activity, tenantId) {
+  const activityTenant = normalized(activity?.conversation?.tenantId || activity?.channelData?.tenant?.id);
+  const configuredTenant = normalized(tenantId);
+  if (!activityTenant || activityTenant !== configuredTenant) {
+    throw new TeamsAccountError('wrong_tenant', 'This Microsoft account does not belong to the configured organisation.');
+  }
+  return configuredTenant;
+}
+
 function claimsOf(token) {
   try {
     const payload = String(token).split('.')[1];
@@ -69,17 +78,13 @@ export class TeamsAccountLinking {
   get enabled() { return this.cfg.accountLinking === true; }
 
   validateActivity(activity) {
-    const tenantId = normalized(activity?.conversation?.tenantId || activity?.channelData?.tenant?.id);
-    const configuredTenant = normalized(this.cfg.tenantId);
-    if (!tenantId || tenantId !== configuredTenant) {
-      throw new TeamsAccountError('wrong_tenant', 'This Microsoft account does not belong to the configured organisation.');
-    }
+    const tenantId = validateTeamsTenant(activity, this.cfg.tenantId);
     const teamsUserId = String(activity?.from?.id ?? '').trim();
     const objectId = normalized(activity?.from?.aadObjectId);
     if (!teamsUserId || !objectId) {
       throw new TeamsAccountError('missing_identity', 'Microsoft Teams did not provide a verifiable Entra identity.');
     }
-    return { tenantId: configuredTenant, teamsUserId, objectId };
+    return { tenantId, teamsUserId, objectId };
   }
 
   async tokenForUser(teamsUserId, magicCode) {

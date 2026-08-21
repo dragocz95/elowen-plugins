@@ -56,6 +56,7 @@ async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
   accountLinking?: {
     authenticate: (activity: unknown, options?: { magicCode?: string }) => Promise<{ status: string; user?: { id: number } }>;
     signInActivity: (activity: unknown, text: string, button: string) => Promise<Record<string, unknown>>;
+    runWithActivity?: (activity: unknown, fn: () => Promise<string | undefined>) => Promise<string | undefined>;
   };
 } = {}) {
   const { MsTeamsAdapter } = await import(join(repoRoot, 'plugins/msteams/lib/adapter.mjs')) as AdapterModule;
@@ -439,6 +440,23 @@ describe('msteams identity + role mapping', () => {
     expect(seen.map((s) => s.direct)).toEqual([true, false, false]);
   });
 
+  it('rejects a wrong-tenant message before roster lookup or brain access', async () => {
+    const { adapter, calls, warnings } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] });
+    const member = vi.fn(async () => ({ userPrincipalName: 'alex@other.example' }));
+    Object.assign(adapter.connector, { member });
+    let turns = 0;
+    adapter.listen(async () => { turns++; return 'never'; });
+
+    await adapter.onActivity(activity({
+      conversation: { id: 'a:wrong', conversationType: 'personal', tenantId: 'other-tenant' },
+    }));
+
+    expect(turns).toBe(0);
+    expect(member).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+    expect(warnings.join(' ')).toContain('wrong_tenant');
+  });
+
   it('can disable processing reactions', async () => {
     const { adapter, calls } = await makeAdapter({ reactions: false, rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] });
     adapter.listen(async () => 'done');
@@ -483,21 +501,50 @@ describe('msteams identity + role mapping', () => {
     expect(accountLinking.signInActivity).not.toHaveBeenCalled();
   });
 
-  it('never applies an admin-managed account policy in a shared conversation', async () => {
+  it('runs one mentioned shared turn with automatic Teams identity and no Microsoft sign-in', async () => {
     const accountLinking = {
       authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
       signInActivity: vi.fn(async () => ({})),
+      runWithActivity: vi.fn(async (_incoming: unknown, fn: () => Promise<string | undefined>) => fn()),
     };
-    const { adapter, calls } = await makeAdapter(
-      { accountLinking: true, rolePolicies: [{ roleId: 'a:shared', projectIds: [1], elowenUser: 'filip' }] },
-      { accountLinking, users: [{ id: 1, username: 'filip', isAdmin: true }] },
+    const { adapter, calls, state } = await makeAdapter(
+      {
+        accountLinking: true,
+        historyLimit: 10,
+        respondWithoutMention: false,
+        rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }],
+      },
+      { accountLinking },
     );
-    let turns = 0;
-    adapter.listen(async () => { turns++; return 'private data'; });
-    await adapter.onActivity(activity({ conversation: { id: 'a:shared', conversationType: 'groupChat', tenantId: 'tenant-guid' } }));
-    expect(turns).toBe(0);
+    const seen: { src: Record<string, unknown>; text: string }[] = [];
+    adapter.listen(async (src, text) => { seen.push({ src, text }); return undefined; });
+    const channel = (over: Record<string, unknown>) => activity({
+      conversation: { id: 'a:shared', conversationType: 'channel', tenantId: 'tenant-guid' },
+      ...over,
+    });
+
+    await adapter.onActivity(channel({ id: 'background', text: 'background context', entities: [] }));
+    await adapter.onActivity(channel({
+      id: 'mentioned', text: '<at>Elowen</at> do the thing',
+      entities: [{ type: 'mention', text: '<at>Elowen</at>', mentioned: { id: '28:bot', name: 'Elowen' } }],
+    }));
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      text: 'do the thing',
+      src: {
+        userId: 'aad-1', verifiedEmail: 'alex@contoso.com', direct: false,
+        access: { projectIds: [1], denyTools: expect.arrayContaining(['Microsoft*']) },
+      },
+    });
+    expect(state.get('a:shared').log).toEqual([
+      { n: 'Alex Rivera', t: 'background context', r: 'user', a: 'background' },
+      { n: 'Alex Rivera', t: 'do the thing', r: 'user', a: 'mentioned' },
+    ]);
     expect(accountLinking.authenticate).not.toHaveBeenCalled();
-    expect(calls.find((call) => call.kind === 'reply')?.args[3]).toMatchObject({ text: expect.stringContaining('personal chat') });
+    expect(accountLinking.signInActivity).not.toHaveBeenCalled();
+    expect(accountLinking.runWithActivity).toHaveBeenCalledTimes(1);
+    expect(calls.filter((call) => call.kind === 'reply')).toHaveLength(0);
   });
 
   it('sends an OAuth card in personal chat and never starts the brain before sign-in', async () => {
@@ -565,26 +612,27 @@ describe('msteams identity + role mapping', () => {
     expect(calls.filter((call) => call.kind === 'reply')).toHaveLength(0);
   });
 
-  it('refuses linked-account turns in shared chats before authentication or brain access', async () => {
-    let authentications = 0;
-    let turns = 0;
+  it('keeps tenant-member fallback personal-only and drops unmapped shared senders silently', async () => {
     const accountLinking = {
-      authenticate: async () => { authentications++; return { status: 'authorized', user: { id: 7 } }; },
-      signInActivity: async () => { throw new Error('must not build a channel OAuth card'); },
+      authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
+      signInActivity: vi.fn(async () => ({})),
     };
     const { adapter, calls } = await makeAdapter(
       { accountLinking: true, accountAccessMode: 'tenant_members', rolePolicies: [] },
       { accountLinking },
     );
-    adapter.listen(async () => { turns++; return 'private data'; });
+    let turns = 0;
+    adapter.listen(async () => { turns++; return 'never'; });
     await adapter.onActivity(activity({
       conversation: { id: '19:channel', conversationType: 'channel', tenantId: 'tenant-guid' },
     }));
-    expect(authentications).toBe(0);
+    await adapter.onActivity(activity({
+      id: 'in-unknown', conversation: { id: '19:unknown', tenantId: 'tenant-guid' },
+    }));
     expect(turns).toBe(0);
-    expect(calls.find((call) => call.kind === 'reply')?.args[3]).toMatchObject({
-      text: expect.stringContaining('personal chat'),
-    });
+    expect(accountLinking.authenticate).not.toHaveBeenCalled();
+    expect(accountLinking.signInActivity).not.toHaveBeenCalled();
+    expect(calls.filter((call) => call.kind === 'reply')).toHaveLength(0);
   });
 
   it('completes signin/verifyState only for a sender allowed by role policy', async () => {
@@ -610,10 +658,6 @@ describe('msteams identity + role mapping', () => {
       type: 'invoke', name: 'signin/verifyState', value: { state: '999999' },
       from: { id: '29:other', aadObjectId: 'aad-other', name: 'Other' },
     }));
-    await adapter.onInvoke(activity({
-      type: 'invoke', name: 'signin/verifyState', value: { state: '654321' },
-      conversation: { id: '19:channel', conversationType: 'channel', tenantId: 'tenant-guid' },
-    }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(attempts).toHaveLength(1);
   });
@@ -638,6 +682,24 @@ describe('msteams identity + role mapping', () => {
     });
   });
 
+  it('silently rejects signin/verifyState outside a personal chat', async () => {
+    const accountLinking = {
+      authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
+      signInActivity: vi.fn(async () => ({})),
+    };
+    const { adapter, calls } = await makeAdapter(
+      { accountLinking: true, accountAccessMode: 'tenant_members', rolePolicies: [] },
+      { accountLinking },
+    );
+    await expect(adapter.onInvoke(activity({
+      type: 'invoke', name: 'signin/verifyState', value: { state: '654321' },
+      conversation: { id: '19:channel', conversationType: 'channel', tenantId: 'tenant-guid' },
+    }))).resolves.toEqual({ status: 200, body: {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(accountLinking.authenticate).not.toHaveBeenCalled();
+    expect(calls.filter((call) => call.kind === 'reply' || call.kind === 'send')).toHaveLength(0);
+  });
+
   it('drops an unmapped sender without any outbound traffic', async () => {
     const { adapter, calls } = await makeAdapter({ rolePolicies: [] });
     adapter.listen(async () => 'never');
@@ -650,7 +712,7 @@ describe('msteams identity + role mapping', () => {
     const seen: string[] = [];
     adapter.listen(async (_src, text) => { seen.push(text); return undefined; });
     const group = (over: Record<string, unknown>) => activity({
-      conversation: { id: 'a:g1', conversationType: 'groupChat', tenantId: 't' }, ...over,
+      conversation: { id: 'a:g1', conversationType: 'groupChat', tenantId: 'tenant-guid' }, ...over,
     });
     await adapter.onActivity(group({ text: 'no mention here', entities: [] }));
     expect(seen).toHaveLength(0);
@@ -687,7 +749,7 @@ describe('msteams identity + role mapping', () => {
     const seen: string[] = [];
     adapter.listen(async (_src, text) => { seen.push(text); return 'only for you'; });
     await adapter.onActivity(activity({
-      conversation: { id: 'a:chan', conversationType: 'channel', tenantId: 't' },
+      conversation: { id: 'a:chan', conversationType: 'channel', tenantId: 'tenant-guid' },
       recipient: { id: '28:bot', name: 'Elowen', isTargeted: true },
       text: 'status', entities: [],
     }));
@@ -706,7 +768,7 @@ describe('msteams identity + role mapping', () => {
     const { adapter, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [1] }] });
     adapter.listen(async () => 'for everyone');
     const channel = (over: Record<string, unknown> = {}) => activity({
-      conversation: { id: 'a:chan', conversationType: 'channel', tenantId: 't' }, ...over,
+      conversation: { id: 'a:chan', conversationType: 'channel', tenantId: 'tenant-guid' }, ...over,
     });
     await adapter.onActivity(channel({ recipient: { id: '28:bot', name: 'Elowen', isTargeted: true } }));
     // Same conversation, ordinary message afterwards: the private flag must not have leaked past the
@@ -734,7 +796,7 @@ describe('msteams identity + role mapping', () => {
       return 'public answer';
     });
     const channel = (over: Record<string, unknown> = {}) => activity({
-      conversation: { id: 'a:chan', conversationType: 'channel', tenantId: 't' }, ...over,
+      conversation: { id: 'a:chan', conversationType: 'channel', tenantId: 'tenant-guid' }, ...over,
     });
     const privateTurn = adapter.onActivity(channel({
       id: 'private-in', text: 'private question',
