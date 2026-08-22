@@ -19,7 +19,7 @@
     "test:e2e:cron": "node tests/e2e/cron/run.mjs"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.82.0",
+    "@earendil-works/pi-coding-agent": "0.84.2",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/oxide": "^4.3.3",
@@ -32,7 +32,7 @@
     "better-sqlite3": "^11.0.0",
     "botframework-connector": "^4.23.3",
     "dompurify": "^3.4.13",
-    "elowen": "^0.28.9",
+    "elowen": "^0.28.10",
     "elowen-plugin-shared": "^0.1.3",
     "elowen-plugin-ui-kit": "^0.2.0",
     "grammy": "^1.45.1",
