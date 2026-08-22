@@ -1,4 +1,4 @@
-// Admin/server tools: the Discord* tool registrations (raw REST access + curated wrappers).
+// Discord server tools: raw REST access plus curated wrappers.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 
@@ -6,15 +6,14 @@ const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
 
 export function registerTools(ctx, adapter) {
-  // Raw Discord REST access for the OWNER: delete/purge messages, manage roles, edit channels —
-  // whatever the bot's permissions allow. The token never leaves the plugin; admin sessions only.
+  // Raw Discord REST access: delete/purge messages, manage roles, edit channels — whatever the bot permissions allow.
   ctx.registerTool(defineTool({
     name: 'DiscordApi', label: 'Discord API',
     description: [
       'Call any Discord REST API v10 endpoint directly with the bot token — the raw escape hatch for Discord server management when no curated Discord* tool covers what you need.',
       'Typical uses: delete a message (DELETE /channels/{id}/messages/{msgId}), bulk-delete messages younger than 14 days (POST /channels/{id}/messages/bulk-delete with {"messages":[ids]}), grant or revoke a role (PUT or DELETE /guilds/{gid}/members/{uid}/roles/{roleId}), fetch messages (GET /channels/{id}/messages?limit=50), edit channel settings, manage bans, invites, emojis and webhooks.',
       'Prefer the structured wrappers first — DiscordListChannels, DiscordReadChannel, DiscordDeleteMessage, DiscordPurgeMessages, DiscordAssignRole and friends — because they validate the arguments for you; reach for this tool only for an endpoint they do not expose.',
-      'OWNER/OPERATOR ONLY and highly DESTRUCTIVE: the raw bot token can delete channels, ban members and reconfigure the entire guild, so the call is refused for anyone who is not the operator, even an admin session.',
+      'HIGHLY DESTRUCTIVE: the raw bot token can delete channels, ban members and reconfigure the entire guild. Use the curated wrappers whenever they cover the operation.',
       'method is the HTTP verb, path must start with "/" (query string included), and body is a JSON string parsed before sending — invalid JSON is rejected without any request being made.',
       'The response is the pretty-printed JSON returned by Discord, "(no content)" for a 204, and it is truncated after 4000 characters; a non-2xx status comes back as an "Error: discord API … → HTTP <status>" text rather than an exception, and 429 rate limits are retried automatically.',
     ].join(' '),
@@ -25,9 +24,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        // Owner-only, NOT merely admin: the raw bot token can delete/ban/reconfigure the whole server,
-        // so a foreign member holding an admin-mapped role must never reach it. `owner` is the operator.
-        if (ctx.currentIdentity?.()?.owner !== true) throw new Error('DiscordApi is only available to the operator');
         if (!p.path.startsWith('/')) return ok('Error: path must start with "/".');
         let body;
         if (p.body) {
@@ -40,17 +36,13 @@ export function registerTools(ctx, adapter) {
     },
   }));
 
-  // ── Ergonomic server tools (structured wrappers over the REST surface, so the agent needn't know raw
-  // endpoints). Every one gates on an admin session (ctx.isAdminSession() → the role-id-mapped admin
-  // access): a role granted all tools can run the full server surface, reads and destructive writes alike.
-  // The raw-token DiscordApi above stays owner-only. ──
+  // ── Ergonomic server tools (structured wrappers over the REST surface, so the agent needn't know raw endpoints). ──
   const cfgGuild = typeof ctx.config.guildId === 'string' ? ctx.config.guildId.trim() : '';
   const requireGuild = (p) => {
     const g = (p?.guildId && String(p.guildId).trim()) || cfgGuild;
     if (!g) throw new Error('no guild id — set guildId in the plugin config or pass it as guildId');
     return g;
   };
-  const adminGate = () => { if (!ctx.isAdminSession()) throw new Error('available only in an admin session'); };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const CHAN_TYPE = { 0: 'text', 2: 'voice', 4: 'category', 5: 'news', 10: 'news-thread', 11: 'thread', 12: 'private-thread', 13: 'stage', 15: 'forum' };
   // Channel type name → numeric id, for create_channel (text/voice/category/news/forum/stage).
@@ -63,12 +55,11 @@ export function registerTools(ctx, adapter) {
       'Use it as the first step whenever a request names a channel by name rather than by id — "read the #support channel", "post into the release thread" — because every other Discord* tool wants the numeric id.',
       'Each line is "id  [type]  name (parent …)", where type is text, voice, category, news, thread, private-thread, stage, forum or active-thread; the parent tells you which category or channel it hangs under.',
       'guildId is optional and defaults to the guild configured for this plugin; pass it only for a different server.',
-      'Available only in an admin session — it fails with "available only in an admin session" elsewhere. Archived threads are NOT included, and for details about a single channel use DiscordChannelInfo instead.',
+      'Archived threads are NOT included, and for details about a single channel use DiscordChannelInfo instead.',
     ].join(' '),
     parameters: Type.Object({ guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })) }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const g = requireGuild(p);
         const chans = (await adapter.rest('GET', `/guilds/${g}/channels`)) ?? [];
         const active = ((await adapter.rest('GET', `/guilds/${g}/threads/active`)) ?? {}).threads ?? [];
@@ -87,7 +78,7 @@ export function registerTools(ctx, adapter) {
       'channelId is the channel or thread snowflake (get it from DiscordListChannels), and limit sets how many of the most recent messages to fetch: default 30, clamped to 1..100.',
       'Each line is "messageId  author: text", with a trailing "[n attachment(s)]" marker when a message carries files; whitespace is collapsed to one line per message.',
       'The leading id is what DiscordPinMessage, DiscordUnpinMessage and DiscordDeleteMessage expect, so reading a channel is enough to act on any message in it.',
-      'Caveat: when the history exceeds 6000 characters the OLDEST lines are dropped (never a partial line, so an id is never truncated), embeds and reactions are omitted, and the tool works only in an admin session.',
+      'Caveat: when the history exceeds 6000 characters the OLDEST lines are dropped (never a partial line, so an id is never truncated), embeds and reactions are omitted.',
     ].join(' '),
     parameters: Type.Object({
       channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) whose messages should be read' }),
@@ -95,7 +86,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const limit = Math.min(Math.max(1, Number(p.limit) || 30), 100);
         const msgs = (await adapter.rest('GET', `/channels/${encodeURIComponent(p.channelId)}/messages?limit=${limit}`)) ?? [];
         const lines = msgs.reverse().map((m) => `${m.id}  ${m.author?.username ?? m.author?.id ?? '?'}: ${(m.content ?? '').replace(/\s+/g, ' ').trim()}${m.attachments?.length ? `  [${m.attachments.length} attachment(s)]` : ''}`);
@@ -113,12 +103,11 @@ export function registerTools(ctx, adapter) {
       'List all roles defined in a Discord guild (server) as "id  name" lines.',
       'Use it to resolve a role name a person mentions — "give her the moderator role", "who can post in announcements" — into the numeric roleId that DiscordAssignRole and DiscordRemoveRole require.',
       'guildId is optional and defaults to the guild configured for this plugin.',
-      'Only ids and names are returned: permissions, colour, position, mentionability and member counts are not — read those with DiscordApi (GET /guilds/{id}/roles) if you need them. Requires an admin session.',
+      'Only ids and names are returned: permissions, colour, position, mentionability and member counts are not — read those with DiscordApi (GET /guilds/{id}/roles) if you need them.',
     ].join(' '),
     parameters: Type.Object({ guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })) }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const roles = (await adapter.rest('GET', `/guilds/${requireGuild(p)}/roles`)) ?? [];
         return ok(roles.map((r) => `${r.id}  ${r.name}`).join('\n') || '(no roles)');
       } catch (e) { return fail(e); }
@@ -131,7 +120,7 @@ export function registerTools(ctx, adapter) {
       'List the members of a Discord guild (server) as "id  username  roles:[…]" lines, so you can see who is on the server and which roles they hold.',
       'Use it to browse the membership or to find a user id before assigning a role; when you already know part of the name, DiscordSearchMembers is the faster and more targeted tool, and for one specific person use DiscordMemberInfo.',
       'guildId defaults to the configured guild, and limit caps how many members are returned — default 50, clamped to 1..200.',
-      'Requires the bot to have the SERVER MEMBERS privileged intent enabled in the Discord developer portal; without it Discord rejects the request and you get an HTTP error text. Admin session only, and the listing is a single page — there is no pagination cursor here.',
+      'Requires the bot to have the SERVER MEMBERS privileged intent enabled in the Discord developer portal; without it Discord rejects the request and you get an HTTP error text. and the listing is a single page — there is no pagination cursor here.',
     ].join(' '),
     parameters: Type.Object({
       guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })),
@@ -139,7 +128,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const limit = Math.min(Math.max(1, Number(p.limit) || 50), 200);
         const members = (await adapter.rest('GET', `/guilds/${requireGuild(p)}/members?limit=${limit}`)) ?? [];
         return ok(members.map((m) => `${m.user?.id}  ${m.user?.username ?? ''}${m.roles?.length ? `  roles:[${m.roles.join(',')}]` : ''}`).join('\n') || '(no members)');
@@ -153,7 +141,7 @@ export function registerTools(ctx, adapter) {
       'Grant a role to a member of a Discord guild (server).',
       'Use it when someone should get access, moderator rights or a marker role; resolve the ids first with DiscordSearchMembers or DiscordListMembers for userId and DiscordListRoles for roleId, and use DiscordRemoveRole to take a role away again.',
       'guildId defaults to the configured guild; userId and roleId are numeric snowflakes.',
-      'SENSITIVE AND EFFECTIVELY DESTRUCTIVE: a role can carry permissions, so this can hand a person moderator or administrator power over the server, and in this deployment role ids also map to the assistant\'s own admin access. Confirm the exact role before calling. Requires an admin session, and the bot\'s own highest role must sit above the role being granted, otherwise Discord answers with an HTTP 403 error text.',
+      'SENSITIVE AND EFFECTIVELY DESTRUCTIVE: a role can carry permissions, so this can hand a person moderator or administrator power over the server, and in this deployment role ids also map to the assistant\'s own admin access. Confirm the exact role before calling. and the bot\'s own highest role must sit above the role being granted, otherwise Discord answers with an HTTP 403 error text.',
     ].join(' '),
     parameters: Type.Object({
       userId: Type.String({ description: 'Discord user id (numeric snowflake) of the guild member who should receive the role' }),
@@ -162,7 +150,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         await adapter.rest('PUT', `/guilds/${requireGuild(p)}/members/${encodeURIComponent(p.userId)}/roles/${encodeURIComponent(p.roleId)}`);
         return ok(`Assigned role ${p.roleId} to member ${p.userId}.`);
       } catch (e) { return fail(e); }
@@ -175,7 +162,7 @@ export function registerTools(ctx, adapter) {
       'Revoke a role from a member of a Discord guild (server).',
       'Use it to withdraw access or moderator rights someone should no longer have; DiscordAssignRole is the inverse, and DiscordMemberInfo shows which roles a person currently holds.',
       'guildId defaults to the configured guild; userId and roleId are numeric snowflakes taken from DiscordListMembers and DiscordListRoles.',
-      'DESTRUCTIVE: removing a role immediately strips every permission and channel visibility it granted, and it can also revoke that person\'s admin access to the assistant. The role itself is not deleted, only the membership. Requires an admin session, and the bot\'s highest role must outrank the role being removed.',
+      'DESTRUCTIVE: removing a role immediately strips every permission and channel visibility it granted, and it can also revoke that person\'s admin access to the assistant. The role itself is not deleted, only the membership. and the bot\'s highest role must outrank the role being removed.',
     ].join(' '),
     parameters: Type.Object({
       userId: Type.String({ description: 'Discord user id (numeric snowflake) of the guild member losing the role' }),
@@ -184,17 +171,13 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         await adapter.rest('DELETE', `/guilds/${requireGuild(p)}/members/${encodeURIComponent(p.userId)}/roles/${encodeURIComponent(p.roleId)}`);
         return ok(`Removed role ${p.roleId} from member ${p.userId}.`);
       } catch (e) { return fail(e); }
     },
   }));
 
-  // ── More server tools (structured REST wrappers). Per the operator's choice, ALL of these gate on an
-  // admin session (ctx.isAdminSession() → the role-id-mapped admin access): the destructive ones can
-  // delete/reconfigure the server, so they must never run in a plain member's channel. The raw-token
-  // DiscordApi above stays owner-only; these curated wrappers are the admin-session surface. ──
+  // ── More server tools (structured REST wrappers). ──
 
   ctx.registerTool(defineTool({
     name: 'DiscordServerInfo', label: 'Discord server info',
@@ -202,12 +185,11 @@ export function registerTools(ctx, adapter) {
       'Give a one-screen overview of a Discord guild (server): its name, id, owner id, approximate member and online counts, and the total number of channels and roles.',
       'Use it to answer "how big is the server", "who owns it", "how many people are online" or to sanity-check that the bot is connected to the guild you think it is.',
       'guildId is optional and defaults to the guild configured for this plugin.',
-      'It is a read-only summary — for the actual channel list use DiscordListChannels, for roles DiscordListRoles, and for members DiscordListMembers. Member and presence counts are Discord\'s approximations, not exact figures. Requires an admin session.',
+      'It is a read-only summary — for the actual channel list use DiscordListChannels, for roles DiscordListRoles, and for members DiscordListMembers. Member and presence counts are Discord\'s approximations, not exact figures.',
     ].join(' '),
     parameters: Type.Object({ guildId: Type.Optional(Type.String({ description: 'Discord guild (server) id — numeric snowflake, defaults to the guild configured in the plugin config' })) }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const g = requireGuild(p);
         const info = await adapter.rest('GET', `/guilds/${g}?with_counts=true`);
         const chans = (await adapter.rest('GET', `/guilds/${g}/channels`)) ?? [];
@@ -227,12 +209,11 @@ export function registerTools(ctx, adapter) {
       'Show the settings of a single Discord channel or thread by id: type, name, topic, parent category, NSFW flag, slowmode interval, and for threads whether they are archived or locked.',
       'Use it to check the state of one specific channel before changing it — for instance to confirm a thread really is archived before reopening it with DiscordArchiveThread, or to see which category a channel belongs to.',
       'To discover the channelId in the first place, or to see the whole server at once, use DiscordListChannels instead.',
-      'channelId is the numeric snowflake of a channel or thread. Optional fields are omitted when empty, permission overwrites and member lists are not included, and the tool is read-only and admin-session only.',
+      'channelId is the numeric snowflake of a channel or thread. Optional fields are omitted when empty, permission overwrites and member lists are not included, and the tool is read-only.',
     ].join(' '),
     parameters: Type.Object({ channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) to inspect' }) }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const c = await adapter.rest('GET', `/channels/${encodeURIComponent(p.channelId)}`);
         const out = [`id: ${c.id}`, `type: ${CHAN_TYPE[c.type] ?? c.type}`, `name: ${c.name ?? ''}`];
         if (c.topic) out.push(`topic: ${c.topic}`);
@@ -251,7 +232,7 @@ export function registerTools(ctx, adapter) {
       'Show the guild profile of one Discord member by user id: username, server nickname, the role ids they hold and the date they joined the server.',
       'Use it to check what access a specific person has before granting or revoking a role, or to confirm you picked the right user after a name lookup.',
       'When you only know a name, resolve the userId first with DiscordSearchMembers; to see everyone at once use DiscordListMembers.',
-      'guildId defaults to the configured guild. Roles come back as ids only — pair them with DiscordListRoles to get names. Read-only, requires an admin session, and an unknown user id returns an HTTP 404 error text.',
+      'guildId defaults to the configured guild. Roles come back as ids only — pair them with DiscordListRoles to get names. Read-only, and an unknown user id returns an HTTP 404 error text.',
     ].join(' '),
     parameters: Type.Object({
       userId: Type.String({ description: 'Discord user id (numeric snowflake) of the guild member to inspect' }),
@@ -259,7 +240,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const m = await adapter.rest('GET', `/guilds/${requireGuild(p)}/members/${encodeURIComponent(p.userId)}`);
         return ok([
           `id: ${m.user?.id}`, `username: ${m.user?.username ?? ''}`,
@@ -276,7 +256,7 @@ export function registerTools(ctx, adapter) {
       'Search the members of a Discord guild (server) by name and return the matches as "id  username (nick)" lines.',
       'This is the fastest way to turn a person\'s name into the userId that DiscordAssignRole, DiscordRemoveRole, DiscordMemberInfo and DiscordAddThreadMember need.',
       'query is matched as a PREFIX against username and server nickname, so a substring from the middle of a name will not match; limit caps the results at default 10, clamped to 1..100, and guildId defaults to the configured guild.',
-      'Prefer this over DiscordListMembers whenever you have a name to go on. Returns "(no matches)" when nothing matches, and requires an admin session.',
+      'Prefer this over DiscordListMembers whenever you have a name to go on. Returns "(no matches)" when nothing matches.',
     ].join(' '),
     parameters: Type.Object({
       query: Type.String({ description: 'Name prefix to match against username and server nickname — e.g. "mar" finds "martin"; matching is prefix-only, not substring' }),
@@ -285,7 +265,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const limit = Math.min(Math.max(1, Number(p.limit) || 10), 100);
         const members = (await adapter.rest('GET', `/guilds/${requireGuild(p)}/members/search?query=${encodeURIComponent(p.query)}&limit=${limit}`)) ?? [];
         return ok(members.map((m) => `${m.user?.id}  ${m.user?.username ?? ''}${m.nick ? `  (${m.nick})` : ''}`).join('\n') || '(no matches)');
@@ -299,12 +278,11 @@ export function registerTools(ctx, adapter) {
       'List the pinned messages of a Discord channel or thread as "message id  author: text" lines.',
       'Use it to see what is currently pinned; for a message that is not pinned, read the channel with DiscordReadChannel, which returns the message id on every line.',
       'channelId is the numeric snowflake of the channel or thread; get it from DiscordListChannels.',
-      'Each message body is collapsed to one line and cut after 120 characters, so it is a preview, not the full text; attachments and embeds are not shown. Returns "(no pins)" for an empty channel. Read-only and admin-session only.',
+      'Each message body is collapsed to one line and cut after 120 characters, so it is a preview, not the full text; attachments and embeds are not shown. Returns "(no pins)" for an empty channel. Read-only.',
     ].join(' '),
     parameters: Type.Object({ channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) whose pinned messages should be listed' }) }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const pins = (await adapter.rest('GET', `/channels/${encodeURIComponent(p.channelId)}/pins`)) ?? [];
         return ok(pins.map((m) => `${m.id}  ${m.author?.username ?? '?'}: ${(m.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 120)}`).join('\n') || '(no pins)');
       } catch (e) { return fail(e); }
@@ -317,7 +295,7 @@ export function registerTools(ctx, adapter) {
       'Create a new public thread in a Discord text channel and return its id and name.',
       'Use it to split a side discussion out of a busy channel, to open a thread for a topic or ticket, or to give a specific message its own conversation.',
       'Pass messageId to hang the thread off that existing message; omit it and a standalone public thread is created directly in the channel. name is the thread title, and autoArchiveMinutes must be one of 60, 1440, 4320 or 10080 — any other value silently falls back to 1440 (one day).',
-      'The parent channelId must be a normal text channel; you cannot create a thread inside another thread. Nothing is posted into the thread — use the normal channel reply flow for that, DiscordAddThreadMember to pull people in, and DiscordArchiveThread or DiscordLockThread to close it later. Requires an admin session.',
+      'The parent channelId must be a normal text channel; you cannot create a thread inside another thread. Nothing is posted into the thread — use the normal channel reply flow for that, DiscordAddThreadMember to pull people in, and DiscordArchiveThread or DiscordLockThread to close it later.',
     ].join(' '),
     parameters: Type.Object({
       channelId: Type.String({ description: 'Id (numeric snowflake) of the parent text channel the thread is created in — not another thread' }),
@@ -327,7 +305,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const auto = [60, 1440, 4320, 10080].includes(Number(p.autoArchiveMinutes)) ? Number(p.autoArchiveMinutes) : 1440;
         const cid = encodeURIComponent(p.channelId);
         const path = p.messageId
@@ -346,7 +323,7 @@ export function registerTools(ctx, adapter) {
       'Pin an existing message to the top of its Discord channel or thread, so members can find it from the channel\'s pinned-messages list.',
       'Use it to highlight an announcement, a set of rules, a summary or any message someone asks to "pin" or keep visible.',
       'channelId and messageId are numeric snowflakes and must belong together — the message has to live in that channel; DiscordReadChannel prints the id at the start of every line, and DiscordListPins lists the already-pinned ones.',
-      'A Discord channel holds at most 50 pins, and pinning beyond that limit fails with an HTTP error text. DiscordUnpinMessage reverses this without deleting anything. Requires an admin session.',
+      'A Discord channel holds at most 50 pins, and pinning beyond that limit fails with an HTTP error text. DiscordUnpinMessage reverses this without deleting anything.',
     ].join(' '),
     parameters: Type.Object({
       channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) containing the message' }),
@@ -354,7 +331,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         await adapter.rest('PUT', `/channels/${encodeURIComponent(p.channelId)}/pins/${encodeURIComponent(p.messageId)}`);
         return ok(`Pinned message ${p.messageId}.`);
       } catch (e) { return fail(e); }
@@ -367,7 +343,7 @@ export function registerTools(ctx, adapter) {
       'Unpin a message from a Discord channel or thread, removing it from the channel\'s pinned list.',
       'Use it to clear an outdated announcement or to make room when the 50-pin limit is reached; DiscordPinMessage is the inverse operation.',
       'channelId and messageId are numeric snowflakes — list the current pins with DiscordListPins to get the right messageId.',
-      'This is NOT destructive to the message: it stays in the channel history and only loses its pinned status. To actually remove it use DiscordDeleteMessage. Requires an admin session, and unpinning a message that is not pinned returns an HTTP error text.',
+      'This is NOT destructive to the message: it stays in the channel history and only loses its pinned status. To actually remove it use DiscordDeleteMessage. and unpinning a message that is not pinned returns an HTTP error text.',
     ].join(' '),
     parameters: Type.Object({
       channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) the message is pinned in' }),
@@ -375,7 +351,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         await adapter.rest('DELETE', `/channels/${encodeURIComponent(p.channelId)}/pins/${encodeURIComponent(p.messageId)}`);
         return ok(`Unpinned message ${p.messageId}.`);
       } catch (e) { return fail(e); }
@@ -388,7 +363,7 @@ export function registerTools(ctx, adapter) {
       'Permanently delete a single message from a Discord channel or thread.',
       'Use it to remove one specific message — a mistaken post, spam, or something a person asks to take down; to clear many messages at once use DiscordPurgeMessages instead of calling this in a loop.',
       'channelId and messageId are numeric snowflakes and must match: the message has to live in that channel. DiscordReadChannel prints the id at the start of every line, which is the usual way to find the message you mean.',
-      'DESTRUCTIVE AND IRREVERSIBLE — the message and its attachments are gone from Discord with no undo, so verify the target before calling. Requires an admin session, and deleting someone else\'s message needs the MANAGE_MESSAGES permission or Discord answers HTTP 403.',
+      'DESTRUCTIVE AND IRREVERSIBLE — the message and its attachments are gone from Discord with no undo, so verify the target before calling. and deleting someone else\'s message needs the MANAGE_MESSAGES permission or Discord answers HTTP 403.',
     ].join(' '),
     parameters: Type.Object({
       channelId: Type.String({ description: 'Discord channel or thread id (numeric snowflake) containing the message' }),
@@ -396,7 +371,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         await adapter.rest('DELETE', `/channels/${encodeURIComponent(p.channelId)}/messages/${encodeURIComponent(p.messageId)}`);
         return ok(`Deleted message ${p.messageId}.`);
       } catch (e) { return fail(e); }
@@ -420,7 +394,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const cid = encodeURIComponent(p.channelId);
         const cap = Math.min(Math.max(1, Number(p.maxMessages) || 100), 5000);
         const collected = [];
@@ -471,7 +444,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const type = CHAN_TYPE_ID[String(p.type ?? 'text').toLowerCase()] ?? 0;
         const body = { name: p.name, type };
         if (p.parentId) body.parent_id = p.parentId;
@@ -495,7 +467,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const c = await adapter.rest('POST', `/guilds/${requireGuild(p)}/channels`, { name: p.name, type: 4 });
         return ok(`Created category ${c.id} "${c.name}".`);
       } catch (e) { return fail(e); }
@@ -516,7 +487,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const c = await adapter.rest('PATCH', `/channels/${encodeURIComponent(p.channelId)}`, { name: p.name });
         return ok(`Renamed channel ${p.channelId} to "${c.name}".`);
       } catch (e) { return fail(e); }
@@ -534,7 +504,6 @@ export function registerTools(ctx, adapter) {
     parameters: Type.Object({ channelId: Type.String({ description: 'Discord channel, thread or category id (numeric snowflake) to delete permanently — there is no undo, so verify it first' }) }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         await adapter.rest('DELETE', `/channels/${encodeURIComponent(p.channelId)}`);
         return ok(`Deleted channel ${p.channelId}.`);
       } catch (e) { return fail(e); }
@@ -547,7 +516,7 @@ export function registerTools(ctx, adapter) {
       'Archive a Discord thread — closing it and hiding it from the active thread list — or reopen an archived one.',
       'Use it to wrap up a finished discussion, or to bring an old thread back when the topic returns. It is fully REVERSIBLE: nothing is deleted and the whole message history stays readable, which makes it the safe alternative to DiscordDeleteChannel.',
       'threadId is the thread\'s numeric snowflake (from DiscordListChannels, which shows active threads). archived defaults to true; pass archived:false to reopen. Only an explicit false reopens — any other value archives.',
-      'It affects threads only, not regular channels, and it does not stop people from posting: an archived thread reopens as soon as someone writes in it, so use DiscordLockThread when the thread must stay closed. Requires an admin session.',
+      'It affects threads only, not regular channels, and it does not stop people from posting: an archived thread reopens as soon as someone writes in it, so use DiscordLockThread when the thread must stay closed.',
     ].join(' '),
     parameters: Type.Object({
       threadId: Type.String({ description: 'Discord thread id (numeric snowflake) to archive or reopen — regular channels are not accepted' }),
@@ -555,7 +524,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const archived = p.archived !== false;
         await adapter.rest('PATCH', `/channels/${encodeURIComponent(p.threadId)}`, { archived });
         return ok(`${archived ? 'Archived' : 'Reopened'} thread ${p.threadId}.`);
@@ -577,7 +545,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const locked = p.locked !== false;
         await adapter.rest('PATCH', `/channels/${encodeURIComponent(p.threadId)}`, { locked });
         return ok(`${locked ? 'Locked' : 'Unlocked'} thread ${p.threadId}.`);
@@ -591,7 +558,7 @@ export function registerTools(ctx, adapter) {
       'Add a guild member to a Discord thread so the thread shows up for them and they receive its notifications.',
       'Use it to pull the right people into a thread you just created with DiscordCreateThread, or when someone asks to be included in an ongoing discussion; DiscordRemoveThreadMember takes them back out.',
       'threadId is the thread\'s numeric snowflake and userId the member\'s — resolve a name to a user id with DiscordSearchMembers first.',
-      'The person must already be a member of the guild and able to see the thread\'s parent channel, otherwise Discord answers with an HTTP error text; the thread must not be archived. This grants thread membership only, no roles or permissions. Requires an admin session.',
+      'The person must already be a member of the guild and able to see the thread\'s parent channel, otherwise Discord answers with an HTTP error text; the thread must not be archived. This grants thread membership only, no roles or permissions.',
     ].join(' '),
     parameters: Type.Object({
       threadId: Type.String({ description: 'Discord thread id (numeric snowflake) to add the member to' }),
@@ -599,7 +566,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         await adapter.rest('PUT', `/channels/${encodeURIComponent(p.threadId)}/thread-members/${encodeURIComponent(p.userId)}`);
         return ok(`Added member ${p.userId} to thread ${p.threadId}.`);
       } catch (e) { return fail(e); }
@@ -620,7 +586,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         await adapter.rest('DELETE', `/channels/${encodeURIComponent(p.threadId)}/thread-members/${encodeURIComponent(p.userId)}`);
         return ok(`Removed member ${p.userId} from thread ${p.threadId}.`);
       } catch (e) { return fail(e); }

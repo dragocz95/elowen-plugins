@@ -1,5 +1,5 @@
 {
-  "description": "Telegram bot (grammY): napište mu a odpoví z Elowen AI. Slash příkazy (/model, /reasoning, /display, /new, /help), nastavení modelu a zobrazení pro každý chat, živá aktivita nástrojů s nezávislým doručením odpovědi, stavové reakce a proaktivní cron/tick oznámení. Chat nástroje (admin session): info o chatu/členovi, počet členů, připnutí/odepnutí, mazání zpráv, ban/unban, povýšení, název/popis chatu, fórum témata (vytvořit/upravit/zavřít) a odeslání zprávy do libovolného chatu (provozovatel). Každé pravidlo role mapuje Telegram user ID / @username / chat ID na povolené projekty Elowen a prompt role.",
+  "description": "Telegram bot (grammY): napište mu a odpoví z Elowen AI. Slash příkazy (/model, /reasoning, /display, /new, /help), nastavení modelu a zobrazení pro každý chat, živá aktivita nástrojů s nezávislým doručením odpovědi, stavové reakce a proaktivní cron/tick oznámení. Chat nástroje: info o chatu/členovi, počet členů, připnutí/odepnutí, mazání zpráv, ban/unban, povýšení, název/popis chatu, fórum témata (vytvořit/upravit/zavřít) a odeslání zprávy do libovolného chatu (provozovatel). Každé pravidlo role mapuje Telegram user ID / @username / chat ID na povolené projekty Elowen a prompt role.",
   "fields": {
     "sec_connection": {
       "label": "Připojení",

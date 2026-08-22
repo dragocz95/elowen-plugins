@@ -289,11 +289,11 @@ describe('codebase plugin — index + search', () => {
     assert.ok(admin.content[0].text.includes('other.ts'));
   });
 
-  it('reindex is refused for a non-admin session', async () => {
+  it('a project-scoped session can reindex its accessible repository', async () => {
     host.asUser([repo1]);
-    const res = await host.runTool('CodebaseReindex', {});
-    assert.equal(res.details.ok, false);
-    assert.ok(res.content[0].text.includes('admin'));
+    const res = await host.runTool('CodebaseReindex', { repo: repo1 });
+    assert.equal(res.details.ok, true);
+    assert.ok(!res.content[0].text.includes('admin session'));
   });
 
   it('an incremental reindex re-embeds only edited files and prunes deleted ones', async () => {
@@ -405,9 +405,9 @@ describe('codebase plugin — batch3 fixes', () => {
     assert.equal(chunkCount(dataRoot, "SELECT COUNT(*) AS n FROM chunks WHERE model = 'fake-1'"), 0); // fully migrated
   });
 
-  // #5 — auto-reindex on search is admin-only; a non-admin search must never write the index or spend the
-  // embedding provider (the same effects CodebaseReindex refuses to non-admins).
-  it('#5 a non-admin search never triggers auto-reindex; an admin search does', async () => {
+  // #5 — automatic reindexing on search is limited to all-access sessions; a project-scoped search must
+  // never write the index or spend the embedding provider on its own.
+  it('#5 a project-scoped search never triggers auto-reindex; an all-access search does', async () => {
     const dataRoot = tmpDir('cb5-data');
     const repo = tmpDir('cb5-repo');
     writeFileSync(join(repo, 'x.ts'), 'export function x() { return 1; } // cosine similarity vector\n');
@@ -418,16 +418,16 @@ describe('codebase plugin — batch3 fixes', () => {
       embedBatch: async (_c, texts) => { embedBatchCalls++; return texts.map(fakeVec); },
     };
     const host = makeHost({ dataRoot, embeddings: embedder, embeddingConfig: () => cfg });
-    // Non-admin: no reindex, index stays empty, and a helpful failure that points at the admin tool.
+    // Project-scoped search: no automatic reindex; the response points at the explicit reindex tool.
     host.asUser([repo]);
     const res = await host.runTool('CodebaseSearch', { query: 'cosine similarity vector' });
     await new Promise((r) => setTimeout(r, 60)); // give any wrongly-fired background pass time to run
-    assert.equal(embedBatchCalls, 0);            // the bug fires a full reindex+embed here for a plain user
+    assert.equal(embedBatchCalls, 0);            // the bug fires a full reindex+embed here for a scoped user
     assert.equal(res.details.ok, false);
-    assert.ok(res.content[0].text.toLowerCase().includes('admin'));
+    assert.ok(res.content[0].text.includes('CodebaseReindex'));
     assert.equal(chunkCount(dataRoot), 0);
 
-    // Admin: kicks the (background) reindex → chunks appear.
+    // All-access search kicks the background reindex and chunks appear.
     host.asAdmin(repo);
     await host.runTool('CodebaseSearch', { query: 'cosine similarity vector' });
     await waitFor(() => embedBatchCalls > 0 && chunkCount(dataRoot) > 0);

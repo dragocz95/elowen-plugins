@@ -2056,7 +2056,7 @@ describe('msteams proactive person messaging', () => {
   });
 });
 
-describe('msteams person tools gating', () => {
+describe('msteams tool permissions', () => {
   const roster = [{ id: '29:dana', name: 'Dana Novák', userPrincipalName: 'dana@contoso.com', aadObjectId: 'aad-2' }];
 
   async function known(cfg: Record<string, unknown> = {}, opts: { accountUserId?: number } = {}) {
@@ -2077,53 +2077,22 @@ describe('msteams person tools gating', () => {
     return made;
   }
 
-  it('lets a linked administrator account send to a person — the curated tier', async () => {
-    // Curated Teams tools follow the linked Elowen account's administration bit. The room role only admits
-    // the turn; it cannot grant this capability.
+  it('lets a project-scoped non-owner session reach curated and raw connector tools', async () => {
     const { adapter, calls } = await known(
       { rolePolicies: [{ roleId: 'aad-2', projectIds: [] }] },
       { accountUserId: 2 },
     );
     let relayText = '';
     adapter.control({ relay: async (_src, text) => { relayText = text; return 'the build broke'; } });
-    const { run } = await makeTools(adapter, { admin: true, owner: false, username: 'michal' });
+    const { run } = await makeTools(adapter, { admin: false, owner: false, username: 'michal' });
+
     const result = await run('TeamsMessagePerson', { email: 'dana@contoso.com', text: 'the build broke' });
     expect(result).toContain('Delivered to Dana Novák through the recipient’s Elowen agent');
     expect(relayText).toContain('{"sender":"michal","message":"the build broke"}');
     expect(calls.filter((c) => c.kind === 'send')).toHaveLength(1);
-  });
 
-  it('refuses curated senders without an administrator account and explains the account boundary', async () => {
-    const { adapter, calls } = await known();
-    const { run } = await makeTools(adapter, { admin: false, owner: false });
-    for (const [name, params] of [
-      ['TeamsSend', { conversationId: 'a:team', text: 'unsolicited' }],
-      ['TeamsMessagePerson', { email: 'dana@contoso.com', text: 'unsolicited' }],
-      ['TeamsSendFile', { path: '/etc/hostname', email: 'dana@contoso.com' }],
-    ] as const) {
-      const out = await run(name, params);
-      expect(out).toContain('linked Elowen administrator account');
-      expect(out).toContain('Room roles never grant tool permissions');
-    }
-    expect(calls.filter((c) => c.kind === 'send' || c.kind === 'create')).toHaveLength(0);
-  });
-
-  it('keeps raw connector access with the operator, even for an administrator account', async () => {
-    // TeamsApi drives the bot credentials directly, so it stays one tier above the curated senders —
-    // the same split the Discord plugin makes between DiscordApi and its wrappers.
-    const { adapter } = await known();
-    const refused = await makeTools(adapter, { admin: true, owner: false });
-    const out = await refused.run('TeamsApi', { method: 'GET', path: '/v3/conversations' });
-    expect(out).toContain('reserved for the instance operator');
-    expect(out).toContain('TeamsSend'); // points at the tool an admin CAN use instead
-    const allowed = await makeTools(adapter, { admin: true, owner: true });
-    expect(await allowed.run('TeamsApi', { method: 'GET', path: '/v3/conversations' })).not.toContain('reserved for');
-  });
-
-  it('refuses TeamsFindPerson outside an admin session', async () => {
-    const { adapter } = await known();
-    const { run } = await makeTools(adapter, { admin: false, owner: false });
-    expect(await run('TeamsFindPerson', { query: 'dana' })).toContain('linked Elowen administrator account');
+    expect(await run('TeamsFindPerson', { query: 'dana' })).toContain('Dana Novák');
+    expect(await run('TeamsApi', { method: 'GET', path: '/v3/conversations' })).not.toContain('operator');
   });
 
   it('sends for the operator and reports the person and the chat', async () => {

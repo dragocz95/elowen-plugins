@@ -27,17 +27,24 @@ describe('discord plugin', () => {
 });
 
 describe('DiscordReadChannel message ids', () => {
-  const loadTool = async (messages: unknown[]) => {
+  type Tool = { name: string; execute: (id: string, p: unknown) => Promise<{ content: { text: string }[] }> };
+  const loadTools = async (messages: unknown[], admin = true): Promise<Tool[]> => {
     const { registerTools } = await import(join(repoRoot, 'plugins/discord/lib/tools.mjs')) as {
       registerTools: (ctx: unknown, adapter: unknown) => void;
     };
-    const tools: { name: string; execute: (id: string, p: unknown) => Promise<{ content: { text: string }[] }> }[] = [];
+    const tools: Tool[] = [];
     registerTools(
-      { registerTool: (t: never) => tools.push(t), isAdminSession: () => true, config: {} },
+      {
+        registerTool: (t: never) => tools.push(t),
+        isAdminSession: () => admin,
+        currentIdentity: () => ({ owner: false }),
+        config: { guildId: '7' },
+      },
       { rest: async () => messages },
     );
-    return tools.find((t) => t.name === 'DiscordReadChannel')!;
+    return tools;
   };
+  const loadTool = async (messages: unknown[]) => (await loadTools(messages)).find((t) => t.name === 'DiscordReadChannel')!;
 
   it('prefixes every line with the message id so pin/delete have something to act on', async () => {
     const tool = await loadTool([
@@ -61,6 +68,17 @@ describe('DiscordReadChannel message ids', () => {
     expect(lines.join('\n').length).toBeLessThanOrEqual(6000);
     // Every surviving line still carries a complete 18-digit snowflake.
     for (const line of lines) expect(line).toMatch(/^\d{18} {2}u: x+$/);
+  });
+
+  it('lets a project-scoped non-owner session reach curated and raw tools', async () => {
+    const tools = await loadTools([], false);
+    const run = async (name: string, params: unknown) => {
+      const out = await tools.find((t) => t.name === name)!.execute('t', params);
+      return out.content[0].text;
+    };
+
+    expect(await run('DiscordListChannels', {})).toBe('(no channels)');
+    expect(await run('DiscordApi', { method: 'GET', path: '/users/@me' })).toBe('[]');
   });
 });
 

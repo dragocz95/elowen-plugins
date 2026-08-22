@@ -1,4 +1,4 @@
-// Admin/owner-gated Telegram* tools: outbound messaging, chat/member inspection and group management.
+// Telegram tools: outbound messaging, chat/member inspection and group management.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 
@@ -12,18 +12,16 @@ function chat(v) {
 }
 
 export function registerTools(ctx, adapter) {
-  const adminGate = () => { if (!ctx.isAdminSession()) throw new Error('available only in an admin session'); };
-  const ownerGate = (name) => { if (ctx.currentIdentity?.()?.owner !== true) throw new Error(`${name} is only available to the operator`); };
   const api = () => adapter.requireBot().api;
 
-  // Send a message to any chat — OWNER only (it can message anyone the bot can reach).
+  // Send a message to any chat the bot can reach. Who may call it is decided per account in the users modal.
   ctx.registerTool(defineTool({
     name: 'TelegramSend', label: 'Telegram send message',
     description: [
       'Send a plain-text Telegram message to any chat the bot can reach — a private conversation, a group, a supergroup or a channel — through the Bot API sendMessage method.',
       'Use it to notify someone on Telegram, post an update into a group or channel, or answer a person outside the current conversation; to reply inside the chat you are already talking in, just write your answer normally instead of calling this tool.',
       'chatId accepts a numeric user or chat id (e.g. 123456789), a negative supergroup or channel id (e.g. -1001234567890) or a public @channelusername, and text is sent as-is with no Markdown or HTML parse mode.',
-      'OPERATOR ONLY: any other sender gets an error, because this tool can message anybody in the bot address book. It also fails when the bot is not configured or the bot was never allowed to write to that chat, and it returns only a short confirmation, not the sent message id — for the full sendMessage surface (parse mode, reply markup, threads) use TelegramApi.',
+      'It can message anybody in the bot address book, so treat it accordingly. It fails when the bot is not configured or the bot was never allowed to write to that chat, and it returns only a short confirmation, not the sent message id — for the full sendMessage surface (parse mode, reply markup, threads) use TelegramApi.',
     ].join(' '),
     parameters: Type.Object({
       chatId: Type.String({ description: 'Target chat: numeric user/group/channel id (e.g. 123456789 or -1001234567890) or a public @channelusername' }),
@@ -31,7 +29,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        ownerGate('TelegramSend');
         await api().sendMessage(chat(p.chatId), String(p.text ?? ''));
         return ok(`Sent to ${p.chatId}.`);
       } catch (e) { return fail(e); }
@@ -50,7 +47,6 @@ export function registerTools(ctx, adapter) {
     parameters: Type.Object({ chatId: Type.String({ description: 'Chat to inspect: numeric id or public @channelusername' }) }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const c = await api().getChat(chat(p.chatId));
         const out = [`id: ${c.id}`, `type: ${c.type}`];
         if (c.title) out.push(`title: ${c.title}`);
@@ -80,7 +76,6 @@ export function registerTools(ctx, adapter) {
     parameters: Type.Object({ chatId: Type.String({ description: 'Group, supergroup or channel: numeric id or public @channelusername' }) }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const n = await api().getChatMemberCount(chat(p.chatId));
         return ok(`members: ${n}`);
       } catch (e) { return fail(e); }
@@ -102,7 +97,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const m = await api().getChatMember(chat(p.chatId), Number(p.userId));
         const u = m.user ?? {};
         // Read the can_* rights off the response itself rather than a hard-coded list: Telegram keeps
@@ -133,7 +127,7 @@ export function registerTools(ctx, adapter) {
       messageId: Type.Number({ description: 'Numeric id of the message to pin, as it exists in that chat' }),
     }),
     execute: async (_id, p) => {
-      try { adminGate(); await api().pinChatMessage(chat(p.chatId), Number(p.messageId)); return ok(`Pinned message ${p.messageId}.`); }
+      try { await api().pinChatMessage(chat(p.chatId), Number(p.messageId)); return ok(`Pinned message ${p.messageId}.`); }
       catch (e) { return fail(e); }
     },
   }));
@@ -151,7 +145,7 @@ export function registerTools(ctx, adapter) {
       messageId: Type.Number({ description: 'Numeric id of the pinned message to unpin' }),
     }),
     execute: async (_id, p) => {
-      try { adminGate(); await api().unpinChatMessage(chat(p.chatId), Number(p.messageId)); return ok(`Unpinned message ${p.messageId}.`); }
+      try { await api().unpinChatMessage(chat(p.chatId), Number(p.messageId)); return ok(`Unpinned message ${p.messageId}.`); }
       catch (e) { return fail(e); }
     },
   }));
@@ -169,7 +163,7 @@ export function registerTools(ctx, adapter) {
       messageId: Type.Number({ description: 'Numeric id of the single message to delete permanently' }),
     }),
     execute: async (_id, p) => {
-      try { adminGate(); await api().deleteMessage(chat(p.chatId), Number(p.messageId)); return ok(`Deleted message ${p.messageId}.`); }
+      try { await api().deleteMessage(chat(p.chatId), Number(p.messageId)); return ok(`Deleted message ${p.messageId}.`); }
       catch (e) { return fail(e); }
     },
   }));
@@ -187,7 +181,7 @@ export function registerTools(ctx, adapter) {
       userId: Type.Number({ description: 'Numeric Telegram user id of the person to ban' }),
     }),
     execute: async (_id, p) => {
-      try { adminGate(); await api().banChatMember(chat(p.chatId), Number(p.userId)); return ok(`Banned member ${p.userId}.`); }
+      try { await api().banChatMember(chat(p.chatId), Number(p.userId)); return ok(`Banned member ${p.userId}.`); }
       catch (e) { return fail(e); }
     },
   }));
@@ -205,7 +199,7 @@ export function registerTools(ctx, adapter) {
       userId: Type.Number({ description: 'Numeric Telegram user id of the banned person to unban' }),
     }),
     execute: async (_id, p) => {
-      try { adminGate(); await api().unbanChatMember(chat(p.chatId), Number(p.userId)); return ok(`Unbanned member ${p.userId}.`); }
+      try { await api().unbanChatMember(chat(p.chatId), Number(p.userId)); return ok(`Unbanned member ${p.userId}.`); }
       catch (e) { return fail(e); }
     },
   }));
@@ -232,7 +226,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         await api().promoteChatMember(chat(p.chatId), Number(p.userId), {
           can_manage_chat: p.canManageChat, can_delete_messages: p.canDeleteMessages,
           can_restrict_members: p.canRestrictMembers, can_promote_members: p.canPromoteMembers,
@@ -257,7 +250,7 @@ export function registerTools(ctx, adapter) {
       title: Type.String({ description: 'New chat title, at most 128 characters' }),
     }),
     execute: async (_id, p) => {
-      try { adminGate(); await api().setChatTitle(chat(p.chatId), String(p.title)); return ok(`Set title to "${p.title}".`); }
+      try { await api().setChatTitle(chat(p.chatId), String(p.title)); return ok(`Set title to "${p.title}".`); }
       catch (e) { return fail(e); }
     },
   }));
@@ -275,7 +268,7 @@ export function registerTools(ctx, adapter) {
       description: Type.String({ description: 'New description text, at most 255 characters; an empty string clears it' }),
     }),
     execute: async (_id, p) => {
-      try { adminGate(); await api().setChatDescription(chat(p.chatId), String(p.description ?? '')); return ok('Set chat description.'); }
+      try { await api().setChatDescription(chat(p.chatId), String(p.description ?? '')); return ok('Set chat description.'); }
       catch (e) { return fail(e); }
     },
   }));
@@ -294,7 +287,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const t = await api().createForumTopic(chat(p.chatId), String(p.name));
         return ok(`Created topic "${t.name}" (thread ${t.message_thread_id}).`);
       } catch (e) { return fail(e); }
@@ -315,7 +307,7 @@ export function registerTools(ctx, adapter) {
       name: Type.String({ description: 'New topic title' }),
     }),
     execute: async (_id, p) => {
-      try { adminGate(); await api().editForumTopic(chat(p.chatId), Number(p.threadId), { name: String(p.name) }); return ok(`Renamed topic ${p.threadId} to "${p.name}".`); }
+      try { await api().editForumTopic(chat(p.chatId), Number(p.threadId), { name: String(p.name) }); return ok(`Renamed topic ${p.threadId} to "${p.name}".`); }
       catch (e) { return fail(e); }
     },
   }));
@@ -335,7 +327,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const close = p.closed !== false;
         if (close) await api().closeForumTopic(chat(p.chatId), Number(p.threadId));
         else await api().reopenForumTopic(chat(p.chatId), Number(p.threadId));
@@ -351,7 +342,7 @@ export function registerTools(ctx, adapter) {
       'Call any raw Telegram Bot API method by name with a JSON parameter object — the full bot surface, including methods that have no dedicated tool here: restrictChatMember, exportChatInviteLink, sendPhoto, sendDocument, forwardMessage, editMessageText, getUpdates, setMyCommands and the rest.',
       'Use it as the escape hatch when the focused tools are not enough, for example to mute somebody temporarily, send formatted or media messages, or read fields that TelegramChatInfo and TelegramMemberInfo do not print; for ordinary sending, chat inspection and moderation prefer the dedicated Telegram* tools, which validate the arguments for you.',
       'method is the Bot API method name in camelCase exactly as documented (e.g. "sendMessage", "getChat", "restrictChatMember") and params is a JSON string of that method own parameters using snake_case keys, e.g. {"chat_id":-1001234567890,"text":"hi","parse_mode":"HTML"}; an unknown method name or malformed JSON is refused with an error instead of being sent.',
-      'OPERATOR ONLY and effectively unrestricted: it can send, edit, delete, ban and reconfigure anything the bot token is allowed to touch, with no extra confirmation, so treat destructive methods with the same care as the dedicated tools. The reply is the raw JSON response pretty-printed and truncated after 4000 characters.',
+      'Effectively unrestricted: it can send, edit, delete, ban and reconfigure anything the bot token is allowed to touch, with no extra confirmation, so treat destructive methods with the same care as the dedicated tools. The reply is the raw JSON response pretty-printed and truncated after 4000 characters.',
     ].join(' '),
     parameters: Type.Object({
       method: Type.String({ description: 'Bot API method name in camelCase, e.g. "sendMessage", "getChat" or "restrictChatMember"' }),
@@ -359,7 +350,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        ownerGate('TelegramApi');
         let params;
         if (p.params) {
           try { params = JSON.parse(p.params); } catch { return ok('Error: params is not valid JSON.'); }

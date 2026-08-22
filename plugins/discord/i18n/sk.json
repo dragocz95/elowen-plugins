@@ -1,5 +1,5 @@
 {
-  "description": "Discord bot: spomeňte ho a odpovie z Elowen AI. Slash príkazy (/model, /display, /new, /help), nastavenie modelu a zobrazenia pre každý kanál, živá aktivita nástrojov s nezávislým doručením odpovede, stavové reakcie a proaktívne cron/tick oznámenia. Serverové nástroje (admin session): info o serveri/kanáli/členovi, výpis a hľadanie členov, role, piny, vlákna (vytvoriť/archivovať/zamknúť/členovia), kanály (vytvoriť/premenovať/zmazať, kategórie) a správa správ (mazanie/purge). Discord roly riadia prístup, dôveryhodný administrátorský kontext a prompt miestnosti; oprávnenia sa preberajú z prepojeného účtu Elowen.",
+  "description": "Discord bot: spomeňte ho a odpovie z Elowen AI. Slash príkazy (/model, /display, /new, /help), nastavenie modelu a zobrazenia pre každý kanál, živá aktivita nástrojov s nezávislým doručením odpovede, stavové reakcie a proaktívne cron/tick oznámenia. Serverové nástroje: info o serveri/kanáli/členovi, výpis a hľadanie členov, role, piny, vlákna (vytvoriť/archivovať/zamknúť/členovia), kanály (vytvoriť/premenovať/zmazať, kategórie) a správa správ (mazanie/purge). Discord roly riadia prístup, dôveryhodný administrátorský kontext a prompt miestnosti; oprávnenia sa preberajú z prepojeného účtu Elowen.",
   "fields": {
     "sec_connection": {
       "label": "Pripojenie",

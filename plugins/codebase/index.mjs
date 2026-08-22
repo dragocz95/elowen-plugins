@@ -595,8 +595,8 @@ export function register(ctx) {
       'lines — it is an excerpt, not the whole file, so read the file afterwards with Read before editing.',
       'Hits below the configured relevance floor are dropped, so an empty answer means nothing scored well, not',
       'that the file is absent. The tool needs an embedding model configured in Settings → Memory and a built',
-      'index: when the index is still empty, an admin session triggers a background refresh, while a non-admin',
-      'session is told to ask an operator to run CodebaseReindex. Check coverage with CodebaseStatus.',
+      'index: when the index is still empty, an all-access session triggers a background refresh, while a',
+      'project-scoped session is told to run CodebaseReindex explicitly. Check coverage with CodebaseStatus.',
     ].join(' '),
     parameters: Type.Object({
       query: Type.String({ description: 'Natural-language description of the code or behaviour you are looking for, e.g. "where do we validate the upload size"' }),
@@ -616,8 +616,8 @@ export function register(ctx) {
         const database = getDb();
         const desc = ctx.embeddings.descriptor();
 
-        // Auto-reindex is ADMIN-ONLY (same gate as CodebaseReindex: it writes shared state + spends the
-        // embedding provider). Fire-and-forget so the search answer NEVER waits on a full walk+embed pass —
+        // Auto-reindex remains limited to all-access sessions because it is background automation that writes
+        // shared state and spends the embedding provider. Fire-and-forget so search never waits on a full pass —
         // freshly embedded chunks surface on the NEXT search; single-flight + the 5-minute debounce guard
         // re-entry, so concurrent searches never start a second pass over the same repo.
         let kickedReindex = false;
@@ -644,11 +644,11 @@ export function register(ctx) {
         }
 
         if (scanned === 0) {
-          // No vectors under the current model for this session's repos. An admin's search already kicked a
-          // background (re)index; a non-admin can't build the index (it's admin-gated), so say so plainly.
+          // No vectors under the current model for this session's repos. An all-access search may already have
+          // kicked a background pass; a project-scoped search leaves reindexing to an explicit tool call.
           return kickedReindex
             ? ok('CodebaseSearch', 'The semantic index has no chunks yet for the current embedding model. A background refresh is running — try again shortly. For literal text search use Search.', { matches: 0 })
-            : fail('CodebaseSearch', new Error('the semantic code index for your repositories is empty — ask an operator (admin) to run CodebaseReindex to build it, or use Search for literal text search'));
+            : fail('CodebaseSearch', new Error('the semantic code index for your repositories is empty — run CodebaseReindex to build it, or use Search for literal text search'));
         }
         if (top.length === 0) return ok('CodebaseSearch', `No matches above the relevance floor (${cfg.relevanceFloor}) for: ${query}`, { matches: 0 });
 
@@ -682,8 +682,7 @@ export function register(ctx) {
       'By default the pass is incremental: only new, changed or stale files are re-embedded, and files whose',
       'content hash is unchanged are skipped. Set full to true to rebuild every file from scratch, which is much',
       'slower and costs far more embedding calls. Narrow the work with repo to a single repository root you have',
-      'access to. This tool is ADMIN-ONLY, because it writes shared index state and spends the embedding',
-      'provider; a non-admin session gets a refusal. It also needs an embedding model configured in',
+      'access to. It needs an embedding model configured in',
       'Settings → Memory. Each pass is capped by a per-pass chunk budget, so a large repository may report',
       'pending files and need several calls before it is fully indexed; the answer lists per repository how many',
       'files changed, how many chunks were embedded, how many were pruned and how many are still pending.',
@@ -694,7 +693,6 @@ export function register(ctx) {
     }),
     execute: async (_id, p) => {
       try {
-        if (!ctx.isAdminSession()) return fail('CodebaseReindex', new Error('CodebaseReindex requires an admin session'));
         if (!ctx.embeddings.isConfigured()) {
           return fail('CodebaseReindex', new Error('no embedding model configured — set one in Settings → Memory'));
         }

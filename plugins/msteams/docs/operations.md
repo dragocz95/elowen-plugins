@@ -103,11 +103,9 @@ whole room, which is how a channel-wide policy is expressed. The matched policy 
 scope, the role prompt, and an optional per-role tool allowlist; the conversation's own state contributes
 the model, reasoning level and fast flag (`elowen-plugin-shared/access.mjs`, `buildRoleAccess`).
 
-`admin: true` in a role policy grants the **operator role inside the chat** — the slash commands, and the
-curated `Teams*` tools including the three that send (`TeamsSend`, `TeamsMessagePerson`, `TeamsSendFile`),
-which gate on `ctx.isAdminSession()`. It does NOT make that person the instance operator: `TeamsApi`
-drives the raw bot credentials and stays behind `ctx.currentIdentity()?.owner === true` (`lib/tools.mjs`),
-which is a single account — the first admin by creation order — and cannot be granted from plugin config.
+`admin: true` in a role policy grants the **operator role inside the chat** for platform behavior such as
+slash commands. It does not decide which `Teams*` tools the person may call. Tool availability comes from
+the linked account's plugin grants and per-user tool deny-list in the users modal.
 
 
 ## 5. The notify (cron) target

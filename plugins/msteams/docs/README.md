@@ -91,44 +91,26 @@ offers them:
 
 ## Tools it exposes
 
-Registered in `plugins/msteams/lib/tools.mjs:18` and declared in `elowen-plugin.json:11-20`. Two gates
-exist: `adminGate()` requires `ctx.isAdminSession()` (`lib/tools.mjs:19`), `ownerGate()` requires
-`ctx.currentIdentity()?.owner === true` (`lib/tools.mjs:20`).
+Registered in `plugins/msteams/lib/tools.mjs` and declared in `elowen-plugin.json`. Tool availability
+is decided by the linked account's plugin grants and per-user tool deny-list in the users modal.
 
-| Tool | Gate | Plan-safe | What it does |
-| --- | --- | --- | --- |
-| `TeamsSend` | owner | no | Post into a conversation by id (`lib/tools.mjs:23`). |
-| `TeamsMessagePerson` | owner | no | Message a **person** by e-mail / Entra object id / `29:…` id / display name; opens the 1:1 chat if needed (`lib/tools.mjs:42`). |
-| `TeamsFindPerson` | admin | yes | Read-only directory lookup; sends nothing. Lists at most 25 matches (`lib/tools.mjs:71`, `:84`). |
-| `TeamsChatInfo` | admin | yes | Conversation type, tenant, member count (`lib/tools.mjs:91`). |
-| `TeamsMembers` | admin | yes | Fresh roster read, at most 50 listed; also feeds the people directory (`lib/tools.mjs:111`, `:121`). |
-| `TeamsMemberInfo` | admin | yes | One member's name / Entra id / UPN (`lib/tools.mjs:127`). |
-| `TeamsListConversations` | admin | yes | Conversations on the current service host, paged (`lib/tools.mjs:144`). |
-| `TeamsApi` | owner | no | Raw Bot Connector REST: any method + path. Output truncated at 4000 characters (`lib/tools.mjs:165`, `:182`). |
+| Tool | Plan-safe | What it does |
+| --- | --- | --- |
+| `TeamsSend` | no | Post into a conversation by id. |
+| `TeamsMessagePerson` | no | Message a **person** by e-mail / Entra object id / `29:…` id / display name; opens the 1:1 chat if needed. |
+| `TeamsFindPerson` | yes | Read-only directory lookup; sends nothing. Lists at most 25 matches. |
+| `TeamsChatInfo` | yes | Conversation type, tenant, member count. |
+| `TeamsMembers` | yes | Fresh roster read, at most 50 listed; also feeds the people directory. |
+| `TeamsMemberInfo` | yes | One member's name / Entra id / UPN. |
+| `TeamsListConversations` | yes | Conversations on the current service host, paged. |
+| `TeamsApi` | no | Raw Bot Connector REST: any method + path. Output truncated at 4000 characters. |
 
-`planSafe` is declared in `elowen-plugin.json:24` and covers exactly the five read-only tools — the
-three that write (`TeamsSend`, `TeamsMessagePerson`, `TeamsApi`) are deliberately absent, so plan mode
-withholds them. The manifest also sets `"icons": { "Teams*": "💼" }` (`:22`) and
-`"showOutput": ["Teams*"]` (`:23`), which makes every tool's output visible in the transcript rather
-than hidden by the default policy.
+`planSafe` covers exactly the five read-only tools. The tools that write are deliberately absent, so
+plan mode withholds them. The manifest also makes every Teams tool's output visible in the transcript.
 
-Access to these tools comes in two tiers, matching how the Discord plugin splits the same problem:
-
-- **Curated tools** — `TeamsFindPerson`, `TeamsChatInfo`, `TeamsMembers`, `TeamsMemberInfo`,
-  `TeamsListConversations`, `TeamsSend`, `TeamsMessagePerson`, `TeamsSendFile` — need an **admin role**
-  (`ctx.isAdminSession()`). Sending a message is ordinary work for a trusted colleague; which of these a
-  given role may actually call is then narrowed by that role's own tool allowlist.
-- **`TeamsApi`** stays with the **instance operator** (`ctx.currentIdentity()?.owner === true`), because
-  it drives the raw bot credentials and can reach anything they can. An `admin: true` role policy does
-  not grant it — a role is handed out in plugin config, the operator is a single account, and deriving
-  one from the other would silently widen what every role policy is worth.
-
-Both refusals name the tier that was missed and who can grant it, rather than only saying no.
-
-The gating is pinned by tests in `tests/plugins/msteamsPlugin.test.ts`: an admin role may send
-(`TeamsMessagePerson` succeeds), the curated senders are refused without one and **nothing is sent**,
-`TeamsApi` is refused for an admin-but-not-owner caller and accepted for the operator, and a send with
-no recipient named refuses rather than guesses.
+The permission behavior is pinned by tests in `tests/plugins/msteamsPlugin.test.ts`: a project-scoped,
+non-owner session can reach curated and raw connector tools when the registry exposes them, while input
+validation such as requiring a named recipient still applies.
 
 ## Proactive messaging (since `701144dd`)
 

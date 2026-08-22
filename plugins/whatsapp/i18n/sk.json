@@ -1,5 +1,5 @@
 {
-  "description": "WhatsApp bot (Baileys): napíšte mu a odpovie z Elowen AI. Textové príkazy (/model, /new, /help), výber modelu pre každý chat (číslované textové menu, odpoviete číslom), živé streamované odpovede (úprava správy za behu so stopou nástrojov), stavové reakcie a proaktívne cron/tick oznámenia. Skupinové nástroje (admin session): výpis a info o skupinách, vytvorenie skupiny, pridanie/odoberanie členov a poslanie správy do ľubovoľného chatu (prevádzkovateľ). Každý odosielateľ (telefónne číslo, JID alebo celá skupina) sa mapuje na povolené projekty Elowen a prompt roly. Párovanie naskenovaním QR kódu alebo pomocou párovacieho kódu.",
+  "description": "WhatsApp bot (Baileys): napíšte mu a odpovie z Elowen AI. Textové príkazy (/model, /new, /help), výber modelu pre každý chat (číslované textové menu, odpoviete číslom), živé streamované odpovede (úprava správy za behu so stopou nástrojov), stavové reakcie a proaktívne cron/tick oznámenia. Skupinové nástroje: výpis a info o skupinách, vytvorenie skupiny, pridanie/odoberanie členov a poslanie správy do ľubovoľného chatu (prevádzkovateľ). Každý odosielateľ (telefónne číslo, JID alebo celá skupina) sa mapuje na povolené projekty Elowen a prompt roly. Párovanie naskenovaním QR kódu alebo pomocou párovacieho kódu.",
   "fields": {
     "sec_connection": {
       "label": "Pripojenie",

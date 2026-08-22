@@ -1,4 +1,4 @@
-// Admin/owner-gated Whatsapp* tools: outbound messaging and group management.
+// WhatsApp tools: outbound messaging and group management.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { toJid } from './jid.mjs';
@@ -7,7 +7,6 @@ const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
 
 export function registerTools(ctx, adapter) {
-  const adminGate = () => { if (!ctx.isAdminSession()) throw new Error('available only in an admin session'); };
 
   // Send a message to any chat — OWNER only (it can message anyone the account can reach).
   ctx.registerTool(defineTool({
@@ -16,7 +15,7 @@ export function registerTools(ctx, adapter) {
       'Send a plain-text WhatsApp message from the linked WhatsApp account to any contact or group, whether or not that conversation is the one you are currently in.',
       'Use it to notify a person on their phone number, to post an update into a WhatsApp group, or to reach somebody outside this conversation; to answer inside the chat you are already talking in, simply write your reply instead of calling this tool.',
       'The to parameter accepts a phone number in international format without a plus sign or spaces (e.g. 420777123456), a full user JID ending in @s.whatsapp.net, or a group JID ending in @g.us — a bare number is normalized into a user JID automatically — and text is delivered as plain text.',
-      'OPERATOR ONLY: any other sender is rejected, because this tool can write to anyone the account can reach. It also fails while the WhatsApp device is not paired and connected, and it returns only a short confirmation with the resolved JID, not a message id. A sent WhatsApp message cannot be unsent through this tool, so check the recipient before calling.',
+      'It can write to anyone the account can reach, so check the recipient before calling. It fails while the WhatsApp device is not paired and connected, and it returns only a short confirmation with the resolved JID, not a message id. A sent WhatsApp message cannot be unsent through this tool, so check the recipient before calling.',
     ].join(' '),
     parameters: Type.Object({
       to: Type.String({ description: 'Recipient: international phone number without + (e.g. 420777123456), user JID (…@s.whatsapp.net) or group JID (…@g.us)' }),
@@ -24,7 +23,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        if (ctx.currentIdentity?.()?.owner !== true) throw new Error('WhatsappSend is only available to the operator');
         const sock = adapter.requireSock();
         const jid = toJid(p.to);
         if (!jid) return ok('Error: no recipient.');
@@ -45,7 +43,6 @@ export function registerTools(ctx, adapter) {
     parameters: Type.Object({}),
     execute: async () => {
       try {
-        adminGate();
         const sock = adapter.requireSock();
         const groups = await sock.groupFetchAllParticipating();
         const lines = Object.values(groups ?? {}).map((g) => `${g.id}  ${g.subject ?? ''}  (${g.participants?.length ?? 0} members)`);
@@ -65,7 +62,6 @@ export function registerTools(ctx, adapter) {
     parameters: Type.Object({ groupJid: Type.String({ description: 'Group JID ending in @g.us, as returned by WhatsappGroupList' }) }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const sock = adapter.requireSock();
         const g = await sock.groupMetadata(p.groupJid);
         const members = (g.participants ?? []).map((m) => `${m.id}${m.admin ? `  [${m.admin}]` : ''}`);
@@ -92,7 +88,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const sock = adapter.requireSock();
         const jids = (p.members ?? []).map(toJid).filter(Boolean);
         if (!jids.length) return ok('Error: at least one member is required.');
@@ -116,7 +111,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const sock = adapter.requireSock();
         const jids = (p.members ?? []).map(toJid).filter(Boolean);
         const res = await sock.groupParticipantsUpdate(p.groupJid, jids, 'add');
@@ -139,7 +133,6 @@ export function registerTools(ctx, adapter) {
     }),
     execute: async (_id, p) => {
       try {
-        adminGate();
         const sock = adapter.requireSock();
         const jids = (p.members ?? []).map(toJid).filter(Boolean);
         const res = await sock.groupParticipantsUpdate(p.groupJid, jids, 'remove');

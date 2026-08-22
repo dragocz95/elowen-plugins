@@ -9,19 +9,24 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('telegram chat and member lookups', () => {
   type Tool = { name: string; execute: (id: string, p: unknown) => Promise<{ content: { text: string }[] }> };
-  const loadTools = async (api: Record<string, unknown>): Promise<Tool[]> => {
+  const loadTools = async (api: Record<string, unknown>, admin = true): Promise<Tool[]> => {
     const { registerTools } = await import(join(repoRoot, 'plugins/telegram/lib/tools.mjs')) as {
       registerTools: (ctx: unknown, adapter: unknown) => void;
     };
     const tools: Tool[] = [];
     registerTools(
-      { registerTool: (t: never) => tools.push(t), isAdminSession: () => true, config: {} },
-      { requireBot: () => ({ api }) },
+      {
+        registerTool: (t: never) => tools.push(t),
+        isAdminSession: () => admin,
+        currentIdentity: () => ({ owner: false }),
+        config: {},
+      },
+      { requireBot: () => ({ api }), callApi: async () => ({ ok: true }) },
     );
     return tools;
   };
-  const run = async (api: Record<string, unknown>, name: string, params: unknown) => {
-    const tool = (await loadTools(api)).find((t) => t.name === name)!;
+  const run = async (api: Record<string, unknown>, name: string, params: unknown, admin = true) => {
+    const tool = (await loadTools(api, admin)).find((t) => t.name === name)!;
     return (await tool.execute('t', params)).content[0].text;
   };
 
@@ -66,6 +71,22 @@ describe('telegram chat and member lookups', () => {
     );
     expect(text).toContain('status: member');
     expect(text).not.toContain('rights:');
+  });
+
+  // No tool in this plugin decides for itself who may call it any more: that is the users modal's job
+  // (per-account plugin grants plus the per-tool deny-list). A scoped, non-operator session therefore
+  // reaches the curated tools AND the raw Bot API passthrough — an admin withholds either by unticking it.
+  it('lets a project-scoped session reach curated tools and raw bot access alike', async () => {
+    const info = await run(
+      { getChat: async () => ({ id: 1, type: 'group' }) },
+      'TelegramChatInfo', { chatId: '1' }, false,
+    );
+    expect(info).toContain('id: 1');
+    expect(info).not.toContain('admin session');
+
+    const raw = await run({ getMe: async () => ({ ok: true }) }, 'TelegramApi', { method: 'getMe' }, false);
+    expect(raw).not.toContain('only available to the operator');
+    expect(raw).not.toContain('admin session');
   });
 });
 

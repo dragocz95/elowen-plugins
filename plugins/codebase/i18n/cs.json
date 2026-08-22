@@ -1,5 +1,5 @@
 {
-  "description": "Sémantický index kódu: prohledávejte repozitáře podle VÝZNAMU, ne podle přesného textu. Rozseká každý přístupný repozitář na bloky, zaindexuje je STEJNÝM embedding modelem jako paměť (Nastavení → Paměť) a uloží vektory do soukromého indexu pro daný repozitář. CodebaseSearch najde nejrelevantnější kód/dokumentaci k dotazu v přirozeném jazyce; CodebaseReindex (admin) index inkrementálně obnoví; CodebaseStatus ukáže pokrytí. Doplňuje textové vyhledávání Search z pluginu files.",
+  "description": "Sémantický index kódu: prohledávejte repozitáře podle VÝZNAMU, ne podle přesného textu. Rozseká každý přístupný repozitář na bloky, zaindexuje je STEJNÝM embedding modelem jako paměť (Nastavení → Paměť) a uloží vektory do soukromého indexu pro daný repozitář. CodebaseSearch najde nejrelevantnější kód/dokumentaci k dotazu v přirozeném jazyce; CodebaseReindex index inkrementálně obnoví; CodebaseStatus ukáže pokrytí. Doplňuje textové vyhledávání Search z pluginu files.",
   "fields": {
     "sec_indexing": {
       "label": "Indexace",
