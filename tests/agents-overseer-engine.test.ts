@@ -1437,8 +1437,18 @@ describe('resolveExecutor', () => {
   });
   it('resolves every shared prefix to its mapped program', () => {
     for (const [prefix, program] of Object.entries(PROGRAM_PREFIXES)) {
-      expect(resolveExecutor([`exec:${prefix}m`], FB)).toEqual({ program, model: 'm' });
+      // The embedded brain is the one program whose identity needs a PROVIDER — the same model id can be
+      // reachable through several configured brain providers, so `<provider>/<model>` is its only valid
+      // spec (parseExecRef, elowen/src/shared/execs.ts). Every other program names a model by name alone.
+      const model = program === 'elowen' ? 'p/m' : 'm';
+      expect(resolveExecutor([`exec:${prefix}${model}`], FB)).toEqual({ program, model });
     }
+  });
+  it('refuses a provider-less elowen: spec — it falls back instead of guessing a provider', () => {
+    // The counterpart of the case above, so narrowing it to a valid brain spec loses no coverage: an
+    // `elowen:` spec carrying no provider names nothing runnable, and resolveExecutor must not invent
+    // one — a parser that silently accepted it would run the mission on a provider nobody chose.
+    expect(resolveExecutor(['exec:elowen:m'], FB)).toEqual(FB);
   });
   it('bare-spec fallbacks match the shared constants (single source of truth)', () => {
     expect(resolveExecutor(['exec:a/b'], FB).program).toBe(BARE_WITH_SLASH_PROGRAM);

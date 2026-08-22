@@ -12,7 +12,7 @@ import { openDb } from 'elowen/dist/store/db.js';
 import { UserStore } from 'elowen/dist/store/userStore.js';
 import { ConfigStore } from 'elowen/dist/store/configStore.js';
 import { FakeTmuxDriver } from 'elowen/dist/tmux/fakeDriver.js';
-import { render } from 'elowen/dist/prompts/index.js';
+import { render, rawTemplate } from 'elowen/dist/prompts/index.js';
 import { resolveBrand } from 'elowen/dist/shared/brand.js';
 import { personalityText } from 'elowen/dist/brain/personality.js';
 import type { PluginHostConfig } from 'elowen/dist/plugins/api.js';
@@ -126,6 +126,25 @@ function makeAdvisor(opts: { allowed: string[]; spawnFails?: boolean }) {
   return { svc, spawnCalls, users, u, tmux, config };
 }
 
+/** For every `{{agentName}}` slot in a template, the literal text surrounding it on its own line — cut at
+ *  the neighbouring placeholders so no OTHER `{{var}}` leaks into the expectation — with the slot filled
+ *  by `name`. Each returned string must appear verbatim in the rendered prompt, so an unsubstituted or
+ *  wrongly-sourced name fails, while a reworded prompt simply moves the expectation with it. */
+function agentNameSlots(raw: string, name: string): string[] {
+  const TOKEN = '{{agentName}}';
+  return raw.split('\n').filter((line) => line.includes(TOKEN)).flatMap((line) => {
+    const out: string[] = [];
+    for (let i = line.indexOf(TOKEN); i !== -1; i = line.indexOf(TOKEN, i + 1)) {
+      const before = line.slice(0, i);
+      const after = line.slice(i + TOKEN.length);
+      const prevEnd = before.lastIndexOf('}}');
+      const nextStart = after.indexOf('{{');
+      out.push(before.slice(prevEnd === -1 ? 0 : prevEnd + 2) + name + (nextStart === -1 ? after : after.slice(0, nextStart)));
+    }
+    return out;
+  });
+}
+
 describe('AdvisorService (agents plugin)', () => {
   it('start spawns elowen-advisor-<id>, persists exec, is idempotent', async () => {
     const { svc, spawnCalls, users, u } = makeAdvisor({ allowed: ['sonnet'] });
@@ -145,7 +164,13 @@ describe('AdvisorService (agents plugin)', () => {
     config.update({ brain: { agentName: 'Jarvis' } });
     await svc.start(u.id, 'sonnet');
     const prompt = spawnCalls[0].rawPrompt ?? '';
-    expect(prompt).toContain('<name>Jarvis</name>');
+    // The advisor identity prompt is core-owned and gets reworded (it carried `<name>{{agentName}}</name>`
+    // until elowen 94d16d81 rewrote it into prose). What must never change is that the service feeds the
+    // CONFIGURED brain.agentName into every {{agentName}} slot the template has — so the expectation is
+    // derived from the template, which still pins WHERE the name lands without pinning the wording.
+    const slots = agentNameSlots(rawTemplate('elowen'), 'Jarvis');
+    expect(slots.length).toBeGreaterThan(0); // the template still has a name slot at all
+    for (const slot of slots) expect(prompt).toContain(slot);
     expect(prompt).not.toContain('{{agentName}}'); // token fully resolved
   });
 
