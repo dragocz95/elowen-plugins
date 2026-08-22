@@ -28,6 +28,7 @@
 import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
 import { installRegistryPlugin } from '../harness/install-plugin.mjs';
+import { linkPlatformAccount } from '../harness/link-account.mjs';
 import { startFakeDiscord } from './fake-discord.mjs';
 
 const GUILD_ID = '7000000000000001';
@@ -146,6 +147,11 @@ async function main() {
       },
     });
     assert(cfg.status === 200, `PUT /config → 200 (got ${cfg.status}: ${cfg.text})`);
+
+    // 1b) Link the Discord sender to the bootstrapped admin account. The rolePolicy above only ADMITS them
+    //     and marks the room trusted; permissions come exclusively from a linked Elowen account, and the
+    //     host silently drops a human platform turn that has none — so without this the bot stays mute.
+    await linkPlatformAccount(baseUrl, token, { discordUserId: USER_ID });
 
     // 2) Enable the plugin — PATCH /plugins/:name hot-reloads the registry, so the adapter connects to the
     //    fake: GET /users/@me → register slash commands → open the gateway and Identify.

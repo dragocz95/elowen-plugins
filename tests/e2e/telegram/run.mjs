@@ -25,6 +25,7 @@
 import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
 import { installRegistryPlugin } from '../harness/install-plugin.mjs';
+import { linkPlatformAccount } from '../harness/link-account.mjs';
 import { startFakeTelegram } from './fake-telegram.mjs';
 
 const USER_ID = 4242424242;   // the Telegram sender (also the private chat id)
@@ -103,6 +104,11 @@ async function main() {
       },
     });
     assert(cfg.status === 200, `PUT /config → 200 (got ${cfg.status}: ${cfg.text})`);
+
+    // 1b) Link the Telegram sender to the bootstrapped admin account. The rolePolicy above only ADMITS
+    //     them; permissions come exclusively from a linked Elowen account, and the host silently drops a
+    //     human platform turn that has none — so without this the bot would never answer.
+    await linkPlatformAccount(baseUrl, token, { telegramUserId: String(USER_ID) });
 
     // 2) Enable the plugin — PATCH /plugins/:name hot-reloads the registry, so the adapter connects to the
     //    fake (getMe → deleteWebhook → getUpdates) using the config just stored.

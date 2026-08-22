@@ -27,6 +27,8 @@ async function readJson(req) {
 /**
  * @param {object} [opts]
  * @param {string} [opts.appId] Audience of the signed activity tokens (default 'e2e-app-id').
+ * @param {string} [opts.aadObjectId] Entra object id the roster reports for the E2E sender. Must match the
+ *   `from.aadObjectId` the scenario injects, or the adapter resolves two different senders.
  * @returns {Promise<{
  *   base: string, appId: string, tokenUrl: string, metadataUrl: string, calls: object[],
  *   injectActivity: (daemonBase: string, activity: object, opts?: {badToken?: boolean}) => Promise<number>,
@@ -37,6 +39,7 @@ async function readJson(req) {
  */
 export async function startFakeBotFramework(opts = {}) {
   const appId = opts.appId ?? 'e2e-app-id';
+  const aadObjectId = opts.aadObjectId ?? 'e2e0aad1-0000-4000-8000-00000000e2e1';
   const { privateKey, publicKey } = await generateKeyPair('RS256');
   const jwk = { ...(await exportJWK(publicKey)), kid: 'e2e-key', alg: 'RS256', use: 'sig' };
 
@@ -73,10 +76,10 @@ export async function startFakeBotFramework(opts = {}) {
     if (method === 'PUT' && /^\/v3\/conversations\/[^/]+\/activities\/[^/]+$/.test(path)) return json({ id: path.split('/')[5] });
     if (method === 'DELETE' && /^\/v3\/conversations\/[^/]+\/activities\/[^/]+$/.test(path)) return json({});
     if (method === 'GET' && /^\/v3\/conversations\/[^/]+\/members\/[^/]+$/.test(path)) {
-      return json({ id: path.split('/')[5], name: 'E2E Tester', aadObjectId: 'e2e-aad-1', userPrincipalName: 'tester@e2e.example' });
+      return json({ id: path.split('/')[5], name: 'E2E Tester', aadObjectId, userPrincipalName: 'tester@e2e.example' });
     }
     if (method === 'GET' && /^\/v3\/conversations\/[^/]+\/members$/.test(path)) {
-      return json([{ id: '29:e2e-user', name: 'E2E Tester', aadObjectId: 'e2e-aad-1', userPrincipalName: 'tester@e2e.example' }]);
+      return json([{ id: '29:e2e-user', name: 'E2E Tester', aadObjectId, userPrincipalName: 'tester@e2e.example' }]);
     }
     return json({});
   });

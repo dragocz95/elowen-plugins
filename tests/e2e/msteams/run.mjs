@@ -27,10 +27,13 @@
 import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
 import { installRegistryPlugin } from '../harness/install-plugin.mjs';
+import { linkPlatformAccount } from '../harness/link-account.mjs';
 import { startFakeBotFramework } from './fake-botframework.mjs';
 
 const CONV_ID = 'a:e2e-conv-1';
-const AAD_ID = 'e2e-aad-1';
+// A real Entra object id: the host only accepts a GUID (or a `29:…` Teams id) as an account link, and the
+// rolePolicy that admits this sender is keyed on the same value.
+const AAD_ID = 'e2e0aad1-0000-4000-8000-00000000e2e1';
 const REPLY_MARKER = 'E2E-MSTEAMS-REPLY';
 const FIRST_TEXT = 'Checking the missions. ';
 const FINAL_TEXT = `${REPLY_MARKER}: hello from the Elowen brain.`;
@@ -92,7 +95,7 @@ async function main() {
   // channel sessions pre-extraction; the agents plugin now composes it everywhere and refuses with a
   // clean text result, whose hidden output re-renders the row identically (no PUT to observe).
   const model = await startModelServer({ toolName: 'E2eProbeMissingTool', firstText: FIRST_TEXT, finalText: FINAL_TEXT });
-  const fake = await startFakeBotFramework();
+  const fake = await startFakeBotFramework({ aadObjectId: AAD_ID });
   let daemon = null;
   try {
     // The host is the published elowen package, which does not bundle this plugin — the scenario
@@ -122,6 +125,11 @@ async function main() {
       },
     });
     assert(cfg.status === 200, `PUT /config → 200 (got ${cfg.status}: ${cfg.text})`);
+
+    // 1b) Link the Teams sender to the bootstrapped admin account. The rolePolicy above only ADMITS them
+    //     and marks the room trusted; permissions come exclusively from a linked Elowen account, and the
+    //     host silently drops a human platform turn that has none — so without this the bot stays mute.
+    await linkPlatformAccount(baseUrl, token, { msteamsUserId: AAD_ID });
 
     // 2) Enable the plugin — PATCH /plugins/:name hot-reloads the registry; the adapter validates the
     //    credentials eagerly against the fake token endpoint.

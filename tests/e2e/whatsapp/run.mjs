@@ -39,6 +39,7 @@ import { fileURLToPath } from 'node:url';
 import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
 import { installRegistryPlugin } from '../harness/install-plugin.mjs';
+import { linkPlatformAccount } from '../harness/link-account.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SOCKET_MODULE = join(here, 'fake-baileys-socket.mjs');
@@ -178,6 +179,11 @@ async function main() {
       },
     });
     assert(cfg.status === 200, `PUT /config → 200 (got ${cfg.status}: ${cfg.text})`);
+
+    // 1b) Link the WhatsApp sender to the bootstrapped admin account. The senderPolicy above only ADMITS
+    //     them; permissions come exclusively from a linked Elowen account, and the host silently drops a
+    //     human platform turn that has none — so without this the bot would never answer.
+    await linkPlatformAccount(baseUrl, token, { whatsappNumber: USER_NUMBER });
 
     // 2) Enable the plugin — PATCH /plugins/:name hot-reloads the registry, so the adapter runs connect() →
     //    startSocket(), which (via the seam) builds the fake socket and emits connection.update 'open'.
