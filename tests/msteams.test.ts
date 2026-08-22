@@ -305,7 +305,7 @@ describe('msteams identity + role mapping', () => {
       ssoRedirectBase: '',
       ssoProvision: 'off',
       ssoLinkByEmail: true,
-      ssoDefaultProjects: '',
+      ssoDefaultProjects: [],
     });
     const read = [
       ...index.matchAll(/ctx\.config\.([A-Za-z0-9_]+)/g),
