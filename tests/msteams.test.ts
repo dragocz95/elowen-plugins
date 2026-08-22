@@ -305,8 +305,15 @@ describe('msteams identity + role mapping', () => {
       ssoRedirectBase: '',
       ssoProvision: 'off',
       ssoLinkByEmail: true,
-      ssoDefaultProjects: [],
     });
+    // A multi-select field must carry NO default: the core manifest schema types `default` as
+    // string | number | boolean, so an empty array makes the whole manifest invalid and the daemon then
+    // refuses to load the plugin at all. An absent default already means "nothing selected", so the array
+    // bought nothing and cost the entire integration.
+    for (const field of configSchema.filter((f) => ['projects', 'plugins', 'tools', 'models']
+      .includes((f as { type?: string }).type ?? ''))) {
+      expect(field, `${field.key} must not declare a default`).not.toHaveProperty('default');
+    }
     const read = [
       ...index.matchAll(/ctx\.config\.([A-Za-z0-9_]+)/g),
       ...microsoftTools.matchAll(/cfg\.([A-Za-z0-9_]+)/g),
