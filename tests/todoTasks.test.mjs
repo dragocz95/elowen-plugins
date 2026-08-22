@@ -65,15 +65,16 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   const list = h.tool('TaskList');
 
   assert.deepEqual(json(await create.execute('1', {
-    subject: 'Inspect auth',
-    description: 'Check <private-token> handling',
-    activeForm: 'Inspecting auth',
-    metadata: { secret: 'hidden-value' },
-  })), { task: { id: '1', subject: 'Inspect auth' } });
-  assert.deepEqual(json(await create.execute('2', {
-    subject: 'Ship fix',
-    description: 'Deploy only after verification',
-  })), { task: { id: '2', subject: 'Ship fix' } });
+    tasks: [
+      {
+        subject: 'Inspect auth',
+        description: 'Check <private-token> handling',
+        activeForm: 'Inspecting auth',
+        metadata: { secret: 'hidden-value' },
+      },
+      { subject: 'Ship fix', description: 'Deploy only after verification' },
+    ],
+  })), { tasks: [{ id: '1', subject: 'Inspect auth' }, { id: '2', subject: 'Ship fix' }] });
 
   assert.equal(json(await update.execute('3', {
     taskId: '2', addBlockedBy: ['1'], owner: 'Luna',
@@ -115,13 +116,13 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   assert.deepEqual(json(await list.execute('13', {})).tasks[0].blockedBy, []);
 
   assert.deepEqual(json(await create.execute('14', {
-    subject: 'Verify fix', description: 'Run focused tests',
-  })).task.id, '3');
+    tasks: [{ subject: 'Verify fix', description: 'Run focused tests' }],
+  })).tasks[0].id, '3');
   await update.execute('15', { taskId: '2', status: 'completed' });
   await update.execute('16', { taskId: '3', status: 'completed' });
   assert.deepEqual(json(await create.execute('17', {
-    subject: 'More work', description: 'Added once everything else was finished',
-  })), { task: { id: '4', subject: 'More work' } });
+    tasks: [{ subject: 'More work', description: 'Added once everything else was finished' }],
+  })), { tasks: [{ id: '4', subject: 'More work' }] });
   // Creating a task never clears finished ones, so the completed history survives and keeps its ids.
   assert.deepEqual(json(await list.execute('18', {})).tasks.map((task) => task.id), ['2', '3', '4']);
 });
@@ -133,9 +134,9 @@ test('a completed task survives the next TaskCreate, on the card and as a usable
   const create = h.tool('TaskCreate');
   const update = h.tool('TaskUpdate');
 
-  const first = json(await create.execute('1', { subject: 'Task A', description: 'first' })).task.id;
+  const first = json(await create.execute('1', { tasks: [{ subject: 'Task A', description: 'first' }] })).tasks[0].id;
   await update.execute('2', { taskId: first, status: 'completed' });
-  await create.execute('3', { subject: 'Task B', description: 'second' });
+  await create.execute('3', { tasks: [{ subject: 'Task B', description: 'second' }] });
 
   assert.deepEqual(h.cards.at(-1).items, [
     { text: 'Task A', status: 'completed' },
@@ -145,13 +146,67 @@ test('a completed task survives the next TaskCreate, on the card and as a usable
   assert.equal(json(await update.execute('5', { taskId: first, status: 'in_progress' })).success, true);
 });
 
+test('one TaskCreate call plans the whole batch, wires prerequisites and pushes the card once', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const list = h.tool('TaskList');
+
+  const created = json(await create.execute('1', {
+    tasks: [
+      { subject: 'Read the code', description: 'Find the callers' },
+      { subject: 'Fix it', description: 'Smallest coherent change', blockedByIndex: [1] },
+      { subject: 'Ship it', description: 'Only after review', blockedByIndex: [2] },
+    ],
+  })).tasks;
+
+  assert.deepEqual(created.map((task) => task.id), ['1', '2', '3']);
+  // One call is one panel update, not one per task.
+  assert.equal(h.cards.length, 1);
+  assert.deepEqual(json(await list.execute('2', {})).tasks.map((task) => task.blockedBy), [[], ['1'], ['2']]);
+
+  // A later batch reaches back to ids that already exist, so no follow-up TaskUpdate is needed either.
+  assert.deepEqual(json(await create.execute('3', {
+    tasks: [{ subject: 'Announce', description: 'Tell the team', blockedBy: ['3'] }],
+  })).tasks, [{ id: '4', subject: 'Announce' }]);
+  assert.deepEqual(json(await list.execute('4', {})).tasks[3].blockedBy, ['3']);
+});
+
+test('a batch is rejected whole, leaving the list exactly as it was', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const list = h.tool('TaskList');
+
+  assert.match(text(await create.execute('1', {
+    tasks: [
+      { subject: 'A', description: 'a', blockedByIndex: [2] },
+      { subject: 'B', description: 'b', blockedByIndex: [1] },
+    ],
+  })), /dependency cycle detected/);
+  assert.match(text(await create.execute('2', {
+    tasks: [{ subject: 'A', description: 'a', blockedBy: ['99'] }],
+  })), /dependency task not found/);
+  assert.match(text(await create.execute('3', {
+    tasks: [{ subject: 'A', description: 'a', blockedByIndex: [7] }],
+  })), /dependency task not found/);
+  assert.match(text(await create.execute('4', { tasks: [] })), /non-empty array/);
+  assert.match(text(await create.execute('5', {
+    tasks: [{ subject: 'Fine', description: 'ok' }, { subject: '  ', description: 'blank subject' }],
+  })), /subject and description/);
+
+  assert.deepEqual(json(await list.execute('6', {})).tasks, []);
+  // The rejected batches must not have burned ids either.
+  assert.deepEqual(json(await create.execute('7', {
+    tasks: [{ subject: 'First real task', description: 'after the failures' }],
+  })).tasks, [{ id: '1', subject: 'First real task' }]);
+});
+
 test('an update against a deleted task refuses to create it and points at TaskList', async (t) => {
   const h = harness(t);
   const create = h.tool('TaskCreate');
   const update = h.tool('TaskUpdate');
   const list = h.tool('TaskList');
 
-  await create.execute('1', { subject: 'Inspect auth', description: 'Check handling' });
+  await create.execute('1', { tasks: [{ subject: 'Inspect auth', description: 'Check handling' }] });
   await update.execute('2', { taskId: '1', status: 'deleted' });
 
   const missing = json(await update.execute('3', { taskId: '1', status: 'in_progress' }));
@@ -176,7 +231,7 @@ test('an update against a deleted task refuses to create it and points at TaskLi
 
 test('the task context names the ids that exist and forbids guessing others', async (t) => {
   const h = harness(t);
-  await h.tool('TaskCreate').execute('1', { subject: 'Inspect auth', description: 'Check handling' });
+  await h.tool('TaskCreate').execute('1', { tasks: [{ subject: 'Inspect auth', description: 'Check handling' }] });
   const context = h.turnContext();
   assert.match(context, /only ids that exist/);
   assert.match(context, /TaskUpdate only changes work that already exists and never creates it/);
@@ -185,10 +240,10 @@ test('the task context names the ids that exist and forbids guessing others', as
 
 test('Task V2 task state is isolated per conversation', async (t) => {
   const h = harness(t);
-  await h.tool('TaskCreate').execute('1', { subject: 'Session A', description: 'A' });
+  await h.tool('TaskCreate').execute('1', { tasks: [{ subject: 'Session A', description: 'A' }] });
   h.setSession('brain-7-b');
   assert.deepEqual(json(await h.tool('TaskList').execute('2', {})), { tasks: [] });
-  await h.tool('TaskCreate').execute('3', { subject: 'Session B', description: 'B' });
+  await h.tool('TaskCreate').execute('3', { tasks: [{ subject: 'Session B', description: 'B' }] });
   h.setSession('brain-7-a');
   assert.deepEqual(json(await h.tool('TaskList').execute('4', {})).tasks.map((task) => task.subject), ['Session A']);
 });

@@ -66,6 +66,30 @@ function reaches(edges, from, target) {
   return false;
 }
 
+/** blocker id → the ids it blocks, over a whole task list. */
+function edgeMap(tasks) {
+  const edges = new Map();
+  for (const item of tasks) {
+    for (const blockerId of item.blockedBy) {
+      if (!edges.has(blockerId)) edges.set(blockerId, new Set());
+      edges.get(blockerId).add(item.id);
+    }
+  }
+  return edges;
+}
+
+/** Record one blocker → blocked edge in `edges`, rejecting a self-dependency or a cycle. Returns false
+ *  when the edge is already there, so repeated declarations stay idempotent. Both creation and update go
+ *  through here: the dependency rules must not drift apart between the two entry points. */
+function addDependency(edges, blockerId, blockedId) {
+  if (blockerId === blockedId) throw new Error('a task cannot depend on itself');
+  if (edges.get(blockerId)?.has(blockedId)) return false;
+  if (reaches(edges, blockedId, blockerId)) throw new Error('dependency cycle detected');
+  if (!edges.has(blockerId)) edges.set(blockerId, new Set());
+  edges.get(blockerId).add(blockedId);
+  return true;
+}
+
 class TaskStore {
   constructor(db) {
     this.db = db;
@@ -113,23 +137,57 @@ class TaskStore {
     return this.list(key).find((task) => task.id === String(taskId)) ?? null;
   }
 
-  /** Tasks accumulate for the life of the conversation. An earlier design wiped the whole list here once
+  /** Create a whole batch in ONE transaction. The model plans the work once instead of firing a call per
+   *  task and then wiring the prerequisites afterwards, so ids are reserved in input order and an item may
+   *  name a sibling by position before any id exists.
+   *
+   *  Tasks accumulate for the life of the conversation. An earlier design wiped the whole list here once
    *  every task was completed, which removed finished work from the user's Todo panel mid-conversation and
    *  invalidated ids the model was still holding — the source of blind "task not found" retries. Removing a
    *  task is explicit only, through status 'deleted'. */
-  create(key, input) {
+  create(key, inputs) {
     return this.db.transaction(() => {
       this.#ensureList(key);
-      const list = this.readList.get(key);
-      const id = Number(list?.next_id ?? 1);
-      this.bumpList.run(id + 1, key);
-      const metadata = parseObject(input.metadata);
-      this.insertTask.run(
-        key, id, String(input.subject), String(input.description),
-        input.activeForm == null ? null : String(input.activeForm),
-        'pending', null, metadataToJson(metadata),
-      );
-      return { id: String(id), subject: String(input.subject) };
+      const current = this.list(key);
+      const edges = edgeMap(current);
+      const known = new Set(current.map((task) => task.id));
+
+      let nextId = Number(this.readList.get(key)?.next_id ?? 1);
+      const created = inputs.map((input) => {
+        const id = String(nextId);
+        nextId += 1;
+        return { id, subject: String(input.subject) };
+      });
+
+      // Resolve and validate every dependency BEFORE the first write: a rejected batch has to leave the
+      // list exactly as it was, and a position may point at a sibling that does not have its row yet.
+      const links = [];
+      inputs.forEach((input, index) => {
+        const blockedId = created[index].id;
+        for (const value of input.blockedBy ?? []) {
+          const blockerId = String(value);
+          if (!known.has(blockerId)) throw new Error('dependency task not found');
+          links.push([blockerId, blockedId]);
+        }
+        for (const position of input.blockedByIndex ?? []) {
+          if (!Number.isInteger(position) || position < 1 || position > created.length) {
+            throw new Error('dependency task not found');
+          }
+          links.push([created[position - 1].id, blockedId]);
+        }
+      });
+      const accepted = links.filter(([blockerId, blockedId]) => addDependency(edges, blockerId, blockedId));
+
+      inputs.forEach((input, index) => {
+        this.insertTask.run(
+          key, Number(created[index].id), String(input.subject), String(input.description),
+          input.activeForm == null ? null : String(input.activeForm),
+          'pending', null, metadataToJson(parseObject(input.metadata)),
+        );
+      });
+      this.bumpList.run(nextId, key);
+      for (const [blockerId, blockedId] of accepted) this.insertEdge.run(key, Number(blockedId), Number(blockerId));
+      return created;
     });
   }
 
@@ -180,25 +238,17 @@ class TaskStore {
       }
 
       const byId = new Map(tasks.map((item) => [item.id, item]));
-      const edges = new Map();
-      for (const item of tasks) {
-        for (const blockerId of item.blockedBy) {
-          if (!edges.has(blockerId)) edges.set(blockerId, new Set());
-          edges.get(blockerId).add(item.id);
-        }
-      }
+      const edges = edgeMap(tasks);
 
       const additions = [];
       for (const blockerId of patch.addBlockedBy ?? []) additions.push([String(blockerId), String(taskId)]);
       for (const blockedId of patch.addBlocks ?? []) additions.push([String(taskId), String(blockedId)]);
       let dependencyChanged = false;
       for (const [blockerId, blockedId] of additions) {
-        if (blockerId === blockedId) throw new Error('a task cannot depend on itself');
-        if (!byId.has(blockerId) || !byId.has(blockedId)) throw new Error('dependency task not found');
-        if (edges.get(blockerId)?.has(blockedId)) continue;
-        if (reaches(edges, blockedId, blockerId)) throw new Error('dependency cycle detected');
-        if (!edges.has(blockerId)) edges.set(blockerId, new Set());
-        edges.get(blockerId).add(blockedId);
+        if (blockerId !== blockedId && !(byId.has(blockerId) && byId.has(blockedId))) {
+          throw new Error('dependency task not found');
+        }
+        if (!addDependency(edges, blockerId, blockedId)) continue;
         this.insertEdge.run(key, Number(blockedId), Number(blockerId));
         dependencyChanged = true;
       }
@@ -249,6 +299,8 @@ function syncCard(ctx, store, key) {
 
 const SAFE_ERRORS = new Set([
   'a task list belongs to a conversation, and this turn has none',
+  'tasks must be a non-empty array of tasks to create',
+  'every task needs a non-empty subject and description',
   'task not found',
   'nothing to update',
   'a task cannot depend on itself',
@@ -273,21 +325,36 @@ export function registerTaskMode(ctx, db) {
 
   ctx.registerTool(defineTool({
     name: 'TaskCreate',
-    label: 'Create task',
-    description: 'Create ONE NEW pending task in the current conversation task list and return the ID it was assigned. Use it only to add work that is not on the list yet — to change work that already exists, call TaskUpdate with that task ID instead. Use subject for the short user-visible outcome, description for private working context, activeForm for present-continuous progress text, and metadata for private structured context. Keep the returned ID: it is the only valid handle for later TaskGet and TaskUpdate calls.',
+    label: 'Create tasks',
+    description: 'Create one or more NEW pending tasks in the current conversation task list and return the ID assigned to each. Send the whole plan as a SINGLE call with every task in the tasks array, in the order they should appear — do not call this once per task. Use it only to add work that is not on the list yet: to change work that already exists, call TaskUpdate with that task ID instead. Per task, use subject for the short user-visible outcome, description for private working context, activeForm for present-continuous progress text, and metadata for private structured context. Declare prerequisites right here instead of following up with TaskUpdate: blockedBy takes IDs of tasks that ALREADY exist, and blockedByIndex takes 1-based positions within this same call, so a task can depend on a sibling that has no ID yet. The whole batch is rejected together if a dependency is missing, self-referential or cyclic. Keep the returned IDs: they are the only valid handles for later TaskGet and TaskUpdate calls.',
     parameters: Type.Object({
-      subject: Type.String({ description: 'Brief user-visible title for the task' }),
-      description: Type.String({ description: 'Private detail describing what needs to be done' }),
-      activeForm: Type.Optional(Type.String({ description: 'Present-continuous text shown while the task is in progress' })),
-      metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'Private structured metadata' })),
+      tasks: Type.Array(
+        Type.Object({
+          subject: Type.String({ description: 'Brief user-visible title for the task' }),
+          description: Type.String({ description: 'Private detail describing what needs to be done' }),
+          activeForm: Type.Optional(Type.String({ description: 'Present-continuous text shown while the task is in progress' })),
+          metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'Private structured metadata' })),
+          blockedBy: Type.Optional(Type.Array(Type.String(), { description: 'IDs of ALREADY EXISTING tasks that must finish before this one' })),
+          // Type.Number, not Type.Integer: the typebox build the daemon loads plugins against does not
+          // expose Integer. create() enforces whole numbers in range itself.
+          blockedByIndex: Type.Optional(Type.Array(Type.Number({ minimum: 1 }), { description: '1-based positions of tasks in THIS call that must finish before this one' })),
+        }),
+        { minItems: 1, description: 'Every task to create, in order. Send the whole plan at once rather than one call per task.' },
+      ),
     }),
     execute: async (_id, params) => {
       try {
         const key = keyFor(ctx);
         if (!key) throw new Error('a task list belongs to a conversation, and this turn has none');
-        const task = store.create(key, params);
+        const inputs = params.tasks;
+        if (!Array.isArray(inputs) || inputs.length === 0) throw new Error('tasks must be a non-empty array of tasks to create');
+        const usable = (value) => typeof value === 'string' && value.trim() !== '';
+        if (!inputs.every((input) => input && usable(input.subject) && usable(input.description))) {
+          throw new Error('every task needs a non-empty subject and description');
+        }
+        const tasks = store.create(key, inputs);
         syncCard(ctx, store, key);
-        return ok({ task });
+        return ok({ tasks });
       } catch (error) { return fail(safeError(ctx, error)); }
     },
   }));
@@ -367,7 +434,7 @@ export function registerTaskMode(ctx, db) {
   }, { placement: 'after-user' });
 
   ctx.registerSystemPromptFragment(
-    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. `TaskCreate` adds new work and returns its ID; `TaskUpdate` only changes a task that already exists and never creates one. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
+    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, with prerequisites declared inline, instead of calling it once per task — and returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
   );
 
   ctx.logger.info('session task tools registered (TaskCreate + TaskGet + TaskUpdate + TaskList)');
