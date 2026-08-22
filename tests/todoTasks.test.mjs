@@ -120,9 +120,29 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   await update.execute('15', { taskId: '2', status: 'completed' });
   await update.execute('16', { taskId: '3', status: 'completed' });
   assert.deepEqual(json(await create.execute('17', {
-    subject: 'Next batch', description: 'Fresh work',
-  })), { task: { id: '4', subject: 'Next batch' } });
-  assert.deepEqual(json(await list.execute('18', {})).tasks.map((task) => task.id), ['4']);
+    subject: 'More work', description: 'Added once everything else was finished',
+  })), { task: { id: '4', subject: 'More work' } });
+  // Creating a task never clears finished ones, so the completed history survives and keeps its ids.
+  assert.deepEqual(json(await list.execute('18', {})).tasks.map((task) => task.id), ['2', '3', '4']);
+});
+
+test('a completed task survives the next TaskCreate, on the card and as a usable id', async (t) => {
+  // Regression: creating a task used to wipe an all-completed list, so the work the user had just watched
+  // finish disappeared from the Todo panel and its id stopped resolving for the model.
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+
+  const first = json(await create.execute('1', { subject: 'Task A', description: 'first' })).task.id;
+  await update.execute('2', { taskId: first, status: 'completed' });
+  await create.execute('3', { subject: 'Task B', description: 'second' });
+
+  assert.deepEqual(h.cards.at(-1).items, [
+    { text: 'Task A', status: 'completed' },
+    { text: 'Task B', status: 'pending' },
+  ]);
+  assert.deepEqual(json(await h.tool('TaskList').execute('4', {})).tasks.map((task) => task.id), ['1', '2']);
+  assert.equal(json(await update.execute('5', { taskId: first, status: 'in_progress' })).success, true);
 });
 
 test('an update against a deleted task refuses to create it and points at TaskList', async (t) => {

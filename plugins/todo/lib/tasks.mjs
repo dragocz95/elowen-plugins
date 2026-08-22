@@ -72,15 +72,12 @@ class TaskStore {
     this.insertList = db.prepare('INSERT OR IGNORE INTO p_todo_task_lists(list_key,next_id) VALUES (?,1)');
     this.readList = db.prepare('SELECT next_id FROM p_todo_task_lists WHERE list_key = ?');
     this.bumpList = db.prepare('UPDATE p_todo_task_lists SET next_id = ? WHERE list_key = ?');
-    this.countTasks = db.prepare("SELECT COUNT(*) total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) completed FROM p_todo_tasks WHERE list_key = ?");
     this.selectTasks = db.prepare('SELECT id,subject,description,active_form,status,owner,metadata_json FROM p_todo_tasks WHERE list_key = ? ORDER BY id');
     this.selectBlockers = db.prepare('SELECT task_id,blocker_id FROM p_todo_task_blockers WHERE list_key = ? ORDER BY task_id,blocker_id');
     this.insertTask = db.prepare('INSERT INTO p_todo_tasks(list_key,id,subject,description,active_form,status,owner,metadata_json) VALUES (?,?,?,?,?,?,?,?)');
     this.updateTask = db.prepare('UPDATE p_todo_tasks SET subject=?,description=?,active_form=?,status=?,owner=?,metadata_json=? WHERE list_key=? AND id=?');
     this.deleteTask = db.prepare('DELETE FROM p_todo_tasks WHERE list_key = ? AND id = ?');
     this.deleteTaskEdges = db.prepare('DELETE FROM p_todo_task_blockers WHERE list_key = ? AND (task_id = ? OR blocker_id = ?)');
-    this.deleteAllTasks = db.prepare('DELETE FROM p_todo_tasks WHERE list_key = ?');
-    this.deleteAllEdges = db.prepare('DELETE FROM p_todo_task_blockers WHERE list_key = ?');
     this.insertEdge = db.prepare('INSERT OR IGNORE INTO p_todo_task_blockers(list_key,task_id,blocker_id) VALUES (?,?,?)');
   }
 
@@ -116,15 +113,13 @@ class TaskStore {
     return this.list(key).find((task) => task.id === String(taskId)) ?? null;
   }
 
+  /** Tasks accumulate for the life of the conversation. An earlier design wiped the whole list here once
+   *  every task was completed, which removed finished work from the user's Todo panel mid-conversation and
+   *  invalidated ids the model was still holding — the source of blind "task not found" retries. Removing a
+   *  task is explicit only, through status 'deleted'. */
   create(key, input) {
     return this.db.transaction(() => {
       this.#ensureList(key);
-      const counts = this.countTasks.get(key) ?? { total: 0, completed: 0 };
-      const total = Number(counts.total ?? 0);
-      if (total > 0 && Number(counts.completed ?? 0) === total) {
-        this.deleteAllEdges.run(key);
-        this.deleteAllTasks.run(key);
-      }
       const list = this.readList.get(key);
       const id = Number(list?.next_id ?? 1);
       this.bumpList.run(id + 1, key);
