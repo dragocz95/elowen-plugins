@@ -6,6 +6,7 @@ import test from 'node:test';
 import { openDb } from 'elowen/dist/store/db.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
 import { register } from '../plugins/todo/index.mjs';
+import { RENDERED_COMPLETED } from '../plugins/todo/lib/render.mjs';
 
 const text = (result) => result.content[0].text;
 const json = (result) => JSON.parse(text(result));
@@ -233,9 +234,55 @@ test('the task context names the ids that exist and forbids guessing others', as
   const h = harness(t);
   await h.tool('TaskCreate').execute('1', { tasks: [{ subject: 'Inspect auth', description: 'Check handling' }] });
   const context = h.turnContext();
-  assert.match(context, /only ids that exist/);
+  assert.match(context, /Never guess an id/);
+  // The context may fold older finished tasks away, so it must NOT claim the ids it shows are all there
+  // are — it has to point at TaskList instead, or the model concludes the folded work never existed.
+  assert.match(context, /TaskList reports the authoritative set of ids/);
   assert.match(context, /TaskUpdate only changes work that already exists and never creates it/);
   assert.match(context, /not found[\s\S]*call TaskList/);
+});
+
+test('finished work stops re-sending its planning detail, and the oldest of it collapses to a count', async (t) => {
+  // The turn context is rebuilt every turn, so a finished task that keeps its description makes the
+  // checklist the largest thing in the prompt. Nothing may be DELETED to fix that: the ids and the user's
+  // panel have to survive intact, which is exactly what the wipe regression above cost us once already.
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  const total = RENDERED_COMPLETED + 2;
+
+  const created = json(await create.execute('1', {
+    tasks: Array.from({ length: total }, (_, index) => ({
+      subject: `Task ${index + 1}`,
+      description: `PLANNING-DETAIL-${index + 1}`,
+      activeForm: `Doing ${index + 1}`,
+      metadata: { note: `META-${index + 1}` },
+    })),
+  })).tasks;
+  for (const task of created.slice(0, total - 1)) {
+    await update.execute(`c${task.id}`, { taskId: task.id, status: 'completed' });
+  }
+
+  const context = h.turnContext();
+  const lastDone = created[total - 2].id;
+  const live = created[total - 1].id;
+
+  // A finished task keeps its subject and drops what only mattered while it was open.
+  assert.match(context, new RegExp(`<task id="${lastDone}" status="completed"><subject>Task ${total - 1}</subject></task>`));
+  assert.doesNotMatch(context, new RegExp(`PLANNING-DETAIL-${total - 1}\\b`));
+  assert.doesNotMatch(context, /META-1\b/);
+
+  // Work still open is untouched.
+  assert.match(context, new RegExp(`<task id="${live}" status="pending"`));
+  assert.match(context, new RegExp(`PLANNING-DETAIL-${total}\\b`));
+
+  // The surplus beyond the cap is counted rather than listed, so the cost stops growing with the session.
+  assert.match(context, /<earlier_completed count="1" ids="1"\/>/);
+  assert.doesNotMatch(context, /<task id="1" /);
+
+  // Nothing was deleted: the panel still shows every task and the folded id still resolves in full.
+  assert.equal(h.cards.at(-1).items.length, total);
+  assert.equal(json(await h.tool('TaskGet').execute('g', { taskId: '1' })).task.description, 'PLANNING-DETAIL-1');
 });
 
 test('Task V2 task state is isolated per conversation', async (t) => {
