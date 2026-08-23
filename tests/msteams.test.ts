@@ -7,10 +7,76 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
+import { buildAskCard, buildPickerCard, buildTableCard, settledCard } from '../plugins/msteams/lib/cards.mjs';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CREDS = { appId: 'app-guid', appPassword: 's3cret', tenantId: 'tenant-guid' };
+
+describe('msteams Adaptive Card tables', () => {
+  const columns = [
+    { key: 'name', label: 'Name' },
+    { key: 'state', label: 'State' },
+  ];
+
+  it('emits a schema 1.5 native table without raising existing interactive cards', () => {
+    const attachment = buildTableCard('Agents', columns, [{ name: 'Planner', state: 'Running' }]);
+    expect(attachment.content.version).toBe('1.5');
+    expect(attachment.content.body[1]).toMatchObject({
+      type: 'Table',
+      firstRowAsHeader: true,
+      columns: [{ width: 1 }, { width: 1 }],
+      rows: [
+        { type: 'TableRow', cells: [{ type: 'TableCell' }, { type: 'TableCell' }] },
+        {
+          type: 'TableRow',
+          cells: [
+            { type: 'TableCell', items: [{ type: 'TextBlock', text: 'Planner' }] },
+            { type: 'TableCell', items: [{ type: 'TextBlock', text: 'Running' }] },
+          ],
+        },
+      ],
+    });
+    expect(JSON.stringify(attachment)).not.toContain('CodeBlock');
+    expect(buildAskCard('token', []).content.version).toBe('1.4');
+    expect(buildPickerCard('model', 'Model', []).content.version).toBe('1.4');
+    expect(settledCard('Done').content.version).toBe('1.4');
+  });
+
+  it('uses stacked facts for narrow layouts and as the native table fallback', () => {
+    const rows = [{ name: 'Planner', state: 'Running' }];
+    const native = buildTableCard('Agents', columns, rows);
+    expect(native.content.body[1].fallback).toMatchObject({
+      type: 'Container',
+      items: [{
+        type: 'Container',
+        separator: false,
+        items: [{
+          type: 'FactSet',
+          facts: [
+            { title: 'Name:', value: 'Planner' },
+            { title: 'State:', value: 'Running' },
+          ],
+        }],
+      }],
+    });
+    const narrow = buildTableCard('Agents', columns, rows, { narrow: true });
+    expect(narrow.content.body.some((element: { type?: string }) => element.type === 'Table')).toBe(false);
+    expect(narrow.content.body[1]).toEqual(native.content.body[1].fallback);
+  });
+
+  it('caps rows and stays below the recommended 80 KB UTF-16 budget', () => {
+    const rows = Array.from({ length: 40 }, (_, index) => ({
+      name: `Agent ${index + 1} ${'x'.repeat(500)}`,
+      state: 'Running',
+    }));
+    const attachment = buildTableCard('Agents', columns, rows);
+    const table = attachment.content.body[1];
+    expect(table.rows).toHaveLength(21); // header plus 20 data rows
+    expect(attachment.content.body.at(-1)?.text).toBe('Showing the first 20 of 40 rows.');
+    expect(JSON.stringify(attachment).length * 2).toBeLessThanOrEqual(80 * 1024);
+  });
+});
 
 type AdapterModule = {
   MsTeamsAdapter: new (
