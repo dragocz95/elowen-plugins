@@ -112,7 +112,7 @@
     },
     {
       "name": "msteams",
-      "version": "0.5.21",
+      "version": "0.5.22",
       "requiresCore": "0.28.8",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
@@ -147,7 +147,7 @@
     },
     {
       "name": "telegram",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "requiresCore": "0.28.7",
       "description": "Telegram bot: chat with Elowen in a private chat, group or forum topic, with slash commands, inline keyboards and live message editing.",
       "category": "chat",
@@ -182,7 +182,7 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.8",
+      "version": "0.2.9",
       "requiresCore": "0.28.7",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",
