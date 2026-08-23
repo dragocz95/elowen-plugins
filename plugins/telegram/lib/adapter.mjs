@@ -28,6 +28,28 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper's per-file limit — larger
 const TTS_MAX_CHARS = 4000;              // cap the spoken text (OpenAI TTS input limit is 4096)
 const PICKER_PAGE = 8;                   // inline-keyboard rows per page for the /model + /context pickers
 const CONTEXT_MAX = 200;                 // upper bound of own conversations the /context picker pages over
+// Bot API setMyCommands limits (https://core.telegram.org/bots/api#botcommand): at most 100 commands, each
+// name 1-32 chars of [a-z0-9_], each description 1-256 chars. ONE offending entry rejects the whole
+// menu update, so publishCommands drops the offender instead of leaving Telegram on a stale menu.
+const TG_MAX_COMMANDS = 100;
+const TG_COMMAND_NAME = /^[a-z0-9_]{1,32}$/;
+const TG_DESCRIPTION_MAX = 256;
+
+/** The adapter's OWN commands: dispatched here (onCommand), absent from the daemon catalog, reserved in
+ *  core so a plugin macro can never shadow them. `help` is the lowercase wording renderHelpLines falls back
+ *  to; `menu` is the sentence Telegram's command menu shows. */
+const ADAPTER_LOCAL_COMMANDS = [
+  { name: 'voice', help: 'toggle spoken audio replies here', menu: 'Toggle spoken audio replies in this chat' },
+  { name: 'display', help: 'configure live tools and answer delivery here', menu: 'Configure live tools and answer delivery' },
+];
+
+/** Menu position derived from catalog DATA rather than another hand-kept command-name list: per-chat
+ *  pickers first, then this adapter's own toggles, then the remaining catalog order, with /help last. */
+function menuRank(entry) {
+  if (entry.name === 'help') return 3;
+  if (entry.local) return 1;
+  return entry.kind === 'picker' ? 0 : 2;
+}
 
 /** Read a numeric config field, clamped to [min,max], falling back to `def` when unset/invalid. */
 function cfgNum(cfg, key, def, min, max) {
@@ -79,8 +101,7 @@ export class TelegramAdapter {
   helpCommands() {
     return [
       ...this.chatCommands(),
-      { name: 'voice', description: 'toggle spoken audio replies here' },
-      { name: 'display', description: 'configure live tools and answer delivery here' },
+      ...ADAPTER_LOCAL_COMMANDS.map((c) => ({ name: c.name, description: c.help })),
     ];
   }
 
@@ -161,23 +182,35 @@ export class TelegramAdapter {
   /** Publish the bot's slash-command menu (setMyCommands). Names/help come from the shared command
    *  catalog; presentation/dispatch stays local. */
   async publishCommands() {
-    const catalog = this.chatCommands();
-    const description = (name, fallback) => catalog.find((c) => c.name === name)?.description ?? fallback;
-    const names = [
-      ['model', 'Pick the AI model for this chat'],
-      ['context', 'Continue this chat in one of your conversations'],
-      ['reasoning', 'Set reasoning effort for this chat'],
-      ...(catalog.some((c) => c.name === 'fast') ? [['fast', 'Toggle OpenAI OAuth priority processing']] : []),
-      ['voice', 'Toggle spoken audio replies in this chat'],
-      ['display', 'Configure live tools and answer delivery'],
-      ['new', 'Start a fresh conversation in this chat'],
-      ['stop', 'Stop the running agent in this chat'],
-      ['status', 'Show the model, context and usage'],
-      ['compact', 'Summarize the conversation to free up context'],
-      ['restart', 'Restart the Elowen daemon (admin only)'],
-      ['help', 'What can Elowen do here?'],
-    ];
-    const commands = names.map(([name, fallback]) => ({ command: name, description: String(description(name, fallback)).slice(0, 256) }));
+    const entries = [
+      // Telegram's default command scope is global. Operator-only commands must stay typeable but cannot be
+      // advertised here: every user of the bot would otherwise see them, regardless of their role policy.
+      ...this.chatCommands().filter((c) => !c.adminOnly).map((c) => ({ name: c.name, description: c.description, kind: c.kind, local: false })),
+      ...ADAPTER_LOCAL_COMMANDS.map((c) => ({ name: c.name, description: c.menu, kind: 'action', local: true })),
+    ].sort((a, b) => menuRank(a) - menuRank(b)); // stable: within a rank the catalog's own order survives
+    const seen = new Set();
+    const commands = [];
+    const skipped = [];
+    for (const entry of entries) {
+      const name = String(entry.name ?? '').trim();
+      const description = String(entry.description ?? '').trim().slice(0, TG_DESCRIPTION_MAX);
+      // A name Telegram rejects, an empty description or a duplicate (we merge two lists) would fail the
+      // whole setMyCommands call, so the entry is dropped and named in the log instead.
+      if (!TG_COMMAND_NAME.test(name) || !description || seen.has(name)) { skipped.push(name || String(entry.name)); continue; }
+      seen.add(name);
+      commands.push({ command: name, description });
+    }
+    if (skipped.length) this.log.warn(`command menu: ${skipped.length} entries Telegram would reject were dropped: ${skipped.join(', ')}`);
+    if (commands.length > TG_MAX_COMMANDS) {
+      // /help is deliberately last, but must not be the first casualty of plugin macros filling the menu.
+      // Reserve its final slot and trim the preceding entries, preserving all earlier catalog priorities.
+      const helpIndex = commands.findIndex((c) => c.command === 'help');
+      const help = helpIndex >= 0 ? commands.splice(helpIndex, 1)[0] : null;
+      const keep = help ? TG_MAX_COMMANDS - 1 : TG_MAX_COMMANDS;
+      const dropped = commands.splice(keep).map((c) => c.command);
+      if (help) commands.push(help);
+      this.log.warn(`command menu: over the Bot API cap of ${TG_MAX_COMMANDS}, dropped: ${dropped.join(', ')}`);
+    }
     await this.bot.api.setMyCommands(commands);
   }
 

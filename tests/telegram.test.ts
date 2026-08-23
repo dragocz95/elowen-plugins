@@ -209,6 +209,9 @@ describe('telegram paged pickers + /context', () => {
 
   it('publishes /context in the command menu', async () => {
     const { adapter } = await makeAdapter([]);
+    // The menu is built from the catalog now, so /context reaches Telegram exactly when the daemon
+    // publishes it for this surface (it does — the catalog scopes it to the chat platforms).
+    adapter.chatCommands = () => [{ name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker' }];
     let published: any[] = [];
     adapter.bot = { api: { setMyCommands: async (cmds: any[]) => { published = cmds; } } };
     await adapter.publishCommands();
@@ -289,6 +292,97 @@ describe('telegram reply quote', () => {
     const { adapter, seen } = await makeAdapter();
     await adapter.onMessage(turn({ from: { id: 99, first_name: 'Bob' }, text: 'tohle\n— můj vlastní řádek' }));
     expect(seen[0]).toBe('[Replying to Bob: "tohle\n— můj vlastní řádek"]\na proč?');
+  });
+});
+
+// Regression: publishCommands used to build its OWN hardcoded array of command names, so anything the
+// daemon added to the catalog (plugin prompt macros, /stats, /skills, …) never reached the Bot API menu.
+describe('telegram command menu publication', () => {
+  type Published = { command: string; description: string };
+  const makeAdapter = async (commands: { name: string; description: string; kind?: string; adminOnly?: boolean }[]) => {
+    const { TelegramAdapter } = await import(join(repoRoot, 'plugins/telegram/lib/adapter.mjs')) as { TelegramAdapter: new (...args: unknown[]) => any };
+    const warns: string[] = [];
+    const adapter = new TelegramAdapter(
+      { language: 'en' }, { ...log, warn: (m: string) => warns.push(m) },
+      { get: () => ({}), patch: () => {} }, async () => [], [], () => null, () => false, () => commands,
+    );
+    const published: Published[][] = [];
+    adapter.bot = { api: { setMyCommands: async (c: Published[]) => { published.push(c); } } };
+    return { adapter, published, warns };
+  };
+
+  const catalog = [
+    { name: 'new', description: 'Start a fresh conversation', kind: 'action' },
+    { name: 'stop', description: 'Stop the running agent', kind: 'action' },
+    { name: 'status', description: 'Session info — model, context and usage', kind: 'info' },
+    { name: 'compact', description: 'Summarize the conversation to free up context', kind: 'action' },
+    { name: 'model', description: 'Switch the AI model', kind: 'picker' },
+    { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker' },
+    { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action' },
+    { name: 'reasoning', description: 'Set the reasoning effort', kind: 'picker' },
+    { name: 'restart', description: 'Restart the Elowen daemon', kind: 'action', adminOnly: true },
+    { name: 'help', description: 'Show the available commands', kind: 'info' },
+    { name: 'standup', description: 'Write today\'s standup', kind: 'prompt' },
+  ];
+
+  it('publishes every public catalog entry — including the ones no hardcoded list carried', async () => {
+    const { adapter, published, warns } = await makeAdapter([
+      ...catalog,
+      { name: 'stats', description: 'Usage stats — this conversation and per-model totals', kind: 'info' },
+    ]);
+    await adapter.publishCommands();
+
+    const names = published[0].map((c) => c.command);
+    expect(names).toContain('stats');   // catalog entry the old hardcoded array could never publish
+    expect(names).toContain('standup'); // plugin prompt macro, likewise
+    expect(names).not.toContain('restart'); // the Bot API list is global; operator-only commands stay private
+    // Ordering intent of the old list, now driven by catalog data: pickers, adapter-local, the rest in
+    // catalog order, /help last.
+    expect(names).toEqual([
+      'model', 'context', 'reasoning', 'voice', 'display',
+      'new', 'stop', 'status', 'compact', 'fast', 'standup', 'stats', 'help',
+    ]);
+    // Descriptions come from the catalog, not from a local copy that can go stale.
+    expect(published[0].find((c) => c.command === 'status')?.description).toBe('Session info — model, context and usage');
+    expect(published[0].find((c) => c.command === 'voice')?.description).toBe('Toggle spoken audio replies in this chat');
+    expect(warns).toEqual([]);
+  });
+
+  it('drops the entries Telegram would reject instead of losing the whole menu', async () => {
+    const { adapter, published, warns } = await makeAdapter([
+      // Core accepts kebab-case plugin macros, but Telegram forbids the dash.
+      { name: 'weekly-report', description: 'valid plugin command, invalid Telegram command', kind: 'prompt' },
+      { name: 'x'.repeat(33), description: 'over the 32-char name limit', kind: 'prompt' },
+      { name: 'silent', description: '   ', kind: 'prompt' },
+      { name: 'ok_macro', description: 'a'.repeat(400), kind: 'prompt' },
+      ...catalog,
+    ]);
+    await adapter.publishCommands();
+
+    const names = published[0].map((c) => c.command);
+    expect(names).toContain('ok_macro');
+    expect(names).toContain('help'); // the rest of the menu survived
+    expect(names).not.toContain('silent');
+    expect(names.some((n) => n.includes(' ') || n !== n.toLowerCase() || n.length > 32)).toBe(false);
+    expect(published[0].find((c) => c.command === 'ok_macro')?.description).toHaveLength(256);
+    expect(warns.join(' ')).toContain('weekly-report');
+    expect(warns.join(' ')).toContain('silent');
+  });
+
+  it('stays inside the Bot API cap of 100 commands without dropping /help', async () => {
+    const many = [
+      ...Array.from({ length: 120 }, (_, i) => ({ name: `macro_${i}`, description: `macro ${i}`, kind: 'prompt' })),
+      { name: 'help', description: 'Show the available commands', kind: 'info' },
+    ];
+    const { adapter, published, warns } = await makeAdapter(many);
+    await adapter.publishCommands();
+
+    const names = published[0].map((c) => c.command);
+    expect(published[0]).toHaveLength(100);
+    expect(names.slice(0, 3)).toEqual(['voice', 'display', 'macro_0']);
+    expect(names.at(-1)).toBe('help');
+    expect(names).not.toContain('macro_119');
+    expect(warns.join(' ')).toContain('macro_97'); // the first dropped entry is named, not silently lost
   });
 });
 

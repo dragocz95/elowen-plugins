@@ -665,6 +665,9 @@ export class WhatsAppAdapter {
     }
     switch (command) {
       case 'help':
+        // The catalog ALONE — unlike Discord and Telegram, nothing adapter-local is appended. `voice` and
+        // `display` are reserved globally but this adapter dispatches neither (no STT/TTS, no display
+        // module here), and advertising a command that does nothing is exactly the drift we remove.
         await this.sendText(chatJid, this.msg.help('Elowen', this.chatCommands()));
         return true;
       case 'model': {

@@ -25,6 +25,7 @@ interface TestAdapter {
     bindContext?: (ref: unknown, sender: string, sessionId: string) => Promise<{ title: string }>;
   }): void;
   handleCommand(chatJid: string, senderJid: string, text: string): Promise<boolean>;
+  isPromptCommand(text: string): boolean;
   handleTextReply(chatJid: string, senderJid: string, text: string, message: unknown): Promise<boolean>;
 }
 
@@ -199,6 +200,39 @@ describe('whatsapp /fast capability gate', () => {
     // Now the whole argument 'on extra' is passed, so the shared core rejects it as an invalid /fast value.
     expect(await adapter.handleCommand(CHAT, CHAT, '/fast on extra')).toBe(true);
     expect(sent.at(-1)).toContain('Usage');
+  });
+});
+
+// WhatsApp advertises its commands ONLY through /help — there is no native command list on this
+// transport. So /help is the contract: everything it lists must actually be dispatchable here. `voice`
+// and `display` are reserved globally and appended by Discord/Telegram, but this adapter dispatches
+// neither, so listing them would advertise dead commands.
+describe('whatsapp /help lists only commands it can dispatch', () => {
+  const catalog = [
+    { name: 'new', kind: 'action' }, { name: 'stop', kind: 'action' },
+    { name: 'status', kind: 'info' }, { name: 'compact', kind: 'action' },
+    { name: 'model', kind: 'picker' }, { name: 'context', kind: 'picker' },
+    { name: 'fast', kind: 'action' }, { name: 'reasoning', kind: 'picker' },
+    { name: 'restart', kind: 'action' }, { name: 'help', kind: 'info' },
+    { name: 'standup', kind: 'prompt', description: 'Write today\'s standup' },
+  ];
+
+  it('advertises exactly the catalog, and every advertised command is handled', async () => {
+    const { adapter, sent } = await makeAdapter([], {}, 'en', catalog);
+    adapter.control({ status: () => null, listContext: () => ({ items: [], total: 0, hasMore: false }) });
+
+    expect(await adapter.handleCommand(CHAT, CHAT, '/help')).toBe(true);
+    const listed = [...sent[0].matchAll(/`\/([a-z0-9_]+)`/g)].map((m) => m[1]);
+    expect(listed).toEqual(catalog.map((c) => c.name));
+    expect(listed).not.toContain('voice');   // not dispatched here — advertising it would be the drift
+    expect(listed).not.toContain('display');
+
+    for (const name of listed) {
+      const handled = name === 'standup'
+        ? adapter.isPromptCommand(`/${name}`) // routed RAW to the brain, not through handleCommand
+        : await adapter.handleCommand(CHAT, CHAT, `/${name}`);
+      expect(handled, `/${name} is advertised but not dispatched`).toBe(true);
+    }
   });
 });
 
