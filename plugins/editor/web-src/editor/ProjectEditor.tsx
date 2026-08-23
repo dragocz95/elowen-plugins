@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState, useEffect, type MouseEvent } from 'react';
 import { File as FileIcon, Save, Code2, GitCompare, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft, ChevronLeft } from 'lucide-react';
 import { runtime } from '../runtime';
-import { buildTree, parentDir, joinPath, copyName, isImage, isMarkdown, baseName, type TreeNode } from './helpers';
+import { buildTree, parentDir, joinPath, copyName, fileKindOf, baseName, type TreeNode } from './helpers';
+import { MAX_BUFFERED_BYTES, MAX_MEDIA_PREVIEW_BYTES, MAX_OFFICE_BYTES } from '../../src/fileTypes';
 import { FileTree } from './FileTree';
 import { PromptDialog, ConfirmDialog } from './dialogs';
 import { EditorPane } from './EditorPane';
@@ -9,6 +10,10 @@ import { DiffEditorPane } from './DiffEditorPane';
 import { PatchView } from './PatchView';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ImagePreview } from './ImagePreview';
+import { PdfPreview } from './PdfPreview';
+import { MediaPreview } from './MediaPreview';
+import { BinaryPreview } from './BinaryPreview';
+import { CsvPreview } from './CsvPreview';
 import { Tabs } from './Tabs';
 
 const { hooks, components, utils } = runtime();
@@ -94,7 +99,10 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     [commit, commitData.data?.files, workingChanged],
   );
 
-  const fileData = useProjectFile(projectId, selected);
+  const selectedFile = selected ? files.data?.find((node) => node.type === 'file' && node.path === selected) : undefined;
+  const fileKind = selected ? fileKindOf(selected) : null;
+  const textFile = fileKind === 'text' || fileKind === 'markdown' || fileKind === 'csv';
+  const fileData = useProjectFile(projectId, textFile ? selected : null);
   const write = useWriteProjectFile();
   const newFile = useNewProjectFile();
   const newDir = useNewProjectDir();
@@ -107,14 +115,14 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const draft = selected != null ? drafts[selected] : undefined;
   const value = draft ?? serverContent;
   const dirty = selected != null && dirtyPaths.has(selected);
-  const img = selected != null && isImage(selected);
-  const md = selected != null && isMarkdown(selected);
-  const editable = selected != null && !img && !commit && !working;
-  const effTab: Tab = tab === 'preview' && !md ? 'edit' : tab;
+  const previewableText = fileKind === 'markdown' || fileKind === 'csv';
+  const editable = selected != null && textFile && !commit && !working;
+  const effTab: Tab = tab === 'preview' && !previewableText ? 'edit' : tab;
+  const fileSize = selectedFile?.size ?? 0;
 
   const headData = useProjectFileAtHead(projectId, selected, editable && effTab === 'diff');
 
-  const openFile = (p: string) => { setSelected(p); setOpenTabs((tabs) => (tabs.includes(p) ? tabs : [...tabs, p])); setTab('edit'); };
+  const openFile = (p: string) => { setSelected(p); setOpenTabs((tabs) => (tabs.includes(p) ? tabs : [...tabs, p])); setTab(fileKindOf(p) === 'csv' ? 'preview' : 'edit'); };
   // In commit mode, picking a file shows its diff within that commit (read-only); else open the file.
   const selectInTree = (p: string) => { if (commit) setSelected(p); else openFile(p); };
   const onChange = (v: string) => {
@@ -293,7 +301,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
           {editable ? (
             <>
               <Button variant={effTab === 'edit' ? 'accent' : 'ghost'} onClick={() => setTab('edit')}>{s.tabEdit}</Button>
-              {md ? <Button variant={effTab === 'preview' ? 'accent' : 'ghost'} icon={Eye} onClick={() => setTab('preview')}>{s.tabPreview}</Button> : null}
+              {previewableText ? <Button variant={effTab === 'preview' ? 'accent' : 'ghost'} icon={Eye} onClick={() => setTab('preview')}>{s.tabPreview}</Button> : null}
               <Button variant={effTab === 'diff' ? 'accent' : 'ghost'} icon={GitCompare} onClick={() => setTab('diff')}>{s.tabDiff}</Button>
               <Button variant={wordWrap ? 'accent' : 'ghost'} icon={WrapText} aria-label={s.wordWrap} title={s.wordWrap} onClick={() => setWordWrap((w) => !w)} />
               <Button variant="accent" icon={Save} disabled={!dirty || write.isPending} onClick={save}>{t.common.save}</Button>
@@ -339,9 +347,16 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
               : commit && selected ? <PatchView diff={commitFileDiff.data?.diff ?? ''} loading={commitFileDiff.isLoading} empty={s.noChanges} />
               : commit ? <PatchView diff={commitData.data?.diff ?? ''} loading={commitData.isLoading} empty={s.noChanges} />
               : !selected ? <EmptyState title={s.selectFile} icon={FileIcon} />
-              : img ? <ImagePreview projectId={projectId} path={selected} />
+              : fileKind === 'image' && fileSize <= MAX_BUFFERED_BYTES ? <ImagePreview projectId={projectId} path={selected} />
+              : fileKind === 'pdf' && fileSize <= MAX_BUFFERED_BYTES ? <PdfPreview projectId={projectId} path={selected} failedLabel={s.previewFailed} />
+              : fileKind === 'office' && fileSize <= MAX_OFFICE_BYTES ? <PdfPreview projectId={projectId} path={selected} failedLabel={s.previewFailed} office />
+              : (fileKind === 'video' || fileKind === 'audio') && fileSize <= MAX_MEDIA_PREVIEW_BYTES ? <MediaPreview projectId={projectId} path={selected} kind={fileKind} />
+              : fileKind === 'binary' || fileKind === 'image' || fileKind === 'pdf' || fileKind === 'office' || fileKind === 'video' || fileKind === 'audio'
+                ? <BinaryPreview projectId={projectId} path={selected} size={fileSize} message={fileKind === 'binary' ? s.binaryFile : s.previewTooLarge} downloadLabel={s.download} sizeLabel={s.fileSize} typeLabel={s.fileType} downloadAvailable={fileSize <= MAX_BUFFERED_BYTES} downloadUnavailableLabel={s.downloadUnavailable} />
+              : fileData.isLoading ? <LoadingState />
               : fileData.data?.truncated ? <p className="p-4 text-center text-sm text-text-muted">{s.fileTooBig}</p>
               : effTab === 'diff' ? (headData.isLoading ? <LoadingState /> : <DiffEditorPane path={selected} original={headData.data?.content ?? ''} modified={value} />)
+              : effTab === 'preview' && fileKind === 'csv' ? <CsvPreview source={value} invalidLabel={s.csvInvalid} limitedLabel={s.csvLimited} />
               : effTab === 'preview' ? <MarkdownPreview source={value} />
               : <EditorPane path={selected} value={value} onChange={onChange} onSave={save} wordWrap={wordWrap} />}
           </div>

@@ -12,18 +12,21 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { safeProjectPath } from 'elowen/dist/integrations/projectFiles.js';
 import {
-  listProjectFiles, readProjectFile as readFile, writeProjectFile as writeFile, readProjectBytes as readBytes,
+  convertOfficeToPdf, listProjectFiles, readProjectFile as readFile, writeProjectFile as writeFile, readProjectByteRange as readRange, readProjectBytes as readBytes,
   createProjectFile as createFile, createProjectDir as createDir, deleteProjectEntry as deleteEntry,
   renameProjectEntry as renameEntry, copyProjectEntry as copyEntry, projectCommitDiff, projectCommitFiles,
   projectCommitFileDiff as commitFileDiff, projectCommitLog,
 } from '../plugins/editor/src/files.js';
+import { fileKindOf, mimeTypeOf } from '../plugins/editor/src/fileTypes.js';
 
 const readProjectFile = (root: string, path: string) => readFile(safeProjectPath, root, path);
 const writeProjectFile = (root: string, path: string, content: string) => writeFile(safeProjectPath, root, path, content);
 const readProjectBytes = (root: string, path: string) => readBytes(safeProjectPath, root, path);
+const readProjectRange = (root: string, path: string, start: number, end?: number) => readRange(safeProjectPath, root, path, start, end);
 const createProjectFile = (root: string, path: string) => createFile(safeProjectPath, root, path);
 const createProjectDir = (root: string, path: string) => createDir(safeProjectPath, root, path);
 const deleteProjectEntry = (root: string, path: string) => deleteEntry(safeProjectPath, root, path);
@@ -51,6 +54,19 @@ describe('listProjectFiles', () => {
     expect(paths).toContain('README.md');
     expect(paths.some((p) => p.includes('node_modules'))).toBe(false);
     expect(paths.some((p) => p.includes('.git'))).toBe(false);
+    expect(listProjectFiles(root).find((node) => node.path === 'README.md')?.size).toBe(4);
+  });
+});
+
+describe('file preview routing', () => {
+  it('classifies known text and preview formats while unknown files fail closed as binary', () => {
+    expect(fileKindOf('src/config.v2/file')).toBe('binary');
+    expect(fileKindOf('src/config.v2/file.ts')).toBe('text');
+    expect(fileKindOf('report.PDF')).toBe('pdf');
+    expect(fileKindOf('slides.pptx')).toBe('office');
+    expect(fileKindOf('data.csv')).toBe('csv');
+    expect(fileKindOf('archive.zip')).toBe('binary');
+    expect(mimeTypeOf('report.PDF')).toBe('application/pdf');
   });
 });
 
@@ -112,8 +128,11 @@ describe('file-manager operations', () => {
     expect(() => deleteProjectEntry(root, '.')).toThrow(/project root/);
   });
 
-  it('reads raw bytes for previews, refusing escapes', () => {
+  it('reads raw bytes and bounded ranges for previews, refusing escapes', () => {
     expect(readProjectBytes(root, 'README.md')?.toString('utf8')).toBe('# hi');
+    expect(readProjectRange(root, 'README.md', 2, 3)).toMatchObject({ size: 4, start: 2, end: 3 });
+    expect(readProjectRange(root, 'README.md', 2, 3)?.bytes.toString()).toBe('hi');
+    expect(readProjectRange(root, 'README.md', 99)).toBeNull();
     expect(() => readProjectBytes(root, '../../etc/passwd')).toThrow(/outside project/);
   });
 
@@ -124,6 +143,15 @@ describe('file-manager operations', () => {
     expect(() => renameProjectEntry(root, 'README.md', '../escape.md')).toThrow(/outside project/);
     expect(() => copyProjectEntry(root, 'README.md', '../escape.md')).toThrow(/outside project/);
   });
+});
+
+describe('Office preview conversion', () => {
+  it.runIf(existsSync('/usr/bin/soffice'))('converts an Office document to a bounded PDF preview', async () => {
+    w('brief.txt', 'Office preview');
+    execFileSync('soffice', [`-env:UserInstallation=${pathToFileURL(join(root, 'fixture-profile')).href}`, '--headless', '--convert-to', 'docx', '--outdir', root, join(root, 'brief.txt')], { stdio: 'pipe' });
+    const pdf = await convertOfficeToPdf(safeProjectPath, root, 'brief.docx');
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+  }, 15_000);
 });
 
 describe('projectCommitFiles / projectCommitFileDiff', () => {

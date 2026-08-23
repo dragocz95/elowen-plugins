@@ -1,11 +1,17 @@
-import { readFileSync, writeFileSync, statSync, readdirSync, mkdirSync, realpathSync, existsSync, rmSync, renameSync, cpSync } from 'node:fs';
-import { join, relative, dirname } from 'node:path';
+import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, relative } from 'node:path';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { fileKindOf, MAX_BUFFERED_BYTES, MAX_OFFICE_BYTES } from './fileTypes.js';
 const run = promisify(execFile);
 const IGNORE = new Set(['.git', 'node_modules', '.next', 'dist', '.turbo', 'coverage', '.cache']);
 const MAX_FILE = 2 * 1024 * 1024;
-const MAX_RAW = 10 * 1024 * 1024;
+const MAX_RANGE_BYTES = 8 * 1024 * 1024;
+const MAX_OFFICE_OUTPUT_BYTES = MAX_BUFFERED_BYTES;
+const MAX_OFFICE_CONVERSIONS = 2;
+let activeOfficeConversions = 0;
 /** A refusal the operator is meant to read — "already exists", "source does not exist". Only these
  *  messages travel to the client: a raw fs error carries the absolute server path of the project (and
  *  tells the caller whether a path exists), so the route maps everything else to a flat 'invalid path'. */
@@ -42,7 +48,7 @@ export function listProjectFiles(root, maxDepth = 8) {
                     visit(abs, depth + 1);
             }
             else
-                out.push({ path, type: 'file' });
+                out.push({ path, type: 'file', size: statSync(abs).size });
         }
     };
     visit(resolvedRoot, 0);
@@ -63,7 +69,73 @@ export function writeProjectFile(safe, root, rel, content) {
 export function readProjectBytes(safe, root, rel) {
     const abs = safe(root, rel);
     const stat = statSync(abs);
-    return !stat.isFile() || stat.size > MAX_RAW ? null : readFileSync(abs);
+    return !stat.isFile() || stat.size > MAX_BUFFERED_BYTES ? null : readFileSync(abs);
+}
+export function projectFileSize(safe, root, rel) {
+    const stat = statSync(safe(root, rel));
+    return stat.isFile() ? stat.size : null;
+}
+export function readProjectByteRange(safe, root, rel, start, requestedEnd) {
+    const abs = safe(root, rel);
+    const stat = statSync(abs);
+    if (!stat.isFile() || start < 0 || start >= stat.size)
+        return null;
+    const end = Math.min(requestedEnd ?? stat.size - 1, stat.size - 1, start + MAX_RANGE_BYTES - 1);
+    if (end < start)
+        return null;
+    const bytes = Buffer.allocUnsafe(end - start + 1);
+    const fd = openSync(abs, 'r');
+    try {
+        const read = readSync(fd, bytes, 0, bytes.length, start);
+        return { bytes: read === bytes.length ? bytes : bytes.subarray(0, read), size: stat.size, start, end: start + read - 1 };
+    }
+    finally {
+        closeSync(fd);
+    }
+}
+export class OfficePreviewError extends Error {
+    status;
+    constructor(status, message) {
+        super(message);
+        this.status = status;
+    }
+}
+export async function convertOfficeToPdf(safe, root, rel) {
+    const abs = safe(root, rel);
+    const stat = statSync(abs);
+    if (!stat.isFile() || fileKindOf(rel) !== 'office')
+        throw new OfficePreviewError(415, 'unsupported office file');
+    if (stat.size > MAX_OFFICE_BYTES)
+        throw new OfficePreviewError(413, 'office file is too large to preview');
+    if (activeOfficeConversions >= MAX_OFFICE_CONVERSIONS)
+        throw new OfficePreviewError(429, 'office preview is busy');
+    activeOfficeConversions += 1;
+    const work = mkdtempSync(join(tmpdir(), 'elowen-office-preview-'));
+    const outDir = join(work, 'out');
+    const profileDir = join(work, 'profile');
+    mkdirSync(outDir);
+    try {
+        await run('soffice', [
+            `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
+            '--headless', '--convert-to', 'pdf', '--outdir', outDir, abs,
+        ], { timeout: 20_000, maxBuffer: 1024 * 1024 });
+        const output = join(outDir, `${basename(abs, `.${rel.split('.').pop() ?? ''}`)}.pdf`);
+        if (!existsSync(output))
+            throw new OfficePreviewError(415, 'office conversion failed');
+        const outputStat = statSync(output);
+        if (!outputStat.isFile() || outputStat.size > MAX_OFFICE_OUTPUT_BYTES)
+            throw new OfficePreviewError(413, 'converted preview is too large');
+        return readFileSync(output);
+    }
+    catch (error) {
+        if (error instanceof OfficePreviewError)
+            throw error;
+        throw new OfficePreviewError(415, 'office conversion failed');
+    }
+    finally {
+        activeOfficeConversions -= 1;
+        rmSync(work, { recursive: true, force: true });
+    }
 }
 export function createProjectFile(safe, root, rel) {
     const abs = safe(root, rel, true);

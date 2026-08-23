@@ -9,7 +9,7 @@ type MutationResult<T> = {
 };
 
 interface Project { id: number; slug: string; path: string; notes: string; pr_enabled: boolean | null }
-export interface FileNode { path: string; type: 'file' | 'dir' }
+export interface FileNode { path: string; type: 'file' | 'dir'; size?: number }
 type Dict = Record<string, Record<string, string>>;
 
 interface EditorRuntime {

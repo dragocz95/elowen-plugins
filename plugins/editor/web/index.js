@@ -46,6 +46,398 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
+// node_modules/papaparse/papaparse.min.js
+var require_papaparse_min = __commonJS({
+  "node_modules/papaparse/papaparse.min.js"(exports, module) {
+    ((e, t) => {
+      "function" == typeof define && define.amd ? define([], t) : "object" == typeof module && "undefined" != typeof exports ? module.exports = t() : e.Papa = t();
+    })(exports, function r() {
+      var n = "undefined" != typeof self ? self : "undefined" != typeof window ? window : void 0 !== n ? n : {};
+      var s = !n.document && !!n.postMessage, a = n.IS_PAPA_WORKER || false, o = {}, h2 = 0, w = {};
+      function P2(e) {
+        return 65279 === e.charCodeAt(0) ? e.slice(1) : e;
+      }
+      function u(e) {
+        this._handle = null, this._finished = false, this._completed = false, this._halted = false, this._input = null, this._baseIndex = 0, this._partialLine = "", this._rowCount = 0, this._start = 0, this._nextChunk = null, this.isFirstChunk = true, this._completeResults = { data: [], errors: [], meta: {} }, function(e2) {
+          var t = b2(e2);
+          t.chunkSize = parseInt(t.chunkSize), e2.step || e2.chunk || (t.chunkSize = null);
+          this._handle = new i(t), (this._handle.streamer = this)._config = t;
+        }.call(this, e), this.parseChunk = function(t, e2) {
+          var i2 = parseInt(this._config.skipFirstNLines) || 0;
+          if (this.isFirstChunk && 0 < i2) {
+            let e3 = this._config.newline;
+            e3 || (r2 = this._config.quoteChar || '"', e3 = this._handle.guessLineEndings(t, r2)), t = [...t.split(e3).slice(i2)].join(e3);
+          }
+          this.isFirstChunk && U2(this._config.beforeFirstChunk) && void 0 !== (r2 = this._config.beforeFirstChunk(t)) && (t = r2), this.isFirstChunk = false, this._halted = false;
+          var i2 = this._partialLine + t, r2 = (this._partialLine = "", this._handle.parse(i2, this._baseIndex, !this._finished));
+          if (!this._handle.paused() && !this._handle.aborted()) {
+            t = r2.meta.cursor, i2 = (this._finished || (this._partialLine = i2.substring(t - this._baseIndex), this._baseIndex = t), r2 && r2.data && (this._rowCount += r2.data.length), this._finished || this._config.preview && this._rowCount >= this._config.preview);
+            if (a) n.postMessage({ results: r2, workerId: w.WORKER_ID, finished: i2 });
+            else if (U2(this._config.chunk) && !e2) {
+              if (this._config.chunk(r2, this._handle), this._handle.paused() || this._handle.aborted()) return void (this._halted = true);
+              this._completeResults = r2 = void 0;
+            }
+            return this._config.step || this._config.chunk || (this._completeResults.data = this._completeResults.data.concat(r2.data), this._completeResults.errors = this._completeResults.errors.concat(r2.errors), this._completeResults.meta = r2.meta), this._completed || !i2 || !U2(this._config.complete) || r2 && r2.meta.aborted || (this._config.complete(this._completeResults, this._input), this._completed = true), i2 || r2 && r2.meta.paused || this._nextChunk(), r2;
+          }
+          this._halted = true;
+        }, this._sendError = function(e2) {
+          U2(this._config.error) ? this._config.error(e2) : a && this._config.error && n.postMessage({ workerId: w.WORKER_ID, error: e2, finished: false });
+        };
+      }
+      function d(e) {
+        var r2;
+        (e = e || {}).chunkSize || (e.chunkSize = w.RemoteChunkSize), u.call(this, e), this._nextChunk = s ? function() {
+          this._readChunk(), this._chunkLoaded();
+        } : function() {
+          this._readChunk();
+        }, this.stream = function(e2) {
+          this._input = e2, this._nextChunk();
+        }, this._readChunk = function() {
+          if (this._finished) this._chunkLoaded();
+          else {
+            if (r2 = new XMLHttpRequest(), this._config.withCredentials && (r2.withCredentials = this._config.withCredentials), s || (r2.onload = m2(this._chunkLoaded, this), r2.onerror = m2(this._chunkError, this)), r2.open(this._config.downloadRequestBody ? "POST" : "GET", this._input, !s), this._config.downloadRequestHeaders) {
+              var e2, t = this._config.downloadRequestHeaders;
+              for (e2 in t) r2.setRequestHeader(e2, t[e2]);
+            }
+            var i2;
+            this._config.chunkSize && (i2 = this._start + this._config.chunkSize - 1, r2.setRequestHeader("Range", "bytes=" + this._start + "-" + i2));
+            try {
+              r2.send(this._config.downloadRequestBody);
+            } catch (e3) {
+              this._chunkError(e3.message);
+            }
+            s && 0 === r2.status && this._chunkError();
+          }
+        }, this._chunkLoaded = function() {
+          4 === r2.readyState && (r2.status < 200 || 400 <= r2.status ? this._chunkError() : (this._start += this._config.chunkSize || r2.responseText.length, this._finished = !this._config.chunkSize || this._start >= ((e2) => null !== (e2 = e2.getResponseHeader("Content-Range")) ? parseInt(e2.substring(e2.lastIndexOf("/") + 1)) : -1)(r2), this.parseChunk(r2.responseText)));
+        }, this._chunkError = function(e2) {
+          e2 = r2.statusText || e2;
+          this._sendError(new Error(e2));
+        };
+      }
+      function l4(e) {
+        (e = e || {}).chunkSize || (e.chunkSize = w.LocalChunkSize), u.call(this, e);
+        var i2, r2, n2 = "undefined" != typeof FileReader;
+        this.stream = function(e2) {
+          this._input = e2, r2 = e2.slice || e2.webkitSlice || e2.mozSlice, n2 ? ((i2 = new FileReader()).onload = m2(this._chunkLoaded, this), i2.onerror = m2(this._chunkError, this)) : i2 = new FileReaderSync(), this._nextChunk();
+        }, this._nextChunk = function() {
+          this._finished || this._config.preview && !(this._rowCount < this._config.preview) || this._readChunk();
+        }, this._readChunk = function() {
+          var e2 = this._input, t = (this._config.chunkSize && (t = Math.min(this._start + this._config.chunkSize, this._input.size), e2 = r2.call(e2, this._start, t)), i2.readAsText(e2, this._config.encoding));
+          n2 || this._chunkLoaded({ target: { result: t } });
+        }, this._chunkLoaded = function(e2) {
+          this._start += this._config.chunkSize, this._finished = !this._config.chunkSize || this._start >= this._input.size, this.parseChunk(e2.target.result);
+        }, this._chunkError = function() {
+          this._sendError(i2.error);
+        };
+      }
+      function f2(e) {
+        var i2;
+        u.call(this, e = e || {}), this.stream = function(e2) {
+          return i2 = e2, this._nextChunk();
+        }, this._nextChunk = function() {
+          var e2, t;
+          if (!this._finished) return e2 = this._config.chunkSize, i2 = e2 ? (t = i2.substring(0, e2), i2.substring(e2)) : (t = i2, ""), this._finished = !i2, this.parseChunk(t);
+        };
+      }
+      function c(e) {
+        u.call(this, e = e || {});
+        var t = [], i2 = true, r2 = false;
+        this.pause = function() {
+          u.prototype.pause.apply(this, arguments), this._input.pause();
+        }, this.resume = function() {
+          u.prototype.resume.apply(this, arguments), this._input.resume();
+        }, this.stream = function(e2) {
+          this._input = e2, this._input.on("data", this._streamData), this._input.on("end", this._streamEnd), this._input.on("error", this._streamError);
+        }, this._checkIsFinished = function() {
+          r2 && 1 === t.length && (this._finished = true);
+        }, this._nextChunk = function() {
+          this._checkIsFinished(), t.length ? this.parseChunk(t.shift()) : i2 = true;
+        }, this._streamData = m2(function(e2) {
+          try {
+            t.push("string" == typeof e2 ? e2 : e2.toString(this._config.encoding)), i2 && (i2 = false, this._checkIsFinished(), this.parseChunk(t.shift()));
+          } catch (e3) {
+            this._streamError(e3);
+          }
+        }, this), this._streamError = m2(function(e2) {
+          this._streamCleanUp(), this._sendError(e2);
+        }, this), this._streamEnd = m2(function() {
+          this._streamCleanUp(), r2 = true, this._streamData("");
+        }, this), this._streamCleanUp = m2(function() {
+          this._input.removeListener("data", this._streamData), this._input.removeListener("end", this._streamEnd), this._input.removeListener("error", this._streamError);
+        }, this);
+      }
+      function i(m3) {
+        var n2, s2, a2, t, o2 = Math.pow(2, 53), h3 = -o2, u2 = /^\s*-?(\d+\.?|\.\d+|\d+\.\d+)([eE][-+]?\d+)?\s*$/, d2 = /^((\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d:[0-5]\d\.\d+([+-][0-2]\d:[0-5]\d|Z))|(\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d:[0-5]\d([+-][0-2]\d:[0-5]\d|Z))|(\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d([+-][0-2]\d:[0-5]\d|Z)))$/, i2 = this, r2 = 0, l5 = 0, f3 = false, e = false, c2 = [], p2 = { data: [], errors: [], meta: {} };
+        function y2(e2) {
+          return "greedy" === m3.skipEmptyLines ? "" === e2.join("").trim() : 1 === e2.length && 0 === e2[0].length;
+        }
+        function _4() {
+          if (p2 && a2 && (k3("Delimiter", "UndetectableDelimiter", "Unable to auto-detect delimiting character; defaulted to '" + w.DefaultDelimiter + "'"), a2 = false), m3.skipEmptyLines && (p2.data = p2.data.filter(function(e3) {
+            return !y2(e3);
+          })), g2()) {
+            let t3 = function(e3, t4) {
+              e3 = P2(e3), U2(m3.transformHeader) && (e3 = m3.transformHeader(e3, t4)), c2.push(e3);
+            };
+            var t2 = t3;
+            if (p2) if (Array.isArray(p2.data[0])) {
+              for (var e2 = 0; g2() && e2 < p2.data.length; e2++) p2.data[e2].forEach(t3);
+              p2.data.splice(0, 1);
+            } else p2.data.forEach(t3);
+          }
+          function i3(e3, t3) {
+            for (var i4 = m3.header ? {} : [], r4 = 0; r4 < e3.length; r4++) {
+              var n3 = r4, s3 = e3[r4], s3 = ((e4, t4) => ((e5) => (m3.dynamicTypingFunction && void 0 === m3.dynamicTyping[e5] && (m3.dynamicTyping[e5] = m3.dynamicTypingFunction(e5)), true === (m3.dynamicTyping[e5] || m3.dynamicTyping)))(e4) ? "true" === t4 || "TRUE" === t4 || "false" !== t4 && "FALSE" !== t4 && (((e5) => {
+                if (u2.test(e5)) {
+                  e5 = parseFloat(e5);
+                  if (h3 < e5 && e5 < o2) return 1;
+                }
+              })(t4) ? parseFloat(t4) : d2.test(t4) ? new Date(t4) : "" === t4 ? null : t4) : t4)(n3 = m3.header ? r4 >= c2.length ? "__parsed_extra" : c2[r4] : n3, s3 = m3.transform ? m3.transform(s3, n3) : s3);
+              "__parsed_extra" === n3 ? (i4[n3] = i4[n3] || [], i4[n3].push(s3)) : i4[n3] = s3;
+            }
+            return m3.header && (r4 > c2.length ? k3("FieldMismatch", "TooManyFields", "Too many fields: expected " + c2.length + " fields but parsed " + r4, l5 + t3) : r4 < c2.length && k3("FieldMismatch", "TooFewFields", "Too few fields: expected " + c2.length + " fields but parsed " + r4, l5 + t3)), i4;
+          }
+          var r3;
+          p2 && (m3.header || m3.dynamicTyping || m3.transform) && (r3 = 1, !p2.data.length || Array.isArray(p2.data[0]) ? (p2.data = p2.data.map(i3), r3 = p2.data.length) : p2.data = i3(p2.data, 0), m3.header && p2.meta && (p2.meta.fields = c2), l5 += r3);
+        }
+        function g2() {
+          return m3.header && 0 === c2.length;
+        }
+        function k3(e2, t2, i3, r3) {
+          e2 = { type: e2, code: t2, message: i3 };
+          void 0 !== r3 && (e2.row = r3), p2.errors.push(e2);
+        }
+        U2(m3.step) && (t = m3.step, m3.step = function(e2) {
+          p2 = e2, g2() ? _4() : (_4(), 0 !== p2.data.length && (r2 += e2.data.length, m3.preview && r2 > m3.preview ? s2.abort() : (p2.data = p2.data[0], t(p2, i2))));
+        }), this.parse = function(e2, t2, i3) {
+          var r3 = m3.quoteChar || '"', r3 = (m3.newline || (m3.newline = this.guessLineEndings(e2, r3)), a2 = false, m3.delimiter ? U2(m3.delimiter) && (m3.delimiter = m3.delimiter(e2), p2.meta.delimiter = m3.delimiter) : ((r3 = ((e3, t3, i4, r4, n3) => {
+            var s3, a3, o3, h4;
+            n3 = n3 || [",", "	", "|", ";", w.RECORD_SEP, w.UNIT_SEP];
+            for (var u3 = 0; u3 < n3.length; u3++) {
+              for (var d3, l6 = n3[u3], f4 = 0, c3 = 0, p3 = 0, _5 = (o3 = void 0, new E2({ comments: r4, delimiter: l6, newline: t3, preview: 10 }).parse(e3)), g3 = 0; g3 < _5.data.length; g3++) i4 && y2(_5.data[g3]) ? p3++ : (d3 = _5.data[g3].length, c3 += d3, void 0 === o3 ? o3 = d3 : 0 < d3 && (f4 += Math.abs(d3 - o3), o3 = d3));
+              0 < _5.data.length && (c3 /= _5.data.length - p3), 1.99 < c3 && (void 0 === a3 || f4 < a3 || f4 === a3 && h4 < c3) && (a3 = f4, s3 = l6, h4 = c3);
+            }
+            return { successful: !!(m3.delimiter = s3), bestDelimiter: s3 };
+          })(e2, m3.newline, m3.skipEmptyLines, m3.comments, m3.delimitersToGuess)).successful ? m3.delimiter = r3.bestDelimiter : (a2 = true, m3.delimiter = w.DefaultDelimiter), p2.meta.delimiter = m3.delimiter), b2(m3));
+          return m3.preview && m3.header && r3.preview++, n2 = e2, s2 = new E2(r3), p2 = s2.parse(n2, t2, i3), _4(), f3 ? { meta: { paused: true } } : p2 || { meta: { paused: false } };
+        }, this.paused = function() {
+          return f3;
+        }, this.pause = function() {
+          f3 = true, s2.abort(), n2 = U2(m3.chunk) ? "" : n2.substring(s2.getCharIndex());
+        }, this.resume = function() {
+          i2.streamer._halted ? (f3 = false, i2.streamer.parseChunk(n2, true)) : setTimeout(i2.resume, 3);
+        }, this.aborted = function() {
+          return e;
+        }, this.abort = function() {
+          e = true, s2.abort(), p2.meta.aborted = true, U2(m3.complete) && m3.complete(p2), n2 = "";
+        }, this.guessLineEndings = function(e2, t2) {
+          e2 = e2.substring(0, 1048576);
+          var t2 = new RegExp(q2(t2) + "([^]*?)" + q2(t2), "gm"), i3 = (e2 = e2.replace(t2, "")).split("\r"), t2 = e2.split("\n"), e2 = 1 < t2.length && t2[0].length < i3[0].length;
+          if (1 === i3.length || e2) return "\n";
+          for (var r3 = 0, n3 = 0; n3 < i3.length; n3++) "\n" === i3[n3][0] && r3++;
+          return r3 >= i3.length / 2 ? "\r\n" : "\r";
+        };
+      }
+      function q2(e) {
+        return e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      }
+      function E2(C3) {
+        var S3 = (C3 = C3 || {}).delimiter, O2 = C3.newline, x2 = C3.comments, I2 = C3.step, A2 = C3.preview, T = C3.fastMode, D2 = null, L2 = false, F2 = null == C3.quoteChar ? '"' : C3.quoteChar, z2 = F2;
+        if (void 0 !== C3.escapeChar && (z2 = C3.escapeChar), ("string" != typeof S3 || -1 < w.BAD_DELIMITERS.indexOf(S3)) && (S3 = ","), x2 === S3) throw new Error("Comment character same as delimiter");
+        true === x2 ? x2 = "#" : ("string" != typeof x2 || -1 < w.BAD_DELIMITERS.indexOf(x2)) && (x2 = false), "\n" !== O2 && "\r" !== O2 && "\r\n" !== O2 && (O2 = "\n");
+        var M = 0, j2 = false;
+        this.parse = function(i2, t, r2) {
+          if ("string" != typeof i2) throw new Error("Input must be a string");
+          var n2 = i2.length, e = S3.length, s2 = O2.length, a2 = x2.length, o2 = U2(I2), h3 = [], u2 = [], d2 = [], l5 = M = 0;
+          if (!i2) return v3();
+          if (T || false !== T && -1 === i2.indexOf(F2)) {
+            for (var f3 = i2.split(O2), c2 = 0; c2 < f3.length; c2++) {
+              if (d2 = f3[c2], M += d2.length, c2 !== f3.length - 1) M += O2.length;
+              else if (r2) return v3();
+              if (!x2 || d2.substring(0, a2) !== x2) {
+                if (o2) {
+                  if (h3 = [], k3(d2.split(S3)), R2(), j2) return v3();
+                } else k3(d2.split(S3));
+                if (A2 && A2 <= c2) return h3 = h3.slice(0, A2), v3(true);
+              }
+            }
+            return v3();
+          }
+          for (var p2 = i2.indexOf(S3, M), _4 = i2.indexOf(O2, M), g2 = new RegExp(q2(z2) + q2(F2), "g"), m3 = i2.indexOf(F2, M); ; ) if (i2[M] === F2) for (m3 = M, M++; ; ) {
+            if (-1 === (m3 = i2.indexOf(F2, m3 + 1))) return r2 || u2.push({ type: "Quotes", code: "MissingQuotes", message: "Quoted field unterminated", row: h3.length, index: M }), E3();
+            if (m3 === n2 - 1) return E3(i2.substring(M, m3).replace(g2, F2));
+            if (F2 === z2 && i2[m3 + 1] === z2) m3++;
+            else if (F2 === z2 || 0 === m3 || i2[m3 - 1] !== z2) {
+              -1 !== p2 && p2 < m3 + 1 && (p2 = i2.indexOf(S3, m3 + 1));
+              var y2 = w2(-1 === (_4 = -1 !== _4 && _4 < m3 + 1 ? i2.indexOf(O2, m3 + 1) : _4) ? p2 : Math.min(p2, _4));
+              if (i2.substr(m3 + 1 + y2, e) === S3) {
+                d2.push(i2.substring(M, m3).replace(g2, F2)), i2[M = m3 + 1 + y2 + e] !== F2 && (m3 = i2.indexOf(F2, M)), p2 = i2.indexOf(S3, M), _4 = i2.indexOf(O2, M);
+                break;
+              }
+              y2 = w2(_4);
+              if (i2.substring(m3 + 1 + y2, m3 + 1 + y2 + s2) === O2) {
+                if (d2.push(i2.substring(M, m3).replace(g2, F2)), b3(m3 + 1 + y2 + s2), p2 = i2.indexOf(S3, M), m3 = i2.indexOf(F2, M), o2 && (R2(), j2)) return v3();
+                if (A2 && h3.length >= A2) return v3(true);
+                break;
+              }
+              u2.push({ type: "Quotes", code: "InvalidQuotes", message: "Trailing quote on quoted field is malformed", row: h3.length, index: M }), m3++;
+            }
+          }
+          else if (x2 && 0 === d2.length && i2.substring(M, M + a2) === x2) {
+            if (-1 === _4) return v3();
+            M = _4 + s2, _4 = i2.indexOf(O2, M), p2 = i2.indexOf(S3, M);
+          } else if (-1 !== p2 && (p2 < _4 || -1 === _4)) d2.push(i2.substring(M, p2)), M = p2 + e, p2 = i2.indexOf(S3, M);
+          else {
+            if (-1 === _4) break;
+            if (d2.push(i2.substring(M, _4)), b3(_4 + s2), o2 && (R2(), j2)) return v3();
+            if (A2 && h3.length >= A2) return v3(true);
+          }
+          return E3();
+          function k3(e2) {
+            h3.push(e2), l5 = M;
+          }
+          function w2(e2) {
+            var t2 = 0;
+            return t2 = -1 !== e2 && (e2 = i2.substring(m3 + 1, e2)) && "" === e2.trim() ? e2.length : t2;
+          }
+          function E3(e2) {
+            return r2 || (void 0 === e2 && (e2 = i2.substring(M)), d2.push(e2), M = n2, k3(d2), o2 && R2()), v3();
+          }
+          function b3(e2) {
+            M = e2, k3(d2), d2 = [], _4 = i2.indexOf(O2, M);
+          }
+          function v3(e2) {
+            if (C3.header && !t && h3.length && !L2) {
+              var s3 = h3[0], a3 = /* @__PURE__ */ Object.create(null), o3 = new Set(s3);
+              let n3 = false;
+              for (let r3 = 0; r3 < s3.length; r3++) {
+                let i3 = P2(s3[r3]);
+                if (a3[i3 = U2(C3.transformHeader) ? C3.transformHeader(i3, r3) : i3]) {
+                  let e3, t2 = a3[i3];
+                  for (; e3 = i3 + "_" + t2, t2++, o3.has(e3); ) ;
+                  o3.add(e3), s3[r3] = e3, a3[i3]++, n3 = true, (D2 = null === D2 ? {} : D2)[e3] = i3;
+                } else a3[i3] = 1, s3[r3] = i3;
+                o3.add(i3);
+              }
+              n3 && console.warn("Duplicate headers found and renamed."), L2 = true;
+            }
+            return { data: h3, errors: u2, meta: { delimiter: S3, linebreak: O2, aborted: j2, truncated: !!e2, cursor: l5 + (t || 0), renamedHeaders: D2 } };
+          }
+          function R2() {
+            I2(v3()), h3 = [], u2 = [];
+          }
+        }, this.abort = function() {
+          j2 = true;
+        }, this.getCharIndex = function() {
+          return M;
+        };
+      }
+      function p(e) {
+        var t = e.data, i2 = o[t.workerId], r2 = false;
+        if (t.error) i2.userError(t.error, t.file);
+        else if (t.results && t.results.data) {
+          var n2 = { abort: function() {
+            r2 = true, _3(t.workerId, { data: [], errors: [], meta: { aborted: true } });
+          }, pause: g, resume: g };
+          if (U2(i2.userStep)) {
+            for (var s2 = 0; s2 < t.results.data.length && (i2.userStep({ data: t.results.data[s2], errors: t.results.errors, meta: t.results.meta }, n2), !r2); s2++) ;
+            delete t.results;
+          } else U2(i2.userChunk) && (i2.userChunk(t.results, n2, t.file), delete t.results);
+        }
+        t.finished && !r2 && _3(t.workerId, t.results);
+      }
+      function _3(e, t) {
+        var i2 = o[e];
+        U2(i2.userComplete) && i2.userComplete(t), i2.terminate(), delete o[e];
+      }
+      function g() {
+        throw new Error("Not implemented.");
+      }
+      function b2(e) {
+        if ("object" != typeof e || null === e) return e;
+        var t, i2 = Array.isArray(e) ? [] : {};
+        for (t in e) i2[t] = b2(e[t]);
+        return i2;
+      }
+      function m2(e, t) {
+        return function() {
+          e.apply(t, arguments);
+        };
+      }
+      function U2(e) {
+        return "function" == typeof e;
+      }
+      return w.parse = function(e, t) {
+        var i2 = (t = t || {}).dynamicTyping || false;
+        U2(i2) && (t.dynamicTypingFunction = i2, i2 = {});
+        if (t.dynamicTyping = i2, t.transform = !!U2(t.transform) && t.transform, !t.worker || !w.WORKERS_SUPPORTED) return i2 = null, w.NODE_STREAM_INPUT, "string" == typeof e ? (e = P2(e), i2 = new (t.download ? d : f2)(t)) : true === e.readable && U2(e.read) && U2(e.on) ? i2 = new c(t) : (n.File && e instanceof File || e instanceof Object) && (i2 = new l4(t)), i2.stream(e);
+        (i2 = (() => {
+          var e2;
+          return !!w.WORKERS_SUPPORTED && (e2 = (() => {
+            var e3 = n.URL || n.webkitURL || null, t2 = r.toString();
+            return w.BLOB_URL || (w.BLOB_URL = e3.createObjectURL(new Blob(["var global = (function() { if (typeof self !== 'undefined') { return self; } if (typeof window !== 'undefined') { return window; } if (typeof global !== 'undefined') { return global; } return {}; })(); global.IS_PAPA_WORKER=true; ", "(", t2, ")();"], { type: "text/javascript" })));
+          })(), (e2 = new n.Worker(e2)).onmessage = p, e2.id = h2++, o[e2.id] = e2);
+        })()).userStep = t.step, i2.userChunk = t.chunk, i2.userComplete = t.complete, i2.userError = t.error, t.step = U2(t.step), t.chunk = U2(t.chunk), t.complete = U2(t.complete), t.error = U2(t.error), delete t.worker, i2.postMessage({ input: e, config: t, workerId: i2.id });
+      }, w.unparse = function(e, t) {
+        var s2 = false, g2 = true, m3 = ",", y2 = "\r\n", a2 = '"', o2 = a2 + a2, i2 = false, r2 = null, h3 = false, u2 = ((() => {
+          if ("object" == typeof t) {
+            if ("string" != typeof t.delimiter || w.BAD_DELIMITERS.filter(function(e2) {
+              return -1 !== t.delimiter.indexOf(e2);
+            }).length || (m3 = t.delimiter), "boolean" != typeof t.quotes && "function" != typeof t.quotes && !Array.isArray(t.quotes) || (s2 = t.quotes), "boolean" != typeof t.skipEmptyLines && "string" != typeof t.skipEmptyLines || (i2 = t.skipEmptyLines), "string" == typeof t.newline && (y2 = t.newline), "string" == typeof t.quoteChar && (a2 = t.quoteChar, o2 = a2 + a2), "boolean" == typeof t.header && (g2 = t.header), Array.isArray(t.columns)) {
+              if (0 === t.columns.length) throw new Error("Option columns is empty");
+              r2 = t.columns;
+            }
+            void 0 !== t.escapeChar && (o2 = t.escapeChar + a2), t.escapeFormulae instanceof RegExp ? h3 = t.escapeFormulae : "boolean" == typeof t.escapeFormulae && t.escapeFormulae && (h3 = /^[=+\-@\t\r].*$/);
+          }
+        })(), new RegExp(q2(a2), "g"));
+        "string" == typeof e && (e = JSON.parse(e));
+        if (Array.isArray(e)) {
+          if (!e.length || Array.isArray(e[0])) return n2(null, e, i2);
+          if ("object" == typeof e[0]) return n2(r2 || Object.keys(e[0]), e, i2);
+        } else if ("object" == typeof e) return "string" == typeof e.data && (e.data = JSON.parse(e.data)), Array.isArray(e.data) && (e.fields || (e.fields = e.meta && e.meta.fields || r2), e.fields || (e.fields = Array.isArray(e.data[0]) ? e.fields : "object" == typeof e.data[0] ? Object.keys(e.data[0]) : []), Array.isArray(e.data[0]) || "object" == typeof e.data[0] || (e.data = [e.data])), n2(e.fields || [], e.data || [], i2);
+        throw new Error("Unable to serialize unrecognized input");
+        function n2(e2, t2, i3) {
+          var r3 = "", n3 = ("string" == typeof e2 && (e2 = JSON.parse(e2)), "string" == typeof t2 && (t2 = JSON.parse(t2)), Array.isArray(e2) && 0 < e2.length), s3 = !Array.isArray(t2[0]);
+          if (n3 && g2) {
+            for (var a3 = 0; a3 < e2.length; a3++) 0 < a3 && (r3 += m3), r3 += k3(e2[a3], a3);
+            0 < t2.length && (r3 += y2);
+          }
+          for (var o3 = 0; o3 < t2.length; o3++) {
+            var h4 = (n3 ? e2 : t2[o3]).length, u3 = false, d2 = n3 ? 0 === Object.keys(t2[o3]).length : 0 === t2[o3].length;
+            if (i3 && !n3 && (u3 = "greedy" === i3 ? "" === t2[o3].join("").trim() : 1 === t2[o3].length && 0 === t2[o3][0].length), "greedy" === i3 && n3) {
+              for (var l5 = [], f3 = 0; f3 < h4; f3++) {
+                var c2 = s3 ? e2[f3] : f3;
+                l5.push(t2[o3][c2]);
+              }
+              u3 = "" === l5.join("").trim();
+            }
+            if (!u3) {
+              for (var p2 = 0; p2 < h4; p2++) {
+                0 < p2 && !d2 && (r3 += m3);
+                var _4 = n3 && s3 ? e2[p2] : p2;
+                r3 += k3(t2[o3][_4], p2);
+              }
+              o3 < t2.length - 1 && (!i3 || 0 < h4 && !d2) && (r3 += y2);
+            }
+          }
+          return r3;
+        }
+        function k3(e2, t2) {
+          var i3, r3, n3;
+          return null == e2 ? "" : e2.constructor === Date ? isNaN(e2.getTime()) ? "" : e2.toISOString() : (n3 = false, h3 && "string" == typeof e2 && h3.test(e2) && (e2 = "'" + e2, n3 = true), r3 = (i3 = e2.toString()).replace(u2, o2), (n3 = n3 || true === s2 || "function" == typeof s2 && s2(e2, t2) || Array.isArray(s2) && s2[t2] || ((e3, t3) => {
+            for (var i4 = 0; i4 < t3.length; i4++) if (-1 < e3.indexOf(t3[i4])) return true;
+            return false;
+          })(r3, w.BAD_DELIMITERS) || -1 < r3.indexOf(m3) || -1 < i3.indexOf(a2) || " " === r3.charAt(0) || " " === r3.charAt(r3.length - 1)) ? a2 + r3 + a2 : r3);
+        }
+      }, w.RECORD_SEP = String.fromCharCode(30), w.UNIT_SEP = String.fromCharCode(31), w.BYTE_ORDER_MARK = "\uFEFF", w.BAD_DELIMITERS = ["\r", "\n", '"', w.BYTE_ORDER_MARK], w.WORKERS_SUPPORTED = !s && !!n.Worker, w.NODE_STREAM_INPUT = 1, w.LocalChunkSize = 10485760, w.RemoteChunkSize = 5242880, w.DefaultDelimiter = ",", w.Parser = E2, w.ParserHandle = i, w.NetworkStreamer = d, w.FileStreamer = l4, w.StringStreamer = f2, w.ReadableStreamStreamer = c, a && (n.onmessage = function(e) {
+        e = e.data;
+        void 0 === w.WORKER_ID && e && (w.WORKER_ID = e.workerId);
+        "string" == typeof e.input ? n.postMessage({ workerId: w.WORKER_ID, results: w.parse(e.input, e.config), finished: true }) : (n.File && e.input instanceof File || e.input instanceof Object) && (e = w.parse(e.input, e.config)) && n.postMessage({ workerId: w.WORKER_ID, results: e, finished: true });
+      }), (d.prototype = Object.create(u.prototype)).constructor = d, (l4.prototype = Object.create(u.prototype)).constructor = l4, (f2.prototype = Object.create(f2.prototype)).constructor = f2, (c.prototype = Object.create(u.prototype)).constructor = c, w;
+    });
+  }
+});
+
 // plugins/editor/web-src/runtime.tsx
 function runtime() {
   const value = window.ElowenUiRuntime;
@@ -57,7 +449,7 @@ function registerEditorUi(registration) {
 }
 
 // plugins/editor/web-src/EditorPage.tsx
-var import_react20 = __toESM(require_react(), 1);
+var import_react22 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
@@ -162,6 +554,13 @@ var Copy = createLucideIcon("Copy", [
   ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/download.js
+var Download = createLucideIcon("Download", [
+  ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
+  ["polyline", { points: "7 10 12 15 17 10", key: "2ggqvy" }],
+  ["line", { x1: "12", x2: "12", y1: "15", y2: "3", key: "1vk2je" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/eye.js
 var Eye = createLucideIcon("Eye", [
   [
@@ -183,7 +582,7 @@ var FilePlus = createLucideIcon("FilePlus", [
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/file.js
-var File = createLucideIcon("File", [
+var File2 = createLucideIcon("File", [
   ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "1rqfz7" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }]
 ]);
@@ -302,7 +701,173 @@ var X = createLucideIcon("X", [
 ]);
 
 // plugins/editor/web-src/editor/ProjectEditor.tsx
-var import_react19 = __toESM(require_react(), 1);
+var import_react21 = __toESM(require_react(), 1);
+
+// plugins/editor/src/fileTypes.ts
+var MAX_BUFFERED_BYTES = 50 * 1024 * 1024;
+var MAX_OFFICE_BYTES = 20 * 1024 * 1024;
+var MAX_MEDIA_PREVIEW_BYTES = 50 * 1024 * 1024;
+var MIME_BY_EXTENSION = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  ico: "image/x-icon",
+  bmp: "image/bmp",
+  avif: "image/avif",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  ogv: "video/ogg",
+  mov: "video/quicktime",
+  m4v: "video/x-m4v",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  m4a: "audio/mp4",
+  flac: "audio/flac",
+  aac: "audio/aac",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  csv: "text/csv; charset=utf-8"
+};
+var IMAGE_EXTENSIONS = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif"]);
+var VIDEO_EXTENSIONS = /* @__PURE__ */ new Set(["mp4", "webm", "ogv", "mov", "m4v"]);
+var AUDIO_EXTENSIONS = /* @__PURE__ */ new Set(["mp3", "wav", "ogg", "oga", "m4a", "flac", "aac"]);
+var OFFICE_EXTENSIONS = /* @__PURE__ */ new Set(["docx", "xlsx", "pptx"]);
+var TEXT_EXTENSIONS = /* @__PURE__ */ new Set([
+  "txt",
+  "log",
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "json",
+  "jsonc",
+  "css",
+  "scss",
+  "sass",
+  "less",
+  "html",
+  "htm",
+  "xml",
+  "md",
+  "markdown",
+  "mdx",
+  "py",
+  "pyi",
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "yml",
+  "yaml",
+  "sql",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+  "env",
+  "properties",
+  "go",
+  "rs",
+  "php",
+  "java",
+  "kt",
+  "kts",
+  "c",
+  "h",
+  "cc",
+  "cpp",
+  "cxx",
+  "hpp",
+  "cs",
+  "fs",
+  "fsx",
+  "vb",
+  "rb",
+  "swift",
+  "dart",
+  "lua",
+  "r",
+  "pl",
+  "pm",
+  "ex",
+  "exs",
+  "erl",
+  "hrl",
+  "vue",
+  "svelte",
+  "astro",
+  "graphql",
+  "gql",
+  "proto",
+  "dockerfile",
+  "gitignore",
+  "gitattributes",
+  "editorconfig",
+  "npmrc",
+  "yarnrc",
+  "lock",
+  "patch",
+  "diff",
+  "csv",
+  "tsv",
+  "tex",
+  "rst",
+  "adoc"
+]);
+var TEXT_BASENAMES = /* @__PURE__ */ new Set([
+  "dockerfile",
+  "makefile",
+  "gnumakefile",
+  "license",
+  "licence",
+  "readme",
+  "changelog",
+  "authors",
+  "contributors",
+  "copying",
+  "notice",
+  "procfile",
+  "gemfile",
+  "rakefile",
+  "vagrantfile",
+  ".gitignore",
+  ".gitattributes",
+  ".editorconfig",
+  ".npmrc",
+  ".yarnrc",
+  ".env"
+]);
+var baseName = (path) => path.split("/").pop() ?? path;
+var extOf = (path) => {
+  const name = baseName(path);
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+};
+function mimeTypeOf(path) {
+  return MIME_BY_EXTENSION[extOf(path)] ?? "application/octet-stream";
+}
+function fileKindOf(path) {
+  const ext = extOf(path);
+  const name = baseName(path).toLowerCase();
+  if (IMAGE_EXTENSIONS.has(ext)) return "image";
+  if (ext === "pdf") return "pdf";
+  if (VIDEO_EXTENSIONS.has(ext)) return "video";
+  if (AUDIO_EXTENSIONS.has(ext)) return "audio";
+  if (OFFICE_EXTENSIONS.has(ext)) return "office";
+  if (ext === "csv") return "csv";
+  if (ext === "md" || ext === "markdown" || ext === "mdx") return "markdown";
+  if (TEXT_EXTENSIONS.has(ext) || TEXT_BASENAMES.has(name)) return "text";
+  return "binary";
+}
 
 // plugins/editor/web-src/editor/helpers.ts
 function buildTree(nodes) {
@@ -322,17 +887,12 @@ function buildTree(nodes) {
   sort(root);
   return root.children;
 }
-var baseName = (path) => path.split("/").pop() ?? path;
-var extOf = (path) => baseName(path).split(".").pop()?.toLowerCase() ?? "";
 function langOf(path) {
   const map = { ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript", json: "json", css: "css", scss: "scss", html: "html", md: "markdown", py: "python", sh: "shell", bash: "shell", yml: "yaml", yaml: "yaml", sql: "sql", toml: "ini", env: "ini", go: "go", rs: "rust", php: "php" };
   return map[extOf(path)] ?? "plaintext";
 }
 var parentDir = (path) => path.split("/").slice(0, -1).join("/");
 var joinPath = (dir, name) => dir ? `${dir}/${name}` : name;
-var imageExtensions = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif"]);
-var isImage = (path) => imageExtensions.has(extOf(path));
-var isMarkdown = (path) => ["md", "markdown"].includes(extOf(path));
 function copyName(path) {
   const base = baseName(path);
   const dot = base.lastIndexOf(".");
@@ -362,7 +922,7 @@ function TreeRow({ node, depth, expanded, onToggle, selected, onSelect, changed,
   }
   const isChanged = changed.has(node.path);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { role: "treeitem", "aria-selected": selected === node.path, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { type: "button", onClick: () => onSelect(node.path), onContextMenu: ctx, className: `flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-xs transition-colors hover:bg-elevated ${selected === node.path ? "bg-accent/15 text-accent" : isChanged ? "font-medium text-accent" : "text-text"}`, style: { paddingLeft: depth * 12 + 16 }, title: node.path, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(File, { size: 12, className: `shrink-0 ${isChanged ? "text-accent" : "text-text-muted"}`, "aria-hidden": true }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(File2, { size: 12, className: `shrink-0 ${isChanged ? "text-accent" : "text-text-muted"}`, "aria-hidden": true }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "min-w-0 flex-1 truncate", children: node.name }),
     isChanged ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "h-1.5 w-1.5 shrink-0 rounded-full bg-accent", "aria-hidden": true }) : null
   ] }) });
@@ -3931,28 +4491,128 @@ function ImagePreview({ projectId, path }) {
   return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-bg p-6", children: failed ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: "text-sm text-text-muted", children: path }) : url ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("img", { src: url, alt: path, className: "max-h-full max-w-full object-contain" }) : null });
 }
 
-// plugins/editor/web-src/editor/Tabs.tsx
+// plugins/editor/web-src/editor/PdfPreview.tsx
+var import_react19 = __toESM(require_react(), 1);
 var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
+function PdfPreview({ projectId, path, failedLabel, office = false }) {
+  const [url, setUrl] = (0, import_react19.useState)(null);
+  const [failed, setFailed] = (0, import_react19.useState)(false);
+  (0, import_react19.useEffect)(() => {
+    let cancelled = false;
+    let objectUrl = null;
+    setUrl(null);
+    setFailed(false);
+    const route = office ? "office-preview" : "raw";
+    fetch(`/api/projects/${projectId}/${route}?path=${encodeURIComponent(path)}`, { credentials: "same-origin" }).then((response) => {
+      if (!response.ok) throw new Error(`${route} ${response.status}`);
+      return response.blob();
+    }).then((blob) => {
+      if (cancelled) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    }).catch(() => {
+      if (!cancelled) setFailed(true);
+    });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [projectId, path, office]);
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "h-full overflow-hidden bg-bg p-3", children: failed ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: "p-4 text-center text-sm text-danger", children: failedLabel.replace("{path}", path) }) : url ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("iframe", { src: url, title: path, className: "h-full w-full rounded-md border border-border bg-white" }) : null });
+}
+
+// plugins/editor/web-src/editor/MediaPreview.tsx
+var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+function MediaPreview({ projectId, path, kind }) {
+  const src = `/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}`;
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-bg p-6", children: kind === "video" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("video", { controls: true, preload: "metadata", src, className: "max-h-full max-w-full rounded-md bg-black" }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("audio", { controls: true, preload: "metadata", src, className: "w-full max-w-2xl" }) });
+}
+
+// plugins/editor/web-src/editor/BinaryPreview.tsx
+var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+var { components } = runtime();
+var { Button: Button2 } = components;
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = units[0];
+  for (let i = 1; i < units.length && value >= 1024; i += 1) {
+    value /= 1024;
+    unit = units[i];
+  }
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
+}
+function BinaryPreview({ projectId, path, size, message, downloadLabel, sizeLabel, typeLabel, downloadUnavailableLabel, downloadAvailable }) {
+  const download = () => {
+    const anchor = document.createElement("a");
+    anchor.href = `/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}&download=1`;
+    anchor.download = baseName(path);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-bg p-6", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "w-full max-w-md rounded-xl border border-border bg-document p-6 text-center shadow-sm", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(File2, { size: 36, className: "mx-auto text-text-muted", "aria-hidden": true }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "mt-3 break-all font-mono text-sm font-semibold text-text", children: baseName(path) }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "mt-2 text-sm text-text-muted", children: message }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("dl", { className: "mt-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-left text-xs", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("dt", { className: "text-text-muted", children: sizeLabel }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("dd", { className: "text-right text-text", children: formatBytes(size) }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("dt", { className: "text-text-muted", children: typeLabel }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("dd", { className: "break-all text-right font-mono text-text", children: mimeTypeOf(path) })
+    ] }),
+    !downloadAvailable ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "mt-4 text-xs text-warning", children: downloadUnavailableLabel }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "mt-5 flex justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Button2, { variant: "accent", icon: Download, disabled: !downloadAvailable, onClick: download, children: downloadLabel }) })
+  ] }) });
+}
+
+// plugins/editor/web-src/editor/CsvPreview.tsx
+var import_react20 = __toESM(require_react(), 1);
+var import_papaparse = __toESM(require_papaparse_min(), 1);
+var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+var MAX_ROWS = 1e3;
+function CsvPreview({ source, invalidLabel, limitedLabel }) {
+  const parsed = (0, import_react20.useMemo)(() => import_papaparse.default.parse(source, { skipEmptyLines: false }), [source]);
+  const fatalErrors = parsed.errors.filter((error) => error.code !== "UndetectableDelimiter");
+  if (fatalErrors.length > 0) {
+    const first = fatalErrors[0];
+    return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("p", { className: "p-4 text-center text-sm text-danger", children: [
+      invalidLabel,
+      ": ",
+      first.message
+    ] });
+  }
+  const rows = parsed.data.slice(0, MAX_ROWS);
+  const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "h-full overflow-auto bg-bg p-4", children: [
+    parsed.data.length > MAX_ROWS ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: "mb-3 text-xs text-text-muted", children: limitedLabel.replace("{count}", String(MAX_ROWS)) }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("table", { className: "min-w-full border-collapse text-left text-xs text-text", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("tbody", { children: rows.map((row, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("tr", { className: rowIndex === 0 ? "bg-elevated font-semibold" : void 0, children: Array.from({ length: width }, (_3, columnIndex) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("td", { className: "whitespace-pre-wrap border border-border px-2 py-1.5 align-top", children: row[columnIndex] ?? "" }, columnIndex)) }, rowIndex)) }) })
+  ] });
+}
+
+// plugins/editor/web-src/editor/Tabs.tsx
+var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 function Tabs({ tabs, active, dirty, onSelect, onClose, closeLabel }) {
   if (tabs.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "flex items-stretch overflow-x-auto border-b border-border bg-bg/40", children: tabs.map((p) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "flex items-stretch overflow-x-auto border-b border-border bg-bg/40", children: tabs.map((p) => {
     const isActive = p === active;
     const isDirty = dirty.has(p);
-    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: `group flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs ${isActive ? "bg-surface text-text" : "text-text-muted hover:bg-elevated"}`, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", onClick: () => onSelect(p), className: "max-w-40 truncate", title: p, children: baseName(p) }),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("button", { type: "button", onClick: () => onClose(p), "aria-label": closeLabel, className: "flex h-4 w-4 items-center justify-center rounded text-text-muted hover:bg-bg hover:text-text", children: [
-        isDirty ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "h-1.5 w-1.5 rounded-full bg-accent group-hover:hidden", "aria-hidden": true }) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(X, { size: 11, className: isDirty ? "hidden group-hover:block" : "block", "aria-hidden": true })
+    return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: `group flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs ${isActive ? "bg-surface text-text" : "text-text-muted hover:bg-elevated"}`, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", onClick: () => onSelect(p), className: "max-w-40 truncate", title: p, children: baseName(p) }),
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("button", { type: "button", onClick: () => onClose(p), "aria-label": closeLabel, className: "flex h-4 w-4 items-center justify-center rounded text-text-muted hover:bg-bg hover:text-text", children: [
+        isDirty ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "h-1.5 w-1.5 rounded-full bg-accent group-hover:hidden", "aria-hidden": true }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(X, { size: 11, className: isDirty ? "hidden group-hover:block" : "block", "aria-hidden": true })
       ] })
     ] }, p);
   }) });
 }
 
 // plugins/editor/web-src/editor/ProjectEditor.tsx
-var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
-var { hooks, components, utils } = runtime();
+var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+var { hooks, components: components2, utils } = runtime();
 var { useProjectFiles, useProjectFile, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useWriteProjectFile, useNewProjectFile, useNewProjectDir, useRenameProjectEntry, useCopyProjectEntry, useDeleteProjectEntry, useMobile, useToast, useTranslation: useTranslation2, usePluginStrings } = hooks;
-var { Button: Button2, LoadingState, EmptyState, ContextMenu } = components;
+var { Button: Button3, LoadingState, EmptyState, ContextMenu } = components2;
 var DIVIDER = "divider";
 var EDITOR_H_KEY = "elowen:editor:height";
 var MIN_EDITOR_H = 320;
@@ -3962,28 +4622,28 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const { t } = useTranslation2();
   const { toast } = useToast();
   const files = useProjectFiles(projectId);
-  const [selected, setSelected] = (0, import_react19.useState)(null);
-  const [openTabs, setOpenTabs] = (0, import_react19.useState)([]);
-  const [commit] = (0, import_react19.useState)(initialCommit ?? null);
-  const [working] = (0, import_react19.useState)(!!initialWorking);
-  const [expanded, setExpanded] = (0, import_react19.useState)(/* @__PURE__ */ new Set());
-  const [tab, setTab] = (0, import_react19.useState)("edit");
-  const [wordWrap, setWordWrap] = (0, import_react19.useState)(false);
-  const [fullscreen, setFullscreen] = (0, import_react19.useState)(false);
-  const [editorH, setEditorH] = (0, import_react19.useState)(560);
-  const dragY = (0, import_react19.useRef)(null);
-  const [menu, setMenu] = (0, import_react19.useState)(null);
-  const [dialog, setDialog] = (0, import_react19.useState)(null);
-  const [drafts, setDrafts] = (0, import_react19.useState)({});
-  const draftsRef = (0, import_react19.useRef)(drafts);
+  const [selected, setSelected] = (0, import_react21.useState)(null);
+  const [openTabs, setOpenTabs] = (0, import_react21.useState)([]);
+  const [commit] = (0, import_react21.useState)(initialCommit ?? null);
+  const [working] = (0, import_react21.useState)(!!initialWorking);
+  const [expanded, setExpanded] = (0, import_react21.useState)(/* @__PURE__ */ new Set());
+  const [tab, setTab] = (0, import_react21.useState)("edit");
+  const [wordWrap, setWordWrap] = (0, import_react21.useState)(false);
+  const [fullscreen, setFullscreen] = (0, import_react21.useState)(false);
+  const [editorH, setEditorH] = (0, import_react21.useState)(560);
+  const dragY = (0, import_react21.useRef)(null);
+  const [menu, setMenu] = (0, import_react21.useState)(null);
+  const [dialog, setDialog] = (0, import_react21.useState)(null);
+  const [drafts, setDrafts] = (0, import_react21.useState)({});
+  const draftsRef = (0, import_react21.useRef)(drafts);
   const updateDrafts = (fn) => {
     draftsRef.current = fn(draftsRef.current);
     setDrafts(draftsRef.current);
   };
-  const [dirtyPaths, setDirtyPaths] = (0, import_react19.useState)(/* @__PURE__ */ new Set());
+  const [dirtyPaths, setDirtyPaths] = (0, import_react21.useState)(/* @__PURE__ */ new Set());
   const mobile = useMobile();
-  const [showTree, setShowTree] = (0, import_react19.useState)(false);
-  (0, import_react19.useEffect)(() => {
+  const [showTree, setShowTree] = (0, import_react21.useState)(false);
+  (0, import_react21.useEffect)(() => {
     let stored = null;
     try {
       const raw = localStorage.getItem(EDITOR_H_KEY);
@@ -3995,7 +4655,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     }
     setEditorH(clampEditorH(stored ?? window.innerHeight * 0.7));
   }, []);
-  (0, import_react19.useEffect)(() => {
+  (0, import_react21.useEffect)(() => {
     try {
       localStorage.setItem(EDITOR_H_KEY, String(editorH));
     } catch {
@@ -4005,31 +4665,34 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const changesData = useProjectChanges(projectId, working);
   const commitFileDiff = useProjectCommitFileDiff(projectId, commit, commit ? selected : null);
   const workingChanged = useProjectChanged(projectId).data?.changed;
-  const changedSet = (0, import_react19.useMemo)(
+  const changedSet = (0, import_react21.useMemo)(
     () => new Set(commit ? commitData.data?.files ?? [] : workingChanged ?? []),
     [commit, commitData.data?.files, workingChanged]
   );
-  const fileData = useProjectFile(projectId, selected);
+  const selectedFile = selected ? files.data?.find((node) => node.type === "file" && node.path === selected) : void 0;
+  const fileKind = selected ? fileKindOf(selected) : null;
+  const textFile = fileKind === "text" || fileKind === "markdown" || fileKind === "csv";
+  const fileData = useProjectFile(projectId, textFile ? selected : null);
   const write = useWriteProjectFile();
   const newFile = useNewProjectFile();
   const newDir = useNewProjectDir();
   const rename = useRenameProjectEntry();
   const copy = useCopyProjectEntry();
   const del = useDeleteProjectEntry();
-  const tree = (0, import_react19.useMemo)(() => buildTree(files.data ?? []), [files.data]);
+  const tree = (0, import_react21.useMemo)(() => buildTree(files.data ?? []), [files.data]);
   const serverContent = fileData.data?.content ?? "";
   const draft = selected != null ? drafts[selected] : void 0;
   const value = draft ?? serverContent;
   const dirty = selected != null && dirtyPaths.has(selected);
-  const img = selected != null && isImage(selected);
-  const md = selected != null && isMarkdown(selected);
-  const editable = selected != null && !img && !commit && !working;
-  const effTab = tab === "preview" && !md ? "edit" : tab;
+  const previewableText = fileKind === "markdown" || fileKind === "csv";
+  const editable = selected != null && textFile && !commit && !working;
+  const effTab = tab === "preview" && !previewableText ? "edit" : tab;
+  const fileSize = selectedFile?.size ?? 0;
   const headData = useProjectFileAtHead(projectId, selected, editable && effTab === "diff");
   const openFile = (p) => {
     setSelected(p);
     setOpenTabs((tabs) => tabs.includes(p) ? tabs : [...tabs, p]);
-    setTab("edit");
+    setTab(fileKindOf(p) === "csv" ? "preview" : "edit");
   };
   const selectInTree = (p) => {
     if (commit) setSelected(p);
@@ -4058,7 +4721,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     }
     return n;
   });
-  (0, import_react19.useEffect)(() => {
+  (0, import_react21.useEffect)(() => {
     if (!fullscreen) return;
     const onKey = (e) => {
       if (e.key === "Escape" && !dialog && !menu) {
@@ -4070,10 +4733,10 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [fullscreen, dialog, menu]);
-  (0, import_react19.useEffect)(() => {
+  (0, import_react21.useEffect)(() => {
     if (mobile) setFullscreen(true);
   }, [mobile]);
-  (0, import_react19.useEffect)(() => {
+  (0, import_react21.useEffect)(() => {
     if (!fullscreen || !mobile) setShowTree(false);
   }, [fullscreen, mobile]);
   const save = () => {
@@ -4196,7 +4859,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       ...common
     ];
     return [
-      { label: s.ctxOpen, icon: File, onClick: () => openFile(node.path) },
+      { label: s.ctxOpen, icon: File2, onClick: () => openFile(node.path) },
       DIVIDER,
       ...common
     ];
@@ -4204,14 +4867,14 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const onContextMenu = (e, node) => setMenu({ x: e.clientX, y: e.clientY, items: buildMenu(node) });
   const dialogTitle = dialog?.kind === "newFile" ? s.dlgNewFile : dialog?.kind === "newFolder" ? s.dlgNewFolder : dialog?.kind === "rename" ? s.dlgRename : dialog?.kind === "duplicate" ? s.dlgDuplicate : "";
   const dialogInitial = dialog?.kind === "rename" ? baseName(dialog.target) : dialog?.kind === "duplicate" ? baseName(copyName(dialog.target)) : "";
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
     "div",
     {
       className: fullscreen ? "fixed inset-0 z-50 flex h-screen flex-col overflow-hidden bg-surface" : "flex flex-col overflow-hidden border-y border-border bg-document",
       style: fullscreen ? void 0 : { height: fill ? "100%" : editorH },
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "flex items-center gap-2 border-b border-border px-3 py-2", children: [
-          mobile && fullscreen && onClose && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center gap-2 border-b border-border px-3 py-2", children: [
+          mobile && fullscreen && onClose && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
             "button",
             {
               type: "button",
@@ -4219,10 +4882,10 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
               "aria-label": t.common.back,
               title: t.common.back,
               className: "flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text",
-              children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ChevronLeft, { size: 18 })
+              children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ChevronLeft, { size: 18 })
             }
           ),
-          mobile && fullscreen && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+          mobile && fullscreen && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
             "button",
             {
               type: "button",
@@ -4231,45 +4894,45 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
               "aria-label": s.toggleTree,
               title: s.toggleTree,
               className: `flex h-7 w-7 items-center justify-center rounded-md transition-colors ${showTree ? "bg-accent/15 text-accent" : "text-text-muted hover:bg-elevated hover:text-text"}`,
-              children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PanelLeft, { size: 15 })
+              children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PanelLeft, { size: 15 })
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(CodeXml, { size: 15, className: "shrink-0 text-accent", "aria-hidden": true }),
-          !(mobile && fullscreen) && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "text-sm font-semibold text-text", children: s.editorTitle }),
-          working ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { className: "truncate font-mono text-xs text-warning", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(GitCompare, { size: 11, className: "mr-1 inline", "aria-hidden": true }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(CodeXml, { size: 15, className: "shrink-0 text-accent", "aria-hidden": true }),
+          !(mobile && fullscreen) && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-sm font-semibold text-text", children: s.editorTitle }),
+          working ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "truncate font-mono text-xs text-warning", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(GitCompare, { size: 11, className: "mr-1 inline", "aria-hidden": true }),
             s.workingChanges
-          ] }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("button", { type: "button", onClick: () => setSelected(null), disabled: !selected, title: selected ? s.viewCommit : void 0, className: "flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(GitCompare, { size: 11, className: "mr-1 inline shrink-0", "aria-hidden": true }),
-            /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { className: "truncate", children: [
+          ] }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("button", { type: "button", onClick: () => setSelected(null), disabled: !selected, title: selected ? s.viewCommit : void 0, className: "flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(GitCompare, { size: 11, className: "mr-1 inline shrink-0", "aria-hidden": true }),
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "truncate", children: [
               s.commitLabel,
               " ",
               commit.slice(0, 8),
               selected ? ` \xB7 ${selected}` : ""
             ] })
           ] }) : null,
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "ml-auto flex items-center gap-1.5", children: [
-            editable ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(import_jsx_runtime9.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "edit" ? "accent" : "ghost", onClick: () => setTab("edit"), children: s.tabEdit }),
-              md ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "preview" ? "accent" : "ghost", icon: Eye, onClick: () => setTab("preview"), children: s.tabPreview }) : null,
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: effTab === "diff" ? "accent" : "ghost", icon: GitCompare, onClick: () => setTab("diff"), children: s.tabDiff }),
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: wordWrap ? "accent" : "ghost", icon: WrapText, "aria-label": s.wordWrap, title: s.wordWrap, onClick: () => setWordWrap((w) => !w) }),
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Button2, { variant: "accent", icon: Save, disabled: !dirty || write.isPending, onClick: save, children: t.common.save })
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "ml-auto flex items-center gap-1.5", children: [
+            editable ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(import_jsx_runtime13.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button3, { variant: effTab === "edit" ? "accent" : "ghost", onClick: () => setTab("edit"), children: s.tabEdit }),
+              previewableText ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button3, { variant: effTab === "preview" ? "accent" : "ghost", icon: Eye, onClick: () => setTab("preview"), children: s.tabPreview }) : null,
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button3, { variant: effTab === "diff" ? "accent" : "ghost", icon: GitCompare, onClick: () => setTab("diff"), children: s.tabDiff }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button3, { variant: wordWrap ? "accent" : "ghost", icon: WrapText, "aria-label": s.wordWrap, title: s.wordWrap, onClick: () => setWordWrap((w) => !w) }),
+              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button3, { variant: "accent", icon: Save, disabled: !dirty || write.isPending, onClick: save, children: t.common.save })
             ] }) : null,
-            onClose && !(mobile && fullscreen) ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", "aria-label": t.common.close, onClick: onClose, className: "flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(X, { size: 15 }) }) : null
+            onClose && !(mobile && fullscreen) ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("button", { type: "button", "aria-label": t.common.close, onClick: onClose, className: "flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(X, { size: 15 }) }) : null
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "relative flex min-h-0 flex-1", children: [
-          mobile && fullscreen && !showTree ? null : /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "relative flex min-h-0 flex-1", children: [
+          mobile && fullscreen && !showTree ? null : /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
             "div",
             {
               className: `flex shrink-0 flex-col border-r border-border ${mobile && fullscreen ? "absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-surface shadow-[var(--shadow-raised)]" : "w-64 bg-bg/40"}`,
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "min-h-0 flex-1 overflow-auto p-1.5", children: files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "min-h-0 flex-1 overflow-auto p-1.5", children: files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
                   selectInTree(p);
                   if (mobile && fullscreen) setShowTree(false);
                 }, changed: changedSet, onContextMenu, emptyLabel: s.noFiles, treeLabel: s.editorTitle }) }),
-                /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "shrink-0 border-t border-border p-1.5", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "shrink-0 border-t border-border p-1.5", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
                   "button",
                   {
                     type: "button",
@@ -4278,7 +4941,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
                     title: fullscreen ? s.exitFullscreen : s.fullscreen,
                     className: "flex w-full items-center justify-center gap-2 rounded-md border border-border bg-elevated px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-border-strong hover:text-text",
                     children: [
-                      fullscreen ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Minimize2, { size: 13, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Maximize2, { size: 13, "aria-hidden": true }),
+                      fullscreen ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Minimize2, { size: 13, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Maximize2, { size: 13, "aria-hidden": true }),
                       fullscreen ? s.exitFullscreen : s.fullscreen
                     ]
                   }
@@ -4286,12 +4949,12 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
               ]
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "flex min-w-0 flex-1 flex-col", children: [
-            !commit && !working ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Tabs, { tabs: openTabs, active: selected, dirty: dirtyPaths, onSelect: setSelected, onClose: closeTab, closeLabel: t.common.close }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "min-h-0 flex-1", children: working ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: changesData.data?.diff ?? "", loading: changesData.isLoading, empty: s.noChanges }) : commit && selected ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: commitFileDiff.data?.diff ?? "", loading: commitFileDiff.isLoading, empty: s.noChanges }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PatchView, { diff: commitData.data?.diff ?? "", loading: commitData.isLoading, empty: s.noChanges }) : !selected ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(EmptyState, { title: s.selectFile, icon: File }) : img ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ImagePreview, { projectId, path: selected }) : fileData.data?.truncated ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: "p-4 text-center text-sm text-text-muted", children: s.fileTooBig }) : effTab === "diff" ? headData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(DiffEditorPane, { path: selected, original: headData.data?.content ?? "", modified: value }) : effTab === "preview" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(MarkdownPreview, { source: value }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(EditorPane, { path: selected, value, onChange, onSave: save, wordWrap }) })
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex min-w-0 flex-1 flex-col", children: [
+            !commit && !working ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Tabs, { tabs: openTabs, active: selected, dirty: dirtyPaths, onSelect: setSelected, onClose: closeTab, closeLabel: t.common.close }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "min-h-0 flex-1", children: working ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PatchView, { diff: changesData.data?.diff ?? "", loading: changesData.isLoading, empty: s.noChanges }) : commit && selected ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PatchView, { diff: commitFileDiff.data?.diff ?? "", loading: commitFileDiff.isLoading, empty: s.noChanges }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PatchView, { diff: commitData.data?.diff ?? "", loading: commitData.isLoading, empty: s.noChanges }) : !selected ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(EmptyState, { title: s.selectFile, icon: File2 }) : fileKind === "image" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ImagePreview, { projectId, path: selected }) : fileKind === "pdf" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PdfPreview, { projectId, path: selected, failedLabel: s.previewFailed }) : fileKind === "office" && fileSize <= MAX_OFFICE_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PdfPreview, { projectId, path: selected, failedLabel: s.previewFailed, office: true }) : (fileKind === "video" || fileKind === "audio") && fileSize <= MAX_MEDIA_PREVIEW_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(MediaPreview, { projectId, path: selected, kind: fileKind }) : fileKind === "binary" || fileKind === "image" || fileKind === "pdf" || fileKind === "office" || fileKind === "video" || fileKind === "audio" ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(BinaryPreview, { projectId, path: selected, size: fileSize, message: fileKind === "binary" ? s.binaryFile : s.previewTooLarge, downloadLabel: s.download, sizeLabel: s.fileSize, typeLabel: s.fileType, downloadAvailable: fileSize <= MAX_BUFFERED_BYTES, downloadUnavailableLabel: s.downloadUnavailable }) : fileData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(LoadingState, {}) : fileData.data?.truncated ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: "p-4 text-center text-sm text-text-muted", children: s.fileTooBig }) : effTab === "diff" ? headData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(DiffEditorPane, { path: selected, original: headData.data?.content ?? "", modified: value }) : effTab === "preview" && fileKind === "csv" ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(CsvPreview, { source: value, invalidLabel: s.csvInvalid, limitedLabel: s.csvLimited }) : effTab === "preview" ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(MarkdownPreview, { source: value }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(EditorPane, { path: selected, value, onChange, onSave: save, wordWrap }) })
           ] })
         ] }),
-        !fullscreen && !fill ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+        !fullscreen && !fill ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
           "div",
           {
             role: "separator",
@@ -4318,18 +4981,18 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
               dragY.current = null;
             },
             className: "group flex h-3.5 shrink-0 cursor-row-resize items-center justify-center border-t border-border bg-bg/40 transition-colors hover:bg-elevated",
-            children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "h-1 w-10 rounded-full bg-border transition-all duration-200 group-hover:w-16 group-hover:bg-text-muted" })
+            children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "h-1 w-10 rounded-full bg-border transition-all duration-200 group-hover:w-16 group-hover:bg-text-muted" })
           }
         ) : null,
-        menu ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ContextMenu, { state: menu, onClose: () => setMenu(null) }) : null,
-        dialog && dialog.kind === "delete" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ConfirmDialog, { title: s.dlgDelete, message: s.dlgDeleteMsg.replace("{name}", baseName(dialog.target)), confirmLabel: s.ctxDelete, danger: true, icon: Trash2, onConfirm: confirmDelete, onCancel: () => setDialog(null) }) : dialog ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PromptDialog, { title: dialogTitle, label: s.dlgName, initialValue: dialogInitial, confirmLabel: t.common.save, onConfirm: submitDialog, onCancel: () => setDialog(null) }) : null
+        menu ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ContextMenu, { state: menu, onClose: () => setMenu(null) }) : null,
+        dialog && dialog.kind === "delete" ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ConfirmDialog, { title: s.dlgDelete, message: s.dlgDeleteMsg.replace("{name}", baseName(dialog.target)), confirmLabel: s.ctxDelete, danger: true, icon: Trash2, onConfirm: confirmDelete, onCancel: () => setDialog(null) }) : dialog ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PromptDialog, { title: dialogTitle, label: s.dlgName, initialValue: dialogInitial, confirmLabel: t.common.save, onConfirm: submitDialog, onCancel: () => setDialog(null) }) : null
       ]
     }
   );
 }
 
 // plugins/editor/web-src/EditorPage.tsx
-var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 var { useProjects, usePluginStrings: usePluginStrings2, useProjectFilter, useFillHeight, useMobile: useMobile2 } = runtime().hooks;
 var {
   ModuleHeader,
@@ -4355,10 +5018,10 @@ function EditorPage() {
   const s = usePluginStrings2("editor");
   const mobile = useMobile2();
   const projects = useProjects();
-  const surfaceRef = (0, import_react20.useRef)(null);
+  const surfaceRef = (0, import_react22.useRef)(null);
   const fillHeight = useFillHeight(surfaceRef);
   const { selectedProject, setProject } = useProjectFilter("elowen.editor.project");
-  const [link] = (0, import_react20.useState)(linkTarget);
+  const [link] = (0, import_react22.useState)(linkTarget);
   const list = projects.data ?? [];
   const filtered = selectedProject === "all" ? list[0]?.id ?? null : selectedProject;
   const projectId = link.project != null && list.some((item) => item.id === link.project) ? link.project : filtered;
@@ -4367,21 +5030,21 @@ function EditorPage() {
     if (window.history.length > 1) window.history.back();
     else navigate("/dash");
   } : void 0;
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ModuleHeader, { title: s.title, icon: CodeXml }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(WorkspacePage, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(import_jsx_runtime14.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ModuleHeader, { title: s.title, icon: CodeXml }),
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(WorkspacePage, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
         CompactWorkspaceHeader,
         {
           eyebrow: s.workspaceEyebrow,
           title: s.title,
           description: s.workspaceIntro,
           icon: CodeXml,
-          status: project ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "workspace-status", children: s.workspaceReady.replace("{project}", project.slug) }) : void 0,
-          action: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ProjectFilterPills, { value: projectId ?? "all", onChange: setProject, includeAll: false, variant: "dropdown" })
+          status: project ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "workspace-status", children: s.workspaceReady.replace("{project}", project.slug) }) : void 0,
+          action: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ProjectFilterPills, { value: projectId ?? "all", onChange: setProject, includeAll: false, variant: "dropdown" })
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { ref: surfaceRef, className: "workspace-content", style: fillHeight ? { height: fillHeight } : void 0, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ControlSurfaceDocument, { className: "editor-control-surface", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(MotionPresence, { mode: "wait", children: projectId == null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(EmptyState2, { title: s.noProjects, description: s.noProjectsDescription, icon: CodeXml }) }, "empty") : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ProjectEditor, { projectId, initialCommit: link.commit, initialWorking: link.working, onClose, fill: true }) }, `${projectId}:${link.commit ?? ""}:${link.working}`) }) }) })
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { ref: surfaceRef, className: "workspace-content", style: fillHeight ? { height: fillHeight } : void 0, children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ControlSurfaceDocument, { className: "editor-control-surface", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(MotionPresence, { mode: "wait", children: projectId == null ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(EmptyState2, { title: s.noProjects, description: s.noProjectsDescription, icon: CodeXml }) }, "empty") : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ProjectEditor, { projectId, initialCommit: link.commit, initialWorking: link.working, onClose, fill: true }) }, `${projectId}:${link.commit ?? ""}:${link.working}`) }) }) })
     ] })
   ] });
 }

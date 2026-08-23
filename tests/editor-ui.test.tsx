@@ -36,6 +36,9 @@ vi.mock('../plugins/editor/web-src/editor/monacoLoader', () => ({
 // Only the surrounding views are stubbed: the file content itself goes through the real query, so a
 // save's cache update is what the pane falls back to when it retires its draft.
 vi.mock('../plugins/editor/web-src/editor/MarkdownPreview', () => ({ MarkdownPreview: () => null }));
+vi.mock('../plugins/editor/web-src/editor/ImagePreview', () => ({ ImagePreview: ({ path }: { path: string }) => <div>image:{path}</div> }));
+vi.mock('../plugins/editor/web-src/editor/PdfPreview', () => ({ PdfPreview: ({ path, office }: { path: string; office?: boolean }) => <div>{office ? 'office' : 'pdf'}:{path}</div> }));
+vi.mock('../plugins/editor/web-src/editor/MediaPreview', () => ({ MediaPreview: ({ path }: { path: string }) => <div>media:{path}</div> }));
 
 // The panel resolves its data hooks through window.ElowenUiRuntime, so the host runtime has to be
 // installed BEFORE the module is imported (it destructures the hook set at module scope) — which is
@@ -48,7 +51,7 @@ beforeAll(async () => {
 
 // Server-side file state. Writes are held open (one gate per path) so a test can type — or start a
 // second save — while the first one is still in flight.
-const INITIAL = new Map([['a.ts', 'line one\n'], ['b.ts', 'other file\n']]);
+const INITIAL = new Map([['a.ts', 'line one\n'], ['b.ts', 'other file\n'], ['data.csv', 'name,value\nalpha,"one,two"\n']]);
 let stored = new Map(INITIAL);
 const gates = new Map<string, () => void>();
 let failing = new Set<string>();
@@ -58,7 +61,12 @@ let holdReads = false;
 let readGates: Array<() => void> = [];
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'editor', url: '/plugins/editor/web/index.js', apiVersion: 1, nav: [], settings: [], strings }])),
-  http.get('/api/projects/:id/files', () => HttpResponse.json([{ path: 'a.ts', type: 'file' }, { path: 'b.ts', type: 'file' }])),
+  http.get('/api/projects/:id/files', () => HttpResponse.json([
+    { path: 'a.ts', type: 'file', size: 9 }, { path: 'b.ts', type: 'file', size: 11 },
+    { path: 'archive.zip', type: 'file', size: 2048 }, { path: 'report.pdf', type: 'file', size: 1024 },
+    { path: 'brief.docx', type: 'file', size: 4096 }, { path: 'clip.mp4', type: 'file', size: 8192 },
+    { path: 'huge.mp4', type: 'file', size: 60 * 1024 * 1024 }, { path: 'data.csv', type: 'file', size: 27 },
+  ])),
   http.get('/api/projects/:id/file', async ({ url }) => {
     if (holdReads) await new Promise<void>((resolve) => readGates.push(resolve));
     const path = url.searchParams.get('path') ?? '';
@@ -122,6 +130,40 @@ describe('ProjectEditor copy', () => {
     expect(screen.getByRole('separator', { name: 'Drag to resize the editor' })).toBeInTheDocument();
     // The file tree's accessible name is plugin copy too — `getByRole('tree')` elsewhere never checks it.
     expect(screen.getByRole('tree')).toHaveAccessibleName('Code editor');
+  });
+});
+
+describe('ProjectEditor preview routing', () => {
+  it('never sends unknown binary files or oversized media to Monaco', async () => {
+    await renderEditor();
+    openInTree('archive.zip');
+    expect(await screen.findByText('application/octet-stream')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('editor')).not.toBeInTheDocument();
+
+    openInTree('huge.mp4');
+    expect(await screen.findByText('This file is too large to preview safely in the editor.')).toBeInTheDocument();
+    expect(screen.getByText('This file is too large to download through the editor.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download' })).toBeDisabled();
+    expect(screen.queryByText('media:huge.mp4')).not.toBeInTheDocument();
+  });
+
+  it('routes PDF, Office and media files to their dedicated previews', async () => {
+    await renderEditor();
+    openInTree('report.pdf');
+    expect(await screen.findByText('pdf:report.pdf')).toBeInTheDocument();
+    openInTree('brief.docx');
+    expect(await screen.findByText('office:brief.docx')).toBeInTheDocument();
+    openInTree('clip.mp4');
+    expect(await screen.findByText('media:clip.mp4')).toBeInTheDocument();
+  });
+
+  it('opens CSV as a parsed table and preserves quoted commas', async () => {
+    await renderEditor();
+    openInTree('data.csv');
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('one,two')).toBeInTheDocument();
+    expect(screen.queryByLabelText('editor')).not.toBeInTheDocument();
   });
 });
 

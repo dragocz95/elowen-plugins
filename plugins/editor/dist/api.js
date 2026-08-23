@@ -1,10 +1,10 @@
-import { EditorFileError, copyProjectEntry, createProjectDir, createProjectFile, deleteProjectEntry, listProjectFiles, projectChangedFiles, projectCommitDiff, projectCommitFileDiff, projectCommitFiles, projectCommitLog, projectFileAtHead, projectFileDiff, projectWorkingDiff, readProjectBytes, readProjectFile, renameProjectEntry, writeProjectFile, } from './files.js';
-const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', ico: 'image/x-icon', bmp: 'image/bmp', avif: 'image/avif' };
+import { EditorFileError, copyProjectEntry, createProjectDir, createProjectFile, deleteProjectEntry, listProjectFiles, projectChangedFiles, projectCommitDiff, projectCommitFileDiff, projectCommitFiles, projectCommitLog, convertOfficeToPdf, OfficePreviewError, projectFileAtHead, projectFileDiff, projectFileSize, projectWorkingDiff, readProjectByteRange, readProjectBytes, readProjectFile, renameProjectEntry, writeProjectFile, } from './files.js';
+import { baseName, mimeTypeOf } from './fileTypes.js';
 function projectFor(ctx, req) {
     const id = Number(req.params.id);
     if (!Number.isSafeInteger(id) || id <= 0)
         return { status: 404, body: { error: 'project not found' } };
-    if (req.auth.accessibleProjects !== null && !req.auth.accessibleProjects.includes(id))
+    if (req.auth.accessibleProjects === null ? !req.auth.admin : !req.auth.accessibleProjects.includes(id))
         return { status: 403, body: { error: 'forbidden' } };
     const project = ctx.host.stores().projects.get(id);
     return project ? project : { status: 404, body: { error: 'project not found' } };
@@ -20,6 +20,22 @@ function requiredString(value) { return typeof value === 'string' && value.lengt
  *  for a caller probing outside the tree. */
 function fileError(error) {
     return { status: 400, body: { error: error instanceof EditorFileError ? error.message : 'invalid path' } };
+}
+function byteRange(value, size) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(value.trim());
+    if (!match || (!match[1] && !match[2]) || size <= 0)
+        return null;
+    if (!match[1]) {
+        const suffix = Number(match[2]);
+        if (!Number.isSafeInteger(suffix) || suffix <= 0)
+            return null;
+        return { start: Math.max(0, size - suffix), end: size - 1 };
+    }
+    const start = Number(match[1]);
+    const end = match[2] ? Number(match[2]) : size - 1;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= size || end < start)
+        return null;
+    return { start, end: Math.min(end, size - 1) };
 }
 export function registerEditorApi(ctx) {
     const safe = ctx.host.projectFiles().safe;
@@ -62,13 +78,53 @@ export function registerEditorApi(ctx) {
         if (!path)
             return { status: 400, body: { error: 'path required' } };
         try {
+            const size = projectFileSize(safe, project.path, path);
+            if (size === null)
+                return { status: 415, body: { error: 'not previewable' } };
+            const commonHeaders = {
+                'accept-ranges': 'bytes',
+                'cache-control': 'no-store',
+                'content-type': mimeTypeOf(path),
+                ...(req.query.download === '1' ? { 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(baseName(path))}` } : {}),
+            };
+            const rangeHeader = req.headers.range;
+            if (rangeHeader) {
+                const range = byteRange(rangeHeader, size);
+                if (!range)
+                    return { status: 416, body: { error: 'invalid range' }, headers: { ...commonHeaders, 'content-range': `bytes */${size}` } };
+                const chunk = readProjectByteRange(safe, project.path, path, range.start, range.end);
+                if (!chunk)
+                    return { status: 416, body: { error: 'invalid range' }, headers: { ...commonHeaders, 'content-range': `bytes */${size}` } };
+                return {
+                    status: 206,
+                    body: new Uint8Array(chunk.bytes),
+                    headers: {
+                        ...commonHeaders,
+                        'content-length': String(chunk.bytes.length),
+                        'content-range': `bytes ${chunk.start}-${chunk.end}/${chunk.size}`,
+                    },
+                };
+            }
             const bytes = readProjectBytes(safe, project.path, path);
             if (!bytes)
-                return { status: 415, body: { error: 'not previewable' } };
-            const ext = path.split('.').pop()?.toLowerCase() ?? '';
-            return { body: new Uint8Array(bytes), headers: { 'content-type': MIME[ext] ?? 'application/octet-stream', 'cache-control': 'no-store' } };
+                return { status: 413, body: { error: 'file is too large to buffer' }, headers: commonHeaders };
+            return { body: new Uint8Array(bytes), headers: { ...commonHeaders, 'content-length': String(bytes.length) } };
         }
         catch (error) {
+            return fileError(error);
+        }
+    });
+    route('/projects/:id/office-preview', 'GET', async (req, project) => {
+        const path = requiredString(req.query.path);
+        if (!path)
+            return { status: 400, body: { error: 'path required' } };
+        try {
+            const bytes = await convertOfficeToPdf(safe, project.path, path);
+            return { body: new Uint8Array(bytes), headers: { 'content-type': 'application/pdf', 'content-length': String(bytes.length), 'cache-control': 'no-store' } };
+        }
+        catch (error) {
+            if (error instanceof OfficePreviewError)
+                return { status: error.status, body: { error: error.message } };
             return fileError(error);
         }
     });

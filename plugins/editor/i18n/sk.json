@@ -1,5 +1,5 @@
 {
-  "description": "Projektový editor súborov s Monaco editorom, správou súborov, náhľadmi obrázkov a Markdownu a históriou Git. Vypnutím sa odstráni editor aj jeho rozhranie pre súbory projektov; správa projektov a Git história úloh zostávajú dostupné.",
+  "description": "Projektový editor súborov s Monaco editorom, správou súborov, náhľadmi Markdownu, obrázkov, PDF, médií, Office a CSV súborov, stiahnutím binárnych súborov a históriou Git. Vypnutím sa odstráni editor aj jeho rozhranie pre súbory projektov; správa projektov a Git história úloh zostávajú dostupné.",
   "web": {
     "nav": {
       "": "Editor"
@@ -19,7 +19,16 @@
       "tabPreview": "Náhľad",
       "noFiles": "Žiadne súbory",
       "selectFile": "Vyberte súbor na úpravu",
-      "fileTooBig": "Súbor je príliš veľký alebo binárny, nemožno ho tu upraviť.",
+      "fileTooBig": "Tento textový súbor je príliš veľký, nemožno ho tu upraviť.",
+      "binaryFile": "Tento súbor je binárny a nemožno ho tu upraviť.",
+      "previewTooLarge": "Tento súbor je príliš veľký na bezpečný náhľad v editore.",
+      "previewFailed": "Náhľad súboru {path} sa nepodarilo načítať.",
+      "download": "Stiahnuť",
+      "downloadUnavailable": "Tento súbor je príliš veľký na stiahnutie cez editor.",
+      "fileSize": "Veľkosť",
+      "fileType": "Typ",
+      "csvInvalid": "Súbor CSV sa nepodarilo načítať",
+      "csvLimited": "Zobrazuje sa prvých {count} riadkov.",
       "noChanges": "Žiadne necommitnuté zmeny v tomto súbore.",
       "fileSaved": "Uložené {path}",
       "commitLabel": "Commit",

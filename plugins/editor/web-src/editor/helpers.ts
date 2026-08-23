@@ -1,4 +1,7 @@
 import type { FileNode } from '../runtime';
+import { baseName, extOf, fileKindOf, mimeTypeOf } from '../../src/fileTypes';
+
+export { baseName, extOf, fileKindOf, mimeTypeOf };
 
 export interface TreeNode { name: string; path: string; type: 'file' | 'dir'; children: TreeNode[] }
 
@@ -20,20 +23,14 @@ export function buildTree(nodes: FileNode[]): TreeNode[] {
   return root.children;
 }
 
-export const baseName = (path: string) => path.split('/').pop() ?? path;
-// Split the FILE NAME so a dotted directory ("src/config.v2/file") cannot contribute segments at all.
-// Taking the last segment of the whole path happens to give the same answer today; scoping it to the
-// name is what makes that true by construction rather than by luck.
-const extOf = (path: string) => baseName(path).split('.').pop()?.toLowerCase() ?? '';
 export function langOf(path: string): string {
   const map: Record<string, string> = { ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript', json: 'json', css: 'css', scss: 'scss', html: 'html', md: 'markdown', py: 'python', sh: 'shell', bash: 'shell', yml: 'yaml', yaml: 'yaml', sql: 'sql', toml: 'ini', env: 'ini', go: 'go', rs: 'rust', php: 'php' };
   return map[extOf(path)] ?? 'plaintext';
 }
 export const parentDir = (path: string) => path.split('/').slice(0, -1).join('/');
 export const joinPath = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
-const imageExtensions = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp', 'avif']);
-export const isImage = (path: string) => imageExtensions.has(extOf(path));
-export const isMarkdown = (path: string) => ['md', 'markdown'].includes(extOf(path));
+export const isImage = (path: string) => fileKindOf(path) === 'image';
+export const isMarkdown = (path: string) => fileKindOf(path) === 'markdown';
 export function copyName(path: string): string {
   const base = baseName(path);
   const dot = base.lastIndexOf('.');
