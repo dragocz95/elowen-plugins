@@ -520,7 +520,12 @@ class CronAdapter {
             userId: job.originUserId,
             ...(typeof job.originDeliveryTarget === 'string' ? { deliveryTarget: job.originDeliveryTarget } : {}),
           }
-        : (owner !== null ? { userId: owner } : undefined);
+        // An explicit notification channel WINS over ownership. Giving a job an owner must not silently
+        // redirect where it reports: these jobs exist to post into a specific room, and routing them into
+        // the owner's own conversation instead would quietly stop every one of those reports.
+        : (owner !== null && !(typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim())
+            ? { userId: owner }
+            : undefined);
       // A bound run replays INTO a real conversation, so frame the prompt: without this the model reads
       // its own schedule as the user speaking just now. (The channel fallback keeps its wake-up context
       // via access.prompt; this framing reads fine there too.)
@@ -582,11 +587,16 @@ class CronAdapter {
       // after adapter delivery; owner-chat bound sends keep their existing session confirmation. A failed
       // turn emits neither confirmation, so instance wake-ups can still fall back to the notification channel.
       if (boundDelivery && (origin?.deliveryTarget !== undefined || !trimmed.startsWith('Error:'))) continue;
-      // An owned job NEVER echoes to the notification channel: that channel belongs to the operator, and
-      // this result belongs to somebody else. When the bound delivery could not land (the owner has no
-      // conversation yet, or it changed hands) the outcome stays in the job's own last-result field,
-      // which is what its owner sees on the Automation page.
-      if (owner !== null) {
+      // An owned job does not echo to the operator's DEFAULT notification channel: that channel belongs
+      // to the operator and this result belongs to somebody else. When the bound delivery could not land
+      // (the owner has no conversation yet, or it changed hands) the outcome stays in the job's own
+      // last-result field, which is what its owner sees on the Automation page.
+      //
+      // A job that names its OWN channel is the exception, because that is an explicit destination
+      // chosen for this job rather than the operator's catch-all — and only an operator-level account is
+      // allowed to set one. Without this, giving an existing reporting job an owner would silently
+      // switch off the report the room depends on.
+      if (owner !== null && !(typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim())) {
         if (!boundDelivery) this.log.error(`cron job ${job.id} (${job.name}) could not reach its owner's conversation — result kept in the job's last result`);
         continue;
       }
@@ -802,18 +812,28 @@ export function register(ctx) {
    *  privileged capability they always had; CronAdd's instance scope is operator-only. A personal job is
    *  deliberately narrower because it runs unattended on the operator's machine at its owner's schedule. */
   const ownedJobError = (job, jobs) => {
-    if (typeof job.check === 'string' && job.check.trim()) {
-      return 'a shell check requires an instance job; CronAdd instance scope is operator-only';
-    }
-    if (typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim()) {
-      return 'personal jobs report into their own conversation; CronAdd notification channel delivery requires operator-only instance scope';
-    }
+    // The OPERATOR keeps every privileged capability on a job they own. These four limits exist so an
+    // ordinary account cannot schedule something that outruns its own authority while running unattended
+    // on the operator's machine — but the operator's authority already IS the instance's, so applying
+    // them to their jobs protects nothing. It only forces those jobs to stay ownerless, which is the
+    // worse outcome: an instance job runs under no account at all, cannot be attributed in the activity
+    // feed, and survives forever because there is no owner whose removal would clean it up.
+    // The per-account job count below still applies to everyone — that one is about resources.
+    const privileged = ctx.currentIdentity()?.owner === true;
     const parsed = parseSchedule(job.schedule);
-    // A 5-field cron expression can express "every minute" in ways a simple bound cannot catch, so the
-    // plain forms — which the interval floor below fully covers — are the ones offered per account.
-    if (parsed?.kind === 'cron') return 'cron expressions require operator-only instance scope — use "every 30m", "daily 07:30" or "weekly mon 09:00"';
-    if (parsed?.kind === 'interval' && parsed.ms < minIntervalMs) {
-      return `the shortest interval you can schedule is every ${Math.round(minIntervalMs / 60_000)}m`;
+    if (!privileged) {
+      if (typeof job.check === 'string' && job.check.trim()) {
+        return 'a shell check requires an instance job; CronAdd instance scope is operator-only';
+      }
+      if (typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim()) {
+        return 'personal jobs report into their own conversation; CronAdd notification channel delivery requires operator-only instance scope';
+      }
+      // A 5-field cron expression can express "every minute" in ways a simple bound cannot catch, so the
+      // plain forms — which the interval floor below fully covers — are the ones offered per account.
+      if (parsed?.kind === 'cron') return 'cron expressions require operator-only instance scope — use "every 30m", "daily 07:30" or "weekly mon 09:00"';
+      if (parsed?.kind === 'interval' && parsed.ms < minIntervalMs) {
+        return `the shortest interval you can schedule is every ${Math.round(minIntervalMs / 60_000)}m`;
+      }
     }
     const mine = jobs.filter((j) => ownerOf(j) === ownerOf(job) && j.id !== job.id).length;
     if (mine >= maxJobsPerUser) return `you already have ${maxJobsPerUser} scheduled jobs — remove one first`;

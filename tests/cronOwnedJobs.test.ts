@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import { runWithPolicy } from 'elowen/dist/plugins/policyContext.js';
@@ -382,5 +382,84 @@ describe('cron tools — scheduling for the account behind the turn', () => {
     }, { identity: boss });
 
     expect(readJobs(dataRoot).map((j) => j.id).sort()).toEqual(['amys', 'shared']);
+  });
+});
+
+// Instance jobs run under NO account: no project policy, no tool deny-list, nothing to attribute them to
+// in the activity feed, and nothing to clean them up. Taking ownership is the fix -- but the privileged
+// capabilities have to survive the move, or every existing job breaks the moment it gains an owner.
+describe('an operator owning their own jobs', () => {
+  const OPERATOR: TurnIdentity = { platform: 'elowen', userId: '1', elowenUserId: 1, admin: true, owner: true, conversation: 'own' } as TurnIdentity;
+
+  it('keeps the notification channel as the reply address instead of hijacking it', async () => {
+    const dataRoot = freshDataRoot();
+    const delivered: string[] = [];
+    writeJobs(dataRoot, [dueJob({ ownerUserId: 1, notifyChannelId: 'discord-42' })]);
+    const { adapter } = await loadCron(dataRoot, { admins: [1], notify: async (t) => { delivered.push(t); } });
+    let seen: SessionSource | undefined;
+    adapter.listen(async (src) => { seen = src; return 'the report'; });
+    await adapter.tick();
+
+    // The job still runs as its owner -- that is the whole point of taking ownership...
+    expect(seen?.access?.actAsUserId).toBe(1);
+    // ...but an explicit channel is an explicit destination. Routing it into the owner's own conversation
+    // instead would silently stop the report everyone in that room relies on.
+    expect(seen?.origin).toBeUndefined();
+    // Delivered to the channel with the usual job banner, exactly as it was before it had an owner.
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toContain('the report');
+  });
+
+  it('still delivers into the owner\'s conversation when no channel was named', async () => {
+    const dataRoot = freshDataRoot();
+    const delivered: string[] = [];
+    writeJobs(dataRoot, [dueJob({ ownerUserId: 1 })]);
+    const { adapter } = await loadCron(dataRoot, { admins: [1], notify: async (t) => { delivered.push(t); } });
+    let seen: SessionSource | undefined;
+    adapter.listen(async (src, _t, onEvent) => { seen = src; onEvent?.({ type: 'session', sessionId: 'brain-1' }); return 'r'; });
+    await adapter.tick();
+
+    expect(seen?.origin).toEqual({ userId: 1 });
+    expect(delivered).toEqual([]);
+  });
+
+  it('lets the operator keep a shell check and a channel on a job they own', async () => {
+    const dataRoot = freshDataRoot();
+    const { reg } = await loadCron(dataRoot, { admins: [1] });
+    const add = reg.tools.find((t) => t.name === 'CronAdd')!;
+
+    await runWithPolicy(ADMIN, async () => {
+      const out = asText(await add.execute('t', {
+        name: 'mine', scope: 'personal', schedule: 'every 5m', prompt: 'p',
+        check: 'curl -s example.com', notifyChannelId: 'discord-42',
+      }, undefined as never, undefined as never));
+      // Every one of these was operator-only before, which is precisely why these jobs had to stay
+      // ownerless. The operator's own authority already equals the instance's, so withholding them
+      // protected nothing.
+      expect(out).not.toContain('instance scope');
+      expect(out).not.toContain('shortest interval');
+    }, { identity: OPERATOR, sessionId: 'brain-1' });
+
+    const [job] = readJobs(dataRoot);
+    expect(job!.ownerUserId).toBe(1);
+    expect(job!.check).toBe('curl -s example.com');
+  });
+
+  it('still refuses all of it for an ordinary account', async () => {
+    const dataRoot = freshDataRoot();
+    const { reg } = await loadCron(dataRoot, { admins: [1] });
+    const add = reg.tools.find((t) => t.name === 'CronAdd')!;
+
+    await runWithPolicy(LIMITED, async () => {
+      const shell = asText(await add.execute('t', { name: 'a', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', check: 'rm -rf /' }, undefined as never, undefined as never));
+      expect(shell).toContain('instance scope');
+      const chan = asText(await add.execute('t', { name: 'b', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', notifyChannelId: 'discord-42' }, undefined as never, undefined as never));
+      expect(chan).toContain('instance scope');
+      const fast = asText(await add.execute('t', { name: 'c', scope: 'personal', schedule: 'every 5m', prompt: 'p' }, undefined as never, undefined as never));
+      expect(fast).toContain('shortest interval');
+    }, { identity: AMY, sessionId: 'brain-4' });
+
+    // Nothing was stored at all -- the plugin never even created the file.
+    expect(existsSync(jobsFile(dataRoot)) ? readJobs(dataRoot) : []).toEqual([]);
   });
 });
