@@ -805,6 +805,7 @@ export function register(ctx) {
 
   /** WHO owns a job: an account id, or null for an instance job. */
   const ownerOf = (job) => (typeof job?.ownerUserId === 'number' ? job.ownerUserId : null);
+
   /** The account behind the current turn, or null (an unlinked sender, a cron-of-cron turn). */
   const callerId = () => ctx.currentIdentity()?.elowenUserId ?? null;
 
@@ -812,14 +813,23 @@ export function register(ctx) {
    *  privileged capability they always had; CronAdd's instance scope is operator-only. A personal job is
    *  deliberately narrower because it runs unattended on the operator's machine at its owner's schedule. */
   const ownedJobError = (job, jobs) => {
-    // The OPERATOR keeps every privileged capability on a job they own. These four limits exist so an
+    // An OPERATOR keeps every privileged capability on a job they own. These four limits exist so an
     // ordinary account cannot schedule something that outruns its own authority while running unattended
     // on the operator's machine — but the operator's authority already IS the instance's, so applying
     // them to their jobs protects nothing. It only forces those jobs to stay ownerless, which is the
     // worse outcome: an instance job runs under no account at all, cannot be attributed in the activity
     // feed, and survives forever because there is no owner whose removal would clean it up.
     // The per-account job count below still applies to everyone — that one is about resources.
-    const privileged = ctx.currentIdentity()?.owner === true;
+    //
+    // Whose authority this is depends on WHO ends up owning the job. Writing your own job, the caller and
+    // the owner are the same person, so the turn's identity answers it directly. HANDING one over they are
+    // not: the operator's authority must not ride onto the recipient's record and leave them owning a
+    // shell check they could never have written themselves, so the destination account is asked instead
+    // — through the same predicate the scheduler re-checks before it runs that guard.
+    const owner = ownerOf(job);
+    const privileged = owner === callerId()
+      ? ctx.currentIdentity()?.owner === true
+      : ownerIsAdmin(owner);
     const parsed = parseSchedule(job.schedule);
     if (!privileged) {
       if (typeof job.check === 'string' && job.check.trim()) {

@@ -937,6 +937,39 @@ test('skills ownership transfer', async (t) => {
     assert.equal(existsSync(join(userDir, 'hers.md')), false, 'it must not reach the shared set');
   });
 
+  // `skillFileIn` reports the FLAT file when a name exists in both layouts, because that is what the
+  // loader shadows with. Moving on that answer would take the .md and leave `<name>/SKILL.md` behind,
+  // and the two copies would then register under one name in the same session.
+  await t.test('refuses to move a name that exists in both layouts, rather than moving half of it', async () => {
+    const { app, userDir, adminTok, amy } = setup();
+    const skillDir = join(userDir, 'twoform');
+    mkdirSync(join(skillDir, 'references'), { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), skillMd('twoform', 'Directory form.'));
+    writeFileSync(join(skillDir, 'references', 'notes.md'), 'keep me\n');
+    writeFileSync(join(userDir, 'twoform.md'), skillMd('twoform', 'Flat form.'));
+
+    const response = await app.request('/plugins/skills/twoform/owner?owner=instance', post(adminTok, { owner: String(amy.id) }));
+
+    assert.equal(response.status, 409);
+    // Neither copy moved: the support file is still beside the SKILL.md it belongs to.
+    assert.equal(existsSync(join(userDir, 'twoform.md')), true);
+    assert.equal(readFileSync(join(skillDir, 'references', 'notes.md'), 'utf-8'), 'keep me\n');
+    assert.equal(existsSync(join(userDir, 'users', String(amy.id), 'twoform.md')), false);
+  });
+
+  // A reserved name is shadowed by the core /plugins/:name/* route family in EVERY scope, so a skill
+  // carrying one could no longer be edited or deleted through the API wherever it landed.
+  await t.test('refuses to move a reserved name into any scope', async () => {
+    const { app, userDir, adminTok, amy } = setup();
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'config.md'), skillMd('config', 'Reserved.'));
+
+    const response = await app.request('/plugins/skills/config/owner?owner=instance', post(adminTok, { owner: String(amy.id) }));
+
+    assert.equal(response.status, 400);
+    assert.equal(existsSync(join(userDir, 'config.md')), true);
+  });
+
   await t.test('rejects a move that goes nowhere, and an unknown skill', async () => {
     const { app, userDir, adminTok } = setup();
     mkdirSync(userDir, { recursive: true });

@@ -205,8 +205,9 @@ function SkillsSettings({ surface }) {
   const skills = query.data ?? [];
   const editedSkill = (form) => form.editing === null ? void 0 : skills.find((skill) => skill.name === form.editing);
   const scopeSwitchable = (form) => {
+    if (form.editing === null) return true;
     const skill = editedSkill(form);
-    return skill === void 0 || skill.owner === null || skill.owner === myId;
+    return skill !== void 0 && (skill.owner === null || skill.owner === myId);
   };
   const userCount = skills.filter((skill) => skill.source === "user").length;
   const manualCount = skills.filter((skill) => skill.disableModelInvocation).length;
@@ -311,8 +312,24 @@ function SkillsSettings({ surface }) {
             { name, owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
             callbacks
           );
-          if (form.owner !== from) void moveSkill(name, from, form.owner).then(() => saveEdit(form.owner), callbacks.onError);
-          else saveEdit(from);
+          if (form.owner !== from) {
+            void moveSkill(name, from, form.owner).then(
+              () => update.mutate(
+                { name, owner: form.owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
+                {
+                  onSuccess: callbacks.onSuccess,
+                  // The move ALREADY landed, so a refused edit (an empty description, say) leaves the
+                  // skill in its new set with its old body. Refetch before reporting the error, or the
+                  // register goes on naming an owner the skill no longer has.
+                  onError: (e) => {
+                    query.refetch();
+                    callbacks.onError(e);
+                  }
+                }
+              ),
+              callbacks.onError
+            );
+          } else saveEdit(from);
         } else {
           create.mutate(
             { name: form.name.trim(), description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation, owner: form.owner },

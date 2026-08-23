@@ -57,10 +57,13 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
   const editedSkill = (form: SkillForm): PluginSkill | undefined =>
     (form.editing === null ? undefined : skills.find((skill) => skill.name === form.editing));
   /** A new skill, an instance-wide one, or the admin's own — see the switch's comment for why somebody
-   *  else's personal skill is excluded. */
+   *  else's personal skill is excluded. Fail CLOSED on an editing form whose skill is not in the list: a
+   *  refetch error or an in-flight invalidation empties it, and "unknown owner" must not read as
+   *  "switchable" — the form would show a foreign skill as "Only me" with that option already selected. */
   const scopeSwitchable = (form: SkillForm): boolean => {
+    if (form.editing === null) return true;
     const skill = editedSkill(form);
-    return skill === undefined || skill.owner === null || skill.owner === myId;
+    return skill !== undefined && (skill.owner === null || skill.owner === myId);
   };
   const userCount = skills.filter((skill) => skill.source === 'user').length;
   const manualCount = skills.filter((skill) => skill.disableModelInvocation).length;
@@ -171,8 +174,21 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
             // Move BEFORE saving the edit: the move is the step that can be refused (a name already taken
             // in the destination), and a refusal must leave the skill exactly as it was rather than
             // half-applied. Once it lands, the edit has to address the skill in its NEW set.
-            if (form.owner !== from) void moveSkill(name, from, form.owner).then(() => saveEdit(form.owner), callbacks.onError);
-            else saveEdit(from);
+            if (form.owner !== from) {
+              void moveSkill(name, from, form.owner).then(
+                () => update.mutate(
+                  { name, owner: form.owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
+                  {
+                    onSuccess: callbacks.onSuccess,
+                    // The move ALREADY landed, so a refused edit (an empty description, say) leaves the
+                    // skill in its new set with its old body. Refetch before reporting the error, or the
+                    // register goes on naming an owner the skill no longer has.
+                    onError: (e: unknown) => { query.refetch(); callbacks.onError(e); },
+                  },
+                ),
+                callbacks.onError,
+              );
+            } else saveEdit(from);
           } else {
             create.mutate(
               { name: form.name.trim(), description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation, owner: form.owner },

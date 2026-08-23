@@ -441,6 +441,7 @@ export function register(ctx) {
   ctx.registerApiRoute({
     rootMount: '/plugins/skills/:name', path: 'owner', method: 'POST', access: 'user',
     handler: async (req) => {
+      if (req.path !== '') return jsonRes({ error: 'not found' }, 404);
       const name = req.params.name ?? '';
       if (!NAME_RE.test(name)) return jsonRes({ error: 'invalid skill name' }, 400);
       if (skillFileIn(bundledDir, name)) return jsonRes({ error: 'bundled skills cannot be moved' }, 400);
@@ -455,14 +456,25 @@ export function register(ctx) {
       const dest = resolveOwnerSpec(raw, req.auth);
       if (dest === null || !dest.ok) return jsonRes({ error: dest?.invalid ? 'invalid owner' : 'forbidden' }, dest?.invalid ? 400 : 403);
       if (sameDir(source.dir, dest.dir)) return jsonRes({ error: 'the skill already belongs to that owner' }, 400);
-      // The instance set is a real directory whose subfolder `users/` IS the personal store. A skill
-      // called `users` landing there would be read as that store and take every personal set with it.
-      if (dest.owner === null && RESERVED_NAMES.has(name)) {
-        return jsonRes({ error: `"${name}" is reserved and cannot become an instance-wide skill` }, 400);
+      // Unconditional, exactly as POST refuses these names for every target. Two reasons, one per
+      // direction: the instance set's `users/` subfolder IS the personal store, so a skill called `users`
+      // landing there would be read as that store; and a reserved name in ANY scope is shadowed by the
+      // core `/plugins/:name/*` route family, leaving a skill that can no longer be edited or deleted
+      // through the API.
+      if (RESERVED_NAMES.has(name)) {
+        return jsonRes({ error: `"${name}" is reserved (it collides with a core /plugins route)` }, 400);
       }
       if (skillFileIn(dest.dir, name)) return jsonRes({ error: `a skill named "${name}" already exists there` }, 409);
       const collision = nameCollision(name, dest.owner, source.dir);
       if (collision) return jsonRes({ error: collision }, 409);
+      // A name can exist in BOTH layouts at once (`skillFileIn` reports the flat one, because that is
+      // what the loader shadows with). Moving is then ambiguous: taking the flat file alone would leave
+      // `<name>/SKILL.md` behind in the source scope, and the two copies would end up registered under
+      // one name in the same session — the exact collision every check here exists to prevent. Refuse
+      // and say which files, rather than move half of it.
+      if (existsSync(join(source.dir, `${name}.md`)) && existsSync(join(source.dir, name, 'SKILL.md'))) {
+        return jsonRes({ error: `"${name}" exists both as ${name}.md and ${name}/SKILL.md — remove one before moving it` }, 409);
+      }
       // Directory form travels whole; a flat skill is the single .md file.
       const dirForm = basename(file).toLowerCase() === 'skill.md';
       const from = dirForm ? dirname(file) : file;
