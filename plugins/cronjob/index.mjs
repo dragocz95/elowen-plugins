@@ -1025,6 +1025,16 @@ export function register(ctx) {
       // excluded — they fire exactly once, while lastRun is empty.
       const enabling = !job.runAt && edit.enabled !== false && (!prev || prev.enabled === false);
       if (enabling) delete runtime.lastSlot;
+      // Ownership CHANGED, so the origin binding has to go with it. `originSessionId` names the previous
+      // owner's conversation and wins over every other delivery rule at run time, so keeping it would
+      // leave the job reporting into the old owner's chat — a silent redirect nobody asked for and
+      // nobody can see in the job. Dropping it re-derives delivery from what the job says NOW: its
+      // notification channel if it has one, otherwise the new owner's own conversation.
+      if (prev && ownerOf(prev) !== ownerOf(edit)) {
+        delete runtime.originSessionId;
+        delete runtime.originUserId;
+        delete runtime.originDeliveryTarget;
+      }
       const saved = { ...edit, ...runtime, ...(enabling ? { lastRun: new Date().toISOString() } : {}) };
       store.save(prev ? jobs.map((j) => (j.id === job.id ? saved : j)) : [...jobs, saved]);
       return jsonRes({ ok: true });

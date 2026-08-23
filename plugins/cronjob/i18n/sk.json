@@ -103,6 +103,7 @@
       "ownerColumn": "Vlastník",
       "ownerInstance": "Všetci",
       "ownerMine": "Moje",
+      "ownerFieldHint": "Inštančná úloha beží bez účtu a hlási do svojho oznamovacieho kanála. Prevzatím pobeží s vašimi oprávneniami a bude hlásiť do vašej konverzácie.",
       "filterMine": "Moje",
       "filterInstance": "Inštančné"
     }

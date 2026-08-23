@@ -65,7 +65,7 @@ function DestinationField({ value, onChange, destinations }: { value: string; on
  *  last result); `draft` holds what the user is typing. When the server's copy changes and the row has no
  *  unsaved edit, the draft adopts it — otherwise a job the brain's cron tools changed behind this page's
  *  back would be shown stale and overwritten by the row's next save. */
-function CronJobRow({ job, persisted, ownerLabel, adminFields, destinations, models, selected, onSelect, onClose, onRemoved }: {
+function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destinations, models, selected, onSelect, onClose, onRemoved }: {
   job: CronJob;
   persisted: boolean;
   /** Who owns the job, for the admin's owner column; null hides the column (everyone else sees only their own). */
@@ -74,6 +74,8 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, destinations, mod
    *  on the host) and the destination channel (it belongs to the operator). The server refuses both on an
    *  owned job, so offering them to somebody whose save would be rejected is worse than not showing them. */
   adminFields: boolean;
+  /** The signed-in account, so "mine" on the owner switch names a real id rather than a guess. */
+  myId: number | null;
   destinations: NotificationDestinationOption[];
   models: BrainModelOption[];
   selected: boolean;
@@ -256,6 +258,24 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, destinations, mod
                 </span>
               </C.Field>
             </div>
+            {/* Only an admin may hand a job over, and only on a job that is instance-wide or already his:
+                on somebody else's, "Mine" would read as a label and act as taking it from them. Moving a
+                job also RE-DERIVES where it reports — the server drops the binding to the conversation it
+                was scheduled from, which belonged to the previous owner. */}
+            {adminFields && (job.ownerUserId == null || job.ownerUserId === myId) ? (
+              <C.Field label={s.ownerColumn} hint={s.ownerFieldHint}>
+                <C.Segmented
+                  value={draft.ownerUserId != null ? 'mine' : 'instance'}
+                  onChange={(value: string) => patch({ ownerUserId: value === 'mine' ? myId ?? undefined : null })}
+                  options={[
+                    { value: 'instance', label: s.ownerInstance },
+                    { value: 'mine', label: s.ownerMine },
+                  ]}
+                  aria-label={s.ownerColumn}
+                  nowrap
+                />
+              </C.Field>
+            ) : null}
             {adminFields ? (
               <C.Field label={s.check} hint={s.helpCheck}>
                 <textarea
@@ -408,6 +428,7 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
             persisted={saved.has(job.id)}
             ownerLabel={isAdmin ? (job.ownerUserId == null ? s.ownerInstance : job.ownerUserId === myId ? s.ownerMine : `#${job.ownerUserId}`) : null}
             adminFields={isAdmin}
+            myId={myId}
             destinations={destinations.data ?? []}
             models={models.data ?? []}
             selected={selectedId === job.id}

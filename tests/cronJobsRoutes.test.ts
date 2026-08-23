@@ -288,6 +288,43 @@ describe('cron jobs routes', () => {
     expect(still.find((j) => j.id === 'shared')?.name).toBe('instance job');
   });
 
+  // `originSessionId` names the conversation a job was scheduled FROM and beats every other delivery
+  // rule at run time. Handing the job to somebody else while it keeps that binding leaves it reporting
+  // into the previous owner's chat — invisible in the job, and nothing the new owner can see or fix.
+  it('unbinds a transferred job from the previous owner\'s conversation', async () => {
+    const { app, dataRoot, users, amy, adminTok } = setup();
+    users.setGrantedPlugins(amy.id, ['cronjob']);
+    seed(dataRoot, [job({
+      ownerUserId: 1,
+      originSessionId: 'brain-1-old',
+      originUserId: 1,
+      originDeliveryTarget: 'chat',
+      lastRun: '2026-07-02T06:00:00.000Z',
+    })]);
+
+    expect((await save(app, adminTok, job({ ownerUserId: amy.id }))).status).toBe(200);
+
+    const [saved] = onDisk(dataRoot) as Record<string, unknown>[];
+    expect(saved!.ownerUserId).toBe(amy.id);
+    expect(saved).not.toHaveProperty('originSessionId');
+    expect(saved).not.toHaveProperty('originUserId');
+    expect(saved).not.toHaveProperty('originDeliveryTarget');
+    // Only the delivery binding goes; the run state is untouched, so the job keeps its place in the
+    // schedule instead of firing again on the spot.
+    expect(saved!.lastRun).toBe('2026-07-02T06:00:00.000Z');
+  });
+
+  it('keeps the origin binding when an edit leaves ownership alone', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    seed(dataRoot, [job({ ownerUserId: 1, originSessionId: 'brain-1-old', originUserId: 1 })]);
+
+    expect((await save(app, adminTok, job({ ownerUserId: 1, prompt: 'Edited.' }))).status).toBe(200);
+
+    const [saved] = onDisk(dataRoot) as Record<string, unknown>[];
+    expect(saved!.prompt).toBe('Edited.');
+    expect(saved!.originSessionId).toBe('brain-1-old');
+  });
+
   // An owned job runs unattended on the operator's machine, so the capabilities that reach past its owner
   // are the admin's alone: a shell guard, a notification channel of someone else's, and schedules fast
   // enough (or expressive enough) to occupy the instance.

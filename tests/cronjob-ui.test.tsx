@@ -74,6 +74,39 @@ describe('cronjob JobsSettings — error state', () => {
     expect(screen.queryByText('her digest')).toBeNull();
   });
 
+  // Handing a job over is the admin's alone, and only on a job that is instance-wide or already his:
+  // on somebody else's, "Mine" would read as a label while acting as taking it from them.
+  it('lets the admin take an instance job, but not someone else\'s', async () => {
+    let saved: Record<string, unknown> | undefined;
+    use(
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([
+        job({ id: 'shared', name: 'instance digest' }),
+        job({ id: 'hers', name: 'her digest', ownerUserId: 9 }),
+      ])),
+      http.put('/api/plugins/cronjob/jobs/:id', async ({ request }) => {
+        saved = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+
+    // Scoped to the DRAWER: the scope filter above the table is also a radiogroup, also labelled
+    // "Owner", and also spells one of its options "Mine" — searched globally, it answers for the drawer.
+    const ownerSwitch = () => within(screen.getByRole('dialog')).queryByRole('radiogroup', { name: strings.ownerColumn });
+
+    fireEvent.click(await screen.findByText('her digest'));
+    await screen.findByText(strings.prompt);
+    expect(ownerSwitch()).toBeNull();
+
+    fireEvent.click(screen.getByText('instance digest'));
+    await screen.findByText(strings.prompt);
+    fireEvent.click(within(ownerSwitch()!).getByRole('radio', { name: strings.ownerMine }));
+
+    // It travels as the signed-in account; the daemon then re-derives where the job reports.
+    await waitFor(() => expect(saved?.ownerUserId).toBe(7));
+  });
+
   // The server refuses a shell guard and a destination channel on an owned job, so the form must not
   // offer either: a field whose save always comes back 400 is worse than no field.
   it('offers a non-admin none of the fields only an instance job may carry', async () => {
