@@ -173,8 +173,9 @@ var User = createLucideIcon("User", [
 // plugins/skills/web-src/SkillsSettings.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var EMPTY_FORM = { editing: null, name: "", description: "", body: "", disableModelInvocation: false, owner: null };
+var ownerParam = (owner) => owner === "instance" ? "instance" : owner === null ? "me" : String(owner);
 function SkillsSettings({ surface }) {
-  const { components: C, hooks, utils } = runtime();
+  const { components: C, hooks, utils, api } = runtime();
   const s = hooks.usePluginStrings("skills");
   const { t } = hooks.useTranslation();
   const { toast } = hooks.useToast();
@@ -193,11 +194,20 @@ function SkillsSettings({ surface }) {
       { onError: (e) => toast(utils.apiErrorMessage(e), "error") }
     );
   };
+  const moveSkill = (name, from, to) => api(
+    `/plugins/skills/${encodeURIComponent(name)}/owner?owner=${encodeURIComponent(ownerParam(from))}`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner: ownerParam(to) }) }
+  );
   const ownerLabel = (skill) => {
     if (skill.owner === null) return s.ownerInstance;
     return skill.owner === myId ? s.ownerMine : `#${skill.owner}`;
   };
   const skills = query.data ?? [];
+  const editedSkill = (form) => form.editing === null ? void 0 : skills.find((skill) => skill.name === form.editing);
+  const scopeSwitchable = (form) => {
+    const skill = editedSkill(form);
+    return skill === void 0 || skill.owner === null || skill.owner === myId;
+  };
   const userCount = skills.filter((skill) => skill.source === "user").length;
   const manualCount = skills.filter((skill) => skill.disableModelInvocation).length;
   const addButton = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: Plus, onClick: () => setCreating(true), children: s.add });
@@ -265,7 +275,7 @@ function SkillsSettings({ surface }) {
         }
       ),
       renderFieldsAfterBody: (form, patch) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        isAdmin && form.editing === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.scopeFieldLabel, hint: s.scopeFieldHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        isAdmin && scopeSwitchable(form) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.scopeFieldLabel, hint: form.editing === null ? s.scopeFieldHint : s.scopeMoveHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           C.Segmented,
           {
             value: form.owner === "instance" ? "instance" : "personal",
@@ -295,10 +305,14 @@ function SkillsSettings({ surface }) {
       ] }),
       onSave: (form, callbacks) => {
         if (form.editing !== null) {
-          update.mutate(
-            { name: form.editing, owner: form.owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
+          const name = form.editing;
+          const from = editedSkill(form) ? targetOwner(editedSkill(form)) : form.owner;
+          const saveEdit = (owner) => update.mutate(
+            { name, owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
             callbacks
           );
+          if (form.owner !== from) void moveSkill(name, from, form.owner).then(() => saveEdit(form.owner), callbacks.onError);
+          else saveEdit(from);
         } else {
           create.mutate(
             { name: form.name.trim(), description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation, owner: form.owner },

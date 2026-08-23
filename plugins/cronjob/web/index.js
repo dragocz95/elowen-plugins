@@ -273,7 +273,7 @@ function DestinationField({ value, onChange, destinations }) {
     )
   ] });
 }
-function CronJobRow({ job, persisted, ownerLabel, adminFields, destinations, models, selected, onSelect, onClose, onRemoved }) {
+function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destinations, models, selected, onSelect, onClose, onRemoved }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("cronjob");
   const { t } = hooks.useTranslation();
@@ -383,6 +383,19 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, destinations, mod
         ] }) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.header, hint: s.helpHeader, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "flex h-9 items-center text-sm text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: draft.plain !== true, onChange: (v) => patch({ plain: v ? void 0 : true }), label: `${name}: ${s.header}` }) }) })
       ] }),
+      adminFields && (job.ownerUserId == null || job.ownerUserId === myId) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.ownerColumn, hint: s.ownerFieldHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Segmented,
+        {
+          value: draft.ownerUserId != null ? "mine" : "instance",
+          onChange: (value) => patch({ ownerUserId: value === "mine" ? myId ?? void 0 : null }),
+          options: [
+            { value: "instance", label: s.ownerInstance },
+            { value: "mine", label: s.ownerMine }
+          ],
+          "aria-label": s.ownerColumn,
+          nowrap: true
+        }
+      ) }) : null,
       adminFields ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.check, hint: s.helpCheck, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "textarea",
         {
@@ -512,6 +525,7 @@ function JobsSettings({ surface }) {
               persisted: saved.has(job.id),
               ownerLabel: isAdmin ? job.ownerUserId == null ? s.ownerInstance : job.ownerUserId === myId ? s.ownerMine : `#${job.ownerUserId}` : null,
               adminFields: isAdmin,
+              myId,
               destinations: destinations.data ?? [],
               models: models.data ?? [],
               selected: selectedId === job.id,
