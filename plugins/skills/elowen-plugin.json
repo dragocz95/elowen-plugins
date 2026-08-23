@@ -87,6 +87,7 @@
       "scopeFieldPersonal": "Only me",
       "scopeFieldInstance": "Everyone",
       "scopeFieldHint": "A personal skill is loaded only into your own conversations. An instance skill is loaded into everyone’s.",
+      "scopeMoveHint": "Changing this moves the skill file to the other set.",
       "workspaceEyebrow": "Skills",
       "workspaceReady": "Skills loaded"
     }

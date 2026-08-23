@@ -40,7 +40,8 @@
       "scopeFieldLabel": "Viditelné pro",
       "scopeFieldPersonal": "Jen pro mě",
       "scopeFieldInstance": "Pro všechny",
-      "scopeFieldHint": "Osobní dovednost se načítá jen do vašich konverzací. Instanční se načítá všem."
+      "scopeFieldHint": "Osobní dovednost se načítá jen do vašich konverzací. Instanční se načítá všem.",
+      "scopeMoveHint": "Změnou se soubor dovednosti přesune do druhé sady."
     }
   }
 }

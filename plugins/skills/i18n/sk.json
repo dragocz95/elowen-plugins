@@ -40,7 +40,8 @@
       "scopeFieldLabel": "Viditeľné pre",
       "scopeFieldPersonal": "Len pre mňa",
       "scopeFieldInstance": "Pre všetkých",
-      "scopeFieldHint": "Osobná zručnosť sa načítava len do vašich konverzácií. Inštančná sa načítava všetkým."
+      "scopeFieldHint": "Osobná zručnosť sa načítava len do vašich konverzácií. Inštančná sa načítava všetkým.",
+      "scopeMoveHint": "Zmenou sa súbor zručnosti presunie do druhej sady."
     }
   }
 }

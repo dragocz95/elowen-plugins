@@ -12,8 +12,11 @@ const EMPTY_FORM: SkillForm = { editing: null, name: '', description: '', body: 
  *  skills are one .md file each and can be created, edited and deleted here. Changes hot-reload the
  *  plugins, so NEW brain conversations pick them up immediately. The `disable-model-invocation` toggle
  *  hides a skill from progressive disclosure while keeping it reachable via /skill:name. */
+/** The `?owner=` / body value naming a set: an account id, the shared set, or the caller's own. */
+const ownerParam = (owner: SkillOwner): string => (owner === 'instance' ? 'instance' : owner === null ? 'me' : String(owner));
+
 export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
-  const { components: C, hooks, utils } = runtime();
+  const { components: C, hooks, utils, api } = runtime();
   const s = hooks.usePluginStrings('skills');
   const { t } = hooks.useTranslation();
   const { toast } = hooks.useToast();
@@ -38,12 +41,27 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
     );
   };
 
+  /** Move a skill to another set. Separate from the PATCH that saves an edit, because on the daemon it
+   *  is a filesystem move that can be refused on its own (a name already taken in the destination). */
+  const moveSkill = (name: string, from: SkillOwner, to: SkillOwner) => api(
+    `/plugins/skills/${encodeURIComponent(name)}/owner?owner=${encodeURIComponent(ownerParam(from))}`,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ owner: ownerParam(to) }) },
+  );
+
   const ownerLabel = (skill: PluginSkill): string => {
     if (skill.owner === null) return s.ownerInstance;
     return skill.owner === myId ? s.ownerMine : `#${skill.owner}`;
   };
 
   const skills: PluginSkill[] = query.data ?? [];
+  const editedSkill = (form: SkillForm): PluginSkill | undefined =>
+    (form.editing === null ? undefined : skills.find((skill) => skill.name === form.editing));
+  /** A new skill, an instance-wide one, or the admin's own — see the switch's comment for why somebody
+   *  else's personal skill is excluded. */
+  const scopeSwitchable = (form: SkillForm): boolean => {
+    const skill = editedSkill(form);
+    return skill === undefined || skill.owner === null || skill.owner === myId;
+  };
   const userCount = skills.filter((skill) => skill.source === 'user').length;
   const manualCount = skills.filter((skill) => skill.disableModelInvocation).length;
 
@@ -112,10 +130,11 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
         )}
         renderFieldsAfterBody={(form: SkillForm, patch: (p: Partial<SkillForm>) => void) => (
           <>
-            {/* Only an admin may write the shared set, and only while creating: moving an existing skill
-                between sets is a different operation (two files) than editing one. */}
-            {isAdmin && form.editing === null ? (
-              <C.Field label={s.scopeFieldLabel} hint={s.scopeFieldHint}>
+            {/* Only an admin may write the shared set. On an EXISTING skill this switch moves the file, so
+                it is offered only for a skill that is instance-wide or the admin's own: for somebody
+                else's personal skill "Only me" would read as a label and act as a transfer to the admin. */}
+            {isAdmin && scopeSwitchable(form) ? (
+              <C.Field label={s.scopeFieldLabel} hint={form.editing === null ? s.scopeFieldHint : s.scopeMoveHint}>
                 <C.Segmented
                   value={form.owner === 'instance' ? 'instance' : 'personal'}
                   onChange={(value: string) => patch({ owner: value === 'instance' ? 'instance' : null })}
@@ -143,10 +162,17 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
         )}
         onSave={(form: SkillForm, callbacks: { onSuccess: () => void; onError: (e: unknown) => void }) => {
           if (form.editing !== null) {
-            update.mutate(
-              { name: form.editing, owner: form.owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
+            const name = form.editing;
+            const from = editedSkill(form) ? targetOwner(editedSkill(form)!) : form.owner;
+            const saveEdit = (owner: SkillOwner) => update.mutate(
+              { name, owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
               callbacks,
             );
+            // Move BEFORE saving the edit: the move is the step that can be refused (a name already taken
+            // in the destination), and a refusal must leave the skill exactly as it was rather than
+            // half-applied. Once it lands, the edit has to address the skill in its NEW set.
+            if (form.owner !== from) void moveSkill(name, from, form.owner).then(() => saveEdit(form.owner), callbacks.onError);
+            else saveEdit(from);
           } else {
             create.mutate(
               { name: form.name.trim(), description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation, owner: form.owner },

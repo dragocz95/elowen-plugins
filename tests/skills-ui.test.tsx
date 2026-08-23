@@ -140,6 +140,54 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     expect(mounted.container.querySelectorAll('[aria-selected="true"]')).toHaveLength(1);
   });
 
+  // Moving a skill between sets is a filesystem move on the daemon, so the editor must call the transfer
+  // route rather than folding the new owner into the PATCH that saves the edit.
+  it('moves a skill to the other set before saving the edit', async () => {
+    const calls: string[] = [];
+    let moveBody: unknown;
+    use(
+      http.get('/api/plugins/skills/list', () => HttpResponse.json([skillRow('alpha', false, 7)])),
+      http.post('/api/plugins/skills/alpha/owner', async ({ request, url }) => {
+        calls.push(`move:${url.searchParams.get('owner')}`);
+        moveBody = await request.json();
+        return HttpResponse.json({ ok: true, owner: null });
+      }),
+      http.patch('/api/plugins/skills/alpha', ({ url }) => {
+        calls.push(`patch:${url.searchParams.get('owner')}`);
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    mount();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'alpha' }));
+    const form = within(await screen.findByRole('dialog'));
+    fireEvent.click(form.getByRole('radio', { name: strings.scopeFieldInstance }));
+    fireEvent.click(form.getByRole('button', { name: strings.save }));
+
+    await waitFor(() => expect(calls).toHaveLength(2));
+    // The move runs FIRST — a refused move must leave the skill as it was, not half-edited — and it says
+    // where the skill is NOW; the edit then addresses it in the set it just landed in.
+    expect(calls).toEqual(['move:7', 'patch:instance']);
+    expect(moveBody).toEqual({ owner: 'instance' });
+  });
+
+  // Somebody else's personal skill stays editable by an admin but must not offer the scope switch: its
+  // "Only me" option would read as a label and act as a transfer of her skill to him.
+  it('offers the scope switch on an own skill but not on another account\'s', async () => {
+    use(http.get('/api/plugins/skills/list', () => HttpResponse.json([skillRow('mine', false, 7), skillRow('hers', false, 9)])));
+    mount();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'mine' }));
+    expect(within(await screen.findByRole('dialog')).getByRole('radio', { name: strings.scopeFieldInstance })).toBeInTheDocument();
+    cleanup();
+
+    use(http.get('/api/plugins/skills/list', () => HttpResponse.json([skillRow('hers', false, 9)])));
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'hers' }));
+    const foreign = within(await screen.findByRole('dialog'));
+    expect(foreign.queryByRole('radio', { name: strings.scopeFieldInstance })).toBeNull();
+  });
+
   // The daemon decides who may write which skill; a row this caller cannot write must not offer controls
   // whose request would come back 403 — but it is still a CUSTOM skill, not a built-in one.
   it('shows a skill the caller may not write as read-only, without calling it built-in', async () => {
