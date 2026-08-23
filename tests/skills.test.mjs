@@ -869,6 +869,85 @@ test('skills routes', async (t) => {
   });
 });
 
+// ═══ suite 4 — moving a skill between scopes ═════════════════════════════════════════════════════════
+// A transfer is a filesystem MOVE, not a field flip, so what it must not do is lose a file or let a skill
+// arrive somewhere it could never have been created.
+test('skills ownership transfer', async (t) => {
+  t.after(cleanup);
+
+  const moveTo = (token, owner) => post(token, { owner });
+
+  await t.test('moves an instance skill into an account\'s personal set', async () => {
+    const { app, userDir, adminTok, amy } = setup();
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'movable.md'), skillMd('movable', 'Movable.'));
+
+    const response = await app.request(`/plugins/skills/movable/owner?owner=instance`, moveTo(adminTok, String(amy.id)));
+
+    assert.equal(response.status, 200);
+    assert.deepStrictEqual(await response.json(), { ok: true, owner: amy.id });
+    assert.equal(existsSync(join(userDir, 'movable.md')), false, 'it must LEAVE the instance set');
+    assert.equal(existsSync(join(userDir, 'users', String(amy.id), 'movable.md')), true);
+  });
+
+  // The whole point of moving the folder rather than the markdown: SKILL.md resolves its references
+  // against its own directory, so a move that left them behind would produce a skill pointing at nothing.
+  await t.test('carries a directory-form skill\'s support files with it', async () => {
+    const { app, userDir, adminTok, amy } = setup();
+    const skillDir = join(userDir, 'nested-move');
+    mkdirSync(join(skillDir, 'references'), { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), skillMd('nested-move', 'Nested.'));
+    writeFileSync(join(skillDir, 'references', 'notes.md'), 'keep me\n');
+
+    assert.equal((await app.request('/plugins/skills/nested-move/owner?owner=instance', moveTo(adminTok, String(amy.id)))).status, 200);
+
+    const moved = join(userDir, 'users', String(amy.id), 'nested-move');
+    assert.equal(existsSync(skillDir), false, 'the source folder must be gone, not half-emptied');
+    assert.equal(readFileSync(join(moved, 'references', 'notes.md'), 'utf-8'), 'keep me\n');
+    assert.ok(readFileSync(join(moved, 'SKILL.md'), 'utf-8').includes('nested-move'));
+  });
+
+  await t.test('refuses to overwrite a skill the destination already has', async () => {
+    const { app, userDir, adminTok, amy } = setup();
+    const amyDir = join(userDir, 'users', String(amy.id));
+    mkdirSync(amyDir, { recursive: true });
+    writeFileSync(join(userDir, 'clash.md'), skillMd('clash', 'Instance one.'));
+    writeFileSync(join(amyDir, 'clash.md'), skillMd('clash', 'Hers.'));
+
+    const response = await app.request('/plugins/skills/clash/owner?owner=instance', moveTo(adminTok, String(amy.id)));
+
+    assert.equal(response.status, 409);
+    assert.ok(readFileSync(join(amyDir, 'clash.md'), 'utf-8').includes('Hers.'), 'hers must survive untouched');
+    assert.equal(existsSync(join(userDir, 'clash.md')), true, 'and the source must stay put');
+  });
+
+  // Instance-wide skills land in EVERY session's prompt, so promoting one is admin authority — the same
+  // rule POST enforces. A granted account may still move her own skill around her own scope.
+  await t.test('refuses a non-admin promoting her own skill to the instance set', async () => {
+    const { app, userDir, users, amy, amyTok } = setup();
+    users.setGrantedPlugins(amy.id, ['skills']);
+    const amyDir = join(userDir, 'users', String(amy.id));
+    mkdirSync(amyDir, { recursive: true });
+    writeFileSync(join(amyDir, 'hers.md'), skillMd('hers', 'Hers.'));
+
+    const response = await app.request('/plugins/skills/hers/owner?owner=me', moveTo(amyTok, 'instance'));
+
+    assert.equal(response.status, 403);
+    assert.equal(existsSync(join(amyDir, 'hers.md')), true);
+    assert.equal(existsSync(join(userDir, 'hers.md')), false, 'it must not reach the shared set');
+  });
+
+  await t.test('rejects a move that goes nowhere, and an unknown skill', async () => {
+    const { app, userDir, adminTok } = setup();
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'staying.md'), skillMd('staying', 'Staying.'));
+
+    assert.equal((await app.request('/plugins/skills/staying/owner?owner=instance', moveTo(adminTok, 'instance'))).status, 400);
+    assert.equal((await app.request('/plugins/skills/ghost/owner?owner=instance', moveTo(adminTok, 'me'))).status, 404);
+    assert.equal(existsSync(join(userDir, 'staying.md')), true);
+  });
+});
+
 test('skills manifest and marketplace registry expose the same release version', () => {
   const registry = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
   const catalog = registry.plugins.find((plugin) => plugin.name === 'skills');

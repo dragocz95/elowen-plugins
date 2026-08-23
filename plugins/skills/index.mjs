@@ -7,7 +7,7 @@ import { Type } from 'typebox';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, basename, resolve, sep } from 'node:path';
-import { writeFileSync, unlinkSync, rmSync, rmdirSync, existsSync, statSync, readFileSync, readdirSync, mkdirSync, realpathSync } from 'node:fs';
+import { writeFileSync, unlinkSync, rmSync, rmdirSync, existsSync, statSync, readFileSync, readdirSync, mkdirSync, realpathSync, renameSync } from 'node:fs';
 
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -181,14 +181,19 @@ export function register(ctx) {
    *  the sets a single session sees, in BOTH directions: a personal skill may not shadow an instance one,
    *  and an instance skill may not shadow somebody's personal one — either way two files would register
    *  under one name and fight over the same slot in that person's prompt. */
-  const nameCollision = (name, targetOwner) => {
+  const sameDir = (a, b) => a !== null && b !== null && canonicalPath(a) === canonicalPath(b);
+  /** `fromDir` is set only by a TRANSFER, and names the dir the skill is LEAVING. Without it every move
+   *  would collide with itself: the file being moved is still on disk in the source scope, and that is
+   *  exactly the scope this check searches. */
+  const nameCollision = (name, targetOwner, fromDir = null) => {
     if (skillFileIn(bundledDir, name)) return `a bundled skill named "${name}" already exists`;
     if (targetOwner !== null) {
+      if (sameDir(fromDir, instanceDir)) return null; // moving OUT of the instance set
       return skillFileIn(instanceDir, name) ? `an instance-wide skill named "${name}" already exists` : null;
     }
     // Writing the instance set: it lands in EVERY session, including the sessions of the people who
     // already own a personal skill by that name.
-    const clash = skillOwnerIds().find((id) => skillFileIn(userSkillsDir(id), name));
+    const clash = skillOwnerIds().find((id) => !sameDir(fromDir, userSkillsDir(id)) && skillFileIn(userSkillsDir(id), name));
     return clash === undefined ? null : `an account already has a personal skill named "${name}" — pick another name`;
   };
 
@@ -264,11 +269,13 @@ export function register(ctx) {
   // target above, so a client written before ownership keeps writing where it always did. Reaching
   // another account's skills — or writing the instance set — is admin-only, and the refusal is the same
   // shape either way so a non-admin cannot probe which accounts exist.
-  const resolveTarget = (req) => {
-    const raw = typeof req.query?.owner === 'string' ? req.query.owner.trim() : '';
-    const me = req.auth.userId;
+  /** Resolve an owner SPEC to a skills dir, or null when the spec is absent. Both the `owner` query of a
+   *  read/write and the DESTINATION of a transfer go through here, so a scope can never be reached by one
+   *  route under weaker authority than by another. */
+  const resolveOwnerSpec = (raw, auth) => {
+    const me = auth.userId;
     if (raw === 'instance') {
-      return req.auth.admin ? { ok: true, owner: null, dir: instanceDir } : { ok: false };
+      return auth.admin ? { ok: true, owner: null, dir: instanceDir } : { ok: false };
     }
     if (raw === 'me') {
       return me === null ? { ok: false } : { ok: true, owner: me, dir: userSkillsDir(me) };
@@ -276,14 +283,19 @@ export function register(ctx) {
     if (raw !== '') {
       if (!/^[0-9]+$/.test(raw)) return { ok: false, invalid: true };
       const id = Number(raw);
-      if (id !== me && !req.auth.admin) return { ok: false };
+      if (id !== me && !auth.admin) return { ok: false };
       // The id has to name a REAL account. Otherwise a typo mints a folder for a person who does not
       // exist, and every later load enumerates it as somebody's skill set. Refused exactly like another
       // account's set, so a probe cannot tell a missing account from one it may not touch.
       if (id !== me && !accountExists(id)) return { ok: false };
       return { ok: true, owner: id, dir: userSkillsDir(id) };
     }
-    return legacyTarget(req.auth.admin, me);
+    return null;
+  };
+
+  const resolveTarget = (req) => {
+    const raw = typeof req.query?.owner === 'string' ? req.query.owner.trim() : '';
+    return resolveOwnerSpec(raw, req.auth) ?? legacyTarget(req.auth.admin, req.auth.userId);
   };
 
   /** Whether an account id still exists. A failing read answers "no": minting a personal folder needs a
@@ -418,6 +430,51 @@ export function register(ctx) {
       if (parent !== target.dir) { try { rmdirSync(parent); } catch { /* not empty → keep */ } }
       ctx.requestReload?.();
       return jsonRes({ ok: true });
+    },
+  });
+
+  // Move a skill between scopes (personal ↔ instance ↔ another account). `?owner=` names where it is NOW,
+  // the body's `owner` where it should end up — both resolved through the same authority check, so this
+  // route cannot reach a scope that POST/PATCH would refuse. A transfer is a filesystem MOVE, not a field
+  // flip: a directory-form skill travels as its whole folder, because its SKILL.md references support
+  // files (references/, scripts/) that would be orphaned if only the markdown moved.
+  ctx.registerApiRoute({
+    rootMount: '/plugins/skills/:name', path: 'owner', method: 'POST', access: 'user',
+    handler: async (req) => {
+      const name = req.params.name ?? '';
+      if (!NAME_RE.test(name)) return jsonRes({ error: 'invalid skill name' }, 400);
+      if (skillFileIn(bundledDir, name)) return jsonRes({ error: 'bundled skills cannot be moved' }, 400);
+      const source = resolveTarget(req);
+      if (!source.ok) return jsonRes({ error: source.invalid ? 'invalid owner' : 'forbidden' }, source.invalid ? 400 : 403);
+      const file = skillFileIn(source.dir, name);
+      if (!file) return jsonRes({ error: 'unknown skill' }, 404);
+      let b;
+      try { b = await req.json(); } catch { b = null; }
+      const raw = typeof b?.owner === 'string' ? b.owner.trim() : (typeof b?.owner === 'number' ? String(b.owner) : '');
+      if (raw === '') return jsonRes({ error: 'owner is required: "instance", "me" or an account id' }, 400);
+      const dest = resolveOwnerSpec(raw, req.auth);
+      if (dest === null || !dest.ok) return jsonRes({ error: dest?.invalid ? 'invalid owner' : 'forbidden' }, dest?.invalid ? 400 : 403);
+      if (sameDir(source.dir, dest.dir)) return jsonRes({ error: 'the skill already belongs to that owner' }, 400);
+      // The instance set is a real directory whose subfolder `users/` IS the personal store. A skill
+      // called `users` landing there would be read as that store and take every personal set with it.
+      if (dest.owner === null && RESERVED_NAMES.has(name)) {
+        return jsonRes({ error: `"${name}" is reserved and cannot become an instance-wide skill` }, 400);
+      }
+      if (skillFileIn(dest.dir, name)) return jsonRes({ error: `a skill named "${name}" already exists there` }, 409);
+      const collision = nameCollision(name, dest.owner, source.dir);
+      if (collision) return jsonRes({ error: collision }, 409);
+      // Directory form travels whole; a flat skill is the single .md file.
+      const dirForm = basename(file).toLowerCase() === 'skill.md';
+      const from = dirForm ? dirname(file) : file;
+      const to = join(dest.dir, dirForm ? name : `${name}.md`);
+      mkdirSync(dest.dir, { recursive: true });
+      try { renameSync(from, to); }
+      catch (e) {
+        ctx.logger.warn(`could not move skill '${name}': ${e instanceof Error ? e.message : e}`);
+        return jsonRes({ error: 'the skill could not be moved' }, 500);
+      }
+      ctx.requestReload?.(); // it leaves one prompt and enters another — apply live
+      return jsonRes({ ok: true, owner: dest.owner });
     },
   });
 
