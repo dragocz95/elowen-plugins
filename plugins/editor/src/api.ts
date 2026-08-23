@@ -12,7 +12,7 @@ const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg
 function projectFor(ctx: PluginContext, req: PluginApiRequest): { path: string } | PluginHttpResponse {
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) return { status: 404, body: { error: 'project not found' } };
-  if (req.auth.accessibleProjects !== null && !req.auth.accessibleProjects.includes(id)) return { status: 403, body: { error: 'forbidden' } };
+  if (req.auth.accessibleProjects === null ? !req.auth.admin : !req.auth.accessibleProjects.includes(id)) return { status: 403, body: { error: 'forbidden' } };
   const project = ctx.host.stores().projects.get(id);
   return project ? project : { status: 404, body: { error: 'project not found' } };
 }
