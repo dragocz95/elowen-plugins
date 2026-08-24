@@ -6,7 +6,7 @@ import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
 import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } from './display.mjs';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
-import { resolveImageFiles, imageMimeType } from 'elowen-plugin-shared/images';
+import { resolveImageFiles, imageMimeType, resolveSharedFiles, fileMimeType } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
 import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
@@ -22,6 +22,8 @@ const MAX_IMAGES = 4;                    // default vision cap per message (cfg:
 const MAX_FILE_BYTES = 25 * 1024 * 1024; // default: a larger document is noted, not downloaded (cfg: maxFileBytes)
 const MAX_FILES = 5;                     // default general-file uploads accepted per message (cfg: maxFiles)
 const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per outgoing message (cfg: maxUploadImages)
+const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per outgoing message — no config key: the
+                                         // agent chooses what to share, so this is a transport bound, not a preference
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper's per-file limit — larger clips are just noted
 const TTS_MAX_CHARS = 4000;              // cap the spoken text (OpenAI TTS input limit is 4096)
 const SELECT_PAGE = 25;                  // Discord StringSelect hard cap — the /model + /context picker page size
@@ -85,13 +87,14 @@ async function collectAttachments(list, maxImageBytes, maxImages, maxFileBytes, 
 
 export class DiscordAdapter {
   name = 'discord';
-  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => []) {
+  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
     this.cfg = cfg;
     this.log = logger;
     this.state = state;
     this.listModels = listModels;
     this.resolveProvider = resolveProvider; // central brain-provider key resolver (voice STT/TTS)
     this.imageDirs = imageDirs; // where the image-gen/image-edit plugins store their generated files
+    this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.answerQuestion = answerQuestion; // deliver a parked AskUserQuestion answer back to the turn
     this.chatCommands = chatCommands; // () => core names/descriptions/kind — presentation/dispatch is local
     this.pendingAsks = new Map(); // id → { channelId, messageId, questions, askerId, selected, awaitingText }
@@ -471,7 +474,12 @@ export class DiscordAdapter {
     // parked turn hangs until the timeout. Route events through the stream when present, else handle only `ask`.
     const onEvent = stream
       ? (e) => stream.onEvent(e)
-      : (e) => { if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(m.channel_id, m.id, m.author.id, e.id, e.questions).catch(() => {}); };
+      : (e) => {
+        if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(m.channel_id, m.id, m.author.id, e.id, e.questions).catch(() => {});
+        // A question raised with streaming off must still be RETIRED when the core settles it, or this
+        // path keeps the very live-buttons-forever defect the streamed path just stopped having.
+        else if (e.type === 'ask_resolved' && e.id) void this.resolveAsk(m.channel_id, e.id, e.reason).catch(() => {});
+      };
     const typing = setInterval(() => void this.rest('POST', `/channels/${m.channel_id}/typing`, {}).catch(() => {}), 8000);
     void this.rest('POST', `/channels/${m.channel_id}/typing`, {}).catch(() => {});
     if (reactions) void this.react(m.channel_id, m.id, '👀').catch(() => {}); // status: seen
@@ -529,7 +537,10 @@ export class DiscordAdapter {
     const stream = observesLiveEvents(display, this.cfg) ? new LiveMessage(this, channelId, undefined, author.id, display) : null;
     const onEvent = stream
       ? (e) => stream.onEvent(e)
-      : (e) => { if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(channelId, undefined, author.id, e.id, e.questions).catch(() => {}); };
+      : (e) => {
+        if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(channelId, undefined, author.id, e.id, e.questions).catch(() => {});
+        else if (e.type === 'ask_resolved' && e.id) void this.resolveAsk(channelId, e.id, e.reason).catch(() => {});
+      };
     const typing = setInterval(() => void this.rest('POST', `/channels/${channelId}/typing`, {}).catch(() => {}), 8000);
     void this.rest('POST', `/channels/${channelId}/typing`, {}).catch(() => {});
     try {
@@ -840,20 +851,40 @@ export class DiscordAdapter {
     return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
   }
 
-  /** Multipart message post: text + attached image files (Discord renders uploads; a relative daemon
-   *  link would be dead text). Same auth + 429 retry discipline as rest(). */
-  async uploadImages(channelId, content, files, attempt = 0, extra = {}) {
+  /** Load the bytes behind the `file` events of this turn — the counterpart of resolveImageFiles for a
+   *  file the agent shared on purpose (ShareFile). Its `ref` is a relative daemon URL, dead text on
+   *  Discord, so the bytes are uploaded instead. Without a configured dir there is nothing to read and
+   *  the answer text goes out alone (bare test fakes construct the adapter without one). */
+  resolveSharedFiles(refs) {
+    if (!this.chatFilesDir) return [];
+    return resolveSharedFiles(this.chatFilesDir, refs, MAX_UPLOAD_FILES);
+  }
+
+  /** Multipart message post: text + attached files, with `mimeFor` deciding each part's declared type.
+   *  Same auth + 429 retry discipline as rest(). */
+  async uploadAttachments(channelId, content, files, mimeFor, attempt = 0, extra = {}) {
     const form = new FormData();
     form.append('payload_json', JSON.stringify({ content, ...extra }));
-    files.forEach((f, i) => form.append(`files[${i}]`, new Blob([f.data], { type: imageMimeType(f.name) }), f.name));
+    files.forEach((f, i) => form.append(`files[${i}]`, new Blob([f.data], { type: mimeFor(f.name) }), f.name));
     const res = await fetch(`${this.api}/channels/${channelId}/messages`, {
       method: 'POST',
       headers: { authorization: `Bot ${this.cfg.botToken}` }, // content-type: fetch sets the multipart boundary
       body: form,
     });
-    if (await this.retryAfter(res, attempt)) return this.uploadImages(channelId, content, files, attempt + 1, extra);
+    if (await this.retryAfter(res, attempt)) return this.uploadAttachments(channelId, content, files, mimeFor, attempt + 1, extra);
     if (!res.ok) throw new Error(`discord API POST /channels/${channelId}/messages (upload) → HTTP ${res.status}`);
     return res.json();
+  }
+
+  /** Attach generated/shared IMAGES (Discord renders uploads; a relative daemon link would be dead text). */
+  uploadImages(channelId, content, files, attempt = 0, extra = {}) {
+    return this.uploadAttachments(channelId, content, files, imageMimeType, attempt, extra);
+  }
+
+  /** Attach general shared FILES. Same transport as an image upload — the only thing that differs is the
+   *  declared content type, which is what decides whether Discord previews a PDF or offers a download. */
+  uploadFiles(channelId, content, files, attempt = 0, extra = {}) {
+    return this.uploadAttachments(channelId, content, files, fileMimeType, attempt, extra);
   }
 
   /** The voice provider's credentials for this plugin's config, or null when unset/keyless. */

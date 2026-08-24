@@ -1,6 +1,8 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from 'vitest';
-import { join, resolve, dirname } from 'node:path';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 
@@ -445,5 +447,99 @@ describe('telegram interleaved final ordering', () => {
     await ordered.adapter.onMessage(ordered.turn(1, 42));
     expect(ordered.sends).toHaveLength(1);
     expect(ordered.edits.at(-1)).toBe('Final answer.');
+  });
+});
+
+/** The same proof the Discord suite carries, for the same reason: the previous round added the reducer
+ *  branches, every test passed, and nothing reached a user because no test drove an event THROUGH the
+ *  installed `elowen-plugin-shared` into an adapter method. These do. */
+describe('telegram delivers a shared file and retires a settled question through the installed reducer', () => {
+  const STORED = `${'a'.repeat(64)}.bin`;
+  let root: string;
+  let chatFiles: string;
+
+  const mkAdapter = async () => {
+    const { TelegramAdapter } = await import(join(repoRoot, 'plugins/telegram/lib/adapter.mjs')) as { TelegramAdapter: new (...args: unknown[]) => any };
+    const { LiveMessage } = await import(join(repoRoot, 'plugins/telegram/lib/stream.mjs')) as {
+      LiveMessage: new (...args: unknown[]) => { onEvent: (e: unknown) => void; finalize: (reply?: string) => Promise<void> };
+    };
+    const state = { get: () => ({}), patch: () => {} };
+    const adapter = new TelegramAdapter(
+      { language: 'en', runtimeFooter: false },
+      log, state, async () => [], [], () => null, () => false, () => [], chatFiles,
+    );
+    const wire: { kind: string; text: string }[] = [];
+    const documents: { name: string; bytes: string; caption?: string }[] = [];
+    const edits: { text: string; extra: any }[] = [];
+    let n = 0;
+    adapter.tgSend = async (_chatId: number, text: string) => { wire.push({ kind: 'text', text }); return ++n; };
+    adapter.tgEdit = async (_chatId: number, _mid: number, text: string, extra: any = {}) => { edits.push({ text, extra }); return true; };
+    adapter.bot = { api: {
+      sendDocument: async (_chatId: number, file: any, opts: any = {}) => {
+        wire.push({ kind: 'document', text: opts.caption ?? '' });
+        documents.push({ name: file.filename ?? file.name, bytes: file.fileData?.toString?.() ?? '', caption: opts.caption });
+      },
+    } };
+    return { adapter, LiveMessage, wire, documents, edits };
+  };
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'elowen-telegram-files-'));
+    chatFiles = join(root, 'chat-files');
+    mkdirSync(chatFiles);
+    writeFileSync(join(chatFiles, STORED), 'PDF-BYTES');
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it('sends a `file` event as a DOCUMENT, keeping the name and the bytes, ahead of the answer text', async () => {
+    const { adapter, LiveMessage, wire, documents } = await mkAdapter();
+    const lm = new LiveMessage(adapter, 5, 111);
+    lm.onEvent({ type: 'file', ref: `/api/brain/chat-files/${STORED}`, name: 'report.pdf', size: 9, caption: 'Here is the report.' });
+    await lm.finalize('Done — the report is attached.');
+
+    expect(documents, 'the file event produced no document at all — the exact original defect').toHaveLength(1);
+    expect(documents[0]!.name).toBe('report.pdf');
+    expect(documents[0]!.bytes).toBe('PDF-BYTES');
+    expect(documents[0]!.caption).toBe('Here is the report.');
+    // A photo would re-encode and rename it; a document is what a shared PDF has to arrive as.
+    expect(wire.findIndex((w) => w.kind === 'document'))
+      .toBeLessThan(wire.findIndex((w) => w.text.includes('Done — the report is attached.')));
+  });
+
+  it('routes an `ask_resolved` event to resolveAsk, clearing the keyboard on the posted prompt', async () => {
+    const { adapter, LiveMessage, edits } = await mkAdapter();
+    const lm = new LiveMessage(adapter, 5, 111);
+    lm.onEvent({ type: 'ask', id: 'q-1', questions: [{ header: 'Colour', question: 'Which?', options: [{ label: 'Blue' }] }] });
+    await new Promise((r) => setTimeout(r, 0)); // postAsk is fire-and-forget inside the reducer
+    expect(adapter.pendingAsks.size).toBe(1);
+
+    lm.onEvent({ type: 'ask_resolved', id: 'q-1', reason: 'timeout' });
+    await new Promise((r) => setTimeout(r, 0)); // so is resolveAsk
+
+    expect(adapter.pendingAsks.size, 'the reducer never reached resolveAsk').toBe(0);
+    expect(edits).toHaveLength(1);
+    expect(edits[0]!.text).toContain('expired');
+    expect(edits[0]!.extra.reply_markup.inline_keyboard).toEqual([]); // no live buttons may survive
+  });
+
+  it('leaves an ANSWERED question alone — the surface that answered already settled it', async () => {
+    const { adapter, LiveMessage, edits } = await mkAdapter();
+    const lm = new LiveMessage(adapter, 5, 111);
+    lm.onEvent({ type: 'ask', id: 'q-1', questions: [{ header: 'Colour', question: 'Which?', options: [{ label: 'Blue' }] }] });
+    await new Promise((r) => setTimeout(r, 0));
+    lm.onEvent({ type: 'ask_resolved', id: 'q-1', reason: 'answered' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(adapter.pendingAsks.size).toBe(0);
+    expect(edits).toEqual([]);
+  });
+
+  it('the REGISTERED plugin gets a real chat-files dir, beside the database not under plugins-data', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['telegram'], logger: log,
+      config: { telegram: { botToken: 'tok', rolePolicies: [] } },
+    });
+    const adapter = reg.platforms[0] as unknown as { chatFilesDir: string };
+    expect(resolve(adapter.chatFilesDir).endsWith(`${sep}chat-files`)).toBe(true);
+    expect(resolve(adapter.chatFilesDir)).not.toContain(`${sep}plugins-data${sep}`);
   });
 });

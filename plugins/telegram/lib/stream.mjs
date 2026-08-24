@@ -35,6 +35,10 @@ const transport = {
   replyRef: (replyToId) => ({ reply_parameters: { message_id: replyToId, allow_sending_without_reply: true } }),
   hasImages: (a) => typeof a.resolveImageFiles === 'function' && typeof a.sendPhotos === 'function',
   postImages: (a, chatId, data, _replyToId, caption) => a.sendPhotos(chatId, data, {}, caption),
+  // Files the agent shared (ShareFile) go out as documents rather than photos: a document keeps its name
+  // and bytes, which is what a shared PDF or spreadsheet is FOR.
+  hasFiles: (a) => typeof a.resolveSharedFiles === 'function' && typeof a.sendDocuments === 'function',
+  postFiles: (a, chatId, data, _replyToId, caption) => a.sendDocuments(chatId, data, {}, caption),
 };
 
 // Telegram sends plain text (no parse_mode), so the style is all-identity — nothing to escape

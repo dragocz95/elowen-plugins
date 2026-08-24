@@ -326,7 +326,11 @@ describe('msteams identity + role mapping', () => {
       { roleId: 'aad-1', admin: true, projectIds: [1] },
     ] });
     const byConversation = adapter.accessFor(['aad-9', '29:x', 'a:conv1'], 'a:conv1');
-    expect(byConversation.access).toMatchObject({ admin: false, projectIds: [2] });
+    expect(byConversation.access).toMatchObject({ admin: false });
+    // A role decides presentation and trust, never authority: `projectIds`/`tools` on a policy were read
+    // by nothing in the host and so failed OPEN. They are no longer built, so the settings UI cannot
+    // promise a narrowing the host will not keep — project and tool scope come from the sender's account.
+    expect(byConversation.access).not.toHaveProperty('projectIds');
     expect(String(byConversation.access?.prompt)).toContain('Be terse.');
     expect(adapter.accessFor(['aad-unknown'], 'a:conv2').access).toBeUndefined();
   });
@@ -417,10 +421,12 @@ describe('msteams identity + role mapping', () => {
     ] });
     // The named policy still wins for the person it names — a wildcard placed after it is a floor,
     // not a ceiling.
-    expect(adapter.accessFor(['aad-1'], 'a:conv1').access).toMatchObject({ admin: true, projectIds: [1] });
+    expect(adapter.accessFor(['aad-1'], 'a:conv1').access).toMatchObject({ admin: true });
     // Anyone else now lands on the wildcard instead of being dropped, and lands there narrowed.
     const stranger = adapter.accessFor(['aad-never-seen'], 'a:conv2');
-    expect(stranger.access).toMatchObject({ admin: false, projectIds: [2], tools: ['WebSearch'] });
+    expect(stranger.access).toMatchObject({ admin: false });
+    expect(stranger.access).not.toHaveProperty('projectIds');
+    expect(stranger.access).not.toHaveProperty('tools');
     expect(String(stranger.access?.prompt)).toContain('Be helpful.');
   });
 
@@ -518,7 +524,7 @@ describe('msteams identity + role mapping', () => {
     const seen: Record<string, unknown>[] = [];
     adapter.listen(async (src) => { seen.push(src); return undefined; });
     await adapter.onActivity(activity());
-    expect(seen[0]?.access).toMatchObject({ projectIds: [1], actAsUserId: 7 });
+    expect(seen[0]?.access).toMatchObject({ actAsUserId: 7 });
     expect(accountLinking.authenticate).toHaveBeenCalledTimes(1);
     expect(accountLinking.signInActivity).not.toHaveBeenCalled();
   });
@@ -558,7 +564,7 @@ describe('msteams identity + role mapping', () => {
       text: 'do the thing',
       src: {
         userId: 'aad-1', verifiedEmail: 'alex@contoso.com', direct: false,
-        access: { projectIds: [1] },
+        access: { admin: false },
       },
     });
     expect(state.get('a:shared').log).toEqual([
@@ -641,7 +647,7 @@ describe('msteams identity + role mapping', () => {
     const seen: Record<string, unknown>[] = [];
     adapter.listen(async (src) => { seen.push(src); return undefined; });
     await adapter.onActivity(activity());
-    expect(seen[0]?.access).toMatchObject({ admin: false, projectIds: [], actAsUserId: 7 });
+    expect(seen[0]?.access).toMatchObject({ admin: false, actAsUserId: 7 });
   });
 
   it('keeps role admission and drops unmapped unlinked shared senders silently', async () => {
@@ -1819,7 +1825,7 @@ describe('msteams proactive person messaging', () => {
     expect(result.relay).toMatchObject({ woken: true, reply: 'Michal replied — the build is green.' });
     expect(relayed?.src).toMatchObject({
       platform: 'msteams', userId: 'aad-2', channelId: 'a:dm-dana#0',
-      access: { projectIds: [7], denyTools: ['TeamsSend', 'TeamsMessagePerson', 'TeamsSendFile', 'TeamsApi'] },
+      access: { denyTools: ['TeamsSend', 'TeamsMessagePerson', 'TeamsSendFile', 'TeamsApi'] },
     });
     expect(relayed?.text).toContain('{"sender":"Michal","message":"Michal asks whether the build is green."}');
     expect(relayed?.history.map((message) => message.text)).toContain('Earlier context');

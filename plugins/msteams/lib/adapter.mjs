@@ -786,7 +786,12 @@ export class MsTeamsAdapter {
     // turn hangs until the timeout. Route events through the stream when present, else handle only `ask`.
     const onEvent = stream
       ? (e) => stream.onEvent(e)
-      : (e) => { if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(conv.id, m.id, ownerKey(from), e.id, e.questions).catch(() => {}); };
+      : (e) => {
+        if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(conv.id, m.id, ownerKey(from), e.id, e.questions).catch(() => {});
+        // A question raised with streaming off must still be SETTLED when the core resolves it, or this
+        // path keeps the very live-card-forever defect the streamed path just stopped having.
+        else if (e.type === 'ask_resolved' && e.id) void this.resolveAsk(conv.id, e.id, e.reason).catch(() => {});
+      };
 
     const typing = setInterval(() => void this.connector.typing(m.serviceUrl, conv.id).catch(() => {}), TYPING_INTERVAL_MS);
     void this.connector.typing(m.serviceUrl, conv.id).catch(() => {});

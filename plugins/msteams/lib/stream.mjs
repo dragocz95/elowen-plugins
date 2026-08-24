@@ -35,6 +35,14 @@ const transport = {
   replyRef: (replyToId) => ({ replyToId }),
   hasImages: (a) => typeof a.resolveImageFiles === 'function' && typeof a.sendImages === 'function',
   postImages: (a, conversationId, data, _replyToId, caption) => a.sendImages(conversationId, data, caption),
+  // No hasFiles/postFiles pair, deliberately — the shared engine's contract is that a surface which cannot
+  // upload a kind of attachment OMITS the pair rather than owning a degraded copy of the delivery path.
+  // An image rides a Bot Connector message as an inline data URI (see sendImages), but Teams will not
+  // accept a general file that way: it takes a `file.consent` card, the user's acceptance, an upload to
+  // the OneDrive URL their tenant hands back, and a follow-up card — a stateful multi-turn protocol that
+  // only works in 1:1 chats, not the channels this plugin mostly runs in. That is a separate feature with
+  // its own consent surface, not a transport closure, so a shared file stays a link in the answer text
+  // here until it is built.
 };
 
 // Teams renders a markdown subset, so the style leans on it: bold tool names, struck-through failures,

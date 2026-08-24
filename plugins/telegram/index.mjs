@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { StateStore } from './lib/state.mjs';
 import { TelegramAdapter } from './lib/adapter.mjs';
 import { registerTools } from './lib/tools.mjs';
-import { platformImageDirs } from 'elowen-plugin-shared/images';
+import { platformChatFilesDir, platformImageDirs } from 'elowen-plugin-shared/images';
 
 export { stripForSpeech, extractImageRefs, stripThinking, parseModelExec, buildReplyContext, splitContent, footerLine } from './lib/format.mjs';
 export { buildAskKeyboard } from './lib/ask.mjs';
@@ -28,7 +28,7 @@ export function register(ctx) {
   const imageDirs = platformImageDirs(dataDir);
   // Pass chatCommands LAZILY (a function, not a snapshot) so a plugin registered after Telegram — or a live
   // plugin reload — is always reflected in the command menu, /help and dispatch.
-  const adapter = new TelegramAdapter({ ...ctx.config, botToken: token }, ctx.logger, state, ctx.listModels, imageDirs, ctx.resolveProvider, ctx.answerQuestion, () => ctx.chatCommands('telegram'));
+  const adapter = new TelegramAdapter({ ...ctx.config, botToken: token }, ctx.logger, state, ctx.listModels, imageDirs, ctx.resolveProvider, ctx.answerQuestion, () => ctx.chatCommands('telegram'), platformChatFilesDir(dataDir));
   ctx.registerPlatform(adapter);
   registerTools(ctx, adapter);
   ctx.logger.info('telegram platform registered (slash commands + per-chat display + live tools + chat tools)');

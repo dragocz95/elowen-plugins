@@ -39,6 +39,10 @@ const transport = {
   // caption as that message's text instead of as a separate bubble. Clamped to the surface limit — a
   // caption over it would fail the whole upload and lose the picture.
   postImages: (a, channelId, data, _replyToId, caption) => a.uploadImages(channelId, String(caption ?? '').slice(0, CHUNK), data, 0, {}),
+  // Files the agent shared (ShareFile) ride the same multipart upload as images, for the same reason: the
+  // event carries a relative daemon URL, which is dead text in a Discord channel.
+  hasFiles: (a) => typeof a.resolveSharedFiles === 'function' && typeof a.uploadFiles === 'function',
+  postFiles: (a, channelId, data, _replyToId, caption) => a.uploadFiles(channelId, String(caption ?? '').slice(0, CHUNK), data, 0, {}),
 };
 
 // Discord renders markdown, so the style escapes @everyone/<@ ping injection, neutralizes ``` fences, and

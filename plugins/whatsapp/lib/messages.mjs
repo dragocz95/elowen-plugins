@@ -32,6 +32,7 @@ export const MESSAGES = {
     replyWithNumbers: (n) => `Reply with a number (1-${n}), or several separated by commas (e.g. 1,3).`,
     submitHint: 'Reply *submit* when done, or send your own answer as text.',
     expired: '⏱ This prompt expired.',
+    cancelled: '✖️ This prompt was cancelled.',
     otherHint: 'Or just type your own answer.',
     help: (name, commands) => [
       `*${name} on WhatsApp*`,
@@ -62,6 +63,7 @@ export const MESSAGES = {
     replyWithNumbers: (n) => `Odpověz číslem (1-${n}), nebo více čísly oddělenými čárkou (např. 1,3).`,
     submitHint: 'Až budeš hotov, napiš *submit*, nebo pošli vlastní odpověď textem.',
     expired: '⏱ Tento dotaz vypršel.',
+    cancelled: '✖️ Tento dotaz byl zrušen.',
     otherHint: 'Nebo napiš vlastní odpověď.',
     help: (name, commands) => [
       `*${name} na WhatsAppu*`,
@@ -92,6 +94,7 @@ export const MESSAGES = {
     replyWithNumbers: (n) => `Odpovedz číslom (1-${n}), alebo viacerými číslami oddelenými čiarkou (napr. 1,3).`,
     submitHint: 'Keď budeš hotový, napíš *submit*, alebo pošli vlastnú odpoveď textom.',
     expired: '⏱ Táto výzva vypršala.',
+    cancelled: '✖️ Táto výzva bola zrušená.',
     otherHint: 'Alebo napíš vlastnú odpoveď.',
     help: (name, commands) => [
       `*${name} na WhatsAppe*`,

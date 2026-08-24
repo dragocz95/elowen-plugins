@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { StateStore } from './lib/state.mjs';
 import { WhatsAppAdapter } from './lib/adapter.mjs';
 import { registerTools } from './lib/tools.mjs';
-import { platformImageDirs } from 'elowen-plugin-shared/images';
+import { platformChatFilesDir, platformImageDirs } from 'elowen-plugin-shared/images';
 
 export { stripThinking, extractImageRefs, parseModelExec, buildReplyContext, splitContent, footerLine } from './lib/format.mjs';
 export { parseAskReply } from './lib/ask.mjs';
@@ -37,7 +37,7 @@ export function register(ctx) {
   const imageDirs = platformImageDirs(dataDir);
   // Pass chatCommands LAZILY (a function, not a snapshot) so a plugin registered after WhatsApp — or a live
   // plugin reload — is always reflected in /help and dispatch.
-  const adapter = new WhatsAppAdapter({ ...ctx.config }, ctx.logger, state, ctx.listModels, imageDirs, authDir, join(dataDir, 'qr.png'), ctx.answerQuestion, () => ctx.chatCommands('whatsapp'));
+  const adapter = new WhatsAppAdapter({ ...ctx.config }, ctx.logger, state, ctx.listModels, imageDirs, authDir, join(dataDir, 'qr.png'), ctx.answerQuestion, () => ctx.chatCommands('whatsapp'), platformChatFilesDir(dataDir));
   ctx.registerPlatform(adapter);
   registerTools(ctx, adapter);
 

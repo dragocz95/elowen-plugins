@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { afterEach, describe, it, expect, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 
@@ -1658,6 +1659,143 @@ describe('discord configurable media/timeout limits', () => {
     await adapter.resolveAsk('C1', 'q-1', 'answered');
     expect(adapter.pendingAsks.has('q-1')).toBe(false);
     expect(patches).toEqual([]);
+  });
+});
+
+/** The previous round of this work added a `file` and an `ask_resolved` branch to the shared reducer, every
+ *  test passed, and NOTHING reached a user — because the adapters resolve `elowen-plugin-shared` from
+ *  node_modules, which still held a build with neither branch, and no test ever drove an event THROUGH that
+ *  installed package into an adapter method.
+ *
+ *  So these tests deliberately go the whole way: they import the plugin's own `index.mjs` (which imports the
+ *  INSTALLED `elowen-plugin-shared`), build a real `DiscordAdapter`, and hand the reducer a real event. What
+ *  they assert is what the adapter would have put on the wire. Only the single HTTP boundary is stubbed. */
+describe('discord delivers a shared file through the installed shared reducer', () => {
+  const STORED = `${'a'.repeat(64)}.bin`;
+  let root: string;
+  let chatFiles: string;
+
+  const mkAdapter = async (cfg: Record<string, unknown> = {}) => {
+    const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
+    const { LiveMessage } = await import(join(repoRoot, 'plugins/discord/index.mjs')) as {
+      LiveMessage: new (...args: unknown[]) => { onEvent: (e: unknown) => void; finalize: (reply?: string) => Promise<void> };
+    };
+    const state = { get: () => ({}), patch: () => {} };
+    const adapter = new DiscordAdapter(
+      { language: 'en', runtimeFooter: false, ...cfg },
+      log, state, async () => [], [], () => null, () => false, () => [], chatFiles,
+    );
+    // The wire: every text message and every multipart upload this turn would have sent, in order.
+    const wire: { kind: string; content: string; files?: { name: string; mime: string; bytes: string }[] }[] = [];
+    let n = 0;
+    adapter.rest = async (method: string, path: string, body: any) => {
+      if (method === 'POST') { wire.push({ kind: 'text', content: String(body?.content ?? '') }); return { id: `m${++n}` }; }
+      if (method === 'PATCH') wire.push({ kind: 'edit', content: String(body?.content ?? '') });
+      return { id: path.split('/').pop() };
+    };
+    adapter.uploadAttachments = async (_channelId: string, content: string, files: { name: string; data: Buffer }[], mimeFor: (n: string) => string) => {
+      wire.push({ kind: 'upload', content, files: files.map((f) => ({ name: f.name, mime: mimeFor(f.name), bytes: f.data.toString() })) });
+      return { id: `u${++n}` };
+    };
+    return { adapter, LiveMessage, wire };
+  };
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'elowen-discord-files-'));
+    chatFiles = join(root, 'chat-files');
+    mkdirSync(chatFiles);
+    writeFileSync(join(chatFiles, STORED), 'PDF-BYTES');
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it('turns a `file` event into a real upload of the stored bytes, ahead of the answer text', async () => {
+    const { adapter, LiveMessage, wire } = await mkAdapter();
+    const lm = new LiveMessage(adapter, 'C1', 'M1');
+    lm.onEvent({ type: 'file', ref: `/api/brain/chat-files/${STORED}`, name: 'report.pdf', size: 9, caption: 'Here is the report.' });
+    await lm.finalize('Done — the report is attached.');
+
+    const upload = wire.find((w) => w.kind === 'upload');
+    expect(upload, 'the file event produced no upload at all — the exact original defect').toBeDefined();
+    expect(upload!.files).toEqual([{ name: 'report.pdf', mime: 'application/pdf', bytes: 'PDF-BYTES' }]);
+    // The agent's caption is the upload message's own text, exactly as it is on the image path.
+    expect(upload!.content).toBe('Here is the report.');
+    // The file goes out BEFORE the answer, so the reply stays the last thing in the conversation.
+    expect(wire.findIndex((w) => w.kind === 'upload'))
+      .toBeLessThan(wire.findIndex((w) => w.content.includes('Done — the report is attached.')));
+  });
+
+  it('skips a ref that is not a stored chat-file URL and still delivers the answer text', async () => {
+    const { adapter, LiveMessage, wire } = await mkAdapter();
+    const lm = new LiveMessage(adapter, 'C1', 'M1');
+    // Each of these has a last path segment that WOULD resolve if the ref were parsed by taking the
+    // basename: the stored file genuinely sits in this directory. Only the full daemon-URL shape is
+    // accepted, so a ref-shaped string in model prose cannot address bytes on disk.
+    lm.onEvent({ type: 'file', ref: `/api/brain/chat-images/${STORED}`, name: 'wrong-route', size: 9 });
+    lm.onEvent({ type: 'file', ref: `https://evil.example/${STORED}`, name: 'off-host', size: 9 });
+    lm.onEvent({ type: 'file', ref: '/api/brain/chat-files/../../../etc/passwd', name: 'passwd', size: 1 });
+    await lm.finalize('Nothing to attach.');
+    expect(wire.some((w) => w.kind === 'upload')).toBe(false);
+    expect(wire.some((w) => w.content.includes('Nothing to attach.'))).toBe(true);
+  });
+
+  it('routes an `ask_resolved` event to resolveAsk, retiring the question the reducer raised', async () => {
+    const { adapter, LiveMessage } = await mkAdapter();
+    const patches: { path: string; body: any }[] = [];
+    adapter.rest = async (method: string, path: string, body: unknown) => {
+      if (method === 'PATCH') patches.push({ path, body: body as any });
+      return { id: 'ASKMSG' };
+    };
+    const lm = new LiveMessage(adapter, 'C1', 'M1');
+    lm.onEvent({ type: 'ask', id: 'q-1', questions: [{ header: 'Colour', question: 'Which?', options: [{ label: 'Blue' }] }] });
+    await new Promise((r) => setTimeout(r, 0)); // postAsk is fire-and-forget inside the reducer
+    expect(adapter.pendingAsks.has('q-1')).toBe(true);
+
+    lm.onEvent({ type: 'ask_resolved', id: 'q-1', reason: 'timeout' });
+    await new Promise((r) => setTimeout(r, 0)); // so is resolveAsk
+
+    expect(adapter.pendingAsks.has('q-1'), 'the reducer never reached resolveAsk').toBe(false);
+    expect(patches).toHaveLength(1);
+    expect(patches[0]!.body.components).toEqual([]); // no live buttons may survive
+    expect(JSON.stringify(patches[0]!.body.embeds)).toContain('expired');
+  });
+
+  it('retires the question with streaming OFF too — that path routes events by hand', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log,
+      config: { discord: { botToken: 'tok', rolePolicies: [{ roleId: 'R1', name: 'Dev' }], streaming: false, reactions: false } },
+    });
+    const adapter = reg.platforms[0] as any;
+    adapter.botId = 'BOT';
+    const patches: any[] = [];
+    adapter.rest = async (method: string, path: string, body: any) => {
+      if (path === '/channels/100') return { id: '100', name: 'general', topic: '', type: 0 };
+      if (method === 'PATCH') patches.push(body);
+      return { id: 'ASKMSG' };
+    };
+    adapter.listen(async (_src: unknown, _text: string, onEvent: (e: unknown) => void) => {
+      onEvent({ type: 'ask', id: 'q-1', questions: [{ header: 'Colour', question: 'Which?', options: [{ label: 'Blue' }] }] });
+      await new Promise((r) => setTimeout(r, 0));
+      onEvent({ type: 'ask_resolved', id: 'q-1', reason: 'timeout' });
+      await new Promise((r) => setTimeout(r, 0));
+      return 'ok';
+    });
+    await adapter.onMessage({
+      type: 0, guild_id: 'G', channel_id: '100', id: 'MSG',
+      author: { id: 'U1', username: 'anna' }, member: { roles: ['R1'] }, content: 'hi',
+    });
+    expect(adapter.pendingAsks.has('q-1')).toBe(false);
+    expect(patches.some((b) => Array.isArray(b.components) && b.components.length === 0)).toBe(true);
+  });
+
+  it('the REGISTERED plugin gets a real chat-files dir, so this works outside the test harness too', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log,
+      config: { discord: { botToken: 'tok', rolePolicies: [] } },
+    });
+    const adapter = reg.platforms[0] as unknown as { chatFilesDir: string };
+    // Beside the database, NOT under the plugin data root — a wrong derivation silently drops every file.
+    expect(resolve(adapter.chatFilesDir).endsWith(`${sep}chat-files`)).toBe(true);
+    expect(resolve(adapter.chatFilesDir)).not.toContain(`${sep}plugins-data${sep}`);
   });
 });
 

@@ -15,7 +15,7 @@ import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCo
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { isSteered } from 'elowen-plugin-shared/turnResult';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
-import { resolveImageFiles } from 'elowen-plugin-shared/images';
+import { fileMimeType, resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger inbound images are noted, not downloaded (cfg: maxImageBytes)
@@ -27,6 +27,8 @@ const ASK_TTL_MS = 6 * 60_000;           // default: drop a parked prompt after 
 const MENU_PAGE = 18;                     // numbered-menu options per page (leaves room for nav rows)
 const CONTEXT_MAX = 200;                  // upper bound of own conversations the /context picker pages over
 const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per reply (cfg: maxUploadImages)
+const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per reply — no config key: the agent
+                                         // chooses what to share, so this is a transport bound, not a preference
 
 /** Read a numeric config field, clamped to [min,max], falling back to `def` when unset/invalid. */
 function cfgNum(cfg, key, def, min, max) {
@@ -68,13 +70,14 @@ async function resolveSocketFactory() {
 
 export class WhatsAppAdapter {
   name = 'whatsapp';
-  constructor(cfg, logger, state, listModels, imageDirs, authDir, qrPngPath, answerQuestion, chatCommands = () => []) {
+  constructor(cfg, logger, state, listModels, imageDirs, authDir, qrPngPath, answerQuestion, chatCommands = () => [], chatFilesDir = '') {
     this.cfg = cfg;
     this.log = logger;
     this.plog = pinoShim(logger); // pino-shaped logger for Baileys internals
     this.state = state;
     this.listModels = listModels;
     this.imageDirs = imageDirs;
+    this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.authDir = authDir;
     this.qrPngPath = qrPngPath;
     this.answerQuestion = answerQuestion;
@@ -357,7 +360,12 @@ export class WhatsAppAdapter {
       : null;
     const onEvent = stream
       ? (e) => stream.onEvent(e)
-      : (e) => { if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(chatJid, m, senderJid, e.id, e.questions).catch(() => {}); };
+      : (e) => {
+        if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(chatJid, m, senderJid, e.id, e.questions).catch(() => {});
+        // A question raised with streaming off must still be RETIRED when the core settles it, or this
+        // path keeps the very stale-prompt-forever defect the streamed path just stopped having.
+        else if (e.type === 'ask_resolved' && e.id) void this.resolveAsk(chatJid, e.id, e.reason).catch(() => {});
+      };
 
     const typing = setInterval(() => void this.sock.sendPresenceUpdate('composing', chatJid).catch(() => {}), 8000);
     void this.sock.sendPresenceUpdate('composing', chatJid).catch(() => {});
@@ -634,6 +642,24 @@ export class WhatsAppAdapter {
     if (pend) pend.key = key;
   }
 
+  /** The core settled this question — by an answer, its own timeout, an abort, or a newer question
+   *  superseding it. Retire the posted prompt so a number typed into the chat is no longer read as an
+   *  answer to something that can no longer receive one; without this the entry sat in the map until the
+   *  local sweep noticed, and the prompt itself never changed. An `answered` resolution needs no edit:
+   *  whichever surface answered has already acknowledged it.
+   *
+   *  The local `askTtlMs` sweep stays — it bounds the map when no `ask_resolved` ever arrives (a restart
+   *  mid-question) and it also governs the numbered PICKER menus the core knows nothing about. It is not a
+   *  second authority: at six minutes it is deliberately longer than the core's five. */
+  async resolveAsk(chatJid, id, reason) {
+    const pend = this.pendingAsks.get(id);
+    if (!pend) return;
+    this.pendingAsks.delete(id);
+    if (reason === 'answered' || !pend.key) return;
+    const text = reason === 'timeout' ? this.msg.expired : this.msg.cancelled;
+    await this.sock.sendMessage(pend.jid ?? chatJid, { text, edit: pend.key }).catch(() => {});
+  }
+
   async submitAsk(id, m) {
     const pend = this.pendingAsks.get(id);
     if (!pend) return;
@@ -731,10 +757,32 @@ export class WhatsAppAdapter {
 
   react(key, emoji) { return this.sock.sendMessage(key.remoteJid, { react: { text: emoji, key } }); }
 
+  /** Send files the agent shared as document messages (the first optionally quoting the trigger). A
+   *  document keeps its file name and its bytes, which an image message would not — WhatsApp re-encodes a
+   *  picture, and a shared PDF or spreadsheet is exactly the thing that must survive intact. */
+  async sendDocuments(chatJid, files, quoted) {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      await this.sock.sendMessage(
+        chatJid,
+        { document: f.data, fileName: f.name, mimetype: fileMimeType(f.name) },
+        i === 0 && quoted ? { quoted } : {},
+      ).catch((e) => this.log.error(`sendDocument failed: ${e?.message ?? e}`));
+    }
+  }
+
   /** Load up to the configured cap (default MAX_UPLOAD_IMAGES) of generated images by validated name
    *  from the image plugins' data dirs. */
   resolveImageFiles(names) {
     return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+  }
+
+  /** Load the bytes behind this turn's `file` events — the counterpart of resolveImageFiles for a file the
+   *  agent shared on purpose (ShareFile), whose `ref` is a relative daemon URL and therefore dead text in a
+   *  WhatsApp chat. Without a configured dir there is nothing to read and the answer text goes out alone. */
+  resolveSharedFiles(refs) {
+    if (!this.chatFilesDir) return [];
+    return resolveSharedFiles(this.chatFilesDir, refs, MAX_UPLOAD_FILES);
   }
 
   async groupSubject(jid) {

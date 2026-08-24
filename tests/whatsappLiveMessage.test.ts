@@ -1,6 +1,10 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
+
+const log = { info() {}, warn() {}, error() {} };
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -276,5 +280,80 @@ describe('whatsapp interleaved final ordering', () => {
     await ordered.adapter.onMessage(ordered.message('M1', ANNA));
     expect(ordered.sends.filter((s) => !s.msg.edit && !s.msg.react)).toHaveLength(1);
     expect(ordered.sends.filter((s) => s.msg.edit).at(-1)?.msg.text).toBe('Final answer.');
+  });
+});
+
+/** The same proof the Discord and Telegram suites carry: the previous round added the reducer branches,
+ *  every test passed, and nothing reached a user because no test drove an event THROUGH the installed
+ *  `elowen-plugin-shared` into an adapter method. These do, on a real WhatsAppAdapter. */
+describe('whatsapp delivers a shared file and retires a settled question through the installed reducer', () => {
+  const STORED = `${'a'.repeat(64)}.bin`;
+  let root: string;
+  let chatFiles: string;
+
+  const mkAdapter = async () => {
+    const { WhatsAppAdapter } = await import(join(repoRoot, 'plugins/whatsapp/lib/adapter.mjs')) as { WhatsAppAdapter: new (...args: unknown[]) => any };
+    const { LiveMessage } = await import(join(repoRoot, 'plugins/whatsapp/lib/stream.mjs')) as {
+      LiveMessage: new (...args: unknown[]) => { onEvent: (e: unknown) => void; finalize: (reply?: string) => Promise<void> };
+    };
+    const state = { get: () => ({}), patch: () => {} };
+    const adapter = new WhatsAppAdapter(
+      { language: 'en', runtimeFooter: false }, log, state, async () => [],
+      [], root, join(root, 'qr.png'), () => false, () => [], chatFiles,
+    );
+    const wire: any[] = [];
+    let n = 0;
+    adapter.sock = { sendMessage: async (_jid: string, msg: any) => { wire.push(msg); return { key: msg.edit ?? { id: `k${++n}` } }; } };
+    return { adapter, LiveMessage, wire };
+  };
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'elowen-whatsapp-files-'));
+    chatFiles = join(root, 'chat-files');
+    mkdirSync(chatFiles);
+    writeFileSync(join(chatFiles, STORED), 'PDF-BYTES');
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it('sends a `file` event as a DOCUMENT message, keeping the name, bytes and an honest type', async () => {
+    const { adapter, LiveMessage, wire } = await mkAdapter();
+    const lm = new LiveMessage(adapter, '1@s.whatsapp.net');
+    lm.onEvent({ type: 'file', ref: `/api/brain/chat-files/${STORED}`, name: 'report.pdf', size: 9 });
+    await lm.finalize('Done — the report is attached.');
+
+    const docIndex = wire.findIndex((m) => m.document);
+    expect(docIndex, 'the file event produced no document at all — the exact original defect').toBeGreaterThanOrEqual(0);
+    expect(wire[docIndex].fileName).toBe('report.pdf');
+    expect(wire[docIndex].document.toString()).toBe('PDF-BYTES');
+    expect(wire[docIndex].mimetype).toBe('application/pdf');
+    // The document goes out BEFORE the answer, so the reply stays the last thing in the conversation.
+    expect(docIndex).toBeLessThan(wire.findIndex((m) => String(m.text ?? '').includes('Done — the report is attached.')));
+  });
+
+  it('routes an `ask_resolved` event to resolveAsk, editing the prompt into an expired notice', async () => {
+    const { adapter, LiveMessage, wire } = await mkAdapter();
+    const lm = new LiveMessage(adapter, '1@s.whatsapp.net');
+    lm.onEvent({ type: 'ask', id: 'q-1', questions: [{ header: 'Colour', question: 'Which?', options: [{ label: 'Blue' }] }] });
+    await new Promise((r) => setTimeout(r, 0)); // postAsk is fire-and-forget inside the reducer
+    expect(adapter.pendingAsks.size).toBe(1);
+
+    lm.onEvent({ type: 'ask_resolved', id: 'q-1', reason: 'timeout' });
+    await new Promise((r) => setTimeout(r, 0)); // so is resolveAsk
+
+    expect(adapter.pendingAsks.size, 'the reducer never reached resolveAsk').toBe(0);
+    const edit = wire.find((m) => m.edit);
+    expect(edit, 'the stale prompt was never retired').toBeDefined();
+    expect(String(edit.text)).toContain('expired');
+  });
+
+  it('leaves an ANSWERED question alone — the surface that answered already settled it', async () => {
+    const { adapter, LiveMessage, wire } = await mkAdapter();
+    const lm = new LiveMessage(adapter, '1@s.whatsapp.net');
+    lm.onEvent({ type: 'ask', id: 'q-1', questions: [{ header: 'Colour', question: 'Which?', options: [{ label: 'Blue' }] }] });
+    await new Promise((r) => setTimeout(r, 0));
+    lm.onEvent({ type: 'ask_resolved', id: 'q-1', reason: 'answered' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(adapter.pendingAsks.size).toBe(0);
+    expect(wire.some((m) => m.edit)).toBe(false);
   });
 });

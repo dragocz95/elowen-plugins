@@ -9,7 +9,7 @@ import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
 import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } from './display.mjs';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
-import { resolveImageFiles } from 'elowen-plugin-shared/images';
+import { resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
 import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
@@ -23,6 +23,8 @@ const MAX_IMAGES = 4;                    // default vision cap per message (cfg:
 // `askTimeoutMs` governs both, so raising it for a slow chat cannot leave the picker expiring six minutes in.
 const ASK_TTL_MS = 6 * 60_000;           // default: drop a parked prompt after this (cfg: askTimeoutMs; > the core 5-min timeout)
 const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per outgoing message (cfg: maxUploadImages)
+const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per outgoing message — no config key: the
+                                         // agent chooses what to share, so this is a transport bound, not a preference
 const TG_CAPTION_LIMIT = 1024;           // Telegram rejects the whole sendPhoto call above this, caption included
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper's per-file limit — larger clips are just noted
 const TTS_MAX_CHARS = 4000;              // cap the spoken text (OpenAI TTS input limit is 4096)
@@ -65,13 +67,14 @@ function chatTarget(v) {
 
 export class TelegramAdapter {
   name = 'telegram';
-  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => []) {
+  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
     this.cfg = cfg;
     this.log = logger;
     this.state = state;
     this.listModels = listModels;
     this.resolveProvider = resolveProvider; // central brain-provider key resolver (voice STT/TTS)
     this.imageDirs = imageDirs; // where the image-gen/image-edit plugins store their generated files
+    this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.answerQuestion = answerQuestion; // deliver a parked AskUserQuestion answer back to the turn
     this.chatCommands = chatCommands; // () => core names/descriptions/kind — presentation/dispatch is local
     this.handler = null;
@@ -341,7 +344,12 @@ export class TelegramAdapter {
     // parked turn hangs until the timeout. Route events through the stream when present, else handle only `ask`.
     const onEvent = stream
       ? (e) => stream.onEvent(e)
-      : (e) => { if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(chatId, m.message_id, from.id, e.id, e.questions).catch(() => {}); };
+      : (e) => {
+        if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(chatId, m.message_id, from.id, e.id, e.questions).catch(() => {});
+        // A question raised with streaming off must still be RETIRED when the core settles it, or this
+        // path keeps the very live-keyboard-forever defect the streamed path just stopped having.
+        else if (e.type === 'ask_resolved' && e.id) void this.resolveAsk(chatId, e.id, e.reason).catch(() => {});
+      };
     const typing = setInterval(() => void this.bot.api.sendChatAction(chatId, 'typing').catch(() => {}), 5000);
     void this.bot.api.sendChatAction(chatId, 'typing').catch(() => {});
     if (reactions) void this.react(chatId, m.message_id, '👀').catch(() => {}); // status: seen
@@ -442,6 +450,26 @@ export class TelegramAdapter {
     };
     const messageId = await this.tgSend(chatId, `${title}\n\n${desc}`, extra);
     this.pendingAsks.set(token, { id, chatId, messageId, questions: qs, askerId, selected: {}, awaitingText: false, title, desc, createdAt: Date.now() });
+  }
+
+  /** The core settled this question — by an answer, its own timeout, an abort, or a newer question
+   *  superseding it. Retire the posted prompt so nobody is left tapping a keyboard that can no longer
+   *  reach anything. An `answered` resolution needs no edit: whichever surface answered has already
+   *  replaced the message with its own summary.
+   *
+   *  The pending map is keyed by a short callback token (Telegram caps callback_data at 64 bytes), so the
+   *  core's ask id is looked up on the entry rather than used as the key. The local `askTtlMs` sweep stays
+   *  — it bounds the map when no `ask_resolved` ever arrives (a restart mid-question) and it also governs
+   *  the inline PICKERS, which the core knows nothing about. It is not a second authority: at six minutes
+   *  it is deliberately longer than the core's five, so the core always settles a question first. */
+  async resolveAsk(chatId, id, reason) {
+    const found = [...this.pendingAsks].find(([, p]) => p.id === id);
+    if (!found) return;
+    const [token, pend] = found;
+    this.pendingAsks.delete(token);
+    if (reason === 'answered' || !pend.messageId) return;
+    const text = reason === 'timeout' ? this.msg.askExpired : this.msg.askCancelled;
+    await this.tgEdit(pend.chatId ?? chatId, pend.messageId, text, { reply_markup: { inline_keyboard: [] } }).catch(() => {});
   }
 
   /** Deliver every collected pick of a pending ask to the parked turn and close out the message. */
@@ -744,10 +772,30 @@ export class TelegramAdapter {
     }
   }
 
+  /** Send files the agent shared as DOCUMENT messages. Deliberately not sendPhoto: a document keeps its
+   *  name and its bytes intact, while Telegram re-encodes and renames a photo — which loses exactly the
+   *  thing a shared PDF or spreadsheet is. The caption rides the FIRST document only, for the same reason
+   *  it does on the photo path: repeating it under each would read as the bot saying the same thing twice. */
+  async sendDocuments(chatId, files, extra = {}, caption) {
+    for (let i = 0; i < files.length; i++) {
+      const opts = i === 0 ? { ...extra, ...(caption ? { caption: caption.slice(0, TG_CAPTION_LIMIT) } : {}) } : {};
+      try { await this.bot.api.sendDocument(chatId, new InputFile(files[i].data, files[i].name), opts); }
+      catch (e) { this.log.error(`sendDocument failed: ${e?.message ?? e}`); }
+    }
+  }
+
   /** Load up to the configured cap (default MAX_UPLOAD_IMAGES) of generated images by validated name from
    *  the image plugins' data dirs. A missing/unreadable file is skipped silently. */
   resolveImageFiles(names) {
     return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+  }
+
+  /** Load the bytes behind this turn's `file` events — the counterpart of resolveImageFiles for a file the
+   *  agent shared on purpose (ShareFile), whose `ref` is a relative daemon URL and therefore dead text in a
+   *  Telegram chat. Without a configured dir there is nothing to read and the answer text goes out alone. */
+  resolveSharedFiles(refs) {
+    if (!this.chatFilesDir) return [];
+    return resolveSharedFiles(this.chatFilesDir, refs, MAX_UPLOAD_FILES);
   }
 
   // ── voice ──
