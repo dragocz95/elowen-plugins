@@ -48,6 +48,7 @@ function harness(t, options = {}) {
     warnings,
     prompts,
     routes,
+    rawDb,
     turnContext: () => turnContext?.() ?? '',
     setSession: (value) => { sessionId = value; },
     tool: (name) => {
@@ -194,6 +195,82 @@ test('a completed task survives the next TaskCreate, on the card and as a usable
   assert.equal(json(await update.execute('5', { taskId: first, status: 'in_progress' })).success, true);
 });
 
+test('completion hides the panel immediately but preserves ids throughout the finishing turn', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  const get = h.tool('TaskGet');
+
+  await create.execute('1', { tasks: [{ subject: 'Task A', description: 'first' }] });
+  await update.execute('2', { taskId: '1', status: 'completed' });
+
+  assert.deepEqual(h.cards.at(-1).items, []);
+  assert.equal(json(await get.execute('3', { taskId: '1' })).task.status, 'completed');
+
+  // A steer enters the already-running model loop directly. It does not build a new turn context, so the
+  // completed row and every id held by that turn must still be present afterwards.
+  await Promise.resolve();
+  assert.equal(json(await get.execute('4', { taskId: '1' })).task.status, 'completed');
+
+  await create.execute('5', { tasks: [{ subject: 'Task B', description: 'same turn' }] });
+  assert.deepEqual(json(await h.tool('TaskList').execute('6', {})).tasks.map((task) => task.id), ['1', '2']);
+  assert.equal(json(await update.execute('7', { taskId: '1', status: 'in_progress' })).success, true);
+});
+
+test('a later turn clears an all-completed list without reusing its ids', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+
+  await create.execute('1', {
+    tasks: [
+      { subject: 'Task A', description: 'first' },
+      { subject: 'Task B', description: 'second' },
+    ],
+  });
+  await update.execute('2', { taskId: '1', status: 'completed' });
+  await update.execute('3', { taskId: '2', status: 'completed' });
+
+  // Building context is the next-turn boundary. The list is removed before that new prompt reaches the
+  // model, while the list row stays behind to preserve the monotonically increasing id counter.
+  assert.equal(h.turnContext(), '');
+  assert.deepEqual(json(await h.tool('TaskList').execute('4', {})), { tasks: [] });
+  const api = h.routes.find((route) => route.method === 'GET' && route.path === 'tasks');
+  assert.ok(api);
+  assert.deepEqual((await api.handler({
+    auth: { userId: 7, admin: false, tokenScope: 'user' },
+    query: { session: 'brain-7-a' }, params: {},
+  })).body, { tasks: [] });
+  assert.equal(h.rawDb.prepare('SELECT COUNT(*) AS n FROM p_todo_tasks').get().n, 0);
+  assert.equal(h.rawDb.prepare('SELECT COUNT(*) AS n FROM p_todo_task_lists').get().n, 1);
+
+  assert.deepEqual(json(await create.execute('5', {
+    tasks: [{ subject: 'Task C', description: 'after cleanup' }],
+  })).tasks, [{ id: '3', subject: 'Task C' }]);
+});
+
+test('turn boundaries never clear a list that still has open work', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  const list = h.tool('TaskList');
+
+  await create.execute('1', {
+    tasks: [
+      { subject: 'Done', description: 'done' },
+      { subject: 'Running', description: 'running' },
+      { subject: 'Pending', description: 'pending' },
+    ],
+  });
+  await update.execute('2', { taskId: '1', status: 'completed' });
+  await update.execute('3', { taskId: '2', status: 'in_progress' });
+
+  for (let turn = 0; turn < 3; turn += 1) assert.match(h.turnContext(), /<task_context>/);
+  assert.deepEqual(json(await list.execute('4', {})).tasks.map((task) => task.status), [
+    'completed', 'in_progress', 'pending',
+  ]);
+});
+
 test('one TaskCreate call plans the whole batch, wires prerequisites and pushes the card once', async (t) => {
   const h = harness(t);
   const create = h.tool('TaskCreate');
@@ -291,8 +368,8 @@ test('the task context names the ids that exist and forbids guessing others', as
 
 test('finished work stops re-sending its planning detail, and the oldest of it collapses to a count', async (t) => {
   // The turn context is rebuilt every turn, so a finished task that keeps its description makes the
-  // checklist the largest thing in the prompt. Nothing may be DELETED to fix that: the ids and the user's
-  // panel have to survive intact, which is exactly what the wipe regression above cost us once already.
+  // checklist the largest thing in the prompt. Folding must not delete rows while open work remains: ids
+  // and the mixed-status panel stay intact until the whole list finishes and a later turn begins.
   const h = harness(t);
   const create = h.tool('TaskCreate');
   const update = h.tool('TaskUpdate');

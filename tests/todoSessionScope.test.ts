@@ -45,13 +45,14 @@ async function loadTodo() {
   return {
     db,
     create: tools.find((tool) => tool.name === 'TaskCreate')!,
+    update: tools.find((tool) => tool.name === 'TaskUpdate')!,
     list: tools.find((tool) => tool.name === 'TaskList')!,
     render: reg.turnContexts[0]!.render,
   };
 }
 
-function inSession<T>(sessionId: string, fn: () => T): T {
-  return runWithPolicy(ADMIN, fn, { identity: OWNER, sessionId, workDir: WORK_DIR });
+function inSession<T>(sessionId: string, fn: () => T, identity: TurnIdentity = OWNER): T {
+  return runWithPolicy(ADMIN, fn, { identity, sessionId, workDir: WORK_DIR });
 }
 
 const resultText = async (result: Promise<{ content: { text?: string }[] }>) =>
@@ -95,6 +96,28 @@ describe('session task scoping', () => {
 
     const rows = db.prepare('SELECT list_key FROM p_todo_task_lists ORDER BY list_key').all() as { list_key: string }[];
     expect(rows.map((row) => row.list_key)).toEqual([`u1#${NEW_SESSION}`, `u1#${OLD_SESSION}`].sort());
+  });
+
+  it('clears only the completed owner and conversation observed at the next turn boundary', async () => {
+    const { db, create, update, list, render } = await loadTodo();
+    const OTHER_OWNER: TurnIdentity = { ...OWNER, userId: '2', elowenUserId: 2 };
+
+    await inSession(OLD_SESSION, () => createTask(create, '1', { subject: 'Owner one old', description: 'A' }));
+    await inSession(NEW_SESSION, () => createTask(create, '2', { subject: 'Owner one new', description: 'B' }));
+    await inSession(OLD_SESSION, () => createTask(create, '3', { subject: 'Owner two old', description: 'C' }), OTHER_OWNER);
+    await resultJson(inSession(OLD_SESSION, () => update.execute('4', { taskId: '1', status: 'completed' })));
+
+    expect(inSession(OLD_SESSION, () => render())).toBe('');
+    expect(await resultJson(inSession(OLD_SESSION, () => list.execute('5', {})))).toEqual({ tasks: [] });
+    expect((await resultJson(inSession(NEW_SESSION, () => list.execute('6', {})))).tasks.map((task: { subject: string }) => task.subject)).toEqual(['Owner one new']);
+    expect((await resultJson(inSession(OLD_SESSION, () => list.execute('7', {}), OTHER_OWNER))).tasks.map((task: { subject: string }) => task.subject)).toEqual(['Owner two old']);
+
+    const rows = db.prepare('SELECT list_key, COUNT(*) AS tasks FROM p_todo_tasks GROUP BY list_key ORDER BY list_key')
+      .all() as { list_key: string; tasks: number }[];
+    expect(rows).toEqual([
+      { list_key: `u1#${NEW_SESSION}`, tasks: 1 },
+      { list_key: `u2#${OLD_SESSION}`, tasks: 1 },
+    ]);
   });
 
   it('refuses writes and reads empty without a conversation', async () => {

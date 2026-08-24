@@ -8,9 +8,9 @@ import { escapeXml } from './common.mjs';
  *  finished tasks collapse into a single counted line, which is what keeps the cost flat rather than
  *  linear in the length of the session.
  *
- *  Nothing is deleted to achieve this. The rows, the ids and the Todo panel stay exactly as they were —
- *  a finished task simply stops pushing its planning detail at the model, which can pull it back with
- *  TaskGet on the rare occasion it needs to look back. */
+ *  Nothing is deleted by this folding. The rows and ids stay intact for the rest of the active turn; the
+ *  Todo panel separately disappears once every item is complete, and storage cleanup waits for the next
+ *  real turn boundary. TaskGet can still recover folded detail while those rows exist. */
 export const RENDERED_COMPLETED = 10;
 
 function unresolvedBlockers(task, tasks) {
@@ -19,11 +19,12 @@ function unresolvedBlockers(task, tasks) {
 }
 
 export function pushTaskCard(ctx, tasks) {
+  const visible = tasks.length > 0 && tasks.every((task) => task.status === 'completed') ? [] : tasks;
   ctx.emitCard({
     id: 'todos',
     title: 'Todos',
     pinned: true,
-    items: tasks.map((task) => {
+    items: visible.map((task) => {
       const blockers = unresolvedBlockers(task, tasks);
       const blocked = blockers.length ? ` (blocked by ${blockers.map((id) => `#${id}`).join(', ')})` : '';
       const owner = task.owner ? ` — ${task.owner}` : '';

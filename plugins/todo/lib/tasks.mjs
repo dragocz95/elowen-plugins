@@ -102,6 +102,8 @@ class TaskStore {
     this.updateTask = db.prepare('UPDATE p_todo_tasks SET subject=?,description=?,active_form=?,status=?,owner=?,metadata_json=? WHERE list_key=? AND id=?');
     this.deleteTask = db.prepare('DELETE FROM p_todo_tasks WHERE list_key = ? AND id = ?');
     this.deleteTaskEdges = db.prepare('DELETE FROM p_todo_task_blockers WHERE list_key = ? AND (task_id = ? OR blocker_id = ?)');
+    this.deleteListTasks = db.prepare('DELETE FROM p_todo_tasks WHERE list_key = ?');
+    this.deleteListEdges = db.prepare('DELETE FROM p_todo_task_blockers WHERE list_key = ?');
     this.insertEdge = db.prepare('INSERT OR IGNORE INTO p_todo_task_blockers(list_key,task_id,blocker_id) VALUES (?,?,?)');
   }
 
@@ -137,14 +139,26 @@ class TaskStore {
     return this.list(key).find((task) => task.id === String(taskId)) ?? null;
   }
 
+  /** Clear a finished list only when the host is building a later turn. The list row deliberately stays:
+   *  `next_id` is conversation-scoped history, and resetting it could make a stale id resolve to new work. */
+  clearCompletedAtTurnBoundary(key) {
+    return this.db.transaction(() => {
+      const tasks = this.list(key);
+      if (tasks.length === 0 || tasks.some((task) => task.status !== 'completed')) return false;
+      this.deleteListEdges.run(key);
+      this.deleteListTasks.run(key);
+      return true;
+    });
+  }
+
   /** Create a whole batch in ONE transaction. The model plans the work once instead of firing a call per
    *  task and then wiring the prerequisites afterwards, so ids are reserved in input order and an item may
    *  name a sibling by position before any id exists.
    *
-   *  Tasks accumulate for the life of the conversation. An earlier design wiped the whole list here once
-   *  every task was completed, which removed finished work from the user's Todo panel mid-conversation and
-   *  invalidated ids the model was still holding — the source of blind "task not found" retries. Removing a
-   *  task is explicit only, through status 'deleted'. */
+   *  Never clear completed work here. An earlier design did that and invalidated ids the model still held
+   *  when it created a second batch in the SAME turn — the source of blind "task not found" retries. Whole-
+   *  list cleanup belongs only to the next real turn-context build; explicit per-task removal stays available
+   *  through status 'deleted'. */
   create(key, inputs) {
     return this.db.transaction(() => {
       this.#ensureList(key);
@@ -526,6 +540,9 @@ export function registerTaskMode(ctx, db) {
   ctx.registerTurnContext(() => {
     try {
       const key = keyFor(ctx);
+      // Core calls turn-context providers only while composing a fresh prompt turn. Mid-turn steers go
+      // straight into PI's queue and never pass this seam, so ids held by the running turn cannot be cleared.
+      if (key) store.clearCompletedAtTurnBoundary(key);
       const tasks = syncCard(ctx, store, key);
       return tasks.length ? renderTaskContext(tasks) : '';
     } catch (error) {
