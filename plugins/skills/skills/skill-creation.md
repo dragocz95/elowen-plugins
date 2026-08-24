@@ -1,51 +1,44 @@
 ---
 name: skill-creation
-description: Use when you notice a workflow repeating across conversations, or the user asks you to remember a reusable procedure — capture it as a new skill with the CreateSkill tool.
+description: Use when creating, listing or deleting a skill in Elowen — the CreateSkill/ListSkills/DeleteSkill tools, where skills are stored, and when a new one starts taking effect. Load this before writing skill files by hand.
 ---
 
-# Creating new skills
+# Skills in Elowen
 
-A skill is a markdown file with a small frontmatter (`name` + one-line `description`) and a body of
-concrete instructions. Every skill is advertised (name, description, file location) in your system
-prompt; you load the full body on demand with `Read` when a task matches the description.
+This is the mechanics: the tools, the storage, and when a skill goes live. For the CRAFT of writing a
+good skill — structure, tuning a description so it triggers reliably, evals — load the `skill-creator`
+skill if this instance has it, and follow it. What this file adds is the part `skill-creator` cannot
+know: Elowen creates skills through a TOOL, not by writing files into a directory.
 
-## Where skills live
+## Create, list, delete
 
-- **User skills** — created at runtime with the `CreateSkill` tool (admin only), stored in the
-  skills plugin's data directory. This is where YOUR skills go.
-- **Plugin skills** — shipped inside a plugin's `skills/` folder (flat `<name>.md` files or
-  `<name>/SKILL.md` directories). Those are authored in plugin code, not at runtime.
+Use `CreateSkill` (admin only), never a hand-written file:
 
-## How to create one
+- `name` — kebab-case, specific: `deploy-checklist`, `weekly-report-format`.
+- `description` — ONE line. It is all the model sees before deciding to load the skill, so state the
+  triggering conditions explicitly.
+- `content` — the body: numbered steps, exact tool names, known pitfalls, what "done" looks like.
 
-Use the `CreateSkill` tool:
+`ListSkills` shows the catalog; check it before adding, and extend an existing skill rather than
+creating a near-duplicate. `DeleteSkill` needs the user's explicit confirmation.
 
-- `name` — kebab-case, specific, verb- or domain-first: `deploy-checklist`, `weekly-report-format`.
-- `description` — ONE line starting with "Use when …". This is the trigger: it is all the model
-  sees before deciding to load the skill, so make the matching conditions explicit.
-- `content` — the body: numbered steps, exact tool names and example payloads, known pitfalls, and
-  what "done" looks like. Write instructions to your future self with zero conversation context.
+## Where they live
 
-Manage the catalog with `ListSkills` and `DeleteSkill` (deleting needs the user's explicit
-confirmation).
+- **User skills** — created by `CreateSkill`, stored in the skills plugin's data directory. Yours go here.
+- **Plugin skills** — shipped inside a plugin's `skills/` folder (`<name>.md` or `<name>/SKILL.md`),
+  authored in plugin code rather than at runtime.
 
-A new skill loads into NEW conversations after the plugins reload (Settings → Plugins toggle, or a
-daemon restart) — it does not appear mid-conversation.
+## What to keep out
 
-## When TO create a skill
+Never put secrets or credentials in a skill — configuration belongs in plugin settings. Avoid transient
+state ("X is currently broken"); a skill should stay true.
 
-- You performed the same multi-step workflow two or more times.
-- A procedure has non-obvious ordering, gotchas, or exact values that were painful to rediscover.
-- The user describes a standing process they will ask for again ("every Friday do …").
+## When it takes effect
 
-## When NOT to create a skill
+Every skill's name and description sit in the system prompt of each NEW conversation, so a skill is a
+standing cost as well as a capability — that is the real argument against creating one for a task you
+did once. A new skill reaches new conversations only after the plugins reload (Settings → Plugins
+toggle, or a daemon restart); it never appears mid-conversation.
 
-- One-off tasks, or anything trivially covered by a single obvious tool call.
-- Transient state ("X is currently broken") — that changes; skills should stay true.
-- Secrets or credentials — NEVER. Configuration belongs in plugin settings, not skill text.
-- Duplicates — check `ListSkills` first and extend an existing skill instead.
-
-## After creating
-
-Always tell the user what you created: the skill name, its one-line description, and that it
-activates in new conversations after a plugins reload.
+After creating one, tell the user its name, its one-line description, and that it activates in new
+conversations after a reload.
