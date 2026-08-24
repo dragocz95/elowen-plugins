@@ -17,10 +17,10 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 // hygiene). Core matched routes first, so a skill with one of these names could never be edited.
 const RESERVED_NAMES = new Set(['config', 'icon', 'logs', 'contributions', 'hook-executions', 'data', 'restore', 'api', 'list', 'users']);
 
-/** One owner-scoped loader over the exact Skill[] registered into that session. Instance and personal
- *  definitions intentionally share the same tool name: PluginRegistry.toolsFor() lets the personal one
- *  replace the instance definition only in its owner's sessions, exactly as it filters skillsFor(). */
-function buildSkillLoadTool(skills, logger) {
+/** Index the visible (model-invocable) skills of one set by name. A duplicate is dropped with a warning:
+ *  two files claiming the same name are a catalog problem, and silently picking one is how the wrong body
+ *  gets loaded. */
+function indexVisible(skills, logger) {
   const byName = new Map();
   for (const skill of skills) {
     if (skill.disableModelInvocation) continue;
@@ -30,24 +30,62 @@ function buildSkillLoadTool(skills, logger) {
     }
     byName.set(skill.name, skill);
   }
-  const visible = [...byName.values()];
-  if (visible.length === 0) return null;
-  const literals = visible.map((skill) => Type.Literal(skill.name));
-  const name = literals.length === 1
-    ? Type.Literal(visible[0].name, { description: 'Exact skill name from the available-skills list.' })
-    : Type.Union(literals, { description: 'Exact skill name from the available-skills list.' });
+  return byName;
+}
+
+/** ONE instance-wide loader over every set this plugin owns, resolving WHOSE personal skills the call may
+ *  open at execute time — the same shape the memory tools use, and for the same reason.
+ *
+ *  It used to be one registered definition per account, selected by PluginRegistry.toolsFor() from the
+ *  session's owner. That works only where a session has ONE owner. A shared room has none: its sender
+ *  changes turn to turn while its tool set is fixed at spawn, so every room fell back to the instance
+ *  definition and a colleague's own skills did not exist there at all — for them or for anyone.
+ *
+ *  The caller comes from `ctx.currentContributionUserId()`, which the host resolves once per turn and uses
+ *  for its OWN available-skills announcement, so this tool offers exactly the set the model was told about.
+ *  Deliberately not `currentIdentity().elowenUserId`: a delegated sub-agent carries no account identity yet
+ *  legitimately inherits the skills of the turn that spawned it, and reading identity there would announce
+ *  a skill and then refuse to open it. Outside a turn, or for an unlinked sender / accountless automation,
+ *  it answers null and only the instance set is reachable. */
+function buildSkillLoadTool(ctx, instanceSkills, personalSkills) {
+  const logger = ctx.logger;
+  const instanceByName = indexVisible(instanceSkills, logger);
+  const personalByName = new Map();
+  for (const [ownerUserId, owned] of personalSkills) personalByName.set(ownerUserId, indexVisible(owned, logger));
+  const anyPersonal = [...personalByName.values()].some((byName) => byName.size > 0);
+  if (instanceByName.size === 0 && !anyPersonal) return null;
+
+  /** A personal definition shadows an instance one of the same name, inside that account's turns only —
+   *  the precedence PluginRegistry.toolsFor() applied when this was still one tool per owner. */
+  const visibleTo = (ownerUserId) => {
+    const owned = ownerUserId == null ? undefined : personalByName.get(ownerUserId);
+    return owned && owned.size ? new Map([...instanceByName, ...owned]) : instanceByName;
+  };
+
+  const description = 'Exact skill name from the available-skills list.';
+  const instanceLiterals = [...instanceByName.keys()].map((skillName) => Type.Literal(skillName));
+  // The schema enumerates the names only while EVERY session sees the same ones. The moment any account
+  // owns a personal set, an enum could only be built from one of two wrong lists: the instance names alone
+  // would reject a name the model was correctly told it may load, and the union of everybody's names would
+  // publish one person's private skill names into every other person's prompt. A free string with the
+  // available-skills list as its stated source is the honest third answer, and execute() is the gate.
+  const name = !anyPersonal && instanceLiterals.length > 0
+    ? (instanceLiterals.length === 1
+        ? Type.Literal([...instanceByName.keys()][0], { description })
+        : Type.Union(instanceLiterals, { description }))
+    : Type.String({ description });
 
   return defineTool({
     name: 'SkillLoad', label: 'Load skill',
     description: [
-      'Load the complete instructions for one available skill managed by the skills plugin, using an exact name offered by this tool.',
-      'Prefer this tool when its schema includes the matching skill; skills contributed by other plugins remain loadable through Read at the location shown in the available-skills list.',
+      'Load the complete instructions for one available skill managed by the skills plugin, using an exact name from the available-skills list.',
+      'Prefer this tool over Read for a skill it can load; skills contributed by other plugins remain loadable through Read at the location shown in the available-skills list.',
       'The result includes the skill directory used to resolve relative paths in its instructions.',
       'Personal skills remain limited to their owner and instance skills are shared. Manual-only skills are omitted; only the user can invoke one explicitly with /skill:<name>.',
     ].join(' '),
     parameters: Type.Object({ name }),
     execute: async (_id, params) => {
-      const skill = byName.get(params.name);
+      const skill = visibleTo(ctx.currentContributionUserId()).get(params.name);
       if (!skill) return ok('Error: that skill is not available in this session. Use an exact name from the available-skills list.');
       try {
         const content = readFileSync(skill.filePath, 'utf-8');
@@ -130,17 +168,14 @@ export function register(ctx) {
     }
   }
 
-  // Register the instance definition first. A personal definition with the same name then shadows it only
-  // for that account through the registry's existing owner-scoped tool selection. The personal closure
-  // includes the shared skills too, so shadowing never removes capabilities the owner already had.
-  const instanceLoader = buildSkillLoadTool(instanceSkills, ctx.logger);
-  if (instanceLoader) ctx.registerTool(instanceLoader);
-  for (const [ownerUserId, owned] of personalSkills) {
-    if (!owned.some((skill) => !skill.disableModelInvocation)) continue;
-    const personalLoader = buildSkillLoadTool([...instanceSkills, ...owned], ctx.logger);
-    if (personalLoader) ctx.registerTool(personalLoader, { ownerUserId });
-  }
-  if (instanceLoader || [...personalSkills.values()].some((owned) => owned.some((skill) => !skill.disableModelInvocation))) {
+  // ONE registered definition, instance-wide. The per-account variants it replaced could only ever be
+  // selected by a session's OWNER, which no shared room has — so the loader now carries every set and
+  // decides per turn (see buildSkillLoadTool). Being an ordinary instance tool also puts it squarely under
+  // the writer's own tool grant: an account an admin never granted SkillLoad cannot reach their personal
+  // skills through it, which is exactly what the grant is for.
+  const skillLoader = buildSkillLoadTool(ctx, instanceSkills, personalSkills);
+  if (skillLoader) ctx.registerTool(skillLoader);
+  if (skillLoader) {
     ctx.registerSystemPromptFragment([
       '<skill_loading>',
       'Prefer SkillLoad when its schema offers the matching skill name.',

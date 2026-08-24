@@ -33,7 +33,7 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [] } = {
   const promptFragments = [];
   // The identity/admin state the host would install around a turn or an API request. It is ambient in
   // the daemon (AsyncLocalStorage); a mutable cell is the same thing for a single-threaded test.
-  const session = { identity: null, adminSession: false };
+  const session = { identity: null, adminSession: false, contributionUserId: null };
   const ctx = {
     logger: log,
     dataDir: () => join(dataRoot, 'skills'),
@@ -44,6 +44,10 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [] } = {
     registerUserRemoved: (fn) => userRemoved.push(fn),
     requestReload,
     currentIdentity: () => session.identity,
+    // WHOSE personal skills the turn may open. The host resolves it per turn from the session and its
+    // verified writer, so it is deliberately NOT derived from `identity` here either: the two part company
+    // for a delegated sub-agent, and a stub that tied them together could never show that.
+    currentContributionUserId: () => session.contributionUserId,
     isAdminSession: () => session.adminSession,
     // Declared by the manifest as `capabilities.reads: ['stores']`; the plugin refuses to mint a personal
     // folder for an id that names no account, so it needs the same account list the daemon wires in. Read
@@ -85,15 +89,15 @@ const runTool = (plugin, name, params) => {
   return tool.execute('t', params);
 };
 
-/** Mirror PluginRegistry.toolsFor(): an owner-scoped definition wins over the instance definition with
- *  the same name, while a shared/task session (`ownerUserId === null`) can only select the instance one. */
-const runScopedTool = (plugin, name, ownerUserId, params) => {
-  const candidates = plugin.tools.filter((tool) => tool.name === name
-    && (tool.ownerUserId === null || tool.ownerUserId === ownerUserId));
-  const tool = candidates.find((candidate) => candidate.ownerUserId === ownerUserId)
-    ?? candidates.find((candidate) => candidate.ownerUserId === null);
-  assert.ok(tool, `tool ${name} must be registered for owner ${ownerUserId ?? 'instance'}`);
-  return tool.execute('t', params);
+/** Run the ONE registered instance tool inside a turn whose CONTRIBUTION OWNER is `ownerUserId` — the
+ *  host-resolved "whose personal skills may this turn open", null for the instance set alone. It replaced
+ *  a per-account registered definition selected by the session's owner, because a shared room has no
+ *  owner to select one with. */
+const runScopedTool = async (plugin, name, ownerUserId, params) => {
+  const tool = plugin.tools.find((t) => t.name === name && t.ownerUserId === null);
+  assert.ok(tool, `instance tool ${name} must be registered`);
+  plugin.session.contributionUserId = ownerUserId ?? null;
+  try { return await tool.execute('t', params); } finally { plugin.session.contributionUserId = null; }
 };
 
 // ── the HTTP harness ─────────────────────────────────────────────────────────────────────────────────
@@ -369,7 +373,7 @@ test('bundled skills plugin', async (t) => {
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'auto-skill' })), /missing or unreadable/);
   });
 
-  await t.test('SkillLoad mirrors instance and personal session ownership without trusting turn identity', async () => {
+  await t.test('SkillLoad opens the personal set of the turn\'s contribution owner, and nobody else\'s', async () => {
     const dataRoot = tmpDir('skills');
     const skillsDir = join(dataRoot, 'skills');
     mkdirSync(join(skillsDir, 'users', '7'), { recursive: true });
@@ -381,8 +385,9 @@ test('bundled skills plugin', async (t) => {
     const unavailable = 'Error: that skill is not available in this session. Use an exact name from the available-skills list.';
 
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'shared-skill' })), /Body of shared-skill/);
-    // A linked sender in a shared session still receives the INSTANCE tool chosen at spawn; the tool must
-    // not inspect currentIdentity() and widen itself to that sender's personal files at execute time.
+    // The turn's IDENTITY is deliberately not what widens the set. The host resolves the contribution owner
+    // once per turn and announces the very same set to the model; a tool second-guessing that from identity
+    // would answer differently for a delegated child, whose identity names no account at all.
     await asTurn(reg, turnFor(7), async () => {
       assert.equal(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'private-seven' })), unavailable);
     });
@@ -390,6 +395,25 @@ test('bundled skills plugin', async (t) => {
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-seven' })), /Body of private-seven/);
     assert.equal(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-eight' })), unavailable);
     assert.equal(asText(await runScopedTool(reg, 'SkillLoad', 8, { name: 'private-seven' })), unavailable);
+  });
+
+  await t.test('the schema never publishes one account\'s private skill names to another', async () => {
+    const dataRoot = tmpDir('skills');
+    const skillsDir = join(dataRoot, 'skills');
+    mkdirSync(join(skillsDir, 'users', '7'), { recursive: true });
+    writeFileSync(join(skillsDir, 'shared-skill.md'), skillMd('shared-skill', 'shared procedure'));
+    writeFileSync(join(skillsDir, 'users', '7', 'private-seven.md'), skillMd('private-seven', 'account seven only'));
+    const reg = loadPlugin({ dataRoot });
+    const tool = reg.tools.find((t) => t.name === 'SkillLoad' && t.ownerUserId === null);
+
+    // The parameter schema rides every session's prompt, so it can name only what EVERY session may load.
+    // Enumerating the union would publish one person's private skill names to everyone else in the room;
+    // enumerating the instance names alone would reject a name the model was correctly told it may load.
+    // Neither is honest once personal sets exist, so the schema takes the available-skills list as its
+    // stated source and execute() is the gate.
+    const schema = JSON.stringify(tool.parameters);
+    assert.doesNotMatch(schema, /private-seven/);
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-seven' })), /Body of private-seven/);
   });
 
   await t.test('a symlink into a personal skill directory never promotes it to instance scope', async () => {
