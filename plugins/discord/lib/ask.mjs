@@ -1,4 +1,37 @@
 // AskUserQuestion UI rendering: native Discord components for a parked question.
+
+/** How much of an ask Discord can actually render. Both numbers are the platform's hard caps, not a
+ *  preference: a message carries at most 5 action rows and the footer row takes one, and a string select
+ *  carries at most 25 options. They are deliberately NOT aligned with the other platforms' numbers —
+ *  a cross-platform limit would either break Discord's API or crop a card that had room to spare. What
+ *  IS uniform is that a cut is never silent: see `askTruncationNote`. */
+export const ASK_MAX_QUESTIONS = 4;
+export const ASK_MAX_SELECT_OPTIONS = 25;
+
+/** The line telling the reader that the ask did not fit, or '' when all of it did.
+ *
+ *  The embed describes every question the agent asked, but only the first `ASK_MAX_QUESTIONS` get
+ *  components — so without this note a question is printed with no way on earth to answer it, and the
+ *  turn parks until the core's timeout with the user certain they already replied. An ugly question is
+ *  recoverable; an invisible one is not. */
+export function askTruncationNote(questions, { cs = false } = {}) {
+  const list = Array.isArray(questions) ? questions : [];
+  const notes = [];
+  if (list.length > ASK_MAX_QUESTIONS) {
+    notes.push(cs
+      ? `Zobrazeny první ${ASK_MAX_QUESTIONS} z ${list.length} otázek — Discord jich v jedné zprávě více nezobrazí.`
+      : `Showing the first ${ASK_MAX_QUESTIONS} of ${list.length} questions — Discord cannot show more in one message.`);
+  }
+  for (const q of list.slice(0, ASK_MAX_QUESTIONS)) {
+    const total = q?.options?.length ?? 0;
+    if (askUsesButtons(q) || total <= ASK_MAX_SELECT_OPTIONS) continue;
+    notes.push(cs
+      ? `„${q.header}“: zobrazeno prvních ${ASK_MAX_SELECT_OPTIONS} z ${total} možností.`
+      : `"${q.header}": showing the first ${ASK_MAX_SELECT_OPTIONS} of ${total} options.`);
+  }
+  return notes.join('\n');
+}
+
 /** True when a question renders as a button row: single-select with few options — a click IS the pick.
  *  MultiSelect or >5 options need a string select (Discord caps 5 buttons per action row). */
 function askUsesButtons(q) {
@@ -12,7 +45,7 @@ function askUsesButtons(q) {
  *  single button-question where a click answers instantly — plus a free-text "Other" button on
  *  single-question asks unless the question sets `custom: false` (absent = allowed). */
 export function buildAskComponents(id, questions, { cs = false, selected = {} } = {}) {
-  const qs = questions.slice(0, 4);
+  const qs = questions.slice(0, ASK_MAX_QUESTIONS);
   const rows = qs.map((q, qi) => {
     if (askUsesButtons(q)) {
       return {
@@ -33,7 +66,7 @@ export function buildAskComponents(id, questions, { cs = false, selected = {} } 
         placeholder: (q.multiSelect ? (cs ? `${q.header} — vyber jednu či víc` : `${q.header} — pick one or more`) : q.header).slice(0, 150),
         min_values: q.multiSelect ? 0 : 1,
         max_values: q.multiSelect ? Math.min(q.options.length, 25) : 1,
-        options: q.options.slice(0, 25).map((op, oi) => ({
+        options: q.options.slice(0, ASK_MAX_SELECT_OPTIONS).map((op, oi) => ({
           label: String(op.label).slice(0, 100),
           value: String(oi),
           description: op.description ? String(op.description).slice(0, 100) : undefined,

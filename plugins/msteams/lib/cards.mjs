@@ -10,6 +10,10 @@
 
 const LABEL_MAX = 60;
 const PICKER_PAGE_SIZE = 8;
+/** How many choices one ask question renders. Adaptive Cards impose no such cap — this is the payload
+ *  and readability budget, deliberately NOT aligned with Discord's numbers (whose caps are dictated by
+ *  its API). What is uniform across the platforms is that a cut is stated in the card, never silent. */
+export const ASK_MAX_CHOICES = 12;
 const TABLE_SCHEMA_VERSION = '1.5';
 const TABLE_MAX_COLUMNS = 3;
 const TABLE_MAX_ROWS = 20;
@@ -125,12 +129,28 @@ export function buildAskCard(token, questions, { cs = false, selected = [] } = {
   questions.forEach((q, qi) => {
     body.push({ type: 'TextBlock', text: `**${clamp(q.header ?? '', 80)}** — ${clamp(q.question ?? '', 400)}`, wrap: true });
     const picks = new Set(selected[qi] ?? []);
-    const buttons = (q.options ?? []).slice(0, 12).map((option, oi) => ({
+    const options = q.options ?? [];
+    const buttons = options.slice(0, ASK_MAX_CHOICES).map((option, oi) => ({
       type: 'Action.Submit',
       title: `${picks.has(option.label) ? '✅ ' : ''}${clamp(option.label)}`,
       data: { ea: token, q: qi, o: oi },
     }));
     if (buttons.length) body.push({ type: 'ActionSet', actions: buttons });
+    // A cut choice used to just vanish: the card rendered twelve buttons and the thirteenth option was
+    // never mentioned anywhere, so the one person who needed it waited out the turn instead of
+    // answering it. Same wording the table renderer uses for a cropped result — state the cut, never
+    // imply it.
+    if (options.length > ASK_MAX_CHOICES) {
+      body.push({
+        type: 'TextBlock',
+        text: cs
+          ? `Zobrazeno prvních ${ASK_MAX_CHOICES} z ${options.length} možností.`
+          : `Showing the first ${ASK_MAX_CHOICES} of ${options.length} options.`,
+        wrap: true,
+        isSubtle: true,
+        spacing: 'Small',
+      });
+    }
   });
   if (!single) actions.push({ type: 'Action.Submit', title: cs ? 'Odeslat' : 'Submit', data: { ea: token, s: 1 } });
   if (questions.length === 1 && questions[0]?.custom !== false) {

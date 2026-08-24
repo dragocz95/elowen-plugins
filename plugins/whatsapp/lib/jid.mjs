@@ -32,9 +32,37 @@ export function toJid(recipient) {
   return `${s.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
 }
 
-/** Whether any of the sender's identifiers maps to a policy flagged `admin: true` — the operator.
- *  Gates the shared per-chat pickers (/model, /reasoning) and the group tools. */
-export function senderIsAdmin(ids, policies) {
+/** The roleId that matches anyone. */
+export const WILDCARD = '*';
+
+/** Whether a policy `roleId` matches one of a sender's identifiers. `*` matches every sender; everything
+ *  else is the digits-only comparison above. The wildcard lives HERE rather than in `sameId` because
+ *  `sameId` also decides whether a mention or a parked question's asker is a given person — a `*`
+ *  answering true to those would hand one person's question to whoever replied next. */
+export function matchesId(policyId, id) {
+  const a = String(policyId ?? '').trim();
+  if (!a || !String(id ?? '').trim()) return false;
+  if (a === WILDCARD) return true;
+  return sameId(a, id);
+}
+
+/** The FIRST policy matching a sender, or undefined when none does.
+ *
+ *  Policies are ORDERED and the first match wins — the same resolution `accessFor` uses, which is why
+ *  both go through this one function. Deriving the admin gate from a separate "does any admin policy
+ *  match" scan is how a sender whose effective (first) policy is restricted could still pass the
+ *  operator gate by ALSO matching an admin policy further down: they answered another person's parked
+ *  question and changed the whole chat's model while holding the narrow policy's scope.
+ *
+ *  A wildcard policy belongs LAST: above the named policies it swallows them all. */
+export function matchPolicy(ids, policies) {
   const list = Array.isArray(policies) ? policies : [];
-  return list.some((p) => p.roleId && p.admin === true && ids.some((id) => sameId(p.roleId, id)));
+  const idList = Array.isArray(ids) ? ids : [];
+  return list.find((p) => p.roleId === WILDCARD || (p.roleId && idList.some((id) => matchesId(p.roleId, id))));
+}
+
+/** Whether the sender's effective first-match policy grants operator access. Gates the shared per-chat
+ *  pickers (/model, /reasoning) and the group tools. */
+export function senderIsAdmin(ids, policies) {
+  return matchPolicy(ids, policies)?.admin === true;
 }

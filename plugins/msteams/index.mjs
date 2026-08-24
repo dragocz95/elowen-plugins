@@ -12,7 +12,7 @@ import { registerTools } from './lib/tools.mjs';
 import { registerMicrosoftTools } from './lib/microsoftTools.mjs';
 import { platformImageDirs } from 'elowen-plugin-shared/images';
 
-export { matchesId, senderIds, senderIsAdmin, displayNameOf } from './lib/ids.mjs';
+export { matchesId, matchPolicy, senderIds, senderIsAdmin, displayNameOf } from './lib/ids.mjs';
 export { splitContent, footerLine, CHUNK } from './lib/format.mjs';
 export { makeTokenVerifier } from './lib/auth.mjs';
 export { ConnectorClient } from './lib/connector.mjs';

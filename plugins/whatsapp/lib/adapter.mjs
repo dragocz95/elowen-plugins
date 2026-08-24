@@ -8,7 +8,7 @@ import QRCode from 'qrcode';
 import { rmSync, mkdirSync } from 'node:fs';
 import { parseModelExec, buildReplyContext, splitContent, stripThinking, withoutFooter } from './format.mjs';
 import { parseAskReply } from './ask.mjs';
-import { sameId, isGroup, isSupportedChat, numberOf, toJid, senderIsAdmin } from './jid.mjs';
+import { sameId, isGroup, isSupportedChat, numberOf, toJid, senderIsAdmin, matchPolicy } from './jid.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage } from './stream.mjs';
 import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
@@ -274,8 +274,7 @@ export class WhatsAppAdapter {
    *  `access: undefined` for an unmapped sender → the turn is dropped silently. */
   accessFor(senderJid, chatJid) {
     const ids = this.senderIds(senderJid, chatJid);
-    const policies = Array.isArray(this.cfg.senderPolicies) ? this.cfg.senderPolicies : [];
-    const match = policies.find((p) => p.roleId && ids.some((id) => sameId(p.roleId, id)));
+    const match = matchPolicy(ids, this.cfg.senderPolicies);
     if (!match) return { ids, access: undefined };
     return { ids, access: buildRoleAccess(match, this.state.get(chatJid)) };
   }

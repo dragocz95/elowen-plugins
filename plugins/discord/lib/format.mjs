@@ -10,12 +10,41 @@ const REPLY_EXCERPT = 300;               // quoted-reply excerpt length
 /** Split a Discord reply into ≤CHUNK pieces without breaking a fenced code block (shared core + our size). */
 export const splitContent = (text) => splitAtChunk(text, CHUNK);
 
-/** Whether any of a member's role ids maps to a rolePolicy flagged `admin: true` (the operator's role).
- *  Used to gate the shared per-channel pickers (/model, /reasoning) to the operator only. */
-export function memberIsAdmin(roleIds, rolePolicies) {
+/** The roleId that matches anyone. */
+export const WILDCARD = '*';
+
+/** Whether a policy `roleId` matches one of a member's role ids. Discord role ids are opaque snowflakes
+ *  and compare exactly; `*` matches every role. */
+export function matchesId(policyId, roleId) {
+  const a = String(policyId ?? '').trim();
+  const b = String(roleId ?? '').trim();
+  if (!a || !b) return false;
+  if (a === WILDCARD) return true;
+  return a === b;
+}
+
+/** The FIRST rolePolicy matching a member, or undefined when none does.
+ *
+ *  Policies are ORDERED and the first match wins — the same resolution `accessFor` uses, which is why
+ *  both go through this one function. Deriving the admin gate from a separate "does any admin policy
+ *  match" scan is how a member whose effective (first) policy is restricted could still pass the
+ *  operator gate by ALSO holding a role listed admin further down: they answered another person's
+ *  parked question and changed the whole channel's model while holding the narrow role's scope.
+ *
+ *  A `*` policy matches even a member carrying no roles at all — `m.member.roles` omits @everyone, so a
+ *  plain member arrives here with an empty list and a wildcard that only matched through the id list
+ *  would skip exactly the people it exists to cover. It therefore belongs LAST: above the named
+ *  policies it swallows them all and everyone shares one role. */
+export function matchPolicy(roleIds, rolePolicies) {
   const ids = Array.isArray(roleIds) ? roleIds : [];
-  const policies = Array.isArray(rolePolicies) ? rolePolicies : [];
-  return policies.some((p) => p.roleId && p.admin === true && ids.includes(p.roleId));
+  const list = Array.isArray(rolePolicies) ? rolePolicies : [];
+  return list.find((p) => p.roleId === WILDCARD || (p.roleId && ids.some((id) => matchesId(p.roleId, id))));
+}
+
+/** Whether the member's effective first-match policy grants operator access. Gates the shared
+ *  per-channel pickers (/model, /reasoning) to the operator only. */
+export function memberIsAdmin(roleIds, rolePolicies) {
+  return matchPolicy(roleIds, rolePolicies)?.admin === true;
 }
 
 /** The name a human sees for a message author: server nick > global display name > username. */

@@ -1,7 +1,7 @@
 // The Discord adapter: gateway connection management, the inbound message pipeline,
 // slash-command/component interactions, voice (STT/TTS) and outbound posting.
-import { memberIsAdmin, displayNameOf, resolveMentions, buildReplyContext, parseModelExec, stripForSpeech, withoutFooter } from './format.mjs';
-import { buildAskComponents } from './ask.mjs';
+import { memberIsAdmin, matchPolicy, displayNameOf, resolveMentions, buildReplyContext, parseModelExec, stripForSpeech, withoutFooter } from './format.mjs';
+import { buildAskComponents, askTruncationNote } from './ask.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
 import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } from './display.mjs';
@@ -335,8 +335,7 @@ export class DiscordAdapter {
   /** Resolve a Discord message's sender to an access descriptor (role → projects/prompt + channel model). */
   accessFor(m, channelId) {
     const roleIds = m.member?.roles ?? [];
-    const policies = Array.isArray(this.cfg.rolePolicies) ? this.cfg.rolePolicies : [];
-    const match = policies.find((p) => p.roleId && roleIds.includes(p.roleId));
+    const match = matchPolicy(roleIds, this.cfg.rolePolicies);
     if (!match) return { roleIds, access: undefined };
     return { roleIds, access: buildRoleAccess(match, this.state.get(channelId)) };
   }
@@ -765,7 +764,9 @@ export class DiscordAdapter {
   async postAsk(channelId, replyToId, askerId, id, questions) {
     const cs = this.cfg.language === 'cs';
     const title = `❓ ${this.cfg.agentName || 'Elowen'} ${cs ? 'potřebuje tvůj vstup' : 'needs your input'}`;
-    const desc = questions.map((q) => `**${q.header}** — ${q.question}`).join('\n\n');
+    const note = askTruncationNote(questions, { cs });
+    const desc = [questions.map((q) => `**${q.header}** — ${q.question}`).join('\n\n'), note && `-# ${note.replaceAll('\n', '\n-# ')}`]
+      .filter(Boolean).join('\n\n');
     const res = await this.rest('POST', `/channels/${channelId}/messages`, {
       ...(replyToId ? { message_reference: { message_id: replyToId, fail_if_not_exists: false } } : {}),
       embeds: [{ title, description: desc, color: 0xE67E22 }],

@@ -16,7 +16,7 @@ import { platformChatFilesDir, platformImageDirs } from 'elowen-plugin-shared/im
 
 export { stripForSpeech, extractImageRefs, stripThinking, parseModelExec, buildReplyContext, splitContent, footerLine } from './lib/format.mjs';
 export { buildAskKeyboard } from './lib/ask.mjs';
-export { senderIsAdmin, matchesId, senderIds, displayNameOf } from './lib/ids.mjs';
+export { senderIsAdmin, matchPolicy, matchesId, senderIds, displayNameOf } from './lib/ids.mjs';
 export { LiveMessage } from './lib/stream.mjs';
 export { resolveDisplaySettings, updateDisplayOverrides } from './lib/display.mjs';
 

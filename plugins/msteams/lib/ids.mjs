@@ -73,12 +73,19 @@ export function isOwner(key, from) {
   return k === String(from?.aadObjectId ?? '') || k === String(from?.id ?? '');
 }
 
+/** The FIRST policy matching a sender, or undefined when none does. Policies are ORDERED and the first
+ *  match wins; `accessFor` and the admin gate both resolve through this one function so they can never
+ *  disagree about which policy is a sender's effective one. A wildcard policy belongs LAST. */
+export function matchPolicy(ids, policies) {
+  const list = Array.isArray(policies) ? policies : [];
+  const idList = Array.isArray(ids) ? ids : [];
+  return list.find((p) => p.roleId === WILDCARD || (p.roleId && idList.some((id) => matchesId(p.roleId, id))));
+}
+
 /** Whether the sender's effective first-match policy grants operator access. Admin commands must use
  * the same ordered policy resolution as the normal access descriptor. */
 export function senderIsAdmin(ids, policies) {
-  const list = Array.isArray(policies) ? policies : [];
-  const policy = list.find((p) => p.roleId && ids.some((id) => matchesId(p.roleId, id)));
-  return policy?.admin === true;
+  return matchPolicy(ids, policies)?.admin === true;
 }
 
 /** The name a human sees for a message sender. */

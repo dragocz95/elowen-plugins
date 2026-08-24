@@ -14,8 +14,8 @@ import { registerTools } from './lib/tools.mjs';
 import { listGuildChannels } from './lib/channels.mjs';
 import { platformChatFilesDir, platformImageDirs } from 'elowen-plugin-shared/images';
 
-export { stripForSpeech, extractImageRefs, stripThinking, parseModelExec, memberIsAdmin, displayNameOf, resolveMentions, buildReplyContext, splitContent, footerLine, withoutFooter } from './lib/format.mjs';
-export { buildAskComponents } from './lib/ask.mjs';
+export { stripForSpeech, extractImageRefs, stripThinking, parseModelExec, memberIsAdmin, matchPolicy, matchesId, displayNameOf, resolveMentions, buildReplyContext, splitContent, footerLine, withoutFooter } from './lib/format.mjs';
+export { buildAskComponents, askTruncationNote, ASK_MAX_QUESTIONS, ASK_MAX_SELECT_OPTIONS } from './lib/ask.mjs';
 export { LiveMessage } from './lib/stream.mjs';
 export { resolveDisplaySettings, updateDisplayOverrides } from './lib/display.mjs';
 

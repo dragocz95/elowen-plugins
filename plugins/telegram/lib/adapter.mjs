@@ -3,7 +3,7 @@
 // adapter feature-for-feature; the transport is grammY's Bot API instead of the Discord gateway/REST.
 import { Bot, InputFile, GrammyError } from 'grammy';
 import { parseModelExec, buildReplyContext, stripForSpeech, withoutFooter } from './format.mjs';
-import { senderIds, senderIsAdmin, matchesId, displayNameOf } from './ids.mjs';
+import { senderIds, senderIsAdmin, matchPolicy, displayNameOf } from './ids.mjs';
 import { buildAskKeyboard } from './ask.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
@@ -228,8 +228,7 @@ export class TelegramAdapter {
   /** Resolve a sender to an access descriptor (rolePolicy → projects/prompt + per-chat model). Returns
    *  `access: undefined` for an unmapped sender → the turn is dropped silently. */
   accessFor(ids, chatId) {
-    const policies = Array.isArray(this.cfg.rolePolicies) ? this.cfg.rolePolicies : [];
-    const match = policies.find((p) => p.roleId && ids.some((id) => matchesId(p.roleId, id)));
+    const match = matchPolicy(ids, this.cfg.rolePolicies);
     if (!match) return { access: undefined };
     return { access: buildRoleAccess(match, this.state.get(String(chatId))) };
   }

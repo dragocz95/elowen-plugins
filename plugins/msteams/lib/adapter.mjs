@@ -9,7 +9,7 @@ import { ConnectorClient } from './connector.mjs';
 import { GraphClient } from './graph.mjs';
 import { PeopleDirectory, personLine } from './directory.mjs';
 import { makeTokenVerifier } from './auth.mjs';
-import { matchesId, senderIds, senderIsAdmin, displayNameOf, ownerKey, isOwner, threadRef } from './ids.mjs';
+import { matchPolicy, senderIds, senderIsAdmin, displayNameOf, ownerKey, isOwner, threadRef } from './ids.mjs';
 import { parseModelExec, splitContent } from './format.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
@@ -648,8 +648,7 @@ export class MsTeamsAdapter {
   /** Resolve a sender to an access descriptor (rolePolicy → projects/prompt + per-chat model). Returns
    *  `access: undefined` for an unmapped sender → the turn is dropped silently. */
   accessFor(ids, conversationId) {
-    const policies = Array.isArray(this.cfg.rolePolicies) ? this.cfg.rolePolicies : [];
-    const match = policies.find((p) => p.roleId && ids.some((id) => matchesId(p.roleId, id)));
+    const match = matchPolicy(ids, this.cfg.rolePolicies);
     if (!match) return { access: undefined };
     return { access: buildRoleAccess(match, this.state.get(String(conversationId))) };
   }
