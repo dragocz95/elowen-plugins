@@ -74,25 +74,56 @@ describe('platform policy resolution (discovered adapters)', () => {
     }
   });
 
+  /** The shapes a second policy resolution can take, matched against a STATEMENT rather than a line.
+   *
+   *  Line-scoped patterns claimed more than they enforced: a scan split across lines carries `.some(`
+   *  and `admin` on different lines and slipped through, and so did the most natural refactor of all —
+   *  `for (const p of policies) { if (p.admin) return true; }` — which never mentions `.some` at all.
+   *  Whitespace is collapsed first so the wrapping no longer decides, and each pattern is bounded by
+   *  `;` so it cannot pair a `.some(` in one statement with an `admin` in a later one. */
+  const SECOND_SCAN = [
+    /[Pp]olicies\s*\.\s*(find|some)\s*\(/,                       // a policy array walked directly
+    /\.\s*(find|some)\s*\([^;]{0,160}\badmin\b/,                 // a scan whose predicate reads `admin`
+    /\bfor\s*\(\s*(?:const|let|var)\s+[^;]{0,80}\bof\s+[^;{]{0,80}[Pp]olicies\b/, // a hand-rolled loop
+  ];
+  const scanStatements = (text: string) => text.replace(/\s+/g, ' ').split(';');
+
   it('resolves a policy list only through matchPolicy — no adapter keeps a second scan', () => {
     // Derived, not a file list: `matchPolicy` is the only function allowed to walk a policy array, so
-    // any `<something>policies.find(...)` / `.some(...)` anywhere in a platform plugin is a second
-    // resolution path and exactly the divergence this suite exists to prevent.
+    // any second walk anywhere in a platform plugin is a second resolution path and exactly the
+    // divergence this suite exists to prevent.
     const offenders: string[] = [];
     for (const name of platformPlugins) {
       for (const file of sourceFiles(join(pluginsDir, name))) {
-        const text = readFileSync(file, 'utf8');
-        text.split('\n').forEach((line, i) => {
-          // The second pattern must NOT stop at the first `)` — the scan being guarded against reads
-          // `list.some((p) => p.roleId && p.admin === true …)`, and a lazy character class gives up on
-          // the arrow's own parentheses and waves the bug straight through.
-          if (/[Pp]olicies\.(find|some)\(/.test(line) || /\.(some|find)\(.*\badmin\b/.test(line)) {
-            offenders.push(`${file.slice(repoRoot.length)}:${i + 1}: ${line.trim()}`);
-          }
-        });
+        for (const statement of scanStatements(readFileSync(file, 'utf8'))) {
+          if (SECOND_SCAN.some((re) => re.test(statement))) offenders.push(`${file.slice(repoRoot.length)}: ${statement.trim()}`);
+        }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('the second-scan check actually recognises the shapes it claims to', () => {
+    // The check above is a source scan: it passes trivially if its patterns match nothing. These are
+    // the two shapes that used to walk straight past it, plus the original one-liner, plus the code
+    // that MUST stay allowed — `matchPolicy`'s own body and the mention resolver's name lookup.
+    const forbidden = [
+      'const admin = policies.some((p) => p.admin === true && matchesId(p.roleId, id));',
+      'const rows = this.cfg.rolePolicies ?? []; return rows.some(\n  (p) => p.admin === true,\n);',
+      'for (const p of policies) { if (p.admin) return true; }',
+      'for (const policy of this.cfg.senderPolicies ?? []) {\n  if (policy.admin) return true;\n}',
+    ];
+    const allowed = [
+      'return list.find((p) => isWildcard(p.roleId) || (p.roleId && ids.some((id) => matchesId(p.roleId, id))));',
+      'const policy = (Array.isArray(rolePolicies) ? rolePolicies : []).find((p) => p.roleId === id);',
+      'return matchPolicy(ids, policies)?.admin === true;',
+    ];
+    for (const sample of forbidden) {
+      expect(scanStatements(sample).some((s) => SECOND_SCAN.some((re) => re.test(s))), sample).toBe(true);
+    }
+    for (const sample of allowed) {
+      expect(scanStatements(sample).some((s) => SECOND_SCAN.some((re) => re.test(s))), sample).toBe(false);
+    }
   });
 
   it('is NOT admin when a restricted policy matches first and an admin policy matches later', () => {
@@ -135,6 +166,17 @@ describe('platform policy resolution (discovered adapters)', () => {
     for (const [name, mod] of loaded) {
       expect(mod.matchPolicy([SENDER], policies)?.name, `${name} wildcard`).toBe('everyone');
       expect(mod.matchPolicy([], policies)?.name, `${name} wildcard, no ids`).toBe('everyone');
+    }
+  });
+
+  it('reads a padded wildcard the same way in both branches', () => {
+    // The per-id comparison trims before comparing, so `' * '` was a wildcard there while the
+    // policy-level branch compared it raw and did not recognise it — the same row meaning two
+    // different things depending on which branch reached it first.
+    const padded: Policy[] = [{ roleId: ' * ', name: 'everyone' }];
+    for (const [name, mod] of loaded) {
+      expect(mod.matchPolicy([SENDER], padded)?.name, `${name} padded wildcard`).toBe('everyone');
+      expect(mod.matchPolicy([], padded)?.name, `${name} padded wildcard, no ids`).toBe('everyone');
     }
   });
 

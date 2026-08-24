@@ -477,7 +477,7 @@ describe('discord display settings', () => {
     const replies: unknown[] = [];
     adapter.rest = async (_method: string, _path: string, body: unknown) => { replies.push(body); return {}; };
     await adapter.onInteraction({
-      type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] },
+      type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
       data: { name: 'display', options: [{ name: 'tools', value: 'live' }, { name: 'output', value: 'tail' }, { name: 'layout', value: 'per_tool' }] },
     });
     expect(channels.C?.display).toEqual({ toolActivity: 'live', toolOutput: 'tail', toolMessageMode: 'per_tool' });
@@ -544,7 +544,7 @@ describe('discord reasoning picker', () => {
       model: { provider: 'oauth', model: 'gpt-5.4' }, thinkingLevel: 'xhigh',
     });
     await adapter.onInteraction({
-      type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] }, data: { name: 'reasoning' },
+      type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name: 'reasoning' },
     });
     const response = replies[0] as { type: number; data: { components: Array<{ components: Array<{ options: Array<{ label: string; value: string; default: boolean }> }> }> } };
     expect(response.type).toBe(4);
@@ -558,7 +558,7 @@ describe('discord reasoning picker', () => {
 
     replies.length = 0;
     await adapter.onInteraction({
-      type: 3, id: 'I2', token: 'T2', channel_id: 'C', member: { roles: ['ADMIN'] },
+      type: 3, id: 'I2', token: 'T2', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
       data: { custom_id: 'pick_reasoning', values: ['xhigh'] },
     });
     expect(channels.C?.thinkingLevel).toBe('xhigh');
@@ -572,13 +572,13 @@ describe('discord reasoning picker', () => {
     ];
     const { adapter, replies } = await makeAdapter(models);
     await adapter.onInteraction({
-      type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] }, data: { name: 'reasoning' },
+      type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name: 'reasoning' },
     });
     expect(JSON.stringify(replies[0])).toContain('"value":"low"');
 
     replies.length = 0;
     await adapter.onInteraction({
-      type: 2, id: 'I2', token: 'T2', channel_id: 'C', member: { roles: ['ADMIN'] }, data: { name: 'model' },
+      type: 2, id: 'I2', token: 'T2', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name: 'model' },
     });
     const options = (replies[0] as { data: { components: Array<{ components: Array<{ options: Array<{ label: string; value: string; description: string; default: boolean }> }> }> } })
       .data.components[0]!.components[0]!.options;
@@ -591,7 +591,7 @@ describe('discord reasoning picker', () => {
     const models = [{ provider: 'oauth', providerLabel: 'OAuth', model: 'reasoner', default: true, reasoningLevels: ['low'] }];
     const { adapter, replies } = await makeAdapter(models, {}, 'cs');
     await adapter.onInteraction({
-      type: 3, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] },
+      type: 3, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
       data: { custom_id: 'pick_reasoning', values: ['default'] },
     });
     expect(JSON.stringify(replies[0])).toContain('**výchozí**');
@@ -609,7 +609,7 @@ describe('discord reasoning picker', () => {
     ] as const) {
       const { adapter, replies } = await makeAdapter(models, { model: { provider: 'plain', model: 'chat-only' } }, language);
       await adapter.onInteraction({
-        type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] }, data: { name: 'reasoning' },
+        type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name: 'reasoning' },
       });
       const response = replies[0] as { data: { content: string; components?: unknown[] } };
       expect(response.data.content).toContain(message);
@@ -626,7 +626,7 @@ describe('discord reasoning picker', () => {
       model: { provider: 'oauth', model: 'gpt-5.4' }, thinkingLevel: 'low',
     });
     await adapter.onInteraction({
-      type: 3, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] },
+      type: 3, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
       data: { custom_id: 'pick_reasoning', values: ['xhigh'] },
     });
     expect(channels.C?.thinkingLevel).toBe('low');
@@ -640,7 +640,7 @@ describe('discord reasoning picker', () => {
     }];
     const { adapter, channels } = await makeAdapter(models, { model: { provider: 'oauth', model: 'reasoner' } });
     await adapter.onInteraction({
-      type: 3, id: 'I-off', token: 'T-off', channel_id: 'C', member: { roles: ['ADMIN'] },
+      type: 3, id: 'I-off', token: 'T-off', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
       data: { custom_id: 'pick_reasoning', values: ['off'] },
     });
     expect(channels.C?.thinkingLevel).toBe('off');
@@ -676,7 +676,7 @@ describe('discord /fast capability gate', () => {
     });
 
     await adapter.onInteraction({
-      type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] }, data: { name: 'fast' },
+      type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name: 'fast' },
     });
     expect(setFast).not.toHaveBeenCalled();
     expect(channels.C?.fast).toBe(false);
@@ -693,7 +693,7 @@ describe('discord /fast capability gate', () => {
     });
 
     await adapter.onInteraction({
-      type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] },
+      type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
       data: { name: 'fast', options: [{ name: 'state', value: 'on' }] },
     });
 
@@ -716,7 +716,7 @@ describe('discord /fast capability gate', () => {
     });
 
     await adapter.onInteraction({
-      type: 2, id: 'I1', token: 'T1', channel_id: 'C', member: { roles: ['ADMIN'] },
+      type: 2, id: 'I1', token: 'T1', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
       data: { name: 'fast', options: [{ name: 'state', value: 'on' }] },
     });
     expect(setFast).toHaveBeenCalledWith({ platform: 'discord', channelId: 'C#0' }, true);
@@ -726,7 +726,7 @@ describe('discord /fast capability gate', () => {
     channels.C = { model: { provider: 'plain', model: 'chat-only' }, fast: true };
     setFast.mockClear();
     await adapter.onInteraction({
-      type: 2, id: 'I2', token: 'T2', channel_id: 'C', member: { roles: ['ADMIN'] },
+      type: 2, id: 'I2', token: 'T2', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
       data: { name: 'fast', options: [{ name: 'state', value: 'off' }] },
     });
     expect(setFast).not.toHaveBeenCalled();
@@ -743,7 +743,7 @@ describe('discord /fast capability gate', () => {
       model: { provider: 'oauth', model: 'gpt-5.4' }, fast: true,
     });
     await adapter.onInteraction({
-      type: 3, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] },
+      type: 3, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
       data: { custom_id: 'pick_model', values: ['plain::chat-only'] },
     });
     expect(channels.C).toMatchObject({ model: { provider: 'plain', model: 'chat-only' }, fast: false });
@@ -1103,6 +1103,93 @@ describe('discord memberIsAdmin (operator-only picker gate)', () => {
     expect(memberIsAdmin(['r-nobody'], policies)).toBe(false);     // unmapped role
     expect(memberIsAdmin([], policies)).toBe(false);
     expect(memberIsAdmin(['r-admin'], undefined)).toBe(false);     // no policies configured
+  });
+});
+
+// A `*` policy matches a member carrying NO roles on purpose: `member.roles` omits @everyone, so a plain
+// guild member arrives with an empty list and a wildcard resolved only through that list would skip
+// precisely the people it exists to cover. `onInteraction` had none of onMessage's origin guards, which
+// turned that exception into a hole: in a DM `i.member` is undefined, was read as "a member with no
+// roles", and the wildcard answered every operator gate — /model, /restart, answering someone else's
+// parked question — while `dispatchSlashPrompt` handed the stranger a full turn with the wildcard's scope.
+describe('discord interaction origin guard (a DM interaction is not a guild member)', () => {
+  const makeAdapter = async (cfg: Record<string, unknown> = {}) => {
+    const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
+    const channels: Record<string, Record<string, unknown>> = {};
+    const state = {
+      get: (id: string) => channels[id] ?? {},
+      patch: (id: string, fields: Record<string, unknown>) => { channels[id] = { ...(channels[id] ?? {}), ...fields }; },
+    };
+    const adapter = new DiscordAdapter(
+      { language: 'en', rolePolicies: [{ roleId: '*', admin: true, name: 'everyone' }], ...cfg },
+      log, state, async () => [{ provider: 'p', providerLabel: 'Prov', model: 'm' }], [], () => null, () => false, discordCommands,
+    );
+    const rest: { method: string; path: string; body: any }[] = [];
+    adapter.rest = async (method: string, path: string, body: unknown) => { rest.push({ method, path, body }); return {}; };
+    const turns: string[] = [];
+    adapter.handler = async (_src: unknown, text: string) => { turns.push(text); return 'done'; };
+    return { adapter, channels, rest, turns };
+  };
+
+  it('ignores a DM slash command under a wildcard admin policy — no picker, no state change', async () => {
+    const { adapter, channels, rest } = await makeAdapter();
+    // A DM interaction: Discord sends `user`, never `member`, and no guild_id.
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'DM', user: { id: 'STRANGER' }, data: { name: 'model' } });
+    expect(rest).toEqual([]);
+    expect(channels.DM).toBeUndefined();
+  });
+
+  it('ignores a DM prompt-command — a stranger gets no brain turn', async () => {
+    const { adapter, rest, turns } = await makeAdapter();
+    await adapter.onInteraction({
+      type: 2, id: 'I', token: 'T', channel_id: 'DM', user: { id: 'STRANGER' },
+      data: { name: 'deploy', options: [{ name: 'args', value: 'prod' }] },
+    });
+    expect(turns).toEqual([]);
+    expect(rest).toEqual([]);
+  });
+
+  it('ignores a DM component interaction answering someone else\'s parked question', async () => {
+    const { adapter, rest } = await makeAdapter();
+    const settled: string[] = [];
+    adapter.answerQuestion = (id: string) => { settled.push(id); return true; };
+    adapter.pendingAsks.set('Q', {
+      channelId: 'C', messageId: 'M', askerId: 'OWNER', selected: {}, awaitingText: false, title: 't', desc: 'd',
+      questions: [{ header: 'h', question: 'q', options: [{ label: 'yes' }, { label: 'no' }] }],
+    });
+    await adapter.onInteraction({ type: 3, id: 'I', token: 'T', channel_id: 'DM', user: { id: 'STRANGER' }, data: { custom_id: 'ask:Q:0:0' } });
+    expect(settled).toEqual([]);
+    expect(adapter.pendingAsks.has('Q')).toBe(true);
+    expect(rest).toEqual([]);
+  });
+
+  it('ignores an interaction from another guild when a guildId is configured', async () => {
+    const { adapter, rest } = await makeAdapter({ guildId: 'HOME' });
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'ELSEWHERE', member: { roles: [], user: { id: 'U' } }, data: { name: 'model' } });
+    expect(rest).toEqual([]);
+  });
+
+  it('ignores an interaction from a bot member', async () => {
+    const { adapter, rest } = await makeAdapter();
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: [], user: { id: 'B', bot: true } }, data: { name: 'model' } });
+    expect(rest).toEqual([]);
+  });
+
+  it('still serves a guild member holding NO roles through the wildcard policy', async () => {
+    // The exception the hole grew out of stays intact where it is justified: in the guild.
+    const { adapter, rest } = await makeAdapter();
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: [], user: { id: 'U' } }, data: { name: 'model' } });
+    expect(JSON.stringify(rest[0]?.body)).toContain('pick_model');
+  });
+
+  it('resolves no access for a memberless payload even with a wildcard policy', async () => {
+    // The other half of the fix: no member at all is not "a member with no roles", so the wildcard
+    // cannot resolve one. Without this, any future caller that forgets the origin guard re-opens it.
+    const { adapter } = await makeAdapter();
+    expect(adapter.accessFor({ member: undefined }, 'C').access).toBeUndefined();
+    expect(adapter.accessFor({ member: { roles: [] } }, 'C').access).toBeDefined();
+    expect(adapter.isAdminMember(undefined)).toBe(false);
+    expect(adapter.isAdminMember({ roles: [] })).toBe(true);
   });
 });
 
@@ -1845,16 +1932,16 @@ describe('discord paged pickers + /context', () => {
 
   it('/model no longer truncates: a model past row 25 renders on page 2 and can be selected', async () => {
     const { adapter, channels, replies } = await makeAdapter(models30);
-    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] }, data: { name: 'model' } });
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name: 'model' } });
     // Page 0: exactly 25 options + a nav row (no silent drop of the remaining 5).
     expect(replies[0].data.components[0].components[0].options).toHaveLength(25);
     // Navigate to page 1 → the 30th model (model-29) is now rendered.
     replies.length = 0;
-    await adapter.onInteraction({ type: 3, id: 'I2', token: 'T2', channel_id: 'C', member: { roles: ['ADMIN'] }, data: { custom_id: 'pick_model_page:1' } });
+    await adapter.onInteraction({ type: 3, id: 'I2', token: 'T2', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { custom_id: 'pick_model_page:1' } });
     const values = replies[0].data.components[0].components[0].options.map((o: { value: string }) => o.value);
     expect(values).toContain('p::model-29');
     // Selecting it persists it — proving the removed .slice(0,25) no longer hides it.
-    await adapter.onInteraction({ type: 3, id: 'I3', token: 'T3', channel_id: 'C', member: { roles: ['ADMIN'] }, data: { custom_id: 'pick_model', values: ['p::model-29'] } });
+    await adapter.onInteraction({ type: 3, id: 'I3', token: 'T3', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { custom_id: 'pick_model', values: ['p::model-29'] } });
     expect(channels.C?.model).toEqual({ provider: 'p', model: 'model-29' });
   });
 
@@ -1862,7 +1949,7 @@ describe('discord paged pickers + /context', () => {
     const { adapter, replies } = await makeAdapter([]);
     const listContext = vi.fn(() => ({ items: [{ id: 'brain-7-1', title: 'Refactor', model: 'gpt-5' }], total: 1, hasMore: false }));
     adapter.control({ listContext, bindContext: vi.fn() });
-    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { name: 'context' } });
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { name: 'context' } });
     expect(listContext).toHaveBeenCalledWith({ platform: 'discord', channelId: 'C#0' }, 'U1', { offset: 0, limit: 200 });
     const options = replies[0].data.components[0].components[0].options;
     expect(options).toEqual([{ label: 'Refactor', value: 'brain-7-1', description: 'gpt-5' }]);
@@ -1872,7 +1959,7 @@ describe('discord paged pickers + /context', () => {
     const { adapter, replies } = await makeAdapter([]);
     const listContext = vi.fn();
     adapter.control({ listContext, bindContext: vi.fn() });
-    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: [] }, data: { name: 'context' } });
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: [] }, data: { name: 'context' } });
     expect(listContext).not.toHaveBeenCalled();
     expect(JSON.stringify(replies[0])).toContain('Only the operator');
   });
@@ -1881,7 +1968,7 @@ describe('discord paged pickers + /context', () => {
     const { adapter, replies } = await makeAdapter([]);
     const bindContext = vi.fn(async () => ({ title: 'Refactor' }));
     adapter.control({ listContext: vi.fn(), bindContext });
-    await adapter.onInteraction({ type: 3, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { custom_id: 'pick_context', values: ['brain-7-1'] } });
+    await adapter.onInteraction({ type: 3, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { custom_id: 'pick_context', values: ['brain-7-1'] } });
     expect(bindContext).toHaveBeenCalledWith({ platform: 'discord', channelId: 'C#0' }, 'U1', 'brain-7-1');
     const content = replies[0].data.content as string;
     expect(content).toContain('Refactor');
@@ -1893,7 +1980,7 @@ describe('discord paged pickers + /context', () => {
     const { adapter, replies } = await makeAdapter([]);
     const bindContext = vi.fn(async () => { throw new Error('unknown session'); });
     adapter.control({ listContext: vi.fn(), bindContext });
-    await adapter.onInteraction({ type: 3, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { custom_id: 'pick_context', values: ['brain-7-1'] } });
+    await adapter.onInteraction({ type: 3, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { custom_id: 'pick_context', values: ['brain-7-1'] } });
     expect(JSON.stringify(replies[0])).toContain('unknown session');
   });
 });
@@ -1932,7 +2019,7 @@ describe('discord plugin prompt-commands (native registration + RAW dispatch)', 
 
   it('lists the plugin command (own description) and adapter-local voice/display in /help', async () => {
     const { adapter, rest } = await makeAdapter();
-    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'] }, data: { name: 'help' } });
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name: 'help' } });
     const content = (rest.find((r) => r.path.includes('/callback'))!.body as { data: { content: string } }).data.content;
     expect(content).toContain('`/deploy` — Ship it to $1'); // plugin command via its own description
     expect(content).toContain('`/voice`');   // adapter-local
@@ -1949,7 +2036,7 @@ describe('discord plugin prompt-commands (native registration + RAW dispatch)', 
     let posted: string | null = null;
     adapter.reply = async (_c: string, t: string) => { posted = t; };
     await adapter.onInteraction({
-      type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: ['ADMIN'], user: { id: 'U1' } },
+      type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'], user: { id: 'U1' } },
       data: { name: 'deploy', options: [{ name: 'args', value: 'prod now' }] },
     });
     expect(captured).toEqual({ text: '/deploy prod now', channelId: 'C#0', promptCommand: true });
@@ -1961,7 +2048,7 @@ describe('discord plugin prompt-commands (native registration + RAW dispatch)', 
     let called = false;
     adapter.handler = async () => { called = true; return 'x'; };
     await adapter.onInteraction({
-      type: 2, id: 'I', token: 'T', channel_id: 'C', member: { roles: [] },
+      type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: [] },
       data: { name: 'deploy', options: [{ name: 'args', value: 'prod' }] },
     });
     expect(called).toBe(false);

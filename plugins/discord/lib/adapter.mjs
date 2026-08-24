@@ -38,6 +38,18 @@ function isDirectChannel(meta) {
   return meta?.type === 1; // Discord channel type 1 is a 1:1 DM; unknown types fail closed as shared.
 }
 
+/** The role ids of a GUILD MEMBER, or null when the payload carries no member at all.
+ *
+ *  The two are not the same thing and the difference is a privilege boundary. A guild member holding no
+ *  roles arrives as an EMPTY list — `member.roles` omits @everyone — and a `*` policy is meant to cover
+ *  exactly those people, so `matchPolicy` matches a wildcard before it looks at the ids. A payload with
+ *  no member describes somebody who is not in the guild at all: an interaction sent from a DM, where
+ *  `i.member` is undefined. Reading that as "a member with no roles" is what let a stranger's DM
+ *  interaction resolve through a wildcard admin policy and answer every operator gate with true. */
+function guildRoleIds(member) {
+  return Array.isArray(member?.roles) ? member.roles : null;
+}
+
 /** Split a message's attachments into vision-ready images (downloaded + base64, capped), audio for the
  *  STT path, and general FILES the host writes into the sender's project.
  *
@@ -327,14 +339,17 @@ export class DiscordAdapter {
   send(obj) { try { this.ws?.send(JSON.stringify(obj)); } catch { /* gateway down; reconnect handles it */ } }
 
   /** Whether the member holds a role mapped as `admin: true` — the operator's own role. Gates the
-   *  model/reasoning pickers so a shared channel's settings can't be changed by an ordinary member. */
+   *  model/reasoning pickers so a shared channel's settings can't be changed by an ordinary member.
+   *  A payload with no guild member resolves nothing and is never an operator. */
   isAdminMember(member) {
-    return memberIsAdmin(member?.roles ?? [], this.cfg.rolePolicies);
+    const roleIds = guildRoleIds(member);
+    return roleIds !== null && memberIsAdmin(roleIds, this.cfg.rolePolicies);
   }
 
   /** Resolve a Discord message's sender to an access descriptor (role → projects/prompt + channel model). */
   accessFor(m, channelId) {
-    const roleIds = m.member?.roles ?? [];
+    const roleIds = guildRoleIds(m.member);
+    if (roleIds === null) return { roleIds: [], access: undefined };
     const match = matchPolicy(roleIds, this.cfg.rolePolicies);
     if (!match) return { roleIds, access: undefined };
     return { roleIds, access: buildRoleAccess(match, this.state.get(channelId)) };
@@ -569,6 +584,12 @@ export class DiscordAdapter {
   }
 
   async onInteraction(i) {
+    // The same origin guards onMessage applies, for the same reason: a turn is only served to a real
+    // member of the guild this bot was configured for. An interaction had none of them, so a DM one —
+    // no `guild_id`, no `member` — reached every `isAdminMember(i.member)` and `accessFor` below.
+    if (!i.guild_id || !i.member) return;                               // DM (or any memberless payload)
+    if (this.cfg.guildId && i.guild_id !== this.cfg.guildId) return;    // another server
+    if (i.member.user?.bot) return;                                     // bots and webhooks are not senders
     // ACK-and-respond for slash commands (type 2) and component interactions (type 3).
     if (i.type === 2) {
       const name = i.data?.name;

@@ -128,7 +128,7 @@
     },
     "rolePolicies": {
       "label": "Pravidla rolí",
-      "hint": "Vyhrává první odpovídající pravidlo; odesílatelé bez namapovaného pravidla jsou ignorováni. ID je Telegram user ID (123456789), @username, nebo celé chat ID (u skupin záporné) — chat ID zpřístupní bota všem v něm. Pravidlo označené admin může přepínat model a používat chat nástroje. Každé pravidlo může navíc omezit, které nástroje pro něj smí bot použít."
+      "hint": "Vyhrává první odpovídající pravidlo; odesílatelé bez namapovaného pravidla jsou ignorováni. ID je Telegram user ID (123456789), @username, nebo celé chat ID (u skupin záporné) — chat ID zpřístupní bota všem v něm. Hvězdička * odpovídá komukoli a patří poslední, nad pojmenovanými pravidly by je pohltila. Pravidlo označené admin může přepínat model a používat chat nástroje. Projekty a oprávnění nástrojů se přebírají z propojeného účtu Elowen odesílatele."
     }
   }
 }

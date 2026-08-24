@@ -1,6 +1,6 @@
 {
   "name": "whatsapp",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "apiVersion": "1",
   "requiresCore": "0.28.7",
   "description": "WhatsApp bot (Baileys): write to it and it answers from Elowen AI. Text commands (/model, /new, /help), a per-chat model picker (numbered text menu you reply to with a number), live streaming replies (edit-in-place with the agent's tool trace), status reactions and proactive cron/tick pushes. Group tools: list & inspect groups, create groups, add/remove members, and send a message to any chat (operator). Each sender (phone number, JID or whole group) maps to allowed Elowen projects + a role prompt. Pair by scanning a QR code or with a pairing code.",
@@ -193,7 +193,7 @@
       "key": "senderPolicies",
       "label": "Sender policies",
       "type": "rolePolicies",
-      "hint": "First matching sender wins; senders with no mapped policy are ignored. The ID is a phone number (420777123456), a JID (…@s.whatsapp.net) or a whole group JID (…@g.us) — a group ID grants access to everyone in it. Mark a policy admin to let it switch the model and use the group tools. Each policy may also restrict which tools the bot can use for it."
+      "hint": "First matching sender wins; senders with no mapped policy are ignored. The ID is a phone number (420777123456), a JID (…@s.whatsapp.net) or a whole group JID (…@g.us) — a group ID grants access to everyone in it. A * matches every sender and belongs last, below the named entries it would otherwise swallow. Mark a policy admin to let it switch the model and use the group tools. Projects and tool permissions come from the sender's linked Elowen account."
     }
   ],
   "web": {

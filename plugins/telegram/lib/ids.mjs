@@ -5,6 +5,10 @@
 /** The roleId that matches anyone. */
 export const WILDCARD = '*';
 
+/** Whether a policy id IS the wildcard. Trimmed, like every other comparison here: a row saved as
+ *  `' * '` must mean the same thing in the policy-level branch and in the per-id one. */
+export const isWildcard = (policyId) => String(policyId ?? '').trim() === WILDCARD;
+
 /** Whether a policy `roleId` matches one of a sender's identifiers. `@username` comparisons are
  *  case-insensitive (Telegram usernames are case-insensitive); numeric ids/chat ids compare exactly.
  *  `*` matches every sender — the way to serve a whole group without listing it person by person. */
@@ -12,7 +16,7 @@ export function matchesId(policyId, id) {
   const a = String(policyId ?? '').trim();
   const b = String(id ?? '').trim();
   if (!a || !b) return false;
-  if (a === WILDCARD) return true;
+  if (isWildcard(a)) return true;
   if (a.startsWith('@') || b.startsWith('@')) return a.replace(/^@/, '').toLowerCase() === b.replace(/^@/, '').toLowerCase();
   return a === b;
 }
@@ -39,7 +43,7 @@ export function senderIds(from, chatId) {
 export function matchPolicy(ids, policies) {
   const list = Array.isArray(policies) ? policies : [];
   const idList = Array.isArray(ids) ? ids : [];
-  return list.find((p) => p.roleId === WILDCARD || (p.roleId && idList.some((id) => matchesId(p.roleId, id))));
+  return list.find((p) => isWildcard(p.roleId) || (p.roleId && idList.some((id) => matchesId(p.roleId, id))));
 }
 
 /** Whether the sender's effective first-match policy grants operator access. Gates the shared per-chat

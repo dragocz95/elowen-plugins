@@ -1,6 +1,6 @@
 {
   "name": "discord",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "apiVersion": "1",
   "requiresCore": "0.28.7",
   "description": "Discord bot: mention it and it answers from Elowen AI. Slash commands (/model, /display, /new, /help), per-channel model and presentation settings, live tool activity with independent answer delivery, status reactions and proactive cron/tick pushes. Server tools: server/channel/member info, list & search members, roles, pins, threads (create/archive/lock/members), channels (create/rename/delete, categories) and message management (delete/purge). Discord roles control admission, trusted-admin context and a room prompt; account permissions come from the linked Elowen account.",
@@ -313,7 +313,7 @@
       "key": "rolePolicies",
       "label": "Role policies",
       "type": "rolePolicies",
-      "hint": "First matching role wins. Users with no mapped role are ignored. Projects and tool permissions come from the sender's linked Elowen account."
+      "hint": "First matching role wins. Users with no mapped role are ignored. The ID is a Discord role ID, or * for every member \u2014 keep a * policy last, below the named entries it would otherwise swallow. Projects and tool permissions come from the sender's linked Elowen account."
     }
   ]
 }

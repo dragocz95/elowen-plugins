@@ -13,13 +13,17 @@ export const splitContent = (text) => splitAtChunk(text, CHUNK);
 /** The roleId that matches anyone. */
 export const WILDCARD = '*';
 
+/** Whether a policy id IS the wildcard. Trimmed, like every other comparison here: a row saved as
+ *  `' * '` must mean the same thing in the policy-level branch and in the per-id one. */
+export const isWildcard = (policyId) => String(policyId ?? '').trim() === WILDCARD;
+
 /** Whether a policy `roleId` matches one of a member's role ids. Discord role ids are opaque snowflakes
  *  and compare exactly; `*` matches every role. */
 export function matchesId(policyId, roleId) {
   const a = String(policyId ?? '').trim();
   const b = String(roleId ?? '').trim();
   if (!a || !b) return false;
-  if (a === WILDCARD) return true;
+  if (isWildcard(a)) return true;
   return a === b;
 }
 
@@ -34,11 +38,15 @@ export function matchesId(policyId, roleId) {
  *  A `*` policy matches even a member carrying no roles at all — `m.member.roles` omits @everyone, so a
  *  plain member arrives here with an empty list and a wildcard that only matched through the id list
  *  would skip exactly the people it exists to cover. It therefore belongs LAST: above the named
- *  policies it swallows them all and everyone shares one role. */
+ *  policies it swallows them all and everyone shares one role.
+ *
+ *  That exception is about a GUILD MEMBER who holds no roles, and callers must not widen it into "no
+ *  member at all": a payload carrying no member describes somebody outside the guild, and the adapter
+ *  keeps those away from here (see `guildRoleIds`). */
 export function matchPolicy(roleIds, rolePolicies) {
   const ids = Array.isArray(roleIds) ? roleIds : [];
   const list = Array.isArray(rolePolicies) ? rolePolicies : [];
-  return list.find((p) => p.roleId === WILDCARD || (p.roleId && ids.some((id) => matchesId(p.roleId, id))));
+  return list.find((p) => isWildcard(p.roleId) || (p.roleId && ids.some((id) => matchesId(p.roleId, id))));
 }
 
 /** Whether the member's effective first-match policy grants operator access. Gates the shared

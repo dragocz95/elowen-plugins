@@ -35,6 +35,10 @@ export function toJid(recipient) {
 /** The roleId that matches anyone. */
 export const WILDCARD = '*';
 
+/** Whether a policy id IS the wildcard. Trimmed, like every other comparison here: a row saved as
+ *  `' * '` must mean the same thing in the policy-level branch and in the per-id one. */
+export const isWildcard = (policyId) => String(policyId ?? '').trim() === WILDCARD;
+
 /** Whether a policy `roleId` matches one of a sender's identifiers. `*` matches every sender; everything
  *  else is the digits-only comparison above. The wildcard lives HERE rather than in `sameId` because
  *  `sameId` also decides whether a mention or a parked question's asker is a given person — a `*`
@@ -42,7 +46,7 @@ export const WILDCARD = '*';
 export function matchesId(policyId, id) {
   const a = String(policyId ?? '').trim();
   if (!a || !String(id ?? '').trim()) return false;
-  if (a === WILDCARD) return true;
+  if (isWildcard(a)) return true;
   return sameId(a, id);
 }
 
@@ -58,7 +62,7 @@ export function matchesId(policyId, id) {
 export function matchPolicy(ids, policies) {
   const list = Array.isArray(policies) ? policies : [];
   const idList = Array.isArray(ids) ? ids : [];
-  return list.find((p) => p.roleId === WILDCARD || (p.roleId && idList.some((id) => matchesId(p.roleId, id))));
+  return list.find((p) => isWildcard(p.roleId) || (p.roleId && idList.some((id) => matchesId(p.roleId, id))));
 }
 
 /** Whether the sender's effective first-match policy grants operator access. Gates the shared per-chat

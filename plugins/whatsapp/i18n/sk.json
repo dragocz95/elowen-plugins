@@ -88,7 +88,7 @@
     },
     "senderPolicies": {
       "label": "Pravidlá odosielateľov",
-      "hint": "Vyhráva prvý zodpovedajúci odosielateľ; odosielatelia bez pravidla sú ignorovaní. ID je telefónne číslo (420777123456), JID (…@s.whatsapp.net) alebo celá skupina (…@g.us) — ID skupiny dá prístup všetkým v nej. Pravidlo označené admin smie prepínať model a používať skupinové nástroje. Každé pravidlo môže navyše obmedziť, ktoré nástroje preň smie bot používať."
+      "hint": "Vyhráva prvý zodpovedajúci odosielateľ; odosielatelia bez pravidla sú ignorovaní. ID je telefónne číslo (420777123456), JID (…@s.whatsapp.net) alebo celá skupina (…@g.us) — ID skupiny dá prístup všetkým v nej. Hviezdička * zodpovedá komukoľvek a patrí posledná, nad pomenovanými pravidlami by ich pohltila. Pravidlo označené admin smie prepínať model a používať skupinové nástroje. Projekty a oprávnenia nástrojov sa preberajú z prepojeného účtu Elowen odosielateľa."
     }
   },
   "web": {

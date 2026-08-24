@@ -95,7 +95,7 @@
     },
     "rolePolicies": {
       "label": "Pravidla rolí",
-      "hint": "Vyhrává první odpovídající role. Uživatelé bez namapované role jsou ignorováni. Projekty a oprávnění nástrojů se přebírají z propojeného účtu Elowen odesílatele."
+      "hint": "Vyhrává první odpovídající role. Uživatelé bez namapované role jsou ignorováni. ID je ID role na Discordu, nebo * pro kohokoli — pravidlo s * nechte poslední, nad pojmenovanými pravidly by je pohltilo. Projekty a oprávnění nástrojů se přebírají z propojeného účtu Elowen odesílatele."
     },
     "language": {
       "label": "Jazyk služebních zpráv",

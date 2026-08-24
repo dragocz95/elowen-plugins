@@ -6,6 +6,10 @@
 /** The roleId that matches anyone. */
 export const WILDCARD = '*';
 
+/** Whether a policy id IS the wildcard. Trimmed, like every other comparison here: a row saved as
+ *  `' * '` must mean the same thing in the policy-level branch and in the per-id one. */
+export const isWildcard = (policyId) => String(policyId ?? '').trim() === WILDCARD;
+
 /**
  * Split a channel conversation id into the pieces Microsoft Graph addresses a thread by, or null when
  * it is not a thread at all (a personal chat, or the channel's own root conversation).
@@ -32,7 +36,7 @@ export function matchesId(policyId, id) {
   const a = String(policyId ?? '').trim();
   const b = String(id ?? '').trim();
   if (!a || !b) return false;
-  if (a === WILDCARD) return true;
+  if (isWildcard(a)) return true;
   if (a.includes('@') || b.includes('@')) return a.toLowerCase() === b.toLowerCase();
   return a === b;
 }
@@ -79,7 +83,7 @@ export function isOwner(key, from) {
 export function matchPolicy(ids, policies) {
   const list = Array.isArray(policies) ? policies : [];
   const idList = Array.isArray(ids) ? ids : [];
-  return list.find((p) => p.roleId === WILDCARD || (p.roleId && idList.some((id) => matchesId(p.roleId, id))));
+  return list.find((p) => isWildcard(p.roleId) || (p.roleId && idList.some((id) => matchesId(p.roleId, id))));
 }
 
 /** Whether the sender's effective first-match policy grants operator access. Admin commands must use

@@ -95,7 +95,7 @@
     },
     "rolePolicies": {
       "label": "Pravidlá rolí",
-      "hint": "Vyhráva prvá zodpovedajúca rola. Používatelia bez namapovanej roly sú ignorovaní. Projekty a oprávnenia nástrojov sa preberajú z prepojeného účtu Elowen odosielateľa."
+      "hint": "Vyhráva prvá zodpovedajúca rola. Používatelia bez namapovanej roly sú ignorovaní. ID je ID roly na Discorde, alebo * pre kohokoľvek — pravidlo s * nechajte posledné, nad pomenovanými pravidlami by ich pohltilo. Projekty a oprávnenia nástrojov sa preberajú z prepojeného účtu Elowen odosielateľa."
     },
     "language": {
       "label": "Jazyk služobných správ",
