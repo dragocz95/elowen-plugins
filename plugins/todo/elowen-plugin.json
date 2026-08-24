@@ -1,6 +1,6 @@
 {
   "name": "todo",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "apiVersion": "1",
   "description": "Session task list: the agent tracks multi-step work incrementally and shows progress live.",
   "entry": "index.mjs",
@@ -8,7 +8,8 @@
     "reads": ["db"]
   },
   "provides": {
-    "tools": ["TaskCreate", "TaskGet", "TaskUpdate", "TaskList"]
+    "tools": ["TaskCreate", "TaskGet", "TaskUpdate", "TaskDelete", "TaskList"],
+    "apiRoutes": ["tasks", "task"]
   },
   "planSafe": ["TaskGet", "TaskList"],
   "icons": {

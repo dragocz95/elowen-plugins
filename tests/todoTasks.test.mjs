@@ -19,6 +19,7 @@ function harness(t, options = {}) {
   const cards = [];
   const warnings = [];
   const prompts = [];
+  const routes = [];
   let sessionId = 'brain-7-a';
   let turnContext;
   t.after(() => {
@@ -35,6 +36,7 @@ function harness(t, options = {}) {
     },
     emitCard: (card) => cards.push(card),
     logger: { info() {}, warn: (message) => warnings.push(message) },
+    registerApiRoute: (route) => routes.push(route),
     registerSystemPromptFragment: (fragment) => prompts.push(fragment),
     registerTool: (tool) => tools.push(tool),
     registerTurnContext: (render) => { turnContext = render; },
@@ -45,6 +47,7 @@ function harness(t, options = {}) {
     cards,
     warnings,
     prompts,
+    routes,
     turnContext: () => turnContext?.() ?? '',
     setSession: (value) => { sessionId = value; },
     tool: (name) => {
@@ -57,7 +60,7 @@ function harness(t, options = {}) {
 
 test('Task V2 exposes incremental tools and keeps private data out of the Todo panel', async (t) => {
   const h = harness(t);
-  assert.deepEqual(h.tools.map((tool) => tool.name).sort(), ['TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate']);
+  assert.deepEqual(h.tools.map((tool) => tool.name).sort(), ['TaskCreate', 'TaskDelete', 'TaskGet', 'TaskList', 'TaskUpdate']);
   assert.doesNotMatch(h.prompts.join('\n'), /TodoWrite|TodoRead/);
 
   const create = h.tool('TaskCreate');
@@ -126,6 +129,50 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   })), { tasks: [{ id: '4', subject: 'More work' }] });
   // Creating a task never clears finished ones, so the completed history survives and keeps its ids.
   assert.deepEqual(json(await list.execute('18', {})).tasks.map((task) => task.id), ['2', '3', '4']);
+});
+
+test('TaskDelete and user API routes keep session tasks tenant-scoped and clear blocker edges', async (t) => {
+  const h = harness(t);
+  await h.tool('TaskCreate').execute('1', {
+    tasks: [
+      { subject: 'Inspect auth', description: 'Private API detail' },
+      { subject: 'Ship fix', description: 'After auth', blockedByIndex: [1] },
+    ],
+  });
+
+  const route = (method, path) => {
+    const found = h.routes.find((item) => item.method === method && item.path === path);
+    assert.ok(found, `${method} ${path} registered`);
+    return found;
+  };
+  const request = ({ userId = 7, tokenScope = 'user', taskId, body } = {}) => ({
+    auth: { userId, admin: false, tokenScope },
+    query: { session: 'brain-7-a', ...(taskId ? { taskId } : {}) },
+    params: {},
+    json: async () => taskId && body ? { ...body, taskId } : body,
+  });
+
+  const own = await route('GET', 'tasks').handler(request());
+  assert.equal(own.status, 200);
+  assert.equal(own.body.tasks[0].description, 'Private API detail');
+
+  const foreign = await route('GET', 'tasks').handler(request({ userId: 8 }));
+  assert.deepEqual(foreign.body, { tasks: [] });
+  assert.equal((await route('GET', 'tasks').handler(request({ userId: null, tokenScope: 'agent' }))).status, 403);
+
+  const updated = await route('PATCH', 'task').handler(request({ taskId: '1', body: { status: 'completed' } }));
+  assert.equal(updated.body.task.status, 'completed');
+  assert.equal((await route('PATCH', 'task').handler(request({ taskId: '1', body: { status: 'deleted' } }))).status, 400);
+
+  const removed = await route('DELETE', 'task').handler(request({ taskId: '1' }));
+  assert.equal(removed.status, 200);
+  assert.equal(removed.body.success, true);
+  assert.equal(removed.body.taskId, '1');
+  assert.deepEqual((await route('GET', 'tasks').handler(request())).body.tasks[0].blockedBy, []);
+
+  const deleted = json(await h.tool('TaskDelete').execute('2', { taskId: '2' }));
+  assert.deepEqual(deleted, { success: true, taskId: '2' });
+  assert.deepEqual((await route('GET', 'tasks').handler(request())).body, { tasks: [] });
 });
 
 test('a completed task survives the next TaskCreate, on the card and as a usable id', async (t) => {

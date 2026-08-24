@@ -191,6 +191,17 @@ class TaskStore {
     });
   }
 
+  delete(key, taskIdValue) {
+    const taskId = numericId(taskIdValue);
+    if (taskId == null) throw new Error('task not found');
+    return this.db.transaction(() => {
+      if (!this.get(key, taskId)) throw new Error('task not found');
+      this.deleteTaskEdges.run(key, taskId, taskId);
+      this.deleteTask.run(key, taskId);
+      return { success: true, taskId: String(taskId) };
+    });
+  }
+
   update(key, taskIdValue, patch) {
     const taskId = numericId(taskIdValue);
     if (taskId == null) throw new Error('task not found');
@@ -319,9 +330,74 @@ function safeError(ctx, error) {
   return 'task storage unavailable';
 }
 
+function jsonRes(body, status = 200) {
+  return { status, body };
+}
+
+function apiListKey(req) {
+  if (req.auth.tokenScope === 'agent' || !Number.isInteger(req.auth.userId)) return null;
+  const sessionId = String(req.query.session ?? '').trim();
+  if (!sessionId || sessionId.length > 256) return null;
+  return `u${req.auth.userId}#${sessionId}`;
+}
+
 export function registerTaskMode(ctx, db) {
   db.migrate(TASK_MIGRATIONS);
   const store = new TaskStore(db);
+
+  const routeKey = (req) => {
+    if (req.auth.tokenScope === 'agent' || !Number.isInteger(req.auth.userId)) {
+      return { error: jsonRes({ error: 'forbidden' }, 403) };
+    }
+    const key = apiListKey(req);
+    return key ? { key } : { error: jsonRes({ error: 'session is required' }, 400) };
+  };
+
+  ctx.registerApiRoute({
+    path: 'tasks', method: 'GET', access: 'user',
+    handler: async (req) => {
+      const resolved = routeKey(req);
+      if (resolved.error) return resolved.error;
+      try { return jsonRes({ tasks: store.list(resolved.key) }); }
+      catch (error) { return jsonRes({ error: safeError(ctx, error) }, 503); }
+    },
+  });
+
+  ctx.registerApiRoute({
+    path: 'task', method: 'PATCH', access: 'user',
+    handler: async (req) => {
+      const resolved = routeKey(req);
+      if (resolved.error) return resolved.error;
+      let body;
+      try { body = await req.json(); } catch { return jsonRes({ error: 'invalid JSON' }, 400); }
+      const status = body?.status;
+      if (!TASK_STATUSES.includes(status)) return jsonRes({ error: 'invalid task status' }, 400);
+      try {
+        const taskId = String(body?.taskId ?? '');
+        store.update(resolved.key, taskId, { status });
+        return jsonRes({ task: store.get(resolved.key, taskId), tasks: store.list(resolved.key) });
+      } catch (error) {
+        const message = safeError(ctx, error);
+        return jsonRes({ error: message }, message === 'task not found' ? 404 : 503);
+      }
+    },
+  });
+
+  ctx.registerApiRoute({
+    path: 'task', method: 'DELETE', access: 'user',
+    handler: async (req) => {
+      const resolved = routeKey(req);
+      if (resolved.error) return resolved.error;
+      try {
+        const result = store.delete(resolved.key, req.query.taskId);
+        return jsonRes({ ...result, tasks: store.list(resolved.key) });
+      }
+      catch (error) {
+        const message = safeError(ctx, error);
+        return jsonRes({ error: message }, message === 'task not found' ? 404 : 503);
+      }
+    },
+  });
 
   ctx.registerTool(defineTool({
     name: 'TaskCreate',
@@ -422,6 +498,31 @@ export function registerTaskMode(ctx, db) {
     },
   }));
 
+  ctx.registerTool(defineTool({
+    name: 'TaskDelete',
+    label: 'Delete task',
+    description: 'Delete one EXISTING task from the current conversation task list. This permanently removes the task and every blocker edge that points to or from it. Use the exact ID returned by TaskCreate or TaskList; an unknown ID fails and does not affect any other task.',
+    parameters: Type.Object({
+      taskId: Type.String({ description: 'ID of an existing task, exactly as returned by TaskCreate or TaskList. Never invent or guess an ID.' }),
+    }),
+    execute: async (_id, { taskId }) => {
+      const key = keyFor(ctx);
+      const id = String(taskId ?? '');
+      if (!key) return ok({ success: false, taskId: id, error: 'task list unavailable outside a conversation' });
+      try {
+        const result = store.delete(key, id);
+        syncCard(ctx, store, key);
+        return ok(result);
+      } catch (error) {
+        const message = safeError(ctx, error);
+        return ok({
+          success: false, taskId: id, error: message,
+          ...(message === 'task not found' ? { hint: NOT_FOUND_HINT } : {}),
+        });
+      }
+    },
+  }));
+
   ctx.registerTurnContext(() => {
     try {
       const key = keyFor(ctx);
@@ -434,8 +535,8 @@ export function registerTaskMode(ctx, db) {
   }, { placement: 'after-user' });
 
   ctx.registerSystemPromptFragment(
-    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, with prerequisites declared inline, instead of calling it once per task — and returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
+    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskDelete`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, with prerequisites declared inline, instead of calling it once per task — and returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. `TaskDelete` permanently removes one existing task and its dependency edges. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update or delete reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
   );
 
-  ctx.logger.info('session task tools registered (TaskCreate + TaskGet + TaskUpdate + TaskList)');
+  ctx.logger.info('session task tools registered (TaskCreate + TaskGet + TaskUpdate + TaskDelete + TaskList)');
 }

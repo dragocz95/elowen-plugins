@@ -7,9 +7,12 @@ test('todo manifest and marketplace registry expose the same release', () => {
   const registry = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
   const catalog = registry.plugins.find((plugin) => plugin.name === 'todo');
 
-  assert.equal(manifest.version, '0.10.0');
+  assert.equal(manifest.version, '0.11.0');
   assert.equal(catalog?.version, manifest.version);
-  assert.equal(catalog?.provides.tools, 4);
-  assert.deepEqual(manifest.provides.tools, ['TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList']);
+  assert.equal(catalog?.provides.tools, 5);
+  assert.equal(catalog?.provides.apiRoutes, 2);
+  assert.deepEqual(manifest.provides.tools, ['TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskDelete', 'TaskList']);
+  assert.deepEqual(manifest.provides.apiRoutes, ['tasks', 'task']);
+  assert.ok(manifest.provides.apiRoutes.every((path) => /^[a-z0-9][a-z0-9\-/]*$/.test(path)));
   assert.deepEqual(manifest.planSafe, ['TaskGet', 'TaskList']);
 });
