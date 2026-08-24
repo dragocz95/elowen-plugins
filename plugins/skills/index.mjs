@@ -209,14 +209,22 @@ export function register(ctx) {
   };
   // Frontmatter as an object + trimmed body. Unknown fields (license, allowed-tools, compatibility,
   // metadata…) stay in the object so a write preserves them verbatim instead of dropping them.
-  const splitSkillFile = (raw) => {
+  const splitSkillFile = (raw, file) => {
     const { frontmatter, body } = splitFrontmatter(raw);
     let front = {};
     if (frontmatter) {
       try {
         const parsed = parseYaml(frontmatter);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) front = parsed;
-      } catch { /* malformed frontmatter → treat as absent; the body stays editable */ }
+      } catch (e) {
+        // Say it out loud. Treating malformed frontmatter as absent keeps the body editable, which is
+        // right, but silence made the failure look like a different bug entirely: the skill still appears
+        // in the catalogue, just with no description — and the description is the ONLY thing the model
+        // reads when deciding whether to load it, so a silently unparsable file is a skill that can never
+        // trigger. Seen in the wild with `description: Firemní know-how: použij …`, where the second
+        // colon-space makes the whole block invalid YAML and takes `name` down with it.
+        ctx.logger.warn(`skill ${file ?? '(unknown file)'}: frontmatter is not valid YAML (${e instanceof Error ? e.message.split('\n')[0] : e}) — name and description will be missing until it is fixed; quote any value containing ': '`);
+      }
     }
     return { front, body: body.replace(/^\n+/, '').replace(/\n+$/, '') };
   };
@@ -226,10 +234,14 @@ export function register(ctx) {
     return null;
   };
   const readSkillFile = (file) => {
-    const { front, body } = splitSkillFile(readFileSync(file, 'utf-8'));
+    const { front, body } = splitSkillFile(readFileSync(file, 'utf-8'), file);
+    const description = typeof front.description === 'string' ? front.description : '';
+    // A skill with no description is advertised but unreachable — the catalogue line the model sees
+    // carries the name and the description, and nothing else says when to use it.
+    if (!description.trim()) ctx.logger.warn(`skill ${file}: no description — it will be listed but the model has no trigger for it`);
     return {
       front,
-      description: typeof front.description === 'string' ? front.description : '',
+      description,
       content: body,
       disableModelInvocation: front['disable-model-invocation'] === true,
       version: skillVersion(front),
