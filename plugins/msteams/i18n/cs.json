@@ -16,7 +16,7 @@
     "ssoDefaultModels": { "label": "Povolené modely nových účtů", "hint": "Modely, které smí nový účet používat. Prázdný výběr osobní seznam modelů neomezuje." },
     "ssoDefaultModel": { "label": "Preferovaný model nových účtů", "hint": "Preferovaný model nastavený novému účtu. Prázdná hodnota jej nenastaví." },
     "ssoDefaultPlugins": { "label": "Povolené pluginy nových účtů", "hint": "Pluginy s řízeným přístupem, které budou novému účtu povoleny." },
-    "ssoDisabledTools": { "label": "Zakázané nástroje nových účtů", "hint": "Nástroje, které budou novému účtu zakázány. Jde o blacklist; prázdný výběr nezakáže nic." },
+    "ssoAllowedTools": { "label": "Přidělené nástroje nových účtů", "hint": "Nástroje, které bude nový účet smět používat. Prázdný výběr nepřidělí žádný, takže účet nebude mít až do přidělení správcem k dispozici žádný nástroj pluginu." },
     "sec_m365": { "label": "Nástroje Microsoft 365", "hint": "Delegované nástroje Graph vždy jednají jménem přihlášené osoby a fungují pouze v jejím osobním chatu Teams. Tokeny zůstávají ve službě Bot Framework Token Service." },
     "m365AccessMode": { "label": "Přístup k Microsoft 365", "hint": "Režim pouze pro čtení blokuje všechny externí změny. Čtení a zápis i nadále nejprve zobrazí náhled a změnu provede až po výslovném potvrzení konkrétní operace.", "options": { "read_only": "Pouze pro čtení", "read_write": "Čtení a zápis" } },
     "m365MaxTransferBytes": { "label": "Limit přenosu souborů Microsoft", "hint": "Největší soubor, který lze jedním voláním stáhnout z Microsoft 365 nebo do něj nahrát. Větší soubory používají obnovitelnou relaci nahrávání Microsoft." },
