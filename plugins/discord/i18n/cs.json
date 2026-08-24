@@ -33,13 +33,17 @@
       "label": "Max. obrázků na zprávu",
       "hint": "Kolik obrázkových příloh z jedné příchozí zprávy bot pošle vision modelu."
     },
+    "maxFileBytes": {
+      "label": "Max. velikost souboru (B)",
+      "hint": "Největší nevizuální příloha stažená do projektu odesílatele; větší se pouze zaznamená."
+    },
+    "maxFiles": {
+      "label": "Max. souborů na zprávu",
+      "hint": "Kolik nevizuálních příloh z jedné zprávy se uloží do projektu odesílatele."
+    },
     "maxUploadImages": {
       "label": "Max. obrázků na odpověď",
       "hint": "Kolik vygenerovaných obrázků bot připojí k jedné odchozí odpovědi."
-    },
-    "askTimeoutMs": {
-      "label": "Timeout otázky (ms)",
-      "hint": "Jak dlouho zůstává čekající AskUserQuestion otevřená pro kliknutí na tlačítko nebo textovou odpověď, než ji bot zahodí jako zastaralou."
     },
     "botToken": {
       "label": "Token bota",

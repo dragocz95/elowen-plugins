@@ -225,6 +225,26 @@
       "hint": "How many image attachments in a single incoming message the bot sends to the vision model."
     },
     {
+      "key": "maxFileBytes",
+      "label": "Max file size (bytes)",
+      "type": "number",
+      "min": 1048576,
+      "max": 26214400,
+      "step": 1048576,
+      "placeholder": "26214400",
+      "hint": "Largest non-image attachment downloaded into the sender's project; a bigger one is only noted."
+    },
+    {
+      "key": "maxFiles",
+      "label": "Max files per message",
+      "type": "number",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "placeholder": "5",
+      "hint": "How many non-image attachments from one message are stored in the sender's project."
+    },
+    {
       "key": "maxUploadImages",
       "label": "Max images per reply",
       "type": "number",
@@ -234,17 +254,6 @@
       "placeholder": "4",
       "default": 4,
       "hint": "How many generated images the bot attaches to a single outgoing reply."
-    },
-    {
-      "key": "askTimeoutMs",
-      "label": "Question timeout (ms)",
-      "type": "number",
-      "min": 30000,
-      "max": 1800000,
-      "step": 30000,
-      "placeholder": "360000",
-      "default": 360000,
-      "hint": "How long a pending AskUserQuestion stays open for a button click or free-text reply before it's dropped as stale."
     },
     {
       "key": "sec_voice",

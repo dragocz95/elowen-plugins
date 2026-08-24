@@ -45,7 +45,6 @@
     "maxImageBytes": { "label": "Max. velikost příchozího obrázku", "hint": "Největší obrazová příloha (v bajtech), kterou bot stáhne pro vidění." },
     "maxImages": { "label": "Max. obrázků na zprávu", "hint": "Kolik obrazových příloh z jedné příchozí zprávy bot odešle modelu pro vidění." },
     "maxUploadImages": { "label": "Max. obrázků na odpověď", "hint": "Kolik vygenerovaných obrázků bot připojí k jedné odchozí odpovědi." },
-    "askTimeoutMs": { "label": "Časový limit otázky (ms)", "hint": "Jak dlouho zůstává karta s čekající otázkou zodpověditelná." },
     "sec_roles": { "label": "Rolové politiky", "hint": "Určují, které odesílatele v Teams bot přijme, a volitelně přidávají pokyny pro místnost." },
     "rolePolicies": { "label": "Rolové politiky", "hint": "Odesílatele přijme první odpovídající politika. ID je Entra object ID odesílatele (GUID), jeho UPN/e-mail, celé ID konverzace (přijme všechny v daném chatu), nebo * pro kohokoli — politiku s * nechte poslední. Klíč `admin` povoluje pouze lomítkové příkazy pro správu místnosti a důvěryhodný kontext místnosti. Oprávnění k projektům a nástrojům vždy určuje propojený účet Elowen odesílatele; přijatý nepropojený uživatel dostane existující přihlašovací kartu a žádný brain turn se nespustí." }
   },

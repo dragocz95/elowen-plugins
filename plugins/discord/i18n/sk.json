@@ -33,13 +33,17 @@
       "label": "Max. obrázkov na správu",
       "hint": "Koľko obrázkových príloh z jednej prichádzajúcej správy bot pošle vision modelu."
     },
+    "maxFileBytes": {
+      "label": "Max. veľkosť súboru (B)",
+      "hint": "Najväčšia neobrázková príloha stiahnutá do projektu odosielateľa; väčšia sa iba zaznamená."
+    },
+    "maxFiles": {
+      "label": "Max. súborov na správu",
+      "hint": "Koľko neobrázkových príloh z jednej správy sa uloží do projektu odosielateľa."
+    },
     "maxUploadImages": {
       "label": "Max. obrázkov na odpoveď",
       "hint": "Koľko vygenerovaných obrázkov bot pripojí k jednej odchádzajúcej odpovedi."
-    },
-    "askTimeoutMs": {
-      "label": "Timeout otázky (ms)",
-      "hint": "Ako dlho zostáva čakajúca AskUserQuestion otvorená pre kliknutie na tlačidlo alebo textovú odpoveď, než ju bot zahodí ako zastaranú."
     },
     "botToken": {
       "label": "Token bota",

@@ -19,7 +19,8 @@ const GATEWAY = 'wss://gateway.discord.gg/?v=10&encoding=json';
 const INTENTS = (1 << 0) | (1 << 9) | (1 << 15);
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger images are noted, not downloaded (cfg: maxImageBytes)
 const MAX_IMAGES = 4;                    // default vision cap per message (cfg: maxImages)
-const ASK_TTL_MS = 6 * 60_000;           // default: drop a pending AskUserQuestion after this (cfg: askTimeoutMs; > the core 5-min timeout)
+const MAX_FILE_BYTES = 25 * 1024 * 1024; // default: a larger document is noted, not downloaded (cfg: maxFileBytes)
+const MAX_FILES = 5;                     // default general-file uploads accepted per message (cfg: maxFiles)
 const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per outgoing message (cfg: maxUploadImages)
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper's per-file limit — larger clips are just noted
 const TTS_MAX_CHARS = 4000;              // cap the spoken text (OpenAI TTS input limit is 4096)
@@ -35,33 +36,51 @@ function isDirectChannel(meta) {
   return meta?.type === 1; // Discord channel type 1 is a 1:1 DM; unknown types fail closed as shared.
 }
 
-/** Split a message's attachments into vision-ready images (downloaded + base64, capped) and textual
- *  notes for everything else (audio/video/documents — Elowen has no STT, the agent just learns a file
- *  arrived). Attachment URLs are public CDN links; no auth header is needed. */
-async function collectAttachments(list, maxImageBytes, maxImages) {
+/** Split a message's attachments into vision-ready images (downloaded + base64, capped), audio for the
+ *  STT path, and general FILES the host writes into the sender's project.
+ *
+ *  A document used to become the textual note `[Attachment: x.pdf (…)]` — the agent was told a file
+ *  existed and given no way to open it, while the same file dropped into the web chat became a real path.
+ *  It is downloaded here and handed over as bytes; the host sanitizes the name and decides where it goes,
+ *  so nothing the sender chose is trusted to describe a destination. A note remains for exactly the cases
+ *  where there are no bytes to hand over: too big for this transport, or the download failed.
+ *
+ *  Attachment URLs are public CDN links; no auth header is needed. */
+async function collectAttachments(list, maxImageBytes, maxImages, maxFileBytes, maxFiles) {
   const images = [];
   const audio = [];
+  const files = [];
   const notes = [];
   for (const a of Array.isArray(list) ? list : []) {
     const type = String(a?.content_type ?? '');
-    const note = `[Attachment: ${a?.filename ?? 'file'} (${type || 'unknown'})]`;
+    const name = String(a?.filename ?? 'file');
+    const note = `[Attachment: ${name} (${type || 'unknown'})]`;
+    const download = async () => {
+      const res = await fetch(a.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return Buffer.from(await res.arrayBuffer());
+    };
     if (type.startsWith('image/') && (a.size ?? 0) <= maxImageBytes && images.length < maxImages) {
       try {
-        const res = await fetch(a.url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        images.push({ data: Buffer.from(await res.arrayBuffer()).toString('base64'), mimeType: type });
+        images.push({ data: (await download()).toString('base64'), mimeType: type });
       } catch {
         notes.push(note); // download failed → degrade to a textual note
       }
     } else if (type.startsWith('audio/')) {
       // Voice messages / audio uploads: classify but never note here — onMessage either transcribes
       // them (Whisper) or falls back to a note, depending on the STT config.
-      audio.push({ url: a.url, name: a?.filename ?? 'audio.ogg', type, size: a?.size ?? 0 });
+      audio.push({ url: a.url, name, type, size: a?.size ?? 0 });
+    } else if ((a.size ?? 0) <= maxFileBytes && files.length < maxFiles) {
+      try {
+        files.push({ name, data: (await download()).toString('base64'), ...(type ? { mimeType: type } : {}) });
+      } catch {
+        notes.push(note);
+      }
     } else {
-      notes.push(note); // non-image, oversized image, or over the per-message cap
+      notes.push(note); // over this transport's byte ceiling, or over the per-message cap
     }
   }
-  return { images, audio, notes };
+  return { images, audio, files, notes };
 }
 
 export class DiscordAdapter {
@@ -378,8 +397,10 @@ export class DiscordAdapter {
 
     // Free-text answer to a parked AskUserQuestion ("✏️ Other"): if this channel has a pending ask
     // awaiting text from THIS sender, consume the message as that answer — not as a new brain turn.
+    // There is no staleness check here any more: the core owns the one timeout that decides when a
+    // question stops being answerable, and it announces every exit as `ask_resolved` → resolveAsk below,
+    // which removes the entry. A second clock here could only disagree with it.
     for (const [id, pend] of this.pendingAsks) {
-      if (Date.now() - pend.createdAt > cfgNum(this.cfg, 'askTimeoutMs', ASK_TTL_MS, 30000, 1800000)) { this.pendingAsks.delete(id); continue; } // stale (server-side timed out) → drop, never swallow a later message
       if (!pend.awaitingText || pend.channelId !== m.channel_id || pend.askerId !== m.author.id) continue;
       const other = String(m.content ?? '').trim();
       const q0 = pend.questions[0];
@@ -411,10 +432,12 @@ export class DiscordAdapter {
     const meta = await this.channelInfo(m.channel_id).catch(() => null);
     const channelNames = new Map([...this.channelMeta].map(([id, c]) => [id, c.name]).filter(([, n]) => n));
     text = resolveMentions(text, m.mentions ?? [], this.cfg.rolePolicies, channelNames);
-    const { images, audio, notes } = await collectAttachments(
+    const { images, audio, files, notes } = await collectAttachments(
       m.attachments,
       cfgNum(this.cfg, 'maxImageBytes', MAX_IMAGE_BYTES, 1048576, 20971520),
       cfgNum(this.cfg, 'maxImages', MAX_IMAGES, 1, 10),
+      cfgNum(this.cfg, 'maxFileBytes', MAX_FILE_BYTES, 1048576, 26214400),
+      cfgNum(this.cfg, 'maxFiles', MAX_FILES, 1, 10),
     );
     if (notes.length) text = [text, ...notes].filter(Boolean).join('\n');
     // Voice messages / audio uploads: transcribe with Whisper when STT is enabled + keyed, else note.
@@ -426,6 +449,9 @@ export class DiscordAdapter {
       text = [text, line].filter(Boolean).join('\n');
     }
     if (!text && images.length) text = '[The user sent an image]'; // an image-only turn must not be empty
+    // A file with no words is still a turn: the host writes it into the sender's project and the agent
+    // is told where it is, which is exactly what the web surface does with a bare drag-and-drop.
+    if (!text && files.length) text = '[The user sent a file]';
     if (!text) return;
 
     // Quoted-reply context stays in the clean sender words; author attribution travels structurally.
@@ -462,6 +488,7 @@ export class DiscordAdapter {
           direct: isDirectChannel(meta),
           channelName: meta?.name || undefined, channelTopic: meta?.topic || undefined,
           images: images.length ? images : undefined,
+          attachments: files.length ? files : undefined,
           history: () => this.fetchHistory(m.channel_id, m.id),
         },
         cleanText,
@@ -733,7 +760,27 @@ export class DiscordAdapter {
       embeds: [{ title, description: desc, color: 0xE67E22 }],
       components: buildAskComponents(id, questions, { cs }),
     }).catch((e) => { this.log.error(`postAsk failed: ${e?.message ?? e}`); return null; });
-    this.pendingAsks.set(id, { channelId, messageId: res?.id ?? null, questions, askerId, selected: {}, awaitingText: false, title, desc, createdAt: Date.now() });
+    this.pendingAsks.set(id, { channelId, messageId: res?.id ?? null, questions, askerId, selected: {}, awaitingText: false, title, desc });
+  }
+
+  /** The core settled this question — by an answer, its own timeout, an abort, or a newer question
+   *  superseding it. Retire the posted message so nobody is left clicking buttons that can no longer
+   *  reach anything: a room used to keep an expired question live forever, and a click on it was a
+   *  confusing dead end. An `answered` resolution needs no edit here — whichever surface answered has
+   *  already replaced the message with its own summary. */
+  async resolveAsk(channelId, id, reason) {
+    const pend = this.pendingAsks.get(id);
+    if (!pend) return;
+    this.pendingAsks.delete(id);
+    if (reason === 'answered' || !pend.messageId) return;
+    const cs = this.cfg.language === 'cs';
+    const title = reason === 'timeout'
+      ? (cs ? '⏱ Otázka vypršela' : '⏱ Question expired')
+      : (cs ? '✖️ Otázka zrušena' : '✖️ Question cancelled');
+    await this.rest('PATCH', `/channels/${pend.channelId ?? channelId}/messages/${pend.messageId}`, {
+      embeds: [{ title, description: pend.desc, color: 0x95A5A6 }],
+      components: [],
+    }).catch(() => {});
   }
 
   /** Deliver every collected pick of a pending ask to the parked turn and close out the message. */

@@ -1300,12 +1300,90 @@ describe('discord onMessage context pipeline', () => {
     });
 
     expect(seen).toBeDefined();
+    // The CDN is unreachable in this test, so there are no bytes to hand over and the note is all that is
+    // left — the one case where a document still degrades to a mention of itself.
     expect(seen!.text).toBe('[Replying to Bobby: "původní zpráva"]\nahoj @Bobby mrkni na #general\n[Attachment: spec.pdf (application/pdf)]');
+    expect(seen!.src.attachments).toBeUndefined();
     expect(seen!.src.userName).toBe('Anička');
     expect(seen!.src.channelName).toBe('general');
     expect(seen!.src.channelTopic).toBe('Team chat');
     expect(seen!.src.images).toBeUndefined();
     expect(seen!.src.channelId).toBe('100#0');
+  });
+
+  // A document used to reach the room turn as the note `[Attachment: spec.pdf (…)]`: the agent was told a
+  // file existed and given no way to open it, while the same file dropped into the web chat became a real
+  // path in the sender's project. The bytes now travel, and the HOST decides where they land.
+  it('downloads a non-image attachment and hands its bytes to the host instead of noting it', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log,
+      config: { discord: { botToken: 'tok', rolePolicies: [{ roleId: 'R1', name: 'Dev', projectIds: [1] }], streaming: false, reactions: false } },
+    });
+    const adapter = reg.platforms[0] as unknown as {
+      botId: string | null;
+      rest: (method: string, path: string, body?: unknown) => Promise<unknown>;
+      listen: (h: (src: Record<string, unknown>, text: string) => Promise<string | undefined>) => void;
+      onMessage: (m: unknown) => Promise<void>;
+    };
+    adapter.botId = 'BOT';
+    adapter.rest = async () => ({});
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => ({
+      ok: true, status: 200,
+      arrayBuffer: async () => new TextEncoder().encode(`bytes-of:${url}`).buffer,
+    })) as unknown as typeof fetch;
+    let seen: { src: Record<string, unknown>; text: string } | undefined;
+    adapter.listen(async (src, text) => { seen = { src, text }; return 'ok'; });
+    try {
+      await adapter.onMessage({
+        type: 0, guild_id: 'G', channel_id: '100', id: 'MSG',
+        author: { id: 'U1', username: 'anna' }, member: { roles: ['R1'] }, mentions: [],
+        content: 'co je v té smlouvě?',
+        attachments: [
+          { filename: 'smlouva.pdf', content_type: 'application/pdf', size: 1000, url: 'http://cdn/smlouva.pdf' },
+          // Over the transport ceiling: nothing to hand over, so the note survives for this one.
+          { filename: 'huge.zip', content_type: 'application/zip', size: 999_999_999, url: 'http://cdn/huge.zip' },
+        ],
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+
+    expect(seen!.src.attachments).toEqual([
+      { name: 'smlouva.pdf', data: Buffer.from('bytes-of:http://cdn/smlouva.pdf').toString('base64'), mimeType: 'application/pdf' },
+    ]);
+    // The stored file is announced by the HOST from the path it chose; the adapter adds no note for it.
+    expect(seen!.text).toBe('co je v té smlouvě?\n[Attachment: huge.zip (application/zip)]');
+  });
+
+  it('treats a file with no words as a real turn rather than dropping the message', async () => {
+    const reg = await loadPlugins({
+      dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log,
+      config: { discord: { botToken: 'tok', rolePolicies: [{ roleId: 'R1', name: 'Dev', projectIds: [1] }], streaming: false, reactions: false } },
+    });
+    const adapter = reg.platforms[0] as unknown as {
+      botId: string | null;
+      rest: (method: string, path: string, body?: unknown) => Promise<unknown>;
+      listen: (h: (src: Record<string, unknown>, text: string) => Promise<string | undefined>) => void;
+      onMessage: (m: unknown) => Promise<void>;
+    };
+    adapter.botId = 'BOT';
+    adapter.rest = async () => ({});
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({ ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode('x').buffer })) as unknown as typeof fetch;
+    let seen: { src: Record<string, unknown>; text: string } | undefined;
+    adapter.listen(async (src, text) => { seen = { src, text }; return 'ok'; });
+    try {
+      await adapter.onMessage({
+        type: 0, guild_id: 'G', channel_id: '100', id: 'MSG',
+        author: { id: 'U1', username: 'anna' }, member: { roles: ['R1'] }, mentions: [], content: '',
+        attachments: [{ filename: 'a.pdf', content_type: 'application/pdf', size: 10, url: 'http://cdn/a.pdf' }],
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(seen!.text).toBe('[The user sent a file]');
+    expect((seen!.src.attachments as unknown[]) ?? []).toHaveLength(1);
   });
 
   it('clears Fast only on a temporary non-OAuth vision fallback without changing channel state', async () => {
@@ -1544,12 +1622,42 @@ describe('discord configurable media/timeout limits', () => {
     expect(adapter.pendingAsks.has('ask1')).toBe(true);
   });
 
-  it('a configured askTimeoutMs overrides the default, pruning a pending ask once it is older than the cap', async () => {
-    const adapter = await mkAdapter({ askTimeoutMs: 30000 }); // the allowed minimum (30s)
+  // The plugin used to run its own `askTimeoutMs` clock beside the core's five-minute one. Two clocks
+  // for one fact could only disagree: a question left live after the turn gave up, or one refused while
+  // the core would still have taken the answer. The core announces every exit; this retires the message.
+  it('retires an expired question message when the core reports it resolved', async () => {
+    const adapter = await mkAdapter({});
     adapter.listen(async () => undefined);
-    adapter.pendingAsks.set('ask1', { channelId: 'OTHER', askerId: 'U9', createdAt: Date.now() - 60_000 }); // 60s old > 30s cap
-    await adapter.onMessage({ type: 0, guild_id: 'G', channel_id: '999', id: 'M2', author: { id: 'U2', username: 'x' }, member: { roles: [] }, content: 'hi' });
-    expect(adapter.pendingAsks.has('ask1')).toBe(false);
+    const patches: { path: string; body: any }[] = [];
+    adapter.rest = async (method: string, path: string, body: unknown) => {
+      if (method === 'PATCH') patches.push({ path, body: body as any });
+      return { id: 'ASKMSG' };
+    };
+    await adapter.postAsk('C1', 'M1', 'U9', 'q-1', [{ header: 'Colour', question: 'Which?', options: [{ label: 'Blue' }] }]);
+    expect(adapter.pendingAsks.has('q-1')).toBe(true);
+
+    await adapter.resolveAsk('C1', 'q-1', 'timeout');
+
+    expect(adapter.pendingAsks.has('q-1')).toBe(false);
+    expect(patches).toHaveLength(1);
+    expect(patches[0]!.path).toBe('/channels/C1/messages/ASKMSG');
+    // No live buttons may survive — clicking one is a dead end for the person in the room.
+    expect(patches[0]!.body.components).toEqual([]);
+    expect(JSON.stringify(patches[0]!.body.embeds)).toContain('expired');
+  });
+
+  it('leaves an ANSWERED question alone — the surface that answered already settled it', async () => {
+    const adapter = await mkAdapter({});
+    adapter.listen(async () => undefined);
+    const patches: unknown[] = [];
+    adapter.rest = async (method: string, _path: string, body: unknown) => {
+      if (method === 'PATCH') patches.push(body);
+      return { id: 'ASKMSG' };
+    };
+    await adapter.postAsk('C1', 'M1', 'U9', 'q-1', [{ header: 'Colour', question: 'Which?', options: [{ label: 'Blue' }] }]);
+    await adapter.resolveAsk('C1', 'q-1', 'answered');
+    expect(adapter.pendingAsks.has('q-1')).toBe(false);
+    expect(patches).toEqual([]);
   });
 });
 

@@ -78,7 +78,6 @@ hint live in `plugins/msteams/i18n/cs.json` and `sk.json`.
 | `maxImageBytes` | number | `5242880` | Largest inbound image the bot downloads, clamped to 1 MiB–20 MiB (`lib/adapter.mjs:470`). |
 | `maxImages` | number 1–10 | `4` | Inbound image attachments sent to the vision model. |
 | `maxUploadImages` | number 1–10 | `4` | Generated images attached to one outgoing reply. |
-| `askTimeoutMs` | number | `360000` | How long an `AskUserQuestion` card stays answerable, clamped to 30 s–30 min (`lib/adapter.mjs:838`). |
 | `rolePolicies` | rolePolicies | — | Sender → allowed projects + role prompt + tool allowlist. First match wins; unmapped senders are ignored (`lib/adapter.mjs:338-343`). |
 
 Three further keys are read by the code but are **not** in `configSchema`, so the settings UI never

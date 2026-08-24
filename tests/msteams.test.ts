@@ -1023,6 +1023,26 @@ describe('msteams proactive notify + app package', () => {
     expect(sends.map((c) => c.args[1])).toEqual(['a:new-1', 'a:new-1']);
   });
 
+  it('uploads an image a scheduled job generated instead of pushing a dead link', async () => {
+    const { adapter, state, calls } = await makeAdapter({ notifyConversationId: 'a:conv1' });
+    state.patch('a:conv1', { ref: { serviceUrl: 'https://smba.test/emea' } });
+    // The daemon URL in the text is relative — literal text in Teams, and unreachable for the reader.
+    const sentImages: unknown[][] = [];
+    (adapter as unknown as { resolveImageFiles: (n: string[]) => unknown[] }).resolveImageFiles =
+      (names: string[]) => names.map((name) => ({ name, data: Buffer.from('PNG') }));
+    (adapter as unknown as { sendImages: (...a: unknown[]) => Promise<void> }).sendImages =
+      async (...args: unknown[]) => { sentImages.push(args); };
+
+    await adapter.notify('Ranní přehled:\n\n![graf](/api/brain/images/abcd.png)');
+
+    expect(sentImages).toHaveLength(1);
+    expect(sentImages[0]![0]).toBe('a:conv1');
+    expect(sentImages[0]![1]).toEqual([{ name: 'abcd.png', data: Buffer.from('PNG') }]);
+    const texts = calls.filter((c) => c.kind === 'send').map((c) => (c.args[2] as { text?: string })?.text ?? '');
+    expect(texts.join('\n')).toContain('Ranní přehled:');
+    expect(texts.join('\n')).not.toContain('/api/brain/images/');
+  });
+
   it('stays silent before the bot has seen any serviceUrl', async () => {
     const { adapter, calls } = await makeAdapter({ notifyConversationId: 'a:conv1' });
     await adapter.notify('lost');
@@ -1660,14 +1680,37 @@ describe('msteams per-chat overrides', () => {
     expect(errors.some((e) => e.includes('brain exploded') && e.includes('a:conv1'))).toBe(true);
   });
 
-  it('drops a question that timed out instead of leaving its card answerable', async () => {
-    const { adapter } = await makeAdapter({ askTimeoutMs: 30000, rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] });
+  // The plugin used to run its own `askTimeoutMs` clock beside the core's five-minute one, so a card
+  // could stay clickable after the turn behind it had already given up — or be refused while the core
+  // would still have accepted the answer. The core now announces every exit and this settles the card.
+  it('settles a question card when the core reports the question resolved', async () => {
+    const { adapter, state, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] });
+    state.patch('a:conv1', { ref: { serviceUrl: 'https://smba.test/emea' } });
     adapter.listen(async () => 'ok');
     await adapter.postAsk('a:conv1', 'in-0', 'aad-1', 'q-1', [{ header: 'Colour', options: [{ label: 'Blue' }] }]);
     expect(adapter.pendingAsks.size).toBe(1);
-    for (const pend of adapter.pendingAsks.values()) pend.createdAt = Date.now() - 60000;
-    await adapter.onActivity(activity({ id: 'in-9', text: 'something unrelated' }));
+
+    await adapter.resolveAsk('a:conv1', 'q-1', 'timeout');
+
     expect(adapter.pendingAsks.size).toBe(0);
+    const edits = calls.filter((c) => c.kind === 'update');
+    expect(edits.length).toBeGreaterThan(0);
+    expect(JSON.stringify(edits.at(-1)!.args)).toContain('AdaptiveCard');
+    // A later click on the settled card reaches nothing and must stay silent rather than answer.
+    const before = calls.length;
+    await adapter.onCardAction(activity({ value: { ea: '1', o: 0, q: 0 } }));
+    expect(calls).toHaveLength(before);
+  });
+
+  it('leaves an ANSWERED question alone — whoever answered already settled its card', async () => {
+    const { adapter, state, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] });
+    state.patch('a:conv1', { ref: { serviceUrl: 'https://smba.test/emea' } });
+    adapter.listen(async () => 'ok');
+    await adapter.postAsk('a:conv1', 'in-0', 'aad-1', 'q-1', [{ header: 'Colour', options: [{ label: 'Blue' }] }]);
+    const before = calls.length;
+    await adapter.resolveAsk('a:conv1', 'q-1', 'answered');
+    expect(adapter.pendingAsks.size).toBe(0);
+    expect(calls).toHaveLength(before);
   });
 });
 

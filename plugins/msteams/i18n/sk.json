@@ -161,10 +161,6 @@
       "label": "Max. obrázkov na odpoveď",
       "hint": "Koľko vygenerovaných obrázkov bot pripojí k jednej odchádzajúcej odpovedi."
     },
-    "askTimeoutMs": {
-      "label": "Časový limit otázky (ms)",
-      "hint": "Ako dlho zostáva karta s čakajúcou otázkou zodpovedateľná."
-    },
     "sec_roles": {
       "label": "Pravidlá rolí",
       "hint": "Určujú, ktorých odosielateľov v Teams bot prijme, a voliteľne pridávajú pokyny pre miestnosť."

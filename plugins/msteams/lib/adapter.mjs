@@ -66,7 +66,6 @@ const MAX_UPLOAD_IMAGES = 4;
 // a large tenant can sit in many; each is one connector call, and the answer is almost always the
 // first one.
 const MAX_ROSTER_SWEEP = 25;
-const ASK_TTL_MS = 360000;
 /** A single PUT carries a file up to 60 MiB before Microsoft wants 320 KiB fragments; the cap sits well
  *  under that, because the bytes wait in memory between the offer and the answer. */
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -500,16 +499,6 @@ export class MsTeamsAdapter {
     return this.threadGraph;
   }
 
-  /** Drop AskUserQuestion cards whose server-side timeout has passed. Runs on every inbound message, not
-   *  only when a card action arrives: an ask nobody ever answers would otherwise sit in `pendingAsks`
-   *  for the life of the process and keep an interactive card alive long after the turn behind it died. */
-  sweepStaleAsks() {
-    const ttl = this.askTtlMs();
-    for (const [token, pend] of this.pendingAsks) {
-      if (Date.now() - pend.createdAt > ttl) this.pendingAsks.delete(token);
-    }
-  }
-
   /** Drop offered files nobody answered, so their bytes do not sit in memory for the life of the
    *  process. Same reasoning as the ask sweep, with more at stake: each entry holds a whole file. */
   sweepStaleFiles() {
@@ -717,7 +706,6 @@ export class MsTeamsAdapter {
     const orderKey = targetedOrder ? `${conv.id}:target:${from.id}` : `${conv.id}:public`;
     const orderMarker = this.conversationOrder.mark(orderKey);
     this.rememberConversation(m);
-    this.sweepStaleAsks();
 
     // The transcript records what the CONVERSATION said, so it is written above the gates below: a
     // message that answers no mention, or comes from someone with no role mapping, is still background
@@ -1358,11 +1346,12 @@ export class MsTeamsAdapter {
       conversationId = await this.notifyConversationFor(target, serviceUrl);
       if (!conversationId) return; // already warned, with the reason
     }
-    // Translate before splitting: the pieces are sized to the transport, and a translation has its own
-    // length.
-    for (const piece of splitContent(String(lifecycleText(this.cfg.language, notice, text)))) {
-      await this.tmSend(conversationId, piece, { ai: true });
-    }
+    // Through the same poster a turn's answer uses. Splitting the text alone was not merely incomplete:
+    // a cron job that GENERATES an image delivered its `/api/brain/images/…` markdown link into Teams as
+    // literal text, which is a dead relative daemon URL for anyone reading it. postWithImages uploads
+    // those files as real attachments and splits the remaining text exactly as this loop did.
+    // Translate before it splits: the pieces are sized to the transport, and a translation has its own length.
+    await postWithImages(this, conversationId, String(lifecycleText(this.cfg.language, notice, text)));
   }
 
   /** A notify target that is not a known conversation: resolved through the people directory, falling
@@ -1415,15 +1404,28 @@ export class MsTeamsAdapter {
 
   // ── AskUserQuestion cards ──
 
-  askTtlMs() { return cfgNum(this.cfg, 'askTimeoutMs', ASK_TTL_MS, 30000, 1800000); }
-
   /** Post the choice card for a parked AskUserQuestion and remember it under a short token. */
   async postAsk(conversationId, replyToId, askerId, id, questions) {
     const token = String(++this.askSeq);
     const selected = questions.map(() => []);
     const cs = this.cfg.language === 'cs';
     const activityId = await this.tmSend(conversationId, '', { replyToId, card: buildAskCard(token, questions, { cs, selected }) });
-    this.pendingAsks.set(token, { id, conversationId, activityId, questions, askerId, selected, createdAt: Date.now() });
+    this.pendingAsks.set(token, { id, conversationId, activityId, questions, askerId, selected });
+  }
+
+  /** The core settled this question — answered, timed out, aborted, or superseded by a newer one. Settle
+   *  the card so nobody is left with live choices that can no longer reach the turn behind them. The
+   *  core's timeout is now the ONLY clock: this plugin used to keep its own `askTimeoutMs`, which could
+   *  only ever disagree with the value that actually governs when an answer stops being accepted. An
+   *  `answered` resolution needs no edit — the surface that answered has already settled its own card. */
+  async resolveAsk(_conversationId, id, reason) {
+    for (const [token, pend] of this.pendingAsks) {
+      if (pend.id !== id) continue;
+      this.pendingAsks.delete(token);
+      if (reason === 'answered' || !pend.activityId) return;
+      await this.tmEdit(pend.conversationId, pend.activityId, '', settledCard(this.msg.askExpired)).catch(() => {});
+      return;
+    }
   }
 
   /** An Adaptive Card Action.Submit round-trip (`activity.value`) — ask answers and picker choices. */
@@ -1440,12 +1442,9 @@ export class MsTeamsAdapter {
   async onAskAction(m, conv, from, value) {
     const token = String(value.ea);
     const pend = this.pendingAsks.get(token);
+    // A settled question is already gone from the map (see resolveAsk), so an absent entry IS the expired
+    // case — there is no second clock here to disagree with the core's.
     if (!pend) return;
-    if (Date.now() - pend.createdAt > this.askTtlMs()) {
-      this.pendingAsks.delete(token);
-      if (pend.activityId) await this.tmEdit(conv.id, pend.activityId, '', settledCard(this.msg.askExpired));
-      return;
-    }
     // Only the person the question was routed to (or an operator) may answer.
     const upn = await this.resolveUpn(m.serviceUrl, conv.id, from);
     const ids = senderIds(from, conv.id, upn);
