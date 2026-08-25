@@ -136,6 +136,13 @@ describe('telegram splitContent (code-block-aware chunking)', () => {
     const { splitContent } = await import(join(repoRoot, 'plugins/telegram/index.mjs')) as { splitContent: (t: string) => string[] };
     expect(splitContent('ahoj')).toEqual(['ahoj']);
   });
+
+  it('renders markdown tables as bare rows because Telegram sends without parse_mode', async () => {
+    const { splitContent } = await import(join(repoRoot, 'plugins/telegram/index.mjs')) as { splitContent: (t: string) => string[] };
+    const pieces = splitContent('| A | B |\n| --- | --- |\n| 1 | 2 |');
+    expect(pieces).toEqual(['A  B\n1  2']);
+    expect(pieces[0]).not.toContain('```');
+  });
 });
 
 describe('telegram buildAskKeyboard (inline keyboard)', () => {

@@ -1,13 +1,17 @@
 // Teams-flavoured formatting: shared splitting/reply-context helpers sized for Teams message limits.
-import { splitContent as splitAtChunk, parseModelExec, runtimeFooter } from 'elowen-plugin-shared/format';
+import { splitContent as splitAtChunk, renderChatTables, parseModelExec, runtimeFooter } from 'elowen-plugin-shared/format';
 
 export { parseModelExec };
 
 /** Teams caps a message payload around 28KB; markdown text well under that keeps every client happy. */
 export const CHUNK = 20000;
+// Matched to Discord: a fenced block scrolls, so an overflowing table still reads, whereas the stacked
+// key/value fallback throws away the row-to-row comparison. Enterprise labels are long, and a tighter cap
+// made the fallback the common case rather than the exception.
+const CHAT_TABLE_WIDTH = 72;
 
-/** Split a Teams reply into ≤CHUNK pieces without breaking a fenced code block (shared core + our size). */
-export const splitContent = (text) => splitAtChunk(text, CHUNK);
+/** Teams collapses bare single-newline rows, so tables must be fenced before the fence-aware split. */
+export const splitContent = (text) => splitAtChunk(renderChatTables(text, { fence: true, maxWidth: CHAT_TABLE_WIDTH }), CHUNK);
 
 /** The markup Teams' runtime footer is wrapped in. Bot messages there have no small-text style at all —
  *  Teams documents only bold, italic, strikethrough, monospace, blockquote and links for text-only

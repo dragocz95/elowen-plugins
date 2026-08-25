@@ -4,14 +4,15 @@
 // Telegram messages are sent as PLAIN TEXT (no parse_mode), so no markup ever needs escaping and a stray
 // `<`, `&` or unbalanced `*` in a model answer can never crash a send — the safe, consistent choice for
 // arbitrary agent output (see the plugin README/notes on the HTML-vs-plaintext trade-off).
-import { splitContent as splitAtChunk, extractImageRefs, stripThinking, parseModelExec, stripForSpeech, runtimeFooter, stripRuntimeFooter } from 'elowen-plugin-shared/format';
+import { splitContent as splitAtChunk, renderChatTables, extractImageRefs, stripThinking, parseModelExec, stripForSpeech, runtimeFooter, stripRuntimeFooter } from 'elowen-plugin-shared/format';
 export { extractImageRefs, stripThinking, parseModelExec, stripForSpeech };
 
 export const CHUNK = 4000; // Telegram caps a text message at 4096 chars — stay comfortably under it
+const CHAT_TABLE_WIDTH = 48; // narrow plain-text rows stay readable in a portrait phone chat
 const REPLY_EXCERPT = 300; // quoted-reply excerpt length
 
-/** Split a Telegram reply into ≤CHUNK pieces without breaking a fenced code block (shared core + our size). */
-export const splitContent = (text) => splitAtChunk(text, CHUNK);
+/** Telegram has no parse_mode, so render bare rows before applying the shared chunk limit. */
+export const splitContent = (text) => splitAtChunk(renderChatTables(text, { fence: false, maxWidth: CHAT_TABLE_WIDTH }), CHUNK);
 
 /** Quote context for a reply: who is being answered + a capped excerpt of what they said. Built from a
  *  Telegram `reply_to_message` (its sender name + text/caption); empty when the message is not a reply. */

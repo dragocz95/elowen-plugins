@@ -1,14 +1,19 @@
 // Discord text/format helpers. The transport-neutral pieces (stripForSpeech, extractImageRefs,
 // stripThinking, parseModelExec, the fenced-split core) live in elowen-plugin-shared/format; only Discord's
 // own chunk size, mention/name resolution, reply-quote and subtext footer stay here.
-import { splitContent as splitAtChunk, extractImageRefs, stripThinking, parseModelExec, stripForSpeech, runtimeFooter, stripRuntimeFooter } from 'elowen-plugin-shared/format';
+import { splitContent as splitAtChunk, renderChatTables, extractImageRefs, stripThinking, parseModelExec, stripForSpeech, runtimeFooter, stripRuntimeFooter } from 'elowen-plugin-shared/format';
 export { extractImageRefs, stripThinking, parseModelExec, stripForSpeech };
 
 export const CHUNK = 1990;
+// Wide enough that an ordinary four-column table stays a table. Narrower values look kinder to a phone but
+// push every table with one longer cell into the stacked key/value fallback, which is the worse read of the
+// two: a Discord code block scrolls horizontally on desktop and mobile alike, so overflow costs a swipe,
+// while stacking costs the comparison the table existed to show.
+const CHAT_TABLE_WIDTH = 72;
 const REPLY_EXCERPT = 300;               // quoted-reply excerpt length
 
-/** Split a Discord reply into ≤CHUNK pieces without breaking a fenced code block (shared core + our size). */
-export const splitContent = (text) => splitAtChunk(text, CHUNK);
+/** Render chat tables first, then split the final fenced text without breaking its code block. */
+export const splitContent = (text) => splitAtChunk(renderChatTables(text, { fence: true, maxWidth: CHAT_TABLE_WIDTH }), CHUNK);
 
 /** The roleId that matches anyone. */
 export const WILDCARD = '*';
