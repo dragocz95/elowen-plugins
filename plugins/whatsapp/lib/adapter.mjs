@@ -11,7 +11,7 @@ import { parseAskReply } from './ask.mjs';
 import { sameId, isGroup, isSupportedChat, numberOf, toJid, senderIsAdmin, matchPolicy } from './jid.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage } from './stream.mjs';
-import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { controlCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
@@ -674,15 +674,18 @@ export class WhatsAppAdapter {
     // multi-word command argument) is passed whole instead of silently truncated to one word.
     const arg = argParts.join(' ');
     const admin = () => senderIsAdmin(this.senderIds(senderJid, chatJid), this.cfg.senderPolicies);
-    // Control commands (new/fast/stop/status/compact/restart) share one transport-agnostic core; only the
-    // pickers below stay local because their numbered-menu UI is WhatsApp-specific.
-    if (CONTROL_COMMANDS.has(command)) {
-      return runControlCommand(command, {
+    // Control commands share one transport-agnostic core. WHICH names those are is the daemon's answer,
+    // not ours: controlCommandsFrom reads `execution` off the catalog we already receive. What runs is the
+    // INTERSECTION of that with what the core implements — an unhandled name falls through to the switch
+    // below and out as an unknown /word, so a newer daemon may publish a control command this adapter
+    // cannot run. Only the pickers stay local, because their numbered-menu UI is WhatsApp-specific.
+    if (controlCommandsFrom(this.chatCommands()).has(command)) {
+      const handled = await runControlCommand(command, {
         msg: this.msg, reply: (t) => this.sendText(chatJid, t), isAdmin: admin, arg,
         state: this.state, stateId: chatJid, ctl: this.ctl, ref: this.chatRef(chatJid),
         activeModel: async () => (await this.modelForChat(chatJid)).active,
-        fastEnabled: this.chatCommands().some((c) => c.name === 'fast'),
       });
+      if (handled) return true;
     }
     switch (command) {
       case 'help':

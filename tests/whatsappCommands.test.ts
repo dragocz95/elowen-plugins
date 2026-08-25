@@ -29,7 +29,10 @@ interface TestAdapter {
   handleTextReply(chatJid: string, senderJid: string, text: string, message: unknown): Promise<boolean>;
 }
 
-const makeAdapter = async (models: ModelOption[], initial: Record<string, unknown> = {}, language = 'en', commands: { name: string; kind?: string }[] = [{ name: 'fast', kind: 'action' }]) => {
+// `execution` is what the adapter derives its control set from, so a catalog entry without it is a
+// command this adapter will not claim — the default below carries the field exactly as
+// `GET /brain/commands?surface=whatsapp` publishes it.
+const makeAdapter = async (models: ModelOption[], initial: Record<string, unknown> = {}, language = 'en', commands: { name: string; kind?: string; execution?: string }[] = [{ name: 'fast', kind: 'action', execution: 'session-control' }]) => {
   const { WhatsAppAdapter } = await import(join(repoRoot, 'plugins/whatsapp/lib/adapter.mjs')) as {
     WhatsAppAdapter: new (...args: unknown[]) => TestAdapter & { sendText: (jid: string, text: string) => Promise<void> };
   };
@@ -193,6 +196,18 @@ describe('whatsapp /fast capability gate', () => {
     expect(sent).toEqual([]);
   });
 
+  /** The OTHER direction of the same rollout rule, and the one with no test before: a daemon NEWER than
+   *  this adapter publishes a `session-control` command the shared core has no case for. `/clear` is real
+   *  — it is session-control on the CLI and the web dock. The adapter must not swallow it just because the
+   *  catalog listed it; only the intersection of "published" and "the core implements it" runs, so this
+   *  falls through as an unknown /word and reaches the brain as ordinary text. */
+  it('falls through a published control command the shared core cannot run', async () => {
+    const catalog = [{ name: 'clear', kind: 'action', execution: 'session-control' }];
+    const { adapter, sent } = await makeAdapter([], {}, 'en', catalog);
+    expect(await adapter.handleCommand(CHAT, CHAT, '/clear')).toBe(false);
+    expect(sent).toEqual([]); // no reply invented, and nothing silently eaten
+  });
+
   it('joins ALL argument tokens, not just the first (the multi-arg parsing fix)', async () => {
     const models = [{ provider: 'openai', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true }];
     const { adapter, sent } = await makeAdapter(models, { model: { provider: 'openai', model: 'gpt-5.4' } });
@@ -209,12 +224,12 @@ describe('whatsapp /fast capability gate', () => {
 // neither, so listing them would advertise dead commands.
 describe('whatsapp /help lists only commands it can dispatch', () => {
   const catalog = [
-    { name: 'new', kind: 'action' }, { name: 'stop', kind: 'action' },
-    { name: 'status', kind: 'info' }, { name: 'compact', kind: 'action' },
-    { name: 'model', kind: 'picker' }, { name: 'context', kind: 'picker' },
-    { name: 'fast', kind: 'action' }, { name: 'reasoning', kind: 'picker' },
-    { name: 'restart', kind: 'action' }, { name: 'help', kind: 'info' },
-    { name: 'standup', kind: 'prompt', description: 'Write today\'s standup' },
+    { name: 'new', kind: 'action', execution: 'session-control' }, { name: 'stop', kind: 'action', execution: 'session-control' },
+    { name: 'status', kind: 'info', execution: 'session-control' }, { name: 'compact', kind: 'action', execution: 'session-control' },
+    { name: 'model', kind: 'picker', execution: 'surface-local' }, { name: 'context', kind: 'picker', execution: 'session-control' },
+    { name: 'fast', kind: 'action', execution: 'session-control' }, { name: 'reasoning', kind: 'picker', execution: 'surface-local' },
+    { name: 'restart', kind: 'action', execution: 'session-control' }, { name: 'help', kind: 'info', execution: 'surface-local' },
+    { name: 'standup', kind: 'prompt', execution: 'plugin-prompt', description: 'Write today\'s standup' },
   ];
 
   it('advertises exactly the catalog, and every advertised command is handled', async () => {

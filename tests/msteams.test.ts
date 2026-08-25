@@ -82,7 +82,7 @@ type AdapterModule = {
   MsTeamsAdapter: new (
     cfg: Record<string, unknown>, logger: typeof log, state: unknown, listModels: () => Promise<unknown[]>,
     imageDirs?: string[], resolveProvider?: () => null, answerQuestion?: (id: string, answers: unknown[]) => boolean,
-    chatCommands?: () => { name: string; description: string; kind: string }[], accountLinking?: unknown,
+    chatCommands?: () => { name: string; description: string; kind: string; execution?: string }[], accountLinking?: unknown,
   ) => {
     handleWebhook: (req: { method: string; headers: Record<string, string>; json: () => Promise<unknown> }) => Promise<{ status?: number }>;
     onActivity: (m: unknown) => Promise<void>;
@@ -114,9 +114,29 @@ class MemoryState {
   patch(id: string, fields: Record<string, unknown>) { this.data[id] = { ...this.data[id], ...fields }; }
 }
 
+/** What `ctx.chatCommands('msteams')` really hands the adapter — copied field for field from
+ *  `GET /brain/commands?surface=msteams` (25 Aug). It is the adapter's ONLY input for two decisions now:
+ *  which names go to the shared control core, and which are bot control and must stay out of the
+ *  transcript. Both collapse to nothing against an empty list, which is why the default is the real
+ *  thing. `voice`/`display` are absent on purpose: `adapter-state` commands are declared in the catalog
+ *  but never published, and the adapter states its own. */
+const MSTEAMS_CHAT_COMMANDS = [
+  { name: 'new', description: 'Start a fresh conversation', kind: 'action', execution: 'session-control' },
+  { name: 'stop', description: 'Stop the running agent', kind: 'action', execution: 'session-control' },
+  { name: 'status', description: 'Session info — model, context and usage', kind: 'info', execution: 'session-control' },
+  { name: 'compact', description: 'Summarize the conversation to free up context (add text to steer what to keep)', kind: 'action', execution: 'session-control' },
+  { name: 'model', description: 'Switch the AI model', kind: 'picker', execution: 'surface-local' },
+  { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', execution: 'session-control' },
+  { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action', execution: 'session-control' },
+  { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', execution: 'surface-local' },
+  { name: 'restart', description: 'Restart the Elowen daemon', kind: 'action', execution: 'session-control' },
+  { name: 'help', description: 'Show the available commands', kind: 'info', execution: 'surface-local' },
+];
+
 async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
   answers?: { id: string; answers: unknown[] }[];
   models?: unknown[];
+  chatCommands?: { name: string; description: string; kind: string; execution?: string }[];
   accountLinking?: {
     authenticate: (activity: unknown, options?: { magicCode?: string }) => Promise<{ status: string; user?: { id: number } }>;
     signInActivity: (activity: unknown, text: string, button: string, options?: { buttonType?: string; buttonValue?: string }) => Promise<Record<string, unknown>>;
@@ -139,7 +159,7 @@ async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
   const adapter = new MsTeamsAdapter(
     { ...CREDS, ...cfg }, logger, state, async () => opts.models ?? [], [], () => null,
     (id, answers) => { (opts.answers ??= []).push({ id, answers }); return true; },
-    () => [],
+    () => opts.chatCommands ?? MSTEAMS_CHAT_COMMANDS,
     opts.accountLinking ?? null,
   );
   // Quiet transport for unit tests: no network, capture the outbound calls.
@@ -1476,13 +1496,33 @@ describe('msteams conversation history backfill', () => {
     expect(messages).toEqual([expect.objectContaining({ role: 'user', author: { name: 'Alex Rivera' }, text: 'a real message' })]);
   });
 
-  it('keeps bot-control commands out of the transcript', async () => {
+  /** The exclusion is read off the catalog now, so all three shapes have to be covered: a command the
+   *  DAEMON executes, one the SURFACE executes, and one this adapter owns end to end. The last is the
+   *  interesting one — `/display` is deliberately never published (see ADAPTER_STATE_COMMANDS in the
+   *  adapter), so it survives only because the adapter names its own. */
+  it('keeps bot-control commands out of the transcript, published or adapter-owned', async () => {
     const { adapter, state } = await makeAdapter({ historyLimit: 10, rolePolicies: [{ roleId: 'aad-1', admin: true, projectIds: [] }] });
     adapter.listen(async () => 'a real answer');
-    await adapter.onActivity(activity({ id: 'in-1', text: '/status' }));
-    await adapter.onActivity(activity({ id: 'in-2', text: 'a real message' }));
+    await adapter.onActivity(activity({ id: 'in-1', text: '/status' }));   // session-control
+    await adapter.onActivity(activity({ id: 'in-2', text: '/model' }));    // surface-local
+    await adapter.onActivity(activity({ id: 'in-3', text: '/display' }));  // adapter-state, unpublished
+    await adapter.onActivity(activity({ id: 'in-4', text: 'a real message' }));
     const log = (state.get('a:conv1') as { log?: { t: string }[] }).log ?? [];
     expect(log.map((e) => e.t)).toEqual(['a real message', 'a real answer']);
+  });
+
+  /** The other half of the same rule: a plugin prompt macro is `execution: 'plugin-prompt'`, which is NOT
+   *  bot control — the conversation really did say it, and the answer is a real turn. Excluding it would
+   *  quietly erase those turns from every later session's context. */
+  it('records a plugin prompt macro, which is a turn the conversation had', async () => {
+    const { adapter, state } = await makeAdapter(
+      { historyLimit: 10, rolePolicies: [{ roleId: 'aad-1', admin: true, projectIds: [] }] },
+      { chatCommands: [...MSTEAMS_CHAT_COMMANDS, { name: 'standup', description: 'Write the standup', kind: 'prompt', execution: 'plugin-prompt' }] },
+    );
+    adapter.listen(async () => 'a real answer');
+    await adapter.onActivity(activity({ id: 'in-1', text: '/standup' }));
+    const log = (state.get('a:conv1') as { log?: { t: string }[] }).log ?? [];
+    expect(log.map((e) => e.t)).toEqual(['/standup', 'a real answer']);
   });
 
   it('records what the gates reject, so background chatter still becomes context', async () => {

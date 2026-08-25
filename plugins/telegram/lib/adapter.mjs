@@ -11,7 +11,7 @@ import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } fr
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
-import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { controlCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
@@ -526,15 +526,18 @@ export class TelegramAdapter {
     const cmd = cmdRaw.split('@')[0].toLowerCase(); // strip a trailing @botusername (group form)
     const arg = argParts.join(' ').trim().toLowerCase();
     const admin = () => this.isAdmin(ids);
-    // Control commands (new/fast/stop/status/compact/restart) share one transport-agnostic core; only the
-    // pickers below stay local because their inline-keyboard UI is Telegram-specific.
-    if (CONTROL_COMMANDS.has(cmd)) {
-      return runControlCommand(cmd, {
+    // Control commands share one transport-agnostic core. WHICH names those are is the daemon's answer,
+    // not ours: controlCommandsFrom reads `execution` off the catalog we already receive. What runs is the
+    // INTERSECTION of that with what the core implements — an unhandled name falls through to the switch
+    // below and out as an unknown /word, so a newer daemon may publish a control command this adapter
+    // cannot run. Only the pickers stay local, because their inline-keyboard UI is Telegram-specific.
+    if (controlCommandsFrom(this.chatCommands()).has(cmd)) {
+      const handled = await runControlCommand(cmd, {
         msg: this.msg, reply: (t) => this.tgSend(chatId, t), isAdmin: admin, arg,
         state: this.state, stateId: String(chatId), ctl: this.ctl, ref: this.channelRef(chatId),
         activeModel: async () => this.modelForChannel(chatId, await this.listModels().catch(() => [])),
-        fastEnabled: this.chatCommands().some((c) => c.name === 'fast'),
       });
+      if (handled) return true;
     }
     switch (cmd) {
       case 'help':

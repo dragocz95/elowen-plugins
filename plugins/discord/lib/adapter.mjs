@@ -8,7 +8,7 @@ import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } fr
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, imageMimeType, resolveSharedFiles, fileMimeType } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
-import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { controlCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
@@ -590,11 +590,14 @@ export class DiscordAdapter {
         const args = String((i.data?.options ?? []).find((o) => o.name === 'args')?.value ?? '').trim();
         return this.dispatchSlashPrompt(i, `/${name}${args ? ` ${args}` : ''}`);
       }
-      // Control commands (new/fast/stop/status/compact/restart) share one transport-agnostic core. Discord
-      // must ACK within 3s; /compact runs an LLM summary, so defer (type 5) and let the core edit the
-      // deferred reply — everything else answers immediately (ephemeral type 4). The pickers below stay
-      // local because their StringSelect UI is Discord-specific.
-      if (CONTROL_COMMANDS.has(name)) {
+      // Control commands share one transport-agnostic core. WHICH names those are is the daemon's answer,
+      // not ours: controlCommandsFrom reads `execution` off the catalog we already receive. What runs is
+      // the INTERSECTION of that with what the core implements — an unhandled name returns false and drops
+      // to the local chain below rather than being swallowed here, so a newer daemon may publish a control
+      // command this adapter cannot run. Discord must ACK within 3s; /compact runs an LLM summary, so defer
+      // (type 5) and let the core edit the deferred reply — everything else answers immediately (ephemeral
+      // type 4). The pickers below stay local because their StringSelect UI is Discord-specific.
+      if (controlCommandsFrom(this.chatCommands()).has(name)) {
         // Defer only when /compact will actually run its LLM summary — i.e. an admin with a live session.
         // A forbidden/no-session /compact answers immediately (type 4), matching the pre-extraction flow.
         const deferred = name === 'compact' && !!this.ctl && this.isAdminMember(i.member);
@@ -602,14 +605,13 @@ export class DiscordAdapter {
         const reply = deferred
           ? (content) => this.editOriginal(i, { content })
           : (content) => this.respond(i, 4, { content, flags: 64 });
-        await runControlCommand(name, {
+        const handled = await runControlCommand(name, {
           msg: this.msg, reply, isAdmin: () => this.isAdminMember(i.member),
           arg: name === 'fast' ? (i.data?.options ?? []).find((o) => o.name === 'state')?.value : undefined,
           state: this.state, stateId: i.channel_id, ctl: this.ctl, ref: this.channelRef(i.channel_id),
           activeModel: async () => this.modelForChannel(i.channel_id, await this.listModels().catch(() => [])),
-          fastEnabled: true,
         });
-        return;
+        if (handled) return;
       }
       if (name === 'model') {
         // Only the operator (a role mapped admin:true) may switch the model — the choice is shared by

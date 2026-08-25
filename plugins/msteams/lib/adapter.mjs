@@ -15,7 +15,7 @@ import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
 import { buildAskCard, buildPickerCard, settledCard } from './cards.mjs';
 import { buildAppPackage } from './appPackage.mjs';
-import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { botControlCommandsFrom, controlCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { observesLiveEvents, resolveDisplaySettings, updateDisplayOverrides } from 'elowen-plugin-shared/display';
 import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
@@ -82,11 +82,14 @@ const HISTORY_MAX = 100;
 const HISTORY_LINE = 400;
 const HISTORY_BLOCK = 6000;
 
-/** Bot-control slash commands are kept OUT of the recorded transcript. They are addressed to the plugin,
- *  not said to the conversation, and Discord's equivalents are interactions that never land in channel
- *  history either — recording them would teach the model to answer `/model` as if it were a question.
- *  A plugin prompt macro is deliberately absent here: that one IS a turn the conversation had. */
-const CONTROL_ONLY = new Set([...CONTROL_COMMANDS, 'help', 'model', 'reasoning', 'display', 'context']);
+/** The commands this adapter runs end to end against its own per-channel state (`execution:
+ *  'adapter-state'` in the daemon's catalog). The daemon declares them but deliberately does NOT publish
+ *  them — each adapter registers its own, and which ones an adapter actually implements is the adapter's
+ *  fact, not the catalog's. Teams dispatches only /display. Stated once, here: /help lists these and the
+ *  transcript filter excludes them. */
+const ADAPTER_STATE_COMMANDS = [
+  { name: 'display', description: 'configure live tools and answer delivery here' },
+];
 
 const ROSTER_TTL_MS = 300000;
 
@@ -707,12 +710,15 @@ export class MsTeamsAdapter {
 
     // The transcript records what the CONVERSATION said, so it is written above the gates below: a
     // message that answers no mention, or comes from someone with no role mapping, is still background
-    // that a later session in this chat will want. Bot-control commands are excluded (see CONTROL_ONLY).
+    // that a later session in this chat will want. What is addressed to the BOT instead is excluded, and
+    // that question is answered by the catalog: everything the daemon or this surface executes, plus the
+    // adapter-state commands we implement. A plugin prompt macro is deliberately NOT excluded — that one
+    // IS a turn the conversation had.
     const kind = conv.conversationType ?? 'personal';
     const personal = conv.conversationType === 'personal';
     const said = this.resolveMentions(m);
     const saidCmd = said.startsWith('/') ? String(said.slice(1).trim().split(/\s+/)[0] ?? '').toLowerCase() : '';
-    if (!saidCmd || !CONTROL_ONLY.has(saidCmd)) {
+    if (!saidCmd || !botControlCommandsFrom(this.chatCommands(), ADAPTER_STATE_COMMANDS.map((c) => c.name)).has(saidCmd)) {
       this.recordHistory(conv.id, { role: 'user', name: displayNameOf(from), text: said, activityId: m.id });
     }
 
@@ -1490,10 +1496,7 @@ export class MsTeamsAdapter {
   }
 
   helpCommands() {
-    return [
-      ...this.chatCommands(),
-      { name: 'display', description: 'configure live tools and answer delivery here' },
-    ];
+    return [...this.chatCommands(), ...ADAPTER_STATE_COMMANDS];
   }
 
   /** Handle a `/command`. Returns true when the text was a (recognized) command. */
@@ -1505,13 +1508,18 @@ export class MsTeamsAdapter {
     const reply = (t) => this.tmSend(conv.id, t, { replyToId: m.id });
     const cs = this.cfg.language === 'cs';
 
-    if (CONTROL_COMMANDS.has(cmd)) {
-      return runControlCommand(cmd, {
+    // Control commands share one transport-agnostic core. WHICH names those are is the daemon's answer,
+    // not ours: controlCommandsFrom reads `execution` off the catalog we already receive. What runs is the
+    // INTERSECTION of that with what the core implements — an unhandled name falls through to the switch
+    // below and out as an unknown /word, so a newer daemon may publish a control command this adapter
+    // cannot run. Only the pickers stay local, because their Adaptive Card UI is Teams-specific.
+    if (controlCommandsFrom(this.chatCommands()).has(cmd)) {
+      const handled = await runControlCommand(cmd, {
         msg: this.msg, reply, isAdmin: admin, arg,
         state: this.state, stateId: String(conv.id), ctl: this.ctl, ref: this.channelRef(conv.id),
         activeModel: async () => this.modelForChannel(conv.id, await this.listModels().catch(() => [])),
-        fastEnabled: this.chatCommands().some((c) => c.name === 'fast'),
       });
+      if (handled) return true;
     }
     switch (cmd) {
       case 'help':

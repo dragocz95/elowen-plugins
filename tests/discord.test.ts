@@ -487,20 +487,22 @@ describe('discord display settings', () => {
 
 // The daemon's single source of truth for the Discord surface (ctx.chatCommands('discord')). The adapter
 // derives its registered slash-command LIST from this (passed LAZILY as a function), so registration tests
-// must pass it in. A trailing plugin prompt-command (kind:'prompt') exercises the generic args option +
-// RAW dispatch path.
+// must pass it in — and since the control set is derived too, `execution` is no longer decoration: drop it
+// and the adapter correctly stops claiming /new. Copied field for field from
+// `GET /brain/commands?surface=discord` (25 Aug), plus a trailing plugin prompt-command (kind:'prompt')
+// that exercises the generic args option + RAW dispatch path.
 const DISCORD_CHAT_COMMANDS = [
-  { name: 'new', description: 'Start a fresh conversation', kind: 'action' },
-  { name: 'stop', description: 'Stop the running agent', kind: 'action' },
-  { name: 'status', description: 'Session info — model, context and usage', kind: 'info' },
-  { name: 'compact', description: 'Summarize the conversation to free up context (add text to steer what to keep)', kind: 'action' },
-  { name: 'model', description: 'Switch the AI model', kind: 'picker' },
-  { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker' },
-  { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action' },
-  { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker' },
-  { name: 'restart', description: 'Restart the Elowen daemon', kind: 'action' },
-  { name: 'help', description: 'Show the available commands', kind: 'info' },
-  { name: 'deploy', description: 'Ship it to $1', kind: 'prompt' },
+  { name: 'new', description: 'Start a fresh conversation', kind: 'action', execution: 'session-control' },
+  { name: 'stop', description: 'Stop the running agent', kind: 'action', execution: 'session-control' },
+  { name: 'status', description: 'Session info — model, context and usage', kind: 'info', execution: 'session-control' },
+  { name: 'compact', description: 'Summarize the conversation to free up context (add text to steer what to keep)', kind: 'action', execution: 'session-control' },
+  { name: 'model', description: 'Switch the AI model', kind: 'picker', execution: 'surface-local' },
+  { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', execution: 'session-control' },
+  { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action', execution: 'session-control' },
+  { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', execution: 'surface-local' },
+  { name: 'restart', description: 'Restart the Elowen daemon', kind: 'action', execution: 'session-control' },
+  { name: 'help', description: 'Show the available commands', kind: 'info', execution: 'surface-local' },
+  { name: 'deploy', description: 'Ship it to $1', kind: 'prompt', execution: 'plugin-prompt' },
 ];
 const discordCommands = () => DISCORD_CHAT_COMMANDS;
 
@@ -648,7 +650,7 @@ describe('discord reasoning picker', () => {
 });
 
 describe('discord /fast capability gate', () => {
-  const makeAdapter = async (models: unknown[], initial: Record<string, unknown> = {}) => {
+  const makeAdapter = async (models: unknown[], initial: Record<string, unknown> = {}, commands = discordCommands) => {
     const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
     const channels: Record<string, Record<string, unknown>> = { C: initial };
     const state = {
@@ -657,12 +659,30 @@ describe('discord /fast capability gate', () => {
     };
     const adapter = new DiscordAdapter(
       { language: 'en', rolePolicies: [{ roleId: 'ADMIN', admin: true }] },
-      log, state, async () => models, [], () => null, () => false, discordCommands,
+      log, state, async () => models, [], () => null, () => false, commands,
     );
     const replies: unknown[] = [];
     adapter.rest = async (_method: string, _path: string, body: unknown) => { replies.push(body); return {}; };
     return { adapter, channels, replies };
   };
+
+  /** Discord used to assert `fastEnabled: true` into the shared core, so it would have run /fast even for
+   *  a daemon that never published it — the one surface where publication was NOT the answer. It derives
+   *  the control set from the catalog now, so an omitted /fast is simply not one of ours: no state change
+   *  and no invented reply. It cannot be reached in practice either, since registration comes from the
+   *  same catalog; this pins the dispatch half so the two cannot part ways again. */
+  it('does not claim /fast when the daemon has not published it for this surface', async () => {
+    const models = [{ provider: 'oauth', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true }];
+    const withoutFast = () => discordCommands().filter((c) => c.name !== 'fast');
+    const { adapter, channels, replies } = await makeAdapter(models, { model: { provider: 'oauth', model: 'gpt-5.4' } }, withoutFast);
+    adapter.control({ status: () => null, setFast: () => ({ fast: true, fastAvailable: true }) });
+
+    await adapter.onInteraction({
+      type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name: 'fast' },
+    });
+    expect(replies).toEqual([]);
+    expect(channels.C?.fast).toBeUndefined();
+  });
 
   it('does not let a stale OAuth live session enable fast for a selected non-OAuth model', async () => {
     const models = [{ provider: 'plain', providerLabel: 'Plain', model: 'chat-only' }];
