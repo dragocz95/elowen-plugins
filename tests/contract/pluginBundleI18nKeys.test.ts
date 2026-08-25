@@ -78,7 +78,7 @@ describe('plugin web bundles against the host translation catalog', () => {
     const declaring = pluginsDeclaringABundle();
     expect(declaring.length).toBeGreaterThan(0);
     expect(declaring.filter((name) => !files.some((f) => f.startsWith(join(BUNDLES, name, 'web-src') + '/')))).toEqual([]);
-    expect(files.length).toBeGreaterThanOrEqual(40);
+    expect(files.length).toBeGreaterThanOrEqual(39);
 
     const missing: string[] = [];
     let checked = 0;
@@ -98,9 +98,13 @@ describe('plugin web bundles against the host translation catalog', () => {
     }
     // Finding the FILES is not the same as finding the references: the whole check would go quiet if the
     // pattern drifted or the runtime stopped naming the binding `t`, and `missing` would stay empty for
-    // the wrong reason. 430 references resolve today across six bundles; the floor fails an idle scan
-    // long before it reaches zero.
-    expect(checked).toBeGreaterThanOrEqual(300);
+    // the wrong reason. The floor fails an idle scan long before it reaches zero.
+    //
+    // It used to read 300, against 430 references across six bundles. `agents` and `work` carried nearly
+    // all of them — they were the two bundles with real translated screens — so removing those plugins
+    // took the honest count down to 18. The floor follows the reality rather than the other way round;
+    // holding the old number would only mean deleting the check the next time someone hit it.
+    expect(checked).toBeGreaterThanOrEqual(18);
     expect(missing).toEqual([]);
   });
 });

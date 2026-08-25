@@ -39,7 +39,7 @@ interface TestAdapter {
  *  every entry carries it. */
 const CATALOG = [
   { name: 'fast', kind: 'action', execution: 'session-control' },      // daemon-run action
-  { name: 'status', kind: 'info', execution: 'session-control' },      // daemon-run, replies rather than acts
+  { name: 'stats', kind: 'info', execution: 'session-control' },       // daemon-run, replies rather than acts
   { name: 'model', kind: 'picker', execution: 'surface-local' },       // adapter-run picker
   { name: 'reasoning', kind: 'picker', execution: 'surface-local' },   // adapter-run picker (named by tests below)
   { name: 'help', kind: 'info', execution: 'surface-local' },          // adapter-run, non-picker

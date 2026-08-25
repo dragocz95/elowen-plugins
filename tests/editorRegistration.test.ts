@@ -4,17 +4,14 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { openPluginTablesDb } from './helpers/pluginTablesDb.js';
+import { openDb } from 'elowen/dist/store/db.js';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import { PluginRegistryProvider } from 'elowen/dist/plugins/pluginsProvider.js';
 import { createServer } from 'elowen/dist/api/server.js';
 import { ConfigStore } from 'elowen/dist/store/configStore.js';
 import { UserStore } from 'elowen/dist/store/userStore.js';
-import { TaskStore } from '../plugins/work/dist/store/taskStore.js';
 import { ProjectStore } from 'elowen/dist/store/projectStore.js';
 import { UserProjectStore } from 'elowen/dist/store/userProjectStore.js';
-import { MissionStore } from '../plugins/agents/dist/store/missionStore.js';
-import { Readiness } from '../plugins/work/dist/store/readiness.js';
 import { EventBus } from 'elowen/dist/api/sse.js';
 import { FakeClock } from 'elowen/dist/shared/clock.js';
 import { safeProjectPath } from 'elowen/dist/integrations/projectFiles.js';
@@ -28,7 +25,7 @@ function loadWith(enabled: string[], host?: PluginHostWiring) {
 }
 
 function serverWith(enabled: string[], projectPath = '/tmp') {
-  const db = openPluginTablesDb(':memory:');
+  const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen',?)").run(projectPath);
   const users = new UserStore(db);
   const admin = users.create('admin', 'pw');
@@ -36,7 +33,7 @@ function serverWith(enabled: string[], projectPath = '/tmp') {
   const projects = new ProjectStore(db);
   const host: PluginHostWiring = { stores: { projects } as never, projectFiles: { safe: safeProjectPath } };
   const app = createServer({
-    tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    bus: new EventBus(),
     tmux: null as never, project: { id: 1, path: '/tmp' }, fallback: { program: 'claude-code', model: 'sonnet' },
     clock: new FakeClock(0), config: new ConfigStore(db), users, projects, userProjects: new UserProjectStore(db),
     plugins: new PluginRegistryProvider(() => loadWith(enabled, host)), pluginDirs: [pluginsDir],

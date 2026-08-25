@@ -96,10 +96,6 @@ for (const name of folders) {
  *  compared as sets: reordering is not a grant change, adding or removing an entry is.
  */
 const EXPECTED_CAPABILITIES = {
-  agents: {
-    reads: ['brain-worker', 'config', 'db', 'elowen-cli', 'git', 'inference', 'prompts', 'push', 'stores', 'terminals', 'tmux'],
-    mutates: ['events', 'prompt'],
-  },
   codebase: { reads: ['embeddings'], network: true },
   cronjob: { reads: ['stores'] },
   editor: { reads: ['project-files', 'stores'] },
@@ -108,10 +104,6 @@ const EXPECTED_CAPABILITIES = {
   msteams: { reads: ['project-files', 'stores'], mutates: ['users'] },
   skills: { reads: ['stores'] },
   todo: { reads: ['db'] },
-  work: {
-    reads: ['brain-worker', 'config', 'controls', 'db', 'elowen-cli', 'git', 'inference', 'prompts', 'stores', 'tmux'],
-    mutates: ['events'],
-  },
 };
 
 const normalizeCapabilities = (capabilities) =>
@@ -121,7 +113,7 @@ const normalizeCapabilities = (capabilities) =>
 
 test('every plugin that asks for capabilities is pinned', () => {
   // Both directions. A plugin that GAINS a capabilities block is the interesting case: it would be
-  // granted whatever it declares, unpinned, because no expectation below names it. Eight of the twenty
+  // granted whatever it declares, unpinned, because no expectation below names it. Eight of the fifteen
   // plugins declare one today.
   const declaring = folders.filter((name) => manifestOf(name).capabilities).sort();
   assert.ok(declaring.length >= 8, `expected the manifests to declare capabilities, found ${declaring.length}`);

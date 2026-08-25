@@ -63,7 +63,7 @@ describe('plugin bundles paint from the host tokens, not from literals', () => {
     const files = bundleSources();
     const unscanned = declaring.filter((name) => !files.some((f) => f.startsWith(resolve(pluginsDir, name, 'web-src') + '/')));
     expect(unscanned).toEqual([]);
-    expect(files.length).toBeGreaterThanOrEqual(40);
+    expect(files.length).toBeGreaterThanOrEqual(39);
   });
 
   it('has no hard-coded colour in any plugin bundle source', () => {

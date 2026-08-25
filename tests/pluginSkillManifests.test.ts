@@ -38,7 +38,7 @@ describe('a plugin that declares skills ships them', () => {
   it('finds the declaring plugins from their manifests', () => {
     // Read from disk so a new plugin is covered the moment it lands — and an empty read would make
     // every case below pass by doing nothing.
-    expect(declaring.map((p) => p.name).sort()).toEqual(['agents', 'cronjob', 'work']);
+    expect(declaring.map((p) => p.name).sort()).toEqual(['cronjob']);
   });
 
   it.each(declaring)('$name has every declared skill on disk, loadable, under the declared name', ({ name, skills }) => {

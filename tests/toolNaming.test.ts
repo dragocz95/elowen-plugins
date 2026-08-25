@@ -4,12 +4,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlugins, discoverPlugins } from 'elowen/dist/plugins/loader.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
-import { ConfigStore } from 'elowen/dist/store/configStore.js';
-import { ProjectStore } from 'elowen/dist/store/projectStore.js';
-import { TaskStore } from '../plugins/work/dist/store/taskStore.js';
-import { Readiness } from '../plugins/work/dist/store/readiness.js';
-import { openPluginTablesDb } from './helpers/pluginTablesDb.js';
-import { domainTestHost } from './helpers/domainHost.js';
+import { openDb } from 'elowen/dist/store/db.js';
 
 const log = { info() {}, warn() {}, error() {} };
 const pluginDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'plugins');
@@ -38,20 +33,17 @@ const CONFIG = {
 
 async function loadEveryRegistryPlugin() {
   const names = discoverPlugins([pluginDir]).map((p: { manifest: { name: string } }) => p.manifest.name);
-  // `work` and `agents` reach for a database — and agents for tmux and the core stores — while they
-  // register. A plugin that throws there is SKIPPED with an error and contributes no tools at all, which
-  // would quietly shrink every list below instead of failing: exactly the vacuous pass the parity test
-  // exists to prevent. Wiring them the way the daemon does keeps the comparison honest.
-  const db = openPluginTablesDb(':memory:');
+  // A plugin that throws while registering is SKIPPED with an error and contributes no tools at all,
+  // which would quietly shrink every list below instead of failing: exactly the vacuous pass this suite
+  // exists to prevent. The plugins that needed a whole daemon-shaped host to get through register() were
+  // `agents` and `work`, and both are gone — what remains asks only for a database, so the wiring below
+  // is deliberately the minimum. Should a future plugin start reaching for more, the assertions here go
+  // empty rather than green, which is the failure mode we want.
+  const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
-  const host = domainTestHost({
-    db, tasks: new TaskStore(db), readiness: new Readiness(db),
-    config: new ConfigStore(db), projects: new ProjectStore(db),
-  });
   return loadPlugins({
     dirs: [pluginDir], enabled: names, logger: log, config: CONFIG,
     pluginDb: (plugin: string) => makePluginDb(db, plugin, { canMigrate: true }),
-    host,
     // The image plugins take their key from a central brain provider rather than their own secret field.
     resolveProvider: () => ({ apiKey: 'k', baseUrl: 'https://api.example.invalid/v1' }),
   });

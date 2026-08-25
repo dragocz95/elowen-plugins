@@ -4,15 +4,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TaskStore } from '../plugins/work/dist/store/taskStore.js';
-import { Readiness } from '../plugins/work/dist/store/readiness.js';
-import { MissionStore } from '../plugins/agents/dist/store/missionStore.js';
 import { ProjectStore } from 'elowen/dist/store/projectStore.js';
 import { EventBus } from 'elowen/dist/api/sse.js';
 import { createServer } from 'elowen/dist/api/server.js';
 import { FakeClock } from 'elowen/dist/shared/clock.js';
 import { ConfigStore } from 'elowen/dist/store/configStore.js';
-import { openPluginTablesDb } from './helpers/pluginTablesDb.js';
+import { openDb } from 'elowen/dist/store/db.js';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import { PluginRegistryProvider } from 'elowen/dist/plugins/pluginsProvider.js';
 import { safeProjectPath } from 'elowen/dist/integrations/projectFiles.js';
@@ -21,11 +18,11 @@ import { safeProjectPath } from 'elowen/dist/integrations/projectFiles.js';
 // behaviour, not the tenancy gate (covered in projectAccess.test.ts). The project points at a real
 // temp dir so every operation hits the actual filesystem.
 function makeApp() {
-  const db = openPluginTablesDb(':memory:');
+  const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const projects = new ProjectStore(db);
   const app = createServer({
-    tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db),
+    
     bus: new EventBus(), engine: null as any, spawn: null as any, tmux: null as any,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
     clock: new FakeClock(0), config: new ConfigStore(db), projects,

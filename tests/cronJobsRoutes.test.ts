@@ -3,9 +3,6 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TaskStore } from '../plugins/work/dist/store/taskStore.js';
-import { Readiness } from '../plugins/work/dist/store/readiness.js';
-import { MissionStore } from '../plugins/agents/dist/store/missionStore.js';
 import { EventBus } from 'elowen/dist/api/sse.js';
 import { createServer } from 'elowen/dist/api/server.js';
 import { FakeClock } from 'elowen/dist/shared/clock.js';
@@ -13,7 +10,7 @@ import { ConfigStore } from 'elowen/dist/store/configStore.js';
 import { UserStore } from 'elowen/dist/store/userStore.js';
 import { ProjectStore } from 'elowen/dist/store/projectStore.js';
 import { UserProjectStore } from 'elowen/dist/store/userProjectStore.js';
-import { openPluginTablesDb } from './helpers/pluginTablesDb.js';
+import { openDb } from 'elowen/dist/store/db.js';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import { PluginRegistryProvider } from 'elowen/dist/plugins/pluginsProvider.js';
 
@@ -25,7 +22,7 @@ const pluginsDir = join(process.cwd(), 'plugins');
 
 function setup(opts: { enabled?: string[]; config?: Record<string, Record<string, unknown>>; noUsers?: boolean } = {}) {
   const dataRoot = tmpDir('cronjobs');
-  const db = openPluginTablesDb(':memory:');
+  const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   // `noUsers` is SETUP MODE: before the first account exists the API is unauthenticated by design.
@@ -37,7 +34,7 @@ function setup(opts: { enabled?: string[]; config?: Record<string, Record<string
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   }));
   const app = createServer({
-    tasks: new TaskStore(db), readiness: new Readiness(db), missions: new MissionStore(db), bus: new EventBus(),
+    bus: new EventBus(),
     engine: null as never, spawn: null as never, tmux: null as never,
     project: { id: 1, path: '/o' }, fallback: { program: 'claude-code', model: 'sonnet' },
     clock: new FakeClock(0), config: new ConfigStore(db), users, projects: new ProjectStore(db), userProjects: new UserProjectStore(db),

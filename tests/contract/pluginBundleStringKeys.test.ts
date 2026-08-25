@@ -28,7 +28,6 @@ const PLUGINS = join(registryRoot, 'plugins');
  *  that disappears fails as a stale entry, and a new computed read fails until it is declared. */
 const COMPUTED_READS: { file: string; keys: string[] }[] = [
   // KanbanBoard renders one column per entry of its COLUMNS table and reads `s[col.labelKey]`.
-  { file: 'work/web-src/kanban/KanbanBoard.tsx', keys: ['kbColumnOpen', 'kbColumnInProgress', 'kbColumnBlocked', 'kbColumnClosed', 'kbColumnCancelled'] },
 ];
 
 interface Manifest { web?: { strings?: Record<string, string> } }
@@ -100,7 +99,7 @@ function stripComments(source: string): string {
   return out;
 }
 
-/** The binding a file gave `usePluginStrings(<plugin>)` — `const s = hooks.usePluginStrings('work')`, or
+/** The binding a file gave `usePluginStrings(<plugin>)` — `const s = hooks.usePluginStrings('skills')`, or
  *  `const s = usePluginStrings('editor')` where the hook was destructured off the runtime first. A file
  *  may hold one per plugin; the binding name is what the reads below are matched against. */
 const BINDING = /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:[\w$.]+\.)?usePluginStrings\(\s*'([^']+)'\s*\)/g;
@@ -159,14 +158,19 @@ describe('plugin web bundles against their own manifest strings', () => {
     // The scan really found the bundles. Two independent ways, because each covers the other's blind
     // spot: every plugin that declares strings of its own must have a read site (structural, and it
     // follows the set of plugins as it changes), and the totals must stay in the range this registry
-    // actually has (68 bundle files, 16 read sites, 340 static reads, 269 distinct keys today). The
-    // floors are deliberately well under those numbers — they are there to fail an empty or half-blind
+    // actually has (39 bundle files, 8 read sites, 344 static reads, 273 distinct keys today). The
+    // floors are deliberately under those numbers — they are there to fail an empty or half-blind
     // scan, not to be updated every time a view is edited.
+    //
+    // Removing `agents` and `work` moved two of these and left two alone, which is worth knowing before
+    // anyone "restores" the old figures: the file and read-site counts fell with the bundles, while the
+    // static reads and distinct keys did not, because those two plugins bound their strings through a
+    // handful of large views rather than many small ones.
     const declaring = pluginsDeclaringStrings();
     expect(declaring.length).toBeGreaterThan(0);
     expect(declaring.filter((name) => !statik.some((read) => read.plugin === name))).toEqual([]);
-    expect(files).toBeGreaterThanOrEqual(40);
-    expect(sites).toBeGreaterThanOrEqual(12);
+    expect(files).toBeGreaterThanOrEqual(39);
+    expect(sites).toBeGreaterThanOrEqual(8);
     expect(statik.length).toBeGreaterThanOrEqual(250);
     expect(new Set(statik.map((read) => `${read.plugin}.${read.key}`)).size).toBeGreaterThanOrEqual(200);
 
