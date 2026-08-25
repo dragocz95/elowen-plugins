@@ -13,7 +13,7 @@ import { MESSAGES } from './messages.mjs';
 import { LiveMessage } from './stream.mjs';
 import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
-import { isSteered } from 'elowen-plugin-shared/turnResult';
+import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
 import { fileMimeType, resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
@@ -352,57 +352,53 @@ export class WhatsAppAdapter {
     const gen = this.state.get(chatJid).gen ?? 0;
     const convoKey = `${chatJid}#${gen}`;
 
-    const reactions = this.cfg.reactions !== false;
-    const streaming = this.cfg.streaming !== false;
-    const stream = streaming
+    const stream = this.cfg.streaming !== false
       ? new LiveMessage(this, chatJid, m, senderJid, { collapseStillOrdered: () => this.conversationOrder.isCurrent(orderMarker) })
       : null;
-    const onEvent = stream
-      ? (e) => stream.onEvent(e)
-      : (e) => {
-        if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(chatJid, m, senderJid, e.id, e.questions).catch(() => {});
-        // A question raised with streaming off must still be RETIRED when the core settles it, or this
-        // path keeps the very stale-prompt-forever defect the streamed path just stopped having.
-        else if (e.type === 'ask_resolved' && e.id) void this.resolveAsk(chatJid, e.id, e.reason).catch(() => {});
-      };
 
-    const typing = setInterval(() => void this.sock.sendPresenceUpdate('composing', chatJid).catch(() => {}), 8000);
-    void this.sock.sendPresenceUpdate('composing', chatJid).catch(() => {});
-    if (reactions) void this.react(m.key, '👀').catch(() => {});
-
-    const vision = images.length ? parseModelExec(this.cfg.visionModel) : null;
-    let turnAccess = access;
-    if (vision) turnAccess = applyVisionModel(access, vision, await this.listModels().catch(() => []));
-
-    try {
-      const reply = await this.handler(
-        {
-          platform: 'whatsapp', userId: senderJid, userName: senderName, roleIds: [senderJid],
-          channelId: convoKey, access: turnAccess,
-          ...(promptSlash ? { promptCommand: true } : {}),
-          // A non-group WhatsApp chat is a conversation with exactly one number. The host uses this to
-          // decide whether the conversation may carry its sender's personal skills and receive their
-          // scheduled jobs, so it must stay strictly "only this one person can read it".
-          direct: !group,
-          channelName: group ? await this.groupSubject(chatJid) : undefined,
-          images: images.length ? images : undefined,
-        },
-        promptSlash ?? cleanText,
-        onEvent,
-      );
-      clearInterval(typing);
-      void this.sock.sendPresenceUpdate('paused', chatJid).catch(() => {});
-      if (stream) await stream.finalize(reply);
-      else if (reply) await this.sendText(chatJid, stripThinking(reply), m);
-      if (reactions && !isSteered(reply)) void this.react(m.key, '✅').catch(() => {});
-    } catch (e) {
-      clearInterval(typing);
-      const errorMessage = this.msg.error(e?.message ?? e);
-      const handled = stream ? await stream.fail(errorMessage) : false;
-      void this.sock.sendPresenceUpdate('paused', chatJid).catch(() => {});
-      if (reactions) void this.react(m.key, '❌').catch(() => {});
-      if (!handled) await this.sendText(chatJid, errorMessage, m).catch(() => {});
-    }
+    await runTurn({
+      // Resolved INSIDE the turn so the presence update and the "seen" marker are already up while the
+      // vision detour asks the host for its model list.
+      run: async (onEvent) => {
+        const vision = images.length ? parseModelExec(this.cfg.visionModel) : null;
+        const turnAccess = vision ? applyVisionModel(access, vision, await this.listModels().catch(() => [])) : access;
+        return this.handler(
+          {
+            platform: 'whatsapp', userId: senderJid, userName: senderName, roleIds: [senderJid],
+            channelId: convoKey, access: turnAccess,
+            ...(promptSlash ? { promptCommand: true } : {}),
+            // A non-group WhatsApp chat is a conversation with exactly one number. The host uses this to
+            // decide whether the conversation may carry its sender's personal skills and receive their
+            // scheduled jobs, so it must stay strictly "only this one person can read it".
+            direct: !group,
+            channelName: group ? await this.groupSubject(chatJid) : undefined,
+            images: images.length ? images : undefined,
+          },
+          promptSlash ?? cleanText,
+          onEvent,
+        );
+      },
+      stream,
+      ask: {
+        post: (e) => this.postAsk(chatJid, m, senderJid, e.id, e.questions),
+        resolve: (e) => this.resolveAsk(chatJid, e.id, e.reason),
+      },
+      // WhatsApp presence does NOT expire on its own: leave it composing and the chat shows the bot typing
+      // forever, so this is the one surface that has to clear it.
+      typing: {
+        poke: () => this.sock.sendPresenceUpdate('composing', chatJid),
+        stop: () => this.sock.sendPresenceUpdate('paused', chatJid),
+      },
+      // WhatsApp keeps one reaction per sender per message, so the terminal one replaces the eyes.
+      reactions: this.cfg.reactions !== false ? {
+        seen: '👀', done: '✅', failed: '❌',
+        add: (emoji) => this.react(m.key, emoji),
+      } : null,
+      send: (reply) => this.sendText(chatJid, stripThinking(reply), m),
+      sendError: (text) => this.sendText(chatJid, text, m),
+      errorText: (e) => this.msg.error(e?.message ?? e),
+      log: (detail) => this.log.error(`whatsapp turn failed in ${chatJid}: ${detail}`),
+    });
   }
 
   /** Extract display text from a message content union (plain, extended, or a media caption). */

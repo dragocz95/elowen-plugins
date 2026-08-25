@@ -20,7 +20,7 @@ import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { observesLiveEvents, resolveDisplaySettings, updateDisplayOverrides } from 'elowen-plugin-shared/display';
 import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, imageMimeType } from 'elowen-plugin-shared/images';
-import { isSteered } from 'elowen-plugin-shared/turnResult';
+import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
 
 /** The `/display` axes and their values — mirrors the resolution sets in _shared/display.mjs. */
@@ -71,7 +71,6 @@ const MAX_ROSTER_SWEEP = 25;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const FILE_TTL_MS = 900000;
 const SHARED_SIGN_IN_TTL_MS = 15 * 60 * 1000;
-const TYPING_INTERVAL_MS = 8000;
 const CONTEXT_MAX = 40;
 const REACTION_PROCESSING = '1f440_eyes';
 const REACTION_DONE = '2705_whiteheavycheckmark';
@@ -781,84 +780,66 @@ export class MsTeamsAdapter {
     const stream = observesLiveEvents(display, this.cfg)
       ? new LiveMessage(this, conv.id, m.id, ownerKey(from), display, { collapseStillOrdered: () => this.conversationOrder.isCurrent(orderMarker) })
       : null;
-    // Even with live streaming OFF, AskUserQuestion must still render its card — otherwise the parked
-    // turn hangs until the timeout. Route events through the stream when present, else handle only `ask`.
-    const onEvent = stream
-      ? (e) => stream.onEvent(e)
-      : (e) => {
-        if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(conv.id, m.id, ownerKey(from), e.id, e.questions).catch(() => {});
-        // A question raised with streaming off must still be SETTLED when the core resolves it, or this
-        // path keeps the very live-card-forever defect the streamed path just stopped having.
-        else if (e.type === 'ask_resolved' && e.id) void this.resolveAsk(conv.id, e.id, e.reason).catch(() => {});
-      };
 
-    const typing = setInterval(() => void this.connector.typing(m.serviceUrl, conv.id).catch(() => {}), TYPING_INTERVAL_MS);
-    void this.connector.typing(m.serviceUrl, conv.id).catch(() => {});
-    const reactions = this.cfg.reactions !== false && Boolean(m.id) && m.recipient?.isTargeted !== true;
-    const addReaction = (type) => this.connector.addReaction(m.serviceUrl, conv.id, m.id, type)
-      .catch((e) => this.log.warn(`msteams add reaction ${type} failed in ${conv.id}: ${e?.message ?? e}`));
-    const deleteReaction = (type) => this.connector.deleteReaction(m.serviceUrl, conv.id, m.id, type)
-      .catch((e) => this.log.warn(`msteams delete reaction ${type} failed in ${conv.id}: ${e?.message ?? e}`));
-    const reactionStarted = reactions ? addReaction(REACTION_PROCESSING) : Promise.resolve();
-
-    // Image turns steer to the configured vision model — the chat's normal model may be text-only.
-    const vision = images.length ? parseModelExec(this.cfg.visionModel) : null;
-    let turnAccess = access;
-    if (vision) turnAccess = applyVisionModel(access, vision, await this.listModels().catch(() => []));
-
-    try {
-      const runTurn = () => this.handler(
-        {
-          platform: 'msteams', userId: String(linkedPlatformUserId || from.aadObjectId || from.id),
-          accountIds: [from.aadObjectId, from.id].filter(Boolean).map(String), userName: senderName,
-          verifiedEmail: upn || undefined, roleIds: ids, channelId: convoKey, access: turnAccess,
-          ...(promptSlash ? { promptCommand: true } : {}),
-          // Teams calls a 1:1 chat with the bot `personal`; a group chat or a team channel is never that.
-          // The host cannot tell them apart on its own (both become `brain-ch-*`), and it uses this to
-          // decide whether the conversation may carry its sender's personal skills and receive their
-          // scheduled jobs — so it must stay exactly "only this one person can read it".
-          // Read from the activity rather than from `kind`, which defaults a MISSING conversationType to
-          // 'personal' for history purposes: here that default would fail open and hand a shared room a
-          // private conversation's rights. Absent means unknown, and unknown means shared.
-          direct: conv.conversationType === 'personal',
-          channelName: !personal ? (conv.name || undefined) : undefined,
-          images: images.length ? images : undefined,
-          // MUST be async: the brain calls `opts.history().catch(…)` on the result, so a plain string
-          // throws before the first turn of every new conversation ever reaches the model.
-          history: async () => this.buildHistory(conv.id, m.id),
-        },
-        promptSlash ?? text,
-        onEvent,
-      );
-      const replyText = typeof this.accountLinking?.runWithActivity === 'function'
-        ? await this.accountLinking.runWithActivity(m, runTurn)
-        : await runTurn();
-      clearInterval(typing);
-      if (stream) await stream.finalize(replyText);
-      else if (replyText) await postWithImages(this, conv.id, replyText, m.id);
+    await runTurn({
+      // Teams runs the handler inside the account-linking activity scope, so the delegated-Graph tools
+      // reach the person who actually spoke. Everything else about the turn is the shared sequence.
+      run: async (onEvent) => {
+        // Resolved INSIDE the turn so the typing indicator and the processing marker are already up while
+        // the vision detour asks the host for its model list.
+        const vision = images.length ? parseModelExec(this.cfg.visionModel) : null;
+        const turnAccess = vision ? applyVisionModel(access, vision, await this.listModels().catch(() => [])) : access;
+        const callHandler = () => this.handler(
+          {
+            platform: 'msteams', userId: String(linkedPlatformUserId || from.aadObjectId || from.id),
+            accountIds: [from.aadObjectId, from.id].filter(Boolean).map(String), userName: senderName,
+            verifiedEmail: upn || undefined, roleIds: ids, channelId: convoKey, access: turnAccess,
+            ...(promptSlash ? { promptCommand: true } : {}),
+            // Teams calls a 1:1 chat with the bot `personal`; a group chat or a team channel is never that.
+            // The host cannot tell them apart on its own (both become `brain-ch-*`), and it uses this to
+            // decide whether the conversation may carry its sender's personal skills and receive their
+            // scheduled jobs — so it must stay exactly "only this one person can read it".
+            // Read from the activity rather than from `kind`, which defaults a MISSING conversationType to
+            // 'personal' for history purposes: here that default would fail open and hand a shared room a
+            // private conversation's rights. Absent means unknown, and unknown means shared.
+            direct: conv.conversationType === 'personal',
+            channelName: !personal ? (conv.name || undefined) : undefined,
+            images: images.length ? images : undefined,
+            // MUST be async: the brain calls `opts.history().catch(…)` on the result, so a plain string
+            // throws before the first turn of every new conversation ever reaches the model.
+            history: async () => this.buildHistory(conv.id, m.id),
+          },
+          promptSlash ?? text,
+          onEvent,
+        );
+        return typeof this.accountLinking?.runWithActivity === 'function'
+          ? this.accountLinking.runWithActivity(m, callHandler)
+          : callHandler();
+      },
+      stream,
+      ask: {
+        post: (e) => this.postAsk(conv.id, m.id, ownerKey(from), e.id, e.questions),
+        resolve: (e) => this.resolveAsk(conv.id, e.id, e.reason),
+      },
+      typing: { poke: () => this.connector.typing(m.serviceUrl, conv.id) },
+      // No activity id means no message to decorate; a targeted invocation must not leave a public marker
+      // announcing that the exchange happened at all. Teams keeps reactions until removed, so `remove` is
+      // supplied.
+      reactions: (this.cfg.reactions !== false && Boolean(m.id) && m.recipient?.isTargeted !== true) ? {
+        seen: REACTION_PROCESSING, done: REACTION_DONE, failed: REACTION_FAILED,
+        add: (type) => this.connector.addReaction(m.serviceUrl, conv.id, m.id, type)
+          .catch((e) => this.log.warn(`msteams add reaction ${type} failed in ${conv.id}: ${e?.message ?? e}`)),
+        remove: (type) => this.connector.deleteReaction(m.serviceUrl, conv.id, m.id, type)
+          .catch((e) => this.log.warn(`msteams delete reaction ${type} failed in ${conv.id}: ${e?.message ?? e}`)),
+      } : null,
+      send: (replyText) => postWithImages(this, conv.id, replyText, m.id),
+      sendError: (errorMessage) => this.tmSend(conv.id, errorMessage, { replyToId: m.id }),
+      errorText: (e) => this.msg.error(e?.message ?? e),
       // Recorded from the model's own text, BEFORE the runtime footer is appended on the way out — the
       // footer is our metadata, and a model shown it as history starts forging that line itself.
-      if (replyText) this.recordHistory(conv.id, { role: 'assistant', name: this.agentLabel(), text: replyText });
-      if (reactions) {
-        await reactionStarted;
-        await deleteReaction(REACTION_PROCESSING);
-        if (!isSteered(replyText)) void addReaction(REACTION_DONE);
-      }
-    } catch (e) {
-      clearInterval(typing);
-      // Logged as well as replied. A turn that fails here reaches the person who asked and NOBODY else:
-      // the caller only logs when the whole webhook promise rejects, which this catch prevents, so an
-      // operator reading the daemon log sees a healthy service while every turn is dying in the chat.
-      this.log.error(`msteams turn failed in ${conv.id}: ${e?.stack ?? e?.message ?? e}`);
-      const errorMessage = this.msg.error(e?.message ?? e);
-      const handled = stream ? await stream.fail(errorMessage) : false;
-      if (reactions) {
-        await reactionStarted;
-        await deleteReaction(REACTION_PROCESSING);
-        void addReaction(REACTION_FAILED);
-      }
-      if (!handled) await this.tmSend(conv.id, errorMessage, { replyToId: m.id }).catch(() => {});
-    }
+      afterReply: (replyText) => { this.recordHistory(conv.id, { role: 'assistant', name: this.agentLabel(), text: replyText }); },
+      log: (detail) => this.log.error(`msteams turn failed in ${conv.id}: ${detail}`),
+    });
   }
 
   /** Vision-ready images from the activity's attachments (downloaded + base64, capped) and textual notes

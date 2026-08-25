@@ -10,7 +10,7 @@ import { resolveImageFiles, imageMimeType, resolveSharedFiles, fileMimeType } fr
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
 import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
-import { isSteered } from 'elowen-plugin-shared/turnResult';
+import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
 
 const API = 'https://discord.com/api/v10';
@@ -479,59 +479,53 @@ export class DiscordAdapter {
     const gen = this.state.get(m.channel_id).gen ?? 0;
     const convoKey = `${m.channel_id}#${gen}`;
 
-    const reactions = this.cfg.reactions !== false;
     const display = resolveDisplaySettings(this.cfg, this.state.get(m.channel_id));
     const stream = observesLiveEvents(display, this.cfg)
       ? new LiveMessage(this, m.channel_id, m.id, m.author.id, display, { collapseStillOrdered: () => this.conversationOrder.isCurrent(orderMarker) })
       : null;
-    // Even with live streaming OFF, AskUserQuestion must still render its choice message — otherwise the
-    // parked turn hangs until the timeout. Route events through the stream when present, else handle only `ask`.
-    const onEvent = stream
-      ? (e) => stream.onEvent(e)
-      : (e) => {
-        if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(m.channel_id, m.id, m.author.id, e.id, e.questions).catch(() => {});
-        // A question raised with streaming off must still be RETIRED when the core settles it, or this
-        // path keeps the very live-buttons-forever defect the streamed path just stopped having.
-        else if (e.type === 'ask_resolved' && e.id) void this.resolveAsk(m.channel_id, e.id, e.reason).catch(() => {});
-      };
-    const typing = setInterval(() => void this.rest('POST', `/channels/${m.channel_id}/typing`, {}).catch(() => {}), 8000);
-    void this.rest('POST', `/channels/${m.channel_id}/typing`, {}).catch(() => {});
-    if (reactions) void this.react(m.channel_id, m.id, '👀').catch(() => {}); // status: seen
 
-    // Image turns steer to the configured vision model — the channel's normal model may be text-only.
-    const vision = images.length ? parseModelExec(this.cfg.visionModel) : null;
-    let turnAccess = access;
-    if (vision) turnAccess = applyVisionModel(access, vision, await this.listModels().catch(() => []));
-
-    try {
-      const reply = await this.handler(
-        {
-          platform: 'discord', userId: m.author.id, userName: displayNameOf(m), roleIds, channelId: convoKey, access: turnAccess,
-          direct: isDirectChannel(meta),
-          channelName: meta?.name || undefined, channelTopic: meta?.topic || undefined,
-          images: images.length ? images : undefined,
-          attachments: files.length ? files : undefined,
-          history: () => this.fetchHistory(m.channel_id, m.id),
-        },
-        cleanText,
-        onEvent,
-      );
-      clearInterval(typing);
-      if (stream) await stream.finalize(reply);
-      else if (reply) await this.reply(m.channel_id, reply, m.id);
+    await runTurn({
+      // Resolved INSIDE the turn so the typing indicator and the "seen" marker are already up while the
+      // vision detour asks the host for its model list: an image turn otherwise looks ignored for as long
+      // as that round trip takes.
+      run: async (onEvent) => {
+        const vision = images.length ? parseModelExec(this.cfg.visionModel) : null;
+        const turnAccess = vision ? applyVisionModel(access, vision, await this.listModels().catch(() => [])) : access;
+        return this.handler(
+          {
+            platform: 'discord', userId: m.author.id, userName: displayNameOf(m), roleIds, channelId: convoKey, access: turnAccess,
+            direct: isDirectChannel(meta),
+            channelName: meta?.name || undefined, channelTopic: meta?.topic || undefined,
+            images: images.length ? images : undefined,
+            attachments: files.length ? files : undefined,
+            history: () => this.fetchHistory(m.channel_id, m.id),
+          },
+          cleanText,
+          onEvent,
+        );
+      },
+      stream,
+      ask: {
+        post: (e) => this.postAsk(m.channel_id, m.id, m.author.id, e.id, e.questions),
+        resolve: (e) => this.resolveAsk(m.channel_id, e.id, e.reason),
+      },
+      typing: { poke: () => this.rest('POST', `/channels/${m.channel_id}/typing`, {}) },
+      // Discord keeps every reaction it is given, so the "seen" eyes have to be taken off explicitly.
+      reactions: this.cfg.reactions !== false ? {
+        seen: '👀', done: '✅', failed: '❌',
+        add: (emoji) => this.react(m.channel_id, m.id, emoji),
+        remove: (emoji) => this.unreact(m.channel_id, m.id, emoji),
+      } : null,
+      send: (reply) => this.reply(m.channel_id, reply, m.id),
+      sendError: (text) => this.reply(m.channel_id, text),
+      errorText: (e) => this.msg.error(e?.message ?? e),
       // Spoken reply (per-channel /voice, default cfg.tts): attach an MP3 of the answer. Best-effort —
       // a TTS failure never blocks the text reply that already went out.
-      if (reply && this.voiceEnabled(m.channel_id) && this.voiceCreds()) {
-        await this.speakReply(m.channel_id, reply, m.id).catch((e) => this.log.error(`TTS failed: ${e?.message ?? e}`));
-      }
-      if (reactions) { await this.unreact(m.channel_id, m.id, '👀').catch(() => {}); if (!isSteered(reply)) void this.react(m.channel_id, m.id, '✅').catch(() => {}); }
-    } catch (e) {
-      clearInterval(typing);
-      const errorMessage = this.msg.error(e?.message ?? e);
-      const handled = stream ? await stream.fail(errorMessage) : false;
-      if (reactions) { await this.unreact(m.channel_id, m.id, '👀').catch(() => {}); void this.react(m.channel_id, m.id, '❌').catch(() => {}); }
-      if (!handled) await this.reply(m.channel_id, errorMessage).catch(() => {});
-    }
+      afterReply: (reply) => ((this.voiceEnabled(m.channel_id) && this.voiceCreds())
+        ? this.speakReply(m.channel_id, reply, m.id).catch((e) => this.log.error(`TTS failed: ${e?.message ?? e}`))
+        : undefined),
+      log: (detail) => this.log.error(`discord turn failed in ${m.channel_id}: ${detail}`),
+    });
   }
 
   /** Run a plugin prompt-command triggered by a slash INTERACTION (no triggering message): ACK the
@@ -549,31 +543,27 @@ export class DiscordAdapter {
     const author = i.member?.user ?? i.user ?? {};
     const display = resolveDisplaySettings(this.cfg, this.state.get(channelId));
     const stream = observesLiveEvents(display, this.cfg) ? new LiveMessage(this, channelId, undefined, author.id, display) : null;
-    const onEvent = stream
-      ? (e) => stream.onEvent(e)
-      : (e) => {
-        if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(channelId, undefined, author.id, e.id, e.questions).catch(() => {});
-        else if (e.type === 'ask_resolved' && e.id) void this.resolveAsk(channelId, e.id, e.reason).catch(() => {});
-      };
-    const typing = setInterval(() => void this.rest('POST', `/channels/${channelId}/typing`, {}).catch(() => {}), 8000);
-    void this.rest('POST', `/channels/${channelId}/typing`, {}).catch(() => {});
-    try {
-      const reply = await this.handler(
+    await runTurn({
+      run: (onEvent) => this.handler(
         { platform: 'discord', userId: author.id, userName: displayNameOf({ member: i.member, author }), roleIds, channelId: convoKey, access,
           promptCommand: true, direct: isDirectChannel(meta),
           channelName: meta?.name || undefined, channelTopic: meta?.topic || undefined },
         promptText,
         onEvent,
-      );
-      clearInterval(typing);
-      if (stream) await stream.finalize(reply);
-      else if (reply) await this.reply(channelId, reply);
-    } catch (e) {
-      clearInterval(typing);
-      const errorMessage = this.msg.error(e?.message ?? e);
-      const handled = stream ? await stream.fail(errorMessage) : false;
-      if (!handled) await this.reply(channelId, errorMessage).catch(() => {});
-    }
+      ),
+      stream,
+      ask: {
+        post: (e) => this.postAsk(channelId, undefined, author.id, e.id, e.questions),
+        resolve: (e) => this.resolveAsk(channelId, e.id, e.reason),
+      },
+      typing: { poke: () => this.rest('POST', `/channels/${channelId}/typing`, {}) },
+      // A slash invocation builds no message in the channel, so there is nothing to decorate.
+      reactions: null,
+      send: (reply) => this.reply(channelId, reply),
+      sendError: (text) => this.reply(channelId, text),
+      errorText: (e) => this.msg.error(e?.message ?? e),
+      log: (detail) => this.log.error(`discord slash turn failed in ${channelId}: ${detail}`),
+    });
   }
 
   react(channelId, messageId, emoji) {

@@ -13,7 +13,7 @@ import { resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/imag
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
 import { CONTROL_COMMANDS, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
-import { isSteered } from 'elowen-plugin-shared/turnResult';
+import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger images are noted, not downloaded (cfg: maxImageBytes)
@@ -334,61 +334,55 @@ export class TelegramAdapter {
     const gen = this.state.get(String(chatId)).gen ?? 0;
     const convoKey = `${chatId}#${gen}`;
 
-    const reactions = this.cfg.reactions !== false;
     const display = resolveDisplaySettings(this.cfg, this.state.get(String(chatId)));
     const stream = observesLiveEvents(display, this.cfg)
       ? new LiveMessage(this, chatId, m.message_id, from.id, display, { collapseStillOrdered: () => this.conversationOrder.isCurrent(orderMarker) })
       : null;
-    // Even with live streaming OFF, AskUserQuestion must still render its choice message — otherwise the
-    // parked turn hangs until the timeout. Route events through the stream when present, else handle only `ask`.
-    const onEvent = stream
-      ? (e) => stream.onEvent(e)
-      : (e) => {
-        if (e.type === 'ask' && Array.isArray(e.questions)) void this.postAsk(chatId, m.message_id, from.id, e.id, e.questions).catch(() => {});
-        // A question raised with streaming off must still be RETIRED when the core settles it, or this
-        // path keeps the very live-keyboard-forever defect the streamed path just stopped having.
-        else if (e.type === 'ask_resolved' && e.id) void this.resolveAsk(chatId, e.id, e.reason).catch(() => {});
-      };
-    const typing = setInterval(() => void this.bot.api.sendChatAction(chatId, 'typing').catch(() => {}), 5000);
-    void this.bot.api.sendChatAction(chatId, 'typing').catch(() => {});
-    if (reactions) void this.react(chatId, m.message_id, '👀').catch(() => {}); // status: seen
 
-    // Image turns steer to the configured vision model — the chat's normal model may be text-only.
-    const vision = images.length ? parseModelExec(this.cfg.visionModel) : null;
-    let turnAccess = access;
-    if (vision) turnAccess = applyVisionModel(access, vision, await this.listModels().catch(() => []));
-
-    try {
-      const replyText = await this.handler(
-        {
-          platform: 'telegram', userId: String(from.id), userName: senderName, roleIds: ids, channelId: convoKey, access: turnAccess,
-          ...(promptSlash ? { promptCommand: true } : {}),
-          // Only a `private` chat is one-to-one. Deliberately NOT `!group`: that would also let a broadcast
-          // `channel` through, and the host uses this to decide whether the conversation may carry its
-          // sender's personal skills and receive their scheduled jobs.
-          direct: chat.type === 'private',
-          channelName: group ? (chat.title || undefined) : undefined,
-          images: images.length ? images : undefined,
-        },
-        promptSlash ?? cleanText,
-        onEvent,
-      );
-      clearInterval(typing);
-      if (stream) await stream.finalize(replyText);
-      else if (replyText) await this.reply(chatId, replyText, m.message_id);
+    await runTurn({
+      // Resolved INSIDE the turn so the typing indicator and the "seen" marker are already up while the
+      // vision detour asks the host for its model list.
+      run: async (onEvent) => {
+        const vision = images.length ? parseModelExec(this.cfg.visionModel) : null;
+        const turnAccess = vision ? applyVisionModel(access, vision, await this.listModels().catch(() => [])) : access;
+        return this.handler(
+          {
+            platform: 'telegram', userId: String(from.id), userName: senderName, roleIds: ids, channelId: convoKey, access: turnAccess,
+            ...(promptSlash ? { promptCommand: true } : {}),
+            // Only a `private` chat is one-to-one. Deliberately NOT `!group`: that would also let a broadcast
+            // `channel` through, and the host uses this to decide whether the conversation may carry its
+            // sender's personal skills and receive their scheduled jobs.
+            direct: chat.type === 'private',
+            channelName: group ? (chat.title || undefined) : undefined,
+            images: images.length ? images : undefined,
+          },
+          promptSlash ?? cleanText,
+          onEvent,
+        );
+      },
+      stream,
+      ask: {
+        post: (e) => this.postAsk(chatId, m.message_id, from.id, e.id, e.questions),
+        resolve: (e) => this.resolveAsk(chatId, e.id, e.reason),
+      },
+      // Telegram's own indicator expires after ~5 s, well short of the shared default.
+      typing: { poke: () => this.bot.api.sendChatAction(chatId, 'typing'), intervalMs: 5000 },
+      // A Telegram message carries ONE reaction from the bot, so the terminal one replaces the eyes by
+      // itself — no `remove`, which would be a wrong extra API call.
+      reactions: this.cfg.reactions !== false ? {
+        seen: '👀', done: '👍', failed: '👎',
+        add: (emoji) => this.react(chatId, m.message_id, emoji),
+      } : null,
+      send: (replyText) => this.reply(chatId, replyText, m.message_id),
+      sendError: (text) => this.reply(chatId, text, m.message_id),
+      errorText: (e) => this.msg.error(e?.message ?? e),
       // Spoken reply (per-chat /voice, default cfg.tts): attach a voice note. Best-effort — a TTS failure
       // never blocks the text reply that already went out.
-      if (replyText && this.voiceEnabled(String(chatId)) && this.voiceCreds()) {
-        await this.speakReply(chatId, replyText, m.message_id).catch((e) => this.log.error(`TTS failed: ${e?.message ?? e}`));
-      }
-      if (reactions && !isSteered(replyText)) void this.react(chatId, m.message_id, '👍').catch(() => {});
-    } catch (e) {
-      clearInterval(typing);
-      const errorMessage = this.msg.error(e?.message ?? e);
-      const handled = stream ? await stream.fail(errorMessage) : false;
-      if (reactions) void this.react(chatId, m.message_id, '👎').catch(() => {});
-      if (!handled) await this.reply(chatId, errorMessage, m.message_id).catch(() => {});
-    }
+      afterReply: (replyText) => ((this.voiceEnabled(String(chatId)) && this.voiceCreds())
+        ? this.speakReply(chatId, replyText, m.message_id).catch((e) => this.log.error(`TTS failed: ${e?.message ?? e}`))
+        : undefined),
+      log: (detail) => this.log.error(`telegram turn failed in ${chatId}: ${detail}`),
+    });
   }
 
   /** Split a message's media into vision-ready images (downloaded + base64, capped) and textual notes for
