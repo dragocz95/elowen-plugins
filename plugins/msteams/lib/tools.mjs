@@ -204,13 +204,14 @@ export function registerTools(ctx, adapter) {
     name: 'TeamsSendFile', label: 'Teams send a file',
     description: [
       'Send a file — a document, report, export, screenshot or attachment from disk — to a PERSON in their private 1:1 Microsoft Teams chat, addressing them by e-mail/UPN, Entra object id, "29:…" account id or display name.',
+      'After creating a file for the person you are talking to, hand it over with this tool instead of returning a sandbox link or any other local path, which means nothing inside Teams. In their personal 1:1 chat you may omit every recipient field and the file goes to the current sender; in a channel or group chat there is no single sender to fall back on, so the recipient must be named.',
       'Use it to hand somebody an actual file rather than text; for a plain message use TeamsMessagePerson or TeamsSend. The recipient is named with at least one of email, aadObjectId, userId or name, exactly as in TeamsMessagePerson, and a display name must match exactly one known person — check with TeamsFindPerson when unsure. The `path` must be an absolute path to a readable local file, and `description` is the one line shown on the offer, defaulting to the file name.',
       'Teams never pushes a file silently: the recipient first sees a consent card and the upload into their OneDrive happens only when they accept. The tool therefore returns as soon as the offer is posted, and a successful result means the offer was delivered, NOT that the file has arrived or was accepted.',
       'Files cannot be sent into a channel or a group chat — that is a Teams limitation, so post a link there instead. The offer reaches a real person and cannot be withdrawn.',
     ].join(' '),
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path of the local file to send, e.g. "/var/www/reports/august.pdf" — it must exist and be readable' }),
-      email: Type.Optional(Type.String({ description: 'Recipient e-mail address / Teams UPN' })),
+      email: Type.Optional(Type.String({ description: 'Recipient e-mail address / Teams UPN; omit every recipient field in a personal Teams chat to send to the current sender' })),
       aadObjectId: Type.Optional(Type.String({ description: 'Recipient Entra (Azure AD) object id, a GUID' })),
       userId: Type.Optional(Type.String({ description: 'Recipient Teams account id, starting with "29:"' })),
       name: Type.Optional(Type.String({ description: 'Recipient display name — must match exactly one known person, otherwise the send is refused' })),
@@ -225,7 +226,20 @@ export function registerTools(ctx, adapter) {
           name: p.name ? String(p.name) : undefined,
         };
         if (!target.email && !target.aadObjectId && !target.userId && !target.name) {
-          return ok('Error: name the recipient with one of email, aadObjectId, userId or name.');
+          // No recipient named: hand the file to the person whose turn this is, so a file the agent just
+          // generated actually reaches them instead of a local path Teams cannot open. Only from a 1:1
+          // chat — that turn has exactly one human in it and the host only marks it `direct` once the
+          // sender's platform link is verified. A channel or group chat has no single sender to mean, and
+          // a file can only ever be offered in a 1:1 chat, so falling back there would divert the file
+          // into a private chat the room cannot see. A turn from anywhere else (a cron push, another
+          // platform, a delegated sub-agent with no conversation of its own) carries no Teams sender at
+          // all, so it keeps the error rather than guessing at a person.
+          const identity = ctx.currentIdentity?.();
+          if (identity?.platform !== 'msteams' || !identity.userId || identity.conversation !== 'direct') {
+            return ok('Error: name the recipient with one of email, aadObjectId, userId or name — only a personal 1:1 Teams chat can fall back to its own sender.');
+          }
+          if (String(identity.userId).startsWith('29:')) target.userId = String(identity.userId);
+          else target.aadObjectId = String(identity.userId);
         }
         const filePath = String(p.path);
         if (!isAbsolute(filePath)) return ok('Error: give an absolute path.');

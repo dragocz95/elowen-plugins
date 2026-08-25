@@ -187,15 +187,24 @@ async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
 }
 
 /** The Teams* tools against a fake plugin ctx, so the gates can be driven from a test. */
-async function makeTools(adapter: unknown, gate: { admin?: boolean; owner?: boolean; username?: string } = {}) {
+async function makeTools(adapter: unknown, gate: {
+  admin?: boolean; owner?: boolean; username?: string;
+  platform?: string; userId?: string; conversation?: 'own' | 'direct' | 'shared' | 'delegated';
+} = {}) {
   const { registerTools } = await import(join(repoRoot, 'plugins/msteams/lib/tools.mjs')) as {
     registerTools: (ctx: unknown, adapter: unknown) => void;
   };
-  type Tool = { name: string; execute: (id: string, p: Record<string, unknown>) => Promise<{ content: { text: string }[] }> };
+  type Tool = { name: string; description?: string; execute: (id: string, p: Record<string, unknown>) => Promise<{ content: { text: string }[] }> };
   const tools = new Map<string, Tool>();
   registerTools({
     isAdminSession: () => gate.admin === true,
-    currentIdentity: () => ({ owner: gate.owner === true, elowenUsername: gate.username }),
+    currentIdentity: () => ({
+      owner: gate.owner === true,
+      elowenUsername: gate.username,
+      platform: gate.platform,
+      userId: gate.userId,
+      conversation: gate.conversation,
+    }),
     registerTool: (t: Tool) => { tools.set(t.name, t); },
   }, adapter);
   const run = async (name: string, params: Record<string, unknown> = {}) => {
@@ -2261,6 +2270,37 @@ describe('msteams tool permissions', () => {
 
     expect(await run('TeamsFindPerson', { query: 'dana' })).toContain('Dana Novák');
     expect(await run('TeamsApi', { method: 'GET', path: '/v3/conversations' })).not.toContain('operator');
+  });
+
+  // A file the agent just built (an export, a report) used to be handed back as a `sandbox:` path, which
+  // means nothing in Teams, so the file simply never arrived. In a 1:1 chat the recipient is not ambiguous.
+  it('offers a generated file to the current Teams sender when no recipient is given', async () => {
+    const { adapter, calls } = await known();
+    const { tools, run } = await makeTools(adapter, {
+      admin: true, owner: false, platform: 'msteams', userId: 'aad-2', conversation: 'direct',
+    });
+    expect(tools.get('TeamsSendFile')?.description).toContain('instead of returning a sandbox link');
+
+    const result = await run('TeamsSendFile', { path: '/etc/hostname' });
+
+    expect(result).toContain('Offered hostname');
+    expect(result).toContain('Dana Novák');
+    expect(calls.filter((c) => c.kind === 'create')).toHaveLength(1);
+    expect(calls.filter((c) => c.kind === 'send')).toHaveLength(1);
+  });
+
+  // …but a channel has no single sender to mean, and a file can only ever be offered in a 1:1 chat, so
+  // the fallback there would divert the file into a private chat the room never sees.
+  it('refuses to guess a file recipient from a shared channel turn', async () => {
+    const { adapter, calls } = await known();
+    const { run } = await makeTools(adapter, {
+      admin: true, owner: false, platform: 'msteams', userId: 'aad-2', conversation: 'shared',
+    });
+
+    const result = await run('TeamsSendFile', { path: '/etc/hostname' });
+
+    expect(result).toContain('name the recipient');
+    expect(calls.filter((c) => c.kind === 'send' || c.kind === 'create')).toHaveLength(0);
   });
 
   it('sends for the operator and reports the person and the chat', async () => {
