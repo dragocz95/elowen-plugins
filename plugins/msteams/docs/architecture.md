@@ -89,11 +89,16 @@ exists. Pinned by `tests/plugins/msteamsPlugin.test.ts:429`.
 ### 2.3 Transcript recording (`:382-386`)
 
 `recordHistory` is called **above the gates**, so background chatter from an unmapped sender still
-becomes context for a later session (`tests/plugins/msteamsPlugin.test.ts:536`). Bot-control commands are
-excluded via the `CONTROL_ONLY` set (`:48` — the shared control commands plus `help`, `model`,
-`reasoning`, `display`, `context`), because they are addressed to the plugin, not said to the
-conversation (`tests/plugins/msteamsPlugin.test.ts:527`). A plugin **prompt macro** is deliberately not
-in that set: it is a turn the conversation genuinely had.
+becomes context for a later session (`tests/msteams.test.ts`). Bot-control commands are excluded via
+`botControlCommandsFrom(this.chatCommands(), ADAPTER_STATE_COMMANDS)`, because they are addressed to the
+plugin, not said to the conversation. That set is DERIVED from the catalog the daemon published for this
+surface — everything it marks `session-control` or `surface-local` — plus the `adapter-state` names this
+adapter implements itself (`/display`), which the catalog declares but deliberately never publishes. The
+hand-written `CONTROL_ONLY` list it replaced was a second registry of the same classification, and the one
+that would have gone stale the first time core added a command. A plugin **prompt macro**
+(`execution: 'plugin-prompt'`) is deliberately not in the set: it is a turn the conversation genuinely
+had. With no catalog at all the set is empty, so a `/command` is recorded as ordinary text rather than
+silently swallowed.
 
 `recordHistory` (`:236`) is a no-op while `historyLimit` is `0`, which is the default — this is the one
 place the plugin persists message text, so it is strictly opt-in

@@ -11,7 +11,7 @@ import { parseAskReply } from './ask.mjs';
 import { sameId, isGroup, isSupportedChat, numberOf, toJid, senderIsAdmin, matchPolicy } from './jid.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage } from './stream.mjs';
-import { controlCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { controlCommandsFrom, localCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
@@ -687,11 +687,18 @@ export class WhatsAppAdapter {
       });
       if (handled) return true;
     }
+    // …and the same question for the half the daemon does NOT run: the pickers and /help below exist only
+    // because the catalog published them for this surface, so localCommandsFrom is what decides they may
+    // run at all. Without it a name removed from the projection stayed typeable here, and an adapter with
+    // no catalog answered its hardcoded four as if it had one. This adapter passes no `adapterOwned`
+    // names: `voice` and `display` are reserved globally, but there is no STT/TTS and no display module
+    // on this transport, so it dispatches neither.
+    if (!localCommandsFrom(this.chatCommands()).has(command)) return false;
     switch (command) {
       case 'help':
-        // The catalog ALONE — unlike Discord and Telegram, nothing adapter-local is appended. `voice` and
-        // `display` are reserved globally but this adapter dispatches neither (no STT/TTS, no display
-        // module here), and advertising a command that does nothing is exactly the drift we remove.
+        // The catalog ALONE — unlike Discord and Telegram, nothing adapter-local is appended, for the same
+        // reason nothing is gated in above: advertising a command that does nothing is exactly the drift
+        // we remove.
         await this.sendText(chatJid, this.msg.help('Elowen', this.chatCommands()));
         return true;
       case 'model': {

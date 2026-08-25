@@ -54,7 +54,10 @@ const makeWhatsApp = async (cfg: Record<string, unknown>) => {
   };
   const adapter = new WhatsAppAdapter(
     { language: 'en', senderPolicies: [{ roleId: CHAT, admin: true }], ...cfg },
-    log, state, async () => [REASONING_MODEL], [], '', '', () => false, () => [],
+    // The adapter opens a local picker only for a command the daemon published for this surface, so a
+    // test that opens the /reasoning menu has to hand it a projection carrying /reasoning.
+    log, state, async () => [REASONING_MODEL], [], '', '', () => false,
+    () => [{ name: 'reasoning', kind: 'picker', execution: 'surface-local' }],
   );
   const sent: string[] = [];
   adapter.sendText = async (_jid: string, text: string) => { sent.push(text); };

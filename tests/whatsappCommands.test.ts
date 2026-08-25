@@ -29,10 +29,24 @@ interface TestAdapter {
   handleTextReply(chatJid: string, senderJid: string, text: string, message: unknown): Promise<boolean>;
 }
 
-// `execution` is what the adapter derives its control set from, so a catalog entry without it is a
-// command this adapter will not claim — the default below carries the field exactly as
-// `GET /brain/commands?surface=whatsapp` publishes it.
-const makeAdapter = async (models: ModelOption[], initial: Record<string, unknown> = {}, language = 'en', commands: { name: string; kind?: string; execution?: string }[] = [{ name: 'fast', kind: 'action', execution: 'session-control' }]) => {
+/** A projection with one entry per CLASSIFICATION the adapter reacts to, not a transcript of the real
+ *  catalog. `kind` × `execution` is the entire input to both decisions the adapter makes — which names go
+ *  to the shared control core, and which it dispatches itself — so one representative of each is what the
+ *  tests actually exercise, and copying the daemon's roster in would only add names that exercise a case
+ *  already covered. The specific names are the ones individual tests below reach for.
+ *
+ *  A catalog entry without `execution` is a command this adapter will not claim at all, which is why
+ *  every entry carries it. */
+const CATALOG = [
+  { name: 'fast', kind: 'action', execution: 'session-control' },      // daemon-run action
+  { name: 'status', kind: 'info', execution: 'session-control' },      // daemon-run, replies rather than acts
+  { name: 'model', kind: 'picker', execution: 'surface-local' },       // adapter-run picker
+  { name: 'reasoning', kind: 'picker', execution: 'surface-local' },   // adapter-run picker (named by tests below)
+  { name: 'help', kind: 'info', execution: 'surface-local' },          // adapter-run, non-picker
+  { name: 'context', kind: 'picker', execution: 'session-control' },   // daemon-owned, but the chooser is local
+];
+
+const makeAdapter = async (models: ModelOption[], initial: Record<string, unknown> = {}, language = 'en', commands: { name: string; kind?: string; execution?: string }[] = CATALOG) => {
   const { WhatsAppAdapter } = await import(join(repoRoot, 'plugins/whatsapp/lib/adapter.mjs')) as {
     WhatsAppAdapter: new (...args: unknown[]) => TestAdapter & { sendText: (jid: string, text: string) => Promise<void> };
   };
@@ -196,6 +210,45 @@ describe('whatsapp /fast capability gate', () => {
     expect(sent).toEqual([]);
   });
 
+  /** The other half of "the catalog decides". `/fast` goes through the shared control core, which is
+   *  derived from the projection and so refused correctly on an empty one. The pickers and /help are
+   *  dispatched by the adapter itself, and used to answer from a hardcoded switch no matter what the
+   *  daemon had published — so removing a command from the projection did not stop anyone running it.
+   *
+   *  Empty is the shape a failed or unanswered catalog fetch takes, which is why the whole switch has to
+   *  fail closed rather than each name being checked individually. */
+  describe('an empty catalog means the adapter accepts nothing', () => {
+    const models = [{ provider: 'openai', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true, reasoningLevels: ['low'] }];
+
+    it.each(['/fast', '/model', '/reasoning', '/help', '/context'])('refuses %s and invents no reply', async (text) => {
+      const { adapter, sent } = await makeAdapter(models, { model: { provider: 'openai', model: 'gpt-5.4' } }, 'en', []);
+      adapter.control({ status: () => null, listContext: () => ({ items: [{ id: 's', title: 'T', model: 'm' }], total: 1, hasMore: false }) });
+      expect(await adapter.handleCommand(CHAT, CHAT, text)).toBe(false);
+      expect(sent).toEqual([]);
+    });
+
+    it('still runs each of them once the daemon publishes it', async () => {
+      // The permissive direction: a gate that refused everything would pass every case above while
+      // silently taking the commands away from a healthy channel.
+      for (const text of ['/fast', '/model', '/reasoning', '/help', '/context']) {
+        const { adapter, sent } = await makeAdapter(models, { model: { provider: 'openai', model: 'gpt-5.4' } });
+        adapter.control({ status: () => null, listContext: () => ({ items: [{ id: 's', title: 'T', model: 'm' }], total: 1, hasMore: false }) });
+        expect(await adapter.handleCommand(CHAT, CHAT, text), text).toBe(true);
+        expect(sent.length, text).toBeGreaterThan(0);
+      }
+    });
+
+    it('drops a local command the daemon stopped publishing, while the rest keep working', async () => {
+      // Per-name, not just all-or-nothing: this is the promise that the projection — not the switch — is
+      // what says a command exists.
+      const withoutModel = CATALOG.filter((c) => c.name !== 'model');
+      const { adapter, sent } = await makeAdapter(models, { model: { provider: 'openai', model: 'gpt-5.4' } }, 'en', withoutModel);
+      expect(await adapter.handleCommand(CHAT, CHAT, '/model')).toBe(false);
+      expect(sent).toEqual([]);
+      expect(await adapter.handleCommand(CHAT, CHAT, '/reasoning')).toBe(true);
+    });
+  });
+
   /** The OTHER direction of the same rollout rule, and the one with no test before: a daemon NEWER than
    *  this adapter publishes a `session-control` command the shared core has no case for. `/clear` is real
    *  — it is session-control on the CLI and the web dock. The adapter must not swallow it just because the
@@ -223,12 +276,12 @@ describe('whatsapp /fast capability gate', () => {
 // and `display` are reserved globally and appended by Discord/Telegram, but this adapter dispatches
 // neither, so listing them would advertise dead commands.
 describe('whatsapp /help lists only commands it can dispatch', () => {
+  // The default classification set plus the two remaining shapes /help has to survive: a daemon-run
+  // non-picker (`new`) and a plugin prompt macro, which is advertised but reaches the brain raw instead of
+  // going through handleCommand.
   const catalog = [
-    { name: 'new', kind: 'action', execution: 'session-control' }, { name: 'stop', kind: 'action', execution: 'session-control' },
-    { name: 'status', kind: 'info', execution: 'session-control' }, { name: 'compact', kind: 'action', execution: 'session-control' },
-    { name: 'model', kind: 'picker', execution: 'surface-local' }, { name: 'context', kind: 'picker', execution: 'session-control' },
-    { name: 'fast', kind: 'action', execution: 'session-control' }, { name: 'reasoning', kind: 'picker', execution: 'surface-local' },
-    { name: 'restart', kind: 'action', execution: 'session-control' }, { name: 'help', kind: 'info', execution: 'surface-local' },
+    { name: 'new', kind: 'action', execution: 'session-control' },
+    ...CATALOG,
     { name: 'standup', kind: 'prompt', execution: 'plugin-prompt', description: 'Write today\'s standup' },
   ];
 

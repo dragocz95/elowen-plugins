@@ -58,7 +58,10 @@ const makeTelegram = async (cfg: Record<string, unknown>) => {
   ];
   const adapter = new TelegramAdapter(
     { language: 'en', rolePolicies: [{ roleId: '42', admin: true }], ...cfg },
-    log, state, async () => models,
+    // The adapter opens a local picker only for a command the daemon published for this surface, so a
+    // test that opens the /model picker has to hand it a projection carrying /model.
+    log, state, async () => models, [], () => null, () => false,
+    () => [{ name: 'model', kind: 'picker', execution: 'surface-local' }],
   );
   const edits: string[] = [];
   adapter.tgSend = async () => 111;

@@ -472,7 +472,9 @@ describe('discord display settings', () => {
     };
     const adapter = new DiscordAdapter(
       { language: 'en', toolActivity: 'status', answerMode: 'final', toolOutput: 'summary', rolePolicies: [{ roleId: 'ADMIN', admin: true }] },
-      log, state, async () => [],
+      // /display is adapter-owned and never published, but it still rides on the projection being there:
+      // an adapter with no catalog dispatches nothing at all, so this test needs a live one.
+      log, state, async () => [], [], () => null, () => false, discordCommands,
     );
     const replies: unknown[] = [];
     adapter.rest = async (_method: string, _path: string, body: unknown) => { replies.push(body); return {}; };
@@ -485,22 +487,23 @@ describe('discord display settings', () => {
   });
 });
 
-// The daemon's single source of truth for the Discord surface (ctx.chatCommands('discord')). The adapter
-// derives its registered slash-command LIST from this (passed LAZILY as a function), so registration tests
-// must pass it in — and since the control set is derived too, `execution` is no longer decoration: drop it
-// and the adapter correctly stops claiming /new. Copied field for field from
-// `GET /brain/commands?surface=discord` (25 Aug), plus a trailing plugin prompt-command (kind:'prompt')
-// that exercises the generic args option + RAW dispatch path.
+/** What `ctx.chatCommands('discord')` hands the adapter, passed LAZILY as a function. It is the adapter's
+ *  only input for three decisions — which slash commands to REGISTER, which names go to the shared control
+ *  core, and which it dispatches itself — and all three read the same two fields, `kind` and `execution`.
+ *
+ *  So this carries one entry per COMBINATION of those two, not a transcript of the daemon's roster: the
+ *  two daemon-run non-pickers (`action` and `info` reply differently), both flavours of picker (one owned
+ *  by each side), a surface-local non-picker and a plugin prompt macro. Restating the real projection
+ *  added four more entries that all landed in a case already covered here, and left a copy to
+ *  hand-maintain. `reasoning` doubles up on `model`'s combination because tests below name it directly.
+ *  `execution` is not decoration — drop it from an entry and the adapter correctly stops claiming that
+ *  command. */
 const DISCORD_CHAT_COMMANDS = [
-  { name: 'new', description: 'Start a fresh conversation', kind: 'action', execution: 'session-control' },
-  { name: 'stop', description: 'Stop the running agent', kind: 'action', execution: 'session-control' },
+  { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action', execution: 'session-control' },
   { name: 'status', description: 'Session info — model, context and usage', kind: 'info', execution: 'session-control' },
-  { name: 'compact', description: 'Summarize the conversation to free up context (add text to steer what to keep)', kind: 'action', execution: 'session-control' },
   { name: 'model', description: 'Switch the AI model', kind: 'picker', execution: 'surface-local' },
   { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', execution: 'session-control' },
-  { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action', execution: 'session-control' },
   { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', execution: 'surface-local' },
-  { name: 'restart', description: 'Restart the Elowen daemon', kind: 'action', execution: 'session-control' },
   { name: 'help', description: 'Show the available commands', kind: 'info', execution: 'surface-local' },
   { name: 'deploy', description: 'Ship it to $1', kind: 'prompt', execution: 'plugin-prompt' },
 ];
@@ -682,6 +685,48 @@ describe('discord /fast capability gate', () => {
     });
     expect(replies).toEqual([]);
     expect(channels.C?.fast).toBeUndefined();
+  });
+
+  /** The same rule for the half the daemon does NOT run. `/fast` above is derived from the projection and
+   *  so was already refused on an empty one; the StringSelect pickers, /help and this adapter's own
+   *  voice/display answered a hardcoded chain regardless of what had been published — so removing a
+   *  command from the projection did not stop anyone invoking it. Empty is the shape a failed catalog
+   *  fetch takes, and Discord's own behaviour for an unregistered command is to answer nothing at all. */
+  describe('an empty catalog means the adapter answers nothing', () => {
+    it.each(['fast', 'model', 'context', 'reasoning', 'help', 'voice', 'display'])('leaves /%s unanswered', async (name) => {
+      const models = [{ provider: 'oauth', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true, reasoningLevels: ['low'] }];
+      const { adapter, channels, replies } = await makeAdapter(models, { model: { provider: 'oauth', model: 'gpt-5.4' } }, () => []);
+      adapter.control({ status: () => null, setFast: () => ({ fast: true, fastAvailable: true }), listContext: () => ({ items: [{ id: 's', title: 'T', model: 'm' }], total: 1, hasMore: false }) });
+      await adapter.onInteraction({
+        type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name },
+      });
+      expect(replies).toEqual([]);
+      expect(channels.C).toEqual({ model: { provider: 'oauth', model: 'gpt-5.4' } }); // nothing stored either
+    });
+
+    it('answers all of them again once the daemon publishes a catalog', async () => {
+      // The permissive direction: a gate that refused everything would pass every case above while taking
+      // every slash command away from a healthy guild.
+      const models = [{ provider: 'oauth', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true, reasoningLevels: ['low'] }];
+      for (const name of ['fast', 'model', 'context', 'reasoning', 'help', 'voice', 'display']) {
+        const { adapter, replies } = await makeAdapter(models, { model: { provider: 'oauth', model: 'gpt-5.4' } });
+        adapter.control({ status: () => null, setFast: () => ({ fast: true, fastAvailable: true }), listContext: () => ({ items: [{ id: 's', title: 'T', model: 'm' }], total: 1, hasMore: false }) });
+        await adapter.onInteraction({
+          type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name },
+        });
+        expect(replies.length, `/${name}`).toBeGreaterThan(0);
+      }
+    });
+
+    it('drops one local command the daemon stopped publishing, and keeps the rest', async () => {
+      const models = [{ provider: 'p', providerLabel: 'P', model: 'm' }];
+      const withoutModel = () => discordCommands().filter((c) => c.name !== 'model');
+      const { adapter, replies } = await makeAdapter(models, {}, withoutModel);
+      await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name: 'model' } });
+      expect(replies).toEqual([]);
+      await adapter.onInteraction({ type: 2, id: 'I2', token: 'T2', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name: 'help' } });
+      expect(replies).toHaveLength(1);
+    });
   });
 
   it('does not let a stale OAuth live session enable fast for a selected non-OAuth model', async () => {

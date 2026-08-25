@@ -8,7 +8,7 @@ import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } fr
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, imageMimeType, resolveSharedFiles, fileMimeType } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
-import { controlCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { controlCommandsFrom, localCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
@@ -28,6 +28,45 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper's per-file limit — larger
 const TTS_MAX_CHARS = 4000;              // cap the spoken text (OpenAI TTS input limit is 4096)
 const SELECT_PAGE = 25;                  // Discord StringSelect hard cap — the /model + /context picker page size
 const CONTEXT_MAX = 200;                 // upper bound of own conversations the /context picker pages over
+
+/** The commands this adapter runs end to end against its own per-channel state. Core DECLARES them
+ *  (`execution: 'adapter-state'`), which is what reserves the names so a plugin macro can never shadow
+ *  them, but deliberately does not PUBLISH them: this adapter appends them to its own bulk registration,
+ *  and the same name twice in one payload is a 400 that drops EVERY slash command for the guild. The
+ *  catalog therefore cannot answer for these two, so they are stated here — once, for the registration
+ *  payload, /help and the dispatch gate alike. `help` is the lowercase wording renderHelpLines falls back
+ *  to; `menu` is the description Discord shows; `options` is the transport's own option schema. */
+const ADAPTER_STATE_COMMANDS = [
+  {
+    name: 'voice',
+    help: 'toggle spoken audio replies here',
+    menu: 'Toggle spoken audio replies in this channel',
+    options: [
+      { name: 'state', description: 'on or off (omit to toggle)', type: 3, required: false, choices: [
+        { name: 'on', value: 'on' }, { name: 'off', value: 'off' },
+      ] },
+    ],
+  },
+  {
+    name: 'display',
+    help: 'configure live tools and answer delivery here',
+    menu: 'Configure live tools and answer delivery in this channel',
+    options: [
+      { name: 'tools', description: 'Tool activity shown while the agent works', type: 3, required: false, choices: [
+        { name: 'global default', value: 'default' }, { name: 'off', value: 'off' }, { name: 'status', value: 'status' }, { name: 'live output', value: 'live' },
+      ] },
+      { name: 'answer', description: 'When the agent answer is posted', type: 3, required: false, choices: [
+        { name: 'global default', value: 'default' }, { name: 'final only', value: 'final' }, { name: 'stream live', value: 'live' },
+      ] },
+      { name: 'output', description: 'How much tool output is shown', type: 3, required: false, choices: [
+        { name: 'global default', value: 'default' }, { name: 'hidden', value: 'hidden' }, { name: 'summary', value: 'summary' }, { name: 'rolling tail', value: 'tail' },
+      ] },
+      { name: 'layout', description: 'How tool activity is grouped into messages', type: 3, required: false, choices: [
+        { name: 'global default', value: 'default' }, { name: 'one message', value: 'single' }, { name: 'one message per tool', value: 'per_tool' },
+      ] },
+    ],
+  },
+];
 
 /** Read a numeric config field, clamped to [min,max], falling back to `def` when unset/invalid. */
 function cfgNum(cfg, key, def, min, max) {
@@ -146,8 +185,7 @@ export class DiscordAdapter {
   helpCommands() {
     return [
       ...this.chatCommands(),
-      { name: 'voice', description: 'toggle spoken audio replies here' },
-      { name: 'display', description: 'configure live tools and answer delivery here' },
+      ...ADAPTER_STATE_COMMANDS.map((c) => ({ name: c.name, description: c.help })),
     ];
   }
 
@@ -250,27 +288,7 @@ export class DiscordAdapter {
       name: c.name, description: (c.description || c.name).slice(0, 100), type: 1,
       ...(DISCORD_OPTIONS[c.name] ? { options: DISCORD_OPTIONS[c.name] } : c.kind === 'prompt' ? { options: PROMPT_ARGS } : {}),
     }));
-    const localCommands = [
-      { name: 'voice', description: 'Toggle spoken audio replies in this channel', type: 1, options: [
-        { name: 'state', description: 'on or off (omit to toggle)', type: 3, required: false, choices: [
-          { name: 'on', value: 'on' }, { name: 'off', value: 'off' },
-        ] },
-      ] },
-      { name: 'display', description: 'Configure live tools and answer delivery in this channel', type: 1, options: [
-        { name: 'tools', description: 'Tool activity shown while the agent works', type: 3, required: false, choices: [
-          { name: 'global default', value: 'default' }, { name: 'off', value: 'off' }, { name: 'status', value: 'status' }, { name: 'live output', value: 'live' },
-        ] },
-        { name: 'answer', description: 'When the agent answer is posted', type: 3, required: false, choices: [
-          { name: 'global default', value: 'default' }, { name: 'final only', value: 'final' }, { name: 'stream live', value: 'live' },
-        ] },
-        { name: 'output', description: 'How much tool output is shown', type: 3, required: false, choices: [
-          { name: 'global default', value: 'default' }, { name: 'hidden', value: 'hidden' }, { name: 'summary', value: 'summary' }, { name: 'rolling tail', value: 'tail' },
-        ] },
-        { name: 'layout', description: 'How tool activity is grouped into messages', type: 3, required: false, choices: [
-          { name: 'global default', value: 'default' }, { name: 'one message', value: 'single' }, { name: 'one message per tool', value: 'per_tool' },
-        ] },
-      ] },
-    ];
+    const localCommands = ADAPTER_STATE_COMMANDS.map((c) => ({ name: c.name, description: c.menu, type: 1, options: c.options }));
     const commands = [...daemonCommands, ...localCommands];
     const globalPath = `/applications/${this.appId}/commands`;
     const path = this.cfg.guildId ? `/applications/${this.appId}/guilds/${this.cfg.guildId}/commands` : globalPath;
@@ -583,7 +601,6 @@ export class DiscordAdapter {
     // ACK-and-respond for slash commands (type 2) and component interactions (type 3).
     if (i.type === 2) {
       const name = i.data?.name;
-      if (name === 'help') return this.respond(i, 4, { content: this.msg.help(this.cfg.agentName || 'Elowen', this.helpCommands()), flags: 64 });
       // A plugin prompt-command (kind:'prompt', registered with a generic `args` option): route it RAW to
       // the brain so PI expands the macro natively (it only expands a message that STARTS with the slash).
       if (this.promptCommand(name)) {
@@ -613,6 +630,18 @@ export class DiscordAdapter {
         });
         if (handled) return;
       }
+      // …and the same question for the half the daemon does NOT run: the StringSelect pickers, /help and
+      // this adapter's own voice/display below run only because the catalog published this surface at all.
+      // localCommandsFrom claims the published `surface-local` names plus the `session-control` pickers,
+      // and takes voice/display from ADAPTER_STATE_COMMANDS because the catalog declares those without
+      // publishing them. Against an empty projection it claims nothing and the interaction goes
+      // unanswered, which is what Discord already does for a command this bot never registered.
+      //
+      // /help moved BELOW this gate (it used to answer first, before even the prompt-macro check). It is
+      // an ordinary `surface-local` catalog entry, so nothing else would be gating it — and the menu it
+      // renders comes from the very projection that would be missing.
+      if (!localCommandsFrom(this.chatCommands(), ADAPTER_STATE_COMMANDS.map((c) => c.name)).has(name)) return;
+      if (name === 'help') return this.respond(i, 4, { content: this.msg.help(this.cfg.agentName || 'Elowen', this.helpCommands()), flags: 64 });
       if (name === 'model') {
         // Only the operator (a role mapped admin:true) may switch the model — the choice is shared by
         // everyone talking in this channel/thread, so a stranger must not repoint it.

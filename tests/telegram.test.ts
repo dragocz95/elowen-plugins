@@ -180,8 +180,18 @@ describe('telegram identity matching (rolePolicies)', () => {
   });
 });
 
+/** The projection entries the adapter dispatches ITSELF, one per classification rather than a copy of the
+ *  daemon's roster: a `surface-local` picker, a `session-control` picker (daemon-owned, but the chooser is
+ *  drawn here) and a `surface-local` non-picker. That pair of fields is the adapter's whole input, so a
+ *  longer list would only repeat cases these three already cover. */
+const LOCAL_CATALOG = [
+  { name: 'model', description: 'Switch the AI model', kind: 'picker', execution: 'surface-local' },
+  { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', execution: 'session-control' },
+  { name: 'help', description: 'Show the available commands', kind: 'info', execution: 'surface-local' },
+];
+
 describe('telegram paged pickers + /context', () => {
-  const makeAdapter = async (models: unknown[], initial: Record<string, unknown> = {}) => {
+  const makeAdapter = async (models: unknown[], initial: Record<string, unknown> = {}, commands: unknown[] = LOCAL_CATALOG) => {
     const { TelegramAdapter } = await import(join(repoRoot, 'plugins/telegram/lib/adapter.mjs')) as { TelegramAdapter: new (...args: unknown[]) => any };
     const chats: Record<string, Record<string, unknown>> = { '5': initial };
     const state = {
@@ -190,7 +200,7 @@ describe('telegram paged pickers + /context', () => {
     };
     const adapter = new TelegramAdapter(
       { language: 'en', rolePolicies: [{ roleId: '42', admin: true }] },
-      log, state, async () => models,
+      log, state, async () => models, [], () => null, () => false, () => commands,
     );
     const sent: { text: string; extra: any }[] = [];
     const edits: { text: string; extra: any }[] = [];
@@ -257,6 +267,49 @@ describe('telegram paged pickers + /context', () => {
     expect(listContext).not.toHaveBeenCalled();
     expect(sent.at(-1)!.text).toContain('Only the operator');
   });
+
+  /** The catalog decides for the LOCAL half too, not just for the names routed to the shared control core.
+   *  An empty projection is what a failed or unanswered catalog fetch looks like, and this adapter used to
+   *  answer its hardcoded switch through it regardless — so taking a command out of the projection did not
+   *  take it away from anyone who typed it. */
+  describe('an empty catalog means the adapter accepts nothing', () => {
+    it.each(['/model', '/context', '/help'])('refuses %s and says nothing', async (text) => {
+      const { adapter, sent } = await makeAdapter(models20, {}, []);
+      adapter.control({ listContext: vi.fn(() => ({ items: [{ id: 'x', title: 'T', model: 'm' }], total: 1, hasMore: false })), bindContext: vi.fn() });
+      expect(await adapter.handleCommand(5, { id: 42 }, adminIds, text)).toBe(false);
+      expect(sent).toEqual([]);
+    });
+
+    /** The adapter's OWN commands go too. They are never published — the catalog declares them and each
+     *  adapter registers its own — so nothing in the projection could gate them by name. What gates them
+     *  is the projection being there AT ALL: a live catalog is this adapter's only evidence it is talking
+     *  to a daemon, and a chat whose commands have gone quiet must not keep flipping stored state. */
+    it.each(['/voice', '/display'])('refuses its own %s as well, and stores nothing', async (text) => {
+      const { adapter, chats, sent } = await makeAdapter([], {}, []);
+      expect(await adapter.handleCommand(5, { id: 42 }, adminIds, text)).toBe(false);
+      expect(sent).toEqual([]);
+      expect(chats['5']).toEqual({});
+    });
+
+    it('runs all five again once the daemon publishes a catalog', async () => {
+      // The permissive direction: a gate that refused everything would pass every case above while
+      // quietly taking the commands away from a healthy chat.
+      for (const text of ['/model', '/context', '/help', '/voice', '/display']) {
+        const { adapter, sent } = await makeAdapter(models20);
+        adapter.control({ listContext: vi.fn(() => ({ items: [{ id: 'x', title: 'T', model: 'm' }], total: 1, hasMore: false })), bindContext: vi.fn() });
+        expect(await adapter.handleCommand(5, { id: 42 }, adminIds, text), text).toBe(true);
+        expect(sent.length, text).toBeGreaterThan(0);
+      }
+    });
+
+    it('drops one local command the daemon stopped publishing, and keeps the rest', async () => {
+      const { adapter } = await makeAdapter(models20, {}, LOCAL_CATALOG.filter((c) => c.name !== 'model'));
+      expect(await adapter.handleCommand(5, { id: 42 }, adminIds, '/model')).toBe(false);
+      expect(await adapter.handleCommand(5, { id: 42 }, adminIds, '/help')).toBe(true);
+      // …and its own commands ride on the catalog being present, not on which names are in it.
+      expect(await adapter.handleCommand(5, { id: 42 }, adminIds, '/voice')).toBe(true);
+    });
+  });
 });
 
 // Regression: the reply quote fed our own runtime footer (`— model · n %`) straight back into the prompt.
@@ -313,15 +366,18 @@ describe('telegram command menu publication', () => {
     return { adapter, published, warns };
   };
 
+  /** publishCommands reads exactly two fields off an entry: `kind` (which menu rank it lands in) and
+   *  `adminOnly` (whether it may be advertised globally at all). So the fixture carries one entry per RANK
+   *  and one of each gate — the smallest catalog that can tell a correct menu from a wrong one — instead
+   *  of restating the daemon's roster, where seven of the eleven entries were the same case again. Two
+   *  `action`s on purpose: rank 2 is the bucket that must keep the catalog's own order, and one entry
+   *  could never show that. `standup` (a plugin prompt macro) and `restart` (operator-only) are the two
+   *  regressions this block exists for, so both stay. */
   const catalog = [
     { name: 'new', description: 'Start a fresh conversation', kind: 'action' },
-    { name: 'stop', description: 'Stop the running agent', kind: 'action' },
+    { name: 'model', description: 'Switch the AI model', kind: 'picker' },
     { name: 'status', description: 'Session info — model, context and usage', kind: 'info' },
     { name: 'compact', description: 'Summarize the conversation to free up context', kind: 'action' },
-    { name: 'model', description: 'Switch the AI model', kind: 'picker' },
-    { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker' },
-    { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action' },
-    { name: 'reasoning', description: 'Set the reasoning effort', kind: 'picker' },
     { name: 'restart', description: 'Restart the Elowen daemon', kind: 'action', adminOnly: true },
     { name: 'help', description: 'Show the available commands', kind: 'info' },
     { name: 'standup', description: 'Write today\'s standup', kind: 'prompt' },
@@ -341,8 +397,8 @@ describe('telegram command menu publication', () => {
     // Ordering intent of the old list, now driven by catalog data: pickers, adapter-local, the rest in
     // catalog order, /help last.
     expect(names).toEqual([
-      'model', 'context', 'reasoning', 'voice', 'display',
-      'new', 'stop', 'status', 'compact', 'fast', 'standup', 'stats', 'help',
+      'model', 'voice', 'display',
+      'new', 'status', 'compact', 'standup', 'stats', 'help',
     ]);
     // Descriptions come from the catalog, not from a local copy that can go stale.
     expect(published[0].find((c) => c.command === 'status')?.description).toBe('Session info — model, context and usage');

@@ -114,22 +114,25 @@ class MemoryState {
   patch(id: string, fields: Record<string, unknown>) { this.data[id] = { ...this.data[id], ...fields }; }
 }
 
-/** What `ctx.chatCommands('msteams')` really hands the adapter — copied field for field from
- *  `GET /brain/commands?surface=msteams` (25 Aug). It is the adapter's ONLY input for two decisions now:
- *  which names go to the shared control core, and which are bot control and must stay out of the
- *  transcript. Both collapse to nothing against an empty list, which is why the default is the real
- *  thing. `voice`/`display` are absent on purpose: `adapter-state` commands are declared in the catalog
- *  but never published, and the adapter states its own. */
+/** What `ctx.chatCommands('msteams')` hands the adapter. It is the adapter's ONLY input for three
+ *  decisions — which names go to the shared control core, which it dispatches itself, and which are bot
+ *  control and must therefore stay out of the transcript — and all three read the same two fields, `kind`
+ *  and `execution`.
+ *
+ *  So this carries one entry per COMBINATION of those two rather than a transcript of the daemon's roster:
+ *  the two daemon-run non-pickers (`action` and `info` reply differently), a daemon-owned picker whose
+ *  chooser is drawn here, a surface-local picker and a surface-local non-picker. The five entries dropped
+ *  from the copy all landed in a case one of these already covers, and were a second catalog to keep in
+ *  step by hand. A plugin prompt macro is the sixth combination and is added by the one test that needs it.
+ *
+ *  All of them collapse to nothing against an empty list, which is why the default is a live one.
+ *  `voice`/`display` are absent on purpose: `adapter-state` commands are declared in the catalog but never
+ *  published, and the adapter states its own. */
 const MSTEAMS_CHAT_COMMANDS = [
   { name: 'new', description: 'Start a fresh conversation', kind: 'action', execution: 'session-control' },
-  { name: 'stop', description: 'Stop the running agent', kind: 'action', execution: 'session-control' },
   { name: 'status', description: 'Session info — model, context and usage', kind: 'info', execution: 'session-control' },
-  { name: 'compact', description: 'Summarize the conversation to free up context (add text to steer what to keep)', kind: 'action', execution: 'session-control' },
-  { name: 'model', description: 'Switch the AI model', kind: 'picker', execution: 'surface-local' },
   { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', execution: 'session-control' },
-  { name: 'fast', description: 'Toggle OpenAI OAuth priority processing', kind: 'action', execution: 'session-control' },
-  { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', execution: 'surface-local' },
-  { name: 'restart', description: 'Restart the Elowen daemon', kind: 'action', execution: 'session-control' },
+  { name: 'model', description: 'Switch the AI model', kind: 'picker', execution: 'surface-local' },
   { name: 'help', description: 'Show the available commands', kind: 'info', execution: 'surface-local' },
 ];
 

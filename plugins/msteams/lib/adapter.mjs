@@ -15,7 +15,7 @@ import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
 import { buildAskCard, buildPickerCard, settledCard } from './cards.mjs';
 import { buildAppPackage } from './appPackage.mjs';
-import { botControlCommandsFrom, controlCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { botControlCommandsFrom, controlCommandsFrom, localCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { observesLiveEvents, resolveDisplaySettings, updateDisplayOverrides } from 'elowen-plugin-shared/display';
 import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
@@ -1521,6 +1521,13 @@ export class MsTeamsAdapter {
       });
       if (handled) return true;
     }
+    // …and the same question for the half the daemon does NOT run: the Adaptive Card pickers, /help and
+    // this adapter's own /display below run only because the catalog published this surface at all.
+    // localCommandsFrom claims the published `surface-local` names plus the `session-control` pickers, and
+    // takes /display from ADAPTER_STATE_COMMANDS because the catalog declares it without publishing it.
+    // Against an empty projection it claims nothing, so a conversation whose daemon went silent stops
+    // flipping per-conversation state instead of answering from a hardcoded list.
+    if (!localCommandsFrom(this.chatCommands(), ADAPTER_STATE_COMMANDS.map((c) => c.name)).has(cmd)) return false;
     switch (cmd) {
       case 'help':
         await reply(this.msg.help(this.cfg.agentName || 'Elowen', this.helpCommands()));

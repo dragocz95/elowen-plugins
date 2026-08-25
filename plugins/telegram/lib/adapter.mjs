@@ -11,7 +11,7 @@ import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } fr
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
-import { controlCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { controlCommandsFrom, localCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
@@ -37,9 +37,12 @@ const TG_MAX_COMMANDS = 100;
 const TG_COMMAND_NAME = /^[a-z0-9_]{1,32}$/;
 const TG_DESCRIPTION_MAX = 256;
 
-/** The adapter's OWN commands: dispatched here (onCommand), absent from the daemon catalog, reserved in
- *  core so a plugin macro can never shadow them. `help` is the lowercase wording renderHelpLines falls back
- *  to; `menu` is the sentence Telegram's command menu shows. */
+/** The adapter's OWN commands: dispatched here (onCommand) against this chat's stored state. Core
+ *  DECLARES them (`execution: 'adapter-state'`), which is what reserves the names so a plugin macro can
+ *  never shadow them, but deliberately does not PUBLISH them — each adapter registers its own, and which
+ *  ones an adapter implements is the adapter's fact. So the catalog cannot answer for these two and this
+ *  list is what states them, once, for the menu, /help and the dispatch gate alike. `help` is the
+ *  lowercase wording renderHelpLines falls back to; `menu` is the sentence Telegram's command menu shows. */
 const ADAPTER_LOCAL_COMMANDS = [
   { name: 'voice', help: 'toggle spoken audio replies here', menu: 'Toggle spoken audio replies in this chat' },
   { name: 'display', help: 'configure live tools and answer delivery here', menu: 'Configure live tools and answer delivery' },
@@ -539,6 +542,13 @@ export class TelegramAdapter {
       });
       if (handled) return true;
     }
+    // …and the same question for the half the daemon does NOT run: the pickers, /help and this adapter's
+    // own toggles below run only because the catalog published this surface at all. localCommandsFrom
+    // claims the published `surface-local` names plus the `session-control` pickers, and takes voice and
+    // display from ADAPTER_LOCAL_COMMANDS because the catalog declares those without publishing them.
+    // Against an empty projection it claims nothing, so a chat whose daemon went silent stops flipping
+    // per-chat state instead of answering from a hardcoded list.
+    if (!localCommandsFrom(this.chatCommands(), ADAPTER_LOCAL_COMMANDS.map((c) => c.name)).has(cmd)) return false;
     switch (cmd) {
       case 'help':
         await this.tgSend(chatId, this.msg.help(this.cfg.agentName || 'Elowen', this.helpCommands()));
