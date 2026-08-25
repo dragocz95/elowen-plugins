@@ -101,8 +101,18 @@ export function register(ctx) {
     handler: async (req) => {
       if (req.path !== '') return { status: 404, body: { error: 'not found' } };
       if (!adapter?.appPackage) return { status: 503, body: { error: 'msteams plugin not enabled' } };
+      let zip;
+      try {
+        zip = adapter.appPackage();
+      } catch (error) {
+        // Almost always a configured app icon that cannot be used. The download is a plain navigation,
+        // so this message is what the admin actually reads — it has to name the problem, not just fail.
+        const message = error?.message ?? String(error);
+        ctx.logger.error(`msteams app package: ${message}`);
+        return { status: 500, body: { error: message } };
+      }
       return {
-        body: new Uint8Array(adapter.appPackage()),
+        body: new Uint8Array(zip),
         headers: {
           'content-type': 'application/zip',
           'content-disposition': `attachment; filename="${fileStem}-teams-app.zip"`,

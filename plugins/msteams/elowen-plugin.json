@@ -1,6 +1,6 @@
 {
   "name": "msteams",
-  "version": "0.5.25",
+  "version": "0.5.26",
   "apiVersion": "1",
   "requiresCore": "0.28.11",
   "requiresSharedApi": 2,
@@ -136,6 +136,7 @@
     { "key": "m365MaxTransferBytes", "label": "Microsoft file transfer limit", "type": "number", "min": 1048576, "max": 262144000, "step": 1048576, "default": 20971520, "advanced": true, "hint": "Maximum file size downloaded from or uploaded to Microsoft 365 in one tool call. Larger uploads use a resumable Microsoft upload session." },
     { "key": "agentName", "label": "App name in Teams",  "type": "string", "hint": "Name of the app and of the bot in the downloadable app package — what people see in the organisation's Teams catalog and in /help. Empty = Elowen. Set it when that name collides with another app already in the catalog." },
     { "key": "productName", "label": "Publisher name in Teams", "type": "string", "hint": "Publisher shown on the app package (the manifest's developer name). Empty = the configured app name." },
+    { "key": "appIconPath", "label": "App icon in Teams", "type": "string", "fullWidth": true, "placeholder": "/var/lib/elowen/branding/icon-192.png", "hint": "Absolute path on the server to a PNG of exactly 192×192 pixels, used as the app icon in the downloadable app package. Empty = a plain coloured square. The file is read when the package is downloaded; if it is missing or has the wrong size, the download fails with the reason instead of producing a package Teams would reject." },
     { "key": "notifyConversationId", "label": "Notification conversation", "type": "destination", "hint": "Where proactive messages (cron/tick results) are posted. Empty = no proactive pushes." },
     { "key": "sec_proactive", "label": "Reaching people first", "type": "section", "hint": "The bot can start a chat with someone instead of only answering. It remembers everyone it meets (name, Entra object ID, UPN and their 1:1 chat) from incoming messages and conversation rosters — no extra Microsoft permission — and TeamsMessagePerson writes to them by e-mail or name. The settings below are only needed for people the bot has never seen." },
     { "key": "graphLookup", "label": "Microsoft Graph lookup", "type": "boolean", "default": false, "hint": "Off: the bot can only write to people it has already met in Teams. On: an unknown e-mail is resolved against the tenant directory and the Teams app is installed for that person so a chat can be opened. Requires the APPLICATION permissions User.ReadBasic.All and TeamsAppInstallation.ReadWriteSelfForUser.All with tenant admin consent. Directory avatars additionally use ProfilePhoto.Read.All; without it the workspace falls back to the linked Elowen account avatar." },

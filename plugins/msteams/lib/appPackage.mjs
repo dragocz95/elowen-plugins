@@ -1,6 +1,8 @@
 // The sideloadable Teams app package: manifest.json + the two required icons, zipped in-process.
 // Hand-rolled on purpose — a stored (uncompressed) ZIP is ~60 lines of framing and the icons are
 // generated solid-color PNGs, so no archiver or image dependency is worth carrying for this.
+import { readFileSync, statSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
 // ── CRC-32 (the standard reflected polynomial) — needed by both ZIP entries and PNG chunks ──
@@ -95,6 +97,7 @@ function buildZip(entries) {
 const TEAMS_PURPLE = [0x62, 0x64, 0xa7, 0xff];
 const WHITE = [0xff, 0xff, 0xff, 0xff];
 const SCOPES = ['personal', 'team', 'groupChat'];
+
 /** Where a slash command is offered at all: Teams builds the `/` menu out of targeted messaging, which
  *  exists only in the shared conversations (channel, group chat, meeting chat). A personal chat has
  *  nobody to hide the message from, so its commands stay on the @mention trigger. */
@@ -227,14 +230,72 @@ function appManifest(cfg, commands, now) {
   };
 }
 
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/** Teams accepts EXACTLY this for the colour icon and rejects anything else at upload time, with a
+ *  message that names neither the file nor the size it wanted. */
+const COLOR_ICON_SIZE = 192;
+/** A 192×192 PNG is a few tens of kilobytes. The cap exists so that a config pointing at something huge
+ *  is refused by `statSync` and never reaches `readFileSync`. */
+const MAX_COLOR_ICON_BYTES = 1024 * 1024;
+
+/**
+ * The operator's own colour icon, read from the absolute path in `appIconPath`, or null when the
+ * setting is empty.
+ *
+ * Reading here rather than in the caller is deliberate. The package is rebuilt on every admin download,
+ * so validating at build time reports the problem to the person asking for the file instead of into a
+ * startup log line written hours earlier, and a corrected PNG takes effect without reloading the plugin.
+ * The registry's standing objection — a marketplace plugin must not assume how an installation stores
+ * its artwork — is untouched: there is no default path, no directory walk and no environment lookup, only
+ * the one absolute path an operator typed into this plugin's own settings.
+ *
+ * A configured-but-unusable path THROWS instead of quietly falling back. An operator who names a file and
+ * silently receives the generated purple square has been told the setting worked when it did not, and
+ * their next signal is Teams refusing the upload. The blast radius of failing is one admin download: no
+ * other code path reads this value, so the bot keeps running either way.
+ */
+function readColorIcon(value) {
+  const file = typeof value === 'string' ? value.trim() : '';
+  if (!file) return null;
+  // A relative path would resolve against the daemon's working directory, which nobody filling in a
+  // settings form can reason about — and which differs between running from a checkout and from a unit.
+  if (!isAbsolute(file)) throw new Error(`Teams app icon: "${file}" must be an absolute path`);
+  let stat;
+  try {
+    stat = statSync(file);
+  } catch (e) {
+    throw new Error(`Teams app icon: cannot read ${file} (${e?.code ?? e?.message ?? e})`);
+  }
+  // `statSync` follows symlinks, so a link into a theme directory is fine and a link to a device node or
+  // a FIFO is judged by what it points AT. That is the case worth catching: a synchronous read of
+  // /dev/zero or of a pipe nobody writes to would exhaust or hang the daemon rather than return.
+  if (!stat.isFile()) throw new Error(`Teams app icon: ${file} is not a regular file`);
+  if (stat.size > MAX_COLOR_ICON_BYTES) {
+    throw new Error(`Teams app icon: ${file} is ${stat.size} bytes, above the ${MAX_COLOR_ICON_BYTES} byte limit`);
+  }
+  const png = readFileSync(file);
+  // Signature plus a leading IHDR chunk, which is where the dimensions live: 8 bytes of signature,
+  // 4 of chunk length, 4 of type, then width and height as big-endian 32-bit integers.
+  if (png.length < 24 || !png.subarray(0, 8).equals(PNG_SIGNATURE) || png.toString('ascii', 12, 16) !== 'IHDR') {
+    throw new Error(`Teams app icon: ${file} is not a PNG`);
+  }
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  if (width !== COLOR_ICON_SIZE || height !== COLOR_ICON_SIZE) {
+    throw new Error(`Teams app icon: ${file} is ${width}×${height}, but Teams requires exactly ${COLOR_ICON_SIZE}×${COLOR_ICON_SIZE}`);
+  }
+  return png;
+}
+
 /** The uploadable app package ZIP for this bot: Teams manifest (compose-box command list included)
- *  plus the required generated 192px color and 32px outline icons. A marketplace plugin cannot assume
- *  how an installation stores or formats its theme artwork, so instance-specific icon resolution stays
- *  with the host/deployment rather than becoming a hidden filesystem contract here. */
+ *  plus the required 192px color and 32px outline icons. The colour icon is the operator's own PNG when
+ *  `appIconPath` names one — the plugin never goes looking for instance artwork by itself — and the
+ *  generated flat square otherwise. Throws when a configured icon is unusable; see readColorIcon. */
 export function buildAppPackage(cfg, commands = [], now = new Date()) {
+  const color = readColorIcon(cfg.appIconPath) ?? solidPng(COLOR_ICON_SIZE, TEAMS_PURPLE);
   return buildZip([
     { name: 'manifest.json', data: Buffer.from(JSON.stringify(appManifest(cfg, commands, now), null, 2), 'utf8') },
-    { name: 'color.png', data: solidPng(192, TEAMS_PURPLE) },
+    { name: 'color.png', data: color },
     { name: 'outline.png', data: solidPng(32, WHITE) },
   ]);
 }

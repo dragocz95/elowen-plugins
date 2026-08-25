@@ -1,10 +1,13 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { createServer } from 'node:http';
+import { closeSync, ftruncateSync, mkdtempSync, openSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { deflateSync } from 'node:zlib';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import { buildAskCard, buildPickerCard, buildTableCard, settledCard } from '../plugins/msteams/lib/cards.mjs';
@@ -130,7 +133,7 @@ class MemoryState {
  *  published, and the adapter states its own. */
 const MSTEAMS_CHAT_COMMANDS = [
   { name: 'new', description: 'Start a fresh conversation', kind: 'action', execution: 'session-control' },
-  { name: 'status', description: 'Session info — model, context and usage', kind: 'info', execution: 'session-control' },
+  { name: 'stats', description: 'Session info — model, context and usage', kind: 'info', execution: 'session-control' },
   { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', execution: 'session-control' },
   { name: 'model', description: 'Switch the AI model', kind: 'picker', execution: 'surface-local' },
   { name: 'help', description: 'Show the available commands', kind: 'info', execution: 'surface-local' },
@@ -983,12 +986,12 @@ describe('msteams live trace + cards + commands', () => {
     expect(answers).toEqual([{ id: 'ask-plain', answers: [{ header: 'Q', selected: ['A'] }] }]);
   });
 
-  it('handles /new and /status via the shared control core and /help locally', async () => {
+  it('handles /new and /stats via the shared control core and /help locally', async () => {
     const { adapter, state, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', admin: true, projectIds: [] }] });
     adapter.listen(async () => 'unused');
     await adapter.onActivity(activity({ text: '/new' }));
     expect((state.get('a:conv1') as { gen?: number }).gen).toBe(1);
-    await adapter.onActivity(activity({ text: '/status' }));
+    await adapter.onActivity(activity({ text: '/stats' }));
     await adapter.onActivity(activity({ text: '/help' }));
     const texts = calls.filter((c) => c.kind === 'reply').map((c) => (c.args[3] as { text?: string })?.text ?? '');
     expect(texts.some((t) => t.includes('Fresh conversation'))).toBe(true);
@@ -1207,8 +1210,8 @@ describe('msteams proactive notify + app package', () => {
     for (const part of asNumbers.flat()) expect(part).toBeLessThan(2 ** 31);
   });
 
-  it('falls back to the generated icon when the theme ships none', async () => {
-    const { adapter } = await makeAdapter({ agentName: 'Chetty', brandIcon: null });
+  it('falls back to the generated icon when no app icon is configured', async () => {
+    const { adapter } = await makeAdapter({ agentName: 'Chetty', appIconPath: '' });
     const zip = adapter.appPackage();
     // Still two PNGs, so the package stays uploadable rather than shipping a missing colour icon.
     const pngSig = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
@@ -1431,6 +1434,13 @@ describe('msteams mentions + runtime footer', () => {
     expect((calls.at(-1)?.args[2] as { text?: string }).text).toContain('no longer available');
   });
 
+  it('fences rendered tables so Teams preserves each aligned row as a hard line', async () => {
+    const { splitContent } = await import(join(repoRoot, 'plugins/msteams/lib/format.mjs')) as {
+      splitContent: (text: string) => string[];
+    };
+    expect(splitContent('| A | B |\n| --- | --- |\n| 1 | 2 |')).toEqual(['```\nA  B\n1  2\n```']);
+  });
+
   it('sets the runtime footer apart as a dashed italic line, never a quoted block', async () => {
     const { footerLine } = await import(join(repoRoot, 'plugins/msteams/lib/format.mjs')) as {
       footerLine: (idle: unknown) => string;
@@ -1506,7 +1516,7 @@ describe('msteams conversation history backfill', () => {
   it('keeps bot-control commands out of the transcript, published or adapter-owned', async () => {
     const { adapter, state } = await makeAdapter({ historyLimit: 10, rolePolicies: [{ roleId: 'aad-1', admin: true, projectIds: [] }] });
     adapter.listen(async () => 'a real answer');
-    await adapter.onActivity(activity({ id: 'in-1', text: '/status' }));   // session-control
+    await adapter.onActivity(activity({ id: 'in-1', text: '/stats' }));    // session-control
     await adapter.onActivity(activity({ id: 'in-2', text: '/model' }));    // surface-local
     await adapter.onActivity(activity({ id: 'in-3', text: '/display' }));  // adapter-state, unpublished
     await adapter.onActivity(activity({ id: 'in-4', text: 'a real message' }));
@@ -2300,5 +2310,137 @@ describe('msteams tool permissions', () => {
     for (const text of [...outputs, ...errors, ...warnings, persisted, outbound]) {
       expect(text).not.toContain(CREDS.appPassword);
     }
+  });
+});
+
+describe('msteams app package icon', () => {
+  /** A genuinely decodable PNG of the requested size — the validation under test reads the IHDR, so a
+   *  handful of bytes with the right numbers in them would prove nothing about a real file. */
+  function realPng(width: number, height: number) {
+    const table = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      table[n] = c >>> 0;
+    }
+    const crc = (buf: Buffer) => {
+      let c = 0xffffffff;
+      for (const byte of buf) c = table[(c ^ byte) & 0xff]! ^ (c >>> 8);
+      return (c ^ 0xffffffff) >>> 0;
+    };
+    const chunk = (type: string, data: Buffer) => {
+      const head = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+      const out = Buffer.alloc(head.length + 8);
+      out.writeUInt32BE(data.length, 0);
+      head.copy(out, 4);
+      out.writeUInt32BE(crc(head), head.length + 4);
+      return out;
+    };
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(width, 0);
+    ihdr.writeUInt32BE(height, 4);
+    ihdr[8] = 8;
+    ihdr[9] = 6;
+    const raw = Buffer.concat(Array.from({ length: height }, () => Buffer.alloc(width * 4 + 1)));
+    return Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk('IHDR', ihdr),
+      chunk('IDAT', deflateSync(raw)),
+      chunk('IEND', Buffer.alloc(0)),
+    ]);
+  }
+
+  /** Every stored ZIP entry by name. The package's own writer uses method 0, so the bytes between the
+   *  local header and the next one ARE the file. */
+  function zipEntries(zip: Buffer) {
+    const entries = new Map<string, Buffer>();
+    let at = 0;
+    while (zip.readUInt32LE(at) === 0x04034b50) {
+      const size = zip.readUInt32LE(at + 18);
+      const nameLen = zip.readUInt16LE(at + 26);
+      const extraLen = zip.readUInt16LE(at + 28);
+      const start = at + 30 + nameLen + extraLen;
+      entries.set(zip.toString('utf8', at + 30, at + 30 + nameLen), zip.subarray(start, start + size));
+      at = start + size;
+    }
+    return entries;
+  }
+
+  function tmpIcon(name: string, data: Buffer) {
+    const dir = mkdtempSync(join(tmpdir(), 'msteams-icon-'));
+    const file = join(dir, name);
+    writeFileSync(file, data);
+    return file;
+  }
+
+  it('ships the operator-configured PNG as color.png, byte for byte', async () => {
+    const icon = realPng(192, 192);
+    const file = tmpIcon('brand-192.png', icon);
+    const { adapter } = await makeAdapter({ agentName: 'Acme Agent', appIconPath: file });
+    const entries = zipEntries(adapter.appPackage());
+    expect(entries.get('color.png')?.equals(icon)).toBe(true);
+    // The outline icon is not configurable and stays generated, so the package remains complete.
+    expect(entries.get('outline.png')?.length).toBeGreaterThan(0);
+    expect(entries.has('manifest.json')).toBe(true);
+  });
+
+  it('generates the flat square when no icon is configured', async () => {
+    const icon = realPng(192, 192);
+    const { adapter } = await makeAdapter({ agentName: 'Acme Agent' });
+    const color = zipEntries(adapter.appPackage()).get('color.png')!;
+    expect(color.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    // Still 192×192, so Teams accepts it — but not the operator's file, which was never named.
+    expect(color.readUInt32BE(16)).toBe(192);
+    expect(color.readUInt32BE(20)).toBe(192);
+    expect(color.equals(icon)).toBe(false);
+  });
+
+  it('refuses a configured icon of the wrong size instead of substituting the square', async () => {
+    // Teams rejects a colour icon that is not exactly 192×192 at UPLOAD time, naming neither the file
+    // nor the size. Silently shipping the generated square would tell the operator their setting worked.
+    const file = tmpIcon('too-big.png', realPng(512, 512));
+    const { adapter } = await makeAdapter({ appIconPath: file });
+    expect(() => adapter.appPackage()).toThrow(/512×512.*exactly 192×192/);
+  });
+
+  it('refuses a path that names no file', async () => {
+    const missing = join(mkdtempSync(join(tmpdir(), 'msteams-icon-')), 'nope.png');
+    const { adapter } = await makeAdapter({ appIconPath: missing });
+    expect(() => adapter.appPackage()).toThrow(/cannot read/);
+  });
+
+  it('refuses a file that is not a PNG at all', async () => {
+    const notPng = tmpIcon('logo.png', Buffer.from('GIF89a and then some padding to clear 24 bytes'));
+    const { adapter } = await makeAdapter({ appIconPath: notPng });
+    expect(() => adapter.appPackage()).toThrow(/is not a PNG/);
+  });
+
+  it('refuses a relative path', async () => {
+    // It would resolve against whatever directory the daemon happens to have been started in, which
+    // nobody filling in a settings form can see.
+    const { adapter } = await makeAdapter({ appIconPath: 'icon-192.png' });
+    expect(() => adapter.appPackage()).toThrow(/must be an absolute path/);
+  });
+
+  it('refuses anything that is not a regular file, before reading a byte of it', async () => {
+    // The case that turns a config typo into a stalled daemon: a synchronous read of a character device
+    // such as /dev/zero never ends, and one of a FIFO blocks until someone writes. `statSync` follows the
+    // symlink and judges the target, so both are turned away without a read.
+    const dir = mkdtempSync(join(tmpdir(), 'msteams-icon-'));
+    const asDir = await makeAdapter({ appIconPath: dir });
+    expect(() => asDir.adapter.appPackage()).toThrow(/not a regular file/);
+    const asDevice = await makeAdapter({ appIconPath: '/dev/zero' });
+    expect(() => asDevice.adapter.appPackage()).toThrow(/not a regular file/);
+  });
+
+  it('refuses an oversized file without loading it into memory', async () => {
+    // The verdict comes from `statSync`, so the size that would actually hurt — an operator pointing this
+    // at a disk image — never reaches `readFileSync`. Eight sparse megabytes are enough to cross the cap
+    // and cost no disk.
+    const file = join(mkdtempSync(join(tmpdir(), 'msteams-icon-')), 'huge.png');
+    const fd = openSync(file, 'w');
+    try { ftruncateSync(fd, 8 * 1024 * 1024); } finally { closeSync(fd); }
+    const { adapter } = await makeAdapter({ appIconPath: file });
+    expect(() => adapter.appPackage()).toThrow(/above the 1048576 byte limit/);
   });
 });
