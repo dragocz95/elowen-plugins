@@ -1,29 +1,28 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { callbackUrl, pluginConfig, requireAppSetup } from './config.js';
+import { randomUUID } from 'node:crypto';
+import { GitHubAuthAdapter, newFlowId } from './githubAuth.js';
 import { GitHubClient, GitHubHttpError } from './githubClient.js';
 import { GitHubPluginError } from './errors.js';
 import { publishBranch } from './execution.js';
 import { suggestedRepositories } from './remotes.js';
 import { GitHubStore, hashValue } from './store.js';
 const TOKEN_KEY = 'oauth-token';
-const FLOW_TTL = 10 * 60_000;
 const CONFIRM_TTL = 5 * 60_000;
-const REFRESH_SKEW = 60_000;
 const PR_LEASE_TTL = 60_000;
 const PR_LEASE_WAIT = 30_000;
-const mutexes = new Map();
 export class GitHubService {
     ctx;
     store;
     client;
     now;
     spawnPrepared;
+    auth;
     constructor(ctx, deps = {}) {
         this.ctx = ctx;
         this.store = new GitHubStore(ctx.db());
-        this.client = new GitHubClient({ fetch: deps.fetch ?? globalThis.fetch, apiBase: deps.apiBase, oauthBase: deps.oauthBase });
+        this.client = new GitHubClient({ fetch: deps.fetch ?? globalThis.fetch, apiBase: deps.apiBase });
         this.now = deps.now ?? Date.now;
         this.spawnPrepared = deps.spawnPrepared;
+        this.auth = deps.auth ?? new GitHubAuthAdapter({ now: this.now });
     }
     currentUserId() {
         const id = this.ctx.currentContributionUserId() ?? this.ctx.currentIdentity()?.elowenUserId ?? null;
@@ -58,30 +57,15 @@ export class GitHubService {
             throw new GitHubPluginError('project_not_found', 404, 'Project not found.');
         return project;
     }
-    setupStatus() {
-        const config = pluginConfig(this.ctx);
-        let redirect = null;
-        try {
-            redirect = callbackUrl(this.ctx);
-        }
-        catch { /* readiness exposes the missing URL */ }
-        return {
-            configured: !!config.clientId && !!config.appSlug && this.ctx.instanceSecrets().has('client-secret') && !!redirect,
-            clientIdSet: !!config.clientId, appSlug: config.appSlug, clientSecretSet: this.ctx.instanceSecrets().has('client-secret'), callbackUrl: redirect,
-        };
-    }
-    saveClientSecret(secret, expectedVersion) {
-        const value = secret.trim();
-        if (value.length < 20)
-            throw new GitHubPluginError('client_secret_invalid', 400, 'Enter the complete GitHub App client secret.');
-        return { version: this.ctx.instanceSecrets().set('client-secret', value, expectedVersion) };
-    }
     connectionStatus(userId = this.currentUserId()) {
         const account = this.store.account(userId);
-        return { connected: !!account && account.status === 'connected', reconnectRequired: account?.status === 'reconnect_required', account, mappings: this.store.mappings(userId).length };
+        const flow = this.store.deviceFlows({ userId, statuses: ['pending', 'completing'] })[0] ?? null;
+        return { connected: !!account && account.status === 'connected', reconnectRequired: account?.status === 'reconnect_required', account, mappings: this.store.mappings(userId).length, flow: flow ? publicFlow(flow) : null };
     }
-    async startOAuth(userId, input = {}) {
-        const setup = requireAppSetup(this.ctx);
+    async startDeviceAuth(userId, input = {}) {
+        const existingFlow = this.store.deviceFlows({ userId, statuses: ['pending', 'completing'] })[0];
+        if (existingFlow)
+            throw new GitHubPluginError('auth_in_progress', 409, 'A GitHub connection is already in progress.');
         const existing = this.store.account(userId);
         if (existing && !input.replaceIdentity && !input.reconnect)
             throw new GitHubPluginError('already_connected', 409, 'This Elowen account is already connected to GitHub.');
@@ -92,94 +76,132 @@ export class GitHubService {
             if (confirmation.expected.githubUserId !== existing.githubUserId || confirmation.expected.updatedAt !== existing.updatedAt)
                 throw stale();
         }
-        const state = randomBytes(32).toString('base64url');
-        const verifier = randomBytes(64).toString('base64url');
-        const challenge = createHash('sha256').update(verifier).digest('base64url');
-        const stateHash = hashValue(state);
-        const secretKey = `oauth-flow:${stateHash}`;
-        const expiresAt = this.now() + FLOW_TTL;
-        const flowSecrets = this.ctx.instanceSecrets();
-        flowSecrets.set(secretKey, verifier);
+        const flowId = newFlowId();
+        const createdAt = this.now();
+        const expiresAt = createdAt + 10 * 60_000;
         try {
-            this.store.saveFlow({ stateHash, userId, secretKey, redirectUri: setup.redirectUri, replaceIdentity: !!input.replaceIdentity, expiresAt });
+            this.store.saveDeviceFlow({ flowId, userId, verificationUrl: null, userCode: null, directory: null, replaceIdentity: !!input.replaceIdentity, expiresAt, status: 'pending', error: null, createdAt, updatedAt: createdAt });
         }
-        catch (error) {
-            flowSecrets.delete(secretKey);
-            throw error;
+        catch {
+            throw new GitHubPluginError('auth_in_progress', 409, 'A GitHub connection is already in progress.');
         }
-        return { authorizeUrl: this.client.authorizationUrl({ clientId: setup.clientId, redirectUri: setup.redirectUri, state, challenge }), expiresAt };
+        try {
+            const started = await this.auth.start(flowId, async (token) => this.completeDeviceAuth(flowId, token), (error) => this.failDeviceAuth(flowId, error));
+            this.store.updateDeviceFlow(flowId, { verificationUrl: started.prompt.verificationUrl, userCode: started.prompt.userCode, directory: started.directory, expiresAt: started.expiresAt, updatedAt: this.now() });
+            return { flowId, verificationUrl: started.prompt.verificationUrl, userCode: started.prompt.userCode, expiresAt: started.expiresAt };
+        }
+        catch {
+            this.failDeviceAuth(flowId, 'GitHub device login could not be started.');
+            throw new GitHubPluginError('auth_start_failed', 502, 'GitHub device login could not be started.');
+        }
     }
-    async finishOAuth(userId, input) {
-        const setup = requireAppSetup(this.ctx);
-        const stateHash = hashValue(input.state);
-        const flow = this.store.flow(stateHash);
-        if (!flow)
-            throw new GitHubPluginError('oauth_state_invalid', 400, 'The GitHub connection request is invalid or has already been used.');
-        if (flow.userId !== userId)
-            throw new GitHubPluginError('oauth_account_mismatch', 403, 'The GitHub connection request belongs to another Elowen account.');
-        if (flow.expiresAt <= this.now()) {
-            this.discardFlow(flow);
-            throw new GitHubPluginError('oauth_state_expired', 409, 'The GitHub connection request has expired.');
+    deviceAuthStatus(userId, flowId) {
+        const flow = this.store.deviceFlow(flowId);
+        if (!flow || flow.userId !== userId)
+            throw new GitHubPluginError('flow_not_found', 404, 'GitHub connection request not found.');
+        if ((flow.status === 'pending' || flow.status === 'completing') && flow.expiresAt <= this.now()) {
+            this.cancelDeviceAuth(userId, flowId, 'expired');
+            return publicFlow(this.store.deviceFlow(flowId));
         }
-        const bag = this.secrets(userId);
-        const verifier = this.ctx.instanceSecrets().get(flow.secretKey)?.value;
-        if (!verifier) {
-            this.store.deleteFlow(stateHash);
-            throw new GitHubPluginError('oauth_state_invalid', 400, 'The GitHub connection request is incomplete.');
-        }
-        this.discardFlow(flow);
-        const token = await this.client.exchangeCode({
-            clientId: setup.clientId, clientSecret: setup.clientSecret, code: input.code,
-            redirectUri: flow.redirectUri, verifier,
-        }, this.now());
-        const profile = await this.client.user(token.accessToken);
-        const owner = this.store.accountOwner(profile.id);
-        if (owner !== null && owner !== userId)
-            throw new GitHubPluginError('github_identity_in_use', 409, 'This GitHub identity is already connected to another Elowen account.');
-        const existing = this.store.account(userId);
-        if (existing && existing.githubUserId !== profile.id && !flow.replaceIdentity) {
-            throw new GitHubPluginError('identity_replacement_required', 409, 'Replacing the connected GitHub identity requires explicit confirmation.');
-        }
-        const previous = bag.get(TOKEN_KEY);
-        bag.set(TOKEN_KEY, JSON.stringify(token), previous?.version);
-        await this.revalidateMappings(userId, token.accessToken);
-        const now = this.now();
-        const account = {
-            userId, githubUserId: profile.id, login: profile.login, name: profile.name, avatarUrl: profile.avatar_url,
-            tokenExpiresAt: token.accessExpiresAt, refreshExpiresAt: token.refreshExpiresAt,
-            status: 'connected', lastError: null, verifiedAt: now, updatedAt: now,
-        };
-        this.store.saveAccount(account);
-        return account;
+        return publicFlow(flow);
     }
-    cancelOAuth(userId, state) {
-        const flow = this.store.flow(hashValue(state));
-        if (!flow)
+    cancelDeviceAuth(userId, flowId, reason = 'cancelled') {
+        const flow = this.store.deviceFlow(flowId);
+        if (!flow || flow.userId !== userId)
+            throw new GitHubPluginError('flow_not_found', 404, 'GitHub connection request not found.');
+        if (flow.status === 'connected' || flow.status === 'failed' || flow.status === 'interrupted')
             return;
-        if (flow.userId !== userId)
-            throw new GitHubPluginError('oauth_account_mismatch', 403, 'The GitHub connection request belongs to another Elowen account.');
-        this.discardFlow(flow);
+        this.store.updateDeviceFlow(flowId, { status: reason, directory: null, error: reason === 'expired' ? 'expired' : null, updatedAt: this.now() });
+        this.auth.cancel(flowId, flow.directory ?? undefined);
     }
     prune(now = this.now()) {
-        for (const flow of this.store.flows({ expiredAt: now }))
-            this.discardFlow(flow);
+        for (const flow of this.store.deviceFlows()) {
+            if (flow.status === 'pending' || flow.status === 'completing') {
+                if (flow.expiresAt <= now)
+                    this.cancelDeviceAuth(flow.userId, flow.flowId, 'expired');
+            }
+            else if (flow.directory)
+                this.auth.cleanupDirectory(flow.directory);
+        }
         this.store.prune(now);
     }
     deleteAccount(userId) {
-        for (const flow of this.store.flows({ userId }))
-            this.discardFlow(flow);
+        const flows = this.store.deviceFlows({ userId });
+        for (const flow of flows)
+            this.auth.cancel(flow.flowId, flow.directory ?? undefined);
         this.store.deleteAccount(userId);
     }
     reconcile(validUsers, validProjects) {
-        this.prune();
-        for (const flow of this.store.flows())
-            if (!validUsers.has(flow.userId))
-                this.discardFlow(flow);
+        for (const flow of this.store.legacyOAuthFlows()) {
+            this.ctx.instanceSecrets().delete(flow.secretKey);
+            this.store.deleteLegacyOAuthFlow(flow.stateHash);
+        }
+        const flows = this.store.deviceFlows();
+        for (const flow of flows) {
+            if (!validUsers.has(flow.userId)) {
+                this.auth.cancel(flow.flowId, flow.directory ?? undefined);
+                this.store.deleteDeviceFlow(flow.flowId);
+                continue;
+            }
+            if (flow.status === 'pending' || flow.status === 'completing') {
+                this.auth.cancel(flow.flowId, flow.directory ?? undefined);
+                this.store.updateDeviceFlow(flow.flowId, { status: 'interrupted', directory: null, error: 'daemon_restart', updatedAt: this.now() });
+            }
+            else
+                this.auth.cleanupDirectory(flow.directory);
+        }
         this.store.reconcile(validUsers, validProjects);
     }
-    discardFlow(flow) {
-        this.ctx.instanceSecrets().delete(flow.secretKey);
-        this.store.deleteFlow(flow.stateHash);
+    stop() { this.auth.stopAll(this.store.deviceFlows().map((flow) => ({ flowId: flow.flowId, directory: flow.directory }))); }
+    failDeviceAuth(flowId, error) {
+        const flow = this.store.deviceFlow(flowId);
+        if (!flow || flow.status === 'cancelled' || flow.status === 'expired' || flow.status === 'interrupted')
+            return;
+        const expired = error.toLowerCase().includes('expired');
+        this.store.updateDeviceFlow(flowId, { status: expired ? 'expired' : 'failed', directory: null, error, updatedAt: this.now() });
+    }
+    async completeDeviceAuth(flowId, token) {
+        const flow = this.store.deviceFlow(flowId);
+        if (!flow || flow.status !== 'pending' || flow.expiresAt <= this.now())
+            return;
+        this.store.updateDeviceFlow(flowId, { status: 'completing', updatedAt: this.now() });
+        try {
+            const profile = await this.client.user(token);
+            const current = this.store.deviceFlow(flowId);
+            if (!current || current.status !== 'completing' || current.expiresAt <= this.now())
+                return;
+            const owner = this.store.accountOwner(profile.id);
+            if (owner !== null && owner !== flow.userId)
+                throw new GitHubPluginError('github_identity_in_use', 409, 'This GitHub identity is already connected to another Elowen account.');
+            const existing = this.store.account(flow.userId);
+            if (existing && existing.githubUserId !== profile.id && !flow.replaceIdentity)
+                throw new GitHubPluginError('identity_replacement_required', 409, 'Replacing the connected GitHub identity requires explicit confirmation.');
+            await this.revalidateMappings(flow.userId, token);
+            const latest = this.store.deviceFlow(flowId);
+            if (!latest || latest.status !== 'completing')
+                return;
+            const bag = this.secrets(flow.userId);
+            const previous = bag.get(TOKEN_KEY);
+            const now = this.now();
+            bag.set(TOKEN_KEY, token, previous?.version);
+            try {
+                this.store.saveAccount({ userId: flow.userId, githubUserId: profile.id, login: profile.login, name: profile.name, avatarUrl: profile.avatar_url, status: 'connected', lastError: null, verifiedAt: now, updatedAt: now });
+            }
+            catch (error) {
+                if (previous)
+                    bag.set(TOKEN_KEY, previous.value, bag.get(TOKEN_KEY)?.version);
+                else
+                    bag.delete(TOKEN_KEY);
+                throw error;
+            }
+            this.store.updateDeviceFlow(flowId, { status: 'connected', directory: null, error: null, updatedAt: now });
+        }
+        catch (error) {
+            if (error instanceof GitHubPluginError && error.code === 'github_identity_in_use')
+                this.failDeviceAuth(flowId, error.message);
+            else
+                this.failDeviceAuth(flowId, 'GitHub connection could not be verified.');
+        }
     }
     async testConnection(userId = this.currentUserId()) {
         return this.withToken(userId, async (token) => {
@@ -190,8 +212,8 @@ export class GitHubService {
     }
     disconnect(userId = this.currentUserId()) {
         this.secrets(userId).delete(TOKEN_KEY);
-        for (const flow of this.store.flows({ userId }))
-            this.discardFlow(flow);
+        for (const flow of this.store.deviceFlows({ userId }))
+            this.auth.cancel(flow.flowId, flow.directory ?? undefined);
         this.store.deactivateMappings(userId);
         this.store.disconnectAccount(userId);
     }
@@ -474,16 +496,6 @@ export class GitHubService {
         const value = this.ctx.userConfig()?.mergeMethod;
         return value === 'merge' || value === 'rebase' ? value : 'squash';
     }
-    parseToken(value) {
-        try {
-            const parsed = JSON.parse(value);
-            if (typeof parsed.accessToken === 'string' && typeof parsed.refreshToken === 'string'
-                && typeof parsed.accessExpiresAt === 'number' && typeof parsed.refreshExpiresAt === 'number' && typeof parsed.tokenType === 'string')
-                return parsed;
-        }
-        catch { /* reconnect below */ }
-        throw new GitHubPluginError('token_corrupt', 409, 'The encrypted GitHub connection is invalid. Reconnect GitHub.');
-    }
     async withToken(userId, operation) {
         const bag = this.secrets(userId);
         const account = this.store.account(userId);
@@ -492,85 +504,25 @@ export class GitHubService {
         if (account.status === 'reconnect_required')
             throw new GitHubPluginError('reconnect_required', 409, 'Reconnect GitHub before continuing.');
         const secret = bag.get(TOKEN_KEY);
-        if (!secret) {
-            this.store.markReconnect(userId, 'token_missing', this.now());
+        if (!secret || !/^\S+$/.test(secret.value) || secret.value.includes('\\n') || secret.value.includes('\\r')) {
+            this.store.markReconnect(userId, 'token_missing_or_corrupt', this.now());
             throw new GitHubPluginError('reconnect_required', 409, 'Reconnect GitHub before continuing.');
         }
-        let token = this.parseToken(secret.value);
-        if (token.refreshExpiresAt <= this.now()) {
-            this.store.markReconnect(userId, 'refresh_expired', this.now());
-            throw new GitHubPluginError('reconnect_required', 409, 'The GitHub refresh token expired. Reconnect GitHub.');
-        }
-        if (token.accessExpiresAt <= this.now() + REFRESH_SKEW)
-            token = await this.refresh(userId);
         try {
-            return await operation(token.accessToken);
+            return await operation(secret.value);
         }
         catch (error) {
-            if (!(error instanceof GitHubHttpError) || error.responseStatus !== 401)
-                throw error;
-            const refreshed = await this.refresh(userId, true);
-            return operation(refreshed.accessToken);
+            if (error instanceof GitHubHttpError && error.responseStatus === 401) {
+                this.store.markReconnect(userId, 'github_unauthorized', this.now());
+                throw new GitHubPluginError('reconnect_required', 409, 'GitHub authorization expired. Reconnect GitHub.');
+            }
+            throw error;
         }
     }
-    async refresh(userId, force = false) {
-        const previous = mutexes.get(userId) ?? Promise.resolve();
-        let unlock;
-        const current = new Promise((resolvePromise) => { unlock = resolvePromise; });
-        const queued = previous.then(() => current);
-        mutexes.set(userId, queued);
-        await previous;
-        try {
-            const bag = this.secrets(userId);
-            const currentSecret = bag.get(TOKEN_KEY);
-            if (!currentSecret)
-                throw new GitHubPluginError('reconnect_required', 409, 'Reconnect GitHub before continuing.');
-            const currentToken = this.parseToken(currentSecret.value);
-            if (!force && currentToken.accessExpiresAt > this.now() + REFRESH_SKEW)
-                return currentToken;
-            const owner = `${process.pid}:${randomUUID()}`;
-            let acquired = this.store.acquireRefreshLease(userId, owner, this.now(), 15_000);
-            for (let attempt = 0; !acquired && attempt < 150; attempt += 1) {
-                await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
-                const latest = bag.get(TOKEN_KEY);
-                if (latest && latest.version !== currentSecret.version)
-                    return this.parseToken(latest.value);
-                acquired = this.store.acquireRefreshLease(userId, owner, this.now(), 15_000);
-            }
-            if (!acquired)
-                throw new GitHubPluginError('refresh_busy', 503, 'Another process is refreshing GitHub credentials. Retry shortly.');
-            try {
-                const latest = bag.get(TOKEN_KEY);
-                if (!latest)
-                    throw new GitHubPluginError('reconnect_required', 409, 'Reconnect GitHub before continuing.');
-                const token = this.parseToken(latest.value);
-                if (!force && token.accessExpiresAt > this.now() + REFRESH_SKEW)
-                    return token;
-                const setup = requireAppSetup(this.ctx);
-                let refreshed;
-                try {
-                    refreshed = await this.client.refreshToken({ clientId: setup.clientId, clientSecret: setup.clientSecret, refreshToken: token.refreshToken }, this.now());
-                }
-                catch (error) {
-                    this.store.markReconnect(userId, 'refresh_failed', this.now());
-                    throw new GitHubPluginError('reconnect_required', 409, 'GitHub credentials could not be refreshed. Reconnect GitHub.');
-                }
-                bag.set(TOKEN_KEY, JSON.stringify(refreshed), latest.version);
-                const account = this.store.account(userId);
-                if (account)
-                    this.store.saveAccount({ ...account, tokenExpiresAt: refreshed.accessExpiresAt, refreshExpiresAt: refreshed.refreshExpiresAt, status: 'connected', lastError: null, updatedAt: this.now() });
-                return refreshed;
-            }
-            finally {
-                this.store.releaseRefreshLease(userId, owner);
-            }
-        }
-        finally {
-            unlock();
-            if (mutexes.get(userId) === queued)
-                mutexes.delete(userId);
-        }
-    }
+}
+function publicFlow(flow) {
+    const { directory: _directory, ...safe } = flow;
+    return safe;
 }
 function normalizeBase(base, mapping, fallback) {
     const value = base.trim();

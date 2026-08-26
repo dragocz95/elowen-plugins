@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Github, GitPullRequest, Link2, ShieldCheck } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Github, GitPullRequest, Link2 } from 'lucide-react';
 import { jsonBody, localizedError, runtime, type Checks, type Preview, type PullRequest, type RepositoryRow, type Session, type StatusResponse } from './runtime';
 import { STATUS_KEY } from './GitHubConnectionPanel';
 
@@ -7,18 +7,14 @@ const REPOSITORIES_KEY = ['plugin', 'github', 'repositories'];
 interface ProjectProp { id: number; slug: string; path: string }
 interface MappingForm { projectId: number; baseOwner: string; baseName: string; pushOwner: string; pushName: string; baseRemote: string; pushRemote: string }
 interface PendingAction { action: Record<string, unknown>; preview: Preview }
-interface PluginDetail { config: Record<string, unknown> }
-
 export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
   const { components: C, hooks, api, utils, navigate } = runtime();
   const s = hooks.usePluginStrings('github');
   const { toast } = hooks.useToast();
   const qc = hooks.useQueryClient();
-  const me = hooks.useMe();
-  const admin = me.data?.user?.is_admin === true;
   const status = hooks.useQuery<StatusResponse>({ queryKey: STATUS_KEY, queryFn: () => api('/plugins/github/api/status') });
   const connected = status.data?.connected === true;
-  const detail = hooks.useQuery<PluginDetail>({ queryKey: ['plugin-detail', 'github'], queryFn: () => api('/plugins/github'), enabled: admin });
+
   const repositories = hooks.useQuery<{ repositories: RepositoryRow[] }>({
     queryKey: REPOSITORIES_KEY,
     queryFn: () => api('/plugins/github/api/repositories'),
@@ -37,7 +33,6 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
     enabled: connected && mapped,
   });
 
-  const [setup, setSetup] = useState({ clientId: '', appSlug: '', clientSecret: '' });
   const [mapping, setMapping] = useState<MappingForm | null>(null);
   const [selectedPr, setSelectedPr] = useState<number | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
@@ -46,15 +41,6 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
   const [createForm, setCreateForm] = useState({ title: '', body: '', base: 'main' });
   const [reviewForm, setReviewForm] = useState({ event: 'APPROVE', body: '' });
   const [mergeMethod, setMergeMethod] = useState('squash');
-
-  useEffect(() => {
-    if (!detail.data) return;
-    setSetup((current) => ({
-      ...current,
-      clientId: typeof detail.data?.config.clientId === 'string' ? detail.data.config.clientId : '',
-      appSlug: typeof detail.data?.config.appSlug === 'string' ? detail.data.config.appSlug : '',
-    }));
-  }, [detail.data]);
 
   const selected = useMemo(() => (pulls.data?.pullRequests ?? []).find((pull) => pull.number === selectedPr) ?? null, [pulls.data, selectedPr]);
   const pullDetail = hooks.useQuery<PullRequest>({
@@ -73,7 +59,6 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
       qc.invalidateQueries({ queryKey: STATUS_KEY }),
       qc.invalidateQueries({ queryKey: REPOSITORIES_KEY }),
       qc.invalidateQueries({ queryKey: ['plugin', 'github', 'pulls'] }),
-      qc.invalidateQueries({ queryKey: ['plugin-detail', 'github'] }),
     ]);
   };
   const mutation = <TVars, TData = unknown>(fn: (value: TVars) => Promise<TData>, success?: string) => hooks.useMutation<TData, unknown, TVars>({
@@ -81,11 +66,6 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
     onSuccess: async () => { await invalidate(); if (success) toast(success); },
     onError: (error: unknown) => toast(localizedError(error, s), 'error'),
   });
-  const saveSetup = mutation<typeof setup>(async (value) => {
-    await api('/plugins/github/config', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ values: { clientId: value.clientId, appSlug: value.appSlug } }) });
-    if (value.clientSecret) await api('/plugins/github/api/setup/secret', jsonBody({ clientSecret: value.clientSecret }));
-    return undefined;
-  }, s.secretSaved);
   const saveMap = mutation<MappingForm>((value) => api('/plugins/github/api/repositories/map', jsonBody(value)), s.mappingSaved);
   const preview = hooks.useMutation<Preview, unknown, Record<string, unknown>>({
     mutationFn: (action: Record<string, unknown>) => api('/plugins/github/api/actions/preview', jsonBody(action)) as Promise<Preview>,
@@ -113,21 +93,6 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
 
   if (status.isError) return <C.ErrorState message={s.loadError} onRetry={() => status.refetch()} />;
   if (status.isLoading) return <C.LoadingState variant="list" />;
-
-  if (!status.data?.setup.configured) {
-    return (
-      <div className="space-y-4 py-4">
-        <C.EmptyState title={s.setupIncomplete} description={s.setupHint} icon={ShieldCheck} />
-        {admin ? <div className="space-y-3 rounded-xl border border-border bg-surface p-4">
-          <C.Field label="Client ID"><C.Input value={setup.clientId} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSetup({ ...setup, clientId: event.target.value })} /></C.Field>
-          <C.Field label="App slug"><C.Input value={setup.appSlug} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSetup({ ...setup, appSlug: event.target.value })} /></C.Field>
-          <C.Field label={s.clientSecret}><C.Input type="password" value={setup.clientSecret} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSetup({ ...setup, clientSecret: event.target.value })} /></C.Field>
-          {status.data?.setup.callbackUrl ? <div><div className="text-xs text-text-muted">{s.callbackUrl}</div><code className="mt-1 block break-all rounded-lg bg-bg p-2 text-[11px] text-text">{status.data?.setup.callbackUrl}</code></div> : null}
-          <div className="flex justify-end"><C.Button variant="accent" onClick={() => saveSetup.mutate(setup)} disabled={saveSetup.isPending || !setup.clientId.trim() || !setup.appSlug.trim()}>{s.saveSetup}</C.Button></div>
-        </div> : null}
-      </div>
-    );
-  }
 
   if (!connected) {
     return <div className="py-4"><C.EmptyState title={s.disconnected} description={s.accountHint} icon={Github} action={<C.Button variant="accent" icon={Github} onClick={() => navigate('/account')}>{s.manageInAccount}</C.Button>} /></div>;

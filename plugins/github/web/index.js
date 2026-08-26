@@ -144,18 +144,6 @@ var Link2 = createLucideIcon("Link2", [
   ["line", { x1: "8", x2: "16", y1: "12", y2: "12", key: "1jonct" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/shield-check.js
-var ShieldCheck = createLucideIcon("ShieldCheck", [
-  [
-    "path",
-    {
-      d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",
-      key: "oel41y"
-    }
-  ],
-  ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
-]);
-
 // plugins/github/web-src/runtime.ts
 function runtime() {
   const value = window.ElowenUiRuntime;
@@ -188,13 +176,29 @@ function GitHubConnectionPanel({ onChanged }) {
   const qc = hooks.useQueryClient();
   const status = hooks.useQuery({ queryKey: STATUS_KEY, queryFn: () => api("/plugins/github/api/status") });
   const [pending, setPending] = (0, import_react3.useState)(null);
-  const [connectionTest, setConnectionTest] = (0, import_react3.useState)(null);
+  const [flow, setFlow] = (0, import_react3.useState)(null);
   const refresh = async () => {
     await qc.invalidateQueries({ queryKey: STATUS_KEY });
     await onChanged?.();
   };
   const connect = hooks.useMutation({
     mutationFn: (value) => api("/plugins/github/api/auth/start", jsonBody(value)),
+    onSuccess: (value) => setFlow(value),
+    onError: (error) => toast(localizedError(error, s), "error")
+  });
+  const flowStatus = hooks.useQuery({
+    queryKey: ["plugin", "github", "auth", flow?.flowId],
+    queryFn: () => api(`/plugins/github/api/auth/status?flowId=${encodeURIComponent(flow.flowId)}`),
+    enabled: !!flow,
+    refetchInterval: flow ? 2e3 : false
+  });
+  const cancel = hooks.useMutation({
+    mutationFn: (flowId) => api("/plugins/github/api/auth/cancel", jsonBody({ flowId })),
+    onSuccess: async () => {
+      setFlow(null);
+      await refresh();
+      toast(s.connectionCancelled);
+    },
     onError: (error) => toast(localizedError(error, s), "error")
   });
   const preview = hooks.useMutation({
@@ -213,24 +217,56 @@ function GitHubConnectionPanel({ onChanged }) {
   });
   const test = hooks.useMutation({
     mutationFn: () => api("/plugins/github/api/test", jsonBody({})),
-    onSuccess: (value) => {
-      setConnectionTest(value);
-      toast(s.connectionHealthy);
-    },
+    onSuccess: () => toast(s.connectionHealthy),
     onError: (error) => toast(localizedError(error, s), "error")
   });
+  (0, import_react3.useEffect)(() => {
+    const persisted = status.data?.flow;
+    if (!flow && persisted?.flowId && persisted.verificationUrl && persisted.userCode && (persisted.status === "pending" || persisted.status === "completing")) {
+      setFlow({ flowId: persisted.flowId, verificationUrl: persisted.verificationUrl, userCode: persisted.userCode, expiresAt: persisted.expiresAt });
+    }
+  }, [flow, status.data?.flow]);
+  (0, import_react3.useEffect)(() => {
+    const state = flowStatus.data?.status;
+    if (state === "connected") {
+      setFlow(null);
+      void refresh();
+      toast(s.connectionComplete);
+    }
+  }, [flowStatus.data?.status]);
   if (status.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => status.refetch() });
   if (status.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "detail" });
-  const beginConnect = () => connect.mutate(status.data?.reconnectRequired ? { reconnect: true } : {}, { onSuccess: (value) => window.location.assign(value.authorizeUrl) });
+  const account = status.data?.account;
+  const beginConnect = () => connect.mutate(status.data?.reconnectRequired ? { reconnect: true } : {});
   const completePending = () => {
     if (!pending) return;
     if (pending.action.type === "replace_identity") {
-      connect.mutate({ replaceIdentity: true, confirmationToken: pending.preview.confirmationToken }, { onSuccess: (value) => window.location.assign(value.authorizeUrl) });
+      connect.mutate({ replaceIdentity: true, confirmationToken: pending.preview.confirmationToken });
+      setPending(null);
       return;
     }
     confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken });
   };
-  const account = status.data?.account;
+  if (flow) {
+    const state = flowStatus.data?.status;
+    const terminal = state === "cancelled" || state === "expired" || state === "failed" || state === "interrupted";
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-xl border border-border bg-surface p-4", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm font-semibold text-text", children: s.waitingForGitHub }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3 text-xs text-text-muted", children: s.deviceCode }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "mt-1 block rounded-lg bg-bg px-3 py-2 text-center text-lg font-semibold tracking-[0.2em] text-text", children: flow.userCode }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "mt-3 inline-flex text-sm font-medium text-accent hover:underline", href: flow.verificationUrl, target: "_blank", rel: "noreferrer", children: s.verifyOnGitHub }),
+        state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-danger", children: s.connectionFailed }) : null,
+        state === "expired" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-danger", children: s.connectionExpired }) : null,
+        state === "cancelled" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-text-muted", children: s.connectionCancelled }) : null,
+        state === "interrupted" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-danger", children: s.connectionFailed }) : null
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
+        !terminal ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => cancel.mutate(flow.flowId), disabled: cancel.isPending, children: s.cancelConnection }) : null,
+        terminal ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: beginConnect, children: s.connect }) : null
+      ] })
+    ] });
+  }
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
     status.data?.connected && account ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-4", children: [
@@ -246,36 +282,20 @@ function GitHubConnectionPanel({ onChanged }) {
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dl", { className: "grid gap-3 text-sm sm:grid-cols-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { className: "text-text-muted", children: s.tokenExpiry }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { className: "text-text", children: new Date(account.tokenExpiresAt).toLocaleString() })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { className: "text-text-muted", children: s.refreshExpiry }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { className: "text-text", children: new Date(account.refreshExpiresAt).toLocaleString() })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { className: "text-text-muted", children: s.mappings }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { className: "font-mono text-text", children: status.data.mappings })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { className: "text-text-muted", children: "GitHub ID" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { className: "font-mono text-text", children: account.githubUserId })
-        ] }),
-        connectionTest?.rateLimit ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { className: "text-text-muted", children: s.rateLimit }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dd", { className: "font-mono text-text", children: [
-            connectionTest.rateLimit.remaining,
-            " / ",
-            connectionTest.rateLimit.limit
-          ] })
-        ] }) : null
+        ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { onClick: () => test.mutate(), disabled: test.isPending, children: s.testConnection }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { onClick: () => preview.mutate({ type: "replace_identity" }), children: s.replaceIdentity }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "danger", onClick: () => preview.mutate({ type: "disconnect" }), children: s.disconnect })
       ] })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: status.data?.reconnectRequired ? s.reconnectRequired : s.disconnected, description: status.data?.setup.configured ? s.intro : s.setupHint, icon: Github, action: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: beginConnect, disabled: !status.data?.setup.configured || connect.isPending, children: status.data?.reconnectRequired ? s.reconnect : s.connect }) }),
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: status.data?.reconnectRequired ? s.reconnectRequired : s.disconnected, description: s.intro, icon: Github, action: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: beginConnect, disabled: connect.isPending, children: status.data?.reconnectRequired ? s.reconnect : s.connect }) }),
     pending ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ConfirmDialog, { open: true, title: pending.preview.title || s.confirmExternal, description: `${pending.preview.description}
 
 ${s.confirmationExpires}`, confirmLabel: s.confirm, onClose: () => setPending(null), onConfirm: completePending }) : null
@@ -308,11 +328,8 @@ function GitHubProjectPanel({ project }) {
   const s = hooks.usePluginStrings("github");
   const { toast } = hooks.useToast();
   const qc = hooks.useQueryClient();
-  const me = hooks.useMe();
-  const admin = me.data?.user?.is_admin === true;
   const status = hooks.useQuery({ queryKey: STATUS_KEY, queryFn: () => api("/plugins/github/api/status") });
   const connected = status.data?.connected === true;
-  const detail = hooks.useQuery({ queryKey: ["plugin-detail", "github"], queryFn: () => api("/plugins/github"), enabled: admin });
   const repositories = hooks.useQuery({
     queryKey: REPOSITORIES_KEY,
     queryFn: () => api("/plugins/github/api/repositories"),
@@ -330,7 +347,6 @@ function GitHubProjectPanel({ project }) {
     queryFn: () => api("/brain/sessions"),
     enabled: connected && mapped
   });
-  const [setup, setSetup] = (0, import_react4.useState)({ clientId: "", appSlug: "", clientSecret: "" });
   const [mapping, setMapping] = (0, import_react4.useState)(null);
   const [selectedPr, setSelectedPr] = (0, import_react4.useState)(null);
   const [pending, setPending] = (0, import_react4.useState)(null);
@@ -339,14 +355,6 @@ function GitHubProjectPanel({ project }) {
   const [createForm, setCreateForm] = (0, import_react4.useState)({ title: "", body: "", base: "main" });
   const [reviewForm, setReviewForm] = (0, import_react4.useState)({ event: "APPROVE", body: "" });
   const [mergeMethod, setMergeMethod] = (0, import_react4.useState)("squash");
-  (0, import_react4.useEffect)(() => {
-    if (!detail.data) return;
-    setSetup((current) => ({
-      ...current,
-      clientId: typeof detail.data?.config.clientId === "string" ? detail.data.config.clientId : "",
-      appSlug: typeof detail.data?.config.appSlug === "string" ? detail.data.config.appSlug : ""
-    }));
-  }, [detail.data]);
   const selected = (0, import_react4.useMemo)(() => (pulls.data?.pullRequests ?? []).find((pull) => pull.number === selectedPr) ?? null, [pulls.data, selectedPr]);
   const pullDetail = hooks.useQuery({
     queryKey: ["plugin", "github", "pull", String(project.id), selectedPr],
@@ -362,8 +370,7 @@ function GitHubProjectPanel({ project }) {
     await Promise.all([
       qc.invalidateQueries({ queryKey: STATUS_KEY }),
       qc.invalidateQueries({ queryKey: REPOSITORIES_KEY }),
-      qc.invalidateQueries({ queryKey: ["plugin", "github", "pulls"] }),
-      qc.invalidateQueries({ queryKey: ["plugin-detail", "github"] })
+      qc.invalidateQueries({ queryKey: ["plugin", "github", "pulls"] })
     ]);
   };
   const mutation = (fn, success) => hooks.useMutation({
@@ -374,11 +381,6 @@ function GitHubProjectPanel({ project }) {
     },
     onError: (error) => toast(localizedError(error, s), "error")
   });
-  const saveSetup = mutation(async (value) => {
-    await api("/plugins/github/config", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ values: { clientId: value.clientId, appSlug: value.appSlug } }) });
-    if (value.clientSecret) await api("/plugins/github/api/setup/secret", jsonBody({ clientSecret: value.clientSecret }));
-    return void 0;
-  }, s.secretSaved);
   const saveMap = mutation((value) => api("/plugins/github/api/repositories/map", jsonBody(value)), s.mappingSaved);
   const preview = hooks.useMutation({
     mutationFn: (action) => api("/plugins/github/api/actions/preview", jsonBody(action)),
@@ -410,21 +412,6 @@ function GitHubProjectPanel({ project }) {
   });
   if (status.isError) return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => status.refetch() });
   if (status.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.LoadingState, { variant: "list" });
-  if (!status.data?.setup.configured) {
-    return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "space-y-4 py-4", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.EmptyState, { title: s.setupIncomplete, description: s.setupHint, icon: ShieldCheck }),
-      admin ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "space-y-3 rounded-xl border border-border bg-surface p-4", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: "Client ID", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: setup.clientId, onChange: (event) => setSetup({ ...setup, clientId: event.target.value }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: "App slug", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: setup.appSlug, onChange: (event) => setSetup({ ...setup, appSlug: event.target.value }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.clientSecret, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { type: "password", value: setup.clientSecret, onChange: (event) => setSetup({ ...setup, clientSecret: event.target.value }) }) }),
-        status.data?.setup.callbackUrl ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "text-xs text-text-muted", children: s.callbackUrl }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("code", { className: "mt-1 block break-all rounded-lg bg-bg p-2 text-[11px] text-text", children: status.data?.setup.callbackUrl })
-        ] }) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "flex justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "accent", onClick: () => saveSetup.mutate(setup), disabled: saveSetup.isPending || !setup.clientId.trim() || !setup.appSlug.trim(), children: s.saveSetup }) })
-      ] }) : null
-    ] });
-  }
   if (!connected) {
     return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "py-4", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.EmptyState, { title: s.disconnected, description: s.accountHint, icon: Github, action: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "accent", icon: Github, onClick: () => navigate("/account"), children: s.manageInAccount }) }) });
   }

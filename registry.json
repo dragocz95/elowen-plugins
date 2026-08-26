@@ -53,15 +53,15 @@
     },
     {
       "name": "github",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "requiresCore": "0.28.12",
-      "description": "Account-scoped GitHub App integration for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
+      "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
       "category": "productivity",
       "author": "Elowen",
       "apiVersion": "1",
       "provides": {
         "tools": 9,
-        "apiRoutes": 14
+        "apiRoutes": 13
       }
     },
     {

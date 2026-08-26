@@ -6,8 +6,11 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connect } from 'node:net';
+import { spawn as nodeSpawn } from 'node:child_process';
+import { DEVICE_LOGIN_ARGS, TOKEN_ARGS, GitHubAuthAdapter, createGitHubAuthEnv, parseDevicePrompt, validateDeviceToken } from '../plugins/github/src/githubAuth.js';
 import type { PluginContext, PluginDb, PluginSecretBag, SandboxPreparedExecution } from 'elowen/plugin-api';
 import { GitHubService } from '../plugins/github/src/service.js';
+import { GitHubStore } from '../plugins/github/src/store.js';
 import { parseGitHubRemote, suggestedRepositories } from '../plugins/github/src/remotes.js';
 import { publishBranch, spawnPrepared, unsafeConfig, type SpawnPrepared } from '../plugins/github/src/execution.js';
 import { registerGitHubApi } from '../plugins/github/src/api.js';
@@ -51,23 +54,18 @@ function pluginDb(): PluginDb & { raw: Database.Database } {
 }
 
 interface FakeState {
-  profileId: number; login: string; tokenCalls: number; refreshCalls: number; accessToken: string; refreshToken: string;
-  pulls: any[]; headSha: string; mergeCalls: number; createCalls: number; rejectAccessOnce: boolean; lastTokenBody: Record<string, unknown> | null;
+  profileId: number; login: string; accessToken: string;
+  pulls: any[]; headSha: string; mergeCalls: number; createCalls: number; rejectAccessOnce: boolean;
 }
 
 async function fakeGitHub(): Promise<{ server: Server; base: string; state: FakeState }> {
-  const state: FakeState = { profileId: 42, login: 'octocat', tokenCalls: 0, refreshCalls: 0, accessToken: 'access-1', refreshToken: 'refresh-1', pulls: [], headSha: 'a'.repeat(40), mergeCalls: 0, createCalls: 0, rejectAccessOnce: false, lastTokenBody: null };
+  const state: FakeState = { profileId: 42, login: 'octocat', accessToken: 'access-1', pulls: [], headSha: 'a'.repeat(40), mergeCalls: 0, createCalls: 0, rejectAccessOnce: false };
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     let body = '';
     for await (const chunk of req) body += chunk;
     const json = body ? JSON.parse(body) as Record<string, unknown> : {};
     const send = (status: number, value: unknown) => { res.statusCode = status; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(value)); };
-    if (url.pathname === '/login/oauth/access_token') {
-      state.tokenCalls += 1; state.lastTokenBody = json;
-      if (json.grant_type === 'refresh_token') { state.refreshCalls += 1; state.accessToken = `access-${state.tokenCalls}`; state.refreshToken = `refresh-${state.tokenCalls}`; }
-      return send(200, { access_token: state.accessToken, refresh_token: state.refreshToken, expires_in: 3600, refresh_token_expires_in: 86_400, token_type: 'bearer' });
-    }
     const auth = req.headers.authorization;
     if (state.rejectAccessOnce && auth === `Bearer ${state.accessToken}`) { state.rejectAccessOnce = false; return send(401, { message: 'Bad credentials' }); }
     if (auth !== `Bearer ${state.accessToken}`) return send(401, { message: 'Bad credentials' });
@@ -107,6 +105,7 @@ async function fakeGitHub(): Promise<{ server: Server; base: string; state: Fake
     return send(404, { message: `Unhandled ${req.method} ${url.pathname}` });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  server.unref();
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('server address missing');
   return { server, base: `http://127.0.0.1:${address.port}`, state };
@@ -118,6 +117,7 @@ function rawPull(number: number, title: string, head: string, base: string, sha:
 
 function harness(root: string, fake: { base: string }, nowRef = { value: Date.now() }) {
   const db = pluginDb();
+  mkdirSync(join(root, 'auth-tmp'));
   const instance = new SecretBag(); instance.set('client-secret', 'client-secret-value-1234567890');
   const users = new Map<number, SecretBag>();
   let currentUser = 1;
@@ -155,8 +155,32 @@ function harness(root: string, fake: { base: string }, nowRef = { value: Date.no
     }
     return { stdout: 'git version 2.45\n', stderr: '' };
   };
-  const service = new GitHubService(ctx, { fetch, apiBase: fake.base, oauthBase: fake.base, now: () => nowRef.value, spawnPrepared: runner });
+  const auth = new GitHubAuthAdapter({
+    now: () => nowRef.value,
+    tempRoot: join(root, 'auth-tmp'),
+    spawn: ((file, args, options) => {
+      const script = args[1] === 'login'
+        ? "process.stdout.write('https://github.com/login/device\\r\\nABCD-EFGH\\r\\n'); setTimeout(() => process.exit(0), 10)"
+        : "process.stdout.write('access-1\\n'); process.exit(0)";
+      return nodeSpawn(process.execPath, ['-e', script], options);
+    }) as any,
+  });
+  const service = new GitHubService(ctx, { fetch, apiBase: fake.base, now: () => nowRef.value, spawnPrepared: runner, auth });
   return { ctx, db, service, runner, setUser: (id: number) => { currentUser = id; }, users, instance, routes, pushCalls, workspace, nowRef };
+}
+
+async function waitForFlow(service: GitHubService, flowId: string): Promise<any> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const flow = service.deviceAuthStatus(service.currentUserId(), flowId);
+    if (['connected', 'failed', 'cancelled', 'expired', 'interrupted'].includes(flow.status)) return flow;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('device flow did not finish');
+}
+
+async function waitForConnected(service: GitHubService, flowId: string): Promise<void> {
+  const flow = await waitForFlow(service, flowId);
+  expect(flow.status).toBe('connected');
 }
 
 function prepared(command: any, cwd: string, home: string): SandboxPreparedExecution {
@@ -165,14 +189,37 @@ function prepared(command: any, cwd: string, home: string): SandboxPreparedExecu
 }
 
 describe('GitHub plugin', () => {
-  it('offers account OAuth and Project context without a duplicate navigation world', () => {
+  it('parses only the GitHub device URL and code and sanitizes inherited credentials', () => {
+    expect(parseDevicePrompt('noise\r\nhttps://github.com/login/device\r\nABCD-EFGH\r\n')).toEqual({ verificationUrl: 'https://github.com/login/device', userCode: 'ABCD-EFGH' });
+    expect(parseDevicePrompt('https://github.com.evil/login/device ABCD-EFGH')).toBeNull();
+    expect(() => validateDeviceToken('token\nleak')).toThrow();
+    const env = createGitHubAuthEnv('/tmp/isolated', { PATH: '/bin', GH_TOKEN: 'secret', GITHUB_TOKEN: 'secret', XDG_CONFIG_HOME: '/bad', HTTPS_PROXY: 'http://proxy', SSH_AUTH_SOCK: '/sock' });
+    expect(env.env).toMatchObject({ HOME: '/tmp/isolated', GH_CONFIG_DIR: '/tmp/isolated', GH_BROWSER: 'echo', NO_COLOR: '1', PATH: '/bin' });
+    expect(env.env).not.toHaveProperty('GH_TOKEN');
+    expect(env.env).not.toHaveProperty('GITHUB_TOKEN');
+    expect(env.env).not.toHaveProperty('XDG_CONFIG_HOME');
+    expect(env.env).not.toHaveProperty('HTTPS_PROXY');
+    expect(DEVICE_LOGIN_ARGS).toEqual(['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--skip-ssh-key', '--insecure-storage']);
+    expect(TOKEN_ARGS).toEqual(['auth', 'token', '--hostname', 'github.com']);
+  });
+
+  it('declares device auth without App setup or callback routes', () => {
     expect(manifest.userGrantable).not.toBe(true);
+    expect(manifest.version).toBe('0.1.3');
     expect(manifest.web.requiresApiVersion).toBe(4);
     expect(manifest.web.nav).toBeUndefined();
     expect(manifest.web.account).toEqual([{ id: 'connection', label: 'GitHub', icon: 'Github' }]);
     expect(manifest.web.project).toEqual([{ id: 'repository', label: 'GitHub', icon: 'Github' }]);
-    expect(manifest.configSchema.map((field) => field.type)).toEqual(['section', 'string', 'string']);
-    expect(manifest.userConfigSchema.map((field) => field.type)).toEqual(['enum']);
+    expect(manifest.configSchema).toBeUndefined();
+    expect(manifest.provides.apiRoutes).not.toContain('setup');
+    expect(manifest.provides.apiRoutes).not.toContain('auth/callback');
+  });
+
+  it('marks legacy GitHub accounts reconnect_required during migration', () => {
+    const db = pluginDb();
+    db.raw.exec(`CREATE TABLE p_github_accounts (user_id INTEGER PRIMARY KEY, github_user_id INTEGER NOT NULL UNIQUE, login TEXT NOT NULL, name TEXT, avatar_url TEXT, token_expires_at INTEGER NOT NULL, refresh_expires_at INTEGER NOT NULL, status TEXT NOT NULL, last_error TEXT, verified_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); INSERT INTO p_github_accounts VALUES (1, 42, 'octocat', NULL, NULL, 1, 1, 'connected', NULL, 1, 1); INSERT INTO plugin_migrations(version) VALUES (1),(2),(3);`);
+    const store = new GitHubStore(db);
+    expect(store.account(1)).toMatchObject({ status: 'reconnect_required', lastError: 'legacy_oauth_requires_device_login' });
   });
 
   it('parses HTTPS, SCP and ssh GitHub remotes without accepting other hosts', () => {
@@ -186,71 +233,57 @@ describe('GitHub plugin', () => {
     ]).ambiguous).toBe(true);
   });
 
-  it('completes state+PKCE OAuth once, reuses the canonical callback, enforces tenancy and unique numeric owners', async () => {
+  it('starts a bounded device flow with isolated gh argv/env and stores the verified token', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
+    const h = harness(root, await fakeGitHub());
+    const started = await h.service.startDeviceAuth(1);
+    expect(started).toMatchObject({ verificationUrl: 'https://github.com/login/device', userCode: 'ABCD-EFGH' });
+    expect(started.flowId).toMatch(/^gh-/);
+    const status = h.service.deviceAuthStatus(1, started.flowId);
+    expect(status.directory).toBeUndefined();
+    await waitForConnected(h.service, started.flowId);
+    expect(h.service.connectionStatus(1).connected).toBe(true);
+    expect(h.users.get(1)?.get('oauth-token')?.value).toBe('access-1');
+  });
+
+  it('marks the account reconnect_required after a GitHub 401 without refresh rotation', async () => {
     const fake = await fakeGitHub();
     try {
       const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
       const h = harness(root, fake);
-      const start = await h.service.startOAuth(1);
-      const url = new URL(start.authorizeUrl);
-      expect(url.searchParams.get('code_challenge_method')).toBe('S256');
-      expect(url.searchParams.get('redirect_uri')).toBe('https://elowen.example/api/plugins/github/api/auth/callback');
-      const state = url.searchParams.get('state')!;
-      const account = await h.service.finishOAuth(1, { state, code: 'code-1' });
-      expect(account.githubUserId).toBe(42);
-      expect([...h.instance.values.keys()].filter((key) => key.startsWith('oauth-flow:'))).toEqual([]);
-      expect(fake.state.lastTokenBody?.redirect_uri).toBe('https://elowen.example/api/plugins/github/api/auth/callback');
-      await expect(h.service.finishOAuth(1, { state, code: 'code-1' })).rejects.toMatchObject({ code: 'oauth_state_invalid' });
-      expect(JSON.stringify(h.db.raw.prepare("SELECT name FROM sqlite_master WHERE type='table'").all())).not.toContain('access-1');
-      h.service.store.markReconnect(1, 'test', Date.now());
-      const reconnect = await h.service.startOAuth(1, { reconnect: true });
-      await expect(h.service.finishOAuth(1, { state: new URL(reconnect.authorizeUrl).searchParams.get('state')!, code: 'reconnect' })).resolves.toMatchObject({ githubUserId: 42, status: 'connected' });
-
-      h.setUser(2);
-      const second = await h.service.startOAuth(2);
-      await expect(h.service.finishOAuth(2, { state: new URL(second.authorizeUrl).searchParams.get('state')!, code: 'code-2' })).rejects.toMatchObject({ code: 'github_identity_in_use' });
-
-      h.setUser(1);
-      const mismatch = await h.service.startOAuth(1, { replaceIdentity: true, confirmationToken: (await h.service.preview(1, { type: 'replace_identity' })).confirmationToken });
-      h.setUser(2);
-      await expect(h.service.finishOAuth(2, { state: new URL(mismatch.authorizeUrl).searchParams.get('state')!, code: 'code-3' })).rejects.toMatchObject({ code: 'oauth_account_mismatch' });
-    } finally { fake.server.close(); }
-  });
-
-  it('consumes the OAuth flow and encrypted verifier when GitHub denies authorization', async () => {
-    const fake = await fakeGitHub();
-    try {
-      const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
-      const h = harness(root, fake);
-      registerGitHubApi(h.ctx, h.service);
-      const started = await h.service.startOAuth(1);
-      const state = new URL(started.authorizeUrl).searchParams.get('state')!;
-      expect([...h.instance.values.keys()].some((key) => key.startsWith('oauth-flow:'))).toBe(true);
-      const callback = h.routes.find((value) => value.path === 'auth/callback');
-      const response = await callback.handler({
-        auth: { userId: 1, admin: false, accessibleProjects: [1] }, query: { error: 'access_denied', state },
-        params: {}, path: '', headers: {}, json: async () => ({}),
-      });
-      expect(response).toMatchObject({ status: 302, headers: { location: '/p/github?github=denied&reason=access_denied' } });
-      expect(h.service.store.flows()).toEqual([]);
-      expect([...h.instance.values.keys()].filter((key) => key.startsWith('oauth-flow:'))).toEqual([]);
-    } finally { fake.server.close(); }
-  });
-
-  it('rotates expiring tokens once across concurrent callers and retries one 401', async () => {
-    const fake = await fakeGitHub();
-    try {
-      const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
-      const nowRef = { value: Date.now() };
-      const h = harness(root, fake, nowRef);
-      const start = await h.service.startOAuth(1); await h.service.finishOAuth(1, { state: new URL(start.authorizeUrl).searchParams.get('state')!, code: 'code' });
-      nowRef.value += 3_700_000;
-      await Promise.all([h.service.testConnection(1), h.service.testConnection(1)]);
-      expect(fake.state.refreshCalls).toBe(1);
+      const started = await h.service.startDeviceAuth(1); await waitForConnected(h.service, started.flowId);
       fake.state.rejectAccessOnce = true;
-      await h.service.testConnection(1);
-      expect(fake.state.refreshCalls).toBe(2);
+      await expect(h.service.testConnection(1)).rejects.toMatchObject({ code: 'reconnect_required' });
+      expect(h.service.connectionStatus(1).reconnectRequired).toBe(true);
     } finally { fake.server.close(); }
+  });
+
+  it('allows only one active flow, supports cancellation and marks restart interruptions', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
+    const h = harness(root, await fakeGitHub());
+    const started = await h.service.startDeviceAuth(1);
+    await expect(h.service.startDeviceAuth(1)).rejects.toMatchObject({ code: 'auth_in_progress' });
+    h.service.cancelDeviceAuth(1, started.flowId);
+    expect(h.service.deviceAuthStatus(1, started.flowId).status).toBe('cancelled');
+    const next = await h.service.startDeviceAuth(1);
+    h.service.reconcile(new Set([1]), new Set([1]));
+    expect(h.service.deviceAuthStatus(1, next.flowId).status).toBe('interrupted');
+  });
+
+  it('enforces unique GitHub identity and explicit replacement while preserving mappings', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
+    const h = harness(root, await fakeGitHub());
+    const first = await h.service.startDeviceAuth(1); await waitForConnected(h.service, first.flowId);
+    h.setUser(2);
+    const second = await h.service.startDeviceAuth(2);
+    const secondStatus = await waitForFlow(h.service, second.flowId);
+    expect(secondStatus.status).toBe('failed');
+    h.setUser(1);
+    await h.service.saveMapping(1, { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo' });
+    const replacement = await h.service.preview(1, { type: 'replace_identity' });
+    const replaced = await h.service.startDeviceAuth(1, { replaceIdentity: true, confirmationToken: replacement.confirmationToken });
+    await waitForConnected(h.service, replaced.flowId);
+    expect(h.service.store.mapping(1, 1)).not.toBeNull();
   });
 
   it('redacts an exact credential substring from Git stderr details', async () => {
@@ -294,7 +327,7 @@ describe('GitHub plugin', () => {
     try {
       const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git')); writeFileSync(join(root, '.git', 'config'), '[core]\nrepositoryformatversion=0\n');
       const h = harness(root, fake);
-      const start = await h.service.startOAuth(1); await h.service.finishOAuth(1, { state: new URL(start.authorizeUrl).searchParams.get('state')!, code: 'code' });
+      const start = await h.service.startDeviceAuth(1); await waitForConnected(h.service, start.flowId);
       await h.service.saveMapping(1, { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo' });
       const action = { type: 'create_pr' as const, projectId: 1, sessionId: 'brain-1', title: 'Feature', body: 'Body', base: 'main' };
       const [first, second] = await Promise.all([h.service.preview(1, action), h.service.preview(1, action)]);
@@ -319,44 +352,23 @@ describe('GitHub plugin', () => {
     } finally { fake.server.close(); }
   });
 
-  it('expires OAuth and confirmation records, binds them to one account and cleans ownership rows', async () => {
+  it('expires device flows and cleans mappings and account ownership', async () => {
     const fake = await fakeGitHub();
     try {
       const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
       const nowRef = { value: Date.now() };
       const h = harness(root, fake, nowRef);
-      const expiredOAuth = await h.service.startOAuth(1);
+      const started = await h.service.startDeviceAuth(1);
       nowRef.value += 11 * 60_000;
-      await expect(h.service.finishOAuth(1, { state: new URL(expiredOAuth.authorizeUrl).searchParams.get('state')!, code: 'late' })).rejects.toMatchObject({ code: 'oauth_state_expired' });
-      expect(h.service.store.flows()).toEqual([]);
-      expect([...h.instance.values.keys()].filter((key) => key.startsWith('oauth-flow:'))).toEqual([]);
-      const pruned = await h.service.startOAuth(1);
-      expect(pruned.authorizeUrl).toContain('state=');
-      nowRef.value += 11 * 60_000;
-      h.service.prune(nowRef.value);
-      expect(h.service.store.flows()).toEqual([]);
-      expect([...h.instance.values.keys()].filter((key) => key.startsWith('oauth-flow:'))).toEqual([]);
-      const fresh = await h.service.startOAuth(1);
-      await h.service.finishOAuth(1, { state: new URL(fresh.authorizeUrl).searchParams.get('state')!, code: 'fresh' });
+      expect(h.service.deviceAuthStatus(1, started.flowId).status).toBe('expired');
+      const fresh = await h.service.startDeviceAuth(1);
+      await waitForConnected(h.service, fresh.flowId);
       await h.service.saveMapping(1, { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo' });
-
       const foreign = await h.service.preview(1, { type: 'remove_mapping', projectId: 1 });
       h.setUser(2);
       await expect(h.service.confirm(2, { type: 'remove_mapping', projectId: 1 }, foreign.confirmationToken!)).rejects.toMatchObject({ code: 'confirmation_invalid' });
       h.setUser(1);
       await expect(h.service.confirm(1, { type: 'remove_mapping', projectId: 1 }, foreign.confirmationToken!)).resolves.toMatchObject({ removed: true });
-
-      await h.service.saveMapping(1, { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo' });
-      const replay = await h.service.preview(1, { type: 'remove_mapping', projectId: 1 });
-      await h.service.confirm(1, { type: 'remove_mapping', projectId: 1 }, replay.confirmationToken!);
-      await expect(h.service.confirm(1, { type: 'remove_mapping', projectId: 1 }, replay.confirmationToken!)).rejects.toMatchObject({ code: 'confirmation_used' });
-
-      await h.service.saveMapping(1, { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo' });
-      const expiredConfirmation = await h.service.preview(1, { type: 'remove_mapping', projectId: 1 });
-      nowRef.value += 6 * 60_000;
-      await expect(h.service.confirm(1, { type: 'remove_mapping', projectId: 1 }, expiredConfirmation.confirmationToken!)).rejects.toMatchObject({ code: 'confirmation_expired' });
-      h.service.store.deleteProject(1);
-      expect(h.service.store.mapping(1, 1)).toBeNull();
       await h.service.saveMapping(1, { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo' });
       h.service.store.deleteAccount(1);
       expect(h.service.store.account(1)).toBeNull();

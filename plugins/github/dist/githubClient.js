@@ -11,50 +11,9 @@ export class GitHubHttpError extends GitHubPluginError {
 export class GitHubClient {
     options;
     apiBase;
-    oauthBase;
     constructor(options) {
         this.options = options;
         this.apiBase = (options.apiBase ?? 'https://api.github.com').replace(/\/$/, '');
-        this.oauthBase = (options.oauthBase ?? 'https://github.com').replace(/\/$/, '');
-    }
-    authorizationUrl(input) {
-        const url = new URL(`${this.oauthBase}/login/oauth/authorize`);
-        url.searchParams.set('client_id', input.clientId);
-        url.searchParams.set('redirect_uri', input.redirectUri);
-        url.searchParams.set('state', input.state);
-        url.searchParams.set('code_challenge', input.challenge);
-        url.searchParams.set('code_challenge_method', 'S256');
-        return url.toString();
-    }
-    async exchangeCode(input, now) {
-        return this.tokenExchange({
-            client_id: input.clientId, client_secret: input.clientSecret, code: input.code,
-            redirect_uri: input.redirectUri, code_verifier: input.verifier,
-        }, now);
-    }
-    async refreshToken(input, now) {
-        return this.tokenExchange({
-            client_id: input.clientId, client_secret: input.clientSecret,
-            grant_type: 'refresh_token', refresh_token: input.refreshToken,
-        }, now);
-    }
-    async tokenExchange(body, now) {
-        const response = await this.options.fetch(`${this.oauthBase}/login/oauth/access_token`, {
-            method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000),
-        });
-        const value = await response.json().catch(() => ({}));
-        if (!response.ok || typeof value.access_token !== 'string') {
-            throw new GitHubPluginError('oauth_exchange_failed', 502, 'GitHub rejected the OAuth token exchange.');
-        }
-        const expiresIn = Number(value.expires_in);
-        const refreshExpiresIn = Number(value.refresh_token_expires_in);
-        if (!Number.isFinite(expiresIn) || expiresIn <= 0 || typeof value.refresh_token !== 'string' || !Number.isFinite(refreshExpiresIn) || refreshExpiresIn <= 0) {
-            throw new GitHubPluginError('expiring_tokens_required', 503, 'The GitHub App must enable expiring user-to-server tokens.');
-        }
-        return {
-            accessToken: value.access_token, refreshToken: value.refresh_token, tokenType: typeof value.token_type === 'string' ? value.token_type : 'bearer',
-            accessExpiresAt: now + expiresIn * 1_000, refreshExpiresAt: now + refreshExpiresIn * 1_000,
-        };
     }
     async request(token, path, init = {}) {
         const response = await this.options.fetch(`${this.apiBase}${path}`, {

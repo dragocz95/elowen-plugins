@@ -3,11 +3,16 @@ import type { ComponentType } from 'react';
 type AnyComponent = ComponentType<any>;
 export interface Account {
   userId: number; githubUserId: number; login: string; name: string | null; avatarUrl: string | null;
-  tokenExpiresAt: number; refreshExpiresAt: number; status: 'connected' | 'reconnect_required'; lastError: string | null;
+  status: 'connected' | 'reconnect_required'; lastError: string | null;
 }
 export interface StatusResponse {
-  setup: { configured: boolean; clientIdSet: boolean; appSlug: string; clientSecretSet: boolean; callbackUrl: string | null };
   connected: boolean; reconnectRequired: boolean; account: Account | null; mappings: number;
+  flow?: DeviceFlowResponse | null;
+}
+export interface DeviceFlowResponse {
+  flowId: string; userId: number; verificationUrl: string | null; userCode: string | null; directory?: string | null;
+  replaceIdentity: boolean; expiresAt: number; status: 'pending' | 'completing' | 'connected' | 'cancelled' | 'expired' | 'failed' | 'interrupted'; error: string | null;
+  createdAt: number; updatedAt: number;
 }
 export interface RepositoryRow {
   project: { id: number; slug: string };

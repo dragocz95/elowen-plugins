@@ -26,39 +26,16 @@ const route = (ctx: PluginContext, path: string, method: string, access: 'user' 
 };
 
 export function registerGitHubApi(ctx: PluginContext, service: GitHubService): void {
-  route(ctx, 'setup', 'GET', 'admin', () => ({ body: service.setupStatus() }));
-  route(ctx, 'setup/secret', 'POST', 'admin', async (req) => {
-    const input = await objectBody(req);
-    return { body: service.saveClientSecret(text(input.clientSecret), input.expectedVersion === undefined ? undefined : integer(input.expectedVersion)) };
-  });
-  route(ctx, 'status', 'GET', 'user', (req) => ({ body: { setup: service.setupStatus(), ...service.connectionStatus(userId(req)) } }));
+  route(ctx, 'status', 'GET', 'user', (req) => ({ body: service.connectionStatus(userId(req)) }));
   route(ctx, 'auth/start', 'POST', 'user', async (req) => {
     const input = await objectBody(req);
-    return { body: await service.startOAuth(userId(req), { replaceIdentity: input.replaceIdentity === true, reconnect: input.reconnect === true, confirmationToken: text(input.confirmationToken) || undefined }) };
+    return { body: await service.startDeviceAuth(userId(req), { replaceIdentity: input.replaceIdentity === true, reconnect: input.reconnect === true, confirmationToken: text(input.confirmationToken) || undefined }) };
   });
-  route(ctx, 'auth/callback', 'GET', 'user', async (req) => {
-    const destination = new URL('/p/github', service.ctx.publicWebUrl() ?? 'http://localhost');
-    if (req.query.error) {
-      try {
-        service.cancelOAuth(userId(req), text(req.query.state));
-        destination.searchParams.set('github', 'denied');
-        destination.searchParams.set('reason', req.query.error);
-      } catch (error) {
-        const response = errorBody(error);
-        destination.searchParams.set('github', 'error');
-        destination.searchParams.set('reason', String((response.body as { error?: string }).error ?? 'oauth_failed'));
-      }
-      return { status: 302, headers: { location: `${destination.pathname}${destination.search}` } };
-    }
-    try {
-      await service.finishOAuth(userId(req), { state: text(req.query.state), code: text(req.query.code) });
-      destination.searchParams.set('github', 'connected');
-    } catch (error) {
-      const response = errorBody(error);
-      destination.searchParams.set('github', 'error');
-      destination.searchParams.set('reason', String((response.body as { error?: string }).error ?? 'oauth_failed'));
-    }
-    return { status: 302, headers: { location: `${destination.pathname}${destination.search}` } };
+  route(ctx, 'auth/status', 'GET', 'user', (req) => ({ body: service.deviceAuthStatus(userId(req), text(req.query.flowId)) }));
+  route(ctx, 'auth/cancel', 'POST', 'user', async (req) => {
+    const input = await objectBody(req);
+    service.cancelDeviceAuth(userId(req), requiredText(input.flowId, 'flowId'));
+    return { body: { cancelled: true } };
   });
   route(ctx, 'test', 'POST', 'user', async (req) => ({ body: await service.testConnection(userId(req)) }));
   route(ctx, 'repositories', 'GET', 'user', async (req) => ({ body: { repositories: await service.repositories(userId(req), req.auth.accessibleProjects, req.auth.admin) } }));

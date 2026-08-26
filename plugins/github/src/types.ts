@@ -1,14 +1,15 @@
-export interface GitHubPluginConfig {
-  clientId: string;
-  appSlug: string;
-}
-
-export interface OAuthTokenEnvelope {
-  accessToken: string;
-  refreshToken: string;
-  accessExpiresAt: number;
-  refreshExpiresAt: number;
-  tokenType: string;
+export interface DeviceFlow {
+  flowId: string;
+  userId: number;
+  verificationUrl: string | null;
+  userCode: string | null;
+  directory: string | null;
+  replaceIdentity: boolean;
+  expiresAt: number;
+  status: 'pending' | 'completing' | 'connected' | 'cancelled' | 'expired' | 'failed' | 'interrupted';
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface GitHubAccount {
@@ -17,8 +18,6 @@ export interface GitHubAccount {
   login: string;
   name: string | null;
   avatarUrl: string | null;
-  tokenExpiresAt: number;
-  refreshExpiresAt: number;
   status: 'connected' | 'reconnect_required';
   lastError: string | null;
   verifiedAt: number;

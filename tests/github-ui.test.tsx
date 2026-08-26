@@ -25,8 +25,8 @@ function mountAccount() {
   return render(<Wrapper><ToastProvider><GitHubAccountPanel plugin="github" params={{ id: 'connection' }} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
 }
 
-const disconnected = { setup: { configured: true, clientIdSet: true, appSlug: 'app', clientSecretSet: true, callbackUrl: 'https://elowen.example/api/plugins/github/api/auth/callback' }, connected: false, reconnectRequired: false, account: null, mappings: 0 };
-const connected = { ...disconnected, connected: true, account: { userId: 1, githubUserId: 42, login: 'octocat', name: 'Octo Cat', avatarUrl: null, tokenExpiresAt: Date.now() + 100_000, refreshExpiresAt: Date.now() + 200_000, status: 'connected', lastError: null } };
+const disconnected = { connected: false, reconnectRequired: false, account: null, mappings: 0 };
+const connected = { ...disconnected, connected: true, account: { userId: 1, githubUserId: 42, login: 'octocat', name: 'Octo Cat', avatarUrl: null, status: 'connected', lastError: null } };
 const mappedRepository = {
   project: { id: 1, slug: 'project' },
   mapping: { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo', verifiedAt: 1, active: true },
@@ -42,10 +42,25 @@ describe('GitHub plugin UI', () => {
     expect(screen.getByRole('button', { name: strings.connect })).toBeEnabled();
   });
 
+  it('starts, polls and completes the GitHub device flow', async () => {
+    let polls = 0;
+    use(
+      http.get('/api/plugins/github/api/status', () => HttpResponse.json(disconnected)),
+      http.post('/api/plugins/github/api/auth/start', () => HttpResponse.json({ flowId: 'gh-test', verificationUrl: 'https://github.com/login/device', userCode: 'ABCD-EFGH', expiresAt: Date.now() + 60_000 })),
+      http.get('/api/plugins/github/api/auth/status', () => { polls += 1; return HttpResponse.json({ flowId: 'gh-test', status: polls > 1 ? 'connected' : 'pending' }); }),
+    );
+    mountAccount();
+    fireEvent.click(await screen.findByRole('button', { name: strings.connect }));
+    expect(await screen.findByText('ABCD-EFGH')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: strings.verifyOnGitHub })).toHaveAttribute('href', 'https://github.com/login/device');
+    await waitFor(() => expect(polls).toBeGreaterThan(1), { timeout: 5_000 });
+  });
+
   it('keeps repository and session requests off while disconnected', async () => {
     let forbiddenFetches = 0;
     use(
       http.get('/api/plugins/github/api/status', () => HttpResponse.json(disconnected)),
+      http.get('/api/plugins/github', () => { forbiddenFetches += 1; return HttpResponse.json({}); }),
       http.get('/api/plugins/github/api/repositories', () => { forbiddenFetches += 1; return HttpResponse.json({ repositories: [] }); }),
       http.get('/api/brain/sessions', () => { forbiddenFetches += 1; return HttpResponse.json([]); }),
     );

@@ -47,11 +47,6 @@ export class GitHubStore {
         expires_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS p_github_oauth_user_idx ON p_github_oauth_flows(user_id, expires_at);
-      CREATE TABLE IF NOT EXISTS p_github_refresh_leases (
-        user_id INTEGER PRIMARY KEY,
-        owner TEXT NOT NULL,
-        expires_at INTEGER NOT NULL
-      );
       CREATE TABLE IF NOT EXISTS p_github_confirmations (
         token_hash TEXT PRIMARY KEY,
         user_id INTEGER NOT NULL,
@@ -73,6 +68,24 @@ export class GitHubStore {
         owner TEXT NOT NULL,
         expires_at INTEGER NOT NULL
       );
+    `) }, { version: 4, up: (migration) => migration.exec(`
+      CREATE TABLE IF NOT EXISTS p_github_device_flows (
+        flow_id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        verification_url TEXT,
+        user_code TEXT,
+        directory TEXT,
+        replace_identity INTEGER NOT NULL DEFAULT 0,
+        expires_at INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending','completing','connected','cancelled','expired','failed','interrupted')),
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS p_github_device_user_idx ON p_github_device_flows(user_id, updated_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS p_github_active_device_user_idx ON p_github_device_flows(user_id) WHERE status IN ('pending','completing');
+      UPDATE p_github_accounts SET status='reconnect_required', last_error='legacy_oauth_requires_device_login';
+      DROP TABLE IF EXISTS p_github_refresh_leases;
     `) }]);
     }
     account(userId) {
@@ -81,8 +94,7 @@ export class GitHubStore {
             return null;
         return {
             userId: number(value.user_id), githubUserId: number(value.github_user_id), login: string(value.login),
-            name: nullableString(value.name), avatarUrl: nullableString(value.avatar_url), tokenExpiresAt: number(value.token_expires_at),
-            refreshExpiresAt: number(value.refresh_expires_at), status: value.status === 'connected' ? 'connected' : 'reconnect_required',
+            name: nullableString(value.name), avatarUrl: nullableString(value.avatar_url), status: value.status === 'connected' ? 'connected' : 'reconnect_required',
             lastError: nullableString(value.last_error), verifiedAt: number(value.verified_at), updatedAt: number(value.updated_at),
         };
     }
@@ -96,7 +108,7 @@ export class GitHubStore {
     ) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
       github_user_id=excluded.github_user_id,login=excluded.login,name=excluded.name,avatar_url=excluded.avatar_url,
       token_expires_at=excluded.token_expires_at,refresh_expires_at=excluded.refresh_expires_at,status=excluded.status,
-      last_error=excluded.last_error,verified_at=excluded.verified_at,updated_at=excluded.updated_at`).run(account.userId, account.githubUserId, account.login, account.name, account.avatarUrl, account.tokenExpiresAt, account.refreshExpiresAt, account.status, account.lastError, account.verifiedAt, account.updatedAt);
+      last_error=excluded.last_error,verified_at=excluded.verified_at,updated_at=excluded.updated_at`).run(account.userId, account.githubUserId, account.login, account.name, account.avatarUrl, 0, 0, account.status, account.lastError, account.verifiedAt, account.updatedAt);
     }
     markReconnect(userId, code, now) {
         this.db.prepare("UPDATE p_github_accounts SET status='reconnect_required',last_error=?,updated_at=? WHERE user_id=?").run(code, now, userId);
@@ -104,8 +116,8 @@ export class GitHubStore {
     disconnectAccount(userId) {
         this.db.transaction(() => {
             this.db.prepare('DELETE FROM p_github_confirmations WHERE user_id=?').run(userId);
-            this.db.prepare('DELETE FROM p_github_refresh_leases WHERE user_id=?').run(userId);
             this.db.prepare('DELETE FROM p_github_oauth_flows WHERE user_id=?').run(userId);
+            this.db.prepare('DELETE FROM p_github_device_flows WHERE user_id=?').run(userId);
             this.db.prepare('DELETE FROM p_github_accounts WHERE user_id=?').run(userId);
         });
     }
@@ -115,37 +127,53 @@ export class GitHubStore {
             this.db.prepare('DELETE FROM p_github_project_mappings WHERE user_id=?').run(userId);
         });
     }
-    saveFlow(flow) {
-        this.db.prepare('INSERT INTO p_github_oauth_flows(state_hash,user_id,secret_key,redirect_uri,replace_identity,expires_at) VALUES (?,?,?,?,?,?)')
-            .run(flow.stateHash, flow.userId, flow.secretKey, flow.redirectUri, flow.replaceIdentity ? 1 : 0, flow.expiresAt);
+    saveDeviceFlow(flow) {
+        this.db.prepare(`INSERT INTO p_github_device_flows(
+      flow_id,user_id,verification_url,user_code,directory,replace_identity,expires_at,status,error,created_at,updated_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(flow_id) DO UPDATE SET
+      verification_url=excluded.verification_url,user_code=excluded.user_code,directory=excluded.directory,
+      expires_at=excluded.expires_at,status=excluded.status,error=excluded.error,updated_at=excluded.updated_at`).run(flow.flowId, flow.userId, flow.verificationUrl, flow.userCode, flow.directory, flow.replaceIdentity ? 1 : 0, flow.expiresAt, flow.status, flow.error, flow.createdAt, flow.updatedAt);
     }
-    flow(stateHash) {
-        const value = row(this.db.prepare('SELECT * FROM p_github_oauth_flows WHERE state_hash=?').get(stateHash));
-        return value ? {
-            stateHash: string(value.state_hash), userId: number(value.user_id), secretKey: string(value.secret_key),
-            redirectUri: string(value.redirect_uri), replaceIdentity: number(value.replace_identity) === 1, expiresAt: number(value.expires_at),
-        } : null;
+    deviceFlow(flowId) {
+        const value = row(this.db.prepare('SELECT * FROM p_github_device_flows WHERE flow_id=?').get(flowId));
+        return value ? this.deviceFlowRow(value) : null;
     }
-    deleteFlow(stateHash) { return this.db.prepare('DELETE FROM p_github_oauth_flows WHERE state_hash=?').run(stateHash).changes > 0; }
-    flows(input = {}) {
+    deviceFlows(input = {}) {
         const clauses = [];
         const params = [];
         if (input.userId !== undefined) {
             clauses.push('user_id=?');
             params.push(input.userId);
         }
-        if (input.expiredAt !== undefined) {
-            clauses.push('expires_at<=?');
-            params.push(input.expiredAt);
+        if (input.statuses?.length) {
+            clauses.push(`status IN (${input.statuses.map(() => '?').join(',')})`);
+            params.push(...input.statuses);
         }
-        const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
-        return this.db.prepare(`SELECT * FROM p_github_oauth_flows${where}`).all(...params).map((value) => {
-            const flow = row(value);
-            return {
-                stateHash: string(flow.state_hash), userId: number(flow.user_id), secretKey: string(flow.secret_key),
-                redirectUri: string(flow.redirect_uri), replaceIdentity: number(flow.replace_identity) === 1, expiresAt: number(flow.expires_at),
-            };
+        return this.db.prepare(`SELECT * FROM p_github_device_flows${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY updated_at DESC`).all(...params)
+            .map((value) => this.deviceFlowRow(row(value)));
+    }
+    updateDeviceFlow(flowId, patch) {
+        const current = this.deviceFlow(flowId);
+        if (!current)
+            return false;
+        this.saveDeviceFlow({ ...current, ...patch });
+        return true;
+    }
+    deleteDeviceFlow(flowId) { return this.db.prepare('DELETE FROM p_github_device_flows WHERE flow_id=?').run(flowId).changes > 0; }
+    legacyOAuthFlows() {
+        return this.db.prepare('SELECT state_hash, secret_key FROM p_github_oauth_flows').all().map((value) => {
+            const item = row(value);
+            return { stateHash: string(item.state_hash), secretKey: string(item.secret_key) };
         });
+    }
+    deleteLegacyOAuthFlow(stateHash) { this.db.prepare('DELETE FROM p_github_oauth_flows WHERE state_hash=?').run(stateHash); }
+    deviceFlowRow(value) {
+        return {
+            flowId: string(value.flow_id), userId: number(value.user_id), verificationUrl: nullableString(value.verification_url),
+            userCode: nullableString(value.user_code), directory: nullableString(value.directory), replaceIdentity: number(value.replace_identity) === 1,
+            expiresAt: number(value.expires_at), status: string(value.status), error: nullableString(value.error),
+            createdAt: number(value.created_at), updatedAt: number(value.updated_at),
+        };
     }
     mapping(userId, projectId) {
         const value = row(this.db.prepare('SELECT * FROM p_github_project_mappings WHERE user_id=? AND project_id=?').get(userId, projectId));
@@ -178,15 +206,6 @@ export class GitHubStore {
         this.db.prepare('UPDATE p_github_project_mappings SET active=0 WHERE user_id=?').run(userId);
     }
     deleteProject(projectId) { this.db.prepare('DELETE FROM p_github_project_mappings WHERE project_id=?').run(projectId); }
-    acquireRefreshLease(userId, owner, now, ttlMs) {
-        return this.db.transaction(() => {
-            this.db.prepare('DELETE FROM p_github_refresh_leases WHERE user_id=? AND expires_at<=?').run(userId, now);
-            return this.db.prepare('INSERT OR IGNORE INTO p_github_refresh_leases(user_id,owner,expires_at) VALUES (?,?,?)').run(userId, owner, now + ttlMs).changes === 1;
-        });
-    }
-    releaseRefreshLease(userId, owner) {
-        this.db.prepare('DELETE FROM p_github_refresh_leases WHERE user_id=? AND owner=?').run(userId, owner);
-    }
     acquirePullRequestLease(leaseKey, owner, now, ttlMs) {
         return this.db.transaction(() => {
             this.db.prepare('DELETE FROM p_github_pr_leases WHERE lease_key=? AND expires_at<=?').run(leaseKey, now);
@@ -230,9 +249,9 @@ export class GitHubStore {
         });
     }
     prune(now) {
-        this.db.prepare('DELETE FROM p_github_refresh_leases WHERE expires_at<=?').run(now);
         this.db.prepare('DELETE FROM p_github_pr_leases WHERE expires_at<=?').run(now);
         this.db.prepare('DELETE FROM p_github_confirmations WHERE expires_at<=?').run(now);
+        this.db.prepare("DELETE FROM p_github_device_flows WHERE status NOT IN ('pending','completing') AND updated_at<=?").run(now - 15 * 60_000);
     }
     reconcile(validUsers, validProjects) {
         for (const value of this.db.prepare('SELECT user_id FROM p_github_accounts').all()) {

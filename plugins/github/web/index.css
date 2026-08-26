@@ -5,6 +5,9 @@
   .mt-1 {
     margin-top: var(--spacing, 0.25rem);
   }
+  .mt-3 {
+    margin-top: calc(var(--spacing, 0.25rem) * 3);
+  }
   .mt-4 {
     margin-top: calc(var(--spacing, 0.25rem) * 4);
   }
@@ -70,9 +73,6 @@
   .justify-between {
     justify-content: space-between;
   }
-  .justify-end {
-    justify-content: flex-end;
-  }
   .gap-2 {
     gap: calc(var(--spacing, 0.25rem) * 2);
   }
@@ -89,11 +89,6 @@
     --tw-space-y-reverse: 0;
     margin-block-start: calc(var(--space-2, 0.5rem) * var(--tw-space-y-reverse));
     margin-block-end: calc(var(--space-2, 0.5rem) * calc(1 - var(--tw-space-y-reverse)));
-  }
-  :where(.space-y-3 > :not(:last-child)) {
-    --tw-space-y-reverse: 0;
-    margin-block-start: calc(var(--space-3, 0.75rem) * var(--tw-space-y-reverse));
-    margin-block-end: calc(var(--space-3, 0.75rem) * calc(1 - var(--tw-space-y-reverse)));
   }
   :where(.space-y-4 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
@@ -142,9 +137,6 @@
   .bg-surface {
     background-color: var(--color-surface, #070707);
   }
-  .p-2 {
-    padding: calc(var(--spacing, 0.25rem) * 2);
-  }
   .p-3 {
     padding: calc(var(--spacing, 0.25rem) * 3);
   }
@@ -159,6 +151,9 @@
   }
   .py-4 {
     padding-block: calc(var(--spacing, 0.25rem) * 4);
+  }
+  .text-center {
+    text-align: center;
   }
   .font-mono {
     font-family: var(--font-mono, var(--font-geist-mono), ui-monospace, "SF Mono", monospace);
@@ -186,12 +181,13 @@
     --tw-font-weight: var(--font-weight-semibold, 600);
     font-weight: var(--font-weight-semibold, 600);
   }
+  .tracking-\[0\.2em\] {
+    --tw-tracking: 0.2em;
+    letter-spacing: 0.2em;
+  }
   .tracking-wide {
     --tw-tracking: var(--tracking-wide, 0.025em);
     letter-spacing: var(--tracking-wide, 0.025em);
-  }
-  .break-all {
-    word-break: break-all;
   }
   .whitespace-pre-wrap {
     white-space: pre-wrap;

@@ -25,7 +25,7 @@ export function registerGitHubTools(ctx: PluginContext, service: GitHubService):
     defineTool({
       name: 'GithubConnectionStatus', label: 'GitHub connection status',
       description: 'Report whether the current Elowen account is connected to GitHub, whether reconnect is required, and how many project mappings it owns. This never returns tokens or secrets.',
-      parameters: Type.Object({}), execute: async () => { try { return result({ setup: service.setupStatus(), ...service.connectionStatus() }); } catch (error) { return failure(error); } },
+      parameters: Type.Object({}), execute: async () => { try { return result(service.connectionStatus()); } catch (error) { return failure(error); } },
     }),
     defineTool({
       name: 'GithubRepositoryStatus', label: 'GitHub repository status',
