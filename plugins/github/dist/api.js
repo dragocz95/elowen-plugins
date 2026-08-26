@@ -42,8 +42,16 @@ export function registerGitHubApi(ctx, service) {
     route(ctx, 'auth/callback', 'GET', 'user', async (req) => {
         const destination = new URL('/p/github', service.ctx.publicWebUrl() ?? 'http://localhost');
         if (req.query.error) {
-            destination.searchParams.set('github', 'denied');
-            destination.searchParams.set('reason', req.query.error);
+            try {
+                service.cancelOAuth(userId(req), text(req.query.state));
+                destination.searchParams.set('github', 'denied');
+                destination.searchParams.set('reason', req.query.error);
+            }
+            catch (error) {
+                const response = errorBody(error);
+                destination.searchParams.set('github', 'error');
+                destination.searchParams.set('reason', String(response.body.error ?? 'oauth_failed'));
+            }
             return { status: 302, headers: { location: `${destination.pathname}${destination.search}` } };
         }
         try {

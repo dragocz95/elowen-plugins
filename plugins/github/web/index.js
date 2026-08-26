@@ -201,7 +201,7 @@ var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var STATUS_KEY = ["plugin", "github", "status"];
 var REPOSITORIES_KEY = ["plugin", "github", "repositories"];
 function GitHubPage() {
-  const { components: C, hooks, api } = runtime();
+  const { components: C, hooks, api, utils } = runtime();
   const s = hooks.usePluginStrings("github");
   const { toast } = hooks.useToast();
   const qc = hooks.useQueryClient();
@@ -271,7 +271,28 @@ function GitHubPage() {
     onSuccess: (value, action) => setPending({ action, preview: value }),
     onError: (error) => toast(localizedError(error, s), "error")
   });
-  const confirm = mutation((value) => api("/plugins/github/api/actions/confirm", jsonBody({ ...value.action, confirmationToken: value.token })), s.actionComplete);
+  const confirm = hooks.useMutation({
+    mutationFn: (value) => api("/plugins/github/api/actions/confirm", jsonBody({ ...value.action, confirmationToken: value.token })),
+    onSuccess: async () => {
+      setPending(null);
+      await invalidate();
+      toast(s.actionComplete);
+    },
+    onError: async (error) => {
+      const code = utils.apiErrorMessage(error);
+      const statusCode = error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
+      if (code === "state_changed" || code === "head_changed" || statusCode === 409) {
+        setPending(null);
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: REPOSITORIES_KEY }),
+          qc.invalidateQueries({ queryKey: ["plugin", "github", "pulls"] }),
+          qc.invalidateQueries({ queryKey: ["plugin", "github", "pull"] }),
+          qc.invalidateQueries({ queryKey: ["plugin", "github", "checks"] })
+        ]);
+      }
+      toast(localizedError(error, s), "error");
+    }
+  });
   const connect = mutation((value) => api("/plugins/github/api/auth/start", jsonBody(value)));
   const beginConnect = () => connect.mutate(status.data?.reconnectRequired ? { reconnect: true } : {}, { onSuccess: (value) => window.location.assign(value.authorizeUrl) });
   const beginReplace = () => preview.mutate({ type: "replace_identity" });
@@ -281,7 +302,7 @@ function GitHubPage() {
       connect.mutate({ replaceIdentity: true, confirmationToken: pending.preview.confirmationToken }, { onSuccess: (value) => window.location.assign(value.authorizeUrl) });
       return;
     }
-    confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken }, { onSuccess: () => setPending(null) });
+    confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken });
   };
   const filteredPulls = (0, import_react3.useMemo)(() => {
     const needle = search.trim().toLowerCase();
