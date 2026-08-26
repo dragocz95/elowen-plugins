@@ -146,9 +146,9 @@ test('TaskDelete and user API routes keep session tasks tenant-scoped and clear 
     assert.ok(found, `${method} ${path} registered`);
     return found;
   };
-  const request = ({ userId = 7, tokenScope = 'user', taskId, body } = {}) => ({
+  const request = ({ userId = 7, tokenScope = 'user', taskId, scope, body } = {}) => ({
     auth: { userId, admin: false, tokenScope },
-    query: { session: 'brain-7-a', ...(taskId ? { taskId } : {}) },
+    query: { session: 'brain-7-a', ...(taskId ? { taskId } : {}), ...(scope ? { scope } : {}) },
     params: {},
     json: async () => taskId && body ? { ...body, taskId } : body,
   });
@@ -174,6 +174,47 @@ test('TaskDelete and user API routes keep session tasks tenant-scoped and clear 
   const deleted = json(await h.tool('TaskDelete').execute('2', { taskId: '2' }));
   assert.deepEqual(deleted, { success: true, taskId: '2' });
   assert.deepEqual((await route('GET', 'tasks').handler(request())).body, { tasks: [] });
+});
+
+test('bulk clear removes the requested rows without resetting the conversation id counter', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  await create.execute('1', {
+    tasks: [
+      { subject: 'Finished', description: 'done' },
+      { subject: 'Still open', description: 'pending', blockedByIndex: [1] },
+    ],
+  });
+  await update.execute('2', { taskId: '1', status: 'completed' });
+
+  const clear = h.routes.find((route) => route.method === 'DELETE' && route.path === 'tasks');
+  assert.ok(clear);
+  const request = (scope) => ({
+    auth: { userId: 7, admin: false, tokenScope: 'user' },
+    query: { session: 'brain-7-a', scope }, params: {},
+  });
+
+  assert.equal((await clear.handler(request('unknown'))).status, 400);
+  const completed = await clear.handler(request('completed'));
+  assert.equal(completed.body.success, true);
+  assert.equal(completed.body.removed, 1);
+  assert.deepEqual(completed.body.tasks.map((task) => ({ id: task.id, subject: task.subject, blockedBy: task.blockedBy })), [
+    { id: '2', subject: 'Still open', blockedBy: [] },
+  ]);
+  assert.equal(h.rawDb.prepare('SELECT next_id FROM p_todo_task_lists WHERE list_key = ?').get('u7#brain-7-a').next_id, 3);
+
+  assert.deepEqual(json(await create.execute('3', {
+    tasks: [{ subject: 'New work', description: 'after completed clear' }],
+  })).tasks, [{ id: '3', subject: 'New work' }]);
+
+  const all = await clear.handler(request('all'));
+  assert.equal(all.body.removed, 2);
+  assert.deepEqual(all.body.tasks, []);
+  assert.equal(h.rawDb.prepare('SELECT next_id FROM p_todo_task_lists WHERE list_key = ?').get('u7#brain-7-a').next_id, 4);
+  assert.deepEqual(json(await create.execute('4', {
+    tasks: [{ subject: 'After clear all', description: 'counter survives' }],
+  })).tasks, [{ id: '4', subject: 'After clear all' }]);
 });
 
 test('a completed task survives the next TaskCreate, on the card and as a usable id', async (t) => {

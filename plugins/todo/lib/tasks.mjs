@@ -102,6 +102,14 @@ class TaskStore {
     this.updateTask = db.prepare('UPDATE p_todo_tasks SET subject=?,description=?,active_form=?,status=?,owner=?,metadata_json=? WHERE list_key=? AND id=?');
     this.deleteTask = db.prepare('DELETE FROM p_todo_tasks WHERE list_key = ? AND id = ?');
     this.deleteTaskEdges = db.prepare('DELETE FROM p_todo_task_blockers WHERE list_key = ? AND (task_id = ? OR blocker_id = ?)');
+    this.deleteCompletedEdges = db.prepare(`
+      DELETE FROM p_todo_task_blockers
+      WHERE list_key = ? AND (
+        task_id IN (SELECT id FROM p_todo_tasks WHERE list_key = ? AND status = 'completed')
+        OR blocker_id IN (SELECT id FROM p_todo_tasks WHERE list_key = ? AND status = 'completed')
+      )
+    `);
+    this.deleteCompletedTasks = db.prepare("DELETE FROM p_todo_tasks WHERE list_key = ? AND status = 'completed'");
     this.deleteListTasks = db.prepare('DELETE FROM p_todo_tasks WHERE list_key = ?');
     this.deleteListEdges = db.prepare('DELETE FROM p_todo_task_blockers WHERE list_key = ?');
     this.insertEdge = db.prepare('INSERT OR IGNORE INTO p_todo_task_blockers(list_key,task_id,blocker_id) VALUES (?,?,?)');
@@ -213,6 +221,17 @@ class TaskStore {
       this.deleteTaskEdges.run(key, taskId, taskId);
       this.deleteTask.run(key, taskId);
       return { success: true, taskId: String(taskId) };
+    });
+  }
+
+  clear(key, scope) {
+    return this.db.transaction(() => {
+      if (scope === 'completed') {
+        this.deleteCompletedEdges.run(key, key, key);
+        return this.deleteCompletedTasks.run(key).changes;
+      }
+      this.deleteListEdges.run(key);
+      return this.deleteListTasks.run(key).changes;
     });
   }
 
@@ -409,6 +428,22 @@ export function registerTaskMode(ctx, db) {
       catch (error) {
         const message = safeError(ctx, error);
         return jsonRes({ error: message }, message === 'task not found' ? 404 : 503);
+      }
+    },
+  });
+
+  ctx.registerApiRoute({
+    path: 'tasks', method: 'DELETE', access: 'user',
+    handler: async (req) => {
+      const resolved = routeKey(req);
+      if (resolved.error) return resolved.error;
+      const scope = String(req.query.scope ?? '');
+      if (scope !== 'completed' && scope !== 'all') return jsonRes({ error: 'invalid clear scope' }, 400);
+      try {
+        const removed = store.clear(resolved.key, scope);
+        return jsonRes({ success: true, removed, tasks: store.list(resolved.key) });
+      } catch (error) {
+        return jsonRes({ error: safeError(ctx, error) }, 503);
       }
     },
   });
