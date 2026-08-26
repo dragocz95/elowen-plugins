@@ -9,7 +9,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 1,
+    "requiresApiVersion": 6,
     "nav": [
       {
         "label": "Statistics",

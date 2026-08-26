@@ -1979,6 +1979,54 @@ export function SpatialIdentity({ children, actions }: { children: ReactNode; ac
   );
 }
 
+export interface TimeSeriesPoint {
+  label: string;
+  [key: string]: string | number | null;
+}
+
+export interface TimeSeriesSeries {
+  key: string;
+  label: string;
+  colour: string;
+  variant?: 'bar' | 'line';
+  axis?: 'left' | 'right';
+  format: (value: number) => string;
+}
+
+/** The host's charting primitive. The real one lazily loads Recharts; a bundle only ever sees the
+ *  contract, so the double renders the same frame and the same text-equivalent data the real chart
+ *  exposes to a screen reader — which is exactly what a test can assert against. */
+export function TimeSeriesChart({ data, series, height = 220, emptyText, ariaLabel }: {
+  data: TimeSeriesPoint[]; series: TimeSeriesSeries[]; height?: number; emptyText?: string; ariaLabel?: string;
+}) {
+  if (data.length === 0) {
+    return <p className="py-10 text-center text-sm text-text-muted">{emptyText ?? ''}</p>;
+  }
+  return (
+    <figure className="flex min-w-0 flex-col gap-2" style={{ minHeight: height }}>
+      <figcaption className="flex min-w-0 flex-wrap items-center gap-4 text-xs text-text-muted">
+        {series.map((entry) => (
+          <span key={entry.key} className="inline-flex items-center gap-1.5">
+            <span aria-hidden style={{ background: entry.colour }} className="h-2 w-2 rounded-full" />
+            {entry.label}
+          </span>
+        ))}
+      </figcaption>
+      <ul className="sr-only">
+        {data.map((point) => (
+          <li key={point.label}>
+            {point.label}: {series.map((entry) => {
+              const value = point[entry.key];
+              return `${entry.label} ${value == null ? '—' : entry.format(Number(value))}`;
+            }).join(', ')}
+          </li>
+        ))}
+      </ul>
+      {ariaLabel ? <span className="sr-only">{ariaLabel}</span> : null}
+    </figure>
+  );
+}
+
 /** The common shape: one settings group. The section's own name never appears inside the card — on a
  *  page it is the page header, and in the deck the section rail already carries it. */
 export function PluginSection({ surface, title, description, icon, action, actions, className, density, children }: {

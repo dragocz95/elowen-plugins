@@ -59,7 +59,7 @@ export function ensurePluginUiRuntime(): void {
       ChangeStrip: C.ChangeStrip,
       // The settings-extraction surface (the moved CLI-agents / autopilot / GitHub sections).
       SettingsDocument: C.SettingsDocument, SettingsGroup: C.SettingsGroup, SettingsRow: C.SettingsRow,
-      SpatialIdentity: C.SpatialIdentity,
+      SpatialIdentity: C.SpatialIdentity, TimeSeriesChart: C.TimeSeriesChart,
       BackendPicker: C.BackendPicker, ProviderPicker: C.ProviderPicker, ModelCatalogField: C.ModelCatalogField,
       ChoiceField: C.ChoiceField, ConstellationScope: C.ConstellationScope, ProviderLogo: C.ProviderLogo,
       PluginPageFrame: C.PluginPageFrame, PluginPageHeader: C.PluginPageHeader, PluginSection: C.PluginSection,

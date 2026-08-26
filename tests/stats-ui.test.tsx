@@ -145,7 +145,10 @@ describe('stats UI registration', () => {
     expect((manifest as { web: { nav: { route: string }[] } }).web.nav.map((entry) => entry.route)).toEqual(['']);
     expect(Object.keys(registration.pages)).toEqual(['']);
     expect(registration.pages['']).toBe(StatsView);
-    expect(registration.requiresApiVersion).toBe(1);
+    // Pinned to the manifest rather than a literal: the host decides whether to serve this bundle from
+    // the manifest, so a bundle that self-declares a different floor would be offered to a host that
+    // cannot satisfy it. Bumping one without the other is the bug this catches.
+    expect(registration.requiresApiVersion).toBe((manifest as { web: { requiresApiVersion: number } }).web.requiresApiVersion);
   });
 });
 
