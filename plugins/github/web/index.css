@@ -29,13 +29,9 @@
   .inline-flex {
     display: inline-flex;
   }
-  .size-12 {
-    width: calc(var(--spacing, 0.25rem) * 12);
-    height: calc(var(--spacing, 0.25rem) * 12);
-  }
-  .size-14 {
-    width: calc(var(--spacing, 0.25rem) * 14);
-    height: calc(var(--spacing, 0.25rem) * 14);
+  .size-\[72px\] {
+    width: 72px;
+    height: 72px;
   }
   .h-9 {
     height: calc(var(--spacing, 0.25rem) * 9);
@@ -55,6 +51,9 @@
   .flex-1 {
     flex: 1;
   }
+  .shrink-0 {
+    flex-shrink: 0;
+  }
   .transform {
     transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
   }
@@ -73,6 +72,9 @@
   .justify-between {
     justify-content: space-between;
   }
+  .gap-1 {
+    gap: var(--spacing, 0.25rem);
+  }
   .gap-2 {
     gap: calc(var(--spacing, 0.25rem) * 2);
   }
@@ -81,6 +83,9 @@
   }
   .gap-4 {
     gap: calc(var(--spacing, 0.25rem) * 4);
+  }
+  .gap-6 {
+    gap: calc(var(--spacing, 0.25rem) * 6);
   }
   :where(.space-y-2 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
@@ -133,6 +138,9 @@
   }
   .bg-surface {
     background-color: var(--color-surface, #070707);
+  }
+  .object-cover {
+    object-fit: cover;
   }
   .p-3 {
     padding: calc(var(--spacing, 0.25rem) * 3);

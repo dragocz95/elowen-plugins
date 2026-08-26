@@ -1969,23 +1969,25 @@ export function PluginPageFrame({ surface, title, description, icon, action, chi
   );
 }
 
-/** The common shape: one settings group. In the deck the group carries its own title block; on a page
- *  that block becomes the page header instead. */
+/** The identity block a section leads with — an avatar and its names on the left, actions on the right. */
+export function SpatialIdentity({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="spatial-identity">
+      <div className="min-w-0 flex-1">{children}</div>
+      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+    </div>
+  );
+}
+
+/** The common shape: one settings group. The section's own name never appears inside the card — on a
+ *  page it is the page header, and in the deck the section rail already carries it. */
 export function PluginSection({ surface, title, description, icon, action, actions, className, density, children }: {
   surface: 'page' | 'deck'; title: string; description?: string; icon?: LucideIcon;
   action?: ReactNode; actions?: ReactNode; className?: string; density?: 'comfortable' | 'compact'; children: ReactNode;
 }) {
-  const deck = surface === 'deck';
   return (
     <PluginPageFrame surface={surface} title={title} description={description} icon={icon} action={action}>
-      <SettingsGroup
-        className={className}
-        icon={deck ? icon : undefined}
-        title={deck ? title : undefined}
-        description={deck ? description : undefined}
-        actions={actions}
-        density={density}
-      >
+      <SettingsGroup className={className} actions={actions} density={density}>
         {children}
       </SettingsGroup>
     </PluginPageFrame>

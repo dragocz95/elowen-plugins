@@ -42,8 +42,11 @@ describe('GitHub plugin UI', () => {
       http.post('/api/plugins/github/api/setup/secret', () => { setupRequests += 1; return HttpResponse.json({}); }),
     );
     mountAccount();
-    expect(await screen.findByText(strings.accountTitle)).toBeInTheDocument();
-    expect(screen.getByText(strings.accountHint)).toBeInTheDocument();
+    // The section rail names this section, so the panel repeats neither the title nor the hint; a
+    // disconnected account explains itself through the empty state's own words.
+    expect(await screen.findByText(strings.disconnected)).toBeInTheDocument();
+    expect(screen.getByText(strings.intro)).toBeInTheDocument();
+    expect(screen.queryByText(strings.accountTitle)).toBeNull();
     expect(screen.getByRole('button', { name: strings.connect })).toBeEnabled();
     expect(setupRequests).toBe(0);
   });

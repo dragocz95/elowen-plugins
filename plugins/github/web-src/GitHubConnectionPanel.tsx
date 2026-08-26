@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Github } from 'lucide-react';
+import { GitFork, Github, Hash } from 'lucide-react';
 import { jsonBody, localizedError, runtime, type DeviceFlowResponse, type Preview, type StatusResponse } from './runtime';
 
 export const STATUS_KEY = ['plugin', 'github', 'status'];
 interface PendingConnectionAction { action: Record<string, unknown>; preview: Preview }
 interface DeviceChallenge { flowId: string; verificationUrl: string; userCode: string; expiresAt: number }
 
-export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | Promise<void> }) {
+export function GitHubConnectionPanel({ onChanged, surface }: { onChanged?: () => void | Promise<void>; surface?: 'page' | 'deck' }) {
   const { components: C, hooks, api, utils } = runtime();
   const s = hooks.usePluginStrings('github');
   const { toast } = hooks.useToast();
@@ -120,33 +120,45 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
 
   return <>
     {status.data?.connected && account ? (
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-4">
-          {account.avatarUrl ? <img src={account.avatarUrl} alt="" className="size-14 rounded-full border border-border" /> : <Github className="size-12" />}
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-lg font-semibold text-text">{account.name || account.login}</div>
-            <div className="truncate text-sm text-text-muted">@{account.login}</div>
+      /* Shaped exactly like the Account profile section: the connected identity leads, above a card of
+         plain rows. The avatar is GitHub's, so it is an <img> rather than the host Avatar, which renders
+         an Elowen account. */
+      <>
+        <C.SpatialIdentity actions={(
+          <>
+            <button type="button" className="spatial-inline-action" onClick={() => test.mutate()} disabled={test.isPending}>
+              <Github size={14} aria-hidden />{s.testConnection}
+            </button>
+            <button type="button" className="spatial-inline-action" onClick={() => preview.mutate({ type: 'replace_identity' })}>
+              {s.replaceIdentity}
+            </button>
+            <button type="button" className="spatial-inline-action text-danger" onClick={() => preview.mutate({ type: 'disconnect' })}>
+              {s.disconnect}
+            </button>
+          </>
+        )}>
+          <div className="flex items-center gap-4">
+            {account.avatarUrl
+              ? <img src={account.avatarUrl} alt="" className="size-[72px] shrink-0 rounded-full border border-border object-cover" />
+              : <Github className="size-[72px] shrink-0 rounded-full border border-border p-4 text-text-muted" />}
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <span className="flex items-center gap-2">
+                <span className="truncate text-lg font-semibold text-text">{account.name || account.login}</span>
+                <C.Badge tone={status.data.reconnectRequired ? 'danger' : 'success'}>{status.data.reconnectRequired ? s.reconnectRequired : s.connected}</C.Badge>
+              </span>
+              <span className="truncate font-mono text-xs text-text-muted">@{account.login}</span>
+            </div>
           </div>
-          <C.Badge tone={status.data.reconnectRequired ? 'danger' : 'success'}>{status.data.reconnectRequired ? s.reconnectRequired : s.connected}</C.Badge>
-        </div>
-        {/* The connection's facts read through the host's own table, so this panel lines up with every
-            other record surface in the app instead of inventing a private definition list. */}
-        <C.DataTable ariaLabel={s.accountTitle || s.title} columns="minmax(0,14rem) minmax(0,1fr)">
-          <C.DataTableRow>
-            <C.DataTableCell className="text-text-muted">{s.mappings}</C.DataTableCell>
-            <C.DataTableCell><span className="block truncate font-mono text-text">{status.data.mappings}</span></C.DataTableCell>
-          </C.DataTableRow>
-          <C.DataTableRow>
-            <C.DataTableCell className="text-text-muted">GitHub ID</C.DataTableCell>
-            <C.DataTableCell><span className="block truncate font-mono text-text">{account.githubUserId}</span></C.DataTableCell>
-          </C.DataTableRow>
-        </C.DataTable>
-        <div className="flex flex-wrap gap-2">
-          <C.Button variant="ghost" onClick={() => test.mutate()} disabled={test.isPending}>{s.testConnection}</C.Button>
-          <C.Button variant="ghost" onClick={() => preview.mutate({ type: 'replace_identity' })}>{s.replaceIdentity}</C.Button>
-          <C.Button variant="ghost-danger" onClick={() => preview.mutate({ type: 'disconnect' })}>{s.disconnect}</C.Button>
-        </div>
-      </div>
+        </C.SpatialIdentity>
+        <C.PluginSection surface={surface ?? 'deck'} title={s.accountTitle || s.title} description={s.accountHint || s.intro} icon={Github}>
+          <C.SettingsRow label={s.mappings} icon={GitFork} status={<span className="font-mono">{status.data.mappings}</span>} />
+          <C.SettingsRow
+            label="GitHub ID"
+            icon={Hash}
+            status={<span className="font-mono">{account.githubUserId}</span>}
+          />
+        </C.PluginSection>
+      </>
     ) : (
       <C.EmptyState title={status.data?.reconnectRequired ? s.reconnectRequired : s.disconnected} description={s.intro} icon={Github} action={<C.Button variant="accent" onClick={beginConnect} disabled={connect.isPending}>{status.data?.reconnectRequired ? s.reconnect : s.connect}</C.Button>} />
     )}

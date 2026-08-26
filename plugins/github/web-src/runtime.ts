@@ -47,6 +47,9 @@ interface RuntimeComponents {
   Modal: AnyComponent; ModalBody: AnyComponent; ModalFooter: AnyComponent; LoadingState: AnyComponent; ErrorState: AnyComponent;
   EmptyState: AnyComponent; SpatialWorkspaceLayout: AnyComponent; WorkspaceMetric: AnyComponent; WorkspaceDetailRail: AnyComponent;
   PluginSection: AnyComponent; DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent; PatchView: AnyComponent; ConfirmDialog: AnyComponent;
+  // The host's own account primitives. The connection panel is one section of the Account page and
+  // has to be built from the same pieces the native sections are, not from an approximation of them.
+  SpatialIdentity: AnyComponent; SettingsRow: AnyComponent; Avatar: AnyComponent;
   Segmented: AnyComponent;
 }
 interface GitHubRuntime { components: RuntimeComponents; hooks: RuntimeHooks; utils: { apiErrorMessage(error: unknown): string }; api(path: string, init?: RequestInit): Promise<unknown>; navigate(href: string): void }
@@ -59,7 +62,7 @@ export function runtime(): GitHubRuntime {
 }
 export function registerGitHubUi(account: ComponentType<any>, project: ComponentType<any>): void {
   (window as HostWindow).__elowenRegisterPluginUi?.('github', {
-    requiresApiVersion: 4,
+    requiresApiVersion: 6,
     account: { connection: account },
     project: { repository: project },
   });
