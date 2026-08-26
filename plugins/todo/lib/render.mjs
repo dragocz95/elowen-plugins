@@ -29,7 +29,7 @@ export function pushTaskCard(ctx, tasks) {
       const blocked = blockers.length ? ` (blocked by ${blockers.map((id) => `#${id}`).join(', ')})` : '';
       const owner = task.owner ? ` — ${task.owner}` : '';
       const text = task.status === 'in_progress' && task.activeForm ? task.activeForm : task.subject;
-      return { text: `${text}${owner}${blocked}`, status: task.status };
+      return { text: `#${task.id} ${text}${owner}${blocked}`, status: task.status };
     }),
   });
 }

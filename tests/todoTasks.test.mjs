@@ -90,7 +90,7 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   });
 
   await update.execute('5', { taskId: '1', status: 'in_progress' });
-  assert.equal(h.cards.at(-1).items[0].text, 'Inspecting auth');
+  assert.equal(h.cards.at(-1).items[0].text, '#1 Inspecting auth');
   assert.match(h.cards.at(-1).items[1].text, /blocked by #1/);
   assert.match(h.cards.at(-1).items[1].text, /Luna/);
   assert.doesNotMatch(JSON.stringify(h.cards.at(-1)), /private-token|hidden-value|Deploy only/);
@@ -188,8 +188,8 @@ test('a completed task survives the next TaskCreate, on the card and as a usable
   await create.execute('3', { tasks: [{ subject: 'Task B', description: 'second' }] });
 
   assert.deepEqual(h.cards.at(-1).items, [
-    { text: 'Task A', status: 'completed' },
-    { text: 'Task B', status: 'pending' },
+    { text: '#1 Task A', status: 'completed' },
+    { text: '#2 Task B', status: 'pending' },
   ]);
   assert.deepEqual(json(await h.tool('TaskList').execute('4', {})).tasks.map((task) => task.id), ['1', '2']);
   assert.equal(json(await update.execute('5', { taskId: first, status: 'in_progress' })).success, true);
