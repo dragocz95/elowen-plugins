@@ -124,6 +124,18 @@
       }
     },
     {
+      "name": "onedrive",
+      "version": "0.1.0",
+      "requiresCore": "0.28.15",
+      "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
+      "category": "productivity",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "apiRoutes": 7
+      }
+    },
+    {
       "name": "skills",
       "version": "0.2.4",
       "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",

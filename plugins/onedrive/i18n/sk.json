@@ -1,0 +1,59 @@
+{
+  "description": "Zrkadlí Projekt medzi démonom a osobným OneDrive každého človeka v oboch smeroch, takže súbory vytvorené agentom sa objavia v jeho OneDrive bez toho, aby ich bolo treba odovzdávať v chate.",
+  "fields": {
+    "rootFolder": {
+      "label": "Priečinok v OneDrive",
+      "hint": "Nadradený priečinok vytvorený v osobnom OneDrive každého človeka. Projekty a pracovné priestory Sandboxu sa zrkadlia do oddelených podpriečinkov."
+    },
+    "intervalSeconds": {
+      "label": "Interval synchronizácie",
+      "hint": "Ako často sa pripojené zrkadlo kontroluje, v sekundách. Nižšia hodnota reaguje rýchlejšie a spotrebuje viac volaní Microsoft Graphu."
+    },
+    "maxFileMb": {
+      "label": "Najväčší súbor",
+      "hint": "Súbory nad túto veľkosť sa v oboch smeroch preskočia a nahlásia, namiesto toho aby boli ticho vynechané."
+    },
+    "extraIgnore": {
+      "label": "Ďalšie ignorované cesty",
+      "hint": "Vzory oddelené čiarkou, vylúčené nad rámec súboru .gitignore daného projektu. Interné súbory správy verzií, závislosti a prihlasovacie údaje sú vylúčené vždy a nedajú sa tu povoliť."
+    },
+    "applyRemoteDeletions": {
+      "label": "Premietať zmazanie z OneDrive",
+      "hint": "Keď niekto zmaže zrkadlený súbor v OneDrive, presunie sa lokálna kópia do koša daného zrkadla. Súbor sa nikdy neodstráni natrvalo a vždy sa dá obnoviť."
+    }
+  },
+  "web": {
+    "project": {
+      "mirror": "OneDrive"
+    },
+    "strings": {
+      "title": "OneDrive",
+      "connectCta": "Připojit OneDrive",
+      "connectHint": "Zrkadlite tento projekt do vlastného OneDrive, v oboch smeroch.",
+      "connectConfirm": "Spustiť zrkadlenie",
+      "notLinked": "Váš účet nie je prepojený s Microsoftom.",
+      "statusIdle": "Synchronizované",
+      "statusSyncing": "Prebieha synchronizácia",
+      "statusPaused": "Pozastavené",
+      "statusError": "Vyžaduje pozornosť",
+      "lastSync": "Posledná synchronizácia",
+      "never": "Nikdy",
+      "files": "Súbory",
+      "folder": "Priečinok",
+      "openFolder": "Otvoriť v OneDrive",
+      "workspaces": "Pracovné priestory Sandboxu",
+      "workspacesHint": "Každý pracovný priestor sa zrkadlí do vlastného priečinka, oddelene od samotného projektu.",
+      "conflicts": "Konflikty",
+      "conflictsHint": "Obe verzie boli zachované. Vyberte, ktorá má platiť; nič sa v žiadnom prípade nezmaže.",
+      "keepLocal": "Ponechať lokálnu",
+      "keepRemote": "Vziať z OneDrive",
+      "syncNow": "Synchronizovať teraz",
+      "pause": "Pozastaviť",
+      "resume": "Obnoviť",
+      "disconnect": "Odpojiť",
+      "disconnectHint": "Zrkadlenie sa zastaví. Súbory, ktoré už v OneDrive sú, zostanú bez zmeny.",
+      "mirrorScope": "Čo sa zrkadlí",
+      "mirrorScopeHint": "Všetko, čo ponecháva súbor .gitignore daného projektu. Interné súbory správy verzií, závislosti a prihlasovacie údaje sú vylúčené vždy."
+    }
+  }
+}

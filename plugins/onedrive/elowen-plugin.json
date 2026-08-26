@@ -60,7 +60,8 @@
   ],
   "web": {
     "entry": "web/index.js",
-    "requiresApiVersion": 4,
+    "css": "web/index.css",
+    "requiresApiVersion": 6,
     "project": [{ "id": "mirror", "label": "OneDrive", "icon": "Cloud" }],
     "strings": {
       "title": "OneDrive",

@@ -1,0 +1,59 @@
+{
+  "description": "Zrcadlí Projekt mezi démonem a osobním OneDrive každého člověka v obou směrech, takže soubory vytvořené agentem se objeví v jeho OneDrivu, aniž by je bylo nutné předávat v chatu.",
+  "fields": {
+    "rootFolder": {
+      "label": "Složka v OneDrive",
+      "hint": "Nadřazená složka vytvořená v osobním OneDrivu každého člověka. Projekty a pracovní prostory Sandboxu se zrcadlí do oddělených podsložek."
+    },
+    "intervalSeconds": {
+      "label": "Interval synchronizace",
+      "hint": "Jak často se připojené zrcadlo kontroluje, v sekundách. Nižší hodnota reaguje rychleji a spotřebuje více volání Microsoft Graphu."
+    },
+    "maxFileMb": {
+      "label": "Největší soubor",
+      "hint": "Soubory nad tuto velikost se v obou směrech přeskočí a nahlásí, místo aby byly tiše vynechány."
+    },
+    "extraIgnore": {
+      "label": "Další ignorované cesty",
+      "hint": "Vzory oddělené čárkou, vyloučené nad rámec souboru .gitignore daného projektu. Interní soubory správy verzí, závislosti a přihlašovací údaje jsou vyloučeny vždy a nelze je zde povolit."
+    },
+    "applyRemoteDeletions": {
+      "label": "Promítat smazání z OneDrive",
+      "hint": "Když někdo smaže zrcadlený soubor v OneDrivu, přesune se místní kopie do koše daného zrcadla. Soubor se nikdy neodstraní natrvalo a vždy jej lze obnovit."
+    }
+  },
+  "web": {
+    "project": {
+      "mirror": "OneDrive"
+    },
+    "strings": {
+      "title": "OneDrive",
+      "connectCta": "Připojit OneDrive",
+      "connectHint": "Zrcadlete tento projekt do vlastního OneDrivu, v obou směrech.",
+      "connectConfirm": "Spustit zrcadlení",
+      "notLinked": "Váš účet není propojen s Microsoftem.",
+      "statusIdle": "Synchronizováno",
+      "statusSyncing": "Probíhá synchronizace",
+      "statusPaused": "Pozastaveno",
+      "statusError": "Vyžaduje pozornost",
+      "lastSync": "Poslední synchronizace",
+      "never": "Nikdy",
+      "files": "Soubory",
+      "folder": "Složka",
+      "openFolder": "Otevřít v OneDrive",
+      "workspaces": "Pracovní prostory Sandboxu",
+      "workspacesHint": "Každý pracovní prostor se zrcadlí do vlastní složky, odděleně od samotného projektu.",
+      "conflicts": "Konflikty",
+      "conflictsHint": "Obě verze byly zachovány. Vyberte, která má platit; nic se v žádném případě nesmaže.",
+      "keepLocal": "Ponechat místní",
+      "keepRemote": "Vzít z OneDrive",
+      "syncNow": "Synchronizovat nyní",
+      "pause": "Pozastavit",
+      "resume": "Obnovit",
+      "disconnect": "Odpojit",
+      "disconnectHint": "Zrcadlení se zastaví. Soubory, které již v OneDrivu jsou, zůstanou beze změny.",
+      "mirrorScope": "Co se zrcadlí",
+      "mirrorScopeHint": "Vše, co ponechává soubor .gitignore daného projektu. Interní soubory správy verzí, závislosti a přihlašovací údaje jsou vyloučeny vždy."
+    }
+  }
+}

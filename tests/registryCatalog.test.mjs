@@ -103,6 +103,11 @@ const EXPECTED_CAPABILITIES = {
   lsp: { network: true },
   mcp: { network: true },
   msteams: { reads: ['project-files', 'stores'], mutates: ['users'] },
+  // Reads only, and each one is load-bearing: `controls` reaches the Microsoft identity and the
+  // account-explicit sandbox lookup, `stores` re-checks project tenancy outside a request, `db` holds the
+  // mirror baseline. No `mutates`: the files it writes are the ones a person asked it to mirror, and it
+  // never reaches into another plugin's domain.
+  onedrive: { reads: ['controls', 'db', 'project-files', 'stores'], network: true },
   skills: { reads: ['stores'] },
   todo: { reads: ['db'] },
 };
