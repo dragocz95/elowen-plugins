@@ -47,6 +47,14 @@ export const TASK_MIGRATIONS = [{
       db.exec('ALTER TABLE p_todo_task_lists ADD COLUMN completed_turns INTEGER NOT NULL DEFAULT 0 CHECK (completed_turns >= 0)');
     }
   },
+}, {
+  version: 3,
+  up(db) {
+    const columns = db.prepare('PRAGMA table_info(p_todo_tasks)').all();
+    if (!columns.some((column) => column.name === 'started_at')) {
+      db.exec('ALTER TABLE p_todo_tasks ADD COLUMN started_at INTEGER');
+    }
+  },
 }];
 
 function numericId(value) {
@@ -109,10 +117,10 @@ class TaskStore {
     this.readList = db.prepare('SELECT next_id,completed_turns FROM p_todo_task_lists WHERE list_key = ?');
     this.bumpList = db.prepare('UPDATE p_todo_task_lists SET next_id = ?, completed_turns = 0 WHERE list_key = ?');
     this.setCompletedTurns = db.prepare('UPDATE p_todo_task_lists SET completed_turns = ? WHERE list_key = ?');
-    this.selectTasks = db.prepare('SELECT id,subject,description,active_form,status,owner,metadata_json FROM p_todo_tasks WHERE list_key = ? ORDER BY id');
+    this.selectTasks = db.prepare('SELECT id,subject,description,active_form,status,owner,metadata_json,started_at FROM p_todo_tasks WHERE list_key = ? ORDER BY id');
     this.selectBlockers = db.prepare('SELECT task_id,blocker_id FROM p_todo_task_blockers WHERE list_key = ? ORDER BY task_id,blocker_id');
-    this.insertTask = db.prepare('INSERT INTO p_todo_tasks(list_key,id,subject,description,active_form,status,owner,metadata_json) VALUES (?,?,?,?,?,?,?,?)');
-    this.updateTask = db.prepare('UPDATE p_todo_tasks SET subject=?,description=?,active_form=?,status=?,owner=?,metadata_json=? WHERE list_key=? AND id=?');
+    this.insertTask = db.prepare('INSERT INTO p_todo_tasks(list_key,id,subject,description,active_form,status,owner,metadata_json,started_at) VALUES (?,?,?,?,?,?,?,?,NULL)');
+    this.updateTask = db.prepare('UPDATE p_todo_tasks SET subject=?,description=?,active_form=?,status=?,owner=?,metadata_json=?,started_at=? WHERE list_key=? AND id=?');
     this.deleteTask = db.prepare('DELETE FROM p_todo_tasks WHERE list_key = ? AND id = ?');
     this.deleteTaskEdges = db.prepare('DELETE FROM p_todo_task_blockers WHERE list_key = ? AND (task_id = ? OR blocker_id = ?)');
     this.deleteCompletedEdges = db.prepare(`
@@ -150,6 +158,7 @@ class TaskStore {
       ...(row.active_form ? { activeForm: String(row.active_form) } : {}),
       status: String(row.status),
       ...(row.owner ? { owner: String(row.owner) } : {}),
+      ...(Number.isFinite(row.started_at) ? { startedAt: Number(row.started_at) } : {}),
       metadata: metadataFromJson(row.metadata_json),
       blockedBy: blockedBy.get(String(row.id)) ?? [],
       blocks: blocks.get(String(row.id)) ?? [],
@@ -305,6 +314,7 @@ class TaskStore {
       let statusChange;
       if (patch.status !== undefined && patch.status !== task.status) {
         next.status = patch.status;
+        next.startedAt = patch.status === 'in_progress' ? Date.now() : undefined;
         updatedFields.push('status');
         statusChange = { from: task.status, to: patch.status };
       }
@@ -336,7 +346,7 @@ class TaskStore {
 
       this.updateTask.run(
         next.subject, next.description, next.activeForm ?? null, next.status,
-        next.owner ?? null, metadataToJson(next.metadata), key, taskId,
+        next.owner ?? null, metadataToJson(next.metadata), next.startedAt ?? null, key, taskId,
       );
       if (statusChange) this.setCompletedTurns.run(0, key);
 

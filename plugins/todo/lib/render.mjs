@@ -8,14 +8,22 @@ import { escapeXml } from './common.mjs';
  *  finished tasks collapse into a single counted line, which is what keeps the cost flat rather than
  *  linear in the length of the session.
  *
- *  Nothing is deleted by this folding. The rows and ids stay intact for the rest of the active turn; the
- *  Todo panel separately disappears once every item is complete, and storage cleanup waits for the next
- *  real turn boundary. TaskGet can still recover folded detail while those rows exist. */
+ *  Nothing is deleted by this folding. The rows and ids stay intact while the completed-list grace period
+ *  keeps the result readable. TaskGet can still recover folded detail while those rows exist. */
 export const RENDERED_COMPLETED = 10;
 
 function unresolvedBlockers(task, tasks) {
   const byId = new Map(tasks.map((item) => [item.id, item]));
   return task.blockedBy.filter((id) => byId.get(id)?.status !== 'completed');
+}
+
+function formatElapsed(ms) {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
 }
 
 export function pushTaskCard(ctx, tasks) {
@@ -28,7 +36,10 @@ export function pushTaskCard(ctx, tasks) {
       const blocked = blockers.length ? ` (blocked by ${blockers.map((id) => `#${id}`).join(', ')})` : '';
       const owner = task.owner ? ` — ${task.owner}` : '';
       const text = task.status === 'in_progress' && task.activeForm ? task.activeForm : task.subject;
-      return { text: `#${task.id} ${text}${owner}${blocked}`, status: task.status };
+      const elapsed = task.status === 'in_progress' && task.startedAt != null
+        ? ` · ${formatElapsed(Date.now() - task.startedAt)}`
+        : '';
+      return { text: `#${task.id} ${text}${owner}${elapsed}${blocked}`, status: task.status };
     }),
   });
 }

@@ -92,7 +92,7 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   });
 
   await update.execute('5', { taskId: '1', status: 'in_progress' });
-  assert.equal(h.cards.at(-1).items[0].text, '#1 Inspecting auth');
+  assert.match(h.cards.at(-1).items[0].text, /^#1 Inspecting auth · \d+s$/);
   assert.match(h.cards.at(-1).items[1].text, /blocked by #1/);
   assert.match(h.cards.at(-1).items[1].text, /Luna/);
   assert.doesNotMatch(JSON.stringify(h.cards.at(-1)), /private-token|hidden-value|Deploy only/);
@@ -132,6 +132,34 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   })), { tasks: [{ id: '4', subject: 'More work' }] });
   // Creating a task never clears finished ones, so the completed history survives and keeps its ids.
   assert.deepEqual(json(await list.execute('18', {})).tasks.map((task) => task.id), ['2', '3', '4']);
+});
+
+test('in-progress tasks measure elapsed time from each status entry', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  const list = h.tool('TaskList');
+  const realNow = Date.now;
+  let now = 100_000;
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+
+  await create.execute('1', { tasks: [{ subject: 'Timed work', description: 'measure it', activeForm: 'Timing work' }] });
+  await update.execute('2', { taskId: '1', status: 'in_progress' });
+  assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, 100_000);
+  assert.equal(h.cards.at(-1).items[0].text, '#1 Timing work · 0s');
+
+  now += 169_000;
+  await list.execute('3', {});
+  assert.equal(h.cards.at(-1).items[0].text, '#1 Timing work · 2m 49s');
+
+  await update.execute('4', { taskId: '1', status: 'completed' });
+  assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, null);
+  assert.equal(h.cards.at(-1).items[0].text, '#1 Timed work');
+
+  now = 500_000;
+  await update.execute('5', { taskId: '1', status: 'in_progress' });
+  assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, 500_000);
 });
 
 test('TaskDelete and user API routes keep session tasks tenant-scoped and clear blocker edges', async (t) => {
@@ -505,9 +533,47 @@ test('the grace-period migration preserves an existing task list and its next id
 
   assert.deepEqual(json(await h.tool('TaskList').execute('1', {})).tasks.map((task) => task.id), ['1']);
   assert.equal(h.rawDb.prepare('SELECT completed_turns FROM p_todo_task_lists WHERE list_key = ?').get('u7#brain-7-a').completed_turns, 0);
+  assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, null);
   assert.deepEqual(json(await h.tool('TaskCreate').execute('2', {
     tasks: [{ subject: 'After upgrade', description: 'keeps counter' }],
   })).tasks, [{ id: '2', subject: 'After upgrade' }]);
+});
+
+test('additive task migrations tolerate columns already present before bookkeeping', async (t) => {
+  const h = harness(t, {
+    beforeRegister(db) {
+      db.exec(`
+        CREATE TABLE p_todo_task_lists (
+          list_key TEXT PRIMARY KEY,
+          next_id INTEGER NOT NULL DEFAULT 1 CHECK (next_id >= 1),
+          completed_turns INTEGER NOT NULL DEFAULT 0 CHECK (completed_turns >= 0)
+        );
+        CREATE TABLE p_todo_tasks (
+          list_key TEXT NOT NULL,
+          id INTEGER NOT NULL CHECK (id >= 1),
+          subject TEXT NOT NULL,
+          description TEXT NOT NULL,
+          active_form TEXT,
+          status TEXT NOT NULL CHECK (status IN ('pending','in_progress','completed')),
+          owner TEXT,
+          metadata_json TEXT,
+          started_at INTEGER,
+          PRIMARY KEY (list_key, id)
+        );
+        CREATE TABLE p_todo_task_blockers (
+          list_key TEXT NOT NULL,
+          task_id INTEGER NOT NULL,
+          blocker_id INTEGER NOT NULL,
+          PRIMARY KEY (list_key, task_id, blocker_id)
+        );
+        INSERT INTO plugin_migrations(plugin,version,applied_at) VALUES ('todo',1,datetime('now'));
+      `);
+    },
+  });
+
+  assert.deepEqual(json(await h.tool('TaskCreate').execute('1', {
+    tasks: [{ subject: 'Works', description: 'migration stayed idempotent' }],
+  })).tasks, [{ id: '1', subject: 'Works' }]);
 });
 
 test('Task V2 task state is isolated per conversation', async (t) => {
