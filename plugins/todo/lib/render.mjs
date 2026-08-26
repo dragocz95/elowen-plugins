@@ -17,13 +17,18 @@ function unresolvedBlockers(task, tasks) {
   return task.blockedBy.filter((id) => byId.get(id)?.status !== 'completed');
 }
 
-function formatElapsed(ms) {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+// A normal focused task often lasts several model/tool rounds. Twenty minutes is long enough to avoid
+// nagging during that flow, but early enough to catch a stale in_progress marker well before an hour.
+const RUNNING_WORK_REMINDER_MS = 20 * 60 * 1000;
+
+function formatCoarseElapsed(ms) {
+  const minutes = Math.max(0, Math.floor(ms / 60_000));
+  if (minutes < 1) return 'under 1m';
+  if (minutes < 5) return `${minutes}m`;
+  if (minutes < 60) return `${Math.floor(minutes / 5) * 5}m`;
   const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }
 
 export function pushTaskCard(ctx, tasks) {
@@ -36,23 +41,27 @@ export function pushTaskCard(ctx, tasks) {
       const blocked = blockers.length ? ` (blocked by ${blockers.map((id) => `#${id}`).join(', ')})` : '';
       const owner = task.owner ? ` — ${task.owner}` : '';
       const text = task.status === 'in_progress' && task.activeForm ? task.activeForm : task.subject;
-      const elapsed = task.status === 'in_progress' && task.startedAt != null
-        ? ` · ${formatElapsed(Date.now() - task.startedAt)}`
-        : '';
-      return { text: `#${task.id} ${text}${owner}${elapsed}${blocked}`, status: task.status };
+      return {
+        text: `#${task.id} ${text}${owner}${blocked}`,
+        status: task.status,
+        ...(task.status === 'in_progress' && task.startedAt != null ? { startedAt: task.startedAt } : {}),
+      };
     }),
   });
 }
 
 /** Work still to do: everything the model needs in order to carry it out. */
-function renderLiveTask(task) {
+function renderLiveTask(task, now) {
   const activeForm = task.activeForm ? ` activeForm="${escapeXml(task.activeForm)}"` : '';
   const owner = task.owner ? ` owner="${escapeXml(task.owner)}"` : '';
+  const elapsed = task.status === 'in_progress' && task.startedAt != null
+    ? ` elapsed="${formatCoarseElapsed(now - task.startedAt)}"`
+    : '';
   const metadata = task.metadata && Object.keys(task.metadata).length
     ? `\n      <metadata>${escapeXml(JSON.stringify(task.metadata))}</metadata>`
     : '';
   return [
-    `    <task id="${task.id}" status="${task.status}"${activeForm}${owner}>`,
+    `    <task id="${task.id}" status="${task.status}"${activeForm}${owner}${elapsed}>`,
     `      <subject>${escapeXml(task.subject)}</subject>`,
     `      <description>${escapeXml(task.description)}</description>`,
     `      <blockedBy>${task.blockedBy.map((id) => escapeXml(id)).join(',')}</blockedBy>`,
@@ -80,7 +89,21 @@ function summariseOmitted(omitted) {
   return `    <earlier_completed count="${ids.length}" ids="${escapeXml(range)}"/>`;
 }
 
+function renderRunningWorkReminder(tasks, now) {
+  const running = tasks.filter((task) => task.status === 'in_progress');
+  const unowned = running.filter((task) => !task.owner);
+  if (unowned.length > 1) {
+    return `  <running_work_reminder>Multiple main tasks are marked in_progress (${unowned.map((task) => `#${task.id}`).join(', ')}). Keep only the work you are actively doing in_progress and update stale task state.</running_work_reminder>`;
+  }
+  const longest = running
+    .filter((task) => task.startedAt != null)
+    .sort((a, b) => a.startedAt - b.startedAt)[0];
+  if (!longest || now - longest.startedAt < RUNNING_WORK_REMINDER_MS) return '';
+  return `  <running_work_reminder>Task #${longest.id} has been in_progress for ${formatCoarseElapsed(now - longest.startedAt)}. Confirm the current work still matches it; complete or update the task if the work has moved on.</running_work_reminder>`;
+}
+
 export function renderTaskContext(tasks) {
+  const now = Date.now();
   // `tasks` arrives in id order, so the completed ones are already oldest-first and the surplus to fold
   // away is the front of that list.
   const completed = tasks.filter((task) => task.status === 'completed');
@@ -90,13 +113,15 @@ export function renderTaskContext(tasks) {
     ...(omitted.length ? [summariseOmitted(omitted)] : []),
     ...tasks
       .filter((task) => !folded.has(task.id))
-      .map((task) => (task.status === 'completed' ? renderCompletedTask(task) : renderLiveTask(task))),
+      .map((task) => (task.status === 'completed' ? renderCompletedTask(task) : renderLiveTask(task, now))),
   ].join('\n');
+  const reminder = renderRunningWorkReminder(tasks, now);
   return [
     '<task_context>',
     '  <tasks>',
     items,
     '  </tasks>',
+    ...(reminder ? [reminder] : []),
     '  <task_instructions>',
     '    Use TaskCreate, TaskGet, TaskUpdate and TaskList to maintain this session task list incrementally.',
     '    Never guess an id: use one listed above, or the id TaskCreate just returned. Everything listed here exists, and so does every task counted in earlier_completed — TaskList reports the authoritative set of ids.',

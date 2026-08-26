@@ -159,7 +159,8 @@
     },
     {
       "name": "todo",
-      "version": "0.13.0",
+      "version": "0.13.1",
+      "requiresCore": "0.28.14",
       "description": "Session task list: the agent tracks multi-step work incrementally and shows progress live.",
       "category": "automation",
       "author": "Elowen",

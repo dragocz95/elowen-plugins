@@ -24,6 +24,7 @@ function harness(t, options = {}) {
   const routes = [];
   let sessionId = 'brain-7-a';
   let turnContext;
+  let turnContextOptions;
   t.after(() => {
     rawDb.close();
     rmSync(dataDir, { recursive: true, force: true });
@@ -41,7 +42,7 @@ function harness(t, options = {}) {
     registerApiRoute: (route) => routes.push(route),
     registerSystemPromptFragment: (fragment) => prompts.push(fragment),
     registerTool: (tool) => tools.push(tool),
-    registerTurnContext: (render) => { turnContext = render; },
+    registerTurnContext: (render, options) => { turnContext = render; turnContextOptions = options; },
   };
   register(ctx);
   return {
@@ -52,6 +53,7 @@ function harness(t, options = {}) {
     routes,
     rawDb,
     turnContext: () => turnContext?.() ?? '',
+    turnContextOptions: () => turnContextOptions,
     setSession: (value) => { sessionId = value; },
     tool: (name) => {
       const found = tools.find((tool) => tool.name === name);
@@ -92,7 +94,8 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   });
 
   await update.execute('5', { taskId: '1', status: 'in_progress' });
-  assert.match(h.cards.at(-1).items[0].text, /^#1 Inspecting auth · \d+s$/);
+  assert.equal(h.cards.at(-1).items[0].text, '#1 Inspecting auth');
+  assert.equal(typeof h.cards.at(-1).items[0].startedAt, 'number');
   assert.match(h.cards.at(-1).items[1].text, /blocked by #1/);
   assert.match(h.cards.at(-1).items[1].text, /Luna/);
   assert.doesNotMatch(JSON.stringify(h.cards.at(-1)), /private-token|hidden-value|Deploy only/);
@@ -147,19 +150,46 @@ test('in-progress tasks measure elapsed time from each status entry', async (t) 
   await create.execute('1', { tasks: [{ subject: 'Timed work', description: 'measure it', activeForm: 'Timing work' }] });
   await update.execute('2', { taskId: '1', status: 'in_progress' });
   assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, 100_000);
-  assert.equal(h.cards.at(-1).items[0].text, '#1 Timing work · 0s');
+  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Timing work', status: 'in_progress', startedAt: 100_000 });
+  assert.match(h.turnContext(), /status="in_progress"[^>]*elapsed="under 1m"/);
 
   now += 169_000;
   await list.execute('3', {});
-  assert.equal(h.cards.at(-1).items[0].text, '#1 Timing work · 2m 49s');
+  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Timing work', status: 'in_progress', startedAt: 100_000 });
+  assert.match(h.turnContext(), /status="in_progress"[^>]*elapsed="2m"/);
 
   await update.execute('4', { taskId: '1', status: 'completed' });
   assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, null);
-  assert.equal(h.cards.at(-1).items[0].text, '#1 Timed work');
+  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Timed work', status: 'completed' });
 
   now = 500_000;
   await update.execute('5', { taskId: '1', status: 'in_progress' });
   assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, 500_000);
+});
+
+test('running-work reminders stay quiet until work looks stale or multiple main tasks are active', async (t) => {
+  const h = harness(t);
+  assert.deepEqual(h.turnContextOptions(), { placement: 'after-user' });
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  const realNow = Date.now;
+  let now = 1_000_000;
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+
+  await create.execute('1', { tasks: [
+    { subject: 'Main work', description: 'keep focused' },
+    { subject: 'Second work', description: 'detect drift' },
+  ] });
+  await update.execute('2', { taskId: '1', status: 'in_progress' });
+  now += 19 * 60_000;
+  assert.doesNotMatch(h.turnContext(), /running_work_reminder/);
+  now += 60_000;
+  assert.match(h.turnContext(), /Task #1 has been in_progress for 20m/);
+  assert.doesNotMatch(h.prompts.join('\n'), /running_work_reminder|has been in_progress/);
+
+  await update.execute('3', { taskId: '2', status: 'in_progress' });
+  assert.match(h.turnContext(), /Multiple main tasks are marked in_progress \(#1, #2\)/);
 });
 
 test('TaskDelete and user API routes keep session tasks tenant-scoped and clear blocker edges', async (t) => {
