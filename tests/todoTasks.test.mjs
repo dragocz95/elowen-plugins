@@ -7,6 +7,7 @@ import { openDb } from 'elowen/dist/store/db.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
 import { register } from '../plugins/todo/index.mjs';
 import { RENDERED_COMPLETED } from '../plugins/todo/lib/render.mjs';
+import { COMPLETED_LIST_GRACE_TURNS } from '../plugins/todo/lib/tasks.mjs';
 
 const text = (result) => result.content[0].text;
 const json = (result) => JSON.parse(text(result));
@@ -14,6 +15,7 @@ const json = (result) => JSON.parse(text(result));
 function harness(t, options = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'elowen-tasks-v2-'));
   const rawDb = openDb(':memory:');
+  options.beforeRegister?.(rawDb);
   const pluginDb = makePluginDb(rawDb, 'todo', { canMigrate: true });
   const tools = [];
   const cards = [];
@@ -236,7 +238,7 @@ test('a completed task survives the next TaskCreate, on the card and as a usable
   assert.equal(json(await update.execute('5', { taskId: first, status: 'in_progress' })).success, true);
 });
 
-test('completion hides the panel immediately but preserves ids throughout the finishing turn', async (t) => {
+test('completion remains readable and a same-turn batch preserves every usable id', async (t) => {
   const h = harness(t);
   const create = h.tool('TaskCreate');
   const update = h.tool('TaskUpdate');
@@ -245,7 +247,7 @@ test('completion hides the panel immediately but preserves ids throughout the fi
   await create.execute('1', { tasks: [{ subject: 'Task A', description: 'first' }] });
   await update.execute('2', { taskId: '1', status: 'completed' });
 
-  assert.deepEqual(h.cards.at(-1).items, []);
+  assert.deepEqual(h.cards.at(-1).items, [{ text: '#1 Task A', status: 'completed' }]);
   assert.equal(json(await get.execute('3', { taskId: '1' })).task.status, 'completed');
 
   // A steer enters the already-running model loop directly. It does not build a new turn context, so the
@@ -258,7 +260,7 @@ test('completion hides the panel immediately but preserves ids throughout the fi
   assert.equal(json(await update.execute('7', { taskId: '1', status: 'in_progress' })).success, true);
 });
 
-test('a later turn clears an all-completed list without reusing its ids', async (t) => {
+test('a finished list survives its grace turns, then clears without reusing ids', async (t) => {
   const h = harness(t);
   const create = h.tool('TaskCreate');
   const update = h.tool('TaskUpdate');
@@ -272,8 +274,9 @@ test('a later turn clears an all-completed list without reusing its ids', async 
   await update.execute('2', { taskId: '1', status: 'completed' });
   await update.execute('3', { taskId: '2', status: 'completed' });
 
-  // Building context is the next-turn boundary. The list is removed before that new prompt reaches the
-  // model, while the list row stays behind to preserve the monotonically increasing id counter.
+  for (let turn = 0; turn < COMPLETED_LIST_GRACE_TURNS; turn += 1) {
+    assert.match(h.turnContext(), /<task_context>/);
+  }
   assert.equal(h.turnContext(), '');
   assert.deepEqual(json(await h.tool('TaskList').execute('4', {})), { tasks: [] });
   const api = h.routes.find((route) => route.method === 'GET' && route.path === 'tasks');
@@ -288,6 +291,22 @@ test('a later turn clears an all-completed list without reusing its ids', async 
   assert.deepEqual(json(await create.execute('5', {
     tasks: [{ subject: 'Task C', description: 'after cleanup' }],
   })).tasks, [{ id: '3', subject: 'Task C' }]);
+});
+
+test('new work after a later turn immediately replaces an aged finished list', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+
+  await create.execute('1', { tasks: [{ subject: 'Old work', description: 'finished topic' }] });
+  await update.execute('2', { taskId: '1', status: 'completed' });
+  assert.match(h.turnContext(), /Old work/);
+
+  assert.deepEqual(json(await create.execute('3', {
+    tasks: [{ subject: 'New work', description: 'unrelated topic' }],
+  })).tasks, [{ id: '2', subject: 'New work' }]);
+  assert.deepEqual(json(await h.tool('TaskList').execute('4', {})).tasks.map((task) => task.id), ['2']);
+  assert.deepEqual(h.cards.at(-1).items, [{ text: '#2 New work', status: 'pending' }]);
 });
 
 test('turn boundaries never clear a list that still has open work', async (t) => {
@@ -310,6 +329,7 @@ test('turn boundaries never clear a list that still has open work', async (t) =>
   assert.deepEqual(json(await list.execute('4', {})).tasks.map((task) => task.status), [
     'completed', 'in_progress', 'pending',
   ]);
+  assert.equal(h.rawDb.prepare('SELECT completed_turns FROM p_todo_task_lists WHERE list_key = ?').get('u7#brain-7-a').completed_turns, 0);
 });
 
 test('one TaskCreate call plans the whole batch, wires prerequisites and pushes the card once', async (t) => {
@@ -448,6 +468,46 @@ test('finished work stops re-sending its planning detail, and the oldest of it c
   // Nothing was deleted: the panel still shows every task and the folded id still resolves in full.
   assert.equal(h.cards.at(-1).items.length, total);
   assert.equal(json(await h.tool('TaskGet').execute('g', { taskId: '1' })).task.description, 'PLANNING-DETAIL-1');
+});
+
+test('the grace-period migration preserves an existing task list and its next id', async (t) => {
+  const h = harness(t, {
+    beforeRegister(db) {
+      db.exec(`
+        CREATE TABLE p_todo_task_lists (
+          list_key TEXT PRIMARY KEY,
+          next_id INTEGER NOT NULL DEFAULT 1 CHECK (next_id >= 1)
+        );
+        CREATE TABLE p_todo_tasks (
+          list_key TEXT NOT NULL,
+          id INTEGER NOT NULL CHECK (id >= 1),
+          subject TEXT NOT NULL,
+          description TEXT NOT NULL,
+          active_form TEXT,
+          status TEXT NOT NULL CHECK (status IN ('pending','in_progress','completed')),
+          owner TEXT,
+          metadata_json TEXT,
+          PRIMARY KEY (list_key, id)
+        );
+        CREATE TABLE p_todo_task_blockers (
+          list_key TEXT NOT NULL,
+          task_id INTEGER NOT NULL,
+          blocker_id INTEGER NOT NULL,
+          PRIMARY KEY (list_key, task_id, blocker_id)
+        );
+        INSERT INTO p_todo_task_lists(list_key,next_id) VALUES ('u7#brain-7-a',2);
+        INSERT INTO p_todo_tasks(list_key,id,subject,description,status)
+          VALUES ('u7#brain-7-a',1,'Existing task','survives upgrade','pending');
+        INSERT INTO plugin_migrations(plugin,version,applied_at) VALUES ('todo',1,datetime('now'));
+      `);
+    },
+  });
+
+  assert.deepEqual(json(await h.tool('TaskList').execute('1', {})).tasks.map((task) => task.id), ['1']);
+  assert.equal(h.rawDb.prepare('SELECT completed_turns FROM p_todo_task_lists WHERE list_key = ?').get('u7#brain-7-a').completed_turns, 0);
+  assert.deepEqual(json(await h.tool('TaskCreate').execute('2', {
+    tasks: [{ subject: 'After upgrade', description: 'keeps counter' }],
+  })).tasks, [{ id: '2', subject: 'After upgrade' }]);
 });
 
 test('Task V2 task state is isolated per conversation', async (t) => {

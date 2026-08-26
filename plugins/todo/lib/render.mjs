@@ -19,12 +19,11 @@ function unresolvedBlockers(task, tasks) {
 }
 
 export function pushTaskCard(ctx, tasks) {
-  const visible = tasks.length > 0 && tasks.every((task) => task.status === 'completed') ? [] : tasks;
   ctx.emitCard({
     id: 'todos',
     title: 'Todos',
     pinned: true,
-    items: visible.map((task) => {
+    items: tasks.map((task) => {
       const blockers = unresolvedBlockers(task, tasks);
       const blocked = blockers.length ? ` (blocked by ${blockers.map((id) => `#${id}`).join(', ')})` : '';
       const owner = task.owner ? ` — ${task.owner}` : '';

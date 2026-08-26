@@ -6,6 +6,10 @@ import { pushTaskCard, renderTaskContext } from './render.mjs';
 const TASK_STATUSES = ['pending', 'in_progress', 'completed'];
 const TASK_STATUS_SCHEMA = Type.Union(TASK_STATUSES.map((status) => Type.Literal(status)));
 
+/** Three idle conversation turns leave enough time to inspect finished work without carrying it into a
+ *  later topic indefinitely. New work clears an aged finished list immediately, before its first task lands. */
+export const COMPLETED_LIST_GRACE_TURNS = 3;
+
 export const TASK_MIGRATIONS = [{
   version: 1,
   up(db) {
@@ -34,6 +38,14 @@ export const TASK_MIGRATIONS = [{
       CREATE INDEX IF NOT EXISTS p_todo_task_blockers_blocker
         ON p_todo_task_blockers(list_key, blocker_id);
     `);
+  },
+}, {
+  version: 2,
+  up(db) {
+    const columns = db.prepare('PRAGMA table_info(p_todo_task_lists)').all();
+    if (!columns.some((column) => column.name === 'completed_turns')) {
+      db.exec('ALTER TABLE p_todo_task_lists ADD COLUMN completed_turns INTEGER NOT NULL DEFAULT 0 CHECK (completed_turns >= 0)');
+    }
   },
 }];
 
@@ -93,9 +105,10 @@ function addDependency(edges, blockerId, blockedId) {
 class TaskStore {
   constructor(db) {
     this.db = db;
-    this.insertList = db.prepare('INSERT OR IGNORE INTO p_todo_task_lists(list_key,next_id) VALUES (?,1)');
-    this.readList = db.prepare('SELECT next_id FROM p_todo_task_lists WHERE list_key = ?');
-    this.bumpList = db.prepare('UPDATE p_todo_task_lists SET next_id = ? WHERE list_key = ?');
+    this.insertList = db.prepare('INSERT OR IGNORE INTO p_todo_task_lists(list_key,next_id,completed_turns) VALUES (?,1,0)');
+    this.readList = db.prepare('SELECT next_id,completed_turns FROM p_todo_task_lists WHERE list_key = ?');
+    this.bumpList = db.prepare('UPDATE p_todo_task_lists SET next_id = ?, completed_turns = 0 WHERE list_key = ?');
+    this.setCompletedTurns = db.prepare('UPDATE p_todo_task_lists SET completed_turns = ? WHERE list_key = ?');
     this.selectTasks = db.prepare('SELECT id,subject,description,active_form,status,owner,metadata_json FROM p_todo_tasks WHERE list_key = ? ORDER BY id');
     this.selectBlockers = db.prepare('SELECT task_id,blocker_id FROM p_todo_task_blockers WHERE list_key = ? ORDER BY task_id,blocker_id');
     this.insertTask = db.prepare('INSERT INTO p_todo_tasks(list_key,id,subject,description,active_form,status,owner,metadata_json) VALUES (?,?,?,?,?,?,?,?)');
@@ -147,14 +160,24 @@ class TaskStore {
     return this.list(key).find((task) => task.id === String(taskId)) ?? null;
   }
 
-  /** Clear a finished list only when the host is building a later turn. The list row deliberately stays:
-   *  `next_id` is conversation-scoped history, and resetting it could make a stale id resolve to new work. */
-  clearCompletedAtTurnBoundary(key) {
+  /** Age a fully finished list only while the host builds later conversational turns. The list row
+   *  deliberately stays after cleanup: `next_id` is conversation-scoped history, and resetting it could make
+   *  a stale id resolve to new work. */
+  ageCompletedAtTurnBoundary(key) {
     return this.db.transaction(() => {
       const tasks = this.list(key);
-      if (tasks.length === 0 || tasks.some((task) => task.status !== 'completed')) return false;
+      if (tasks.length === 0 || tasks.some((task) => task.status !== 'completed')) {
+        this.setCompletedTurns.run(0, key);
+        return false;
+      }
+      const completedTurns = Number(this.readList.get(key)?.completed_turns ?? 0);
+      if (completedTurns < COMPLETED_LIST_GRACE_TURNS) {
+        this.setCompletedTurns.run(completedTurns + 1, key);
+        return false;
+      }
       this.deleteListEdges.run(key);
       this.deleteListTasks.run(key);
+      this.setCompletedTurns.run(0, key);
       return true;
     });
   }
@@ -163,18 +186,27 @@ class TaskStore {
    *  task and then wiring the prerequisites afterwards, so ids are reserved in input order and an item may
    *  name a sibling by position before any id exists.
    *
-   *  Never clear completed work here. An earlier design did that and invalidated ids the model still held
-   *  when it created a second batch in the SAME turn — the source of blind "task not found" retries. Whole-
-   *  list cleanup belongs only to the next real turn-context build; explicit per-task removal stays available
-   *  through status 'deleted'. */
+   *  A completed list is cleared here only after a later turn boundary has aged it. That distinction keeps a
+   *  second batch created in the SAME turn attached to the work whose ids the model still holds, while genuinely
+   *  new conversational work starts with a clean panel instead of joining an old finished list. */
   create(key, inputs) {
     return this.db.transaction(() => {
       this.#ensureList(key);
-      const current = this.list(key);
+      let current = this.list(key);
+      const listState = this.readList.get(key);
+      if (
+        current.length > 0
+        && current.every((task) => task.status === 'completed')
+        && Number(listState?.completed_turns ?? 0) > 0
+      ) {
+        this.deleteListEdges.run(key);
+        this.deleteListTasks.run(key);
+        current = [];
+      }
       const edges = edgeMap(current);
       const known = new Set(current.map((task) => task.id));
 
-      let nextId = Number(this.readList.get(key)?.next_id ?? 1);
+      let nextId = Number(listState?.next_id ?? 1);
       const created = inputs.map((input) => {
         const id = String(nextId);
         nextId += 1;
@@ -228,10 +260,14 @@ class TaskStore {
     return this.db.transaction(() => {
       if (scope === 'completed') {
         this.deleteCompletedEdges.run(key, key, key);
-        return this.deleteCompletedTasks.run(key).changes;
+        const removed = this.deleteCompletedTasks.run(key).changes;
+        this.setCompletedTurns.run(0, key);
+        return removed;
       }
       this.deleteListEdges.run(key);
-      return this.deleteListTasks.run(key).changes;
+      const removed = this.deleteListTasks.run(key).changes;
+      this.setCompletedTurns.run(0, key);
+      return removed;
     });
   }
 
@@ -302,6 +338,7 @@ class TaskStore {
         next.subject, next.description, next.activeForm ?? null, next.status,
         next.owner ?? null, metadataToJson(next.metadata), key, taskId,
       );
+      if (statusChange) this.setCompletedTurns.run(0, key);
 
       return {
         success: true,
@@ -577,7 +614,7 @@ export function registerTaskMode(ctx, db) {
       const key = keyFor(ctx);
       // Core calls turn-context providers only while composing a fresh prompt turn. Mid-turn steers go
       // straight into PI's queue and never pass this seam, so ids held by the running turn cannot be cleared.
-      if (key) store.clearCompletedAtTurnBoundary(key);
+      if (key) store.ageCompletedAtTurnBoundary(key);
       const tasks = syncCard(ctx, store, key);
       return tasks.length ? renderTaskContext(tasks) : '';
     } catch (error) {
