@@ -12,6 +12,7 @@ import { parseGitHubRemote, suggestedRepositories } from '../plugins/github/src/
 import { publishBranch, spawnPrepared, unsafeConfig, type SpawnPrepared } from '../plugins/github/src/execution.js';
 import { registerGitHubApi } from '../plugins/github/src/api.js';
 import { registerGitHubTools } from '../plugins/github/src/tools.js';
+import manifest from '../plugins/github/elowen-plugin.json' with { type: 'json' };
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -164,6 +165,11 @@ function prepared(command: any, cwd: string, home: string): SandboxPreparedExecu
 }
 
 describe('GitHub plugin', () => {
+  it('offers account OAuth to every authenticated user while tool grants stay separate', () => {
+    expect(manifest.userGrantable).not.toBe(true);
+    expect(manifest.web.account).toEqual([{ id: 'connection', label: 'GitHub', icon: 'Github' }]);
+  });
+
   it('parses HTTPS, SCP and ssh GitHub remotes without accepting other hosts', () => {
     expect(parseGitHubRemote('https://user:secret@github.com/Owner/Repo.git')).toEqual({ owner: 'Owner', name: 'Repo' });
     expect(parseGitHubRemote('git@github.com:Owner/Repo.git')).toEqual({ owner: 'Owner', name: 'Repo' });

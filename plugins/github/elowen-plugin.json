@@ -6,7 +6,6 @@
   "description": "Account-scoped GitHub App integration for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
   "entry": "dist/index.js",
   "icon": "icon.svg",
-  "userGrantable": true,
   "provides": {
     "tools": [
       "GithubConnectionStatus",
