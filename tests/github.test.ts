@@ -165,9 +165,12 @@ function prepared(command: any, cwd: string, home: string): SandboxPreparedExecu
 }
 
 describe('GitHub plugin', () => {
-  it('offers account OAuth to every authenticated user while tool grants stay separate', () => {
+  it('offers account OAuth and Project context without a duplicate navigation world', () => {
     expect(manifest.userGrantable).not.toBe(true);
+    expect(manifest.web.requiresApiVersion).toBe(4);
+    expect(manifest.web.nav).toBeUndefined();
     expect(manifest.web.account).toEqual([{ id: 'connection', label: 'GitHub', icon: 'Github' }]);
+    expect(manifest.web.project).toEqual([{ id: 'repository', label: 'GitHub', icon: 'Github' }]);
   });
 
   it('parses HTTPS, SCP and ssh GitHub remotes without accepting other hosts', () => {

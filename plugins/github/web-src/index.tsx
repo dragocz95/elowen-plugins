@@ -1,5 +1,5 @@
 import { GitHubAccountPanel } from './GitHubAccountPanel';
-import { GitHubPage } from './GitHubPage';
+import { GitHubProjectPanel } from './GitHubProjectPanel';
 import { registerGitHubUi } from './runtime';
 
-registerGitHubUi(GitHubPage, GitHubAccountPanel);
+registerGitHubUi(GitHubAccountPanel, GitHubProjectPanel);
