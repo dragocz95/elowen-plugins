@@ -41,6 +41,15 @@ interface StatsRuntime {
     ModuleHeader: AnyComponent;
     Segmented: SegmentedComponent;
     SpatialWorkspaceLayout: AnyComponent;
+    /** The host's real chart: ticks, cursor tooltip and one axis per unit. Recharts lives in the
+     *  app and loads lazily there, so this bundle never carries a charting library. */
+    TimeSeriesChart: ComponentType<{
+      data: { label: string; [key: string]: string | number | null }[];
+      series: { key: string; label: string; colour: string; variant?: 'bar' | 'line'; axis?: 'left' | 'right'; format: (value: number) => string }[];
+      height?: number;
+      emptyText?: string;
+      ariaLabel?: string;
+    }>;
     WorkspaceDetailRail: AnyComponent;
     WorkspaceMetric: AnyComponent;
   };
@@ -84,5 +93,5 @@ export function runtime(): StatsRuntime {
 }
 
 export function registerStatsUi(pages: Record<string, PluginPage>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 1, pages });
+  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 6, pages });
 }

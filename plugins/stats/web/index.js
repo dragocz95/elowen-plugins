@@ -53,7 +53,7 @@ function runtime() {
   return value;
 }
 function registerStatsUi(pages) {
-  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 1, pages });
+  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 6, pages });
 }
 
 // plugins/stats/web-src/StatsView.tsx
@@ -304,58 +304,13 @@ var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var formatTokens = (value, locale) => new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 var formatCost = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD", maximumFractionDigits: 4 }).format(value);
 function UsageTrend({ data, locale, tokenLabel, costLabel, emptyText }) {
-  const [activeDay, setActiveDay] = (0, import_react4.useState)(null);
-  if (data.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "py-10 text-center text-sm text-text-muted", children: emptyText });
-  const maxTokens = Math.max(1, ...data.map((row) => row.tokens));
-  const maxCost = Math.max(1e-6, ...data.map((row) => row.cost ?? 0));
-  const active = data.find((row) => row.day === activeDay) ?? null;
-  const hover = (day) => () => setActiveDay(day);
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("figure", { className: "flex min-w-0 flex-col gap-3", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("figcaption", { className: "flex min-w-0 items-center gap-4 text-xs text-text-muted", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "inline-flex items-center gap-1.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "h-2 w-2 rounded-sm bg-accent", "aria-hidden": true }),
-        tokenLabel
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "inline-flex items-center gap-1.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "h-2 w-2 rounded-sm bg-warning", "aria-hidden": true }),
-        costLabel
-      ] }),
-      active ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "ml-auto flex min-w-0 items-center gap-3 font-mono tabular-nums", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-text", children: active.day }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "whitespace-nowrap text-accent", children: formatTokens(active.tokens, locale) }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "whitespace-nowrap text-warning", children: formatCost(active.cost, locale) })
-      ] }) : null
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex h-36 min-w-0 items-end gap-1 overflow-hidden border-b border-border px-1", "aria-hidden": true, children: data.map((row) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-      "div",
-      {
-        className: "flex h-full min-w-[3px] flex-1 cursor-pointer items-end justify-center gap-px transition-opacity duration-150",
-        style: { opacity: active && active.day !== row.day ? 0.3 : 1 },
-        onMouseEnter: hover(row.day),
-        onMouseLeave: hover(null),
-        children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "w-1/2 min-w-px rounded-t-sm bg-accent", style: { height: `${Math.max(2, row.tokens / maxTokens * 100)}%` } }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "w-1/2 min-w-px rounded-t-sm bg-warning", style: { height: `${row.cost == null ? 0 : Math.max(2, row.cost / maxCost * 100)}%` } })
-        ]
-      },
-      row.day
-    )) }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex justify-between font-mono text-[10px] text-text-muted", "aria-hidden": true, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: data[0]?.day }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: data[data.length - 1]?.day })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ul", { className: "sr-only", children: data.map((row) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("li", { children: [
-      row.day,
-      ": ",
-      tokenLabel,
-      " ",
-      formatTokens(row.tokens, locale),
-      ", ",
-      costLabel,
-      " ",
-      formatCost(row.cost, locale)
-    ] }, row.day)) })
-  ] });
+  const { components: C } = runtime();
+  const points = (0, import_react4.useMemo)(() => data.map((row) => ({ label: row.day, tokens: row.tokens, cost: row.cost })), [data]);
+  const series = (0, import_react4.useMemo)(() => [
+    { key: "tokens", label: tokenLabel, colour: "var(--color-accent)", variant: "bar", axis: "left", format: (value) => formatTokens(value, locale) },
+    { key: "cost", label: costLabel, colour: "var(--color-warning)", variant: "line", axis: "right", format: (value) => formatCost(value, locale) }
+  ], [costLabel, locale, tokenLabel]);
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.TimeSeriesChart, { data: points, series, height: 220, emptyText });
 }
 
 // plugins/stats/web-src/ResetUsageModal.tsx
