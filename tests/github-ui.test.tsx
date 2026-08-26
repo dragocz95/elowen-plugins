@@ -34,12 +34,18 @@ const mappedRepository = {
 };
 
 describe('GitHub plugin UI', () => {
-  it('offers personal OAuth from Account with GitHub branding', async () => {
-    use(http.get('/api/plugins/github/api/status', () => HttpResponse.json(disconnected)));
+  it('offers personal device auth without requesting removed App setup APIs', async () => {
+    let setupRequests = 0;
+    use(
+      http.get('/api/plugins/github/api/status', () => HttpResponse.json(disconnected)),
+      http.get('/api/plugins/github/api/setup', () => { setupRequests += 1; return HttpResponse.json({}); }),
+      http.post('/api/plugins/github/api/setup/secret', () => { setupRequests += 1; return HttpResponse.json({}); }),
+    );
     mountAccount();
     expect(await screen.findByText(strings.accountTitle)).toBeInTheDocument();
     expect(screen.getByText(strings.accountHint)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: strings.connect })).toBeEnabled();
+    expect(setupRequests).toBe(0);
   });
 
   it('starts, polls and completes the GitHub device flow', async () => {
@@ -54,6 +60,51 @@ describe('GitHub plugin UI', () => {
     expect(await screen.findByText('ABCD-EFGH')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: strings.verifyOnGitHub })).toHaveAttribute('href', 'https://github.com/login/device');
     await waitFor(() => expect(polls).toBeGreaterThan(1), { timeout: 5_000 });
+    await waitFor(() => expect(screen.queryByText('ABCD-EFGH')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: strings.connect })).toBeEnabled();
+  });
+
+  it('clears expired replacement flows and returns to the connected account state', async () => {
+    let statusCalls = 0;
+    use(
+      http.get('/api/plugins/github/api/status', () => {
+        statusCalls += 1;
+        return HttpResponse.json({ ...connected, flow: statusCalls === 1 ? { flowId: 'gh-replace', userId: 1, verificationUrl: 'https://github.com/login/device', userCode: 'WXYZ-1234', replaceIdentity: true, expiresAt: Date.now() + 60_000, status: 'pending', error: null, createdAt: 1, updatedAt: 1 } : null });
+      }),
+      http.get('/api/plugins/github/api/auth/status', () => HttpResponse.json({ flowId: 'gh-replace', status: 'expired' })),
+    );
+    mountAccount();
+    expect(await screen.findByText('WXYZ-1234')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('WXYZ-1234')).not.toBeInTheDocument(), { timeout: 5_000 });
+    expect(await screen.findByText('@octocat')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: strings.replaceIdentity })).toBeEnabled();
+  });
+
+  it('clears a pruned flow when polling returns an error', async () => {
+    let statusCalls = 0;
+    use(
+      http.get('/api/plugins/github/api/status', () => {
+        statusCalls += 1;
+        return HttpResponse.json({ ...disconnected, flow: statusCalls === 1 ? { flowId: 'gh-pruned', userId: 1, verificationUrl: 'https://github.com/login/device', userCode: 'PRUN-ED12', replaceIdentity: false, expiresAt: Date.now() + 60_000, status: 'pending', error: null, createdAt: 1, updatedAt: 1 } : null });
+      }),
+      http.get('/api/plugins/github/api/auth/status', () => HttpResponse.json({ error: 'flow_not_found' }, { status: 404 })),
+    );
+    mountAccount();
+    expect(await screen.findByText('PRUN-ED12')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('PRUN-ED12')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: strings.connect })).toBeEnabled();
+  });
+
+  it('keeps the device challenge visible across transient polling failures', async () => {
+    let polls = 0;
+    use(
+      http.get('/api/plugins/github/api/status', () => HttpResponse.json({ ...disconnected, flow: { flowId: 'gh-transient', userId: 1, verificationUrl: 'https://github.com/login/device', userCode: 'KEEP-ME12', replaceIdentity: false, expiresAt: Date.now() + 60_000, status: 'pending', error: null, createdAt: 1, updatedAt: 1 } })),
+      http.get('/api/plugins/github/api/auth/status', () => { polls += 1; return HttpResponse.json({ error: 'github_unavailable' }, { status: 502 }); }),
+    );
+    mountAccount();
+    expect(await screen.findByText('KEEP-ME12')).toBeInTheDocument();
+    await waitFor(() => expect(polls).toBeGreaterThan(0));
+    expect(screen.getByText('KEEP-ME12')).toBeInTheDocument();
   });
 
   it('keeps repository and session requests off while disconnected', async () => {

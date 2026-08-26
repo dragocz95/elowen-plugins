@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { PluginContext, PluginSecretBag } from 'elowen/plugin-api';
-import { GitHubAuthAdapter, newFlowId } from './githubAuth.js';
+import { DEVICE_FLOW_TTL, GitHubAuthAdapter, newFlowId, validateDeviceToken } from './githubAuth.js';
 import { GitHubClient, GitHubHttpError, type GitHubClientOptions } from './githubClient.js';
 import { GitHubPluginError } from './errors.js';
 import { publishBranch, type SpawnPrepared } from './execution.js';
@@ -11,7 +11,9 @@ import type {
   ProjectMapping, PullRequestDetails, PullRequestSummary,
 } from './types.js';
 
-const TOKEN_KEY = 'oauth-token';
+const CLI_TOKEN_KEY = 'cli-token';
+const LEGACY_TOKEN_KEY = 'oauth-token';
+const LEGACY_CLIENT_SECRET_KEY = 'client-secret';
 const CONFIRM_TTL = 5 * 60_000;
 const PR_LEASE_TTL = 60_000;
 const PR_LEASE_WAIT = 30_000;
@@ -64,10 +66,18 @@ export class GitHubService {
     return project;
   }
 
-  connectionStatus(userId = this.currentUserId()): { connected: boolean; reconnectRequired: boolean; account: GitHubAccount | null; mappings: number; flow: Omit<DeviceFlow, 'directory'> | null } {
-    const account = this.store.account(userId);
+  connectionStatus(userId = this.currentUserId()): { connected: boolean; reconnectRequired: boolean; account: GitHubAccount | null; mappings: number; authInProgress: boolean } {
+    let account = this.store.account(userId);
+    this.migrateUserToken(userId, account);
+    account = this.store.account(userId);
+    const authInProgress = this.store.deviceFlows({ userId, statuses: ['pending', 'completing'] }).length > 0;
+    return { connected: !!account && account.status === 'connected', reconnectRequired: account?.status === 'reconnect_required', account, mappings: this.store.mappings(userId).length, authInProgress };
+  }
+
+  browserConnectionStatus(userId = this.currentUserId()): ReturnType<GitHubService['connectionStatus']> & { flow: Omit<DeviceFlow, 'directory'> | null } {
+    const status = this.connectionStatus(userId);
     const flow = this.store.deviceFlows({ userId, statuses: ['pending', 'completing'] })[0] ?? null;
-    return { connected: !!account && account.status === 'connected', reconnectRequired: account?.status === 'reconnect_required', account, mappings: this.store.mappings(userId).length, flow: flow ? publicFlow(flow) : null };
+    return { ...status, flow: flow ? publicFlow(flow) : null };
   }
 
   async startDeviceAuth(userId: number, input: { replaceIdentity?: boolean; reconnect?: boolean; confirmationToken?: string } = {}): Promise<{ flowId: string; verificationUrl: string; userCode: string; expiresAt: number }> {
@@ -82,15 +92,28 @@ export class GitHubService {
     }
     const flowId = newFlowId();
     const createdAt = this.now();
-    const expiresAt = createdAt + 10 * 60_000;
+    const expiresAt = createdAt + DEVICE_FLOW_TTL;
     try {
       this.store.saveDeviceFlow({ flowId, userId, verificationUrl: null, userCode: null, directory: null, replaceIdentity: !!input.replaceIdentity, expiresAt, status: 'pending', error: null, createdAt, updatedAt: createdAt });
-    } catch {
-      throw new GitHubPluginError('auth_in_progress', 409, 'A GitHub connection is already in progress.');
+    } catch (error) {
+      if (this.store.deviceFlows({ userId, statuses: ['pending', 'completing'] }).length > 0) {
+        throw new GitHubPluginError('auth_in_progress', 409, 'A GitHub connection is already in progress.');
+      }
+      throw error;
     }
     try {
-      const started = await this.auth.start(flowId, async (token) => this.completeDeviceAuth(flowId, token), (error) => this.failDeviceAuth(flowId, error));
-      this.store.updateDeviceFlow(flowId, { verificationUrl: started.prompt.verificationUrl, userCode: started.prompt.userCode, directory: started.directory, expiresAt: started.expiresAt, updatedAt: this.now() });
+      const started = await this.auth.start(flowId, {
+        onDirectory: (directory) => {
+          if (!this.store.updateDeviceFlow(flowId, { directory, updatedAt: this.now() })) throw new Error('GitHub device flow disappeared.');
+        },
+        onComplete: async (token) => this.completeDeviceAuth(flowId, token),
+        onFailure: (error) => this.failDeviceAuth(flowId, error),
+        onCleanup: (directory, cleaned) => this.recordCleanup(flowId, directory, cleaned),
+      });
+      const current = this.store.deviceFlow(flowId);
+      if (current && (current.status === 'pending' || current.status === 'completing')) {
+        this.store.updateDeviceFlow(flowId, { verificationUrl: started.prompt.verificationUrl, userCode: started.prompt.userCode, expiresAt: started.expiresAt, updatedAt: this.now() });
+      }
       return { flowId, verificationUrl: started.prompt.verificationUrl, userCode: started.prompt.userCode, expiresAt: started.expiresAt };
     } catch {
       this.failDeviceAuth(flowId, 'GitHub device login could not be started.');
@@ -108,52 +131,129 @@ export class GitHubService {
     return publicFlow(flow);
   }
 
-  cancelDeviceAuth(userId: number, flowId: string, reason: 'cancelled' | 'expired' = 'cancelled'): void {
+  cancelDeviceAuth(userId: number, flowId: string, reason: 'cancelled' | 'expired' = 'cancelled'): Omit<DeviceFlow, 'directory'> {
     const flow = this.store.deviceFlow(flowId);
     if (!flow || flow.userId !== userId) throw new GitHubPluginError('flow_not_found', 404, 'GitHub connection request not found.');
-    if (flow.status === 'connected' || flow.status === 'failed' || flow.status === 'interrupted') return;
-    this.store.updateDeviceFlow(flowId, { status: reason, directory: null, error: reason === 'expired' ? 'expired' : null, updatedAt: this.now() });
-    this.auth.cancel(flowId, flow.directory ?? undefined);
+    if (flow.status === 'connected' || flow.status === 'failed' || flow.status === 'interrupted' || flow.status === 'cancelled' || flow.status === 'expired') {
+      return publicFlow(flow);
+    }
+    this.store.updateDeviceFlow(flowId, {
+      status: reason, verificationUrl: null, userCode: null,
+      error: reason === 'expired' ? 'expired' : null, updatedAt: this.now(),
+    });
+    const cleaned = this.auth.cancel(flowId, flow.directory ?? undefined);
+    if (flow.directory) this.recordCleanup(flowId, flow.directory, cleaned);
+    return publicFlow(this.store.deviceFlow(flowId)!);
   }
 
   prune(now = this.now()): void {
     for (const flow of this.store.deviceFlows()) {
       if (flow.status === 'pending' || flow.status === 'completing') {
         if (flow.expiresAt <= now) this.cancelDeviceAuth(flow.userId, flow.flowId, 'expired');
-      } else if (flow.directory) this.auth.cleanupDirectory(flow.directory);
+      } else if (flow.directory) this.retryCleanup(flow);
     }
     this.store.prune(now);
   }
 
   deleteAccount(userId: number): void {
+    const now = this.now();
     const flows = this.store.deviceFlows({ userId });
-    for (const flow of flows) this.auth.cancel(flow.flowId, flow.directory ?? undefined);
+    for (const flow of flows) {
+      if (flow.status === 'pending' || flow.status === 'completing') {
+        this.store.updateDeviceFlow(flow.flowId, { status: 'interrupted', verificationUrl: null, userCode: null, error: 'account_deleted', updatedAt: now });
+        const cleaned = this.auth.cancel(flow.flowId, flow.directory ?? undefined);
+        if (flow.directory) this.recordCleanup(flow.flowId, flow.directory, cleaned);
+      } else if (flow.directory) this.retryCleanup(flow);
+    }
     this.store.deleteAccount(userId);
+    for (const flow of flows) if (!this.store.deviceFlow(flow.flowId)?.directory) this.store.deleteDeviceFlow(flow.flowId);
   }
 
   reconcile(validUsers: Set<number>, validProjects: Set<number>): void {
+    this.ctx.instanceSecrets().delete(LEGACY_CLIENT_SECRET_KEY);
     for (const flow of this.store.legacyOAuthFlows()) {
       this.ctx.instanceSecrets().delete(flow.secretKey);
       this.store.deleteLegacyOAuthFlow(flow.stateHash);
     }
-    const flows = this.store.deviceFlows();
-    for (const flow of flows) {
-      if (!validUsers.has(flow.userId)) { this.auth.cancel(flow.flowId, flow.directory ?? undefined); this.store.deleteDeviceFlow(flow.flowId); continue; }
-      if (flow.status === 'pending' || flow.status === 'completing') {
-        this.auth.cancel(flow.flowId, flow.directory ?? undefined);
-        this.store.updateDeviceFlow(flow.flowId, { status: 'interrupted', directory: null, error: 'daemon_restart', updatedAt: this.now() });
-      } else this.auth.cleanupDirectory(flow.directory);
+    const now = this.now();
+    for (const flow of this.store.deviceFlows()) {
+      const active = flow.status === 'pending' || flow.status === 'completing';
+      if (active) {
+        this.store.updateDeviceFlow(flow.flowId, { status: 'interrupted', verificationUrl: null, userCode: null, error: 'daemon_restart', updatedAt: now });
+        const cleaned = this.auth.cancel(flow.flowId, flow.directory ?? undefined);
+        if (flow.directory) this.recordCleanup(flow.flowId, flow.directory, cleaned);
+      } else if (flow.directory) this.retryCleanup(flow);
+      if (!validUsers.has(flow.userId) && !this.store.deviceFlow(flow.flowId)?.directory) this.store.deleteDeviceFlow(flow.flowId);
     }
     this.store.reconcile(validUsers, validProjects);
   }
 
-  stop(): void { this.auth.stopAll(this.store.deviceFlows().map((flow) => ({ flowId: flow.flowId, directory: flow.directory }))); }
+  stop(): void {
+    const flows = this.store.deviceFlows();
+    const now = this.now();
+    for (const flow of flows) if (flow.status === 'pending' || flow.status === 'completing') {
+      this.store.updateDeviceFlow(flow.flowId, { status: 'interrupted', verificationUrl: null, userCode: null, error: 'plugin_reload', updatedAt: now });
+    }
+    this.auth.stopAll();
+    for (const flow of flows) if (flow.directory) this.retryCleanup(flow);
+  }
+
+  readiness(): Promise<{ ok: boolean; detail: string }> { return this.auth.readiness(); }
+
+  private recordCleanup(flowId: string, directory: string, cleaned: boolean): void {
+    const flow = this.store.deviceFlow(flowId);
+    if (!flow || flow.directory !== directory) return;
+    if (cleaned) {
+      const error = flow.error?.replace(/(?:^|;)cleanup_failed$/, '') || null;
+      this.store.updateDeviceFlow(flowId, { directory: null, error, updatedAt: this.now() });
+      return;
+    }
+    this.store.updateDeviceFlow(flowId, {
+      directory,
+      error: flow.error && flow.error !== 'cleanup_failed' ? `${flow.error};cleanup_failed` : 'cleanup_failed',
+      updatedAt: this.now(),
+    });
+  }
+
+  private retryCleanup(flow: DeviceFlow): boolean {
+    if (!flow.directory) return true;
+    const cleaned = this.auth.cleanupDirectory(flow.flowId, flow.directory);
+    this.recordCleanup(flow.flowId, flow.directory, cleaned);
+    return cleaned;
+  }
+
+  private restoreSecret(bag: PluginSecretBag, key: string, previous: ReturnType<PluginSecretBag['get']>): void {
+    const current = bag.get(key);
+    if (previous) bag.set(key, previous.value, current?.version);
+    else bag.delete(key);
+  }
+
+  private migrateUserToken(userId: number, account: GitHubAccount | null): void {
+    const bag = this.secrets(userId);
+    const legacy = bag.get(LEGACY_TOKEN_KEY);
+    if (!legacy) return;
+    if (bag.has(CLI_TOKEN_KEY) || account?.status !== 'connected' || isLegacyOAuthEnvelope(legacy.value)) {
+      bag.delete(LEGACY_TOKEN_KEY);
+      return;
+    }
+    try {
+      const token = validateDeviceToken(legacy.value);
+      bag.set(CLI_TOKEN_KEY, token, bag.get(CLI_TOKEN_KEY)?.version);
+      bag.delete(LEGACY_TOKEN_KEY);
+    } catch {
+      bag.delete(LEGACY_TOKEN_KEY);
+      if (account) this.store.markReconnect(userId, 'token_missing_or_corrupt', this.now());
+    }
+  }
 
   private failDeviceAuth(flowId: string, error: string): void {
     const flow = this.store.deviceFlow(flowId);
-    if (!flow || flow.status === 'cancelled' || flow.status === 'expired' || flow.status === 'interrupted') return;
+    if (!flow || flow.status === 'connected' || flow.status === 'cancelled' || flow.status === 'expired' || flow.status === 'interrupted') return;
     const expired = error.toLowerCase().includes('expired');
-    this.store.updateDeviceFlow(flowId, { status: expired ? 'expired' : 'failed', directory: null, error, updatedAt: this.now() });
+    this.store.updateDeviceFlow(flowId, {
+      status: expired ? 'expired' : 'failed', verificationUrl: null, userCode: null,
+      error, updatedAt: this.now(),
+    });
   }
 
   private async completeDeviceAuth(flowId: string, token: string): Promise<void> {
@@ -168,21 +268,27 @@ export class GitHubService {
       if (owner !== null && owner !== flow.userId) throw new GitHubPluginError('github_identity_in_use', 409, 'This GitHub identity is already connected to another Elowen account.');
       const existing = this.store.account(flow.userId);
       if (existing && existing.githubUserId !== profile.id && !flow.replaceIdentity) throw new GitHubPluginError('identity_replacement_required', 409, 'Replacing the connected GitHub identity requires explicit confirmation.');
-      await this.revalidateMappings(flow.userId, token);
+      const mappings = await this.validatedMappings(flow.userId, token);
       const latest = this.store.deviceFlow(flowId);
-      if (!latest || latest.status !== 'completing') return;
-      const bag = this.secrets(flow.userId);
-      const previous = bag.get(TOKEN_KEY);
       const now = this.now();
-      bag.set(TOKEN_KEY, token, previous?.version);
+      if (!latest || latest.status !== 'completing' || latest.expiresAt <= now) return;
+      const bag = this.secrets(flow.userId);
+      const previous = bag.get(CLI_TOKEN_KEY);
+      bag.set(CLI_TOKEN_KEY, token, previous?.version);
       try {
-        this.store.saveAccount({ userId: flow.userId, githubUserId: profile.id, login: profile.login, name: profile.name, avatarUrl: profile.avatar_url, status: 'connected', lastError: null, verifiedAt: now, updatedAt: now });
+        const committed = this.store.finalizeDeviceAuth(flowId, {
+          userId: flow.userId, githubUserId: profile.id, login: profile.login, name: profile.name, avatarUrl: profile.avatar_url,
+          status: 'connected', lastError: null, verifiedAt: now, updatedAt: now,
+        }, mappings, now);
+        if (!committed) {
+          this.restoreSecret(bag, CLI_TOKEN_KEY, previous);
+          return;
+        }
+        bag.delete(LEGACY_TOKEN_KEY);
       } catch (error) {
-        if (previous) bag.set(TOKEN_KEY, previous.value, bag.get(TOKEN_KEY)?.version);
-        else bag.delete(TOKEN_KEY);
+        this.restoreSecret(bag, CLI_TOKEN_KEY, previous);
         throw error;
       }
-      this.store.updateDeviceFlow(flowId, { status: 'connected', directory: null, error: null, updatedAt: now });
     } catch (error) {
       if (error instanceof GitHubPluginError && error.code === 'github_identity_in_use') this.failDeviceAuth(flowId, error.message);
       else this.failDeviceAuth(flowId, 'GitHub connection could not be verified.');
@@ -198,8 +304,16 @@ export class GitHubService {
   }
 
   disconnect(userId = this.currentUserId()): void {
-    this.secrets(userId).delete(TOKEN_KEY);
-    for (const flow of this.store.deviceFlows({ userId })) this.auth.cancel(flow.flowId, flow.directory ?? undefined);
+    const bag = this.secrets(userId);
+    bag.delete(CLI_TOKEN_KEY);
+    bag.delete(LEGACY_TOKEN_KEY);
+    for (const flow of this.store.deviceFlows({ userId })) {
+      if (flow.status === 'pending' || flow.status === 'completing') {
+        this.store.updateDeviceFlow(flow.flowId, { status: 'cancelled', verificationUrl: null, userCode: null, error: null, updatedAt: this.now() });
+        const cleaned = this.auth.cancel(flow.flowId, flow.directory ?? undefined);
+        if (flow.directory) this.recordCleanup(flow.flowId, flow.directory, cleaned);
+      } else if (flow.directory) this.retryCleanup(flow);
+    }
     this.store.deactivateMappings(userId);
     this.store.disconnectAccount(userId);
   }
@@ -445,17 +559,19 @@ export class GitHubService {
     return { workspace, mapping, base, head };
   }
 
-  private async revalidateMappings(userId: number, token: string): Promise<void> {
+  private async validatedMappings(userId: number, token: string): Promise<{ original: ProjectMapping; validated: ProjectMapping }[]> {
+    const validated: { original: ProjectMapping; validated: ProjectMapping }[] = [];
     for (const mapping of this.store.mappings(userId)) {
       try {
         const base = await this.client.repository(token, mapping.baseOwner, mapping.baseName);
         const push = mapping.pushRepoId === mapping.baseRepoId ? base : await this.client.repository(token, mapping.pushOwner, mapping.pushName);
         const active = base.id === mapping.baseRepoId && push.id === mapping.pushRepoId && base.permissions.pull && push.permissions.push;
-        this.store.saveMapping({ ...mapping, baseOwner: base.owner, baseName: base.name, pushOwner: push.owner, pushName: push.name, active, verifiedAt: active ? this.now() : 0 });
+        validated.push({ original: mapping, validated: { ...mapping, baseOwner: base.owner, baseName: base.name, pushOwner: push.owner, pushName: push.name, active, verifiedAt: active ? this.now() : 0 } });
       } catch {
-        this.store.saveMapping({ ...mapping, active: false, verifiedAt: 0 });
+        validated.push({ original: mapping, validated: { ...mapping, active: false, verifiedAt: 0 } });
       }
     }
+    return validated;
   }
 
   private requireMapping(userId: number, projectId: number): ProjectMapping {
@@ -473,9 +589,13 @@ export class GitHubService {
     const bag = this.secrets(userId);
     const account = this.store.account(userId);
     if (!account) throw new GitHubPluginError('not_connected', 409, 'Connect GitHub first.');
-    if (account.status === 'reconnect_required') throw new GitHubPluginError('reconnect_required', 409, 'Reconnect GitHub before continuing.');
-    const secret = bag.get(TOKEN_KEY);
-    if (!secret || !/^\S+$/.test(secret.value) || secret.value.includes('\\n') || secret.value.includes('\\r')) {
+    this.migrateUserToken(userId, account);
+    const currentAccount = this.store.account(userId);
+    if (!currentAccount || currentAccount.status === 'reconnect_required') throw new GitHubPluginError('reconnect_required', 409, 'Reconnect GitHub before continuing.');
+    const secret = bag.get(CLI_TOKEN_KEY);
+    if (!secret || !/^\S+$/.test(secret.value) || secret.value.includes('\n') || secret.value.includes('\r')) {
+      bag.delete(CLI_TOKEN_KEY);
+      bag.delete(LEGACY_TOKEN_KEY);
       this.store.markReconnect(userId, 'token_missing_or_corrupt', this.now());
       throw new GitHubPluginError('reconnect_required', 409, 'Reconnect GitHub before continuing.');
     }
@@ -522,4 +642,10 @@ function assertActionBound(action: MutationAction, target: Record<string, unknow
 }
 
 function normalizeBaseInput(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }
+function isLegacyOAuthEnvelope(value: string): boolean {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return !!parsed && typeof parsed === 'object' && typeof parsed.accessToken === 'string' && typeof parsed.refreshToken === 'string';
+  } catch { return false; }
+}
 function stale(): GitHubPluginError { return new GitHubPluginError('state_changed', 409, 'The repository or pull request changed. Preview the action again.'); }

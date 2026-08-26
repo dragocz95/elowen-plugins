@@ -5,10 +5,10 @@ export function register(ctx, deps = {}) {
     const service = new GitHubService(ctx, deps);
     registerGitHubApi(ctx, service);
     registerGitHubTools(ctx, service);
-    ctx.registerReadinessCheck(() => ({
-        id: 'github-auth', label: 'GitHub authentication', ok: true,
-        detail: 'Device authentication is available when GitHub CLI is installed.',
-    }));
+    ctx.registerReadinessCheck(async () => {
+        const readiness = await service.readiness();
+        return { id: 'github-auth', label: 'GitHub authentication', ...readiness };
+    });
     const reconcile = () => {
         service.reconcile(new Set(ctx.host.stores().usersRead.list().map((user) => user.id)), new Set(ctx.host.stores().projects.list().map((project) => project.id)));
     };

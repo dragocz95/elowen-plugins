@@ -29,7 +29,7 @@ const route = (ctx, path, method, access, handler) => {
         } });
 };
 export function registerGitHubApi(ctx, service) {
-    route(ctx, 'status', 'GET', 'user', (req) => ({ body: service.connectionStatus(userId(req)) }));
+    route(ctx, 'status', 'GET', 'user', (req) => ({ body: service.browserConnectionStatus(userId(req)) }));
     route(ctx, 'auth/start', 'POST', 'user', async (req) => {
         const input = await objectBody(req);
         return { body: await service.startDeviceAuth(userId(req), { replaceIdentity: input.replaceIdentity === true, reconnect: input.reconnect === true, confirmationToken: text(input.confirmationToken) || undefined }) };
@@ -37,8 +37,7 @@ export function registerGitHubApi(ctx, service) {
     route(ctx, 'auth/status', 'GET', 'user', (req) => ({ body: service.deviceAuthStatus(userId(req), text(req.query.flowId)) }));
     route(ctx, 'auth/cancel', 'POST', 'user', async (req) => {
         const input = await objectBody(req);
-        service.cancelDeviceAuth(userId(req), requiredText(input.flowId, 'flowId'));
-        return { body: { cancelled: true } };
+        return { body: service.cancelDeviceAuth(userId(req), requiredText(input.flowId, 'flowId')) };
     });
     route(ctx, 'test', 'POST', 'user', async (req) => ({ body: await service.testConnection(userId(req)) }));
     route(ctx, 'repositories', 'GET', 'user', async (req) => ({ body: { repositories: await service.repositories(userId(req), req.auth.accessibleProjects, req.auth.admin) } }));

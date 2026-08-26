@@ -131,7 +131,6 @@ export class GitHubStore {
     this.db.transaction(() => {
       this.db.prepare('DELETE FROM p_github_confirmations WHERE user_id=?').run(userId);
       this.db.prepare('DELETE FROM p_github_oauth_flows WHERE user_id=?').run(userId);
-      this.db.prepare('DELETE FROM p_github_device_flows WHERE user_id=?').run(userId);
       this.db.prepare('DELETE FROM p_github_accounts WHERE user_id=?').run(userId);
     });
   }
@@ -173,6 +172,23 @@ export class GitHubStore {
     if (!current) return false;
     this.saveDeviceFlow({ ...current, ...patch });
     return true;
+  }
+
+  finalizeDeviceAuth(flowId: string, account: GitHubAccount, mappings: readonly { original: ProjectMapping; validated: ProjectMapping }[], now: number): boolean {
+    return this.db.transaction(() => {
+      const flow = this.deviceFlow(flowId);
+      if (!flow || flow.userId !== account.userId || flow.status !== 'completing' || flow.expiresAt <= now) return false;
+      this.saveAccount(account);
+      for (const mapping of mappings) {
+        const current = this.mapping(mapping.original.userId, mapping.original.projectId);
+        if (current && sameMapping(current, mapping.original)) this.saveMapping(mapping.validated);
+      }
+      const changed = this.db.prepare(`UPDATE p_github_device_flows SET
+        status='connected',verification_url=NULL,user_code=NULL,error=NULL,updated_at=?
+        WHERE flow_id=? AND user_id=? AND status='completing' AND expires_at>?`).run(now, flowId, account.userId, now).changes;
+      if (changed !== 1) throw new Error('GitHub device flow changed during finalization.');
+      return true;
+    });
   }
 
   deleteDeviceFlow(flowId: string): boolean { return this.db.prepare('DELETE FROM p_github_device_flows WHERE flow_id=?').run(flowId).changes > 0; }
@@ -286,7 +302,7 @@ export class GitHubStore {
   prune(now: number): void {
     this.db.prepare('DELETE FROM p_github_pr_leases WHERE expires_at<=?').run(now);
     this.db.prepare('DELETE FROM p_github_confirmations WHERE expires_at<=?').run(now);
-    this.db.prepare("DELETE FROM p_github_device_flows WHERE status NOT IN ('pending','completing') AND updated_at<=?").run(now - 15 * 60_000);
+    this.db.prepare("DELETE FROM p_github_device_flows WHERE status NOT IN ('pending','completing') AND directory IS NULL AND updated_at<=?").run(now - 15 * 60_000);
   }
 
   reconcile(validUsers: Set<number>, validProjects: Set<number>): void {
@@ -299,4 +315,12 @@ export class GitHubStore {
       if (!validProjects.has(projectId)) this.deleteProject(projectId);
     }
   }
+}
+
+function sameMapping(left: ProjectMapping, right: ProjectMapping): boolean {
+  return left.userId === right.userId && left.projectId === right.projectId
+    && left.baseRepoId === right.baseRepoId && left.baseOwner === right.baseOwner && left.baseName === right.baseName
+    && left.pushRepoId === right.pushRepoId && left.pushOwner === right.pushOwner && left.pushName === right.pushName
+    && left.baseRemote === right.baseRemote && left.pushRemote === right.pushRemote
+    && left.verifiedAt === right.verifiedAt && left.active === right.active;
 }

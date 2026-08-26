@@ -7,7 +7,7 @@ interface PendingConnectionAction { action: Record<string, unknown>; preview: Pr
 interface DeviceChallenge { flowId: string; verificationUrl: string; userCode: string; expiresAt: number }
 
 export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | Promise<void> }) {
-  const { components: C, hooks, api } = runtime();
+  const { components: C, hooks, api, utils } = runtime();
   const s = hooks.usePluginStrings('github');
   const { toast } = hooks.useToast();
   const qc = hooks.useQueryClient();
@@ -30,9 +30,13 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
     enabled: !!flow,
     refetchInterval: flow ? 2_000 : false,
   });
-  const cancel = hooks.useMutation<unknown, unknown, string>({
-    mutationFn: (flowId: string) => api('/plugins/github/api/auth/cancel', jsonBody({ flowId })),
-    onSuccess: async () => { setFlow(null); await refresh(); toast(s.connectionCancelled); },
+  const cancel = hooks.useMutation<DeviceFlowResponse, unknown, string>({
+    mutationFn: (flowId: string) => api('/plugins/github/api/auth/cancel', jsonBody({ flowId })) as Promise<DeviceFlowResponse>,
+    onSuccess: async (value: DeviceFlowResponse) => {
+      setFlow(null);
+      await refresh();
+      toast(value.status === 'connected' ? s.connectionComplete : s.connectionCancelled);
+    },
     onError: (error: unknown) => toast(localizedError(error, s), 'error'),
   });
   const preview = hooks.useMutation<Preview, unknown, Record<string, unknown>>({
@@ -60,12 +64,24 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
 
   useEffect(() => {
     const state = flowStatus.data?.status;
-    if (state === 'connected') {
-      setFlow(null);
-      void refresh();
-      toast(s.connectionComplete);
-    }
+    if (!state || state === 'pending' || state === 'completing') return;
+    setFlow(null);
+    void refresh();
+    if (state === 'connected') toast(s.connectionComplete);
+    else if (state === 'cancelled') toast(s.connectionCancelled);
+    else if (state === 'expired') toast(s.connectionExpired, 'error');
+    else toast(s.connectionFailed, 'error');
   }, [flowStatus.data?.status]);
+
+  useEffect(() => {
+    if (!flow || !flowStatus.isError) return;
+    const statusCode = flowStatus.error && typeof flowStatus.error === 'object' && 'status' in flowStatus.error
+      ? Number((flowStatus.error as { status?: unknown }).status) : 0;
+    if (statusCode !== 404 && utils.apiErrorMessage(flowStatus.error) !== 'flow_not_found') return;
+    setFlow(null);
+    void refresh();
+    toast(s.connectionFailed, 'error');
+  }, [flow, flowStatus.isError, flowStatus.error]);
 
   if (status.isError) return <C.ErrorState message={s.loadError} onRetry={() => status.refetch()} />;
   if (status.isLoading) return <C.LoadingState variant="detail" />;
@@ -98,7 +114,6 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
       </div>
       <div className="flex flex-wrap gap-2">
         {!terminal ? <C.Button variant="ghost" onClick={() => cancel.mutate(flow.flowId)} disabled={cancel.isPending}>{s.cancelConnection}</C.Button> : null}
-        {terminal ? <C.Button variant="accent" onClick={beginConnect}>{s.connect}</C.Button> : null}
       </div>
     </div>;
   }

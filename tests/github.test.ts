@@ -115,7 +115,7 @@ function rawPull(number: number, title: string, head: string, base: string, sha:
   return { number, title, state: 'open', draft: false, html_url: `https://github.com/base/repo/pull/${number}`, body: 'Body', user: { login: 'octocat' }, head: { ref: head, sha, repo: { owner: { login: 'fork' } } }, base: { ref: base }, updated_at: '2026-08-26T06:00:00Z', mergeable: true, mergeable_state: 'clean' };
 }
 
-function harness(root: string, fake: { base: string }, nowRef = { value: Date.now() }) {
+function harness(root: string, fake: { base: string }, nowRef = { value: Date.now() }, authOverride?: GitHubAuthAdapter) {
   const db = pluginDb();
   mkdirSync(join(root, 'auth-tmp'));
   const instance = new SecretBag(); instance.set('client-secret', 'client-secret-value-1234567890');
@@ -155,7 +155,7 @@ function harness(root: string, fake: { base: string }, nowRef = { value: Date.no
     }
     return { stdout: 'git version 2.45\n', stderr: '' };
   };
-  const auth = new GitHubAuthAdapter({
+  const auth = authOverride ?? new GitHubAuthAdapter({
     now: () => nowRef.value,
     tempRoot: join(root, 'auth-tmp'),
     spawn: ((file, args, options) => {
@@ -203,9 +203,75 @@ describe('GitHub plugin', () => {
     expect(TOKEN_ARGS).toEqual(['auth', 'token', '--hostname', 'github.com']);
   });
 
+  it('probes gh with a bounded sanitized environment', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root);
+    let captured: any;
+    const auth = new GitHubAuthAdapter({
+      tempRoot: join(root, 'auth-tmp'),
+      spawn: ((file, args, options) => {
+        captured = { file, args: [...args], options };
+        return nodeSpawn(process.execPath, ['-e', "process.stdout.write('gh version 2.93.0 (test)\\n')"], options);
+      }) as any,
+    });
+    await expect(auth.readiness()).resolves.toEqual({ ok: true, detail: 'GitHub CLI 2.93.0 is available.' });
+    expect(captured.args).toEqual(['--version']);
+    expect(captured.options.env).not.toHaveProperty('GH_TOKEN');
+    expect(captured.options.env).not.toHaveProperty('GITHUB_TOKEN');
+    expect(captured.options.env.GH_CONFIG_DIR).toBe(join(root, 'auth-tmp'));
+  });
+
+  it('retains child tracking and escalates a hung login process to SIGKILL', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root);
+    let loginChild: ReturnType<typeof nodeSpawn> | null = null;
+    const auth = new GitHubAuthAdapter({
+      tempRoot: join(root, 'auth-tmp'),
+      spawn: ((file, args, options) => {
+        const child = nodeSpawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{});process.stdout.write('https://github.com/login/device\\nABCD-EFGH\\n');setInterval(()=>{},1000)"], options);
+        if (args[1] === 'login') loginChild = child;
+        return child;
+      }) as any,
+    });
+    const started = await auth.start('gh-hung', { onDirectory: () => {}, onComplete: async () => {}, onFailure: () => {}, onCleanup: () => {} });
+    const closed = new Promise<NodeJS.Signals | null>((resolve) => loginChild!.once('close', (_code, signal) => resolve(signal)));
+    auth.cancel('gh-hung', started.directory);
+    await expect(closed).resolves.toBe('SIGKILL');
+  }, 6_000);
+
+  it('caps token output and kills an uncooperative token process without completing auth', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root);
+    let tokenChild: ReturnType<typeof nodeSpawn> | null = null;
+    let completed = false;
+    let failure = '';
+    let resolveFailure: (() => void) | null = null;
+    const failed = new Promise<void>((resolve) => { resolveFailure = resolve; });
+    const auth = new GitHubAuthAdapter({
+      tempRoot: join(root, 'auth-tmp'),
+      spawn: ((file, args, options) => {
+        const login = args[1] === 'login';
+        const script = login
+          ? "process.stdout.write('https://github.com/login/device\\nABCD-EFGH\\n');process.exit(0)"
+          : "process.on('SIGTERM',()=>{});process.stdout.write('x'.repeat(70000));setInterval(()=>{},1000)";
+        const child = nodeSpawn(process.execPath, ['-e', script], options);
+        if (!login) tokenChild = child;
+        return child;
+      }) as any,
+    });
+    await auth.start('gh-overflow', {
+      onDirectory: () => {},
+      onComplete: async () => { completed = true; },
+      onFailure: (error) => { failure = error; resolveFailure?.(); },
+      onCleanup: () => {},
+    });
+    await failed;
+    expect(completed).toBe(false);
+    expect(failure).toBe('GitHub device login could not be completed.');
+    const closed = new Promise<NodeJS.Signals | null>((resolve) => tokenChild!.once('close', (_code, signal) => resolve(signal)));
+    await expect(closed).resolves.toBe('SIGKILL');
+  }, 6_000);
+
   it('declares device auth without App setup or callback routes', () => {
     expect(manifest.userGrantable).not.toBe(true);
-    expect(manifest.version).toBe('0.1.3');
+    expect(manifest.version).toBe('0.1.4');
     expect(manifest.web.requiresApiVersion).toBe(4);
     expect(manifest.web.nav).toBeUndefined();
     expect(manifest.web.account).toEqual([{ id: 'connection', label: 'GitHub', icon: 'Github' }]);
@@ -220,6 +286,34 @@ describe('GitHub plugin', () => {
     db.raw.exec(`CREATE TABLE p_github_accounts (user_id INTEGER PRIMARY KEY, github_user_id INTEGER NOT NULL UNIQUE, login TEXT NOT NULL, name TEXT, avatar_url TEXT, token_expires_at INTEGER NOT NULL, refresh_expires_at INTEGER NOT NULL, status TEXT NOT NULL, last_error TEXT, verified_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); INSERT INTO p_github_accounts VALUES (1, 42, 'octocat', NULL, NULL, 1, 1, 'connected', NULL, 1, 1); INSERT INTO plugin_migrations(version) VALUES (1),(2),(3);`);
     const store = new GitHubStore(db);
     expect(store.account(1)).toMatchObject({ status: 'reconnect_required', lastError: 'legacy_oauth_requires_device_login' });
+  });
+
+  it('lazily removes legacy user tokens and reconciles obsolete App secrets', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
+    const h = harness(root, await fakeGitHub());
+    h.service.store.saveAccount({ userId: 1, githubUserId: 42, login: 'octocat', name: null, avatarUrl: null, status: 'reconnect_required', lastError: 'legacy_oauth_requires_device_login', verifiedAt: 1, updatedAt: 1 });
+    const bag = h.ctx.userSecrets()!;
+    bag.set('oauth-token', JSON.stringify({ accessToken: 'legacy-access', refreshToken: 'legacy-refresh' }));
+    expect(h.service.connectionStatus(1).reconnectRequired).toBe(true);
+    expect(bag.get('oauth-token')).toBeNull();
+    expect(h.instance.has('client-secret')).toBe(true);
+    h.service.reconcile(new Set([1, 2]), new Set([1]));
+    expect(h.instance.has('client-secret')).toBe(false);
+  });
+
+  it('migrates valid 0.1.3 device tokens without forcing reconnect', async () => {
+    const fake = await fakeGitHub();
+    try {
+      const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
+      const h = harness(root, fake);
+      h.service.store.saveAccount({ userId: 1, githubUserId: 42, login: 'octocat', name: null, avatarUrl: null, status: 'connected', lastError: null, verifiedAt: 1, updatedAt: 1 });
+      const bag = h.ctx.userSecrets()!;
+      bag.set('oauth-token', 'access-1');
+      expect(h.service.connectionStatus(1)).toMatchObject({ connected: true, reconnectRequired: false });
+      expect(bag.get('cli-token')?.value).toBe('access-1');
+      expect(bag.get('oauth-token')).toBeNull();
+      await expect(h.service.testConnection(1)).resolves.toMatchObject({ profile: { id: 42 } });
+    } finally { fake.server.close(); }
   });
 
   it('parses HTTPS, SCP and ssh GitHub remotes without accepting other hosts', () => {
@@ -241,9 +335,55 @@ describe('GitHub plugin', () => {
     expect(started.flowId).toMatch(/^gh-/);
     const status = h.service.deviceAuthStatus(1, started.flowId);
     expect(status.directory).toBeUndefined();
+    const registered: any[] = [];
+    registerGitHubTools({ ...h.ctx, registerTool: (tool: unknown) => registered.push(tool) } as unknown as PluginContext, h.service);
+    const toolOutput = await registered.find((tool) => tool.name === 'GithubConnectionStatus').execute('call', {});
+    const serialized = JSON.stringify(toolOutput);
+    expect(serialized).toContain('authInProgress');
+    expect(serialized).not.toContain('ABCD-EFGH');
+    expect(serialized).not.toContain('github.com/login/device');
     await waitForConnected(h.service, started.flowId);
+    expect(h.service.cancelDeviceAuth(1, started.flowId).status).toBe('connected');
     expect(h.service.connectionStatus(1).connected).toBe(true);
-    expect(h.users.get(1)?.get('oauth-token')?.value).toBe('access-1');
+    expect(h.users.get(1)?.get('cli-token')?.value).toBe('access-1');
+    expect(h.users.get(1)?.get('oauth-token')).toBeNull();
+  });
+
+  it('retains failed plaintext-directory cleanup durably and retries it before pruning', async () => {
+    const fake = await fakeGitHub();
+    try {
+      const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
+      const nowRef = { value: Date.now() };
+      let cleanupFails = true;
+      const auth = new GitHubAuthAdapter({
+        now: () => nowRef.value,
+        tempRoot: join(root, 'auth-tmp'),
+        removeDirectory: (directory) => {
+          if (cleanupFails) throw new Error('busy');
+          rmSync(directory, { recursive: true, force: true });
+        },
+        spawn: ((file, args, options) => {
+          const script = args[1] === 'login'
+            ? "process.stdout.write('https://github.com/login/device\\nABCD-EFGH\\n'); setTimeout(() => process.exit(0), 10)"
+            : "process.stdout.write('access-1\\n'); process.exit(0)";
+          return nodeSpawn(process.execPath, ['-e', script], options);
+        }) as any,
+      });
+      const h = harness(root, fake, nowRef, auth);
+      const started = await h.service.startDeviceAuth(1);
+      await waitForConnected(h.service, started.flowId);
+      for (let attempt = 0; attempt < 100 && h.service.store.deviceFlow(started.flowId)?.error !== 'cleanup_failed'; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      const pendingCleanup = h.service.store.deviceFlow(started.flowId)!;
+      expect(pendingCleanup.directory).toContain('elowen-github-');
+      expect(pendingCleanup.error).toBe('cleanup_failed');
+      nowRef.value += 16 * 60_000;
+      h.service.prune();
+      expect(h.service.store.deviceFlow(started.flowId)?.directory).toBe(pendingCleanup.directory);
+      cleanupFails = false;
+      h.service.prune();
+      expect(h.service.store.deviceFlow(started.flowId)?.directory).toBeNull();
+      expect(auth.cleanupDirectory(started.flowId, join(root, 'outside'))).toBe(false);
+    } finally { fake.server.close(); }
   });
 
   it('marks the account reconnect_required after a GitHub 401 without refresh rotation', async () => {
@@ -263,16 +403,87 @@ describe('GitHub plugin', () => {
     const h = harness(root, await fakeGitHub());
     const started = await h.service.startDeviceAuth(1);
     await expect(h.service.startDeviceAuth(1)).rejects.toMatchObject({ code: 'auth_in_progress' });
-    h.service.cancelDeviceAuth(1, started.flowId);
+    expect(h.service.cancelDeviceAuth(1, started.flowId).status).toBe('cancelled');
     expect(h.service.deviceAuthStatus(1, started.flowId).status).toBe('cancelled');
     const next = await h.service.startDeviceAuth(1);
     h.service.reconcile(new Set([1]), new Set([1]));
     expect(h.service.deviceAuthStatus(1, next.flowId).status).toBe('interrupted');
   });
 
+  it('does not write validated mappings after cancellation or account deletion wins the race', async () => {
+    const fake = await fakeGitHub();
+    try {
+      const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
+      const h = harness(root, fake);
+      const first = await h.service.startDeviceAuth(1); await waitForConnected(h.service, first.flowId);
+      await h.service.saveMapping(1, { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo' });
+
+      let releaseValidation: (() => void) | null = null;
+      let enteredValidation: (() => void) | null = null;
+      const validationEntered = new Promise<void>((resolve) => { enteredValidation = resolve; });
+      const validationRelease = new Promise<void>((resolve) => { releaseValidation = resolve; });
+      h.service.client.repository = (async (_token: string, owner: string, name: string) => {
+        enteredValidation?.();
+        await validationRelease;
+        return { id: owner === 'fork' ? 2 : 1, owner, name, fullName: `${owner}/${name}`, htmlUrl: '', defaultBranch: 'main', private: false, permissions: { pull: false, push: false, maintain: false, admin: false }, allowMergeCommit: true, allowSquashMerge: true, allowRebaseMerge: true };
+      }) as any;
+      const cancelled = await h.service.startDeviceAuth(1, { reconnect: true });
+      await validationEntered;
+      h.service.cancelDeviceAuth(1, cancelled.flowId);
+      releaseValidation?.();
+      for (let attempt = 0; attempt < 100 && h.service.store.deviceFlow(cancelled.flowId)?.directory; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(h.service.store.mapping(1, 1)?.active).toBe(true);
+      expect(h.service.store.account(1)?.status).toBe('connected');
+
+      let releaseDeletion: (() => void) | null = null;
+      let enteredDeletion: (() => void) | null = null;
+      const deletionEntered = new Promise<void>((resolve) => { enteredDeletion = resolve; });
+      const deletionRelease = new Promise<void>((resolve) => { releaseDeletion = resolve; });
+      h.service.client.repository = (async (_token: string, owner: string, name: string) => {
+        enteredDeletion?.();
+        await deletionRelease;
+        return { id: owner === 'fork' ? 2 : 1, owner, name, fullName: `${owner}/${name}`, htmlUrl: '', defaultBranch: 'main', private: false, permissions: { pull: true, push: true, maintain: true, admin: false }, allowMergeCommit: true, allowSquashMerge: true, allowRebaseMerge: true };
+      }) as any;
+      const deleted = await h.service.startDeviceAuth(1, { reconnect: true });
+      await deletionEntered;
+      h.service.deleteAccount(1);
+      releaseDeletion?.();
+      for (let attempt = 0; attempt < 100 && h.service.store.deviceFlow(deleted.flowId)?.directory; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(h.service.store.account(1)).toBeNull();
+      expect(h.service.store.mapping(1, 1)).toBeNull();
+    } finally { fake.server.close(); }
+  });
+
+  it('does not resurrect or overwrite mappings changed during reconnect validation', async () => {
+    const fake = await fakeGitHub();
+    try {
+      const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
+      const h = harness(root, fake);
+      const first = await h.service.startDeviceAuth(1); await waitForConnected(h.service, first.flowId);
+      await h.service.saveMapping(1, { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo' });
+      let releaseValidation: (() => void) | null = null;
+      let enteredValidation: (() => void) | null = null;
+      const entered = new Promise<void>((resolve) => { enteredValidation = resolve; });
+      const release = new Promise<void>((resolve) => { releaseValidation = resolve; });
+      h.service.client.repository = (async (_token: string, owner: string, name: string) => {
+        enteredValidation?.();
+        await release;
+        return { id: owner === 'fork' ? 2 : 1, owner, name, fullName: `${owner}/${name}`, htmlUrl: '', defaultBranch: 'main', private: false, permissions: { pull: true, push: true, maintain: true, admin: false }, allowMergeCommit: true, allowSquashMerge: true, allowRebaseMerge: true };
+      }) as any;
+      const reconnect = await h.service.startDeviceAuth(1, { reconnect: true });
+      await entered;
+      const current = h.service.store.mapping(1, 1)!;
+      h.service.store.saveMapping({ ...current, baseName: 'edited-during-reconnect', verifiedAt: current.verifiedAt + 1 });
+      releaseValidation?.();
+      await waitForConnected(h.service, reconnect.flowId);
+      expect(h.service.store.mapping(1, 1)).toMatchObject({ baseName: 'edited-during-reconnect', verifiedAt: current.verifiedAt + 1 });
+    } finally { fake.server.close(); }
+  });
+
   it('enforces unique GitHub identity and explicit replacement while preserving mappings', async () => {
     const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
-    const h = harness(root, await fakeGitHub());
+    const fake = await fakeGitHub();
+    const h = harness(root, fake);
     const first = await h.service.startDeviceAuth(1); await waitForConnected(h.service, first.flowId);
     h.setUser(2);
     const second = await h.service.startDeviceAuth(2);
@@ -280,9 +491,13 @@ describe('GitHub plugin', () => {
     expect(secondStatus.status).toBe('failed');
     h.setUser(1);
     await h.service.saveMapping(1, { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo' });
+    fake.state.profileId = 99;
+    fake.state.login = 'replacement';
+    await expect(h.service.startDeviceAuth(1, { replaceIdentity: true })).rejects.toMatchObject({ code: 'confirmation_required' });
     const replacement = await h.service.preview(1, { type: 'replace_identity' });
     const replaced = await h.service.startDeviceAuth(1, { replaceIdentity: true, confirmationToken: replacement.confirmationToken });
     await waitForConnected(h.service, replaced.flowId);
+    expect(h.service.store.account(1)).toMatchObject({ githubUserId: 99, login: 'replacement' });
     expect(h.service.store.mapping(1, 1)).not.toBeNull();
   });
 

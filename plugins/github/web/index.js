@@ -170,7 +170,7 @@ var import_react3 = __toESM(require_react(), 1);
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var STATUS_KEY = ["plugin", "github", "status"];
 function GitHubConnectionPanel({ onChanged }) {
-  const { components: C, hooks, api } = runtime();
+  const { components: C, hooks, api, utils } = runtime();
   const s = hooks.usePluginStrings("github");
   const { toast } = hooks.useToast();
   const qc = hooks.useQueryClient();
@@ -194,10 +194,10 @@ function GitHubConnectionPanel({ onChanged }) {
   });
   const cancel = hooks.useMutation({
     mutationFn: (flowId) => api("/plugins/github/api/auth/cancel", jsonBody({ flowId })),
-    onSuccess: async () => {
+    onSuccess: async (value) => {
       setFlow(null);
       await refresh();
-      toast(s.connectionCancelled);
+      toast(value.status === "connected" ? s.connectionComplete : s.connectionCancelled);
     },
     onError: (error) => toast(localizedError(error, s), "error")
   });
@@ -228,12 +228,22 @@ function GitHubConnectionPanel({ onChanged }) {
   }, [flow, status.data?.flow]);
   (0, import_react3.useEffect)(() => {
     const state = flowStatus.data?.status;
-    if (state === "connected") {
-      setFlow(null);
-      void refresh();
-      toast(s.connectionComplete);
-    }
+    if (!state || state === "pending" || state === "completing") return;
+    setFlow(null);
+    void refresh();
+    if (state === "connected") toast(s.connectionComplete);
+    else if (state === "cancelled") toast(s.connectionCancelled);
+    else if (state === "expired") toast(s.connectionExpired, "error");
+    else toast(s.connectionFailed, "error");
   }, [flowStatus.data?.status]);
+  (0, import_react3.useEffect)(() => {
+    if (!flow || !flowStatus.isError) return;
+    const statusCode = flowStatus.error && typeof flowStatus.error === "object" && "status" in flowStatus.error ? Number(flowStatus.error.status) : 0;
+    if (statusCode !== 404 && utils.apiErrorMessage(flowStatus.error) !== "flow_not_found") return;
+    setFlow(null);
+    void refresh();
+    toast(s.connectionFailed, "error");
+  }, [flow, flowStatus.isError, flowStatus.error]);
   if (status.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => status.refetch() });
   if (status.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "detail" });
   const account = status.data?.account;
@@ -261,10 +271,7 @@ function GitHubConnectionPanel({ onChanged }) {
         state === "cancelled" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-text-muted", children: s.connectionCancelled }) : null,
         state === "interrupted" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-danger", children: s.connectionFailed }) : null
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
-        !terminal ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => cancel.mutate(flow.flowId), disabled: cancel.isPending, children: s.cancelConnection }) : null,
-        terminal ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: beginConnect, children: s.connect }) : null
-      ] })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex flex-wrap gap-2", children: !terminal ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => cancel.mutate(flow.flowId), disabled: cancel.isPending, children: s.cancelConnection }) : null })
     ] });
   }
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
