@@ -434,6 +434,39 @@ describe('onedrive sync cycle', () => {
     expect(readdirSync(root).filter((name) => name.includes('onedrive-conflict'))).toHaveLength(1);
   });
 
+  it('adopts a file that is already identical on both sides instead of calling it a conflict', async () => {
+    const { root, store, drive, engine, link } = harness();
+    settled(join(root, 'same.md'), 'identical\n');
+    await engine.syncUser(7);
+    expect(store.items(link.id).get('same.md')?.state).toBe('synced');
+
+    // Disconnecting drops the baseline, so on reconnect both sides have the file and nothing says they
+    // agree. Without a content comparison every single file comes back as a conflict - safe, but it turns
+    // reconnecting into a pile of busywork nobody asked for.
+    store.clearItems(link.id);
+    await engine.syncUser(7);
+
+    expect(store.items(link.id).get('same.md')?.state).toBe('synced');
+    expect(readdirSync(root).filter((name) => name.includes('onedrive-conflict'))).toHaveLength(0);
+    expect(store.linkById(link.id)?.conflictCount).toBe(0);
+  });
+
+  it('still reports a conflict when the two sides only look alike', async () => {
+    const { root, store, drive, engine, link } = harness();
+    settled(join(root, 'same.md'), 'aaaaaaaa\n');
+    await engine.syncUser(7);
+
+    store.clearItems(link.id);
+    // Same length, different content. Size agreeing is what makes the comparison worth doing, never what
+    // decides the answer.
+    drive.put('same.md', 'bbbbbbbb\n', 'id-other', 'etag-other');
+    await engine.syncUser(7);
+
+    expect(store.items(link.id).get('same.md')?.state).toBe('conflict');
+    expect(readFileSync(join(root, 'same.md'), 'utf8')).toBe('aaaaaaaa\n');
+    expect(readdirSync(root).filter((name) => name.includes('onedrive-conflict'))).toHaveLength(1);
+  });
+
   it('refuses to mirror two names that OneDrive would treat as one', async () => {
     const { root, drive, engine } = harness();
     // OneDrive matches case-insensitively; Linux does not. Mirroring both would upload them over each

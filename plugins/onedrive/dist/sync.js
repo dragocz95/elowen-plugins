@@ -291,6 +291,18 @@ export class SyncEngine {
                         case 'conflict': {
                             if (!local.present || !remoteFile.present)
                                 break;
+                            // With no baseline, "both sides have this file" is indistinguishable from "both sides have
+                            // the SAME file" - which is the normal state on a first connect, and on every reconnect,
+                            // since disconnecting drops the baseline. Comparing content first turns that from a pile of
+                            // conflicts into nothing to do. Only worth asking when the sizes already agree.
+                            if (!known && local.size === remoteFile.size && await drive.sha256(remoteFile.itemId) === local.sha256) {
+                                this.deps.store.putItem({
+                                    linkId: link.id, rel, localSize: local.size, localMtimeMs: local.mtimeMs, localSha256: local.sha256,
+                                    remoteItemId: remoteFile.itemId, remoteEtag: remoteFile.etag, state: 'synced', conflictCopy: null,
+                                });
+                                bytes += local.size;
+                                break;
+                            }
                             await this.keepBoth(drive, link, root, rel, local, remoteFile, (name) => scan.files.has(name));
                             break;
                         }

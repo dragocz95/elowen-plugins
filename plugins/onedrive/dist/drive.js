@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { open, rename, mkdir, stat, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -272,6 +273,17 @@ export class Drive {
             await unlink(temporary).catch(() => undefined);
             throw error;
         }
+    }
+    /** Content hash of a remote item, WITHOUT writing it into the project.
+     *
+     *  Used to answer "are these two files actually the same?" when there is no baseline to compare
+     *  against - on a first connect, or after a disconnect and reconnect. Without it every already-matching
+     *  file is reported as a conflict, which is safe but turns reconnecting into a pile of busywork. */
+    async sha256(itemId) {
+        const { body } = await this.graph.binary(`${this.base()}/items/${encodeURIComponent(itemId)}/content`, {
+            maxBytes: 1024 * 1024 * 1024,
+        });
+        return createHash('sha256').update(Buffer.from(body)).digest('hex');
     }
     /** Conditional on the etag the mirror last saw. An unconditional delete would destroy an edit somebody
      *  made in OneDrive between the listing and this call - and since the local copy is already gone, that
