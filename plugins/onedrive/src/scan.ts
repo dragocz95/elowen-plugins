@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat, readdir, realpath } from 'node:fs/promises';
@@ -99,6 +99,34 @@ async function gitFiles(root: string): Promise<string[] | null> {
   } catch {
     return null;
   }
+}
+
+/** Which of these paths does GIT consider ignored?
+ *
+ *  `scanLocal`'s own predicate knows the hard floor and the user's extra patterns - it does NOT know what
+ *  the project's .gitignore says, because git answers that by omitting the file from `ls-files` entirely.
+ *  So a mirrored untracked file that somebody later adds to .gitignore simply disappears from the scan,
+ *  and "disappeared" is what this mirror deletes. Asking git directly is the only way to tell that apart
+ *  from a real deletion. One process for the whole batch, and only for paths that already went missing. */
+export async function gitIgnoredAmong(root: string, paths: readonly string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (paths.length === 0) return out;
+  // `promisify(execFile)` cannot write to stdin, and the path list is unbounded, so this one spawns.
+  const child = spawn('git', ['-C', root, 'check-ignore', '--stdin', '-z', '--no-index'], {
+    stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  const chunks: Buffer[] = [];
+  child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+  child.stdin.on('error', () => undefined); // git may close stdin early; that is not our failure
+  child.stdin.end(`${paths.join('\0')}\0`);
+  await new Promise<void>((resolve) => {
+    // Exit 1 means "nothing matched", which is an answer. Any other failure leaves the set empty, and an
+    // empty set is the SAFE default here: it only means no path is excused, never that one is deleted.
+    child.on('close', () => resolve());
+    child.on('error', () => resolve());
+  });
+  for (const rel of Buffer.concat(chunks).toString('utf8').split('\0').filter(Boolean)) out.add(rel);
+  return out;
 }
 
 /** Fallback for a root that is not a repository: a bounded walk that never follows a directory symlink. */

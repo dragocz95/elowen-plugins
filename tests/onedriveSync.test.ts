@@ -54,6 +54,9 @@ function pluginDb(): PluginDb {
 function fakeDrive() {
   const files = new Map<string, { id: string; etag: string; body: Buffer }>();
   let counter = 0;
+  /** Items that EXIST but are deliberately absent from the listing - what a file moved between folders
+   *  mid-walk looks like from here. */
+  const hidden = new Map<string, { id: string; etag: string; body: Buffer }>();
   const state: {
     lastDelete: { id: string; ifMatch?: string } | null;
     onDownload?: () => void;
@@ -76,6 +79,14 @@ function fakeDrive() {
   const graph: MicrosoftDriveGraph = {
     json: vi.fn(async (method: string, path: string, options?: { body?: unknown }) => {
       if (path.startsWith('/me/drive')) return { id: 'drive-1' };
+      const itemLookup = /\/items\/([^/?]+)(\?|$)/.exec(path);
+      if (itemLookup && method === 'GET' && !path.includes('/children') && !path.endsWith('/content')) {
+        const id = decodeURIComponent(itemLookup[1]!);
+        if (id === 'folder-1') return { id: 'folder-1', webUrl: 'https://onedrive.example/folder' };
+        const found = [...files.values(), ...hidden.values()].find((entry) => entry.id === id);
+        if (!found) throw Object.assign(new Error('not found'), { status: 404 });
+        return { id, eTag: found.etag };
+      }
       if (path.includes('/children') && method === 'GET') {
         const page = childrenOf(path);
         // Lets a test change OneDrive AFTER the cycle has taken its listing - the window every
@@ -128,7 +139,7 @@ function fakeDrive() {
   const drop = (rel: string) => { files.delete(`Elowen/projects/demo/${rel}`); };
 
   return {
-    graph, files, put, drop,
+    graph, files, hidden, put, drop,
     get lastDelete() { return state.lastDelete; },
     set onDownload(fn: (() => void) | undefined) { state.onDownload = fn; },
     get onDownload() { return state.onDownload; },
@@ -139,7 +150,7 @@ function fakeDrive() {
 
 let settings = { rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: '', applyRemoteDeletions: true };
 
-function harness(options: { applyRemoteDeletions?: boolean } = {}) {
+function harness(options: { applyRemoteDeletions?: boolean; lease?: { ms: number; renewAfterMs: number } } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'onedrive-sync-'));
   roots.push(root);
   const store = new OneDriveStore(pluginDb());
@@ -154,6 +165,7 @@ function harness(options: { applyRemoteDeletions?: boolean } = {}) {
     identity: () => ({ identityFor: () => ({ linked: true }), driveGraphFor: async () => drive.graph }),
     rootFor: () => root,
     settings: () => settings,
+    ...(options.lease ? { lease: options.lease } : {}),
     log,
   });
   const link = store.createLink({
@@ -467,6 +479,93 @@ describe('onedrive sync cycle', () => {
     expect(readdirSync(root).filter((name) => name.includes('onedrive-conflict'))).toHaveLength(1);
   });
 
+  it('checks the one path before trashing it, rather than trusting the whole listing', async () => {
+    const { root, store, drive, engine, link } = harness();
+    settled(join(root, 'moved.md'), 'still there\n');
+    await engine.syncUser(7);
+    const entry = drive.files.get('Elowen/projects/demo/moved.md')!;
+
+    // A listing is a WALK, not a snapshot: a file moved between folders while it ran can be missing from
+    // every page and still exist. Trashing the local copy on that basis loses a file nobody touched.
+    drive.files.delete('Elowen/projects/demo/moved.md');
+    drive.hidden.set(entry.id, entry);
+    await engine.syncUser(7);
+
+    expect(existsSync(join(root, 'moved.md'))).toBe(true);
+    expect(existsSync(join(root, TRASH_DIR))).toBe(false);
+    expect(store.items(link.id).has('moved.md')).toBe(true);
+  });
+
+  it('refuses the whole cycle when OneDrive returns a file with no version tag', async () => {
+    const { root, store, drive, engine, link } = harness();
+    settled(join(root, 'a.txt'), 'a\n');
+    await engine.syncUser(7);
+    const before = drive.files.size;
+
+    // Every upload and delete is conditional on that tag. A file without one would silently turn the
+    // precondition off and let this cycle clobber a change made since the listing.
+    drive.files.get('Elowen/projects/demo/a.txt')!.etag = '';
+    rmSync(join(root, 'a.txt'));
+    await engine.syncUser(7);
+
+    expect(drive.files.size).toBe(before);
+    expect(store.linkById(link.id)?.status).toBe('error');
+  });
+
+  it('gives each trashed version its own folder even within the same second', async () => {
+    const { root, drive, engine } = harness();
+    settled(join(root, 'notes.md'), 'first\n');
+    await engine.syncUser(7);
+    drive.drop('notes.md');
+    await engine.syncUser(7);
+
+    settled(join(root, 'notes.md'), 'second\n');
+    await engine.syncUser(7);
+    drive.drop('notes.md');
+    await engine.syncUser(7);
+
+    // The trash exists so nothing is ever lost, so its own names must not collide with each other.
+    const versions = readdirSync(join(root, TRASH_DIR))
+      .map((dir) => readFileSync(join(root, TRASH_DIR, dir, 'notes.md'), 'utf8'))
+      .sort();
+    expect(versions).toEqual(['first\n', 'second\n']);
+  });
+
+  it('asks before deleting a large number of files even when the share looks small', async () => {
+    const { root, store, drive, engine, link } = harness();
+    for (let n = 0; n < 200; n += 1) settled(join(root, `f-${n}.txt`), `${n}\n`);
+    await engine.syncUser(7);
+    const before = drive.files.size;
+
+    // 60 of 200 is 30% - under the ratio, and still sixty files. A big project is exactly where a share
+    // hides a disaster, so the absolute count has to matter too.
+    for (let n = 0; n < 60; n += 1) rmSync(join(root, `f-${n}.txt`));
+    await engine.syncUser(7);
+
+    expect(drive.files.size).toBe(before);
+    expect(store.linkById(link.id)?.status).toBe('blocked');
+  });
+
+  it('will not let a confirmation cover more deletions than it was given for', async () => {
+    const { root, store, drive, engine, link } = harness();
+    for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) settled(join(root, `${name}.txt`), `${name}\n`);
+    await engine.syncUser(7);
+    for (const name of ['a', 'b', 'c', 'd']) rmSync(join(root, `${name}.txt`));
+    await engine.syncUser(7);
+    expect(store.linkById(link.id)?.status).toBe('blocked');
+    const shown = store.linkById(link.id)!.blockedDeletions;
+    expect(shown).toBe(4);
+
+    // More files vanish between the person reading the message and pressing the button. That is a
+    // different question from the one they answered, so it has to be asked again.
+    for (const name of ['e', 'f', 'g']) rmSync(join(root, `${name}.txt`));
+    await engine.syncUser(7, { confirmDeletions: new Set([link.id]) });
+
+    expect(drive.files.size).toBe(8);
+    expect(store.linkById(link.id)?.status).toBe('blocked');
+    expect(store.linkById(link.id)?.blockedDeletions).toBe(7);
+  });
+
   it('refuses to mirror two names that OneDrive would treat as one', async () => {
     const { root, drive, engine } = harness();
     // OneDrive matches case-insensitively; Linux does not. Mirroring both would upload them over each
@@ -530,14 +629,17 @@ describe('onedrive sync cycle', () => {
   });
 
   it('stops applying as soon as another worker takes the mirror over', async () => {
-    const { root, store, drive, engine, link } = harness();
-    for (let n = 0; n < 60; n += 1) settled(join(root, `f-${n}.txt`), `${n}\n`);
-    // The lease is renewed as the cycle works. Losing it means somebody else has re-decided this mirror,
-    // and anything this cycle still applied would be built on a view that has been superseded.
+    // Renewal is driven by ELAPSED TIME, because one large upload can outlast a lease on its own and a
+    // counter of files cannot see that happening. Zero here means every file re-checks the claim.
+    const { root, store, drive, engine, link } = harness({ lease: { ms: 60_000, renewAfterMs: 0 } });
+    for (let n = 0; n < 10; n += 1) settled(join(root, `f-${n}.txt`), `${n}\n`);
+    // Losing the claim means somebody else has re-decided this mirror. Anything this cycle still applied
+    // would be built on a view that worker has already superseded - including overwriting a local edit it
+    // has just preserved as a conflict.
     const spy = vi.spyOn(store, 'renew').mockReturnValue(false);
     await engine.syncUser(7);
     spy.mockRestore();
-    expect(drive.files.size).toBeLessThan(60);
+    expect(drive.files.size).toBe(0);
     expect(store.linkById(link.id)?.status).toBe('syncing');
   });
 

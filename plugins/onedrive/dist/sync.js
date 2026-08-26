@@ -1,18 +1,23 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, rename, stat } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import { Drive, StaleLocalError } from './drive.js';
 import { decide } from './merge.js';
-import { buildIgnore, containedIn, containedInEventually, hashFile, scanLocal, TRASH_DIR, } from './scan.js';
+import { buildIgnore, containedIn, containedInEventually, gitIgnoredAmong, hashFile, scanLocal, TRASH_DIR, } from './scan.js';
 const LEASE_MS = 5 * 60 * 1000;
-/** Renew well inside the lease, and often enough that a slow file cannot let it lapse unnoticed. */
-const RENEW_EVERY = 25;
+/** Renew on ELAPSED TIME, not on a count of files. One large upload can outlast the lease on its own,
+ *  and a counter cannot see that happening. */
+const RENEW_AFTER_MS = LEASE_MS / 3;
 const SETTLE_MS = 2_000;
 const MAX_FILES = 20_000;
 /** Refuse a cycle that would delete more than this share of what it could actually account for. */
 const DELETION_CEILING = 0.34;
 /** One deletion is the ordinary case and never needs a second opinion. */
 const DELETION_FLOOR = 1;
+/** Beyond this many at once, the share stops mattering: losing fifty files is a lot of files however
+ *  large the mirror is, and a big project is exactly where a ratio hides a disaster. */
+const DELETION_ABSOLUTE = 50;
 /** Where a link's files live inside the person's OneDrive, relative to the drive root.
  *
  *  Projects and workspaces are SIBLINGS, never nested: putting workspaces under the project mirror would
@@ -102,7 +107,8 @@ export class SyncEngine {
         }
     }
     async syncLink(link, drive, confirmDeletions) {
-        if (!this.deps.store.claim(link.id, this.owner, LEASE_MS))
+        const lease = this.deps.lease ?? { ms: LEASE_MS, renewAfterMs: RENEW_AFTER_MS };
+        if (!this.deps.store.claim(link.id, this.owner, lease.ms))
             return;
         const settings = this.deps.settings();
         try {
@@ -147,6 +153,11 @@ export class SyncEngine {
                 return;
             }
             const remote = listing.files;
+            // A file git decided to ignore simply vanishes from `ls-files`, so a path that disappeared may have
+            // been added to .gitignore rather than deleted. The scan's own predicate cannot tell those apart -
+            // it knows the hard floor and the user's extra patterns, not the project's .gitignore.
+            const vanished = [...baseline.keys()].filter((rel) => !scan.files.has(rel) && !scan.skippedPaths.has(rel));
+            const gitIgnored = scan.fromGit ? await gitIgnoredAmong(root, vanished) : new Set();
             const paths = new Set([...scan.files.keys(), ...baseline.keys(), ...remote.keys()]);
             const planned = [];
             let accounted = 0;
@@ -158,7 +169,7 @@ export class SyncEngine {
                     continue;
                 // A file that became ignored since it was mirrored is not deleted either — it is still on disk,
                 // just out of scope now. Forget it and leave both copies alone.
-                if (known && !scan.files.has(rel) && scan.isIgnored(rel)) {
+                if (known && !scan.files.has(rel) && (scan.isIgnored(rel) || gitIgnored.has(rel))) {
                     planned.push({ rel, action: 'forget', local: { present: false }, remote: { present: false }, known });
                     accounted += 1;
                     continue;
@@ -206,7 +217,13 @@ export class SyncEngine {
             // It is a question, not a verdict. Emptying a project on purpose is legitimate, so the refusal
             // explains itself and Sync now carries the confirmation through.
             const deletions = planned.filter((entry) => entry.action === 'deleteRemote').length;
-            if (!confirmDeletions && deletions > DELETION_FLOOR && deletions > accounted * DELETION_CEILING) {
+            const excessive = deletions > DELETION_FLOOR
+                && (deletions > accounted * DELETION_CEILING || deletions >= DELETION_ABSOLUTE);
+            // A confirmation answers the question the person was SHOWN. If more files have gone missing since
+            // then, that is a different question and has to be asked again rather than swept along.
+            const beyondWhatWasShown = confirmDeletions && link.blockedDeletions > 0 && deletions > link.blockedDeletions;
+            if (excessive && (!confirmDeletions || beyondWhatWasShown)) {
+                this.deps.store.setBlockedDeletions(link.id, deletions);
                 this.deps.log.warn(`onedrive mirror ${link.id}: refusing to delete ${deletions} of ${accounted} mirrored files in one cycle`);
                 this.deps.store.setStatus(link.id, 'blocked', `${deletions} of ${accounted} mirrored files disappeared locally at once. Nothing was deleted in OneDrive. If that was intentional, choose Sync now to confirm; otherwise check that the project folder is complete.`);
                 return;
@@ -217,16 +234,28 @@ export class SyncEngine {
             const current = this.deps.store.linkById(link.id);
             if (!current || !current.enabled)
                 return;
+            // Reconnecting can point the SAME row at a different folder while this cycle was listing the old
+            // one. Applying anyway would delete from the folder the person just left and then write what it saw
+            // there into the new folder's freshly cleared baseline.
+            if (current.remoteItemId !== link.remoteItemId
+                || current.remoteDriveId !== link.remoteDriveId
+                || current.remotePath !== link.remotePath) {
+                this.deps.log.warn(`onedrive mirror ${link.id}: was pointed at another folder mid-cycle and stopped`);
+                return;
+            }
+            this.deps.store.setBlockedDeletions(link.id, 0);
             let bytes = 0;
-            let applied = 0;
+            let renewedAt = Date.now();
             for (const entry of planned) {
                 // Losing the claim means another worker has already re-decided this mirror. Anything this cycle
                 // still applied would be built on a view that worker has since superseded — including, exactly,
                 // overwriting a local edit the other worker just preserved as a conflict.
-                applied += 1;
-                if (applied % RENEW_EVERY === 0 && !this.deps.store.renew(link.id, this.owner, LEASE_MS)) {
-                    this.deps.log.warn(`onedrive mirror ${link.id}: lost its claim mid-cycle and stopped`);
-                    return;
+                if (Date.now() - renewedAt >= lease.renewAfterMs) {
+                    if (!this.deps.store.renew(link.id, this.owner, lease.ms)) {
+                        this.deps.log.warn(`onedrive mirror ${link.id}: lost its claim mid-cycle and stopped`);
+                        return;
+                    }
+                    renewedAt = Date.now();
                 }
                 const { rel, local, remote: remoteFile, known } = entry;
                 const absolute = join(root, rel);
@@ -276,6 +305,11 @@ export class SyncEngine {
                         case 'trashLocal': {
                             if (!local.present)
                                 break;
+                            // The listing is a walk, not a snapshot: a file moved between folders while it was running
+                            // can be missing from every page and still exist. Ask about this one path before destroying
+                            // the local copy of it.
+                            if (known?.remoteItemId && await drive.stillExists(known.remoteItemId))
+                                break;
                             if (!settings.applyRemoteDeletions) {
                                 const restored = await drive.upload(`${link.remotePath}/${rel}`, absolute, undefined, true);
                                 this.deps.store.putItem({
@@ -303,7 +337,7 @@ export class SyncEngine {
                                 bytes += local.size;
                                 break;
                             }
-                            await this.keepBoth(drive, link, root, rel, local, remoteFile, (name) => scan.files.has(name));
+                            await this.keepBoth(drive, link, root, rel, local, remoteFile, root);
                             break;
                         }
                         case 'forget':
@@ -318,7 +352,7 @@ export class SyncEngine {
                 catch (error) {
                     if (error instanceof StaleLocalError && local.present && remoteFile.present) {
                         // Saved underneath us mid-download. Both versions matter; neither is thrown away.
-                        await this.keepBoth(drive, link, root, rel, local, remoteFile, (name) => scan.files.has(name));
+                        await this.keepBoth(drive, link, root, rel, local, remoteFile, root);
                         continue;
                     }
                     // One file failing is not a reason to abandon the rest of the mirror, but it IS a reason to
@@ -343,8 +377,11 @@ export class SyncEngine {
         }
     }
     /** Keep the local file exactly as it is and bring the remote one down beside it under a free name. */
-    async keepBoth(drive, link, root, rel, local, remoteFile, exists) {
-        const copy = conflictName(rel, new Date(), exists);
+    async keepBoth(drive, link, root, rel, local, remoteFile, projectRoot) {
+        // Asked of the FILESYSTEM, not of the scan. The scan deliberately leaves things out - settling,
+        // oversized, unreadable, symlinks - and a name it never mentioned is still a name that exists. The
+        // download ends in a replacing rename, so believing the scan here overwrites a real file.
+        const copy = conflictName(rel, new Date(), (candidate) => existsSync(join(projectRoot, candidate)));
         await drive.download(remoteFile.itemId, join(root, copy));
         this.deps.store.putItem({
             linkId: link.id, rel, localSize: local.size, localMtimeMs: local.mtimeMs, localSha256: local.sha256,
@@ -359,28 +396,49 @@ export class SyncEngine {
      *  The DESTINATION is containment-checked too. A project can contain an ignored `.elowen-trash` symlink
      *  pointing anywhere, and `rename` would follow it straight out of the mirror. */
     async trash(root, rel) {
-        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-        const target = join(root, TRASH_DIR, stamp, rel);
-        await mkdir(dirname(target), { recursive: true });
-        if (!await containedIn(root, dirname(target))) {
-            throw new Error('The mirror trash folder resolves outside the project and was not used.');
-        }
-        await rename(join(root, rel), target);
+        await trashFile(root, rel);
     }
+}
+/** Move a file into the mirror's own trash. NEVER unlink: whatever supersedes it - a deletion made in
+ *  OneDrive, or a conflict the person resolved the other way - is not a reason to destroy the only copy
+ *  of something. The trash directory is itself ignored, so nothing travels straight back up.
+ *
+ *  The DESTINATION is containment-checked. A project can contain an ignored `.elowen-trash` symlink
+ *  pointing anywhere, and `rename` would follow it straight out of the mirror. */
+export async function trashFile(root, rel) {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    // Second precision alone is not unique: delete, recreate and delete the same path twice inside one
+    // second and the second rename would replace the first file already sitting in the trash. The trash
+    // exists so nothing is ever lost, so its own names must not collide.
+    let target = join(root, TRASH_DIR, stamp, rel);
+    for (let n = 2; existsSync(target) && n < 1000; n += 1)
+        target = join(root, TRASH_DIR, `${stamp}-${n}`, rel);
+    await mkdir(dirname(target), { recursive: true });
+    if (!await containedIn(root, dirname(target))) {
+        throw new Error('The mirror trash folder resolves outside the project and was not used.');
+    }
+    await rename(join(root, rel), target);
 }
 /** Is the file on disk still what the scan measured? Size and mtime are what the rest of the cycle
  *  compares on, so they are what the guard compares on too. */
 async function localUnchanged(absolute, local) {
     if (!local.present) {
         // The scan saw no local file. Anything there now arrived since, and is not ours to replace.
-        return await stat(absolute).then(() => false, () => true);
+        return await stat(absolute).then(() => false, (error) => error?.code === 'ENOENT');
     }
     try {
         const stats = await stat(absolute);
-        return stats.size === local.size && stats.mtimeMs === local.mtimeMs;
+        if (stats.size !== local.size)
+            return false;
+        // Size and mtime agreeing is not the same as the file being unchanged: an editor can rewrite the same
+        // number of bytes, and restoring an mtime is a one-line operation. The hash is already known for the
+        // local side, so comparing content costs one read and removes the guess.
+        return await hashFile(absolute) === local.sha256;
     }
-    catch {
-        return true; // deleted meanwhile: writing the remote copy in is the right outcome
+    catch (error) {
+        // Genuinely gone: writing the remote copy in is the right outcome. Anything else - a permission
+        // error, an I/O error - is not an answer, and must not be read as permission to overwrite.
+        return error?.code === 'ENOENT';
     }
 }
 function message(error) {

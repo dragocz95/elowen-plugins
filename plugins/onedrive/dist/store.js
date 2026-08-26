@@ -19,6 +19,7 @@ function toLink(row) {
         fileCount: num(row.file_count),
         byteCount: num(row.byte_count),
         conflictCount: num(row.conflict_count),
+        blockedDeletions: num(row.blocked_deletions),
         createdAt: num(row.created_at),
     };
 }
@@ -82,6 +83,8 @@ export class OneDriveStore {
         PRIMARY KEY (link_id, rel_path)
       );
 
+    `) }, { version: 2, up: (migration) => migration.exec(`
+      ALTER TABLE p_onedrive_links ADD COLUMN blocked_deletions INTEGER NOT NULL DEFAULT 0;
     `) }]);
     }
     createLink(input) {
@@ -141,6 +144,11 @@ export class OneDriveStore {
      *  plan, and the first worker then applies a plan built from state that has since been re-decided —
      *  overwriting exactly what the second one just protected. The cycle renews as it works, and a renewal
      *  that returns false means it was displaced and must stop touching files immediately. */
+    /** How many deletions the owner was SHOWN when the mirror last refused a bulk deletion. A confirmation
+     *  answers that question and no larger one, so the number has to outlive the request that raised it. */
+    setBlockedDeletions(linkId, count) {
+        this.db.prepare('UPDATE p_onedrive_links SET blocked_deletions = ? WHERE id = ?').run(count, linkId);
+    }
     renew(linkId, owner, leaseMs, now = Date.now()) {
         const result = this.db.prepare('UPDATE p_onedrive_links SET running_until = ? WHERE id = ? AND running_owner = ? AND running_until >= ?').run(now + leaseMs, linkId, owner, now);
         return result.changes === 1;
@@ -150,6 +158,12 @@ export class OneDriveStore {
      *  would read every local file as remotely deleted and empty the project into the trash. */
     clearItems(linkId) {
         this.db.prepare('DELETE FROM p_onedrive_items WHERE link_id = ?').run(linkId);
+    }
+    /** Drop every claim, whoever holds it. Only ever called at boot: this process has just started, so no
+     *  cycle can be running, and any claim in the table belongs to a worker that is definitively gone.
+     *  Waiting out its lease would leave the mirror idle for minutes for no reason. */
+    releaseAllClaims() {
+        this.db.prepare('UPDATE p_onedrive_links SET running_owner = NULL, running_until = NULL').run();
     }
     release(linkId, owner) {
         this.db.prepare('UPDATE p_onedrive_links SET running_owner = NULL, running_until = NULL WHERE id = ? AND running_owner = ?')

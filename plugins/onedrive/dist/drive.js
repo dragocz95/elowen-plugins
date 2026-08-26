@@ -146,6 +146,12 @@ export class Drive {
                     const id = typeof value.id === 'string' ? value.id : '';
                     if (!name || !id)
                         throw new Error('Microsoft returned a folder entry without an id or a name.');
+                    const tag = typeof value.eTag === 'string' ? value.eTag : (typeof value.cTag === 'string' ? value.cTag : '');
+                    // Every mutating call downstream is conditional on this. An entry without one would silently
+                    // turn `If-Match` off and let an upload or a delete clobber a change made since the listing.
+                    if (!('folder' in value) && !tag) {
+                        throw new Error('Microsoft returned a file with no version tag, so this cycle cannot be applied safely.');
+                    }
                     const path = current.prefix ? `${current.prefix}/${name}` : name;
                     if ('folder' in value) {
                         queue.push({ id, prefix: path });
@@ -158,7 +164,7 @@ export class Drive {
                     files.set(path, {
                         id,
                         name,
-                        etag: typeof value.eTag === 'string' ? value.eTag : (typeof value.cTag === 'string' ? value.cTag : ''),
+                        etag: tag,
                         size: typeof value.size === 'number' ? value.size : 0,
                         isFolder: false,
                         path,
@@ -186,6 +192,26 @@ export class Drive {
      *  `expectNew` covers the case with no etag to send: the mirror believes the file does not exist there
      *  at all. `fail` makes Graph refuse if somebody created it in the meantime, which again becomes a
      *  merge next cycle instead of a replaced file. */
+    /** Does this item still exist? Asked about ONE path, immediately before that path is destroyed on the
+     *  other side, because a folder listing is a walk and not a snapshot: a file moved between folders
+     *  while the walk was in progress can be absent from every page while still existing. Deleting on the
+     *  strength of that is how a mirror loses a file nobody touched. */
+    async stillExists(itemId) {
+        return await this.currentTag(itemId) !== null;
+    }
+    /** The item's CURRENT version tag, or null when it is genuinely gone. Anything else throws: a throttle
+     *  or an outage is not an answer about whether somebody else has changed a file. */
+    async currentTag(itemId) {
+        try {
+            const item = asRecord(await this.graph.json('GET', `${this.base()}/items/${encodeURIComponent(itemId)}?$select=id,eTag,cTag`));
+            return typeof item.eTag === 'string' ? item.eTag : (typeof item.cTag === 'string' ? item.cTag : '');
+        }
+        catch (error) {
+            if (isNotFound(error))
+                return null;
+            throw error;
+        }
+    }
     async upload(remotePath, absolute, ifMatch, expectNew = false) {
         const size = (await stat(absolute)).size;
         return size <= SIMPLE_UPLOAD_MAX

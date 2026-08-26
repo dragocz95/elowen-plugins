@@ -361,22 +361,46 @@ function OneDriveProjectPanel({ project }) {
       return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: workspace.label }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: statusTone(row), children: statusLabel(row, s) }) : null }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { align: "right", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex justify-end gap-2", children: [
-          row && row.conflictCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Button, { variant: "secondary", size: "sm", onClick: () => setConflictsFor(row), children: [
-            s.conflicts,
-            " (",
-            row.conflictCount,
-            ")"
-          ] }),
-          row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", size: "sm", onClick: () => setDisconnecting(row), children: s.disconnect }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            C.Button,
-            {
-              variant: "secondary",
-              size: "sm",
-              onClick: () => setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label }),
-              children: s.connectCta
-            }
-          )
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { align: "right", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-end gap-2", children: [
+          row?.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-danger text-right", children: row.error }) : null,
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex justify-end gap-2", children: [
+            row && row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              C.Button,
+              {
+                variant: "secondary",
+                size: "sm",
+                tone: "danger",
+                disabled: syncNow.isPending,
+                onClick: () => syncNow.mutate({ id: row.id, confirmDeletions: true }),
+                children: s.confirmDeletions
+              }
+            ),
+            row && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              C.Button,
+              {
+                variant: "secondary",
+                size: "sm",
+                disabled: syncNow.isPending,
+                onClick: () => syncNow.mutate({ id: row.id }),
+                children: s.syncNow
+              }
+            ),
+            row && row.conflictCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Button, { variant: "secondary", size: "sm", onClick: () => setConflictsFor(row), children: [
+              s.conflicts,
+              " (",
+              row.conflictCount,
+              ")"
+            ] }),
+            row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", size: "sm", onClick: () => setDisconnecting(row), children: s.disconnect }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              C.Button,
+              {
+                variant: "secondary",
+                size: "sm",
+                onClick: () => setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label }),
+                children: s.connectCta
+              }
+            )
+          ] })
         ] }) })
       ] }, workspace.workspaceId);
     }) }) }),

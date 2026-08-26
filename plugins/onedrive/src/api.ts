@@ -3,9 +3,10 @@ import type { OneDriveContext } from './coreSeams.js';
 import { Drive } from './drive.js';
 import { hashFile } from './scan.js';
 import { join } from 'node:path';
-import { stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { rename, stat } from 'node:fs/promises';
 import type { MirrorLink, OneDriveStore } from './store.js';
-import { remoteRootFor, type SyncEngine, type SyncSettings } from './sync.js';
+import { remoteRootFor, trashFile, type SyncEngine, type SyncSettings } from './sync.js';
 
 type Gate<T> = { ok: true; value: T } | { ok: false; response: PluginHttpResponse };
 
@@ -192,8 +193,8 @@ export function registerApi(deps: ApiDeps): void {
   ctx.registerApiRoute({
     path: 'conflicts', method: 'GET', access: 'user',
     handler: async (req) => {
-      const body = await bodyOf(req);
-      const found = ownedLink(req, body);
+      // A GET carries no body; the mirror id arrives in the query string.
+      const found = ownedLink(req, {});
       if (!found.ok) return found.response;
       return json({
         conflicts: store.conflicts(found.value.id).map((item) => ({
@@ -220,14 +221,51 @@ export function registerApi(deps: ApiDeps): void {
       const graph = identity ? await identity.driveGraphFor(found.value.userId) : null;
       if (!graph) return bad('Your account is not connected to Microsoft.', 409);
       const drive = await Drive.open(graph);
-
-      if (keep === 'remote') {
-        // The copy kept beside the original IS the remote version, already on disk and already verified.
-        // Promoting it is a local move plus one upload, not a second download that could differ again.
-        await drive.download(item.remoteItemId, join(root, rel));
+      // The same check the sync cycle makes. Without it, an account rebound to a different Microsoft
+      // identity would have this route write straight into a stranger's drive at the same path.
+      if (found.value.remoteDriveId && found.value.remoteDriveId !== drive.driveId) {
+        return bad('This mirror belongs to a different Microsoft account. Connect it again.', 409);
       }
+
+      // Has OneDrive moved on since the conflict was recorded? Resolving is a decision about two specific
+      // versions, and if a third has appeared the person is answering a question that no longer exists.
+      const currentTag = await drive.currentTag(item.remoteItemId);
+      if (currentTag === null) return bad('The OneDrive copy no longer exists. Sync again and try once more.', 409);
+      if (currentTag !== item.remoteEtag) {
+        return bad('The OneDrive copy changed since this conflict was reported. Sync again and choose once more.', 409);
+      }
+
       const absolute = join(root, rel);
-      const uploaded = await drive.upload(`${found.value.remotePath}/${rel}`, absolute);
+      if (keep === 'remote') {
+        // The copy kept beside the original IS the remote version, already downloaded and already
+        // compared. Promoting it is a local move, not a second download that could differ again - and the
+        // local version it supersedes goes to the trash rather than being overwritten out of existence.
+        if (!item.conflictCopy || !existsSync(join(root, item.conflictCopy))) {
+          return bad('The kept OneDrive copy is missing from the project. Sync again and try once more.', 409);
+        }
+        if (existsSync(absolute)) await trashFile(root, rel);
+        await rename(join(root, item.conflictCopy), absolute);
+        const stats = await stat(absolute);
+        store.putItem({
+          linkId: found.value.id, rel, localSize: stats.size, localMtimeMs: stats.mtimeMs,
+          localSha256: await hashFile(absolute), remoteItemId: item.remoteItemId,
+          remoteEtag: item.remoteEtag, state: 'synced', conflictCopy: null,
+        });
+        return json({ ok: true, kept: keep });
+      }
+
+      // Keeping the local version means overwriting OneDrive, so it is conditional on the exact version
+      // this conflict was about; anything else and Graph refuses rather than destroying a third edit.
+      if (!existsSync(absolute)) return bad('The local file is gone. Sync again and try once more.', 409);
+      let uploaded;
+      try {
+        uploaded = await drive.upload(`${found.value.remotePath}/${rel}`, absolute, item.remoteEtag);
+      } catch (error) {
+        return bad(`The OneDrive copy could not be replaced: ${error instanceof Error ? error.message : String(error)}`, 409);
+      }
+      // The downloaded OneDrive version is no longer the answer, but it is still a version of somebody's
+      // work, so it is filed away rather than deleted.
+      if (item.conflictCopy && existsSync(join(root, item.conflictCopy))) await trashFile(root, item.conflictCopy);
       const stats = await stat(absolute);
       store.putItem({
         linkId: found.value.id, rel, localSize: stats.size, localMtimeMs: stats.mtimeMs,

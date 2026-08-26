@@ -212,9 +212,22 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
                     {row ? <C.Badge tone={statusTone(row)}>{statusLabel(row, s)}</C.Badge> : null}
                   </C.DataTableCell>
                   <C.DataTableCell align="right">
-                    <div className="flex justify-end gap-2">
-                      {/* A workspace conflict has to be resolvable from where the workspace is shown,
-                          or it stays flagged forever with nothing to click. */}
+                    <div className="flex flex-col items-end gap-2">
+                      {/* A workspace mirror can block on a bulk deletion or fail exactly like the project
+                          one. Showing only a badge left those states with nothing to click, so the same
+                          controls appear here rather than a reduced set. */}
+                      {row?.error ? <p className="text-xs text-danger text-right">{row.error}</p> : null}
+                      <div className="flex justify-end gap-2">
+                      {row && row.status === 'blocked' && (
+                        <C.Button variant="secondary" size="sm" tone="danger" disabled={syncNow.isPending}
+                          onClick={() => syncNow.mutate({ id: row.id, confirmDeletions: true })}>
+                          {s.confirmDeletions}
+                        </C.Button>
+                      )}
+                      {row && (
+                        <C.Button variant="secondary" size="sm" disabled={syncNow.isPending}
+                          onClick={() => syncNow.mutate({ id: row.id })}>{s.syncNow}</C.Button>
+                      )}
                       {row && row.conflictCount > 0 && (
                         <C.Button variant="secondary" size="sm" onClick={() => setConflictsFor(row)}>
                           {s.conflicts} ({row.conflictCount})
@@ -228,6 +241,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
                           {s.connectCta}
                         </C.Button>
                       )}
+                      </div>
                     </div>
                   </C.DataTableCell>
                 </C.DataTableRow>

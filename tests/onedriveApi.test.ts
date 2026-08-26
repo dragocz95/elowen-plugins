@@ -4,6 +4,9 @@ import Database from 'better-sqlite3';
 import type { PluginDb } from 'elowen/plugin-api';
 import { OneDriveStore } from '../plugins/onedrive/src/store.js';
 import { registerApi } from '../plugins/onedrive/src/api.js';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 function pluginDb(): PluginDb {
   const raw = new Database(':memory:');
@@ -46,18 +49,46 @@ function request(payload: unknown, extra: { userId?: number; query?: Record<stri
   } as never;
 }
 
-function harness() {
+/** Minimal drive behind the resolve route: it holds one item and answers the version lookup honestly,
+ *  because "has OneDrive moved on?" is the question that route now turns on. */
+function fakeGraph(item: { id: string; etag: string; body: string }) {
+  const uploads: { path: string; ifMatch?: string }[] = [];
+  return {
+    uploads,
+    item,
+    graph: {
+      json: vi.fn(async (method: string, path: string, options?: { ifMatch?: string }) => {
+        if (path.startsWith('/me/drive')) return { id: 'drive-1' };
+        if (method === 'PUT' && path.includes(':/content')) {
+          uploads.push({ path, ifMatch: options?.ifMatch });
+          if (options?.ifMatch && options.ifMatch !== item.etag) {
+            throw Object.assign(new Error('precondition failed'), { status: 412 });
+          }
+          return { id: item.id, eTag: 'etag-after-upload', name: 'plan.md', size: 1, parentReference: { path: '/drive/root:' } };
+        }
+        if (method === 'GET' && path.includes('/items/')) return { id: item.id, eTag: item.etag };
+        return { id: 'folder-1' };
+      }),
+      binary: vi.fn(async () => ({ body: new Uint8Array(Buffer.from(item.body)), contentType: 'text/plain' })),
+      request: vi.fn(),
+    },
+  };
+}
+
+function harness(drive?: ReturnType<typeof fakeGraph>, root = '/tmp/demo') {
   const store = new OneDriveStore(pluginDb());
   const routes = new Map<string, (req: never) => Promise<{ status?: number; body?: unknown }>>();
   const ctx = {
     db: () => null,
     config: {},
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    control: vi.fn(() => undefined),
+    control: vi.fn((name: string) => (name === 'microsoftIdentity' && drive
+      ? { identityFor: () => ({ linked: true }), driveGraphFor: async () => drive.graph }
+      : undefined)),
     host: {
       stores: () => ({
         userProjects: { canAccess: () => true },
-        projects: { get: (id: number) => ({ id, slug: 'demo', path: '/tmp/demo' }) },
+        projects: { get: (id: number) => ({ id, slug: 'demo', path: root }) },
       }),
     },
     registerApiRoute: (route: { path: string; method: string; handler: (req: never) => Promise<unknown> }) => {
@@ -71,7 +102,7 @@ function harness() {
     store,
     engine: engine as never,
     settings: () => ({ rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: '', applyRemoteDeletions: true }),
-    rootFor: () => '/tmp/demo',
+    rootFor: () => root,
     workspacesOf: () => [],
   });
 
@@ -146,5 +177,72 @@ describe('onedrive api routes', () => {
     const response = await routes.get('POST connect')!(request('not an object') as never);
     expect(response.status).toBe(400);
     expect((response.body as { error: string }).error).toMatch(/projectId/);
+  });
+});
+
+describe('onedrive conflict resolution', () => {
+  const setup = (body = 'from onedrive\n') => {
+    const root = mkdtempSync(join(tmpdir(), 'onedrive-resolve-'));
+    const drive = fakeGraph({ id: 'item-1', etag: 'etag-1', body });
+    const h = harness(drive, root);
+    const link = h.store.createLink({
+      userId: 7, projectId: 1, workspaceId: null, workspaceLabel: null,
+      remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo', webUrl: null,
+    });
+    writeFileSync(join(root, 'plan.md'), 'local version\n');
+    writeFileSync(join(root, 'plan.conflict.md'), body);
+    h.store.putItem({
+      linkId: link.id, rel: 'plan.md', localSize: 14, localMtimeMs: 1, localSha256: 'x',
+      remoteItemId: 'item-1', remoteEtag: 'etag-1', state: 'conflict', conflictCopy: 'plan.conflict.md',
+    });
+    return { ...h, link, root, drive };
+  };
+
+  it('keeps the local version by uploading it conditionally', async () => {
+    const { routes, store, link, drive, root } = setup();
+    const response = await routes.get('POST conflicts/resolve')!(
+      request({ id: link.id, rel: 'plan.md', keep: 'local' }) as never);
+
+    expect(response.status ?? 200).toBe(200);
+    // Conditional on the exact version this conflict was about, so a third edit made in OneDrive since is
+    // refused by Graph rather than destroyed.
+    expect(drive.uploads[0]?.ifMatch).toBe('etag-1');
+    expect(store.items(link.id).get('plan.md')?.state).toBe('synced');
+    expect(readFileSync(join(root, 'plan.md'), 'utf8')).toBe('local version\n');
+    // The OneDrive version lost, but it is still somebody's work: filed away, not deleted.
+    expect(existsSync(join(root, 'plan.conflict.md'))).toBe(false);
+    expect(existsSync(join(root, '.elowen-trash'))).toBe(true);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('keeps the OneDrive version by promoting the copy already on disk', async () => {
+    const { routes, store, link, drive, root } = setup();
+    const response = await routes.get('POST conflicts/resolve')!(
+      request({ id: link.id, rel: 'plan.md', keep: 'remote' }) as never);
+
+    expect(response.status ?? 200).toBe(200);
+    expect(readFileSync(join(root, 'plan.md'), 'utf8')).toBe('from onedrive\n');
+    // Promoting the copy that was already compared, NOT a second download that could differ again.
+    expect(drive.graph.binary).not.toHaveBeenCalled();
+    // And the local version it replaced was preserved rather than overwritten out of existence.
+    expect(existsSync(join(root, '.elowen-trash'))).toBe(true);
+    expect(store.items(link.id).get('plan.md')?.state).toBe('synced');
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('refuses when OneDrive moved on after the conflict was reported', async () => {
+    const { routes, store, link, drive, root } = setup();
+    drive.item.etag = 'etag-someone-else';
+
+    const response = await routes.get('POST conflicts/resolve')!(
+      request({ id: link.id, rel: 'plan.md', keep: 'remote' }) as never);
+
+    // The person would be choosing between two versions when a third has appeared. Asking again is the
+    // only honest answer, and the conflict stays frozen meanwhile.
+    expect(response.status).toBe(409);
+    expect((response.body as { error: string }).error).toMatch(/changed since/);
+    expect(store.items(link.id).get('plan.md')?.state).toBe('conflict');
+    expect(readFileSync(join(root, 'plan.md'), 'utf8')).toBe('local version\n');
+    rmSync(root, { recursive: true, force: true });
   });
 });

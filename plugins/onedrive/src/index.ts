@@ -84,8 +84,10 @@ export function register(published: PluginContext): void {
   ctx.registerUserRemoved?.((userId: number) => store.removeUser(userId));
 
   ctx.registerBootReconcile(() => {
-    // A worker killed mid-cycle leaves its claim behind; the lease expires on its own, but clearing the
-    // ones this process could never have held makes the first tick after a restart useful immediately.
+    // A worker killed mid-cycle leaves its claim behind. The lease would expire on its own, but the
+    // daemon has just started, so nothing can still be holding one - waiting minutes for that to become
+    // true keeps every mirror idle for no reason. The status is stale for the same reason.
+    store.releaseAllClaims();
     for (const link of store.enabledLinks()) {
       if (link.status === 'syncing') store.setStatus(link.id, 'idle');
     }
