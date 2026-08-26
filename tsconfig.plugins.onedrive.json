@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "plugins/onedrive/dist",
+    "rootDir": "plugins/onedrive/src",
+    "tsBuildInfoFile": "plugins/onedrive/dist/.tsbuildinfo"
+  },
+  "include": ["plugins/onedrive/src/**/*"]
+}

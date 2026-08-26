@@ -1,0 +1,95 @@
+{
+  "name": "onedrive",
+  "version": "0.1.0",
+  "apiVersion": "1",
+  "requiresCore": "0.28.15",
+  "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
+  "entry": "dist/index.js",
+  "userGrantable": true,
+  "provides": {
+    "apiRoutes": [
+      "overview",
+      "connect",
+      "disconnect",
+      "pause",
+      "sync-now",
+      "conflicts",
+      "conflicts/resolve"
+    ]
+  },
+  "capabilities": {
+    "reads": ["db", "stores", "controls", "project-files"],
+    "network": true
+  },
+  "configSchema": [
+    {
+      "key": "rootFolder",
+      "label": "OneDrive folder",
+      "type": "string",
+      "default": "Elowen",
+      "hint": "Top-level folder created in each person's own OneDrive. Projects and sandbox workspaces are mirrored into separate subfolders of it."
+    },
+    {
+      "key": "intervalSeconds",
+      "label": "Sync interval",
+      "type": "number",
+      "default": 30,
+      "hint": "How often a connected mirror is checked, in seconds. Lower values react faster and cost more Microsoft Graph calls."
+    },
+    {
+      "key": "maxFileMb",
+      "label": "Largest file",
+      "type": "number",
+      "default": 100,
+      "hint": "Files above this size are skipped in both directions and reported, rather than silently held back."
+    },
+    {
+      "key": "extraIgnore",
+      "label": "Additional ignored paths",
+      "type": "string",
+      "default": "",
+      "hint": "Comma-separated glob patterns excluded on top of the project's own .gitignore. Version control internals, dependencies and credentials are always excluded and cannot be re-enabled here."
+    },
+    {
+      "key": "applyRemoteDeletions",
+      "label": "Apply deletions from OneDrive",
+      "type": "boolean",
+      "default": true,
+      "hint": "When someone deletes a mirrored file in OneDrive, move the local copy into the mirror's own trash folder. The file is never removed outright and can always be recovered."
+    }
+  ],
+  "web": {
+    "entry": "web/index.js",
+    "requiresApiVersion": 4,
+    "project": [{ "id": "mirror", "label": "OneDrive", "icon": "Cloud" }],
+    "strings": {
+      "title": "OneDrive",
+      "connectCta": "Connect OneDrive",
+      "connectHint": "Mirror this project into your own OneDrive, in both directions.",
+      "connectConfirm": "Start mirroring",
+      "notLinked": "Your account is not connected to Microsoft.",
+      "statusIdle": "In sync",
+      "statusSyncing": "Syncing",
+      "statusPaused": "Paused",
+      "statusError": "Needs attention",
+      "lastSync": "Last sync",
+      "never": "Never",
+      "files": "Files",
+      "folder": "Folder",
+      "openFolder": "Open in OneDrive",
+      "workspaces": "Sandbox workspaces",
+      "workspacesHint": "Each workspace is mirrored into its own folder, separate from the project itself.",
+      "conflicts": "Conflicts",
+      "conflictsHint": "Both copies were kept. Choose which one wins; nothing is deleted either way.",
+      "keepLocal": "Keep local",
+      "keepRemote": "Take from OneDrive",
+      "syncNow": "Sync now",
+      "pause": "Pause",
+      "resume": "Resume",
+      "disconnect": "Disconnect",
+      "disconnectHint": "Stops mirroring. Files already in OneDrive stay where they are.",
+      "mirrorScope": "What is mirrored",
+      "mirrorScopeHint": "Everything the project's own .gitignore keeps. Version control internals, dependencies and credentials are always excluded."
+    }
+  }
+}
