@@ -120,14 +120,32 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
 
   return <>
     {status.data?.connected && account ? (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <div className="flex items-center gap-4">
           {account.avatarUrl ? <img src={account.avatarUrl} alt="" className="size-14 rounded-full border border-border" /> : <Github className="size-12" />}
-          <div className="min-w-0 flex-1"><div className="truncate text-lg font-semibold text-text">{account.name || account.login}</div><div className="text-sm text-text-muted">@{account.login}</div></div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-lg font-semibold text-text">{account.name || account.login}</div>
+            <div className="truncate text-sm text-text-muted">@{account.login}</div>
+          </div>
           <C.Badge tone={status.data.reconnectRequired ? 'danger' : 'success'}>{status.data.reconnectRequired ? s.reconnectRequired : s.connected}</C.Badge>
         </div>
-        <dl className="grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-text-muted">{s.mappings}</dt><dd className="font-mono text-text">{status.data.mappings}</dd></div><div><dt className="text-text-muted">GitHub ID</dt><dd className="font-mono text-text">{account.githubUserId}</dd></div></dl>
-        <div className="flex flex-wrap gap-2"><C.Button onClick={() => test.mutate()} disabled={test.isPending}>{s.testConnection}</C.Button><C.Button onClick={() => preview.mutate({ type: 'replace_identity' })}>{s.replaceIdentity}</C.Button><C.Button variant="danger" onClick={() => preview.mutate({ type: 'disconnect' })}>{s.disconnect}</C.Button></div>
+        {/* The connection's facts read through the host's own table, so this panel lines up with every
+            other record surface in the app instead of inventing a private definition list. */}
+        <C.DataTable ariaLabel={s.accountTitle || s.title} columns="minmax(0,14rem) minmax(0,1fr)">
+          <C.DataTableRow>
+            <C.DataTableCell className="text-text-muted">{s.mappings}</C.DataTableCell>
+            <C.DataTableCell><span className="block truncate font-mono text-text">{status.data.mappings}</span></C.DataTableCell>
+          </C.DataTableRow>
+          <C.DataTableRow>
+            <C.DataTableCell className="text-text-muted">GitHub ID</C.DataTableCell>
+            <C.DataTableCell><span className="block truncate font-mono text-text">{account.githubUserId}</span></C.DataTableCell>
+          </C.DataTableRow>
+        </C.DataTable>
+        <div className="flex flex-wrap gap-2">
+          <C.Button variant="ghost" onClick={() => test.mutate()} disabled={test.isPending}>{s.testConnection}</C.Button>
+          <C.Button variant="ghost" onClick={() => preview.mutate({ type: 'replace_identity' })}>{s.replaceIdentity}</C.Button>
+          <C.Button variant="ghost-danger" onClick={() => preview.mutate({ type: 'disconnect' })}>{s.disconnect}</C.Button>
+        </div>
       </div>
     ) : (
       <C.EmptyState title={status.data?.reconnectRequired ? s.reconnectRequired : s.disconnected} description={s.intro} icon={Github} action={<C.Button variant="accent" onClick={beginConnect} disabled={connect.isPending}>{status.data?.reconnectRequired ? s.reconnect : s.connect}</C.Button>} />

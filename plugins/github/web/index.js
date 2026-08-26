@@ -275,32 +275,32 @@ function GitHubConnectionPanel({ onChanged }) {
     ] });
   }
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-    status.data?.connected && account ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5", children: [
+    status.data?.connected && account ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-4", children: [
         account.avatarUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: account.avatarUrl, alt: "", className: "size-14 rounded-full border border-border" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Github, { className: "size-12" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0 flex-1", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "truncate text-lg font-semibold text-text", children: account.name || account.login }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "text-sm text-text-muted", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "truncate text-sm text-text-muted", children: [
             "@",
             account.login
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: status.data.reconnectRequired ? "danger" : "success", children: status.data.reconnectRequired ? s.reconnectRequired : s.connected })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dl", { className: "grid gap-3 text-sm sm:grid-cols-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { className: "text-text-muted", children: s.mappings }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { className: "font-mono text-text", children: status.data.mappings })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTable, { ariaLabel: s.accountTitle || s.title, columns: "minmax(0,14rem) minmax(0,1fr)", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { className: "text-text-muted", children: s.mappings }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate font-mono text-text", children: status.data.mappings }) })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { className: "text-text-muted", children: "GitHub ID" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { className: "font-mono text-text", children: account.githubUserId })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { className: "text-text-muted", children: "GitHub ID" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate font-mono text-text", children: account.githubUserId }) })
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { onClick: () => test.mutate(), disabled: test.isPending, children: s.testConnection }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { onClick: () => preview.mutate({ type: "replace_identity" }), children: s.replaceIdentity }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "danger", onClick: () => preview.mutate({ type: "disconnect" }), children: s.disconnect })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => test.mutate(), disabled: test.isPending, children: s.testConnection }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => preview.mutate({ type: "replace_identity" }), children: s.replaceIdentity }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: () => preview.mutate({ type: "disconnect" }), children: s.disconnect })
       ] })
     ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: status.data?.reconnectRequired ? s.reconnectRequired : s.disconnected, description: s.intro, icon: Github, action: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: beginConnect, disabled: connect.isPending, children: status.data?.reconnectRequired ? s.reconnect : s.connect }) }),
     pending ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ConfirmDialog, { open: true, title: pending.preview.title || s.confirmExternal, description: `${pending.preview.description}
