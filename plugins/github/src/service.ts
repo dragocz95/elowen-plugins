@@ -83,17 +83,17 @@ export class GitHubService {
   projectIndicators(projects: readonly { id: number }[], userId: number | null): { projectId: number; label: string; value: string; icon: string; tone: 'muted' | 'accent' | 'success' | 'warning' }[] {
     if (userId === null) return [];
     const account = this.store.account(userId);
-    if (!account) return projects.map((project) => ({ projectId: project.id, label: 'GitHub', value: 'Disconnected', icon: 'Github', tone: 'muted' }));
+    if (!account) return projects.map((project) => ({ projectId: project.id, label: 'GitHub', value: '', icon: 'Github', tone: 'muted' }));
     const label = `GitHub @${account.login}`;
     if (account.status === 'reconnect_required') {
-      return projects.map((project) => ({ projectId: project.id, label, value: 'Reconnect required', icon: 'Github', tone: 'warning' }));
+      return projects.map((project) => ({ projectId: project.id, label, value: '', icon: 'Github', tone: 'warning' }));
     }
     const mappings = new Map(this.store.mappings(userId).map((mapping) => [mapping.projectId, mapping]));
     return projects.map((project) => {
       const mapping = mappings.get(project.id);
       return mapping?.active
         ? { projectId: project.id, label, value: `${mapping.baseOwner}/${mapping.baseName}`, icon: 'Github', tone: 'success' as const }
-        : { projectId: project.id, label, value: 'Repository unmapped', icon: 'Github', tone: 'accent' as const };
+        : { projectId: project.id, label, value: '', icon: 'Github', tone: 'accent' as const };
     });
   }
 

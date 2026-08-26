@@ -275,7 +275,7 @@ describe('GitHub plugin', () => {
 
   it('declares device auth without App setup or callback routes', () => {
     expect(manifest.userGrantable).not.toBe(true);
-    expect(manifest.version).toBe('0.1.5');
+    expect(manifest.version).toBe('0.1.7');
     expect(manifest.web.requiresApiVersion).toBe(4);
     expect(manifest.web.nav).toBeUndefined();
     expect(manifest.web.account).toEqual([{ id: 'connection', label: 'GitHub', icon: 'Github' }]);
@@ -299,13 +299,13 @@ describe('GitHub plugin', () => {
       const projects = [{ id: 1 }, { id: 2 }];
       expect(await provider({ projects, user: null })).toEqual([]);
       expect(await provider({ projects, user: { id: 2, isAdmin: false } })).toEqual([
-        { projectId: 1, label: 'GitHub', value: 'Disconnected', icon: 'Github', tone: 'muted' },
-        { projectId: 2, label: 'GitHub', value: 'Disconnected', icon: 'Github', tone: 'muted' },
+        { projectId: 1, label: 'GitHub', value: '', icon: 'Github', tone: 'muted' },
+        { projectId: 2, label: 'GitHub', value: '', icon: 'Github', tone: 'muted' },
       ]);
 
       h.service.store.saveAccount({ userId: 1, githubUserId: 42, login: 'octocat', name: null, avatarUrl: null, status: 'reconnect_required', lastError: 'github_unauthorized', verifiedAt: 1, updatedAt: 1 });
       expect(await provider({ projects: [projects[0]!], user: { id: 1, isAdmin: false } })).toEqual([
-        { projectId: 1, label: 'GitHub @octocat', value: 'Reconnect required', icon: 'Github', tone: 'warning' },
+        { projectId: 1, label: 'GitHub @octocat', value: '', icon: 'Github', tone: 'warning' },
       ]);
 
       h.service.store.saveAccount({ userId: 1, githubUserId: 42, login: 'octocat', name: null, avatarUrl: null, status: 'connected', lastError: null, verifiedAt: 2, updatedAt: 2 });
@@ -314,7 +314,7 @@ describe('GitHub plugin', () => {
       const indicators = await provider({ projects, user: { id: 1, isAdmin: false } });
       expect(indicators).toEqual([
         { projectId: 1, label: 'GitHub @octocat', value: 'base/repo', icon: 'Github', tone: 'success' },
-        { projectId: 2, label: 'GitHub @octocat', value: 'Repository unmapped', icon: 'Github', tone: 'accent' },
+        { projectId: 2, label: 'GitHub @octocat', value: '', icon: 'Github', tone: 'accent' },
       ]);
       const serialized = JSON.stringify(indicators);
       expect(serialized).not.toContain('ABCD-EFGH');
