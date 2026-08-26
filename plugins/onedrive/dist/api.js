@@ -5,9 +5,18 @@ import { stat } from 'node:fs/promises';
 import { remoteRootFor } from './sync.js';
 const json = (body, status = 200) => ({ status, body: body });
 const bad = (error, status = 400) => ({ status, body: { error } });
-function bodyOf(req) {
-    const raw = req.body;
-    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+/** `req.body` is a function returning the RAW bytes, and `req.json()` is the parser over it - a request
+ *  object, not a parsed payload. Reading `req.body` as if it were the object silently yields nothing,
+ *  which every route here then reports as a missing field. An empty or unparseable body is an empty
+ *  object rather than a throw: the routes below already say which field they needed. */
+async function bodyOf(req) {
+    try {
+        const parsed = await req.json();
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    }
+    catch {
+        return {};
+    }
 }
 const projectIdOf = (value) => {
     const id = Number(value);
@@ -68,7 +77,7 @@ export function registerApi(deps) {
     ctx.registerApiRoute({
         path: 'connect', method: 'POST', access: 'user',
         handler: async (req) => {
-            const body = bodyOf(req);
+            const body = await bodyOf(req);
             const projectId = projectIdOf(body.projectId);
             const gate = guard(req, projectId);
             if (!gate.ok)
@@ -109,8 +118,7 @@ export function registerApi(deps) {
             return json({ id: link.id, remotePath: link.remotePath, webUrl: link.webUrl });
         },
     });
-    const ownedLink = (req) => {
-        const body = bodyOf(req);
+    const ownedLink = (req, body) => {
         const id = Number(body.id ?? req.query?.id);
         const link = Number.isSafeInteger(id) ? store.linkById(id) : null;
         if (!link)
@@ -127,7 +135,8 @@ export function registerApi(deps) {
     ctx.registerApiRoute({
         path: 'disconnect', method: 'POST', access: 'user',
         handler: async (req) => {
-            const found = ownedLink(req);
+            const body = await bodyOf(req);
+            const found = ownedLink(req, body);
             if (!found.ok)
                 return found.response;
             store.removeLink(found.value.id);
@@ -137,23 +146,25 @@ export function registerApi(deps) {
     ctx.registerApiRoute({
         path: 'pause', method: 'POST', access: 'user',
         handler: async (req) => {
-            const found = ownedLink(req);
+            const body = await bodyOf(req);
+            const found = ownedLink(req, body);
             if (!found.ok)
                 return found.response;
-            store.setEnabled(found.value.id, bodyOf(req).enabled === true);
+            store.setEnabled(found.value.id, body.enabled === true);
             return json({ ok: true });
         },
     });
     ctx.registerApiRoute({
         path: 'sync-now', method: 'POST', access: 'user',
         handler: async (req) => {
-            const found = ownedLink(req);
+            const body = await bodyOf(req);
+            const found = ownedLink(req, body);
             if (!found.ok)
                 return found.response;
             // The bulk-deletion refusal is a question put to the mirror's owner, and this is where they answer
             // it. Pressing Sync now after seeing that message is the confirmation - it is scoped to this one
             // mirror and this one run, so it cannot linger as a standing permission to delete.
-            const confirm = bodyOf(req).confirmDeletions === true;
+            const confirm = body.confirmDeletions === true;
             await deps.engine.syncUser(found.value.userId, {
                 confirmDeletions: confirm ? new Set([found.value.id]) : undefined,
             });
@@ -163,7 +174,8 @@ export function registerApi(deps) {
     ctx.registerApiRoute({
         path: 'conflicts', method: 'GET', access: 'user',
         handler: async (req) => {
-            const found = ownedLink(req);
+            const body = await bodyOf(req);
+            const found = ownedLink(req, body);
             if (!found.ok)
                 return found.response;
             return json({
@@ -176,10 +188,10 @@ export function registerApi(deps) {
     ctx.registerApiRoute({
         path: 'conflicts/resolve', method: 'POST', access: 'user',
         handler: async (req) => {
-            const found = ownedLink(req);
+            const body = await bodyOf(req);
+            const found = ownedLink(req, body);
             if (!found.ok)
                 return found.response;
-            const body = bodyOf(req);
             const rel = typeof body.rel === 'string' ? body.rel : '';
             const keep = body.keep === 'remote' ? 'remote' : 'local';
             const item = store.conflicts(found.value.id).find((entry) => entry.rel === rel);
