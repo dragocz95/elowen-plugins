@@ -80,6 +80,23 @@ export class GitHubService {
     return { ...status, flow: flow ? publicFlow(flow) : null };
   }
 
+  projectIndicators(projects: readonly { id: number }[], userId: number | null): { projectId: number; label: string; value: string; icon: string; tone: 'muted' | 'accent' | 'success' | 'warning' }[] {
+    if (userId === null) return [];
+    const account = this.store.account(userId);
+    if (!account) return projects.map((project) => ({ projectId: project.id, label: 'GitHub', value: 'Disconnected', icon: 'Github', tone: 'muted' }));
+    const label = `GitHub @${account.login}`;
+    if (account.status === 'reconnect_required') {
+      return projects.map((project) => ({ projectId: project.id, label, value: 'Reconnect required', icon: 'Github', tone: 'warning' }));
+    }
+    const mappings = new Map(this.store.mappings(userId).map((mapping) => [mapping.projectId, mapping]));
+    return projects.map((project) => {
+      const mapping = mappings.get(project.id);
+      return mapping?.active
+        ? { projectId: project.id, label, value: `${mapping.baseOwner}/${mapping.baseName}`, icon: 'Github', tone: 'success' as const }
+        : { projectId: project.id, label, value: 'Repository unmapped', icon: 'Github', tone: 'accent' as const };
+    });
+  }
+
   async startDeviceAuth(userId: number, input: { replaceIdentity?: boolean; reconnect?: boolean; confirmationToken?: string } = {}): Promise<{ flowId: string; verificationUrl: string; userCode: string; expiresAt: number }> {
     const existingFlow = this.store.deviceFlows({ userId, statuses: ['pending', 'completing'] })[0];
     if (existingFlow) throw new GitHubPluginError('auth_in_progress', 409, 'A GitHub connection is already in progress.');

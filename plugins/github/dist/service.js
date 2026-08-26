@@ -71,6 +71,24 @@ export class GitHubService {
         const flow = this.store.deviceFlows({ userId, statuses: ['pending', 'completing'] })[0] ?? null;
         return { ...status, flow: flow ? publicFlow(flow) : null };
     }
+    projectIndicators(projects, userId) {
+        if (userId === null)
+            return [];
+        const account = this.store.account(userId);
+        if (!account)
+            return projects.map((project) => ({ projectId: project.id, label: 'GitHub', value: 'Disconnected', icon: 'Github', tone: 'muted' }));
+        const label = `GitHub @${account.login}`;
+        if (account.status === 'reconnect_required') {
+            return projects.map((project) => ({ projectId: project.id, label, value: 'Reconnect required', icon: 'Github', tone: 'warning' }));
+        }
+        const mappings = new Map(this.store.mappings(userId).map((mapping) => [mapping.projectId, mapping]));
+        return projects.map((project) => {
+            const mapping = mappings.get(project.id);
+            return mapping?.active
+                ? { projectId: project.id, label, value: `${mapping.baseOwner}/${mapping.baseName}`, icon: 'Github', tone: 'success' }
+                : { projectId: project.id, label, value: 'Repository unmapped', icon: 'Github', tone: 'accent' };
+        });
+    }
     async startDeviceAuth(userId, input = {}) {
         const existingFlow = this.store.deviceFlows({ userId, statuses: ['pending', 'completing'] })[0];
         if (existingFlow)

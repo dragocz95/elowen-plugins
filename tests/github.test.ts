@@ -15,6 +15,7 @@ import { parseGitHubRemote, suggestedRepositories } from '../plugins/github/src/
 import { publishBranch, spawnPrepared, unsafeConfig, type SpawnPrepared } from '../plugins/github/src/execution.js';
 import { registerGitHubApi } from '../plugins/github/src/api.js';
 import { registerGitHubTools } from '../plugins/github/src/tools.js';
+import { register } from '../plugins/github/src/index.js';
 import manifest from '../plugins/github/elowen-plugin.json' with { type: 'json' };
 
 const roots: string[] = [];
@@ -128,6 +129,7 @@ function harness(root: string, fake: { base: string }, nowRef = { value: Date.no
     prepareExecution: async ({ command, cwd }: any) => prepared(command, cwd, join(root, 'home')),
   };
   const routes: any[] = [];
+  const projectIndicatorProviders: ((request: { projects: readonly { id: number }[]; user: { id: number; isAdmin: boolean } | null }) => unknown)[] = [];
   const ctx = {
     config: { clientId: 'client-id', appSlug: 'app-slug' }, instanceSecrets: () => instance,
     userSecrets: () => { if (!users.has(currentUser)) users.set(currentUser, new SecretBag()); return users.get(currentUser)!; },
@@ -135,7 +137,9 @@ function harness(root: string, fake: { base: string }, nowRef = { value: Date.no
     currentContributionUserId: () => currentUser, currentIdentity: () => ({ elowenUserId: currentUser, owner: false }), currentAccess: () => ({ projectIds: [1], admin: false, owner: false, permissionBoundary: null, contributionUserId: currentUser }), currentSessionId: () => 'brain-1',
     userConfig: () => ({ mergeMethod: 'squash' }), control: (name: string) => name === 'sandbox' ? sandbox : undefined,
     host: { stores: () => ({ projects: { get: (id: number) => id === 1 ? project : null, list: () => [project] }, usersRead: { list: () => [{ id: 1 }, { id: 2 }], isAdmin: () => false, allowedExecs: () => [], mayUsePlugin: () => true }, homeProject: () => project }), git: () => ({ projectSnapshot: async () => ({ isRepo: true, status: { branch: workspace.branch, head: 'a'.repeat(40), upstream: null, ahead: 0, behind: 0, dirty: 0, untracked: 0, clean: true }, remotes: [{ name: 'origin', fetchUrl: 'git@github.com:base/repo.git', pushUrl: 'https://github.com/fork/repo.git' }] }), projectHead: async () => 'a'.repeat(40) }) },
-    registerApiRoute: (route: unknown) => routes.push(route), registerTool: () => {}, registerReadinessCheck: () => {}, registerBootReconcile: () => {}, registerInterval: () => {}, registerUserRemoved: () => {}, registerProjectRemoved: () => {},
+    registerApiRoute: (route: unknown) => routes.push(route), registerTool: () => {},
+    registerProjectIndicators: (provider: (request: { projects: readonly { id: number }[]; user: { id: number; isAdmin: boolean } | null }) => unknown) => projectIndicatorProviders.push(provider),
+    registerReadinessCheck: () => {}, registerBootReconcile: () => {}, registerInterval: () => {}, registerService: () => {}, registerUserRemoved: () => {}, registerProjectRemoved: () => {},
     logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
   } as unknown as PluginContext;
   const pushCalls: SandboxPreparedExecution[] = [];
@@ -166,7 +170,7 @@ function harness(root: string, fake: { base: string }, nowRef = { value: Date.no
     }) as any,
   });
   const service = new GitHubService(ctx, { fetch, apiBase: fake.base, now: () => nowRef.value, spawnPrepared: runner, auth });
-  return { ctx, db, service, runner, setUser: (id: number) => { currentUser = id; }, users, instance, routes, pushCalls, workspace, nowRef };
+  return { ctx, db, service, runner, auth, project, projectIndicatorProviders, setUser: (id: number) => { currentUser = id; }, users, instance, routes, pushCalls, workspace, nowRef };
 }
 
 async function waitForFlow(service: GitHubService, flowId: string): Promise<any> {
@@ -271,7 +275,7 @@ describe('GitHub plugin', () => {
 
   it('declares device auth without App setup or callback routes', () => {
     expect(manifest.userGrantable).not.toBe(true);
-    expect(manifest.version).toBe('0.1.4');
+    expect(manifest.version).toBe('0.1.5');
     expect(manifest.web.requiresApiVersion).toBe(4);
     expect(manifest.web.nav).toBeUndefined();
     expect(manifest.web.account).toEqual([{ id: 'connection', label: 'GitHub', icon: 'Github' }]);
@@ -279,6 +283,52 @@ describe('GitHub plugin', () => {
     expect(manifest.configSchema).toBeUndefined();
     expect(manifest.provides.apiRoutes).not.toContain('setup');
     expect(manifest.provides.apiRoutes).not.toContain('auth/callback');
+  });
+
+  it('registers one account-scoped batched Project indicator provider backed only by local store state', async () => {
+    const fake = await fakeGitHub();
+    try {
+      const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
+      const h = harness(root, fake);
+      register(h.ctx, {
+        fetch: (async () => { throw new Error('Project indicators must not use the network.'); }) as typeof fetch,
+        apiBase: fake.base, now: () => h.nowRef.value, spawnPrepared: h.runner, auth: h.auth,
+      });
+      expect(h.projectIndicatorProviders).toHaveLength(1);
+      const provider = h.projectIndicatorProviders[0]!;
+      const projects = [{ id: 1 }, { id: 2 }];
+      expect(await provider({ projects, user: null })).toEqual([]);
+      expect(await provider({ projects, user: { id: 2, isAdmin: false } })).toEqual([
+        { projectId: 1, label: 'GitHub', value: 'Disconnected', icon: 'Github', tone: 'muted' },
+        { projectId: 2, label: 'GitHub', value: 'Disconnected', icon: 'Github', tone: 'muted' },
+      ]);
+
+      h.service.store.saveAccount({ userId: 1, githubUserId: 42, login: 'octocat', name: null, avatarUrl: null, status: 'reconnect_required', lastError: 'github_unauthorized', verifiedAt: 1, updatedAt: 1 });
+      expect(await provider({ projects: [projects[0]!], user: { id: 1, isAdmin: false } })).toEqual([
+        { projectId: 1, label: 'GitHub @octocat', value: 'Reconnect required', icon: 'Github', tone: 'warning' },
+      ]);
+
+      h.service.store.saveAccount({ userId: 1, githubUserId: 42, login: 'octocat', name: null, avatarUrl: null, status: 'connected', lastError: null, verifiedAt: 2, updatedAt: 2 });
+      h.service.store.saveDeviceFlow({ flowId: 'gh-secret', userId: 1, verificationUrl: 'https://github.com/login/device', userCode: 'ABCD-EFGH', directory: null, replaceIdentity: false, expiresAt: Date.now() + 60_000, status: 'pending', error: null, createdAt: 1, updatedAt: 1 });
+      h.service.store.saveMapping({ userId: 1, projectId: 1, baseRepoId: 1, baseOwner: 'base', baseName: 'repo', pushRepoId: 2, pushOwner: 'fork', pushName: 'repo', baseRemote: 'upstream', pushRemote: 'origin', verifiedAt: 3, active: true });
+      const indicators = await provider({ projects, user: { id: 1, isAdmin: false } });
+      expect(indicators).toEqual([
+        { projectId: 1, label: 'GitHub @octocat', value: 'base/repo', icon: 'Github', tone: 'success' },
+        { projectId: 2, label: 'GitHub @octocat', value: 'Repository unmapped', icon: 'Github', tone: 'accent' },
+      ]);
+      const serialized = JSON.stringify(indicators);
+      expect(serialized).not.toContain('ABCD-EFGH');
+      expect(serialized).not.toContain('github.com/login/device');
+      expect(serialized).not.toContain('access-1');
+      let accountReads = 0;
+      let mappingReads = 0;
+      const readAccount = h.service.store.account.bind(h.service.store);
+      const readMappings = h.service.store.mappings.bind(h.service.store);
+      h.service.store.account = ((userId: number) => { accountReads += 1; return readAccount(userId); }) as typeof h.service.store.account;
+      h.service.store.mappings = ((userId: number) => { mappingReads += 1; return readMappings(userId); }) as typeof h.service.store.mappings;
+      h.service.projectIndicators([{ id: 1 }, { id: 2 }, { id: 3 }], 1);
+      expect({ accountReads, mappingReads }).toEqual({ accountReads: 1, mappingReads: 1 });
+    } finally { fake.server.close(); }
   });
 
   it('marks legacy GitHub accounts reconnect_required during migration', () => {

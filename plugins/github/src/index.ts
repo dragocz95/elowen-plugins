@@ -9,6 +9,9 @@ export function register(ctx: PluginContext, deps: GitHubRegisterDeps = {}): voi
   const service = new GitHubService(ctx, deps);
   registerGitHubApi(ctx, service);
   registerGitHubTools(ctx, service);
+  ctx.registerProjectIndicators(({ projects, user }: { projects: readonly { id: number }[]; user: { id: number; isAdmin: boolean } | null }) => (
+    service.projectIndicators(projects, user?.id ?? null)
+  ));
 
   ctx.registerReadinessCheck(async () => {
     const readiness = await service.readiness();

@@ -5,6 +5,7 @@ export function register(ctx, deps = {}) {
     const service = new GitHubService(ctx, deps);
     registerGitHubApi(ctx, service);
     registerGitHubTools(ctx, service);
+    ctx.registerProjectIndicators(({ projects, user }) => (service.projectIndicators(projects, user?.id ?? null)));
     ctx.registerReadinessCheck(async () => {
         const readiness = await service.readiness();
         return { id: 'github-auth', label: 'GitHub authentication', ...readiness };
