@@ -10,7 +10,7 @@ interface MappingForm { projectId: number; baseOwner: string; baseName: string; 
 interface PendingAction { action: Record<string, unknown>; preview: Preview }
 
 export function GitHubPage() {
-  const { components: C, hooks, api } = runtime();
+  const { components: C, hooks, api, utils } = runtime();
   const s = hooks.usePluginStrings('github');
   const { toast } = hooks.useToast();
   const qc = hooks.useQueryClient();
@@ -74,7 +74,24 @@ export function GitHubPage() {
     onSuccess: (value: Preview, action: Record<string, unknown>) => setPending({ action, preview: value }),
     onError: (error: unknown) => toast(localizedError(error, s), 'error'),
   });
-  const confirm = mutation<{ action: Record<string, unknown>; token: string }>((value) => api('/plugins/github/api/actions/confirm', jsonBody({ ...value.action, confirmationToken: value.token })) as Promise<unknown>, s.actionComplete);
+  const confirm = hooks.useMutation<unknown, unknown, { action: Record<string, unknown>; token: string }>({
+    mutationFn: (value: { action: Record<string, unknown>; token: string }) => api('/plugins/github/api/actions/confirm', jsonBody({ ...value.action, confirmationToken: value.token })),
+    onSuccess: async () => { setPending(null); await invalidate(); toast(s.actionComplete); },
+    onError: async (error: unknown) => {
+      const code = utils.apiErrorMessage(error);
+      const statusCode = error && typeof error === 'object' && 'status' in error ? Number((error as { status?: unknown }).status) : 0;
+      if (code === 'state_changed' || code === 'head_changed' || statusCode === 409) {
+        setPending(null);
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: REPOSITORIES_KEY }),
+          qc.invalidateQueries({ queryKey: ['plugin', 'github', 'pulls'] }),
+          qc.invalidateQueries({ queryKey: ['plugin', 'github', 'pull'] }),
+          qc.invalidateQueries({ queryKey: ['plugin', 'github', 'checks'] }),
+        ]);
+      }
+      toast(localizedError(error, s), 'error');
+    },
+  });
   const connect = mutation<{ replaceIdentity?: boolean; reconnect?: boolean; confirmationToken?: string }, { authorizeUrl: string }>((value) => api('/plugins/github/api/auth/start', jsonBody(value)) as Promise<{ authorizeUrl: string }>);
 
   const beginConnect = () => connect.mutate(status.data?.reconnectRequired ? { reconnect: true } : {}, { onSuccess: (value) => window.location.assign(value.authorizeUrl) });
@@ -85,7 +102,7 @@ export function GitHubPage() {
       connect.mutate({ replaceIdentity: true, confirmationToken: pending.preview.confirmationToken }, { onSuccess: (value) => window.location.assign(value.authorizeUrl) });
       return;
     }
-    confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken }, { onSuccess: () => setPending(null) });
+    confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken });
   };
 
   const filteredPulls = useMemo(() => {

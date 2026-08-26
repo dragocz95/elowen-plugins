@@ -49,6 +49,42 @@ describe('GitHub plugin UI', () => {
     expect(await screen.findByText(strings.disconnected)).toBeInTheDocument();
   });
 
+  it('closes a consumed confirmation and refreshes PR state after a stale 409', async () => {
+    let detailCalls = 0;
+    let checksCalls = 0;
+    const pull = {
+      number: 7, title: 'Feature', state: 'open', draft: false, htmlUrl: 'https://github.com/base/repo/pull/7',
+      author: 'octocat', headRef: 'feature', headSha: 'a'.repeat(40), baseRef: 'main', updatedAt: new Date().toISOString(),
+      mergeable: true, mergeableState: 'clean', body: 'Body', files: [], reviews: [],
+    };
+    use(
+      http.get('/api/plugins/github/api/status', () => HttpResponse.json(connected)),
+      http.get('/api/plugins/github/api/repositories', () => HttpResponse.json({ repositories: [{
+        project: { id: 1, slug: 'project' },
+        mapping: { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo', verifiedAt: 1, active: true },
+        remotes: [], detected: { ambiguous: false, base: null, push: null },
+      }] })),
+      http.get('/api/brain/sessions', () => HttpResponse.json([{ id: 'brain-1', title: 'Feature', updated_at: new Date().toISOString() }])),
+      http.get('/api/plugins/github/api/pull-requests', () => HttpResponse.json({ pullRequests: [pull] })),
+      http.get('/api/plugins/github/api/pull-request', () => { detailCalls += 1; return HttpResponse.json(pull); }),
+      http.get('/api/plugins/github/api/checks', () => { checksCalls += 1; return HttpResponse.json({ state: 'success', items: [] }); }),
+      http.post('/api/plugins/github/api/actions/preview', () => HttpResponse.json({
+        action: { type: 'merge' }, title: 'Merge pull request', description: 'Merge now.', confirmationToken: 'once', expiresAt: Date.now() + 60_000,
+      })),
+      http.post('/api/plugins/github/api/actions/confirm', () => HttpResponse.json({ error: 'head_changed' }, { status: 409 })),
+    );
+    mount();
+    fireEvent.click(await screen.findByRole('radio', { name: strings.tabPullRequests }));
+    fireEvent.click(await screen.findByText('#7 Feature'));
+    await screen.findByText('Body');
+    await waitFor(() => expect(screen.getByRole('button', { name: strings.merge })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: strings.merge }));
+    await screen.findByRole('heading', { name: 'Merge pull request' });
+    fireEvent.click(screen.getByRole('button', { name: strings.confirm }));
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Merge pull request' })).not.toBeInTheDocument());
+    await waitFor(() => { expect(detailCalls).toBeGreaterThan(1); expect(checksCalls).toBeGreaterThan(1); });
+  });
+
   it('opens repository mapping from the keyboard register', async () => {
     use(
       http.get('/api/plugins/github/api/status', () => HttpResponse.json(connected)),

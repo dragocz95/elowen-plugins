@@ -35,6 +35,7 @@ export function ensurePluginUiRuntime(): void {
     jsxRuntime: JsxRuntime,
     components: {
       Badge: C.Badge, Button: C.Button, Input: C.Input, Field: C.Field, Toggle: C.Toggle, Segmented: C.Segmented,
+      SelectMenu: ({ value, onChange, label, options }: { value: string; onChange: (value: string) => void; label: string; options: { value: string; label: string }[] }) => <label>{label}<select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>,
       HelpTip: C.HelpTip, Modal: C.Modal, ModalBody: C.ModalBody, ModalFooter: C.ModalFooter,
       ControlSurfaceDocument: C.ControlSurfaceDocument, ControlSurfaceToolbar: C.ControlSurfaceToolbar,
       ControlSurfaceRegister: C.ControlSurfaceRegister, ControlSurfaceState: C.ControlSurfaceState,

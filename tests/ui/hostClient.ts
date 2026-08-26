@@ -204,9 +204,14 @@ export const elowenClient = {
     req<{ ok: boolean }>(`/plugins/${encodeURIComponent(name)}/config`, json({ values }, 'PATCH')),
 };
 
-/** Same-origin JSON fetch exposed to a bundle as `runtime.api`. Rejects on non-2xx. */
+/** Same-origin JSON fetch exposed to a bundle as `runtime.api`. Rejects on non-2xx with the
+ * server's stable error code, matching the host runtime. */
 export async function api(path: string, init?: RequestInit): Promise<unknown> {
   const res = await fetch(`${BASE}${path}`, { ...init, credentials: 'same-origin' });
-  if (!res.ok) throw new Error(`api ${res.status} on ${path}`);
+  if (!res.ok) {
+    let body: Record<string, unknown> | undefined;
+    try { body = (await res.json()) as Record<string, unknown>; } catch { /* non-JSON body */ }
+    throw new ElowenApiError(`api ${res.status} on ${path}`, res.status, typeof body?.error === 'string' ? body.error : undefined);
+  }
   return res.status === 204 ? undefined : res.json();
 }
