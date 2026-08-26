@@ -190,12 +190,14 @@ function humanBytes(bytes) {
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var statusTone = (row) => {
   if (row.status === "error") return "danger";
+  if (row.status === "blocked") return "warning";
   if (!row.enabled) return "muted";
   if (row.conflictCount > 0) return "warning";
   return row.status === "syncing" ? "accent" : "success";
 };
 var statusLabel = (row, s) => {
   if (row.status === "error") return s.statusError;
+  if (row.status === "blocked") return s.statusBlocked;
   if (!row.enabled) return s.statusPaused;
   return row.status === "syncing" ? s.statusSyncing : s.statusIdle;
 };
@@ -240,7 +242,7 @@ function ConflictsRail({ row, onClose, onResolved }) {
     ] }) })
   ] }, conflict.rel)) }) });
 }
-function MirrorCard({ row, onConflicts, onDisconnect, onPause, onSync, busy }) {
+function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, onSync, busy }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("onedrive");
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-3", children: [
@@ -250,6 +252,7 @@ function MirrorCard({ row, onConflicts, onDisconnect, onPause, onSync, busy }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceMetric, { label: s.files, value: `${row.fileCount} \xB7 ${humanBytes(row.byteCount)}` })
     ] }),
     row.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: row.error }) : null,
+    row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "secondary", size: "sm", tone: "danger", disabled: busy, onClick: onConfirmSync, children: s.confirmDeletions }),
     row.conflictCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       "button",
       {
@@ -347,7 +350,8 @@ function OneDriveProjectPanel({ project }) {
             onConflicts: () => setConflictsFor(projectLink),
             onDisconnect: () => setDisconnecting(projectLink),
             onPause: () => pause.mutate({ id: projectLink.id, enabled: !projectLink.enabled }),
-            onSync: () => syncNow.mutate({ id: projectLink.id })
+            onSync: () => syncNow.mutate({ id: projectLink.id }),
+            onConfirmSync: () => syncNow.mutate({ id: projectLink.id, confirmDeletions: true })
           }
         ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-text-muted", children: s.mirrorScopeHint })
       }

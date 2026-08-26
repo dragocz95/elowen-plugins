@@ -1,6 +1,8 @@
 import type { PluginDb } from 'elowen/plugin-api';
 
-export type LinkStatus = 'idle' | 'syncing' | 'error' | 'paused';
+/** `blocked` is not an error: the mirror worked correctly and stopped to ask a question. It is a separate
+ *  state precisely so the UI can offer the answer, instead of inferring intent from an error string. */
+export type LinkStatus = 'idle' | 'syncing' | 'error' | 'paused' | 'blocked';
 
 export interface MirrorLink {
   id: number;
@@ -186,6 +188,26 @@ export class OneDriveStore {
        WHERE id = ? AND enabled = 1 AND (running_until IS NULL OR running_until < ?)`,
     ).run(owner, now + leaseMs, linkId, now);
     return result.changes === 1;
+  }
+
+  /** Extend a claim this worker still holds, and report whether it still holds it.
+   *
+   *  A lease that expires MID-CYCLE is worse than no lease: another worker takes the row, forms its own
+   *  plan, and the first worker then applies a plan built from state that has since been re-decided —
+   *  overwriting exactly what the second one just protected. The cycle renews as it works, and a renewal
+   *  that returns false means it was displaced and must stop touching files immediately. */
+  renew(linkId: number, owner: string, leaseMs: number, now = Date.now()): boolean {
+    const result = this.db.prepare(
+      'UPDATE p_onedrive_links SET running_until = ? WHERE id = ? AND running_owner = ? AND running_until >= ?',
+    ).run(now + leaseMs, linkId, owner, now);
+    return result.changes === 1;
+  }
+
+  /** Forget everything this mirror believed about the remote side. Used when a link is pointed at a
+   *  DIFFERENT folder: the old baseline describes files that folder never had, and comparing against it
+   *  would read every local file as remotely deleted and empty the project into the trash. */
+  clearItems(linkId: number): void {
+    this.db.prepare('DELETE FROM p_onedrive_items WHERE link_id = ?').run(linkId);
   }
 
   release(linkId: number, owner: string): void {

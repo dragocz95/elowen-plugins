@@ -53,7 +53,9 @@
       "disconnect": "Odpojiť",
       "disconnectHint": "Zrkadlenie sa zastaví. Súbory, ktoré už v OneDrive sú, zostanú bez zmeny.",
       "mirrorScope": "Čo sa zrkadlí",
-      "mirrorScopeHint": "Všetko, čo ponecháva súbor .gitignore daného projektu. Interné súbory správy verzií, závislosti a prihlasovacie údaje sú vylúčené vždy."
+      "mirrorScopeHint": "Všetko, čo ponecháva súbor .gitignore daného projektu. Interné súbory správy verzií, závislosti a prihlasovacie údaje sú vylúčené vždy.",
+      "statusBlocked": "Čaká na potvrdenie",
+      "confirmDeletions": "Potvrdiť a zmazať v OneDrive"
     }
   }
 }

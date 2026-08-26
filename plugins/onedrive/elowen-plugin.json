@@ -72,6 +72,8 @@
       "statusIdle": "In sync",
       "statusSyncing": "Syncing",
       "statusPaused": "Paused",
+      "statusBlocked": "Waiting for confirmation",
+      "confirmDeletions": "Confirm and delete in OneDrive",
       "statusError": "Needs attention",
       "lastSync": "Last sync",
       "never": "Never",

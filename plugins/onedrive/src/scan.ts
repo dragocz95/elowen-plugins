@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat, readdir, realpath } from 'node:fs/promises';
-import { join, matchesGlob, relative, resolve, sep } from 'node:path';
+import { dirname, join, matchesGlob, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
@@ -61,13 +61,27 @@ export interface ScannedFile {
 export interface ScanResult {
   files: Map<string, ScannedFile>;
   /** Paths deliberately left out, with the reason, so the UI can say so instead of the file just missing. */
-  skipped: { rel: string; reason: 'too-large' | 'symlink' | 'unreadable' | 'settling' }[];
+  skipped: { rel: string; reason: 'too-large' | 'symlink' | 'unreadable' | 'settling' | 'collision' }[];
   /** The same paths as a set. The mirror MUST consult this before concluding that a file was deleted:
    *  a skipped file is one this scan chose not to look at, which is not the same as one that is gone, and
    *  treating the two alike deletes the copy in OneDrive of a file that is sitting right there. */
   skippedPaths: Set<string>;
   /** True when git decided the file set, false when the fallback walk did. */
   fromGit: boolean;
+  /** False when this scan KNOWS it did not see everything - a directory it could not read, or a fallback
+   *  walk that hit its cap. An incomplete scan may not be used to decide that anything was deleted, so the
+   *  caller must abort rather than treat the paths it never reached as gone. */
+  complete: boolean;
+  /** The ignore predicate this scan ran with, so the caller can ask about a path the scan never emitted.
+   *  A file that became ignored since it was mirrored is not a deleted file. */
+  isIgnored: (rel: string) => boolean;
+}
+
+/** OneDrive matches names case-insensitively and normalises Unicode; Linux does neither. Two local paths
+ *  that differ only in case or in NFC/NFD spelling therefore address ONE remote item, and mirroring both
+ *  makes them overwrite each other and then delete each other. This is the key those collisions share. */
+export function remoteKey(rel: string): string {
+  return rel.normalize('NFC').toLowerCase();
 }
 
 /** The project's own view of which files matter: tracked files plus untracked ones its .gitignore keeps.
@@ -88,15 +102,20 @@ async function gitFiles(root: string): Promise<string[] | null> {
 }
 
 /** Fallback for a root that is not a repository: a bounded walk that never follows a directory symlink. */
-async function walk(root: string, limit: number): Promise<string[]> {
+async function walk(root: string, limit: number): Promise<{ files: string[]; complete: boolean }> {
   const out: string[] = [];
   const queue: string[] = [''];
-  while (queue.length > 0 && out.length < limit) {
+  let complete = true;
+  while (queue.length > 0) {
+    if (out.length >= limit) { complete = false; break; }
     const dir = queue.shift()!;
     let entries;
     try {
       entries = await readdir(join(root, dir), { withFileTypes: true });
     } catch {
+      // A directory we could not read is a directory whose contents are UNKNOWN. Carrying on quietly
+      // would present its files as absent, and absent is what this mirror deletes.
+      complete = false;
       continue;
     }
     for (const entry of entries) {
@@ -104,10 +123,10 @@ async function walk(root: string, limit: number): Promise<string[]> {
       if (isFloorIgnored(rel)) continue;
       if (entry.isDirectory()) queue.push(rel);
       else if (entry.isFile() || entry.isSymbolicLink()) out.push(rel);
-      if (out.length >= limit) break;
+      if (out.length >= limit) { complete = false; break; }
     }
   }
-  return out;
+  return { files: out, complete };
 }
 
 /** Is `candidate` really inside `root` once every symlink has been resolved? A mirror walks paths supplied
@@ -126,6 +145,26 @@ export async function containedIn(root: string, candidate: string): Promise<bool
   }
 }
 
+/** Containment for a path that does not exist yet - a file about to be downloaded into a directory the
+ *  project has not created. `realpath` fails on a missing path, so the check climbs to the nearest
+ *  ancestor that DOES exist and resolves that. A symlinked ancestor is therefore still caught, while a
+ *  genuinely new nested directory is allowed instead of being silently skipped forever. */
+export async function containedInEventually(root: string, absolute: string): Promise<boolean> {
+  let current = dirname(absolute);
+  const stop = resolve(root);
+  for (;;) {
+    try {
+      await realpath(current);
+      return containedIn(root, current);
+    } catch {
+      const parent = dirname(current);
+      // Ran out of ancestors without meeting anything real: the root itself is gone.
+      if (parent === current || current.length < stop.length) return false;
+      current = parent;
+    }
+  }
+}
+
 export interface ScanOptions {
   ignored: (rel: string) => boolean;
   maxBytes: number;
@@ -139,18 +178,41 @@ export interface ScanOptions {
 export async function scanLocal(root: string, options: ScanOptions): Promise<ScanResult> {
   const listed = await gitFiles(root);
   const fromGit = listed !== null;
-  const candidates = listed ?? await walk(root, options.maxFiles);
+  const fallback = listed === null ? await walk(root, options.maxFiles) : null;
+  const candidates = listed ?? fallback!.files;
   const files = new Map<string, ScannedFile>();
   const skipped: ScanResult['skipped'] = [];
+  let complete = fallback ? fallback.complete : true;
+  if (fromGit && candidates.length >= options.maxFiles) complete = false;
+
+  // Names that collide once OneDrive's case-insensitive, Unicode-normalising rules are applied cannot
+  // both be mirrored: they are one item over there. Skipping the whole group leaves every local copy
+  // intact, where mirroring them would let the last writer win and the others be trashed.
+  const byRemoteKey = new Map<string, string[]>();
+  for (const rel of candidates) {
+    const key = remoteKey(rel);
+    const bucket = byRemoteKey.get(key);
+    if (bucket) bucket.push(rel); else byRemoteKey.set(key, [rel]);
+  }
+  const colliding = new Set<string>();
+  for (const bucket of byRemoteKey.values()) {
+    if (bucket.length > 1) for (const rel of bucket) colliding.add(rel);
+  }
 
   for (const rel of candidates) {
     if (options.ignored(rel)) continue;
+    if (colliding.has(rel)) { skipped.push({ rel, reason: 'collision' }); continue; }
     const absolute = join(root, rel);
     let stats;
     try {
       stats = await lstat(absolute);
-    } catch {
-      continue; // listed but gone since: the next cycle sees the deletion through the baseline.
+    } catch (error) {
+      // ENOENT is a real deletion - git listed it, it is gone, the baseline should follow. Anything else
+      // (a permission error, an I/O error, a stalled mount) means we could not LOOK, which is not the
+      // same answer at all and must not become a deletion.
+      if ((error as { code?: string })?.code === 'ENOENT') continue;
+      skipped.push({ rel, reason: 'unreadable' });
+      continue;
     }
     // A symlink is skipped rather than followed. Mirroring its target would copy a file from outside the
     // project, and mirroring the link itself would be meaningless on the other side.
@@ -162,7 +224,14 @@ export async function scanLocal(root: string, options: ScanOptions): Promise<Sca
     files.set(rel, { rel, size: stats.size, mtimeMs: stats.mtimeMs });
   }
 
-  return { files, skipped, skippedPaths: new Set(skipped.map((entry) => entry.rel)), fromGit };
+  return {
+    files,
+    skipped,
+    skippedPaths: new Set(skipped.map((entry) => entry.rel)),
+    fromGit,
+    complete,
+    isIgnored: options.ignored,
+  };
 }
 
 /** Content hash of one file. Streamed, because a mirror is expected to meet files far larger than the

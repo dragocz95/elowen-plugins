@@ -53,7 +53,9 @@
       "disconnect": "Odpojit",
       "disconnectHint": "Zrcadlení se zastaví. Soubory, které již v OneDrivu jsou, zůstanou beze změny.",
       "mirrorScope": "Co se zrcadlí",
-      "mirrorScopeHint": "Vše, co ponechává soubor .gitignore daného projektu. Interní soubory správy verzí, závislosti a přihlašovací údaje jsou vyloučeny vždy."
+      "mirrorScopeHint": "Vše, co ponechává soubor .gitignore daného projektu. Interní soubory správy verzí, závislosti a přihlašovací údaje jsou vyloučeny vždy.",
+      "statusBlocked": "Čeká na potvrzení",
+      "confirmDeletions": "Potvrdit a smazat v OneDrivu"
     }
   }
 }

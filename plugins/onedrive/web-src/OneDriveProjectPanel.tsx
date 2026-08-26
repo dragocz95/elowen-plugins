@@ -6,6 +6,7 @@ interface ProjectProp { id: number; slug: string; path: string }
 
 const statusTone = (row: MirrorRow): 'success' | 'accent' | 'warning' | 'danger' | 'muted' => {
   if (row.status === 'error') return 'danger';
+  if (row.status === 'blocked') return 'warning';
   if (!row.enabled) return 'muted';
   if (row.conflictCount > 0) return 'warning';
   return row.status === 'syncing' ? 'accent' : 'success';
@@ -13,6 +14,7 @@ const statusTone = (row: MirrorRow): 'success' | 'accent' | 'warning' | 'danger'
 
 const statusLabel = (row: MirrorRow, s: Record<string, string>): string => {
   if (row.status === 'error') return s.statusError;
+  if (row.status === 'blocked') return s.statusBlocked;
   if (!row.enabled) return s.statusPaused;
   return row.status === 'syncing' ? s.statusSyncing : s.statusIdle;
 };
@@ -63,9 +65,10 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow | null; on
   );
 }
 
-function MirrorCard({ row, onConflicts, onDisconnect, onPause, onSync, busy }: {
+function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, onSync, busy }: {
   row: MirrorRow;
   onConflicts: () => void;
+  onConfirmSync: () => void;
   onDisconnect: () => void;
   onPause: () => void;
   onSync: () => void;
@@ -82,6 +85,14 @@ function MirrorCard({ row, onConflicts, onDisconnect, onPause, onSync, busy }: {
       </div>
 
       {row.error ? <C.ErrorState message={row.error} /> : null}
+
+      {/* The refusal asked a question; this is the button that answers it. Confirmation is deliberately
+          a distinct action rather than a quieter Sync now, because the answer authorises deletion. */}
+      {row.status === 'blocked' && (
+        <C.Button variant="secondary" size="sm" tone="danger" disabled={busy} onClick={onConfirmSync}>
+          {s.confirmDeletions}
+        </C.Button>
+      )}
 
       {row.conflictCount > 0 && (
         <button type="button" onClick={onConflicts}
@@ -144,8 +155,9 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
     onSuccess: refresh,
     onError: fail,
   });
-  const syncNow = hooks.useMutation<unknown, unknown, { id: number }>({
-    mutationFn: (vars: { id: number }) => api('/plugins/onedrive/api/sync-now', jsonBody(vars)),
+  const syncNow = hooks.useMutation<unknown, unknown, { id: number; confirmDeletions?: boolean }>({
+    mutationFn: (vars: { id: number; confirmDeletions?: boolean }) =>
+      api('/plugins/onedrive/api/sync-now', jsonBody(vars)),
     onSuccess: refresh,
     onError: fail,
   });
@@ -183,6 +195,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
             onDisconnect={() => setDisconnecting(projectLink)}
             onPause={() => pause.mutate({ id: projectLink.id, enabled: !projectLink.enabled })}
             onSync={() => syncNow.mutate({ id: projectLink.id })}
+            onConfirmSync={() => syncNow.mutate({ id: projectLink.id, confirmDeletions: true })}
           />
         ) : <p className="text-xs text-text-muted">{s.mirrorScopeHint}</p>}
       </C.PluginSection>

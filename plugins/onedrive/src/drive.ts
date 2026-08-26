@@ -36,9 +36,9 @@ export function encodePath(path: string): string {
   return path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
 }
 
-/** Turn one delta entry into the shape the merge cares about. `parentReference.path` arrives as
+/** Turn one Graph item into the shape the merge cares about. `parentReference.path` arrives as
  *  `/drive/root:/Elowen/projects/site`, so the mirror-relative path is what follows `root:`. */
-export function itemFromDelta(raw: unknown): DriveItem | null {
+export function itemFromGraph(raw: unknown): DriveItem | null {
   const value = asRecord(raw);
   const id = typeof value.id === 'string' ? value.id : '';
   const name = typeof value.name === 'string' ? value.name : '';
@@ -56,6 +56,15 @@ export function itemFromDelta(raw: unknown): DriveItem | null {
     path: prefix ? `${prefix}/${name}` : name,
     deleted: 'deleted' in value,
   };
+}
+
+/** The local file changed while its replacement was being fetched. Not a failure of the download - a
+ *  signal that the two sides diverged and the cycle must merge rather than overwrite. */
+export class StaleLocalError extends Error {
+  constructor(readonly path: string) {
+    super(`The local file changed while it was being downloaded: ${path}`);
+    this.name = 'StaleLocalError';
+  }
 }
 
 export class Drive {
@@ -110,6 +119,14 @@ export class Drive {
    *  never be mistaken for a complete one by the caller that decides what to delete. */
   async listTree(folderId: string, limit = 20_000): Promise<{ files: Map<string, DriveItem>; truncated: boolean }> {
     const files = new Map<string, DriveItem>();
+    // The mirror root missing is a real event - somebody deleted the folder in OneDrive - but reading it
+    // as an empty listing would move that person's whole project into the local trash. Say so instead.
+    try {
+      await this.graph.json('GET', `${this.base()}/items/${encodeURIComponent(folderId)}?$select=id`);
+    } catch (error) {
+      if (isNotFound(error)) throw new Error('The mirrored OneDrive folder no longer exists. Connect the mirror again.');
+      throw error;
+    }
     const queue: { id: string; prefix: string }[] = [{ id: folderId, prefix: '' }];
     let truncated = false;
 
@@ -121,14 +138,19 @@ export class Drive {
         try {
           body = asRecord(await this.graph.json('GET', url));
         } catch (error) {
-          if (isNotFound(error)) break; // the folder is gone; the caller decides what that means
+          // A folder that vanished mid-walk makes this listing an inconsistent snapshot, and the caller
+          // uses the listing to decide what to DELETE. Report it as truncated rather than letting the
+          // missing subtree read as "those files do not exist".
+          if (isNotFound(error)) { truncated = true; break; }
           throw error;
         }
-        for (const raw of Array.isArray(body.value) ? body.value : []) {
+        // An answer we cannot parse is not an empty folder. Guessing "empty" here deletes local files.
+        if (!Array.isArray(body.value)) throw new Error('Microsoft returned a folder listing this mirror cannot read.');
+        for (const raw of body.value) {
           const value = asRecord(raw);
           const name = typeof value.name === 'string' ? value.name : '';
           const id = typeof value.id === 'string' ? value.id : '';
-          if (!name || !id) continue;
+          if (!name || !id) throw new Error('Microsoft returned a folder entry without an id or a name.');
           const path = current.prefix ? `${current.prefix}/${name}` : name;
           if ('folder' in value) { queue.push({ id, prefix: path }); continue; }
           if (files.size >= limit) { truncated = true; break; }
@@ -153,29 +175,40 @@ export class Drive {
     return { files, truncated };
   }
 
-  async upload(remotePath: string, absolute: string, ifMatch?: string): Promise<DriveItem> {
+  /** `ifMatch` is the etag this mirror last saw. Without it an edit made in OneDrive since the listing
+   *  would be overwritten silently; with it Graph answers 412 and the next cycle merges properly.
+   *
+   *  `expectNew` covers the case with no etag to send: the mirror believes the file does not exist there
+   *  at all. `fail` makes Graph refuse if somebody created it in the meantime, which again becomes a
+   *  merge next cycle instead of a replaced file. */
+  async upload(remotePath: string, absolute: string, ifMatch?: string, expectNew = false): Promise<DriveItem> {
     const size = (await stat(absolute)).size;
     return size <= SIMPLE_UPLOAD_MAX
-      ? this.uploadSmall(remotePath, absolute, ifMatch)
-      : this.uploadLarge(remotePath, absolute, size);
+      ? this.uploadSmall(remotePath, absolute, ifMatch, expectNew)
+      : this.uploadLarge(remotePath, absolute, size, ifMatch, expectNew);
   }
 
-  private async uploadSmall(remotePath: string, absolute: string, ifMatch?: string): Promise<DriveItem> {
+  private async uploadSmall(remotePath: string, absolute: string, ifMatch?: string, expectNew = false): Promise<DriveItem> {
     const handle = await open(absolute, 'r');
     try {
       const body = await handle.readFile();
-      const raw = await this.graph.json('PUT', `${this.base()}/root:/${encodePath(remotePath)}:/content`, {
+      const behavior = expectNew && !ifMatch ? '?%40microsoft.graph.conflictBehavior=fail' : '';
+      const raw = await this.graph.json('PUT', `${this.base()}/root:/${encodePath(remotePath)}:/content${behavior}`, {
         body, contentType: 'application/octet-stream', ...(ifMatch ? { ifMatch } : {}),
       });
-      return itemFromDelta(raw) ?? { id: '', name: '', etag: '', size: 0, isFolder: false, path: remotePath, deleted: false };
+      return itemFromGraph(raw) ?? { id: '', name: '', etag: '', size: 0, isFolder: false, path: remotePath, deleted: false };
     } finally {
       await handle.close();
     }
   }
 
-  private async uploadLarge(remotePath: string, absolute: string, size: number): Promise<DriveItem> {
+  private async uploadLarge(remotePath: string, absolute: string, size: number, ifMatch?: string, expectNew = false): Promise<DriveItem> {
+    // The precondition belongs on the SESSION, not on the chunks: Graph evaluates it when the session is
+    // created and again when it commits, so a remote edit made mid-upload still fails the commit rather
+    // than replacing the newer content.
     const session = asRecord(await this.graph.json('POST', `${this.base()}/root:/${encodePath(remotePath)}:/createUploadSession`, {
-      body: { item: { '@microsoft.graph.conflictBehavior': 'replace' } },
+      body: { item: { '@microsoft.graph.conflictBehavior': expectNew && !ifMatch ? 'fail' : 'replace' } },
+      ...(ifMatch ? { ifMatch } : {}),
     }));
     const uploadUrl = typeof session.uploadUrl === 'string' ? session.uploadUrl : '';
     if (!uploadUrl) throw new Error('Microsoft did not open an upload session.');
@@ -201,12 +234,12 @@ export class Drive {
       offset += buffer.byteLength;
       if (response.status !== 202) last = await response.json().catch(() => null);
     }
-    return itemFromDelta(last) ?? { id: '', name: '', etag: '', size, isFolder: false, path: remotePath, deleted: false };
+    return itemFromGraph(last) ?? { id: '', name: '', etag: '', size, isFolder: false, path: remotePath, deleted: false };
   }
 
   /** Fetch one item into `absolute`. Written to a sibling temporary file and renamed, so a reader never
    *  observes a half-written file and an interrupted download leaves the previous content intact. */
-  async download(itemId: string, absolute: string): Promise<void> {
+  async download(itemId: string, absolute: string, guard?: () => Promise<boolean>): Promise<void> {
     const { body } = await this.graph.binary(`${this.base()}/items/${encodeURIComponent(itemId)}/content`, {
       maxBytes: 1024 * 1024 * 1024,
     });
@@ -222,6 +255,13 @@ export class Drive {
       } finally {
         await handle.close();
       }
+      // Downloading takes time, and the local file may have been saved since it was scanned. The guard
+      // is checked as late as possible - after the bytes are on disk, immediately before they replace
+      // anything - because that is the only point where the answer is still current.
+      if (guard && !await guard()) {
+        await unlink(temporary).catch(() => undefined);
+        throw new StaleLocalError(absolute);
+      }
       await rename(temporary, absolute);
     } catch (error) {
       await unlink(temporary).catch(() => undefined);
@@ -229,7 +269,12 @@ export class Drive {
     }
   }
 
-  async remove(itemId: string): Promise<void> {
-    await this.graph.json('DELETE', `${this.base()}/items/${encodeURIComponent(itemId)}`);
+  /** Conditional on the etag the mirror last saw. An unconditional delete would destroy an edit somebody
+   *  made in OneDrive between the listing and this call - and since the local copy is already gone, that
+   *  version would exist nowhere. */
+  async remove(itemId: string, ifMatch?: string): Promise<void> {
+    await this.graph.json('DELETE', `${this.base()}/items/${encodeURIComponent(itemId)}`, {
+      ...(ifMatch ? { ifMatch } : {}),
+    });
   }
 }

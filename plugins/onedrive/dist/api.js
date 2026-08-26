@@ -93,9 +93,17 @@ export function registerApi(deps) {
             const remotePath = remoteRootFor(deps.settings().rootFolder, project.slug, draft);
             const drive = await Drive.open(graph);
             const folder = await drive.ensureFolder(remotePath);
+            const previous = store.linkFor(gate.value, projectId, workspaceId);
             const link = store.createLink({
                 ...draft, remoteDriveId: drive.driveId, remoteItemId: folder.id, remotePath, webUrl: folder.webUrl,
             });
+            // Reconnecting can land on a DIFFERENT folder - a renamed project, a drive that was rebound, a
+            // folder the person deleted in OneDrive and we just recreated empty. The old baseline describes
+            // files that folder never had, so comparing against it would read every local file as remotely
+            // deleted and move the whole project into the trash. Start from no assumptions instead.
+            if (previous && (previous.remoteItemId !== folder.id || previous.remoteDriveId !== drive.driveId)) {
+                store.clearItems(link.id);
+            }
             // A fresh mirror should not wait for the next tick to show signs of life.
             void deps.engine.syncUser(gate.value).catch(() => undefined);
             return json({ id: link.id, remotePath: link.remotePath, webUrl: link.webUrl });
@@ -142,7 +150,13 @@ export function registerApi(deps) {
             const found = ownedLink(req);
             if (!found.ok)
                 return found.response;
-            await deps.engine.syncUser(found.value.userId);
+            // The bulk-deletion refusal is a question put to the mirror's owner, and this is where they answer
+            // it. Pressing Sync now after seeing that message is the confirmation - it is scoped to this one
+            // mirror and this one run, so it cannot linger as a standing permission to delete.
+            const confirm = bodyOf(req).confirmDeletions === true;
+            await deps.engine.syncUser(found.value.userId, {
+                confirmDeletions: confirm ? new Set([found.value.id]) : undefined,
+            });
             return json({ ok: true });
         },
     });
