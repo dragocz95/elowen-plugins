@@ -1,6 +1,6 @@
 {
   "name": "github",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "apiVersion": "1",
   "requiresCore": "0.28.12",
   "description": "Account-scoped GitHub App integration for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
@@ -55,11 +55,11 @@
   },
   "configSchema": [
     { "key": "sec_app", "label": "GitHub App", "type": "section", "hint": "Configure the GitHub App used by this Elowen installation. Store the client secret from the GitHub page, not in this form." },
-    { "key": "clientId", "label": "Client ID", "type": "text", "required": true, "hint": "The non-secret client ID of the GitHub App." },
-    { "key": "appSlug", "label": "App slug", "type": "text", "required": true, "hint": "The public slug shown in the GitHub App URL." }
+    { "key": "clientId", "label": "Client ID", "type": "string", "required": true, "hint": "The non-secret client ID of the GitHub App." },
+    { "key": "appSlug", "label": "App slug", "type": "string", "required": true, "hint": "The public slug shown in the GitHub App URL." }
   ],
   "userConfigSchema": [
-    { "key": "mergeMethod", "label": "Default merge method", "type": "select", "default": "squash", "options": [
+    { "key": "mergeMethod", "label": "Default merge method", "type": "enum", "default": "squash", "options": [
       { "value": "squash", "label": "Squash" }, { "value": "merge", "label": "Merge commit" }, { "value": "rebase", "label": "Rebase" }
     ], "hint": "Used when a merge action does not explicitly select a method." }
   ],

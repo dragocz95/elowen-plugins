@@ -171,6 +171,8 @@ describe('GitHub plugin', () => {
     expect(manifest.web.nav).toBeUndefined();
     expect(manifest.web.account).toEqual([{ id: 'connection', label: 'GitHub', icon: 'Github' }]);
     expect(manifest.web.project).toEqual([{ id: 'repository', label: 'GitHub', icon: 'Github' }]);
+    expect(manifest.configSchema.map((field) => field.type)).toEqual(['section', 'string', 'string']);
+    expect(manifest.userConfigSchema.map((field) => field.type)).toEqual(['enum']);
   });
 
   it('parses HTTPS, SCP and ssh GitHub remotes without accepting other hosts', () => {

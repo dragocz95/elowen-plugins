@@ -1,11 +1,9 @@
 {
   "description": "Integrácia GitHub App pre jednotlivé účty: mapovanie repozitárov, bezpečné publikovanie vetiev zo Sandboxu, pull requesty, revízie, kontroly a výslovne potvrdené zlúčenie.",
-  "config": {
+  "fields": {
     "sec_app": { "label": "GitHub App", "hint": "Nastavte GitHub App používanú touto inštaláciou Elowenu. Klientske tajomstvo uložte na stránke GitHubu, nie do tohto formulára." },
     "clientId": { "label": "Client ID", "hint": "Neutajované client ID GitHub App." },
-    "appSlug": { "label": "Slug aplikácie", "hint": "Verejný slug uvedený v URL GitHub App." }
-  },
-  "userConfig": {
+    "appSlug": { "label": "Slug aplikácie", "hint": "Verejný slug uvedený v URL GitHub App." },
     "mergeMethod": { "label": "Predvolený spôsob zlúčenia", "hint": "Použije sa, keď akcia zlúčenia výslovne neurčí spôsob.", "options": { "squash": "Squash", "merge": "Merge commit", "rebase": "Rebase" } }
   },
   "web": {
