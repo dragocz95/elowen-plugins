@@ -78,7 +78,13 @@ export class GitHubStore {
     `) }, { version: 2, up: (migration) => {
       const columns = migration.prepare('PRAGMA table_info(p_github_project_mappings)').all().map((value) => string(row(value)?.name));
       if (!columns.includes('active')) migration.exec('ALTER TABLE p_github_project_mappings ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
-    } }]);
+    } }, { version: 3, up: (migration) => migration.exec(`
+      CREATE TABLE IF NOT EXISTS p_github_pr_leases (
+        lease_key TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+    `) }]);
   }
 
   account(userId: number): GitHubAccount | null {
@@ -144,6 +150,21 @@ export class GitHubStore {
 
   deleteFlow(stateHash: string): boolean { return this.db.prepare('DELETE FROM p_github_oauth_flows WHERE state_hash=?').run(stateHash).changes > 0; }
 
+  flows(input: { userId?: number; expiredAt?: number } = {}): OAuthFlow[] {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (input.userId !== undefined) { clauses.push('user_id=?'); params.push(input.userId); }
+    if (input.expiredAt !== undefined) { clauses.push('expires_at<=?'); params.push(input.expiredAt); }
+    const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
+    return this.db.prepare(`SELECT * FROM p_github_oauth_flows${where}`).all(...params).map((value) => {
+      const flow = row(value)!;
+      return {
+        stateHash: string(flow.state_hash), userId: number(flow.user_id), secretKey: string(flow.secret_key),
+        redirectUri: string(flow.redirect_uri), replaceIdentity: number(flow.replace_identity) === 1, expiresAt: number(flow.expires_at),
+      };
+    });
+  }
+
   mapping(userId: number, projectId: number): ProjectMapping | null {
     const value = row(this.db.prepare('SELECT * FROM p_github_project_mappings WHERE user_id=? AND project_id=?').get(userId, projectId));
     return value ? this.mappingRow(value) : null;
@@ -196,6 +217,23 @@ export class GitHubStore {
     this.db.prepare('DELETE FROM p_github_refresh_leases WHERE user_id=? AND owner=?').run(userId, owner);
   }
 
+  acquirePullRequestLease(leaseKey: string, owner: string, now: number, ttlMs: number): boolean {
+    return this.db.transaction(() => {
+      this.db.prepare('DELETE FROM p_github_pr_leases WHERE lease_key=? AND expires_at<=?').run(leaseKey, now);
+      return this.db.prepare('INSERT OR IGNORE INTO p_github_pr_leases(lease_key,owner,expires_at) VALUES (?,?,?)')
+        .run(leaseKey, owner, now + ttlMs).changes === 1;
+    });
+  }
+
+  renewPullRequestLease(leaseKey: string, owner: string, now: number, ttlMs: number): boolean {
+    return this.db.prepare('UPDATE p_github_pr_leases SET expires_at=? WHERE lease_key=? AND owner=?')
+      .run(now + ttlMs, leaseKey, owner).changes === 1;
+  }
+
+  releasePullRequestLease(leaseKey: string, owner: string): void {
+    this.db.prepare('DELETE FROM p_github_pr_leases WHERE lease_key=? AND owner=?').run(leaseKey, owner);
+  }
+
   createConfirmation(input: Omit<ConfirmationRecord, 'tokenHash'>): { token: string; expiresAt: number } {
     const token = randomToken();
     this.db.prepare(`INSERT INTO p_github_confirmations(
@@ -227,8 +265,8 @@ export class GitHubStore {
   }
 
   prune(now: number): void {
-    this.db.prepare('DELETE FROM p_github_oauth_flows WHERE expires_at<=?').run(now);
     this.db.prepare('DELETE FROM p_github_refresh_leases WHERE expires_at<=?').run(now);
+    this.db.prepare('DELETE FROM p_github_pr_leases WHERE expires_at<=?').run(now);
     this.db.prepare('DELETE FROM p_github_confirmations WHERE expires_at<=?').run(now);
   }
 

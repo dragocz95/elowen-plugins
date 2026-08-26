@@ -9,7 +9,7 @@ import { connect } from 'node:net';
 import type { PluginContext, PluginDb, PluginSecretBag, SandboxPreparedExecution } from 'elowen/plugin-api';
 import { GitHubService } from '../plugins/github/src/service.js';
 import { parseGitHubRemote, suggestedRepositories } from '../plugins/github/src/remotes.js';
-import { publishBranch, unsafeConfig, type SpawnPrepared } from '../plugins/github/src/execution.js';
+import { publishBranch, spawnPrepared, unsafeConfig, type SpawnPrepared } from '../plugins/github/src/execution.js';
 import { registerGitHubApi } from '../plugins/github/src/api.js';
 import { registerGitHubTools } from '../plugins/github/src/tools.js';
 
@@ -123,7 +123,7 @@ function harness(root: string, fake: { base: string }, nowRef = { value: Date.no
   const project = { id: 1, slug: 'project', path: root, notes: '', icon: '' };
   const workspace = { workspaceId: 'ws-1', projectId: 1, path: root, label: 'Feature', branch: 'elowen/u1/feature-a1b2', baseRef: 'origin/main' };
   const sandbox = {
-    workspaceRoots: () => [], activeWorkspace: ({ accountUserId, sessionId, projectId }: { accountUserId: number; sessionId: string; projectId: number }) => accountUserId === currentUser && sessionId === 'brain-1' && projectId === 1 ? workspace : null,
+    workspaceRoots: () => [], activeWorkspace: ({ sessionId, projectId }: { sessionId: string; projectId: number }) => currentUser > 0 && sessionId === 'brain-1' && projectId === 1 ? workspace : null,
     prepareExecution: async ({ command, cwd }: any) => prepared(command, cwd, join(root, 'home')),
   };
   const routes: any[] = [];
@@ -155,7 +155,7 @@ function harness(root: string, fake: { base: string }, nowRef = { value: Date.no
     return { stdout: 'git version 2.45\n', stderr: '' };
   };
   const service = new GitHubService(ctx, { fetch, apiBase: fake.base, oauthBase: fake.base, now: () => nowRef.value, spawnPrepared: runner });
-  return { ctx, db, service, runner, setUser: (id: number) => { currentUser = id; }, users, routes, pushCalls, workspace, nowRef };
+  return { ctx, db, service, runner, setUser: (id: number) => { currentUser = id; }, users, instance, routes, pushCalls, workspace, nowRef };
 }
 
 function prepared(command: any, cwd: string, home: string): SandboxPreparedExecution {
@@ -187,6 +187,7 @@ describe('GitHub plugin', () => {
       const state = url.searchParams.get('state')!;
       const account = await h.service.finishOAuth(1, { state, code: 'code-1' });
       expect(account.githubUserId).toBe(42);
+      expect([...h.instance.values.keys()].filter((key) => key.startsWith('oauth-flow:'))).toEqual([]);
       expect(fake.state.lastTokenBody?.redirect_uri).toBe('https://elowen.example/api/plugins/github/api/auth/callback');
       await expect(h.service.finishOAuth(1, { state, code: 'code-1' })).rejects.toMatchObject({ code: 'oauth_state_invalid' });
       expect(JSON.stringify(h.db.raw.prepare("SELECT name FROM sqlite_master WHERE type='table'").all())).not.toContain('access-1');
@@ -205,6 +206,26 @@ describe('GitHub plugin', () => {
     } finally { fake.server.close(); }
   });
 
+  it('consumes the OAuth flow and encrypted verifier when GitHub denies authorization', async () => {
+    const fake = await fakeGitHub();
+    try {
+      const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
+      const h = harness(root, fake);
+      registerGitHubApi(h.ctx, h.service);
+      const started = await h.service.startOAuth(1);
+      const state = new URL(started.authorizeUrl).searchParams.get('state')!;
+      expect([...h.instance.values.keys()].some((key) => key.startsWith('oauth-flow:'))).toBe(true);
+      const callback = h.routes.find((value) => value.path === 'auth/callback');
+      const response = await callback.handler({
+        auth: { userId: 1, admin: false, accessibleProjects: [1] }, query: { error: 'access_denied', state },
+        params: {}, path: '', headers: {}, json: async () => ({}),
+      });
+      expect(response).toMatchObject({ status: 302, headers: { location: '/p/github?github=denied&reason=access_denied' } });
+      expect(h.service.store.flows()).toEqual([]);
+      expect([...h.instance.values.keys()].filter((key) => key.startsWith('oauth-flow:'))).toEqual([]);
+    } finally { fake.server.close(); }
+  });
+
   it('rotates expiring tokens once across concurrent callers and retries one 401', async () => {
     const fake = await fakeGitHub();
     try {
@@ -219,6 +240,18 @@ describe('GitHub plugin', () => {
       await h.service.testConnection(1);
       expect(fake.state.refreshCalls).toBe(2);
     } finally { fake.server.close(); }
+  });
+
+  it('redacts an exact credential substring from Git stderr details', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root);
+    const token = 'github-token-raw-secret';
+    const launch = prepared({ type: 'argv', file: process.execPath, args: ['-e', `process.stderr.write(${JSON.stringify(`failure ${token} exposed`)});process.exit(1)`] }, root, join(root, 'home'));
+    let failure: any;
+    try { await spawnPrepared(launch, 5_000, [token]); }
+    catch (error) { failure = error; }
+    expect(failure).toMatchObject({ code: 'git_command_failed' });
+    expect(JSON.stringify(failure.details)).not.toContain(token);
+    expect(JSON.stringify(failure.details)).toContain('[redacted]');
   });
 
   it('refuses unsafe local Git config and brokers a push credential without token argv/env/config leakage', async () => {
@@ -253,11 +286,14 @@ describe('GitHub plugin', () => {
       const start = await h.service.startOAuth(1); await h.service.finishOAuth(1, { state: new URL(start.authorizeUrl).searchParams.get('state')!, code: 'code' });
       await h.service.saveMapping(1, { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo' });
       const action = { type: 'create_pr' as const, projectId: 1, sessionId: 'brain-1', title: 'Feature', body: 'Body', base: 'main' };
-      const first = await h.service.preview(1, action);
-      const created = await h.service.confirm(1, action, first.confirmationToken!) as any;
-      expect(created.created).toBe(true); expect(fake.state.createCalls).toBe(1); expect(h.pushCalls).toHaveLength(1);
-      const second = await h.service.preview(1, action);
-      const existing = await h.service.confirm(1, action, second.confirmationToken!) as any;
+      const [first, second] = await Promise.all([h.service.preview(1, action), h.service.preview(1, action)]);
+      const results = await Promise.all([
+        h.service.confirm(1, action, first.confirmationToken!) as Promise<any>,
+        h.service.confirm(1, action, second.confirmationToken!) as Promise<any>,
+      ]);
+      expect(results.map((result) => result.created).sort()).toEqual([false, true]);
+      expect(fake.state.createCalls).toBe(1); expect(h.pushCalls).toHaveLength(1);
+      const existing = await h.service.confirm(1, action, (await h.service.preview(1, action)).confirmationToken!) as any;
       expect(existing.created).toBe(false); expect(fake.state.createCalls).toBe(1); expect(h.pushCalls).toHaveLength(1);
 
       const mergeAction = { type: 'merge' as const, projectId: 1, number: 7, expectedHeadSha: fake.state.headSha, method: 'squash' as const };
@@ -281,6 +317,14 @@ describe('GitHub plugin', () => {
       const expiredOAuth = await h.service.startOAuth(1);
       nowRef.value += 11 * 60_000;
       await expect(h.service.finishOAuth(1, { state: new URL(expiredOAuth.authorizeUrl).searchParams.get('state')!, code: 'late' })).rejects.toMatchObject({ code: 'oauth_state_expired' });
+      expect(h.service.store.flows()).toEqual([]);
+      expect([...h.instance.values.keys()].filter((key) => key.startsWith('oauth-flow:'))).toEqual([]);
+      const pruned = await h.service.startOAuth(1);
+      expect(pruned.authorizeUrl).toContain('state=');
+      nowRef.value += 11 * 60_000;
+      h.service.prune(nowRef.value);
+      expect(h.service.store.flows()).toEqual([]);
+      expect([...h.instance.values.keys()].filter((key) => key.startsWith('oauth-flow:'))).toEqual([]);
       const fresh = await h.service.startOAuth(1);
       await h.service.finishOAuth(1, { state: new URL(fresh.authorizeUrl).searchParams.get('state')!, code: 'fresh' });
       await h.service.saveMapping(1, { projectId: 1, baseOwner: 'base', baseName: 'repo', pushOwner: 'fork', pushName: 'repo' });

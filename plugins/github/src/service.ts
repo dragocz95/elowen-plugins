@@ -15,6 +15,8 @@ const TOKEN_KEY = 'oauth-token';
 const FLOW_TTL = 10 * 60_000;
 const CONFIRM_TTL = 5 * 60_000;
 const REFRESH_SKEW = 60_000;
+const PR_LEASE_TTL = 60_000;
+const PR_LEASE_WAIT = 30_000;
 const mutexes = new Map<number, Promise<void>>();
 
 export interface GitHubServiceDeps extends Partial<GitHubClientOptions> {
@@ -98,8 +100,14 @@ export class GitHubService {
     const stateHash = hashValue(state);
     const secretKey = `oauth-flow:${stateHash}`;
     const expiresAt = this.now() + FLOW_TTL;
-    this.secrets(userId).set(secretKey, verifier);
-    this.store.saveFlow({ stateHash, userId, secretKey, redirectUri: setup.redirectUri, replaceIdentity: !!input.replaceIdentity, expiresAt });
+    const flowSecrets = this.ctx.instanceSecrets();
+    flowSecrets.set(secretKey, verifier);
+    try {
+      this.store.saveFlow({ stateHash, userId, secretKey, redirectUri: setup.redirectUri, replaceIdentity: !!input.replaceIdentity, expiresAt });
+    } catch (error) {
+      flowSecrets.delete(secretKey);
+      throw error;
+    }
     return { authorizeUrl: this.client.authorizationUrl({ clientId: setup.clientId, redirectUri: setup.redirectUri, state, challenge }), expiresAt };
   }
 
@@ -109,12 +117,17 @@ export class GitHubService {
     const flow = this.store.flow(stateHash);
     if (!flow) throw new GitHubPluginError('oauth_state_invalid', 400, 'The GitHub connection request is invalid or has already been used.');
     if (flow.userId !== userId) throw new GitHubPluginError('oauth_account_mismatch', 403, 'The GitHub connection request belongs to another Elowen account.');
-    if (flow.expiresAt <= this.now()) throw new GitHubPluginError('oauth_state_expired', 409, 'The GitHub connection request has expired.');
+    if (flow.expiresAt <= this.now()) {
+      this.discardFlow(flow);
+      throw new GitHubPluginError('oauth_state_expired', 409, 'The GitHub connection request has expired.');
+    }
     const bag = this.secrets(userId);
-    const verifier = bag.get(flow.secretKey)?.value;
-    if (!verifier) throw new GitHubPluginError('oauth_state_invalid', 400, 'The GitHub connection request is incomplete.');
-    this.store.deleteFlow(stateHash);
-    bag.delete(flow.secretKey);
+    const verifier = this.ctx.instanceSecrets().get(flow.secretKey)?.value;
+    if (!verifier) {
+      this.store.deleteFlow(stateHash);
+      throw new GitHubPluginError('oauth_state_invalid', 400, 'The GitHub connection request is incomplete.');
+    }
+    this.discardFlow(flow);
     const token = await this.client.exchangeCode({
       clientId: setup.clientId, clientSecret: setup.clientSecret, code: input.code,
       redirectUri: flow.redirectUri, verifier,
@@ -139,6 +152,34 @@ export class GitHubService {
     return account;
   }
 
+  cancelOAuth(userId: number, state: string): void {
+    const flow = this.store.flow(hashValue(state));
+    if (!flow) return;
+    if (flow.userId !== userId) throw new GitHubPluginError('oauth_account_mismatch', 403, 'The GitHub connection request belongs to another Elowen account.');
+    this.discardFlow(flow);
+  }
+
+  prune(now = this.now()): void {
+    for (const flow of this.store.flows({ expiredAt: now })) this.discardFlow(flow);
+    this.store.prune(now);
+  }
+
+  deleteAccount(userId: number): void {
+    for (const flow of this.store.flows({ userId })) this.discardFlow(flow);
+    this.store.deleteAccount(userId);
+  }
+
+  reconcile(validUsers: Set<number>, validProjects: Set<number>): void {
+    this.prune();
+    for (const flow of this.store.flows()) if (!validUsers.has(flow.userId)) this.discardFlow(flow);
+    this.store.reconcile(validUsers, validProjects);
+  }
+
+  private discardFlow(flow: { stateHash: string; secretKey: string }): void {
+    this.ctx.instanceSecrets().delete(flow.secretKey);
+    this.store.deleteFlow(flow.stateHash);
+  }
+
   async testConnection(userId = this.currentUserId()): Promise<{ profile: { id: number; login: string; name: string | null; avatarUrl: string | null }; rateLimit: { limit: number; remaining: number; reset: number } | null }> {
     return this.withToken(userId, async (token) => {
       const [profile, limits] = await Promise.all([this.client.user(token), this.client.rateLimit(token)]);
@@ -149,6 +190,7 @@ export class GitHubService {
 
   disconnect(userId = this.currentUserId()): void {
     this.secrets(userId).delete(TOKEN_KEY);
+    for (const flow of this.store.flows({ userId })) this.discardFlow(flow);
     this.store.deactivateMappings(userId);
     this.store.disconnectAccount(userId);
   }
@@ -313,18 +355,30 @@ export class GitHubService {
       const state = await this.publishState(userId, action.projectId, action.sessionId);
       if (state.workspace.workspaceId !== expected.workspaceId || state.head !== expected.head || state.workspace.branch !== expected.branch || state.mapping.verifiedAt !== expected.mappingVerifiedAt) throw stale();
       const base = String(target.base);
-      if (action.type === 'create_pr') {
-        const existing = await this.withToken(userId, (token) => this.client.findOpenPullRequest(token, state.mapping.baseOwner, state.mapping.baseName, state.mapping.pushOwner, state.workspace.branch, base));
-        if (existing) return { pullRequest: existing, created: false };
-      }
-      const published = await this.withToken(userId, (token) => publishBranch({ ctx: this.ctx, cwd: state.workspace.path, branch: state.workspace.branch, token, repository: { owner: state.mapping.pushOwner, name: state.mapping.pushName }, runner: this.spawnPrepared }));
-      if (action.type === 'publish') return { ...published, branch: state.workspace.branch, repository: `${state.mapping.pushOwner}/${state.mapping.pushName}` };
-      return this.withToken(userId, async (token) => {
-        const existing = await this.client.findOpenPullRequest(token, state.mapping.baseOwner, state.mapping.baseName, state.mapping.pushOwner, state.workspace.branch, base);
-        if (existing) return { pullRequest: existing, created: false };
-        const created = await this.client.createPullRequest(token, state.mapping.baseOwner, state.mapping.baseName, { title: action.title.trim(), body: action.body?.trim() ?? '', head: `${state.mapping.pushOwner}:${state.workspace.branch}`, base });
-        return { pullRequest: created, created: true };
-      });
+      const perform = async (): Promise<unknown> => {
+        if (action.type === 'create_pr') {
+          const existing = await this.withToken(userId, (token) => this.client.findOpenPullRequest(token, state.mapping.baseOwner, state.mapping.baseName, state.mapping.pushOwner, state.workspace.branch, base));
+          if (existing) return { pullRequest: existing, created: false };
+        }
+        const published = await this.withToken(userId, (token) => publishBranch({ ctx: this.ctx, cwd: state.workspace.path, branch: state.workspace.branch, token, repository: { owner: state.mapping.pushOwner, name: state.mapping.pushName }, runner: this.spawnPrepared }));
+        if (action.type === 'publish') return { ...published, branch: state.workspace.branch, repository: `${state.mapping.pushOwner}/${state.mapping.pushName}` };
+        return this.withToken(userId, async (token) => {
+          const existing = await this.client.findOpenPullRequest(token, state.mapping.baseOwner, state.mapping.baseName, state.mapping.pushOwner, state.workspace.branch, base);
+          if (existing) return { pullRequest: existing, created: false };
+          try {
+            const created = await this.client.createPullRequest(token, state.mapping.baseOwner, state.mapping.baseName, { title: action.title.trim(), body: action.body?.trim() ?? '', head: `${state.mapping.pushOwner}:${state.workspace.branch}`, base });
+            return { pullRequest: created, created: true };
+          } catch (error) {
+            if (!(error instanceof GitHubHttpError) || error.responseStatus !== 422) throw error;
+            const duplicate = await this.client.findOpenPullRequest(token, state.mapping.baseOwner, state.mapping.baseName, state.mapping.pushOwner, state.workspace.branch, base);
+            if (!duplicate) throw error;
+            return { pullRequest: duplicate, created: false };
+          }
+        });
+      };
+      if (action.type === 'publish') return perform();
+      const leaseKey = hashValue(JSON.stringify([state.mapping.baseRepoId, state.mapping.pushRepoId, state.mapping.pushOwner, state.workspace.branch, base]));
+      return this.withPullRequestLease(leaseKey, perform);
     }
     const mapping = this.requireMapping(userId, action.projectId);
     const pull = await this.getPullRequest(userId, action.projectId, action.number);
@@ -348,6 +402,22 @@ export class GitHubService {
     return result;
   }
 
+  private async withPullRequestLease<T>(leaseKey: string, operation: () => Promise<T>): Promise<T> {
+    const owner = `${process.pid}:${randomUUID()}`;
+    const deadline = this.now() + PR_LEASE_WAIT;
+    while (!this.store.acquirePullRequestLease(leaseKey, owner, this.now(), PR_LEASE_TTL)) {
+      if (this.now() >= deadline) throw new GitHubPluginError('pull_request_busy', 409, 'Another process is creating this pull request. Refresh shortly.');
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+    }
+    const heartbeat = setInterval(() => this.store.renewPullRequestLease(leaseKey, owner, this.now(), PR_LEASE_TTL), 5_000);
+    heartbeat.unref?.();
+    try { return await operation(); }
+    finally {
+      clearInterval(heartbeat);
+      this.store.releasePullRequestLease(leaseKey, owner);
+    }
+  }
+
   private async publishState(userId: number, projectId: number, sessionId: string): Promise<{
     workspace: { workspaceId: string; path: string; branch: string; baseRef: string }; mapping: ProjectMapping; base: GitHubRepository; head: string;
   }> {
@@ -355,7 +425,7 @@ export class GitHubService {
     if (!sessionId) throw new GitHubPluginError('session_required', 400, 'Select the conversation whose active workspace should be published.');
     const sandbox = this.ctx.control('sandbox');
     if (!sandbox) throw new GitHubPluginError('sandbox_unavailable', 503, 'Sandbox is required to publish a branch.');
-    const workspace = sandbox.activeWorkspace({ accountUserId: userId, sessionId, projectId });
+    const workspace = sandbox.activeWorkspace({ sessionId, projectId } as never);
     if (!workspace) throw new GitHubPluginError('active_workspace_required', 409, 'Select an active Sandbox workspace for this conversation and project.');
     const mapping = this.requireMapping(userId, projectId);
     const [head, base] = await Promise.all([

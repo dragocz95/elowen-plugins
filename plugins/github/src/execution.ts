@@ -12,9 +12,9 @@ const MAX_OUTPUT = 1024 * 1024;
 const HELPER_SOURCE = String.raw`const net=require('node:net');let a=process.argv.slice(1),o=a.pop(),n=a[a.indexOf('--nonce')+1],s=a[a.indexOf('--socket')+1],d='';process.stdin.setEncoding('utf8');process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{let q={nonce:n};for(let l of d.split(/\r?\n/)){let i=l.indexOf('=');if(i>0)q[l.slice(0,i)]=l.slice(i+1)}let c=net.createConnection(s);c.end(JSON.stringify(q));let r='';c.setEncoding('utf8');c.on('data',x=>r+=x);c.on('end',()=>{let v=JSON.parse(r);if(!v.ok)process.exit(1);process.stdout.write('username='+v.username+'\npassword='+v.password+'\n\n')});c.on('error',()=>process.exit(1))})`;
 
 export interface SpawnResult { stdout: string; stderr: string }
-export type SpawnPrepared = (prepared: SandboxPreparedExecution, timeoutMs?: number) => Promise<SpawnResult>;
+export type SpawnPrepared = (prepared: SandboxPreparedExecution, timeoutMs?: number, secrets?: readonly string[]) => Promise<SpawnResult>;
 
-export const spawnPrepared: SpawnPrepared = async (prepared, timeoutMs = 60_000) => new Promise((resolveResult, reject) => {
+export const spawnPrepared: SpawnPrepared = async (prepared, timeoutMs = 60_000, secrets = []) => new Promise((resolveResult, reject) => {
   const launch = prepared.launch;
   const child = launch.type === 'argv'
     ? spawn(launch.file, launch.args, { cwd: prepared.cwd, env: launch.env, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -38,14 +38,27 @@ export const spawnPrepared: SpawnPrepared = async (prepared, timeoutMs = 60_000)
   child.once('close', (code, signal) => {
     void finish().then(() => {
       if (overflow) return reject(new GitHubPluginError('git_output_too_large', 502, 'Git produced too much output.'));
-      if (code !== 0) return reject(new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', { code, signal, stderr: redact(stderr) }));
+      if (code !== 0) return reject(new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', { code, signal, stderr: redact(stderr, secrets) }));
       resolveResult({ stdout, stderr });
     }, reject);
   });
 });
 
 function shellQuote(value: string): string { return `'${value.replaceAll("'", `'\\''`)}'`; }
-function redact(value: string): string { return value.replace(/(authorization|password|token)\s*[:=]\s*\S+/gi, '$1=[redacted]'); }
+function redact(value: string, secrets: readonly string[] = []): string {
+  let redacted = value;
+  for (const secret of secrets) if (secret) redacted = redacted.split(secret).join('[redacted]');
+  return redacted.replace(/(authorization|password|token)\s*[:=]\s*\S+/gi, '$1=[redacted]');
+}
+function sanitizedExecutionError(error: unknown, secrets: readonly string[]): GitHubPluginError {
+  if (error instanceof GitHubPluginError) {
+    const details = error.details ? JSON.parse(redact(JSON.stringify(error.details), secrets)) as Record<string, unknown> : undefined;
+    return new GitHubPluginError(error.code, error.status, redact(error.message, secrets), details);
+  }
+  return new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', {
+    stderr: redact(error instanceof Error ? error.message : String(error), secrets),
+  });
+}
 
 async function prepare(ctx: PluginContext, cwd: string, file: string, args: string[]): Promise<SandboxPreparedExecution> {
   const sandbox = ctx.control('sandbox');
@@ -159,7 +172,8 @@ export async function publishBranch(input: {
     prepared.launch.env.GIT_TERMINAL_PROMPT = '0';
     prepared.launch.env.GIT_ASKPASS = '/bin/false';
     prepared.launch.env.GCM_INTERACTIVE = 'never';
-    await runner(prepared, 120_000);
+    try { await runner(prepared, 120_000, [input.token]); }
+    catch (error) { throw sanitizedExecutionError(error, [input.token]); }
     if (!used) throw new GitHubPluginError('credential_broker_unused', 502, 'Git did not request the one-shot credential.');
     return { head, remoteUrl };
   } finally {

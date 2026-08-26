@@ -20,14 +20,13 @@ export function register(ctx: PluginContext, deps: GitHubRegisterDeps = {}): voi
   });
 
   const reconcile = (): void => {
-    service.store.prune(Date.now());
-    service.store.reconcile(
+    service.reconcile(
       new Set(ctx.host.stores().usersRead.list().map((user) => user.id)),
       new Set(ctx.host.stores().projects.list().map((project) => project.id)),
     );
   };
   ctx.registerBootReconcile(reconcile);
-  ctx.registerInterval('prune-oauth-and-confirmations', () => service.store.prune(Date.now()), 60_000);
-  ctx.registerUserRemoved((userId) => service.store.deleteAccount(userId));
+  ctx.registerInterval('prune-oauth-and-confirmations', () => service.prune(), 60_000);
+  ctx.registerUserRemoved((userId) => service.deleteAccount(userId));
   ctx.registerProjectRemoved((projectId) => service.store.deleteProject(projectId));
 }
