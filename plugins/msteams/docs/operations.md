@@ -141,6 +141,10 @@ write to people it has never met.
 
 ### What a Microsoft admin must grant
 
+> This section covers the app-only Graph layer alone. For the full picture — the four separate consent
+> surfaces, the delegated Microsoft 365 scopes, resource-specific consent and a per-tenant setup
+> checklist — see **[permissions.md](permissions.md)**.
+
 Both are **application** permissions on the bot's app registration, and both need tenant admin consent:
 
 | Permission | Needed for |

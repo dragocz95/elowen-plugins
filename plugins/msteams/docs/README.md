@@ -3,11 +3,12 @@
 > Written against commit `701144dd` (2026-08-13). Everything below was read out of the code at that
 > commit; if a reference no longer resolves, treat this page as stale rather than authoritative.
 
-Three files, no overlap:
+Four files, no overlap:
 
 - **README.md** (this file) — what the plugin is, what it needs, what it exposes, which file owns what.
 - **[architecture.md](architecture.md)** — how a message actually travels through the code, and what is persisted.
 - **[operations.md](operations.md)** — Azure/Teams setup, config semantics, failure modes, redeploy behaviour.
+- **[permissions.md](permissions.md)** — every Microsoft Graph and Teams permission the plugin can need, which of the four consent surfaces it belongs to, and the checklist for standing a new tenant up the same way.
 
 ## What it is
 
