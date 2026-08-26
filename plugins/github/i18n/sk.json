@@ -11,8 +11,9 @@
   "web": {
     "label": "GitHub",
     "nav": { "": "GitHub" },
+    "account": { "connection": "GitHub" },
     "strings": {
-      "title": "GitHub", "eyebrow": "Vzdialená spolupráca", "intro": "Prepojte vlastnú identitu GitHubu, namapujte dostupné Projekty a spravujte pull requesty bez zdieľaných prihlasovacích údajov.",
+      "title": "GitHub", "accountTitle": "Účet GitHub", "accountHint": "Prepojte svoju osobnú identitu GitHubu. Prihlasovacie údaje a prístup k repozitárom zostávajú oddelené od všetkých ostatných účtov Elowenu.", "eyebrow": "Vzdialená spolupráca", "intro": "Prepojte vlastnú identitu GitHubu, namapujte dostupné Projekty a spravujte pull requesty bez zdieľaných prihlasovacích údajov.",
       "tabOverview": "Prehľad", "tabRepositories": "Repozitáre", "tabPullRequests": "Pull requesty", "connected": "Pripojené", "disconnected": "Nepripojené", "reconnectRequired": "Je potrebné nové pripojenie",
       "connect": "Pripojiť GitHub", "reconnect": "Pripojiť znova", "replaceIdentity": "Nahradiť identitu", "disconnect": "Odpojiť", "testConnection": "Otestovať pripojenie", "connectionHealthy": "Pripojenie ku GitHubu bolo overené.",
       "setupIncomplete": "Nastavenie GitHub App nie je dokončené.", "setupHint": "Správca musí nastaviť client ID, slug aplikácie, kanonickú URL callbacku a klientske tajomstvo.", "callbackUrl": "URL callbacku", "clientSecret": "Klientske tajomstvo", "saveSecret": "Uložiť klientske tajomstvo", "secretSaved": "Klientske tajomstvo bolo uložené.",

@@ -41,17 +41,17 @@ interface RuntimeComponents {
   Button: AnyComponent; Input: AnyComponent; Badge: AnyComponent; Field: AnyComponent; SelectMenu: AnyComponent;
   Modal: AnyComponent; ModalBody: AnyComponent; ModalFooter: AnyComponent; LoadingState: AnyComponent; ErrorState: AnyComponent;
   EmptyState: AnyComponent; SpatialWorkspaceLayout: AnyComponent; WorkspaceMetric: AnyComponent; WorkspaceDetailRail: AnyComponent;
-  DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent; PatchView: AnyComponent; ConfirmDialog: AnyComponent;
+  PluginSection: AnyComponent; DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent; PatchView: AnyComponent; ConfirmDialog: AnyComponent;
   Segmented: AnyComponent;
 }
 interface GitHubRuntime { components: RuntimeComponents; hooks: RuntimeHooks; utils: { apiErrorMessage(error: unknown): string }; api(path: string, init?: RequestInit): Promise<unknown> }
-interface HostWindow { ElowenUiRuntime?: unknown; __elowenRegisterPluginUi?: (plugin: string, registration: { requiresApiVersion: number; pages: Record<string, ComponentType<any>> }) => void }
+interface HostWindow { ElowenUiRuntime?: unknown; __elowenRegisterPluginUi?: (plugin: string, registration: { requiresApiVersion: number; pages: Record<string, ComponentType<any>>; account?: Record<string, ComponentType<any>> }) => void }
 
 export function runtime(): GitHubRuntime {
   const value = (window as HostWindow).ElowenUiRuntime as GitHubRuntime | undefined;
   if (!value) throw new Error('ElowenUiRuntime is not installed');
   return value;
 }
-export function registerGitHubUi(page: ComponentType<any>): void { (window as HostWindow).__elowenRegisterPluginUi?.('github', { requiresApiVersion: 3, pages: { '': page } }); }
+export function registerGitHubUi(page: ComponentType<any>, account: ComponentType<any>): void { (window as HostWindow).__elowenRegisterPluginUi?.('github', { requiresApiVersion: 3, pages: { '': page }, account: { connection: account } }); }
 export function jsonBody(value: unknown): RequestInit { return { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) }; }
 export function localizedError(error: unknown, strings: Record<string, string>): string { const code = runtime().utils.apiErrorMessage(error); return strings[`error_${code}`] || code || strings.errorFallback || 'The GitHub operation failed.'; }

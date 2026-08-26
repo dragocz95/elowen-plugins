@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { ToastProvider, createWrapper } from './ui/hostHooks';
+import { GitHubAccountPanel } from '../plugins/github/web-src/GitHubAccountPanel';
 import { GitHubPage } from '../plugins/github/web-src/GitHubPage';
 import manifest from '../plugins/github/elowen-plugin.json' with { type: 'json' };
 
@@ -19,10 +20,24 @@ function mount() {
   return render(<Wrapper><ToastProvider><GitHubPage /></ToastProvider></Wrapper>);
 }
 
+function mountAccount() {
+  const { wrapper: Wrapper } = createWrapper();
+  return render(<Wrapper><ToastProvider><GitHubAccountPanel plugin="github" params={{ id: 'connection' }} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+}
+
 const disconnected = { setup: { configured: true, clientIdSet: true, appSlug: 'app', clientSecretSet: true, callbackUrl: 'https://elowen.example/api/plugins/github/api/auth/callback' }, connected: false, reconnectRequired: false, account: null, mappings: 0 };
 const connected = { ...disconnected, connected: true, account: { userId: 1, githubUserId: 42, login: 'octocat', name: 'Octo Cat', avatarUrl: null, tokenExpiresAt: Date.now() + 100_000, refreshExpiresAt: Date.now() + 200_000, status: 'connected', lastError: null } };
 
 describe('GitHub plugin UI', () => {
+  it('offers the same personal OAuth connection from Account with GitHub branding', async () => {
+    use(http.get('/api/plugins/github/api/status', () => HttpResponse.json(disconnected)));
+    mountAccount();
+
+    expect(await screen.findByText(strings.accountTitle)).toBeInTheDocument();
+    expect(screen.getByText(strings.accountHint)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: strings.connect })).toBeEnabled();
+  });
+
   it('does not request repositories, pull requests or sessions while disconnected', async () => {
     let forbiddenFetches = 0;
     use(

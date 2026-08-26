@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { FolderGit2, Github, GitPullRequest, Link2, Search, ShieldCheck } from 'lucide-react';
 import { jsonBody, localizedError, runtime, type Checks, type Preview, type PullRequest, type RepositoryRow, type Session, type StatusResponse } from './runtime';
-
-const STATUS_KEY = ['plugin', 'github', 'status'];
+import { GitHubConnectionPanel, STATUS_KEY } from './GitHubConnectionPanel';
 const REPOSITORIES_KEY = ['plugin', 'github', 'repositories'];
 
 type Tab = 'overview' | 'repositories' | 'pulls';
@@ -29,7 +28,6 @@ export function GitHubPage() {
   const [createForm, setCreateForm] = useState({ title: '', body: '', base: '' });
   const [reviewForm, setReviewForm] = useState({ event: 'APPROVE', body: '' });
   const [mergeMethod, setMergeMethod] = useState('squash');
-  const [connectionTest, setConnectionTest] = useState<{ rateLimit: { limit: number; remaining: number; reset: number } | null } | null>(null);
 
   const repositories = hooks.useQuery<{ repositories: RepositoryRow[] }>({
     queryKey: REPOSITORIES_KEY, queryFn: () => api('/plugins/github/api/repositories'), enabled: connected,
@@ -63,11 +61,6 @@ export function GitHubPage() {
     onError: (error: unknown) => toast(localizedError(error, s), 'error'),
   });
   const saveSecret = mutation<{ clientSecret: string }>((value) => api('/plugins/github/api/setup/secret', jsonBody(value)) as Promise<unknown>, s.secretSaved);
-  const test = hooks.useMutation<{ rateLimit: { limit: number; remaining: number; reset: number } | null }, unknown, void>({
-    mutationFn: () => api('/plugins/github/api/test', jsonBody({})) as Promise<{ rateLimit: { limit: number; remaining: number; reset: number } | null }>,
-    onSuccess: (value: { rateLimit: { limit: number; remaining: number; reset: number } | null }) => { setConnectionTest(value); toast(s.connectionHealthy); },
-    onError: (error: unknown) => toast(localizedError(error, s), 'error'),
-  });
   const saveMap = mutation<MappingForm>((value) => api('/plugins/github/api/repositories/map', jsonBody(value)) as Promise<unknown>, s.mappingSaved);
   const preview = hooks.useMutation<Preview, unknown, Record<string, unknown>>({
     mutationFn: (action: Record<string, unknown>) => api('/plugins/github/api/actions/preview', jsonBody(action)) as Promise<Preview>,
@@ -92,17 +85,8 @@ export function GitHubPage() {
       toast(localizedError(error, s), 'error');
     },
   });
-  const connect = mutation<{ replaceIdentity?: boolean; reconnect?: boolean; confirmationToken?: string }, { authorizeUrl: string }>((value) => api('/plugins/github/api/auth/start', jsonBody(value)) as Promise<{ authorizeUrl: string }>);
-
-  const beginConnect = () => connect.mutate(status.data?.reconnectRequired ? { reconnect: true } : {}, { onSuccess: (value) => window.location.assign(value.authorizeUrl) });
-  const beginReplace = () => preview.mutate({ type: 'replace_identity' });
   const completePending = () => {
-    if (!pending) return;
-    if (pending.action.type === 'replace_identity') {
-      connect.mutate({ replaceIdentity: true, confirmationToken: pending.preview.confirmationToken }, { onSuccess: (value) => window.location.assign(value.authorizeUrl) });
-      return;
-    }
-    confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken });
+    if (pending) confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken });
   };
 
   const filteredPulls = useMemo(() => {
@@ -115,27 +99,7 @@ export function GitHubPage() {
 
   const overview = (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(18rem,.7fr)]">
-      <section className="rounded-2xl border border-border bg-surface p-5">
-        {connected && status.data?.account ? (
-          <div className="flex flex-col gap-5">
-            <div className="flex items-center gap-4">
-              {status.data.account.avatarUrl ? <img src={status.data.account.avatarUrl} alt="" className="size-14 rounded-full border border-border" /> : <Github className="size-12" />}
-              <div className="min-w-0"><div className="truncate text-lg font-semibold text-text">{status.data.account.name || status.data.account.login}</div><div className="text-sm text-text-muted">@{status.data.account.login}</div></div>
-              <C.Badge tone={status.data.reconnectRequired ? 'danger' : 'success'}>{status.data.reconnectRequired ? s.reconnectRequired : s.connected}</C.Badge>
-            </div>
-            <dl className="grid gap-3 sm:grid-cols-2 text-sm">
-              <div><dt className="text-text-muted">{s.tokenExpiry}</dt><dd className="text-text">{new Date(status.data.account.tokenExpiresAt).toLocaleString()}</dd></div>
-              <div><dt className="text-text-muted">{s.refreshExpiry}</dt><dd className="text-text">{new Date(status.data.account.refreshExpiresAt).toLocaleString()}</dd></div>
-              <div><dt className="text-text-muted">{s.mappings}</dt><dd className="font-mono text-text">{status.data.mappings}</dd></div>
-              <div><dt className="text-text-muted">GitHub ID</dt><dd className="font-mono text-text">{status.data.account.githubUserId}</dd></div>
-              {connectionTest?.rateLimit ? <div><dt className="text-text-muted">{s.rateLimit}</dt><dd className="font-mono text-text">{connectionTest.rateLimit.remaining} / {connectionTest.rateLimit.limit}</dd></div> : null}
-            </dl>
-            <div className="flex flex-wrap gap-2"><C.Button onClick={() => test.mutate()} disabled={test.isPending}>{s.testConnection}</C.Button><C.Button onClick={beginReplace}>{s.replaceIdentity}</C.Button><C.Button variant="danger" onClick={() => preview.mutate({ type: 'disconnect' })}>{s.disconnect}</C.Button></div>
-          </div>
-        ) : (
-          <C.EmptyState title={status.data?.reconnectRequired ? s.reconnectRequired : s.disconnected} description={status.data?.setup.configured ? s.intro : s.setupHint} icon={Github} action={<C.Button variant="accent" onClick={beginConnect} disabled={!status.data?.setup.configured}>{status.data?.reconnectRequired ? s.reconnect : s.connect}</C.Button>} />
-        )}
-      </section>
+      <section className="rounded-2xl border border-border bg-surface p-5"><GitHubConnectionPanel onChanged={invalidate} /></section>
       <section className="rounded-2xl border border-border bg-surface p-5">
         <div className="mb-4 flex items-center gap-2"><ShieldCheck size={18} className="text-accent" /><h2 className="font-semibold text-text">GitHub App</h2></div>
         <div className="space-y-3 text-sm"><div><div className="text-text-muted">{s.callbackUrl}</div><code className="block break-all rounded-lg bg-bg p-2 text-xs text-text">{status.data?.setup.callbackUrl ?? s.setupIncomplete}</code></div>

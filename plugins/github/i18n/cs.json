@@ -11,8 +11,9 @@
   "web": {
     "label": "GitHub",
     "nav": { "": "GitHub" },
+    "account": { "connection": "GitHub" },
     "strings": {
-      "title": "GitHub", "eyebrow": "Vzdálená spolupráce", "intro": "Propojte vlastní identitu GitHubu, namapujte dostupné Projekty a spravujte pull requesty bez sdílených přihlašovacích údajů.",
+      "title": "GitHub", "accountTitle": "Účet GitHub", "accountHint": "Propojte svou osobní identitu GitHubu. Přihlašovací údaje a přístup k repozitářům zůstávají oddělené od všech ostatních účtů Elowenu.", "eyebrow": "Vzdálená spolupráce", "intro": "Propojte vlastní identitu GitHubu, namapujte dostupné Projekty a spravujte pull requesty bez sdílených přihlašovacích údajů.",
       "tabOverview": "Přehled", "tabRepositories": "Repozitáře", "tabPullRequests": "Pull requesty", "connected": "Připojeno", "disconnected": "Nepřipojeno", "reconnectRequired": "Je nutné nové připojení",
       "connect": "Připojit GitHub", "reconnect": "Připojit znovu", "replaceIdentity": "Nahradit identitu", "disconnect": "Odpojit", "testConnection": "Otestovat připojení", "connectionHealthy": "Připojení ke GitHubu bylo ověřeno.",
       "setupIncomplete": "Nastavení GitHub App není dokončeno.", "setupHint": "Správce musí nastavit client ID, slug aplikace, kanonickou URL callbacku a klientské tajemství.", "callbackUrl": "URL callbacku", "clientSecret": "Klientské tajemství", "saveSecret": "Uložit klientské tajemství", "secretSaved": "Klientské tajemství bylo uloženo.",

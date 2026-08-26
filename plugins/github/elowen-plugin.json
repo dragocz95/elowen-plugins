@@ -5,6 +5,7 @@
   "requiresCore": "0.28.11",
   "description": "Account-scoped GitHub App integration for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
   "entry": "dist/index.js",
+  "icon": "icon.svg",
   "userGrantable": true,
   "provides": {
     "tools": [
@@ -70,8 +71,11 @@
     "label": "GitHub",
     "navKind": "domain",
     "nav": [{ "label": "GitHub", "icon": "Github", "route": "" }],
+    "account": [{ "id": "connection", "label": "GitHub", "icon": "Github" }],
     "strings": {
       "title": "GitHub",
+      "accountTitle": "GitHub account",
+      "accountHint": "Connect your personal GitHub identity. Credentials and repository access stay isolated from every other Elowen account.",
       "eyebrow": "Remote collaboration",
       "intro": "Connect your own GitHub identity, map accessible Projects and manage pull requests without shared credentials.",
       "tabOverview": "Overview",
