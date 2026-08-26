@@ -11,6 +11,103 @@ const statusTone = (row: MirrorRow): 'success' | 'accent' | 'warning' | 'danger'
   return row.status === 'syncing' ? 'accent' : 'success';
 };
 
+const statusLabel = (row: MirrorRow, s: Record<string, string>): string => {
+  if (row.status === 'error') return s.statusError;
+  if (!row.enabled) return s.statusPaused;
+  return row.status === 'syncing' ? s.statusSyncing : s.statusIdle;
+};
+
+/** Defined at module scope ON PURPOSE. A component declared inside another component's body is a NEW
+ *  component type on every render, so React unmounts and remounts it — here that meant the conflict rail
+ *  losing its in-flight mutation state every time the 15-second refresh landed, which let the same
+ *  resolution be submitted twice. */
+function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow | null; onClose: () => void; onResolved: () => void }) {
+  const { components: C, hooks, api, utils } = runtime();
+  const s = hooks.usePluginStrings('onedrive');
+  const conflicts = hooks.useQuery<{ conflicts: ConflictRow[] }>({
+    queryKey: ['plugin', 'onedrive', 'conflicts', String(row?.id ?? 0)],
+    queryFn: () => api(`/plugins/onedrive/api/conflicts?id=${row!.id}`),
+    enabled: row !== null,
+  });
+  const resolve = hooks.useMutation<unknown, unknown, { rel: string; keep: 'local' | 'remote' }>({
+    mutationFn: (vars: { rel: string; keep: 'local' | 'remote' }) =>
+      api('/plugins/onedrive/api/conflicts/resolve', jsonBody({ id: row!.id, ...vars })),
+    onSuccess: () => { conflicts.refetch(); onResolved(); },
+  });
+
+  return (
+    <C.WorkspaceDetailRail open={row !== null} onClose={onClose} title={s.conflicts} subtitle={s.conflictsHint}>
+      {conflicts.isLoading ? <C.LoadingState variant="list" />
+        : conflicts.isError
+          // A failed load must not look like "no conflicts": this is the screen someone uses to decide
+          // which copy of their work survives.
+          ? <C.ErrorState message={utils.apiErrorMessage(conflicts.error)} onRetry={() => conflicts.refetch()} />
+          : (
+            <C.DataTable>
+              {(conflicts.data?.conflicts ?? []).map((conflict) => (
+                <C.DataTableRow key={conflict.rel}>
+                  <C.DataTableCell><span className="font-mono text-xs">{conflict.rel}</span></C.DataTableCell>
+                  <C.DataTableCell align="right">
+                    <div className="flex justify-end gap-2">
+                      <C.Button size="sm" variant="secondary" disabled={resolve.isPending}
+                        onClick={() => resolve.mutate({ rel: conflict.rel, keep: 'local' })}>{s.keepLocal}</C.Button>
+                      <C.Button size="sm" variant="ghost" disabled={resolve.isPending}
+                        onClick={() => resolve.mutate({ rel: conflict.rel, keep: 'remote' })}>{s.keepRemote}</C.Button>
+                    </div>
+                  </C.DataTableCell>
+                </C.DataTableRow>
+              ))}
+            </C.DataTable>
+          )}
+    </C.WorkspaceDetailRail>
+  );
+}
+
+function MirrorCard({ row, onConflicts, onDisconnect, onPause, onSync, busy }: {
+  row: MirrorRow;
+  onConflicts: () => void;
+  onDisconnect: () => void;
+  onPause: () => void;
+  onSync: () => void;
+  busy: boolean;
+}) {
+  const { components: C, hooks } = runtime();
+  const s = hooks.usePluginStrings('onedrive');
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-4">
+        <C.WorkspaceMetric label={s.title} value={<C.Badge tone={statusTone(row)}>{statusLabel(row, s)}</C.Badge>} />
+        <C.WorkspaceMetric label={s.lastSync} value={row.lastSyncAt ? new Date(row.lastSyncAt).toLocaleString() : s.never} />
+        <C.WorkspaceMetric label={s.files} value={`${row.fileCount} · ${humanBytes(row.byteCount)}`} />
+      </div>
+
+      {row.error ? <C.ErrorState message={row.error} /> : null}
+
+      {row.conflictCount > 0 && (
+        <button type="button" onClick={onConflicts}
+          className="flex w-full items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-left text-sm hover:bg-surface-2">
+          <TriangleAlert size={15} className="text-warning" aria-hidden />
+          <span>{s.conflicts}</span>
+          <C.Badge tone="warning">{row.conflictCount}</C.Badge>
+        </button>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {row.webUrl && (
+          <C.Button variant="secondary" size="sm" onClick={() => window.open(row.webUrl!, '_blank', 'noopener')}>
+            <ExternalLink size={14} aria-hidden /> {s.openFolder}
+          </C.Button>
+        )}
+        <C.Button variant="secondary" size="sm" disabled={busy} onClick={onSync}>
+          <RefreshCw size={14} aria-hidden /> {s.syncNow}
+        </C.Button>
+        <C.Button variant="ghost" size="sm" onClick={onPause}>{row.enabled ? s.pause : s.resume}</C.Button>
+        <C.Button variant="ghost" size="sm" tone="danger" onClick={onDisconnect}>{s.disconnect}</C.Button>
+      </div>
+    </div>
+  );
+}
+
 export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
   const { components: C, hooks, api, utils } = runtime();
   const s = hooks.usePluginStrings('onedrive');
@@ -78,9 +175,16 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
           </C.Button>
         )}
       >
-        {projectLink ? <MirrorCard row={projectLink} /> : (
-          <p className="text-xs text-text-muted">{s.mirrorScopeHint}</p>
-        )}
+        {projectLink ? (
+          <MirrorCard
+            row={projectLink}
+            busy={syncNow.isPending}
+            onConflicts={() => setConflictsFor(projectLink)}
+            onDisconnect={() => setDisconnecting(projectLink)}
+            onPause={() => pause.mutate({ id: projectLink.id, enabled: !projectLink.enabled })}
+            onSync={() => syncNow.mutate({ id: projectLink.id })}
+          />
+        ) : <p className="text-xs text-text-muted">{s.mirrorScopeHint}</p>}
       </C.PluginSection>
 
       {data.workspaces.length > 0 && (
@@ -92,17 +196,26 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
                 <C.DataTableRow key={workspace.workspaceId}>
                   <C.DataTableCell>{workspace.label}</C.DataTableCell>
                   <C.DataTableCell>
-                    {row ? <C.Badge tone={statusTone(row)}>{statusLabel(row)}</C.Badge> : null}
+                    {row ? <C.Badge tone={statusTone(row)}>{statusLabel(row, s)}</C.Badge> : null}
                   </C.DataTableCell>
                   <C.DataTableCell align="right">
-                    {row ? (
-                      <C.Button variant="ghost" size="sm" onClick={() => setDisconnecting(row)}>{s.disconnect}</C.Button>
-                    ) : (
-                      <C.Button variant="secondary" size="sm"
-                        onClick={() => setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label })}>
-                        {s.connectCta}
-                      </C.Button>
-                    )}
+                    <div className="flex justify-end gap-2">
+                      {/* A workspace conflict has to be resolvable from where the workspace is shown,
+                          or it stays flagged forever with nothing to click. */}
+                      {row && row.conflictCount > 0 && (
+                        <C.Button variant="secondary" size="sm" onClick={() => setConflictsFor(row)}>
+                          {s.conflicts} ({row.conflictCount})
+                        </C.Button>
+                      )}
+                      {row ? (
+                        <C.Button variant="ghost" size="sm" onClick={() => setDisconnecting(row)}>{s.disconnect}</C.Button>
+                      ) : (
+                        <C.Button variant="secondary" size="sm"
+                          onClick={() => setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label })}>
+                          {s.connectCta}
+                        </C.Button>
+                      )}
+                    </div>
                   </C.DataTableCell>
                 </C.DataTableRow>
               );
@@ -136,7 +249,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
         </div>
       </C.WorkspaceDetailRail>
 
-      <ConflictsRail row={conflictsFor} onClose={() => { setConflictsFor(null); refresh(); }} />
+      <ConflictsRail row={conflictsFor} onClose={() => setConflictsFor(null)} onResolved={refresh} />
 
       <C.ConfirmDialog
         open={disconnecting !== null}
@@ -149,86 +262,4 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
       />
     </div>
   );
-
-  function statusLabel(row: MirrorRow): string {
-    if (row.status === 'error') return s.statusError;
-    if (!row.enabled) return s.statusPaused;
-    return row.status === 'syncing' ? s.statusSyncing : s.statusIdle;
-  }
-
-  function MirrorCard({ row }: { row: MirrorRow }) {
-    return (
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-4">
-          <C.WorkspaceMetric label={s.statusIdle} value={<C.Badge tone={statusTone(row)}>{statusLabel(row)}</C.Badge>} />
-          <C.WorkspaceMetric label={s.lastSync} value={row.lastSyncAt ? new Date(row.lastSyncAt).toLocaleString() : s.never} />
-          <C.WorkspaceMetric label={s.files} value={`${row.fileCount} · ${humanBytes(row.byteCount)}`} />
-        </div>
-
-        {row.error ? <C.ErrorState message={row.error} /> : null}
-
-        {row.conflictCount > 0 && (
-          <button type="button" onClick={() => setConflictsFor(row)}
-            className="flex w-full items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-left text-sm hover:bg-surface-2">
-            <TriangleAlert size={15} className="text-warning" aria-hidden />
-            <span>{s.conflicts}</span>
-            <C.Badge tone="warning">{row.conflictCount}</C.Badge>
-          </button>
-        )}
-
-        <div className="flex flex-wrap gap-2">
-          {row.webUrl && (
-            <C.Button variant="secondary" size="sm" onClick={() => window.open(row.webUrl!, '_blank', 'noopener')}>
-              <ExternalLink size={14} aria-hidden /> {s.openFolder}
-            </C.Button>
-          )}
-          <C.Button variant="secondary" size="sm" disabled={syncNow.isPending} onClick={() => syncNow.mutate({ id: row.id })}>
-            <RefreshCw size={14} aria-hidden /> {s.syncNow}
-          </C.Button>
-          <C.Button variant="ghost" size="sm" onClick={() => pause.mutate({ id: row.id, enabled: !row.enabled })}>
-            {row.enabled ? s.pause : s.resume}
-          </C.Button>
-          <C.Button variant="ghost" size="sm" tone="danger" onClick={() => setDisconnecting(row)}>{s.disconnect}</C.Button>
-        </div>
-      </div>
-    );
-  }
-
-  function ConflictsRail({ row, onClose }: { row: MirrorRow | null; onClose: () => void }) {
-    const conflicts = hooks.useQuery<{ conflicts: ConflictRow[] }>({
-      queryKey: ['plugin', 'onedrive', 'conflicts', String(row?.id ?? 0)],
-      queryFn: () => api(`/plugins/onedrive/api/conflicts?id=${row!.id}`),
-      enabled: row !== null,
-    });
-    const resolve = hooks.useMutation<unknown, unknown, { rel: string; keep: 'local' | 'remote' }>({
-      mutationFn: (vars: { rel: string; keep: 'local' | 'remote' }) =>
-        api('/plugins/onedrive/api/conflicts/resolve', jsonBody({ id: row!.id, ...vars })),
-      onSuccess: () => { conflicts.refetch(); refresh(); },
-      onError: fail,
-    });
-
-    return (
-      <C.WorkspaceDetailRail open={row !== null} onClose={onClose} title={s.conflicts} subtitle={s.conflictsHint}>
-        {conflicts.isLoading ? <C.LoadingState variant="list" /> : (
-          <C.DataTable>
-            {(conflicts.data?.conflicts ?? []).map((conflict) => (
-              <C.DataTableRow key={conflict.rel}>
-                <C.DataTableCell>
-                  <span className="font-mono text-xs">{conflict.rel}</span>
-                </C.DataTableCell>
-                <C.DataTableCell align="right">
-                  <div className="flex justify-end gap-2">
-                    <C.Button size="sm" variant="secondary" disabled={resolve.isPending}
-                      onClick={() => resolve.mutate({ rel: conflict.rel, keep: 'local' })}>{s.keepLocal}</C.Button>
-                    <C.Button size="sm" variant="ghost" disabled={resolve.isPending}
-                      onClick={() => resolve.mutate({ rel: conflict.rel, keep: 'remote' })}>{s.keepRemote}</C.Button>
-                  </div>
-                </C.DataTableCell>
-              </C.DataTableRow>
-            ))}
-          </C.DataTable>
-        )}
-      </C.WorkspaceDetailRail>
-    );
-  }
 }

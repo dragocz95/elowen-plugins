@@ -11,6 +11,10 @@ const run = promisify(execFile);
  *  very file the person just deleted straight back into OneDrive under a new name. */
 export const TRASH_DIR = '.elowen-trash';
 
+/** Prefix of a half-written download. Ignored so that a crash between write and rename cannot leave a
+ *  fragment the next scan uploads into OneDrive as if it were project content. */
+export const PART_PREFIX = '.onedrive-part-';
+
 /** Paths that are NEVER mirrored, whatever the settings say.
  *
  *  Mirroring a whole project is a deliberate choice, and this is the floor under it. Version-control
@@ -26,6 +30,12 @@ export const IGNORE_FLOOR: readonly string[] = [
   '**/id_rsa', '**/id_rsa.*', '**/id_ed25519', '**/id_ed25519.*',
   '.ssh/**', '**/.ssh/**',
   '**/.npmrc', '**/.netrc', '**/.pgpass',
+  // Credential stores that a project .gitignore very often does NOT cover, because they normally live in a
+  // home directory - and a mirrored project root can be one.
+  '.aws/**', '**/.aws/**', '.docker/config.json', '**/.docker/config.json',
+  '.config/gcloud/**', '**/.config/gcloud/**', '**/.kube/config',
+  '**/credentials.json', '**/service-account*.json', '**/*.jks',
+  `${PART_PREFIX}*`, `**/${PART_PREFIX}*`,
 ];
 
 export function isFloorIgnored(rel: string): boolean {
@@ -51,7 +61,11 @@ export interface ScannedFile {
 export interface ScanResult {
   files: Map<string, ScannedFile>;
   /** Paths deliberately left out, with the reason, so the UI can say so instead of the file just missing. */
-  skipped: { rel: string; reason: 'too-large' | 'symlink' | 'unreadable' }[];
+  skipped: { rel: string; reason: 'too-large' | 'symlink' | 'unreadable' | 'settling' }[];
+  /** The same paths as a set. The mirror MUST consult this before concluding that a file was deleted:
+   *  a skipped file is one this scan chose not to look at, which is not the same as one that is gone, and
+   *  treating the two alike deletes the copy in OneDrive of a file that is sitting right there. */
+  skippedPaths: Set<string>;
   /** True when git decided the file set, false when the fallback walk did. */
   fromGit: boolean;
 }
@@ -143,12 +157,12 @@ export async function scanLocal(root: string, options: ScanOptions): Promise<Sca
     if (stats.isSymbolicLink()) { skipped.push({ rel, reason: 'symlink' }); continue; }
     if (!stats.isFile()) continue;
     if (stats.size > options.maxBytes) { skipped.push({ rel, reason: 'too-large' }); continue; }
-    if (options.now - stats.mtimeMs < options.settleMs) continue;
+    if (options.now - stats.mtimeMs < options.settleMs) { skipped.push({ rel, reason: 'settling' }); continue; }
     if (!await containedIn(root, absolute)) { skipped.push({ rel, reason: 'symlink' }); continue; }
     files.set(rel, { rel, size: stats.size, mtimeMs: stats.mtimeMs });
   }
 
-  return { files, skipped, fromGit };
+  return { files, skipped, skippedPaths: new Set(skipped.map((entry) => entry.rel)), fromGit };
 }
 
 /** Content hash of one file. Streamed, because a mirror is expected to meet files far larger than the

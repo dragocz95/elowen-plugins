@@ -1,7 +1,8 @@
 import { createReadStream } from 'node:fs';
-import { open, rename, mkdir, stat } from 'node:fs/promises';
+import { open, rename, mkdir, stat, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { MicrosoftDriveGraph } from './coreSeams.js';
+import { PART_PREFIX } from './scan.js';
 
 /** Microsoft's own boundary for a plain content PUT. Above it an upload session is required, and the
  *  chunk size must be a multiple of 320 KiB — their documented requirement, not a tuning choice. */
@@ -21,6 +22,13 @@ export interface DriveItem {
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   (value && typeof value === 'object' ? value as Record<string, unknown> : {});
+
+/** Only a genuine "it is not there" may be read as absence. Every other failure — throttling, an outage,
+ *  a revoked grant — must propagate, because treating it as absence is how a mirror deletes files. */
+export function isNotFound(error: unknown): boolean {
+  const status = (error as { status?: unknown })?.status;
+  return status === 404;
+}
 
 /** Percent-encode each path segment for a Graph `root:/…:` addressing expression. Encoding the whole
  *  path in one go would escape the separators too and address a single oddly named file. */
@@ -72,10 +80,13 @@ export class Drive {
       const next = current ? `${current}/${segment}` : segment;
       try {
         item = asRecord(await this.graph.json('GET', `${this.base()}/root:/${encodePath(next)}?$select=id,webUrl`));
-      } catch {
+      } catch (error) {
+        // ONLY a 404 means "create it". Swallowing every error here would turn a throttle or an outage
+        // into a second folder with the same name, and the mirror would then have two homes.
+        if (!isNotFound(error)) throw error;
         const parentId = typeof item.id === 'string' ? item.id : '';
         item = asRecord(await this.graph.json('POST', `${this.base()}/items/${encodeURIComponent(parentId)}/children`, {
-          body: { name: segment, folder: {}, '@microsoft.graph.conflictBehavior': 'replace' },
+          body: { name: segment, folder: {}, '@microsoft.graph.conflictBehavior': 'fail' },
         }));
       }
       current = next;
@@ -86,36 +97,60 @@ export class Drive {
     };
   }
 
-  /** Every change in the whole drive since `token`.
+  /** Every FILE currently under one mirror folder, keyed by its path relative to that folder.
    *
-   *  Deliberately taken at the ROOT rather than on each mirrored folder: root delta is universally
-   *  supported, one stream serves a person's project and all their workspaces, and the caller filters to
-   *  the subtree it owns. `nextToken` is returned rather than stored, so the caller can persist it only
-   *  after the cycle it belongs to has actually succeeded. */
-  async delta(token: string | null): Promise<{ items: DriveItem[]; nextToken: string | null }> {
-    let url = token
-      ? `${this.base()}/root/delta?token=${encodeURIComponent(token)}`
-      : `${this.base()}/root/delta`;
-    const items: DriveItem[] = [];
-    let nextToken: string | null = null;
+   *  Deliberately a full listing rather than a delta. A delta answers "what changed", and absence from it
+   *  means UNCHANGED — but the mirror needs to know what EXISTS, and the two are only the same thing when
+   *  a complete history has been replayed without a gap. Any truncation, any newly connected mirror
+   *  sharing a cursor, any partially failed cycle turns "absent from the delta" into a phantom deletion,
+   *  which on this code path means deleting somebody's files. Listing costs more requests and cannot lie.
+   *
+   *  A folder that does not exist yet reads as empty rather than throwing: that is the state of a mirror
+   *  connected a moment ago. `truncated` is reported rather than swallowed, because a partial listing must
+   *  never be mistaken for a complete one by the caller that decides what to delete. */
+  async listTree(folderId: string, limit = 20_000): Promise<{ files: Map<string, DriveItem>; truncated: boolean }> {
+    const files = new Map<string, DriveItem>();
+    const queue: { id: string; prefix: string }[] = [{ id: folderId, prefix: '' }];
+    let truncated = false;
 
-    for (let page = 0; page < 200; page++) {
-      const body = asRecord(await this.graph.json('GET', url));
-      for (const raw of Array.isArray(body.value) ? body.value : []) {
-        const item = itemFromDelta(raw);
-        if (item) items.push(item);
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      let url: string | null = `${this.base()}/items/${encodeURIComponent(current.id)}/children?$top=200&$select=id,name,eTag,cTag,size,file,folder`;
+      while (url) {
+        let body: Record<string, unknown>;
+        try {
+          body = asRecord(await this.graph.json('GET', url));
+        } catch (error) {
+          if (isNotFound(error)) break; // the folder is gone; the caller decides what that means
+          throw error;
+        }
+        for (const raw of Array.isArray(body.value) ? body.value : []) {
+          const value = asRecord(raw);
+          const name = typeof value.name === 'string' ? value.name : '';
+          const id = typeof value.id === 'string' ? value.id : '';
+          if (!name || !id) continue;
+          const path = current.prefix ? `${current.prefix}/${name}` : name;
+          if ('folder' in value) { queue.push({ id, prefix: path }); continue; }
+          if (files.size >= limit) { truncated = true; break; }
+          files.set(path, {
+            id,
+            name,
+            etag: typeof value.eTag === 'string' ? value.eTag : (typeof value.cTag === 'string' ? value.cTag : ''),
+            size: typeof value.size === 'number' ? value.size : 0,
+            isFolder: false,
+            path,
+            deleted: false,
+          });
+        }
+        if (truncated) break;
+        const nextLink = typeof body['@odata.nextLink'] === 'string' ? body['@odata.nextLink'] : '';
+        if (!nextLink) { url = null; break; }
+        const parsed = new URL(nextLink);
+        url = `${parsed.pathname.replace(/^\/v1\.0/, '')}${parsed.search}`;
       }
-      const deltaLink = typeof body['@odata.deltaLink'] === 'string' ? body['@odata.deltaLink'] : '';
-      if (deltaLink) {
-        nextToken = new URL(deltaLink).searchParams.get('token');
-        break;
-      }
-      const nextLink = typeof body['@odata.nextLink'] === 'string' ? body['@odata.nextLink'] : '';
-      if (!nextLink) break;
-      const parsed = new URL(nextLink);
-      url = `${parsed.pathname.replace(/^\/v1\.0/, '')}${parsed.search}`;
+      if (truncated) break;
     }
-    return { items, nextToken };
+    return { files, truncated };
   }
 
   async upload(remotePath: string, absolute: string, ifMatch?: string): Promise<DriveItem> {
@@ -176,26 +211,25 @@ export class Drive {
       maxBytes: 1024 * 1024 * 1024,
     });
     await mkdir(dirname(absolute), { recursive: true });
-    const temporary = join(dirname(absolute), `.onedrive-${process.pid}-${Date.now()}.part`);
-    const handle = await open(temporary, 'w');
+    // The temporary name carries the PART_PREFIX the ignore floor knows, so a crash between writing and
+    // renaming leaves a file the next scan will never mistake for project content and upload.
+    const temporary = join(dirname(absolute), `${PART_PREFIX}${process.pid}-${Date.now()}`);
     try {
-      await handle.writeFile(body);
-      await handle.sync();
-    } finally {
-      await handle.close();
+      const handle = await open(temporary, 'w');
+      try {
+        await handle.writeFile(body);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await rename(temporary, absolute);
+    } catch (error) {
+      await unlink(temporary).catch(() => undefined);
+      throw error;
     }
-    await rename(temporary, absolute);
   }
 
   async remove(itemId: string): Promise<void> {
     await this.graph.json('DELETE', `${this.base()}/items/${encodeURIComponent(itemId)}`);
-  }
-
-  async itemAt(remotePath: string): Promise<DriveItem | null> {
-    try {
-      return itemFromDelta(await this.graph.json('GET', `${this.base()}/root:/${encodePath(remotePath)}`));
-    } catch {
-      return null;
-    }
   }
 }

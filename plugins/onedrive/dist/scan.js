@@ -8,6 +8,9 @@ const run = promisify(execFile);
 /** The trash a mirror moves remotely-deleted files into. Always ignored, or the next scan would upload the
  *  very file the person just deleted straight back into OneDrive under a new name. */
 export const TRASH_DIR = '.elowen-trash';
+/** Prefix of a half-written download. Ignored so that a crash between write and rename cannot leave a
+ *  fragment the next scan uploads into OneDrive as if it were project content. */
+export const PART_PREFIX = '.onedrive-part-';
 /** Paths that are NEVER mirrored, whatever the settings say.
  *
  *  Mirroring a whole project is a deliberate choice, and this is the floor under it. Version-control
@@ -23,6 +26,12 @@ export const IGNORE_FLOOR = [
     '**/id_rsa', '**/id_rsa.*', '**/id_ed25519', '**/id_ed25519.*',
     '.ssh/**', '**/.ssh/**',
     '**/.npmrc', '**/.netrc', '**/.pgpass',
+    // Credential stores that a project .gitignore very often does NOT cover, because they normally live in a
+    // home directory - and a mirrored project root can be one.
+    '.aws/**', '**/.aws/**', '.docker/config.json', '**/.docker/config.json',
+    '.config/gcloud/**', '**/.config/gcloud/**', '**/.kube/config',
+    '**/credentials.json', '**/service-account*.json', '**/*.jks',
+    `${PART_PREFIX}*`, `**/${PART_PREFIX}*`,
 ];
 export function isFloorIgnored(rel) {
     return IGNORE_FLOOR.some((pattern) => matchesGlob(rel, pattern));
@@ -122,15 +131,17 @@ export async function scanLocal(root, options) {
             skipped.push({ rel, reason: 'too-large' });
             continue;
         }
-        if (options.now - stats.mtimeMs < options.settleMs)
+        if (options.now - stats.mtimeMs < options.settleMs) {
+            skipped.push({ rel, reason: 'settling' });
             continue;
+        }
         if (!await containedIn(root, absolute)) {
             skipped.push({ rel, reason: 'symlink' });
             continue;
         }
         files.set(rel, { rel, size: stats.size, mtimeMs: stats.mtimeMs });
     }
-    return { files, skipped, fromGit };
+    return { files, skipped, skippedPaths: new Set(skipped.map((entry) => entry.rel)), fromGit };
 }
 /** Content hash of one file. Streamed, because a mirror is expected to meet files far larger than the
  *  daemon should hold in memory. */

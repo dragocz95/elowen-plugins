@@ -49,14 +49,29 @@ function pluginDb(): PluginDb {
   return handle as unknown as PluginDb;
 }
 
-/** A drive that lives in a Map. Enough to drive the whole cycle without touching Microsoft. */
+/** A drive that lives in a Map, served the way Graph serves it: a folder LISTING, not a change feed.
+ *  DELETE really removes the entry, so a test that claims nothing was deleted is actually testing that. */
 function fakeDrive() {
   const files = new Map<string, { id: string; etag: string; body: Buffer }>();
   let counter = 0;
+
+  const childrenOf = (folder: string) => {
+    // The mirror root is addressed by item id; this fake collapses that to one folder holding flat paths.
+    const prefix = 'Elowen/projects/demo/';
+    const out: Record<string, unknown>[] = [];
+    for (const [path, entry] of files) {
+      if (!path.startsWith(prefix)) continue;
+      const rel = path.slice(prefix.length);
+      if (rel.includes('/')) continue;
+      out.push({ id: entry.id, name: rel, eTag: entry.etag, size: entry.body.length, file: {} });
+    }
+    return { value: out };
+  };
+
   const graph: MicrosoftDriveGraph = {
     json: vi.fn(async (method: string, path: string, options?: { body?: unknown }) => {
       if (path.startsWith('/me/drive')) return { id: 'drive-1' };
-      if (path.includes('/root/delta')) return { value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?token=T1' };
+      if (path.includes('/children') && method === 'GET') return childrenOf(path);
       if (path.endsWith('/content') && method === 'PUT') {
         const remote = decodeURIComponent(path.replace(/^.*\/root:\//, '').replace(/:\/content$/, ''));
         counter += 1;
@@ -64,9 +79,12 @@ function fakeDrive() {
         files.set(remote, entry);
         return { id: entry.id, eTag: entry.etag, name: remote.split('/').pop(), size: entry.body.length, parentReference: { path: '/drive/root:' } };
       }
-      if (method === 'DELETE') return null;
-      if (path.includes('/root?')) return { id: 'root', webUrl: 'https://onedrive.example/root' };
-      // ensureFolder walks each segment: report every folder as already present.
+      if (method === 'DELETE') {
+        const id = decodeURIComponent(path.replace(/^.*\/items\//, ''));
+        for (const [key, entry] of files) if (entry.id === id) files.delete(key);
+        return null;
+      }
+      if (method === 'POST' && path.includes('/children')) return { id: 'folder-new' };
       return { id: 'folder-1', webUrl: 'https://onedrive.example/folder' };
     }),
     binary: vi.fn(async (path: string) => {
@@ -76,7 +94,14 @@ function fakeDrive() {
     }),
     request: vi.fn(async () => new Response(null, { status: 200 })),
   };
-  return { graph, files };
+
+  /** Put a file into OneDrive as if somebody else did, so the next listing reports it. */
+  const put = (rel: string, body: string, id = `remote-${++counter}`, etag = `etag-r${counter}`) => {
+    files.set(`Elowen/projects/demo/${rel}`, { id, etag, body: Buffer.from(body) });
+  };
+  const drop = (rel: string) => { files.delete(`Elowen/projects/demo/${rel}`); };
+
+  return { graph, files, put, drop };
 }
 
 function harness(options: { applyRemoteDeletions?: boolean } = {}) {
@@ -107,9 +132,21 @@ describe('onedrive remote layout', () => {
     const project = remoteRootFor('Elowen', 'site', { workspaceId: null, workspaceLabel: null } as never);
     const workspace = remoteRootFor('Elowen', 'site', { workspaceId: 'ws1', workspaceLabel: 'Feature A' } as never);
     expect(project).toBe('Elowen/projects/site');
-    expect(workspace).toBe('Elowen/workspaces/site/Feature A');
+    expect(workspace).toBe('Elowen/workspaces/site/Feature A (ws1)');
     // Nesting would make the project scan try to pull every workspace copy into the project directory.
     expect(workspace.startsWith(`${project}/`)).toBe(false);
+  });
+
+  it('gives two identically labelled workspaces different folders', () => {
+    // Sandbox does not require labels to be unique. Two mirrors resolving to one folder would silently
+    // overwrite and delete each other's files, so the folder carries the id the label cannot supply.
+    const a = remoteRootFor('Elowen', 'site', { workspaceId: 'ws-aaa', workspaceLabel: 'Fix' } as never);
+    const b = remoteRootFor('Elowen', 'site', { workspaceId: 'ws-bbb', workspaceLabel: 'Fix' } as never);
+    expect(a).not.toBe(b);
+    // And a label whose sanitized form collides still separates on the id.
+    const slash = remoteRootFor('Elowen', 'site', { workspaceId: 'ws-ccc', workspaceLabel: 'feature/a' } as never);
+    const colon = remoteRootFor('Elowen', 'site', { workspaceId: 'ws-ddd', workspaceLabel: 'feature:a' } as never);
+    expect(slash).not.toBe(colon);
   });
 
   it('refuses characters OneDrive rejects, and a separator that would create a folder', () => {
@@ -128,9 +165,16 @@ describe('onedrive sync cycle', () => {
     await engine.syncUser(7);
 
     expect([...drive.files.keys()]).toEqual(['Elowen/projects/demo/README.md']);
-    const items = store.items(link.id);
-    expect(items.get('README.md')?.state).toBe('synced');
+    expect(store.items(link.id).get('README.md')?.state).toBe('synced');
     expect(store.linkById(link.id)?.status).toBe('idle');
+  });
+
+  it('brings down a file somebody added in OneDrive', async () => {
+    const { root, store, drive, engine, link } = harness();
+    drive.put('from-phone.md', 'written on a phone\n');
+    await engine.syncUser(7);
+    expect(readFileSync(join(root, 'from-phone.md'), 'utf8')).toBe('written on a phone\n');
+    expect(store.items(link.id).has('from-phone.md')).toBe(true);
   });
 
   it('never lets two workers run the same mirror at once', () => {
@@ -151,24 +195,24 @@ describe('onedrive sync cycle', () => {
     expect(store.claim(link.id, 'alive', 1_000, now + 2_000)).toBe(true);
   });
 
+  it('coalesces a manual sync into the cycle already running for that account', async () => {
+    const { root, engine, drive } = harness();
+    settled(join(root, 'a.txt'), 'a\n');
+    // The interval and the "sync now" button both land here. Two passes over one drive would each read
+    // the other's half-finished work as a change.
+    const [first, second] = [engine.syncUser(7), engine.syncUser(7)];
+    expect(first).toBe(second);
+    await Promise.all([first, second]);
+    expect(drive.files.size).toBe(1);
+  });
+
   it('moves a remotely deleted file to the trash instead of unlinking it', async () => {
     const { root, store, drive, engine, link } = harness();
     settled(join(root, 'notes.md'), 'keep me\n');
     await engine.syncUser(7);
     expect(store.items(link.id).has('notes.md')).toBe(true);
 
-    // The file disappears from OneDrive.
-    drive.graph.json = vi.fn(async (method: string, path: string) => {
-      if (path.startsWith('/me/drive')) return { id: 'drive-1' };
-      if (path.includes('/root/delta')) {
-        return {
-          value: [{ id: 'id-1', name: 'notes.md', deleted: {}, parentReference: { path: '/drive/root:/Elowen/projects/demo' } }],
-          '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?token=T2',
-        };
-      }
-      return { id: 'folder-1', webUrl: null };
-    }) as typeof drive.graph.json;
-
+    drive.drop('notes.md');
     await engine.syncUser(7);
 
     expect(existsSync(join(root, 'notes.md'))).toBe(false);
@@ -183,103 +227,134 @@ describe('onedrive sync cycle', () => {
     const { root, drive, engine } = harness({ applyRemoteDeletions: false });
     settled(join(root, 'notes.md'), 'keep me\n');
     await engine.syncUser(7);
-    drive.graph.json = vi.fn(async (method: string, path: string, options?: { body?: unknown }) => {
-      if (path.startsWith('/me/drive')) return { id: 'drive-1' };
-      if (path.includes('/root/delta')) {
-        return {
-          value: [{ id: 'id-1', name: 'notes.md', deleted: {}, parentReference: { path: '/drive/root:/Elowen/projects/demo' } }],
-          '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?token=T2',
-        };
-      }
-      if (path.endsWith('/content')) {
-        drive.files.set('Elowen/projects/demo/notes.md', { id: 'id-9', etag: 'etag-9', body: Buffer.from(String(options?.body ?? '')) });
-        return { id: 'id-9', eTag: 'etag-9', name: 'notes.md', parentReference: { path: '/drive/root:' } };
-      }
-      return { id: 'folder-1', webUrl: null };
-    }) as typeof drive.graph.json;
+    drive.drop('notes.md');
 
     await engine.syncUser(7);
     // Nothing was trashed and the file went back up: the setting converges rather than re-deciding forever.
     expect(existsSync(join(root, TRASH_DIR))).toBe(false);
     expect(existsSync(join(root, 'notes.md'))).toBe(true);
-    expect(drive.files.get('Elowen/projects/demo/notes.md')?.id).toBe('id-9');
+    expect(drive.files.has('Elowen/projects/demo/notes.md')).toBe(true);
   });
 
-  it('keeps both copies when the two sides moved independently', async () => {
+  it('deletes the OneDrive copy of a file genuinely removed from the project', async () => {
+    const { root, store, drive, engine, link } = harness();
+    settled(join(root, 'gone.md'), 'bye\n');
+    await engine.syncUser(7);
+    expect(drive.files.has('Elowen/projects/demo/gone.md')).toBe(true);
+
+    rmSync(join(root, 'gone.md'));
+    await engine.syncUser(7);
+    // The fake really removes the entry, so this asserts the delete happened rather than that a counter
+    // stayed the same.
+    expect(drive.files.has('Elowen/projects/demo/gone.md')).toBe(false);
+    expect(store.items(link.id).has('gone.md')).toBe(false);
+  });
+
+  it('does not read a skipped file as a deleted one', async () => {
+    const { root, drive, engine } = harness();
+    settled(join(root, 'doc.md'), 'v1\n');
+    await engine.syncUser(7);
+    expect(drive.files.has('Elowen/projects/demo/doc.md')).toBe(true);
+
+    // Saved a moment ago, so the settle window holds it back. "Not looked at" must never mean "gone":
+    // reading it as a deletion would remove the OneDrive copy of a file sitting right there on disk.
+    writeFileSync(join(root, 'doc.md'), 'v2 just saved\n');
+    await engine.syncUser(7);
+    expect(drive.files.has('Elowen/projects/demo/doc.md')).toBe(true);
+  });
+
+  it('leaves a file larger than the limit alone on BOTH sides', async () => {
+    const { root, drive, engine, store, link } = harness();
+    drive.files.set('Elowen/projects/demo/big.bin', { id: 'big', etag: 'e', body: Buffer.alloc(20 * 1024 * 1024) });
+    await engine.syncUser(7);
+    // Downloading it would create a local file the next scan skips, which the cycle after that would read
+    // as a deletion - the advertised limit would become a way to lose the file.
+    expect(existsSync(join(root, 'big.bin'))).toBe(false);
+    expect(drive.files.has('Elowen/projects/demo/big.bin')).toBe(true);
+    expect(store.items(link.id).has('big.bin')).toBe(false);
+  });
+
+  it('keeps both copies when the two sides moved independently, and then freezes', async () => {
     const { root, store, drive, engine, link } = harness();
     settled(join(root, 'plan.md'), 'local first\n');
     await engine.syncUser(7);
 
-    // Both sides change: the file is edited here AND a different version appears in OneDrive.
     settled(join(root, 'plan.md'), 'local edit\n');
-    drive.files.set('Elowen/projects/demo/plan.md', { id: 'id-remote', etag: 'etag-remote', body: Buffer.from('remote edit\n') });
-    drive.graph.json = vi.fn(async (method: string, path: string) => {
-      if (path.startsWith('/me/drive')) return { id: 'drive-1' };
-      if (path.includes('/root/delta')) {
-        return {
-          value: [{ id: 'id-remote', name: 'plan.md', eTag: 'etag-remote', size: 12, file: {}, parentReference: { path: '/drive/root:/Elowen/projects/demo' } }],
-          '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?token=T2',
-        };
-      }
-      return { id: 'folder-1', webUrl: null };
-    }) as typeof drive.graph.json;
-
+    drive.put('plan.md', 'remote edit\n', 'id-remote', 'etag-remote');
     await engine.syncUser(7);
 
-    // The local edit is untouched, the remote one is beside it, and a person is told to decide.
     expect(readFileSync(join(root, 'plan.md'), 'utf8')).toBe('local edit\n');
     const copies = readdirSync(root).filter((name) => name.includes('onedrive-conflict'));
     expect(copies).toHaveLength(1);
     expect(readFileSync(join(root, copies[0]!), 'utf8')).toBe('remote edit\n');
     expect(store.items(link.id).get('plan.md')?.state).toBe('conflict');
-    expect(store.linkById(link.id)?.conflictCount).toBe(1);
 
-    // And a second cycle must not write a SECOND copy of the same conflict.
+    // A conflict must stay FROZEN until a person resolves it. If OneDrive changes again, re-deciding
+    // would turn it into a plain download and overwrite the local side the conflict was protecting.
+    drive.put('plan.md', 'remote edit two\n', 'id-remote2', 'etag-remote2');
     await engine.syncUser(7);
+    expect(readFileSync(join(root, 'plan.md'), 'utf8')).toBe('local edit\n');
     expect(readdirSync(root).filter((name) => name.includes('onedrive-conflict'))).toHaveLength(1);
-  });
-
-  it('does not advance the delta cursor when a mirror in the same drive failed', async () => {
-    const { root, store, drive, engine, link } = harness();
-    settled(join(root, 'a.txt'), 'x\n');
-    // A second mirror in the SAME drive, whose upload fails for real. The cursor is shared per drive, so
-    // one broken mirror decides for the whole fan-out.
-    store.createLink({
-      userId: 7, projectId: 2, workspaceId: 'ws-broken', workspaceLabel: 'Broken',
-      remoteDriveId: 'drive-1', remoteItemId: 'folder-2', remotePath: 'Elowen/workspaces/demo/Broken', webUrl: null,
-    });
-    const original = drive.graph.json;
-    drive.graph.json = (async (method: string, path: string, options?: { body?: unknown }) => {
-      if (path.includes('/Broken/') && path.endsWith('/content')) throw new Error('Microsoft refused this upload.');
-      return (original as (m: string, p: string, o?: unknown) => Promise<unknown>)(method, path, options);
-    }) as typeof drive.graph.json;
-
-    await engine.syncUser(7);
-
-    // A partial failure must replay, not skip: advancing here would drop every change the failed mirror
-    // never got to see, and nothing would ever go back for them.
-    expect(store.cursor(7, 'drive-1')).toBeNull();
-    expect(store.linkById(link.id)?.status).toBe('idle');
+    expect(store.linkById(link.id)?.conflictCount).toBe(1);
   });
 
   it('refuses to propagate a wholesale disappearance of local files', async () => {
     const { root, store, drive, engine, link } = harness();
-    for (const name of ['a', 'b', 'c', 'd', 'e', 'f']) settled(join(root, `${name}.txt`), `${name}\n`);
+    for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) settled(join(root, `${name}.txt`), `${name}\n`);
     await engine.syncUser(7);
-    expect(store.items(link.id).size).toBe(6);
+    expect(store.items(link.id).size).toBe(8);
     const before = drive.files.size;
 
     // The project directory becomes unreadable - a mount that has not come back, a checkout mid-clone.
     // A scan reports what it can SEE, and believing "saw nothing" would delete the person's whole folder.
-    rmSync(join(root, 'a.txt')); rmSync(join(root, 'b.txt')); rmSync(join(root, 'c.txt'));
-    rmSync(join(root, 'd.txt')); rmSync(join(root, 'e.txt')); rmSync(join(root, 'f.txt'));
+    for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) rmSync(join(root, `${name}.txt`));
 
     await engine.syncUser(7);
 
     expect(drive.files.size).toBe(before);
     const row = store.linkById(link.id)!;
     expect(row.status).toBe('error');
-    expect(row.error).toMatch(/disappeared at once/);
+    expect(row.error).toMatch(/disappeared locally at once/);
+  });
+
+  it('still deletes a small number of genuinely removed files', async () => {
+    const { root, drive, engine } = harness();
+    for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) settled(join(root, `${name}.txt`), `${name}\n`);
+    await engine.syncUser(7);
+    // Two of eight is ordinary work, not a catastrophe: the valve must not make normal deletion impossible.
+    rmSync(join(root, 'a.txt')); rmSync(join(root, 'b.txt'));
+    await engine.syncUser(7);
+    expect(drive.files.has('Elowen/projects/demo/a.txt')).toBe(false);
+    expect(drive.files.has('Elowen/projects/demo/c.txt')).toBe(true);
+  });
+
+  it('refuses a truncated listing rather than treating the rest as deleted', async () => {
+    const { root, store, engine, link, drive } = harness();
+    settled(join(root, 'x.txt'), 'x\n');
+    await engine.syncUser(7);
+    const before = drive.files.size;
+
+    const originalListTree = (await import('../plugins/onedrive/src/drive.js')).Drive.prototype.listTree;
+    const spy = vi.spyOn((await import('../plugins/onedrive/src/drive.js')).Drive.prototype, 'listTree')
+      .mockResolvedValue({ files: new Map(), truncated: true });
+    await engine.syncUser(7);
+    spy.mockRestore();
+    expect(originalListTree).toBeTypeOf('function');
+
+    expect(drive.files.size).toBe(before);
+    expect(store.linkById(link.id)?.status).toBe('error');
+  });
+
+  it('stops applying a cycle whose mirror was disconnected while it ran', async () => {
+    const { root, store, drive, engine, link } = harness();
+    settled(join(root, 'late.md'), 'late\n');
+    // Listing and hashing take time, and a person can disconnect while they run.
+    const spy = vi.spyOn((await import('../plugins/onedrive/src/drive.js')).Drive.prototype, 'listTree')
+      .mockImplementation(async () => { store.removeLink(link.id); return { files: new Map(), truncated: false }; });
+    await engine.syncUser(7);
+    spy.mockRestore();
+    expect(drive.files.size).toBe(0);
+    expect(store.linkById(link.id)).toBeNull();
   });
 
   it('pauses a mirror whose folder is gone instead of reporting it broken', async () => {
@@ -326,7 +401,7 @@ describe('onedrive sync cycle', () => {
 
   it('leaves the remote folder alone when a mirror is disconnected', () => {
     const { store, link, drive } = harness();
-    drive.files.set('Elowen/projects/demo/keep.md', { id: 'id-x', etag: 'e', body: Buffer.from('x') });
+    drive.put('keep.md', 'x');
     store.removeLink(link.id);
     expect(store.linkById(link.id)).toBeNull();
     // Disconnecting is an Elowen-side decision. Reaching into somebody's OneDrive and deleting their

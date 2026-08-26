@@ -121,15 +121,6 @@ export class OneDriveStore {
         PRIMARY KEY (link_id, rel_path)
       );
 
-      -- One delta cursor per drive, NOT per link: delta is taken at the drive root and fanned out to
-      -- every mirror inside it, so a person with a project and three workspaces still costs one stream.
-      CREATE TABLE IF NOT EXISTS p_onedrive_cursors (
-        user_id INTEGER NOT NULL,
-        drive_id TEXT NOT NULL,
-        delta_token TEXT NOT NULL,
-        updated_at INTEGER NOT NULL,
-        PRIMARY KEY (user_id, drive_id)
-      );
     `) }]);
   }
 
@@ -237,7 +228,6 @@ export class OneDriveStore {
     const ids = this.db.prepare('SELECT id FROM p_onedrive_links WHERE user_id = ?').all(userId)
       .map((row) => num((row as Record<string, unknown>).id));
     for (const id of ids) this.removeLink(id);
-    this.db.prepare('DELETE FROM p_onedrive_cursors WHERE user_id = ?').run(userId);
   }
 
   items(linkId: number): Map<string, MirrorItem> {
@@ -271,20 +261,4 @@ export class OneDriveStore {
     this.db.prepare('DELETE FROM p_onedrive_items WHERE link_id = ? AND rel_path = ?').run(linkId, rel);
   }
 
-  cursor(userId: number, driveId: string): string | null {
-    const row = this.db.prepare('SELECT delta_token FROM p_onedrive_cursors WHERE user_id = ? AND drive_id = ?')
-      .get(userId, driveId) as Record<string, unknown> | undefined;
-    return row ? nullableStr(row.delta_token) : null;
-  }
-
-  setCursor(userId: string | number, driveId: string, token: string): void {
-    this.db.prepare(
-      `INSERT INTO p_onedrive_cursors (user_id, drive_id, delta_token, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT (user_id, drive_id) DO UPDATE SET delta_token = excluded.delta_token, updated_at = excluded.updated_at`,
-    ).run(Number(userId), driveId, token, Date.now());
-  }
-
-  clearCursor(userId: number, driveId: string): void {
-    this.db.prepare('DELETE FROM p_onedrive_cursors WHERE user_id = ? AND drive_id = ?').run(userId, driveId);
-  }
 }

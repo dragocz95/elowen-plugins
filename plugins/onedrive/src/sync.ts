@@ -7,9 +7,12 @@ import { decide, type Baseline, type LocalFile, type RemoteFile } from './merge.
 import { buildIgnore, containedIn, hashFile, scanLocal, TRASH_DIR } from './scan.js';
 import type { MirrorLink, OneDriveStore } from './store.js';
 
-const LEASE_MS = 5 * 60 * 1000;
+const LEASE_MS = 15 * 60 * 1000;
 const SETTLE_MS = 2_000;
 const MAX_FILES = 20_000;
+/** Refuse a cycle that would delete more than this share of a mirror at once. */
+const DELETION_CEILING = 0.34;
+const DELETION_FLOOR = 4;
 
 export interface SyncSettings {
   rootFolder: string;
@@ -21,7 +24,6 @@ export interface SyncSettings {
 export interface SyncDeps {
   store: OneDriveStore;
   identity: () => MicrosoftIdentityControl | undefined;
-  /** Absolute root this link mirrors, or null when it no longer exists or the account lost access. */
   rootFor: (link: MirrorLink) => string | null;
   settings: () => SyncSettings;
   log: { info(m: string): void; warn(m: string): void; error(m: string): void };
@@ -29,18 +31,22 @@ export interface SyncDeps {
 
 /** Where a link's files live inside the person's OneDrive, relative to the drive root.
  *
- *  Projects and workspaces are SIBLINGS, never nested. Putting workspaces under the project mirror would
- *  make the project scan try to pull every workspace copy down into the project directory. */
+ *  Projects and workspaces are SIBLINGS, never nested: putting workspaces under the project mirror would
+ *  make the project scan try to pull every workspace copy down into the project directory.
+ *
+ *  A workspace folder carries its ID as well as its label. Sandbox does not require labels to be unique,
+ *  and two workspaces resolving to one folder would have them silently overwriting and deleting each
+ *  other's files — the label is for the person, the id is what makes the folder actually theirs. */
 export function remoteRootFor(rootFolder: string, projectSlug: string, link: MirrorLink): string {
   const root = rootFolder.replace(/^\/+|\/+$/g, '') || 'Elowen';
-  return link.workspaceId
-    ? `${root}/workspaces/${projectSlug}/${safeSegment(link.workspaceLabel ?? link.workspaceId)}`
-    : `${root}/projects/${projectSlug}`;
+  if (!link.workspaceId) return `${root}/projects/${projectSlug}`;
+  const label = safeSegment(link.workspaceLabel ?? '');
+  return `${root}/workspaces/${projectSlug}/${label} (${safeSegment(link.workspaceId).slice(0, 12)})`;
 }
 
 export function safeSegment(value: string): string {
   // OneDrive refuses these outright, and a path separator would silently create a nested folder.
-  return String(value).replace(/[\\/:*?"<>|#%]+/g, '-').replace(/^\.+|\.+$/g, '').slice(0, 60) || 'workspace';
+  return String(value).replace(/[\\/:*?"<>|#%]+/g, '-').replace(/^\.+|\.+$/g, '').trim().slice(0, 48) || 'workspace';
 }
 
 /** The name a remote copy is kept under when both sides moved. Deliberately beside the original and
@@ -52,32 +58,35 @@ export function conflictName(rel: string, when: Date): string {
 }
 
 export class SyncEngine {
-  private running = false;
+  /** One in-flight cycle per ACCOUNT. The interval and the "sync now" button both land here, and two
+   *  passes over the same drive would each see the other's half-finished work as a change. */
+  private readonly inFlight = new Map<number, Promise<void>>();
   readonly owner = `${process.pid}-${randomUUID().slice(0, 8)}`;
 
   constructor(private readonly deps: SyncDeps) {}
 
-  /** One pass over every account that has a live mirror. Never throws: a cycle is background work and a
-   *  single bad account must not stop the rest or crash the interval. */
   async tick(): Promise<void> {
-    if (this.running) return; // a slow cycle must not overlap itself
-    this.running = true;
-    try {
-      for (const userId of this.deps.store.activeUserIds()) {
-        try {
-          await this.syncUser(userId);
-        } catch (error) {
-          this.deps.log.warn(`onedrive cycle for account ${userId}: ${message(error)}`);
-        }
+    for (const userId of this.deps.store.activeUserIds()) {
+      try {
+        await this.syncUser(userId);
+      } catch (error) {
+        this.deps.log.warn(`onedrive cycle for account ${userId}: ${message(error)}`);
       }
-    } finally {
-      this.running = false;
     }
   }
 
-  async syncUser(userId: number): Promise<void> {
+  /** Coalescing entry point: a second caller joins the run already happening rather than starting one. */
+  syncUser(userId: number): Promise<void> {
+    const running = this.inFlight.get(userId);
+    if (running) return running;
+    const started = this.runUser(userId).finally(() => this.inFlight.delete(userId));
+    this.inFlight.set(userId, started);
+    return started;
+  }
+
+  private async runUser(userId: number): Promise<void> {
     const identity = this.deps.identity();
-    if (!identity) return; // Teams plugin absent or unconfigured: nothing to do, and nothing to complain about
+    if (!identity) return; // Teams plugin absent or unconfigured: nothing to do, nothing to complain about
     const graph = await identity.driveGraphFor(userId);
     if (!graph) {
       for (const link of this.deps.store.linksForUser(userId)) {
@@ -87,30 +96,17 @@ export class SyncEngine {
     }
 
     const drive = await Drive.open(graph);
-    const links = this.deps.store.linksForUser(userId).filter((link) => link.enabled);
-    if (links.length === 0) return;
-
-    const cursor = this.deps.store.cursor(userId, drive.driveId);
-    const { items, nextToken } = await drive.delta(cursor);
-    const remote = indexRemote(items);
-
-    let everySucceeded = true;
-    for (const link of links) {
+    for (const link of this.deps.store.linksForUser(userId).filter((row) => row.enabled)) {
       try {
-        await this.syncLink(link, drive, remote, cursor === null);
+        await this.syncLink(link, drive);
       } catch (error) {
-        everySucceeded = false;
         this.deps.log.warn(`onedrive mirror ${link.id}: ${message(error)}`);
         this.deps.store.setStatus(link.id, 'error', message(error));
       }
     }
-
-    // The cursor moves ONLY when the whole fan-out succeeded. Advancing it after a partial failure would
-    // drop the changes the failed mirror never got to see, and nothing would ever go back for them.
-    if (everySucceeded && nextToken) this.deps.store.setCursor(userId, drive.driveId, nextToken);
   }
 
-  private async syncLink(link: MirrorLink, drive: Drive, remote: Map<string, DriveItem>, fullScan: boolean): Promise<void> {
+  private async syncLink(link: MirrorLink, drive: Drive): Promise<void> {
     if (!this.deps.store.claim(link.id, this.owner, LEASE_MS)) return;
     const settings = this.deps.settings();
     try {
@@ -123,77 +119,111 @@ export class SyncEngine {
         return;
       }
 
+      // The mirror was connected to ONE drive. If the account is later rebound to a different Microsoft
+      // identity, `/me/drive` answers with somebody else's drive — and every path in this link's baseline
+      // would then be applied to a stranger's files. Stop instead.
+      if (link.remoteDriveId && link.remoteDriveId !== drive.driveId) {
+        this.deps.store.setEnabled(link.id, false);
+        this.deps.store.setStatus(link.id, 'paused', 'This mirror belongs to a different Microsoft account. Connect it again.');
+        return;
+      }
+
       this.deps.store.setStatus(link.id, 'syncing');
-      const prefix = `${link.remotePath}/`;
+      const maxBytes = Math.max(1, settings.maxFileMb) * 1024 * 1024;
       const baseline = this.deps.store.items(link.id);
+
       const scan = await scanLocal(root, {
         ignored: buildIgnore(settings.extraIgnore),
-        maxBytes: Math.max(1, settings.maxFileMb) * 1024 * 1024,
+        maxBytes,
         settleMs: SETTLE_MS,
         now: Date.now(),
         maxFiles: MAX_FILES,
       });
 
-      // The set of paths worth looking at: everything on disk, everything the baseline knows, and every
-      // remote change inside this mirror's own subtree.
-      const paths = new Set<string>([...scan.files.keys(), ...baseline.keys()]);
-      for (const [path] of remote) {
-        if (path.startsWith(prefix)) paths.add(path.slice(prefix.length));
-      }
-
-      // ⚠️ MASS-DELETION VALVE. A scan reports what it can SEE, and "saw nothing" is indistinguishable from
-      // "there is nothing" — an unreadable directory, a mount that has not come back, a checkout mid-clone
-      // all scan empty. Believing that would propagate a delete for every file the mirror holds, wiping the
-      // person's OneDrive folder from a transient local fault. Refusing costs one skipped cycle; being
-      // wrong costs their files, so this fails closed and says why.
-      const vanished = [...baseline.keys()].filter((rel) => !scan.files.has(rel)).length;
-      const suspicious = baseline.size >= 5 && vanished === baseline.size;
-      if (suspicious) {
-        this.deps.log.warn(`onedrive mirror ${link.id}: every mirrored file disappeared at once — refusing to propagate ${vanished} deletions`);
-        this.deps.store.setStatus(link.id, 'error', 'Every mirrored file disappeared at once. Nothing was deleted in OneDrive; check that the project folder is readable.');
+      // What EXISTS in OneDrive, not what changed there. A truncated listing is refused outright rather
+      // than mistaken for a complete one — the difference is a phantom deletion of everything past the cap.
+      const listing = await drive.listTree(link.remoteItemId);
+      if (listing.truncated) {
+        this.deps.store.setStatus(link.id, 'error', 'This OneDrive folder holds more files than the mirror can list at once.');
         return;
       }
+      const remote = listing.files;
 
-      let conflicts = 0;
-      let bytes = 0;
+      const paths = new Set<string>([...scan.files.keys(), ...baseline.keys(), ...remote.keys()]);
+
+      // Decide everything BEFORE acting, so the deletion valve sees the whole picture rather than the
+      // part of it that happens to come first in iteration order.
+      const planned: { rel: string; action: string; local: LocalFile; remote: RemoteFile; known: ReturnType<typeof baseline.get> }[] = [];
       for (const rel of paths) {
-        const scanned = scan.files.get(rel);
+        // A skipped file is one this scan chose not to look at. It is NOT a deleted file, and reading it
+        // as one deletes the OneDrive copy of a file that is sitting on disk untouched.
+        if (scan.skippedPaths.has(rel)) continue;
+
         const known = baseline.get(rel);
-        const base: Baseline = known ? { sha256: known.localSha256, etag: known.remoteEtag } : null;
+        // A conflict stays frozen until a person resolves it. Re-deciding would let a later remote edit
+        // turn into a plain download and overwrite the local side the conflict was protecting.
+        if (known?.state === 'conflict') { planned.push({ rel, action: 'conflict-held', local: { present: false }, remote: { present: false }, known }); continue; }
 
         const absolute = join(root, rel);
-        if (!await containedIn(root, dirname(absolute))) continue; // never write outside the mirror root
+        if (!await containedIn(root, dirname(absolute))) continue;
 
+        const scanned = scan.files.get(rel);
+        const base: Baseline = known ? { sha256: known.localSha256, etag: known.remoteEtag } : null;
         const local: LocalFile = scanned
           ? {
               present: true,
               size: scanned.size,
               mtimeMs: scanned.mtimeMs,
-              // Hash only when the cheap signals moved: unchanged files are the overwhelming majority.
               sha256: known && known.localSize === scanned.size && known.localMtimeMs === scanned.mtimeMs
                 ? known.localSha256
                 : await hashFile(absolute),
             }
           : { present: false };
 
-        const remoteItem = remote.get(`${prefix}${rel}`);
-        // With no cursor yet this delta is the whole drive, so absence really means absent. On an
-        // incremental delta absence only means "unchanged", and the baseline is what still describes it.
-        const remoteFile: RemoteFile = remoteItem && !remoteItem.deleted
-          ? { present: true, itemId: remoteItem.id, etag: remoteItem.etag, size: remoteItem.size }
-          : remoteItem?.deleted
-            ? { present: false }
-            : (!fullScan && known)
-                ? { present: true, itemId: known.remoteItemId, etag: known.remoteEtag, size: known.localSize }
-                : { present: false };
+        const item = remote.get(rel);
+        // A remote file too large to mirror is left ALONE in both directions. Downloading it would create
+        // a local file the next scan skips, which the cycle after that would read as a deletion.
+        if (item && item.size > maxBytes) continue;
+        const remoteFile: RemoteFile = item
+          ? { present: true, itemId: item.id, etag: item.etag, size: item.size }
+          : { present: false };
 
-        const decision = decide(local, remoteFile, base);
-        if (known?.state === 'conflict' && decision.action === 'none') { conflicts += 1; continue; }
+        planned.push({ rel, action: decide(local, remoteFile, base).action, local, remote: remoteFile, known });
+      }
 
-        switch (decision.action) {
+      // ⚠️ DELETION VALVE. A scan reports what it can SEE, and "saw nothing" is indistinguishable from
+      // "there is nothing": an unreadable directory, a mount that has not come back, a checkout mid-clone
+      // all look the same from here. Believing the wrong one wipes the person's OneDrive folder because of
+      // a transient local fault. A share of a mirror disappearing at once is refused and explained;
+      // deleting a few files is ordinary work and passes.
+      const deletions = planned.filter((entry) => entry.action === 'deleteRemote').length;
+      if (deletions > DELETION_FLOOR && deletions > baseline.size * DELETION_CEILING) {
+        this.deps.log.warn(`onedrive mirror ${link.id}: refusing to delete ${deletions} of ${baseline.size} mirrored files in one cycle`);
+        this.deps.store.setStatus(link.id, 'error',
+          `${deletions} mirrored files disappeared locally at once. Nothing was deleted in OneDrive; check that the project folder is complete, then sync again.`);
+        return;
+      }
+
+      // Listing and hashing take time, and a person can disconnect or pause the mirror while they run.
+      // Re-read the row before ANY of it is applied: acting on a mirror that no longer exists would keep
+      // uploading and deleting after the user said stop, and would leave orphan baseline rows behind.
+      const current = this.deps.store.linkById(link.id);
+      if (!current || !current.enabled) return;
+
+      let conflicts = 0;
+      let bytes = 0;
+      for (const entry of planned) {
+        const { rel, local, remote: remoteFile, known } = entry;
+        const absolute = join(root, rel);
+        switch (entry.action) {
+          case 'conflict-held':
+            conflicts += 1;
+            break;
           case 'upload': {
             if (!local.present) break;
-            const uploaded = await drive.upload(`${prefix}${rel}`, absolute);
+            // Conditional on what we last saw, so a remote edit made since the listing is reported as a
+            // precondition failure and re-merged next cycle instead of being silently overwritten.
+            const uploaded = await drive.upload(`${link.remotePath}/${rel}`, absolute, known?.remoteEtag);
             this.deps.store.putItem({
               linkId: link.id, rel, localSize: local.size, localMtimeMs: local.mtimeMs, localSha256: local.sha256,
               remoteItemId: uploaded.id, remoteEtag: uploaded.etag, state: 'synced', conflictCopy: null,
@@ -214,16 +244,17 @@ export class SyncEngine {
             break;
           }
           case 'deleteRemote': {
-            if (known?.remoteItemId) await drive.remove(known.remoteItemId).catch(() => undefined);
+            if (!known?.remoteItemId) { this.deps.store.dropItem(link.id, rel); break; }
+            // A failed delete must NOT drop the baseline: the file is still there, and forgetting it makes
+            // it invisible to every later cycle, so recreating the path would overwrite it unnoticed.
+            await drive.remove(known.remoteItemId);
             this.deps.store.dropItem(link.id, rel);
             break;
           }
           case 'trashLocal': {
             if (!local.present) break;
             if (!settings.applyRemoteDeletions) {
-              // Deletions from OneDrive are not applied on this instance, so the local copy is the truth
-              // and goes back up. Re-uploading converges; leaving it alone would re-decide forever.
-              const restored = await drive.upload(`${prefix}${rel}`, absolute);
+              const restored = await drive.upload(`${link.remotePath}/${rel}`, absolute);
               this.deps.store.putItem({
                 linkId: link.id, rel, localSize: local.size, localMtimeMs: local.mtimeMs, localSha256: local.sha256,
                 remoteItemId: restored.id, remoteEtag: restored.etag, state: 'synced', conflictCopy: null,
@@ -238,8 +269,6 @@ export class SyncEngine {
             if (!local.present || !remoteFile.present) break;
             const copy = conflictName(rel, new Date());
             await drive.download(remoteFile.itemId, join(root, copy));
-            // Record BOTH current states so the same conflict is not re-detected next cycle and a second
-            // copy written. The flag stays until a person resolves it; the file itself is already safe.
             this.deps.store.putItem({
               linkId: link.id, rel, localSize: local.size, localMtimeMs: local.mtimeMs, localSha256: local.sha256,
               remoteItemId: remoteFile.itemId, remoteEtag: remoteFile.etag, state: 'conflict', conflictCopy: copy,
@@ -270,24 +299,23 @@ export class SyncEngine {
 
   /** Move a file the other side deleted into the mirror's own trash. NEVER unlink: a deletion made in
    *  OneDrive is not a reason to destroy something in a project checkout, and the trash directory is
-   *  itself ignored, so the copy does not travel straight back up. */
+   *  itself ignored, so the copy does not travel straight back up.
+   *
+   *  The DESTINATION is containment-checked too. A project can contain an ignored `.elowen-trash` symlink
+   *  pointing anywhere, and `rename` would follow it straight out of the mirror. */
   private async trash(root: string, rel: string): Promise<void> {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     const target = join(root, TRASH_DIR, stamp, rel);
     await mkdir(dirname(target), { recursive: true });
+    if (!await containedIn(root, dirname(target))) {
+      throw new Error('The mirror trash folder resolves outside the project and was not used.');
+    }
     await rename(join(root, rel), target);
   }
-}
-
-function indexRemote(items: DriveItem[]): Map<string, DriveItem> {
-  const map = new Map<string, DriveItem>();
-  for (const item of items) {
-    if (item.isFolder) continue;
-    map.set(item.path, item); // later pages win: delta is ordered oldest to newest
-  }
-  return map;
 }
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+export type { DriveItem };
