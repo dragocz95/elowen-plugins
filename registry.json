@@ -53,8 +53,8 @@
     },
     {
       "name": "github",
-      "version": "0.1.5",
-      "requiresCore": "0.28.12",
+      "version": "0.1.6",
+      "requiresCore": "0.28.13",
       "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
       "category": "productivity",
       "author": "Elowen",
