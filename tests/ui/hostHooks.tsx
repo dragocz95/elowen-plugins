@@ -5,7 +5,7 @@
  *  error, the refetch on settle), so a hand-rolled stand-in would be testing the stand-in.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, createContext, useContext, type ReactNode } from 'react';
-import { QueryClient, QueryClientProvider, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   elowenClient,
   type CronJobRow, type DepEdge, type Mission, type PluginSkillRow, type SkillOwner, type Task,
@@ -14,7 +14,7 @@ import { apiErrorMessage } from './hostClient';
 import { agentDisplayName, pendingEscalations, taskExec, taskSessionName } from './hostUtils';
 import { en } from './hostDictionary';
 export { useAutoSaveStatus } from './useAutoSaveStatus';
-export { useQueries };
+export { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient };
 
 // ── i18n ─────────────────────────────────────────────────────────────────────────────────────────────
 // The app's own catalog (hostDictionary), served as the host serves it. These are CORE labels — the

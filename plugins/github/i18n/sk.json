@@ -1,0 +1,27 @@
+{
+  "description": "Integrácia GitHub App pre jednotlivé účty: mapovanie repozitárov, bezpečné publikovanie vetiev zo Sandboxu, pull requesty, revízie, kontroly a výslovne potvrdené zlúčenie.",
+  "config": {
+    "sec_app": { "label": "GitHub App", "hint": "Nastavte GitHub App používanú touto inštaláciou Elowenu. Klientske tajomstvo uložte na stránke GitHubu, nie do tohto formulára." },
+    "clientId": { "label": "Client ID", "hint": "Neutajované client ID GitHub App." },
+    "appSlug": { "label": "Slug aplikácie", "hint": "Verejný slug uvedený v URL GitHub App." }
+  },
+  "userConfig": {
+    "mergeMethod": { "label": "Predvolený spôsob zlúčenia", "hint": "Použije sa, keď akcia zlúčenia výslovne neurčí spôsob.", "options": { "squash": "Squash", "merge": "Merge commit", "rebase": "Rebase" } }
+  },
+  "web": {
+    "label": "GitHub",
+    "nav": { "": "GitHub" },
+    "strings": {
+      "title": "GitHub", "eyebrow": "Vzdialená spolupráca", "intro": "Prepojte vlastnú identitu GitHubu, namapujte dostupné Projekty a spravujte pull requesty bez zdieľaných prihlasovacích údajov.",
+      "tabOverview": "Prehľad", "tabRepositories": "Repozitáre", "tabPullRequests": "Pull requesty", "connected": "Pripojené", "disconnected": "Nepripojené", "reconnectRequired": "Je potrebné nové pripojenie",
+      "connect": "Pripojiť GitHub", "reconnect": "Pripojiť znova", "replaceIdentity": "Nahradiť identitu", "disconnect": "Odpojiť", "testConnection": "Otestovať pripojenie", "connectionHealthy": "Pripojenie ku GitHubu bolo overené.",
+      "setupIncomplete": "Nastavenie GitHub App nie je dokončené.", "setupHint": "Správca musí nastaviť client ID, slug aplikácie, kanonickú URL callbacku a klientske tajomstvo.", "callbackUrl": "URL callbacku", "clientSecret": "Klientske tajomstvo", "saveSecret": "Uložiť klientske tajomstvo", "secretSaved": "Klientske tajomstvo bolo uložené.",
+      "tokenExpiry": "Platnosť prístupového tokenu", "refreshExpiry": "Platnosť obnovovacieho tokenu", "rateLimit": "Zostávajúce požiadavky API", "mappings": "Mapovania repozitárov", "projects": "Projekty", "repositories": "Repozitáre", "repository": "Repozitár", "baseRepository": "Základný repozitár", "pushRepository": "Cieľový repozitár", "detectedRemotes": "Nájdené vzdialené repozitáre", "mappingHealthy": "Overené", "mappingMissing": "Nenamapované",
+      "detect": "Rozpoznať", "map": "Namapovať repozitár", "removeMapping": "Odstrániť mapovanie", "openGitHub": "Otvoriť na GitHube", "owner": "Vlastník", "name": "Názov repozitára", "baseRemote": "Vzdialený základ", "pushRemote": "Vzdialený cieľ", "saveMapping": "Uložiť mapovanie", "mappingSaved": "Mapovanie repozitára bolo uložené.", "mappingRemoved": "Mapovanie repozitára bolo odstránené.",
+      "search": "Hľadať", "filterProject": "Filtrovať podľa Projektu", "filterState": "Stav", "stateOpen": "Otvorené", "stateClosed": "Zatvorené", "stateAll": "Všetko", "columnProject": "Projekt", "columnPullRequest": "Pull request", "columnBranch": "Vetvy", "columnChecks": "Kontroly", "columnUpdated": "Aktualizované", "noRepositories": "Nie sú dostupné žiadne Projekty.", "noPullRequests": "Tomuto filtru nezodpovedajú žiadne pull requesty.", "selectPullRequest": "Vyberte pull request na zobrazenie detailu.",
+      "checks": "Kontroly", "reviews": "Revízie", "changedFiles": "Zmenené súbory", "publish": "Publikovať vetvu", "createPullRequest": "Vytvoriť pull request", "submitReview": "Odoslať revíziu", "merge": "Zlúčiť pull request", "conversation": "Konverzácia", "pullRequestTitle": "Názov pull requestu", "description": "Popis", "baseBranch": "Základná vetva", "reviewEvent": "Rozhodnutie revízie", "approve": "Schváliť", "requestChanges": "Vyžiadať zmeny", "comment": "Komentár", "mergeMethod": "Spôsob zlúčenia", "squash": "Squash", "mergeCommit": "Merge commit", "rebase": "Rebase",
+      "confirm": "Potvrdiť", "cancel": "Zrušiť", "confirmExternal": "Potvrdiť externú akciu", "confirmationExpires": "Potvrdenie čoskoro vyprší a možno ho použiť iba raz.", "loadError": "Údaje GitHubu sa nepodarilo načítať.", "actionComplete": "Akcia na GitHube bola dokončená.",
+      "error_app_not_configured": "GitHub App nie je úplne nastavená.", "error_public_url_missing": "Vyžaduje sa kanonická verejná URL webu.", "error_not_connected": "Najprv pripojte GitHub.", "error_reconnect_required": "Najprv GitHub znova pripojte.", "error_mapping_required": "Najprv namapujte tento Projekt na repozitár GitHubu.", "error_active_workspace_required": "Vyberte aktívny pracovný priestor Sandboxu pre túto konverzáciu a Projekt.", "error_confirmation_expired": "Platnosť potvrdenia vypršala. Vytvorte nový náhľad akcie.", "error_confirmation_used": "Potvrdenie už bolo použité.", "error_state_changed": "Repozitár alebo pull request sa zmenil. Vytvorte nový náhľad akcie.", "error_head_changed": "Vrchol pull requestu sa zmenil. Obnovte údaje a znova zobrazte náhľad zlúčenia.", "error_unsafe_git_config": "Lokálne nastavenie transportu, include, prihlasovacích údajov alebo proxy blokuje bezpečné publikovanie.", "errorFallback": "Operácia GitHubu zlyhala."
+    }
+  }
+}

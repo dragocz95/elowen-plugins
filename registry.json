@@ -52,6 +52,19 @@
       }
     },
     {
+      "name": "github",
+      "version": "0.1.0",
+      "requiresCore": "0.28.11",
+      "description": "Account-scoped GitHub App integration for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
+      "category": "productivity",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "tools": 9,
+        "apiRoutes": 14
+      }
+    },
+    {
       "name": "image-edit",
       "version": "0.2.1",
       "description": "Edit an existing image from a text instruction (image-to-image) via the OpenAI Images edits API. The result shows in the chat.",

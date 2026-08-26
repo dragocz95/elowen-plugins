@@ -15,7 +15,7 @@ import * as H from './hostHooks';
 import { api, apiErrorMessage, ElowenApiError, elowenClient } from './hostClient';
 import * as U from './hostUtils';
 
-export const PLUGIN_UI_API_VERSION = 1;
+export const PLUGIN_UI_API_VERSION = 3;
 
 interface HostWindow extends Window {
   ElowenUiRuntime?: unknown;
@@ -107,7 +107,8 @@ export function ensurePluginUiRuntime(): void {
       useSessionStall: H.useSessionStall, useTaskControls: H.useTaskControls,
       // Batched queries against the HOST's react-query client — a bundle that imported the library
       // itself would get a second QueryClient context and read an empty cache.
-      useQueries: H.useQueries,
+      useQuery: H.useQuery, useMutation: H.useMutation, useInfiniteQuery: H.useInfiniteQuery,
+      useQueryClient: H.useQueryClient, useQueries: H.useQueries,
     },
     utils: {
       apiErrorMessage, parseTs: U.parseTs, compactElapsed: U.compactElapsed, isValidSchedule: U.isValidSchedule,

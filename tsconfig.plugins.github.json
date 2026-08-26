@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "plugins/github/dist",
+    "rootDir": "plugins/github/src",
+    "tsBuildInfoFile": "plugins/github/dist/.tsbuildinfo"
+  },
+  "include": ["plugins/github/src/**/*"]
+}

@@ -158,11 +158,15 @@ describe('msteams owner onboarding flow', () => {
     const orchestrator = new PlatformOrchestrator({
       plugins: async () => ({ platforms: [adapter] }) as never,
       platformOwner: () => 1,
-      policyForProjects: (projectIds: number[]) => ({ allowedProjectIds: new Set(projectIds), allowedPaths: () => [] }),
       policyForUser: (userId: number) => policies.get(userId)!,
-      disabledToolsFor: (userId: number) => denies.get(userId) ?? [],
+      toolAuthorityFor: (userId: number) => ({ deny: new Set(denies.get(userId) ?? []) }),
       identity,
-      channels: { send: async (opts: unknown) => { sent.push(opts as Record<string, unknown>); return 'ok'; }, fragmentFor: () => '' } as never,
+      channels: {
+        sessionOwnerUserId: () => undefined,
+        adoptPersonalChat: () => false,
+        send: async (opts: unknown) => { sent.push(opts as Record<string, unknown>); return 'ok'; },
+        fragmentFor: () => '',
+      } as never,
       dispatch: { send: async () => { throw new Error('not delegated'); } },
     });
     await orchestrator.startAll();

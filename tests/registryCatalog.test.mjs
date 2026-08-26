@@ -99,6 +99,7 @@ const EXPECTED_CAPABILITIES = {
   codebase: { reads: ['embeddings'], network: true },
   cronjob: { reads: ['stores'] },
   editor: { reads: ['project-files', 'stores'] },
+  github: { reads: ['controls', 'db', 'git', 'stores'], network: true },
   lsp: { network: true },
   mcp: { network: true },
   msteams: { reads: ['project-files', 'stores'], mutates: ['users'] },
