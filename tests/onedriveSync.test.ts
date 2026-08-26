@@ -7,7 +7,11 @@ import { join } from 'node:path';
 import type { PluginDb } from 'elowen/plugin-api';
 import { OneDriveStore } from '../plugins/onedrive/src/store.js';
 import { SyncEngine, conflictName, remoteRootFor, safeSegment } from '../plugins/onedrive/src/sync.js';
-import { TRASH_DIR, scanLocal } from '../plugins/onedrive/src/scan.js';
+import { execFileSync } from 'node:child_process';
+import { TRASH_DIR, gitIgnoredAmong, scanLocal } from '../plugins/onedrive/src/scan.js';
+import { Drive } from '../plugins/onedrive/src/drive.js';
+
+const originalListTree = Drive.prototype.listTree;
 import type { MicrosoftDriveGraph } from '../plugins/onedrive/src/coreSeams.js';
 
 const roots: string[] = [];
@@ -206,6 +210,42 @@ describe('onedrive remote layout', () => {
   });
 });
 
+describe('onedrive and git ignore rules', () => {
+  const repo = () => {
+    const root = mkdtempSync(join(tmpdir(), 'onedrive-git-'));
+    roots.push(root);
+    execFileSync('git', ['-C', root, 'init', '-q']);
+    return root;
+  };
+
+  it('asks git itself which vanished paths it decided to ignore', async () => {
+    const root = repo();
+    settled(join(root, 'kept.md'), 'kept\n');
+    settled(join(root, 'noisy.log'), 'noise\n');
+    const before = await gitIgnoredAmong(root, ['kept.md', 'noisy.log']);
+    expect(before.ok).toBe(true);
+    expect([...before.ignored]).toEqual([]);
+
+    // A file added to .gitignore simply DISAPPEARS from `git ls-files`. Nothing in the scan can tell that
+    // apart from a deletion, so without asking git the mirror would delete its OneDrive copy.
+    settled(join(root, '.gitignore'), 'noisy.log\n');
+    const after = await gitIgnoredAmong(root, ['kept.md', 'noisy.log']);
+    expect(after.ok).toBe(true);
+    expect([...after.ignored]).toEqual(['noisy.log']);
+  });
+
+  it('reports failure rather than an empty answer when git cannot say', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'onedrive-nogit-'));
+    roots.push(root);
+    // Not a repository at all: git cannot answer. An empty set would be read as "nothing is excused",
+    // and every vanished path would then be deleted from OneDrive - so an empty set must NOT pass for an
+    // answer. The caller checks `ok` and skips the cycle.
+    const result = await gitIgnoredAmong(root, ['whatever.md']);
+    expect(result.ok).toBe(false);
+    expect([...result.ignored]).toEqual([]);
+  });
+});
+
 describe('onedrive local scan completeness', () => {
   it('reports itself incomplete when the walk hits its cap', async () => {
     const root = mkdtempSync(join(tmpdir(), 'onedrive-scan-'));
@@ -367,12 +407,20 @@ describe('onedrive sync cycle', () => {
     expect(readFileSync(join(root, copies[0]!), 'utf8')).toBe('remote edit\n');
     expect(store.items(link.id).get('plan.md')?.state).toBe('conflict');
 
-    // A conflict must stay FROZEN until a person resolves it. If OneDrive changes again, re-deciding
-    // would turn it into a plain download and overwrite the local side the conflict was protecting.
+    // A conflict never turns back into a plain download - that would overwrite the local side it exists
+    // to protect. But it must not freeze SOLID either: resolving compares against the version the
+    // conflict was recorded for, so if OneDrive moves on again and nothing refreshes it, that path can
+    // never be resolved at all. The newer remote version is kept beside the others instead.
     drive.put('plan.md', 'remote edit two\n', 'id-remote2', 'etag-remote2');
     await engine.syncUser(7);
+
     expect(readFileSync(join(root, 'plan.md'), 'utf8')).toBe('local edit\n');
-    expect(readdirSync(root).filter((name) => name.includes('onedrive-conflict'))).toHaveLength(1);
+    const kept = readdirSync(root).filter((name) => name.includes('onedrive-conflict')).sort();
+    expect(kept).toHaveLength(2);
+    // Both OneDrive versions survive; neither replaced the other.
+    expect(kept.map((name) => readFileSync(join(root, name), 'utf8')).sort())
+      .toEqual(['remote edit\n', 'remote edit two\n']);
+    expect(store.items(link.id).get('plan.md')?.state).toBe('conflict');
     expect(store.linkById(link.id)?.conflictCount).toBe(1);
   });
 
@@ -564,6 +612,67 @@ describe('onedrive sync cycle', () => {
     expect(drive.files.size).toBe(8);
     expect(store.linkById(link.id)?.status).toBe('blocked');
     expect(store.linkById(link.id)?.blockedDeletions).toBe(7);
+  });
+
+  it('will not act on a confirmation that answers no refusal', async () => {
+    const { root, store, drive, engine, link } = harness();
+    for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) settled(join(root, `${name}.txt`), `${name}\n`);
+    await engine.syncUser(7);
+    expect(store.linkById(link.id)?.status).toBe('idle');
+
+    for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) rmSync(join(root, `${name}.txt`));
+    // A confirmation is an ANSWER. Arriving without a question - a stale button press, or one made while
+    // a mount happened to be empty - it would otherwise carry authority to delete the whole mirror,
+    // which is exactly the authority the valve exists to withhold.
+    await engine.syncUser(7, { confirmDeletions: new Set([link.id]) });
+
+    expect(drive.files.size).toBe(8);
+    expect(store.linkById(link.id)?.status).toBe('blocked');
+  });
+
+  it('does not delete the OneDrive copy of a file that came back before the delete', async () => {
+    const { root, store, drive, engine, link } = harness();
+    settled(join(root, 'flaky.md'), 'v1\n');
+    await engine.syncUser(7);
+
+    rmSync(join(root, 'flaky.md'));
+    // Recreated between the scan and the delete. The etag precondition cannot catch this - it guards the
+    // REMOTE side, and it is the local side that changed - so the deletion needs its own last look.
+    drive.onList = () => { settled(join(root, 'flaky.md'), 'back again\n'); drive.onList = undefined; };
+    await engine.syncUser(7);
+
+    expect(drive.files.has('Elowen/projects/demo/flaky.md')).toBe(true);
+    expect(existsSync(join(root, 'flaky.md'))).toBe(true);
+    expect(store.items(link.id).has('flaky.md')).toBe(true);
+  });
+
+  it('serialises two mirrors that share one project directory', async () => {
+    const { root, store, engine, link } = harness();
+    // A project can be SHARED: two people, two OneDrives, two links - one directory on disk. The
+    // per-link claim cannot see that, so both cycles would write the same files and the last rename
+    // would win, quietly overwriting the other person's version with no trash copy anywhere.
+    // A DIFFERENT account, deliberately: cycles for one account are already sequential, so a same-account
+    // pair would pass this test with the lock removed. Two accounts are what nothing else serialises.
+    const second = store.createLink({
+      userId: 8, projectId: 1, workspaceId: null, workspaceLabel: null,
+      remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo', webUrl: null,
+    });
+    settled(join(root, 'shared.md'), 'shared\n');
+
+    let concurrent = 0;
+    let peak = 0;
+    const spy = vi.spyOn(Drive.prototype, 'listTree').mockImplementation(async function listTree(this: Drive, ...args) {
+      concurrent += 1; peak = Math.max(peak, concurrent);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      concurrent -= 1;
+      return originalListTree.apply(this, args as never);
+    });
+    await Promise.all([engine.syncUser(7), engine.syncUser(8)]);
+    spy.mockRestore();
+
+    expect(peak).toBe(1);
+    expect(store.linkById(link.id)?.status).toBe('idle');
+    expect(store.linkById(second.id)?.status).toBe('idle');
   });
 
   it('refuses to mirror two names that OneDrive would treat as one', async () => {

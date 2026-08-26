@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, rename, stat } from 'node:fs/promises';
+import { mkdir, realpath, rename, stat } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import { Drive, StaleLocalError } from './drive.js';
 import { decide } from './merge.js';
@@ -60,6 +60,11 @@ export class SyncEngine {
     /** One in-flight cycle per ACCOUNT. The interval and the "sync now" button both land here, and two
      *  passes over the same drive would each see the other's half-finished work as a change. */
     inFlight = new Map();
+    /** One at a time per LOCAL ROOT, across accounts. A project can be shared, and two people can each
+     *  mirror it into their own OneDrive - two different drives, two different links, but ONE directory on
+     *  disk. The per-link claim does not see that, so both workers would write the same file and the last
+     *  rename would win, silently overwriting the other person's version with no trash copy anywhere. */
+    rootLocks = new Map();
     owner = `${process.pid}-${randomUUID().slice(0, 8)}`;
     constructor(deps) {
         this.deps = deps;
@@ -106,11 +111,24 @@ export class SyncEngine {
             }
         }
     }
+    /** Run `work` with exclusive use of one local directory. */
+    async underRootLock(root, work) {
+        const key = await realpath(root).catch(() => root);
+        const previous = this.rootLocks.get(key) ?? Promise.resolve();
+        const mine = previous.then(work, work);
+        this.rootLocks.set(key, mine.catch(() => undefined));
+        try {
+            return await mine;
+        }
+        finally {
+            if (this.rootLocks.get(key) === undefined)
+                this.rootLocks.delete(key);
+        }
+    }
     async syncLink(link, drive, confirmDeletions) {
         const lease = this.deps.lease ?? { ms: LEASE_MS, renewAfterMs: RENEW_AFTER_MS };
         if (!this.deps.store.claim(link.id, this.owner, lease.ms))
             return;
-        const settings = this.deps.settings();
         try {
             const root = this.deps.rootFor(link);
             if (!root) {
@@ -129,6 +147,15 @@ export class SyncEngine {
                 return;
             }
             this.deps.store.setStatus(link.id, 'syncing');
+            await this.underRootLock(root, () => this.applyCycle(link, drive, confirmDeletions, root, lease));
+        }
+        finally {
+            this.deps.store.release(link.id, this.owner);
+        }
+    }
+    async applyCycle(link, drive, confirmDeletions, root, lease) {
+        const settings = this.deps.settings();
+        {
             const maxBytes = Math.max(1, settings.maxFileMb) * 1024 * 1024;
             const baseline = this.deps.store.items(link.id);
             const scan = await scanLocal(root, {
@@ -157,7 +184,14 @@ export class SyncEngine {
             // been added to .gitignore rather than deleted. The scan's own predicate cannot tell those apart -
             // it knows the hard floor and the user's extra patterns, not the project's .gitignore.
             const vanished = [...baseline.keys()].filter((rel) => !scan.files.has(rel) && !scan.skippedPaths.has(rel));
-            const gitIgnored = scan.fromGit ? await gitIgnoredAmong(root, vanished) : new Set();
+            const gitQuery = scan.fromGit
+                ? await gitIgnoredAmong(root, vanished)
+                : { ignored: new Set(), ok: true };
+            if (!gitQuery.ok) {
+                this.deps.store.setStatus(link.id, 'error', 'Git could not say which files it ignores, so this cycle was skipped rather than risk deleting files from OneDrive.');
+                return;
+            }
+            const gitIgnored = gitQuery.ignored;
             const paths = new Set([...scan.files.keys(), ...baseline.keys(), ...remote.keys()]);
             const planned = [];
             let accounted = 0;
@@ -177,7 +211,18 @@ export class SyncEngine {
                 // A conflict stays frozen until a person resolves it. Re-deciding would let a later remote edit
                 // turn into a plain download and overwrite the local side the conflict was protecting.
                 if (known?.state === 'conflict') {
-                    planned.push({ rel, action: 'conflict-held', local: { present: false }, remote: { present: false }, known });
+                    const still = remote.get(rel);
+                    // Resolving compares against the exact version the conflict was recorded for, and refuses if
+                    // OneDrive has moved on. Left alone, that path could never be resolved again - the cycle held
+                    // the conflict frozen and never refreshed it. Re-offering it keeps the choice answerable.
+                    const stale = still && still.etag !== known.remoteEtag;
+                    planned.push({
+                        rel,
+                        action: stale ? 'reoffer-conflict' : 'conflict-held',
+                        local: { present: false },
+                        remote: still ? { present: true, itemId: still.id, etag: still.etag, size: still.size } : { present: false },
+                        known,
+                    });
                     continue;
                 }
                 const absolute = join(root, rel);
@@ -221,8 +266,14 @@ export class SyncEngine {
                 && (deletions > accounted * DELETION_CEILING || deletions >= DELETION_ABSOLUTE);
             // A confirmation answers the question the person was SHOWN. If more files have gone missing since
             // then, that is a different question and has to be asked again rather than swept along.
-            const beyondWhatWasShown = confirmDeletions && link.blockedDeletions > 0 && deletions > link.blockedDeletions;
-            if (excessive && (!confirmDeletions || beyondWhatWasShown)) {
+            // A confirmation is an answer to a refusal this mirror actually made. Without that, a stale button
+            // press - or one made while a mount happened to be empty - would carry authority to delete
+            // everything, which is precisely the authority the valve exists to withhold.
+            const answersARefusal = confirmDeletions
+                && link.status === 'blocked'
+                && link.blockedDeletions > 0
+                && deletions <= link.blockedDeletions;
+            if (excessive && !answersARefusal) {
                 this.deps.store.setBlockedDeletions(link.id, deletions);
                 this.deps.log.warn(`onedrive mirror ${link.id}: refusing to delete ${deletions} of ${accounted} mirrored files in one cycle`);
                 this.deps.store.setStatus(link.id, 'blocked', `${deletions} of ${accounted} mirrored files disappeared locally at once. Nothing was deleted in OneDrive. If that was intentional, choose Sync now to confirm; otherwise check that the project folder is complete.`);
@@ -263,6 +314,15 @@ export class SyncEngine {
                     switch (entry.action) {
                         case 'conflict-held':
                             break;
+                        case 'reoffer-conflict': {
+                            if (!remoteFile.present || !known)
+                                break;
+                            const scanned = scan.files.get(rel);
+                            if (!scanned)
+                                break;
+                            await this.keepBoth(drive, link, root, rel, { present: true, size: scanned.size, mtimeMs: scanned.mtimeMs, sha256: await hashFile(absolute) }, remoteFile, root);
+                            break;
+                        }
                         case 'upload': {
                             if (!local.present)
                                 break;
@@ -292,6 +352,11 @@ export class SyncEngine {
                             break;
                         }
                         case 'deleteRemote': {
+                            // The other destructive direction, and it needs the same last-moment check: the file may
+                            // have been recreated since the scan, and the etag precondition would not notice - it
+                            // guards the REMOTE side, and it is the local side that changed.
+                            if (existsSync(absolute))
+                                break;
                             if (!known?.remoteItemId) {
                                 this.deps.store.dropItem(link.id, rel);
                                 break;
@@ -372,9 +437,6 @@ export class SyncEngine {
                 conflictCount: [...after.values()].filter((item) => item.state === 'conflict').length,
             });
         }
-        finally {
-            this.deps.store.release(link.id, this.owner);
-        }
     }
     /** Keep the local file exactly as it is and bring the remote one down beside it under a free name. */
     async keepBoth(drive, link, root, rel, local, remoteFile, projectRoot) {
@@ -411,8 +473,14 @@ export async function trashFile(root, rel) {
     // second and the second rename would replace the first file already sitting in the trash. The trash
     // exists so nothing is ever lost, so its own names must not collide.
     let target = join(root, TRASH_DIR, stamp, rel);
-    for (let n = 2; existsSync(target) && n < 1000; n += 1)
-        target = join(root, TRASH_DIR, `${stamp}-${n}`, rel);
+    for (let n = 2; existsSync(target); n += 1) {
+        // After a few tries the timestamp is clearly not distinguishing anything, so stop counting and take a
+        // random name. Falling back to a name already in use would replace an earlier trashed version - in
+        // the one directory whose entire purpose is that nothing is ever lost.
+        target = n < 100
+            ? join(root, TRASH_DIR, `${stamp}-${n}`, rel)
+            : join(root, TRASH_DIR, `${stamp}-${randomUUID().slice(0, 8)}`, rel);
+    }
     await mkdir(dirname(target), { recursive: true });
     if (!await containedIn(root, dirname(target))) {
         throw new Error('The mirror trash folder resolves outside the project and was not used.');

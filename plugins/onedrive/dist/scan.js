@@ -74,7 +74,7 @@ async function gitFiles(root) {
 export async function gitIgnoredAmong(root, paths) {
     const out = new Set();
     if (paths.length === 0)
-        return out;
+        return { ignored: out, ok: true };
     // `promisify(execFile)` cannot write to stdin, and the path list is unbounded, so this one spawns.
     const child = spawn('git', ['-C', root, 'check-ignore', '--stdin', '-z', '--no-index'], {
         stdio: ['pipe', 'pipe', 'ignore'],
@@ -83,15 +83,16 @@ export async function gitIgnoredAmong(root, paths) {
     child.stdout.on('data', (chunk) => chunks.push(chunk));
     child.stdin.on('error', () => undefined); // git may close stdin early; that is not our failure
     child.stdin.end(`${paths.join('\0')}\0`);
-    await new Promise((resolve) => {
-        // Exit 1 means "nothing matched", which is an answer. Any other failure leaves the set empty, and an
-        // empty set is the SAFE default here: it only means no path is excused, never that one is deleted.
-        child.on('close', () => resolve());
-        child.on('error', () => resolve());
+    const code = await new Promise((resolve) => {
+        child.on('close', (status) => resolve(status));
+        child.on('error', () => resolve(null));
     });
     for (const rel of Buffer.concat(chunks).toString('utf8').split('\0').filter(Boolean))
         out.add(rel);
-    return out;
+    // 0 means some matched, 1 means none did - both are ANSWERS. Anything else (no repository any more, an
+    // inaccessible worktree, git missing) is not, and an empty set is NOT a safe default here: every path
+    // that went missing would then be read as deleted and removed from OneDrive. The caller must stop.
+    return { ignored: out, ok: code === 0 || code === 1 };
 }
 /** Fallback for a root that is not a repository: a bounded walk that never follows a directory symlink. */
 async function walk(root, limit) {
