@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { FileHandle } from 'node:fs/promises';
-import { Drive, uploadTimeoutMs } from '../plugins/onedrive/src/drive.js';
+import { Drive, RemoteItemAppearedError, uploadTimeoutMs } from '../plugins/onedrive/src/drive.js';
 import type { MicrosoftDriveGraph, MicrosoftGraphRequestOptions } from '../plugins/onedrive/src/coreSeams.js';
 
 interface Call {
@@ -105,21 +105,47 @@ describe('onedrive upload name-conflict recovery', () => {
     expect(calls[2]!.path).not.toContain('conflictBehavior=fail');
   });
 
-  it('refuses to overwrite a file that really is at the path', async () => {
+  it('hands a file that really is at the path up to the merge instead of overwriting it', async () => {
     let puts = 0;
     const { graph } = fakeGraph(({ method }) => {
-      if (method === 'GET') return { id: 'somebody-elses-file' };
+      if (method === 'GET') {
+        return { id: 'somebody-elses-file', name: '1.zip', eTag: 'etag-remote', size: 4096, file: {} };
+      }
       puts += 1;
       throw conflict();
     });
 
-    // The refusal has to NAME the item, because the raw Graph sentence describes this and a dead upload
-    // reservation identically, and only one of the two is a file somebody could lose.
-    await expect(
-      new Drive(graph, 'drive-1').upload('folder-1', 'marketing-zip/1.zip', fakeFile(1024), undefined, true),
-    ).rejects.toThrow('somebody-elses-file');
-    // One attempt only: a real item is a merge for the next cycle, never something to replace.
+    const failure = await new Drive(graph, 'drive-1')
+      .upload('folder-1', 'marketing-zip/1.zip', fakeFile(1024), undefined, true)
+      .catch((error: unknown) => error);
+
+    // A typed carrier, not a bare message: the merge is the only layer that may weigh the two copies, and
+    // it needs the item — an id, a version tag and a size — not prose it would have to parse.
+    expect(failure).toBeInstanceOf(RemoteItemAppearedError);
+    expect((failure as RemoteItemAppearedError).item).toMatchObject({
+      id: 'somebody-elses-file', etag: 'etag-remote', size: 4096,
+    });
+    expect((failure as RemoteItemAppearedError).rel).toBe('marketing-zip/1.zip');
+    // One attempt only: a real item is never something this layer replaces.
     expect(puts).toBe(1);
+  });
+
+  it('overwrites the empty husk an interrupted upload session leaves behind', async () => {
+    let attempts = 0;
+    const { graph, calls } = fakeGraph(({ method, path }) => {
+      // The session created the item and never committed its bytes: it holds the name, reports zero
+      // bytes, and the folder listing does not mention it.
+      if (method === 'GET') return { id: 'husk', name: '1.zip', eTag: 'etag-husk', size: 0, file: {} };
+      attempts += 1;
+      if (path.includes('conflictBehavior=fail')) throw conflict();
+      return uploaded('id-real');
+    });
+
+    const item = await new Drive(graph, 'drive-1').upload('folder-1', 'a.zip', fakeFile(1024), undefined, true);
+
+    expect(item.id).toBe('id-real');
+    expect(attempts).toBe(2);
+    expect(calls[2]!.path).not.toContain('conflictBehavior=fail');
   });
 
   it('leaves a conflict alone when the mirror knew the file was there', async () => {

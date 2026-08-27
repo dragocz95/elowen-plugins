@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, realpath, rename, stat } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
-import { Drive, StaleLocalError } from './drive.js';
+import { Drive, RemoteItemAppearedError, StaleLocalError } from './drive.js';
 import { decide } from './merge.js';
 import { buildIgnore, containedIn, containedInEventually, gitIgnoredAmong, hashFile, scanLocal, TRASH_DIR, openMirrorFile, } from './scan.js';
 const LEASE_MS = 5 * 60 * 1000;
@@ -441,19 +441,7 @@ export class SyncEngine {
                         case 'conflict': {
                             if (!local.present || !remoteFile.present)
                                 break;
-                            // With no baseline, "both sides have this file" is indistinguishable from "both sides have
-                            // the SAME file" - which is the normal state on a first connect, and on every reconnect,
-                            // since disconnecting drops the baseline. Comparing content first turns that from a pile of
-                            // conflicts into nothing to do. Only worth asking when the sizes already agree.
-                            if (!known && local.size === remoteFile.size && await drive.sha256(remoteFile.itemId) === local.sha256) {
-                                this.deps.store.putItem({
-                                    linkId: link.id, rel, localSize: local.size, localMtimeMs: local.mtimeMs, localSha256: local.sha256,
-                                    remoteItemId: remoteFile.itemId, remoteEtag: remoteFile.etag, state: 'synced', conflictCopy: null,
-                                });
-                                bytes += local.size;
-                                break;
-                            }
-                            await this.keepBoth(drive, link, root, rel, local, remoteFile, root);
+                            bytes += await this.resolveUntrackedPair(drive, link, root, rel, local, remoteFile, !known);
                             break;
                         }
                         case 'forget':
@@ -469,6 +457,16 @@ export class SyncEngine {
                     if (error instanceof StaleLocalError && local.present && remoteFile.present) {
                         // Saved underneath us mid-download. Both versions matter; neither is thrown away.
                         await this.keepBoth(drive, link, root, rel, local, remoteFile, root);
+                        continue;
+                    }
+                    if (error instanceof RemoteItemAppearedError && local.present) {
+                        // The listing said this path was free and Graph says otherwise, with a real item to prove it.
+                        // Graph wins - it was asked about this exact path, where the listing is a walk that can miss
+                        // one. Judge the pair the ordinary way rather than failing: an identical file (the usual case,
+                        // an upload whose response was lost) simply becomes a baseline, and a genuinely different one
+                        // keeps both copies. Failing instead is what made this permanent, because nothing about the
+                        // next cycle would differ.
+                        bytes += await this.resolveUntrackedPair(drive, link, root, rel, local, { present: true, itemId: error.item.id, etag: error.item.etag, size: error.item.size }, !known);
                         continue;
                     }
                     // One file failing is not a reason to abandon the rest of the mirror, but it IS a reason to
@@ -502,6 +500,29 @@ export class SyncEngine {
         }
     }
     /** Keep the local file exactly as it is and bring the remote one down beside it under a free name. */
+    /** Weigh a remote copy against a local one for a path with no agreed baseline, and return the bytes the
+     *  cycle may count as mirrored.
+     *
+     *  Two callers ask this same question and must not answer it twice: the ordinary `conflict` decision,
+     *  and the upload that DISCOVERS a remote item the folder listing failed to report. `untracked` is the
+     *  caller's answer to "is there really no baseline" - only then may identical content be adopted
+     *  silently, because with a baseline present, equal bytes are a genuine convergence worth recording
+     *  through the normal path rather than short-circuiting here. */
+    async resolveUntrackedPair(drive, link, root, rel, local, remoteFile, untracked) {
+        // With no baseline, "both sides have this file" is indistinguishable from "both sides have the SAME
+        // file" - which is the normal state on a first connect, and on every reconnect, since disconnecting
+        // drops the baseline. Comparing content first turns that from a pile of conflicts into nothing to do.
+        // Only worth asking when the sizes already agree.
+        if (untracked && local.size === remoteFile.size && await drive.sha256(remoteFile.itemId) === local.sha256) {
+            this.deps.store.putItem({
+                linkId: link.id, rel, localSize: local.size, localMtimeMs: local.mtimeMs, localSha256: local.sha256,
+                remoteItemId: remoteFile.itemId, remoteEtag: remoteFile.etag, state: 'synced', conflictCopy: null,
+            });
+            return local.size;
+        }
+        await this.keepBoth(drive, link, root, rel, local, remoteFile, root);
+        return 0;
+    }
     async keepBoth(drive, link, root, rel, local, remoteFile, projectRoot) {
         // Asked of the FILESYSTEM, not of the scan. The scan deliberately leaves things out - settling,
         // oversized, unreadable, symlinks - and a name it never mentioned is still a name that exists. The

@@ -62,13 +62,16 @@ function fakeDrive() {
   /** Items that EXIST but are deliberately absent from the listing - what a file moved between folders
    *  mid-walk looks like from here. */
   const hidden = new Map<string, { id: string; etag: string; body: Buffer }>();
+  /** Present in OneDrive at a known PATH but deliberately absent from the folder listing — the
+   *  disagreement between a direct lookup and a walk that the mirror has to survive. */
+  const unlisted = new Map<string, { id: string; etag: string; body: Buffer }>();
   const state: {
     lastDelete: { id: string; ifMatch?: string } | null;
     onDownload?: () => void;
     onList?: () => void;
   } = { lastDelete: null };
 
-  const childrenOf = (folder: string) => {
+  const childrenOf = (_folder: string) => {
     // The mirror root is addressed by item id; this fake collapses that to one folder holding flat paths.
     const prefix = 'Elowen/projects/demo/';
     const out: Record<string, unknown>[] = [];
@@ -99,6 +102,18 @@ function fakeDrive() {
         state.onList?.();
         return page;
       }
+      // `items/<folderId>:/<rel>` asks about ONE path. A file can answer here and still be missing from
+      // the folder walk above - Graph was asked about this exact name, the walk merely passed nearby.
+      const byPath = /\/items\/([^/]+):\/([^?]+?):?(?:\?|$)/.exec(path);
+      if (byPath && method === 'GET' && !path.includes(':/content')) {
+        const remote = `${decodeURIComponent(byPath[1]!) === 'folder-1' ? 'Elowen/projects/demo' : 'unknown-folder'}/${decodeURIComponent(byPath[2]!)}`;
+        const found = files.get(remote) ?? unlisted.get(remote);
+        if (!found) throw Object.assign(new Error('not found'), { status: 404 });
+        return {
+          id: found.id, eTag: found.etag, name: remote.split('/').pop(),
+          size: found.body.length, file: {}, parentReference: { path: '/drive/root:' },
+        };
+      }
       if (path.includes(':/content') && method === 'PUT') {
         // `?@microsoft.graph.conflictBehavior=fail` rides on the URL, so strip the query before decoding.
         const bare = path.split('?')[0]!;
@@ -109,8 +124,11 @@ function fakeDrive() {
         const remote = scoped
           ? `${decodeURIComponent(scoped[1]!) === 'folder-1' ? 'Elowen/projects/demo' : 'unknown-folder'}/${decodeURIComponent(scoped[2]!)}`
           : decodeURIComponent(bare.replace(/^.*\/root:\//, '').replace(/:\/content$/, ''));
-        if (path.includes('conflictBehavior=fail') && files.has(remote)) {
-          throw Object.assign(new Error('conflict'), { status: 409 });
+        if (path.includes('conflictBehavior=fail') && (files.has(remote) || unlisted.has(remote))) {
+          // Graph's real answer, code included: the recovery keys on the code, not on the bare status.
+          throw Object.assign(new Error('The specified item name already exists.'), {
+            status: 409, code: 'nameAlreadyExists',
+          });
         }
         counter += 1;
         const entry = { id: `id-${counter}`, etag: `etag-${counter}`, body: Buffer.from(String(options?.body ?? '')) };
@@ -135,7 +153,7 @@ function fakeDrive() {
     }),
     binary: vi.fn(async (path: string) => {
       const id = decodeURIComponent(path.replace(/^.*\/items\//, '').replace(/\/content$/, ''));
-      const found = [...files.values()].find((entry) => entry.id === id);
+      const found = [...files.values(), ...unlisted.values()].find((entry) => entry.id === id);
       // Lets a test act in the window between reading the bytes and replacing the local file.
       state.onDownload?.();
       return { body: new Uint8Array(found?.body ?? Buffer.from('remote')), contentType: 'application/octet-stream' };
@@ -150,7 +168,7 @@ function fakeDrive() {
   const drop = (rel: string) => { files.delete(`Elowen/projects/demo/${rel}`); };
 
   return {
-    graph, files, hidden, put, drop,
+    graph, files, hidden, unlisted, put, drop,
     get lastDelete() { return state.lastDelete; },
     set onDownload(fn: (() => void) | undefined) { state.onDownload = fn; },
     get onDownload() { return state.onDownload; },
@@ -770,7 +788,7 @@ describe('onedrive sync cycle', () => {
   });
 
   it('adopts a file that is already identical on both sides instead of calling it a conflict', async () => {
-    const { root, store, drive, engine, link } = harness();
+    const { root, store, engine, link } = harness();
     settled(join(root, 'same.md'), 'identical\n');
     await engine.syncUser(7);
     expect(store.items(link.id).get('same.md')?.state).toBe('synced');
@@ -799,6 +817,41 @@ describe('onedrive sync cycle', () => {
 
     expect(store.items(link.id).get('same.md')?.state).toBe('conflict');
     expect(readFileSync(join(root, 'same.md'), 'utf8')).toBe('aaaaaaaa\n');
+    expect(readdirSync(root).filter((name) => name.includes('onedrive-conflict'))).toHaveLength(1);
+  });
+
+  it('adopts a file OneDrive holds but the listing never reported, instead of failing every cycle', async () => {
+    const { root, store, drive, engine, link } = harness();
+    settled(join(root, 'report.md'), 'same bytes\n');
+    // The shape of a lost upload response: the bytes ARE in OneDrive, but no page of the walk says so.
+    // The mirror therefore calls the path new, Graph refuses to create it, and without recovery that
+    // pair of answers repeats for as long as the mirror runs.
+    drive.unlisted.set('Elowen/projects/demo/report.md', {
+      id: 'remote-unlisted', etag: 'etag-unlisted', body: Buffer.from('same bytes\n'),
+    });
+
+    await engine.syncUser(7);
+
+    const item = store.items(link.id).get('report.md');
+    expect(item?.state).toBe('synced');
+    expect(item?.remoteItemId).toBe('remote-unlisted');
+    // Identical content is not a conflict, so nothing is duplicated and the cycle reports success.
+    expect(readdirSync(root).filter((name) => name.includes('onedrive-conflict'))).toHaveLength(0);
+    expect(store.linkById(link.id)!.status).toBe('idle');
+  });
+
+  it('keeps both copies when the file the listing missed is genuinely different', async () => {
+    const { root, store, drive, engine, link } = harness();
+    settled(join(root, 'report.md'), 'mine\n');
+    drive.unlisted.set('Elowen/projects/demo/report.md', {
+      id: 'remote-unlisted', etag: 'etag-unlisted', body: Buffer.from('theirs, and much longer\n'),
+    });
+
+    await engine.syncUser(7);
+
+    // Adoption is for content that already agrees. Where it does not, the invisible remote copy must not
+    // be silently overwritten just because a listing failed to mention it.
+    expect(store.items(link.id).get('report.md')?.state).toBe('conflict');
     expect(readdirSync(root).filter((name) => name.includes('onedrive-conflict'))).toHaveLength(1);
   });
 

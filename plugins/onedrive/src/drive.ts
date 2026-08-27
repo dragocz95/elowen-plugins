@@ -98,6 +98,20 @@ export class StaleLocalError extends Error {
   }
 }
 
+/** Graph refused to create a file because the name is taken, and the item at that path turned out to be
+ *  REAL — so the folder listing that called the path free was wrong, not merely stale.
+ *
+ *  This is not a failure and must not be reported as one. It carries the item the listing missed so the
+ *  caller can feed it back into the ordinary merge, which is the only layer allowed to decide between a
+ *  remote copy and a local one. Left as a plain error it became a permanent loop: the listing kept
+ *  omitting the file, the mirror kept believing it was new, and Graph kept refusing the same create. */
+export class RemoteItemAppearedError extends Error {
+  constructor(readonly rel: string, readonly item: DriveItem) {
+    super(`OneDrive already holds ${rel} as item ${item.id}, which the folder listing did not report`);
+    this.name = 'RemoteItemAppearedError';
+  }
+}
+
 export class Drive {
   constructor(private readonly graph: MicrosoftDriveGraph, readonly driveId: string) {}
 
@@ -260,10 +274,13 @@ export class Drive {
    *  is holding. So a 404 here is the signature of an upload of OURS that died mid-flight, leaving a
    *  reservation and nothing a user can see — and a real item is a real item, which the mirror must merge
    *  rather than overwrite. */
-  private async itemIdAt(folderId: string, rel: string): Promise<string | null> {
+  private async itemAt(folderId: string, rel: string): Promise<DriveItem | null> {
     try {
-      const item = asRecord(await this.graph.json('GET', `${this.itemAddress(folderId, rel)}?$select=id`));
-      return typeof item.id === 'string' && item.id ? item.id : null;
+      const raw = await this.graph.json(
+        'GET',
+        `${this.itemAddress(folderId, rel)}?$select=id,name,eTag,cTag,size,file,folder,parentReference`,
+      );
+      return itemFromGraph(raw);
     } catch (error) {
       if (isNotFound(error)) return null;
       throw error;
@@ -290,17 +307,17 @@ export class Drive {
       // by our own dead upload session, every later cycle asks the same question and gets the same no,
       // and the file never syncs again.
       if (!expectNew || ifMatch || !isNameConflict(error)) throw error;
-      const existing = await this.itemIdAt(folderId, rel);
+      const existing = await this.itemAt(folderId, rel);
       // A real item under a name the listing did not report is a genuine disagreement between two Graph
-      // answers, and the mirror must not resolve it by overwriting. Say WHICH item, because "already
-      // exists" repeated every cycle describes this and a dead upload reservation identically, and only
-      // one of them is a file somebody could lose.
-      if (existing !== null) {
-        throw Object.assign(
-          new Error(`the name is taken by item ${existing}, which the folder listing did not report`),
-          { status: (error as { status?: unknown }).status, code: (error as { code?: unknown }).code },
-        );
-      }
+      // answers, and this layer must not resolve it by overwriting. Hand the item UP instead: the merge
+      // is the only place that may weigh a remote copy against a local one, and it already knows how —
+      // the same path that turns "both sides have this file" into either nothing to do or a kept pair.
+      // An item with NO BYTES holds nothing anybody could lose. The rule this mirror is built on protects
+      // CONTENT, and zero bytes is the absence of it — while the husk an interrupted upload session leaves
+      // behind looks exactly like this, keeps the name, and is invisible to the listing. Preserving it as
+      // a conflict copy would litter the project with empty files and still not sync the real one. The
+      // name survives either way; only its emptiness does not.
+      if (existing !== null && existing.size > 0) throw new RemoteItemAppearedError(rel, existing);
       return await send(false);
     }
   }
