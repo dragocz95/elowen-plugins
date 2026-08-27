@@ -51,19 +51,27 @@ interface RuntimeComponents {
   // has to be built from the same pieces the native sections are, not from an approximation of them.
   SpatialIdentity: AnyComponent; SettingsRow: AnyComponent; Avatar: AnyComponent;
   Segmented: AnyComponent;
+  // The Linked accounts drawer row and its chip in the closed summary — the SAME components the host
+  // draws for Discord, Teams and the rest. GitHub is one identity among them and must read as one:
+  // building this out of an avatar and a card of its own is what made it the odd row out.
+  LinkedAccountRow: AnyComponent; SummaryChip: AnyComponent;
 }
 interface GitHubRuntime { components: RuntimeComponents; hooks: RuntimeHooks; utils: { apiErrorMessage(error: unknown): string }; api(path: string, init?: RequestInit): Promise<unknown>; navigate(href: string): void }
-interface HostWindow { ElowenUiRuntime?: unknown; __elowenRegisterPluginUi?: (plugin: string, registration: { requiresApiVersion: number; account?: Record<string, ComponentType<any>>; project?: Record<string, ComponentType<any>> }) => void }
+interface HostWindow { ElowenUiRuntime?: unknown; __elowenRegisterPluginUi?: (plugin: string, registration: { requiresApiVersion: number; account?: Record<string, ComponentType<any>>; accountChip?: Record<string, ComponentType<any>>; project?: Record<string, ComponentType<any>> }) => void }
 
 export function runtime(): GitHubRuntime {
   const value = (window as HostWindow).ElowenUiRuntime as GitHubRuntime | undefined;
   if (!value) throw new Error('ElowenUiRuntime is not installed');
   return value;
 }
-export function registerGitHubUi(account: ComponentType<any>, project: ComponentType<any>): void {
+/** `chip` is what the CLOSED Linked accounts summary shows for this connector. It is registered apart
+ *  from the panel because the host mounts the two independently: the summary is on the page from the
+ *  first paint, the panel only once the drawer is opened. */
+export function registerGitHubUi(account: ComponentType<any>, chip: ComponentType<any>, project: ComponentType<any>): void {
   (window as HostWindow).__elowenRegisterPluginUi?.('github', {
-    requiresApiVersion: 6,
+    requiresApiVersion: 7,
     account: { connection: account },
+    accountChip: { connection: chip },
     project: { repository: project },
   });
 }

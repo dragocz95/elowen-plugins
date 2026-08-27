@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { GitFork, Github, Hash } from 'lucide-react';
+import { Github } from 'lucide-react';
 import { jsonBody, localizedError, runtime, type DeviceFlowResponse, type Preview, type StatusResponse } from './runtime';
 
 export const STATUS_KEY = ['plugin', 'github', 'status'];
 interface PendingConnectionAction { action: Record<string, unknown>; preview: Preview }
 interface DeviceChallenge { flowId: string; verificationUrl: string; userCode: string; expiresAt: number }
 
-export function GitHubConnectionPanel({ onChanged, surface }: { onChanged?: () => void | Promise<void>; surface?: 'page' | 'deck' }) {
+export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | Promise<void> }) {
   const { components: C, hooks, api, utils } = runtime();
   const s = hooks.usePluginStrings('github');
   const { toast } = hooks.useToast();
@@ -118,50 +118,47 @@ export function GitHubConnectionPanel({ onChanged, surface }: { onChanged?: () =
     </div>;
   }
 
+  const connected = !!status.data?.connected && !!account;
   return <>
-    {status.data?.connected && account ? (
-      /* Shaped exactly like the Account profile section: the connected identity leads, above a card of
-         plain rows. The avatar is GitHub's, so it is an <img> rather than the host Avatar, which renders
-         an Elowen account. */
-      <>
-        <C.SpatialIdentity actions={(
-          <>
-            <button type="button" className="spatial-inline-action" onClick={() => test.mutate()} disabled={test.isPending}>
-              <Github size={14} aria-hidden />{s.testConnection}
-            </button>
-            <button type="button" className="spatial-inline-action" onClick={() => preview.mutate({ type: 'replace_identity' })}>
-              {s.replaceIdentity}
-            </button>
-            <button type="button" className="spatial-inline-action text-danger" onClick={() => preview.mutate({ type: 'disconnect' })}>
-              {s.disconnect}
-            </button>
-          </>
-        )}>
-          <div className="flex items-center gap-4">
-            {account.avatarUrl
-              ? <img src={account.avatarUrl} alt="" className="size-[72px] shrink-0 rounded-full border border-border object-cover" />
-              : <Github className="size-[72px] shrink-0 rounded-full border border-border p-4 text-text-muted" />}
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="flex items-center gap-2">
-                <span className="truncate text-lg font-semibold text-text">{account.name || account.login}</span>
-                <C.Badge tone={status.data.reconnectRequired ? 'danger' : 'success'}>{status.data.reconnectRequired ? s.reconnectRequired : s.connected}</C.Badge>
-              </span>
-              <span className="truncate font-mono text-xs text-text-muted">@{account.login}</span>
-            </div>
-          </div>
-        </C.SpatialIdentity>
-        <C.PluginSection surface={surface ?? 'deck'} title={s.accountTitle || s.title} description={s.accountHint || s.intro} icon={Github}>
-          <C.SettingsRow label={s.mappings} icon={GitFork} status={<span className="font-mono">{status.data.mappings}</span>} />
-          <C.SettingsRow
-            label="GitHub ID"
-            icon={Hash}
-            status={<span className="font-mono">{account.githubUserId}</span>}
-          />
-        </C.PluginSection>
-      </>
-    ) : (
-      <C.EmptyState title={status.data?.reconnectRequired ? s.reconnectRequired : s.disconnected} description={s.intro} icon={Github} action={<C.Button variant="accent" onClick={beginConnect} disabled={connect.isPending}>{status.data?.reconnectRequired ? s.reconnect : s.connect}</C.Button>} />
-    )}
+    {/* One row of the Linked accounts drawer, built from the host's own row so it reads as a sibling of
+        Discord and Teams rather than a guest with its own furniture. The identity IS the value of the
+        link, so it sits where a chat platform puts its id field; the GitHub avatar is gone because the
+        question this drawer answers is "which account am I over there", and a face 72px tall answered it
+        four times louder than every row beside it. Repository mappings and the numeric GitHub id moved
+        out with it: operational detail belongs on the plugin's own page, not in the identity list. */}
+    <C.LinkedAccountRow
+      icon={<Github size={18} aria-hidden />}
+      title={s.title}
+      actions={connected ? (
+        <>
+          <C.Button variant="ghost" onClick={() => test.mutate()} disabled={test.isPending}>{s.testConnection}</C.Button>
+          <C.Button variant="ghost" onClick={() => preview.mutate({ type: 'replace_identity' })}>{s.replaceIdentity}</C.Button>
+          <C.Button variant="ghost-danger" onClick={() => preview.mutate({ type: 'disconnect' })}>{s.disconnect}</C.Button>
+        </>
+      ) : (
+        <C.Button variant="ghost" onClick={beginConnect} disabled={connect.isPending}>{status.data?.reconnectRequired ? s.reconnect : s.connect}</C.Button>
+      )}
+      description={connected ? s.accountHint || s.intro : s.intro}
+    >
+      {connected && account ? (
+        <span className="flex items-center gap-2">
+          <span className="truncate font-mono text-sm text-text">@{account.login}</span>
+          <C.Badge tone={status.data?.reconnectRequired ? 'danger' : 'success'}>{status.data?.reconnectRequired ? s.reconnectRequired : s.connected}</C.Badge>
+        </span>
+      ) : null}
+    </C.LinkedAccountRow>
     {pending ? <C.ConfirmDialog open title={pending.preview.title || s.confirmExternal} description={`${pending.preview.description}\n\n${s.confirmationExpires}`} confirmLabel={s.confirm} onClose={() => setPending(null)} onConfirm={completePending} /> : null}
   </>;
+}
+
+/** What the CLOSED Linked accounts summary shows for GitHub: the same chip the host draws for a linked
+ *  chat platform, and nothing at all when this account has no GitHub identity — the host cannot decide
+ *  that, so an unlinked connector must say nothing rather than have the host guess. Shares the panel's
+ *  query key, so mounting both costs one request. */
+export function GitHubAccountChip() {
+  const { components: C, hooks, api } = runtime();
+  const s = hooks.usePluginStrings('github');
+  const status = hooks.useQuery<StatusResponse>({ queryKey: STATUS_KEY, queryFn: () => api('/plugins/github/api/status') });
+  if (!status.data?.connected) return null;
+  return <C.SummaryChip icon={<Github size={12} aria-hidden />} label={s.title} />;
 }

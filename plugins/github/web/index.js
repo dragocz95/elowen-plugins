@@ -120,15 +120,6 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/git-fork.js
-var GitFork = createLucideIcon("GitFork", [
-  ["circle", { cx: "12", cy: "18", r: "3", key: "1mpf1b" }],
-  ["circle", { cx: "6", cy: "6", r: "3", key: "1lh9wr" }],
-  ["circle", { cx: "18", cy: "6", r: "3", key: "1h7g24" }],
-  ["path", { d: "M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9", key: "1uq4wg" }],
-  ["path", { d: "M12 12v3", key: "158kv8" }]
-]);
-
 // node_modules/lucide-react/dist/esm/icons/git-pull-request.js
 var GitPullRequest = createLucideIcon("GitPullRequest", [
   ["circle", { cx: "18", cy: "18", r: "3", key: "1xkwt0" }],
@@ -149,14 +140,6 @@ var Github = createLucideIcon("Github", [
   ["path", { d: "M9 18c-4.51 2-5-2-7-2", key: "9comsn" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/hash.js
-var Hash = createLucideIcon("Hash", [
-  ["line", { x1: "4", x2: "20", y1: "9", y2: "9", key: "4lhtct" }],
-  ["line", { x1: "4", x2: "20", y1: "15", y2: "15", key: "vyu0kd" }],
-  ["line", { x1: "10", x2: "8", y1: "3", y2: "21", key: "1ggp8o" }],
-  ["line", { x1: "16", x2: "14", y1: "3", y2: "21", key: "weycgp" }]
-]);
-
 // node_modules/lucide-react/dist/esm/icons/link-2.js
 var Link2 = createLucideIcon("Link2", [
   ["path", { d: "M9 17H7A5 5 0 0 1 7 7h2", key: "8i5ue5" }],
@@ -170,10 +153,11 @@ function runtime() {
   if (!value) throw new Error("ElowenUiRuntime is not installed");
   return value;
 }
-function registerGitHubUi(account, project) {
+function registerGitHubUi(account, chip, project) {
   window.__elowenRegisterPluginUi?.("github", {
-    requiresApiVersion: 6,
+    requiresApiVersion: 7,
     account: { connection: account },
+    accountChip: { connection: chip },
     project: { repository: project }
   });
 }
@@ -188,7 +172,7 @@ function localizedError(error, strings) {
 // plugins/github/web-src/GitHubConnectionPanel.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var STATUS_KEY = ["plugin", "github", "status"];
-function GitHubConnectionPanel({ onChanged, surface }) {
+function GitHubConnectionPanel({ onChanged }) {
   const { components: C, hooks, api, utils } = runtime();
   const s = hooks.usePluginStrings("github");
   const { toast } = hooks.useToast();
@@ -293,55 +277,45 @@ function GitHubConnectionPanel({ onChanged, surface }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex flex-wrap gap-2", children: !terminal ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => cancel.mutate(flow.flowId), disabled: cancel.isPending, children: s.cancelConnection }) : null })
     ] });
   }
+  const connected = !!status.data?.connected && !!account;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-    status.data?.connected && account ? (
-      /* Shaped exactly like the Account profile section: the connected identity leads, above a card of
-         plain rows. The avatar is GitHub's, so it is an <img> rather than the host Avatar, which renders
-         an Elowen account. */
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SpatialIdentity, { actions: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { type: "button", className: "spatial-inline-action", onClick: () => test.mutate(), disabled: test.isPending, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Github, { size: 14, "aria-hidden": true }),
-            s.testConnection
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      C.LinkedAccountRow,
+      {
+        icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Github, { size: 18, "aria-hidden": true }),
+        title: s.title,
+        actions: connected ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => test.mutate(), disabled: test.isPending, children: s.testConnection }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => preview.mutate({ type: "replace_identity" }), children: s.replaceIdentity }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: () => preview.mutate({ type: "disconnect" }), children: s.disconnect })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: beginConnect, disabled: connect.isPending, children: status.data?.reconnectRequired ? s.reconnect : s.connect }),
+        description: connected ? s.accountHint || s.intro : s.intro,
+        children: connected && account ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "truncate font-mono text-sm text-text", children: [
+            "@",
+            account.login
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "spatial-inline-action", onClick: () => preview.mutate({ type: "replace_identity" }), children: s.replaceIdentity }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "spatial-inline-action text-danger", onClick: () => preview.mutate({ type: "disconnect" }), children: s.disconnect })
-        ] }), children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-4", children: [
-          account.avatarUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: account.avatarUrl, alt: "", className: "size-[72px] shrink-0 rounded-full border border-border object-cover" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Github, { className: "size-[72px] shrink-0 rounded-full border border-border p-4 text-text-muted" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-w-0 flex-1 flex-col gap-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-2", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-lg font-semibold text-text", children: account.name || account.login }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: status.data.reconnectRequired ? "danger" : "success", children: status.data.reconnectRequired ? s.reconnectRequired : s.connected })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "truncate font-mono text-xs text-text-muted", children: [
-              "@",
-              account.login
-            ] })
-          ] })
-        ] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.PluginSection, { surface: surface ?? "deck", title: s.accountTitle || s.title, description: s.accountHint || s.intro, icon: Github, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SettingsRow, { label: s.mappings, icon: GitFork, status: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono", children: status.data.mappings }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            C.SettingsRow,
-            {
-              label: "GitHub ID",
-              icon: Hash,
-              status: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono", children: account.githubUserId })
-            }
-          )
-        ] })
-      ] })
-    ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: status.data?.reconnectRequired ? s.reconnectRequired : s.disconnected, description: s.intro, icon: Github, action: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: beginConnect, disabled: connect.isPending, children: status.data?.reconnectRequired ? s.reconnect : s.connect }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: status.data?.reconnectRequired ? "danger" : "success", children: status.data?.reconnectRequired ? s.reconnectRequired : s.connected })
+        ] }) : null
+      }
+    ),
     pending ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ConfirmDialog, { open: true, title: pending.preview.title || s.confirmExternal, description: `${pending.preview.description}
 
 ${s.confirmationExpires}`, confirmLabel: s.confirm, onClose: () => setPending(null), onConfirm: completePending }) : null
   ] });
 }
+function GitHubAccountChip() {
+  const { components: C, hooks, api } = runtime();
+  const s = hooks.usePluginStrings("github");
+  const status = hooks.useQuery({ queryKey: STATUS_KEY, queryFn: () => api("/plugins/github/api/status") });
+  if (!status.data?.connected) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SummaryChip, { icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Github, { size: 12, "aria-hidden": true }), label: s.title });
+}
 
 // plugins/github/web-src/GitHubAccountPanel.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
-function GitHubAccountPanel({ surface }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex min-w-0 flex-col gap-6", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GitHubConnectionPanel, { surface }) });
+function GitHubAccountPanel() {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GitHubConnectionPanel, {});
 }
 
 // plugins/github/web-src/GitHubProjectPanel.tsx
@@ -592,4 +566,4 @@ function mappingFrom(row) {
 }
 
 // plugins/github/web-src/index.tsx
-registerGitHubUi(GitHubAccountPanel, GitHubProjectPanel);
+registerGitHubUi(GitHubAccountPanel, GitHubAccountChip, GitHubProjectPanel);

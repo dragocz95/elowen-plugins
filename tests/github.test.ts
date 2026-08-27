@@ -275,11 +275,13 @@ describe('GitHub plugin', () => {
 
   it('declares device auth without App setup or callback routes', () => {
     expect(manifest.userGrantable).not.toBe(true);
-    expect(manifest.version).toBe('0.1.8');
-    // Still 4, deliberately: `placement` is read by the HOST off the manifest, not called by the bundle,
-    // so a host too old to know the field ignores it and falls back to a rail section. Raising the floor
-    // would refuse to load the plugin there instead — the ceiling cannot express "nice to have".
-    expect(manifest.web.requiresApiVersion).toBe(4);
+    expect(manifest.version).toBe('0.1.9');
+    // 7, and no longer "nice to have". The floor stayed at 4 while `placement` was the only new thing,
+    // because the HOST reads that off the manifest and an older one just falls back to a rail section.
+    // The bundle now CALLS `LinkedAccountRow` and `SummaryChip`, which an older host does not publish:
+    // there they resolve to undefined and React throws while rendering the drawer. A refused load states
+    // the incompatibility; a crash inside the Account page does not.
+    expect(manifest.web.requiresApiVersion).toBe(7);
     expect(manifest.web.nav).toBeUndefined();
     // GitHub is an identity, so it hangs in the Linked accounts drawer beside the chat platforms rather
     // than as a top-level Account menu of its own.

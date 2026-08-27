@@ -60,7 +60,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 4,
+    "requiresApiVersion": 7,
     "account": [{ "id": "connection", "label": "GitHub", "icon": "Github", "placement": "linkedAccount" }],
     "project": [{ "id": "repository", "label": "GitHub", "icon": "Github" }],
     "strings": {
