@@ -7,6 +7,9 @@ import { promisify } from 'node:util';
 import { fileKindOf, MAX_BUFFERED_BYTES, MAX_OFFICE_BYTES } from './fileTypes.js';
 const run = promisify(execFile);
 const IGNORE = new Set(['.git', 'node_modules', '.next', 'dist', '.turbo', 'coverage', '.cache']);
+/** Marks a half-written upload. Listed nowhere: an in-flight transfer is not a project file, and one
+ *  left behind by a dropped connection would otherwise sit in the tree forever pretending to be one. */
+const UPLOAD_SUFFIX = '.elowen-upload';
 const MAX_FILE = 2 * 1024 * 1024;
 const MAX_RANGE_BYTES = 8 * 1024 * 1024;
 const MAX_OFFICE_OUTPUT_BYTES = MAX_BUFFERED_BYTES;
@@ -38,7 +41,7 @@ export function listProjectFiles(root, maxDepth = 8) {
         }
         entries.sort((a, b) => (a.isDirectory() === b.isDirectory() ? a.name.localeCompare(b.name) : a.isDirectory() ? -1 : 1));
         for (const entry of entries) {
-            if (IGNORE.has(entry.name))
+            if (IGNORE.has(entry.name) || entry.name.endsWith(UPLOAD_SUFFIX))
                 continue;
             const abs = join(dir, entry.name);
             const path = relative(resolvedRoot, abs);
@@ -143,6 +146,45 @@ export function createProjectFile(safe, root, rel) {
         throw new EditorFileError('already exists');
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, '', 'utf8');
+}
+/** Appends one chunk of an upload beside its destination, and on the final chunk moves it into place.
+ *
+ *  It goes through a temp file rather than straight at the target for the reason that matters to
+ *  somebody dropping a file in: an upload that dies halfway must not leave a truncated file sitting
+ *  where the real one should be, looking complete to every reader. Until the last chunk lands there is
+ *  nothing at the destination at all.
+ *
+ *  `offset` is what the caller believes has already been written, and it must match the temp file
+ *  exactly. Chunks that arrive out of order or with a gap are refused instead of padded — silently
+ *  zero-filling the hole would produce a corrupt file that no error ever mentioned. */
+export function uploadProjectChunk(safe, root, rel, bytes, offset, final, overwrite) {
+    if (!Number.isSafeInteger(offset) || offset < 0)
+        throw new EditorFileError('invalid offset');
+    // What the editor hands back on download it will also accept, so the ceiling is the same one.
+    if (offset + bytes.length > MAX_BUFFERED_BYTES)
+        throw new EditorFileError('file too large');
+    const abs = safe(root, rel, true);
+    // The temp lives beside the target so it lands on the same filesystem — a rename across devices is
+    // not atomic, and the whole point of the temp is that the move either happened or did not.
+    const temp = `${abs}${UPLOAD_SUFFIX}`;
+    // Refuse an unintended overwrite at the START, before a large upload spends time on the wire, and
+    // again at the END, because the file may have appeared in between.
+    if (!overwrite && existsSync(abs))
+        throw new EditorFileError('already exists');
+    mkdirSync(dirname(abs), { recursive: true });
+    const written = offset === 0 ? 0 : existsSync(temp) ? statSync(temp).size : 0;
+    if (offset !== written)
+        throw new EditorFileError('upload out of order');
+    writeFileSync(temp, bytes, { flag: offset === 0 ? 'w' : 'a' });
+    const total = statSync(temp).size;
+    if (!final)
+        return { written: total };
+    if (!overwrite && existsSync(abs)) {
+        rmSync(temp, { force: true });
+        throw new EditorFileError('already exists');
+    }
+    renameSync(temp, abs);
+    return { written: total };
 }
 export function createProjectDir(safe, root, rel) {
     const abs = safe(root, rel, true);

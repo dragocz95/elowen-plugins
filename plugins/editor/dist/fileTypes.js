@@ -1,6 +1,11 @@
 export const MAX_BUFFERED_BYTES = 50 * 1024 * 1024;
 export const MAX_OFFICE_BYTES = 20 * 1024 * 1024;
 export const MAX_MEDIA_PREVIEW_BYTES = 50 * 1024 * 1024;
+/** An upload travels in chunks because the daemon caps ANY plugin API body at 4 MiB (a bound on what
+ *  the dispatcher will allocate, not a policy this plugin may raise). One-shot would therefore refuse
+ *  an ordinary photo or PDF. Kept well under that ceiling so a chunk plus its headers can never brush
+ *  against it, and shared with the browser so client and server cannot disagree on the split. */
+export const MAX_UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024;
 const MIME_BY_EXTENSION = {
     pdf: 'application/pdf',
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',

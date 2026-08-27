@@ -2,9 +2,12 @@
 import { MonacoDiffEditor } from './monacoLoader';
 import { langOf } from './helpers';
 import { runtime } from '../runtime';
+import { diffOptions, type EditorPrefs } from './editorOptions';
 
 /** Native Monaco side-by-side diff: original (file at HEAD) vs modified (working content). Read-only. */
-export function DiffEditorPane({ path, original, modified }: { path: string; original: string; modified: string }) {
+export function DiffEditorPane({ path, original, modified, prefs }: {
+  path: string; original: string; modified: string; prefs: EditorPrefs;
+}) {
   return (
     <MonacoDiffEditor
       key={path}
@@ -14,7 +17,7 @@ export function DiffEditorPane({ path, original, modified }: { path: string; ori
       language={langOf(path)}
       original={original}
       modified={modified}
-      options={{ readOnly: true, renderSideBySide: true, fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false, automaticLayout: true, ignoreTrimWhitespace: false }}
+      options={diffOptions(prefs)}
     />
   );
 }

@@ -522,6 +522,16 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
+// node_modules/lucide-react/dist/esm/icons/align-left.js
+var AlignLeft = createLucideIcon("AlignLeft", [
+  ["path", { d: "M15 12H3", key: "6jk70r" }],
+  ["path", { d: "M17 18H3", key: "1amg6g" }],
+  ["path", { d: "M21 6H3", key: "1jwq7v" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/check.js
+var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
+
 // node_modules/lucide-react/dist/esm/icons/chevron-left.js
 var ChevronLeft = createLucideIcon("ChevronLeft", [
   ["path", { d: "m15 18-6-6 6-6", key: "1wnfg3" }]
@@ -530,6 +540,11 @@ var ChevronLeft = createLucideIcon("ChevronLeft", [
 // node_modules/lucide-react/dist/esm/icons/chevron-right.js
 var ChevronRight = createLucideIcon("ChevronRight", [
   ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/circle.js
+var Circle = createLucideIcon("Circle", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/clipboard-copy.js
@@ -630,6 +645,19 @@ var GitCompare = createLucideIcon("GitCompare", [
   ["path", { d: "M11 18H8a2 2 0 0 1-2-2V9", key: "19pyzm" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/map.js
+var Map2 = createLucideIcon("Map", [
+  [
+    "path",
+    {
+      d: "M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z",
+      key: "169xi5"
+    }
+  ],
+  ["path", { d: "M15 5.764v15", key: "1pn4in" }],
+  ["path", { d: "M9 3.236v15", key: "1uimfh" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/maximize-2.js
 var Maximize2 = createLucideIcon("Maximize2", [
   ["polyline", { points: "15 3 21 3 21 9", key: "mznyad" }],
@@ -686,6 +714,20 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/type.js
+var Type = createLucideIcon("Type", [
+  ["polyline", { points: "4 7 4 4 20 4 20 7", key: "1nosan" }],
+  ["line", { x1: "9", x2: "15", y1: "20", y2: "20", key: "swin9y" }],
+  ["line", { x1: "12", x2: "12", y1: "4", y2: "20", key: "1tx1rr" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/upload.js
+var Upload = createLucideIcon("Upload", [
+  ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
+  ["polyline", { points: "17 8 12 3 7 8", key: "t8dd8p" }],
+  ["line", { x1: "12", x2: "12", y1: "3", y2: "15", key: "widbto" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/wrap-text.js
 var WrapText = createLucideIcon("WrapText", [
   ["line", { x1: "3", x2: "21", y1: "6", y2: "6", key: "4m8b97" }],
@@ -707,6 +749,7 @@ var import_react21 = __toESM(require_react(), 1);
 var MAX_BUFFERED_BYTES = 50 * 1024 * 1024;
 var MAX_OFFICE_BYTES = 20 * 1024 * 1024;
 var MAX_MEDIA_PREVIEW_BYTES = 50 * 1024 * 1024;
+var MAX_UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024;
 var MIME_BY_EXTENSION = {
   pdf: "application/pdf",
   png: "image/png",
@@ -1630,11 +1673,83 @@ var Ft = de;
 // plugins/editor/web-src/editor/monacoLoader.ts
 loader.config({ paths: { vs: "/monaco/vs" } });
 
+// plugins/editor/web-src/editor/editorOptions.ts
+var DEFAULT_PREFS = { fontSize: 13, tabSize: 2, wordWrap: false, minimap: true };
+var MIN_FONT_SIZE = 10;
+var MAX_FONT_SIZE = 24;
+var TAB_SIZES = [2, 4, 8];
+function normalisePrefs(raw) {
+  const value = raw ?? {};
+  const size = Number(value.fontSize);
+  const tab = Number(value.tabSize);
+  return {
+    fontSize: Number.isFinite(size) ? Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(size))) : DEFAULT_PREFS.fontSize,
+    tabSize: TAB_SIZES.includes(tab) ? tab : DEFAULT_PREFS.tabSize,
+    wordWrap: typeof value.wordWrap === "boolean" ? value.wordWrap : DEFAULT_PREFS.wordWrap,
+    minimap: typeof value.minimap === "boolean" ? value.minimap : DEFAULT_PREFS.minimap
+  };
+}
+function editorOptions(prefs) {
+  return {
+    fontSize: prefs.fontSize,
+    tabSize: prefs.tabSize,
+    wordWrap: prefs.wordWrap ? "on" : "off",
+    minimap: { enabled: prefs.minimap, renderCharacters: false, maxColumn: 90 },
+    // The affordances that carry the "this is an editor" impression.
+    stickyScroll: { enabled: true },
+    bracketPairColorization: { enabled: true },
+    guides: { indentation: true, bracketPairs: "active" },
+    renderLineHighlight: "all",
+    occurrencesHighlight: "singleFile",
+    selectionHighlight: true,
+    matchBrackets: "always",
+    folding: true,
+    foldingHighlight: true,
+    showFoldingControls: "mouseover",
+    glyphMargin: true,
+    lineNumbersMinChars: 3,
+    renderWhitespace: "selection",
+    // Movement. Smooth caret and scrolling are the difference between "a text box updated" and "an
+    // editor responded"; both are cheap and both are off by default in standalone Monaco.
+    smoothScrolling: true,
+    cursorBlinking: "smooth",
+    cursorSmoothCaretAnimation: "on",
+    mouseWheelZoom: true,
+    // A scrollbar sized to be grabbed, and an overview ruler that actually reports something.
+    scrollbar: { verticalScrollbarSize: 12, horizontalScrollbarSize: 12, useShadows: false },
+    overviewRulerBorder: false,
+    scrollBeyondLastLine: false,
+    automaticLayout: true,
+    padding: { top: 10, bottom: 10 },
+    fontLigatures: true,
+    roundedSelection: false,
+    // Monaco has no language services here, so word-based suggestions are all it can honestly offer.
+    // Left on: inside one file they are genuinely useful, and quiet when they have nothing to say.
+    quickSuggestions: { other: true, comments: false, strings: false },
+    suggestSelection: "first",
+    tabCompletion: "on"
+  };
+}
+function diffOptions(prefs) {
+  return {
+    ...editorOptions(prefs),
+    readOnly: true,
+    renderSideBySide: true,
+    // Whitespace-only changes are real changes when reviewing a file you are about to save.
+    ignoreTrimWhitespace: false,
+    stickyScroll: { enabled: false },
+    quickSuggestions: false,
+    occurrencesHighlight: "off"
+  };
+}
+
 // plugins/editor/web-src/editor/EditorPane.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
-function EditorPane({ path, value, onChange, onSave, wordWrap }) {
+function EditorPane({ path, value, onChange, onSave, prefs, onCursor }) {
   const saveRef = (0, import_react16.useRef)(onSave);
   saveRef.current = onSave;
+  const cursorRef = (0, import_react16.useRef)(onCursor);
+  cursorRef.current = onCursor;
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
     Ft,
     {
@@ -1643,11 +1758,20 @@ function EditorPane({ path, value, onChange, onSave, wordWrap }) {
       beforeMount: runtime().utils.defineEditorThemes,
       onMount: (editor, monaco) => {
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveRef.current());
+        const report = () => {
+          const position = editor.getPosition();
+          const selection = editor.getSelection();
+          const selected = selection && !selection.isEmpty() ? editor.getModel()?.getValueInRange(selection).length ?? 0 : 0;
+          if (position) cursorRef.current?.({ line: position.lineNumber, column: position.column, selected });
+        };
+        editor.onDidChangeCursorPosition(report);
+        editor.onDidChangeCursorSelection(report);
+        report();
       },
       language: langOf(path),
       value,
       onChange: (v3) => onChange(v3 ?? ""),
-      options: { fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false, automaticLayout: true, padding: { top: 10 }, wordWrap: wordWrap ? "on" : "off" }
+      options: editorOptions(prefs)
     },
     path
   );
@@ -1655,7 +1779,7 @@ function EditorPane({ path, value, onChange, onSave, wordWrap }) {
 
 // plugins/editor/web-src/editor/DiffEditorPane.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
-function DiffEditorPane({ path, original, modified }) {
+function DiffEditorPane({ path, original, modified, prefs }) {
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
     we,
     {
@@ -1665,21 +1789,148 @@ function DiffEditorPane({ path, original, modified }) {
       language: langOf(path),
       original,
       modified,
-      options: { readOnly: true, renderSideBySide: true, fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false, automaticLayout: true, ignoreTrimWhitespace: false }
+      options: diffOptions(prefs)
     },
     path
   );
 }
 
-// plugins/editor/web-src/editor/PatchView.tsx
+// plugins/editor/web-src/editor/MenuBar.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
+function MenuBar({ menus, openId, onOpen }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "flex items-center", role: "menubar", children: menus.map((menu) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+    "button",
+    {
+      type: "button",
+      role: "menuitem",
+      "aria-haspopup": "menu",
+      "aria-expanded": openId === menu.id,
+      onClick: (event) => {
+        if (openId === menu.id) {
+          onOpen(null, 0, 0);
+          return;
+        }
+        const rect = event.currentTarget.getBoundingClientRect();
+        onOpen(menu, rect.left, rect.bottom + 4);
+      },
+      className: `rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${openId === menu.id ? "bg-elevated text-text" : "text-text-muted hover:bg-elevated hover:text-text"}`,
+      children: menu.label
+    },
+    menu.id
+  )) });
+}
+
+// plugins/editor/web-src/editor/ViewSwitch.tsx
+var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
+function ViewSwitch({ options, value, onChange, label }) {
+  if (options.length < 2) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { role: "tablist", "aria-label": label, className: "flex items-center gap-0.5 rounded-lg border border-border bg-bg/60 p-0.5", children: options.map((option) => {
+    const Icon2 = option.icon;
+    const active = option.id === value;
+    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+      "button",
+      {
+        type: "button",
+        role: "tab",
+        "aria-selected": active,
+        onClick: () => onChange(option.id),
+        className: `flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${active ? "bg-elevated text-text shadow-sm" : "text-text-muted hover:text-text"}`,
+        children: [
+          Icon2 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Icon2, { size: 13, className: "shrink-0" }) : null,
+          option.label
+        ]
+      },
+      option.id
+    );
+  }) });
+}
+
+// plugins/editor/web-src/editor/StatusBar.tsx
+var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["kB", "MB", "GB"];
+  let value = bytes / 1024;
+  let unit = units[0];
+  for (let i = 1; i < units.length && value >= 1024; i += 1) {
+    value /= 1024;
+    unit = units[i];
+  }
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
+}
+function StatusBar({ path, cursor, language, tabSize, size, dirty, labels }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "flex h-6 shrink-0 items-center gap-3 border-t border-border bg-bg/60 px-3 text-[11px] text-text-muted", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5", children: [
+      dirty ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Circle, { size: 7, className: "shrink-0 fill-warning text-warning", "aria-label": labels.unsaved }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "truncate font-mono", title: path, children: path })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { className: "ml-auto flex shrink-0 items-center gap-3 tabular-nums", children: [
+      cursor ? /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { children: [
+        labels.line,
+        " ",
+        cursor.line,
+        ", ",
+        labels.column,
+        " ",
+        cursor.column,
+        cursor.selected > 0 ? /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { className: "text-accent", children: [
+          " (",
+          cursor.selected,
+          " ",
+          labels.selected,
+          ")"
+        ] }) : null
+      ] }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { children: [
+        labels.spaces,
+        ": ",
+        tabSize
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: formatBytes(size) }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "font-medium uppercase text-text", children: language })
+    ] })
+  ] });
+}
+
+// plugins/editor/web-src/editor/upload.ts
+var UploadError = class extends Error {
+};
+async function refusal(response) {
+  const body = await response.json().catch(() => null);
+  return typeof body?.error === "string" ? body.error : `HTTP ${response.status}`;
+}
+async function uploadFile(projectId, path, file, options) {
+  if (file.size > MAX_BUFFERED_BYTES) throw new UploadError("file too large");
+  const overwrite = options?.overwrite ? "1" : "0";
+  let offset = 0;
+  do {
+    const chunk = file.slice(offset, offset + MAX_UPLOAD_CHUNK_BYTES);
+    const final = offset + chunk.size >= file.size;
+    const query = `path=${encodeURIComponent(path)}&offset=${offset}&overwrite=${overwrite}${final ? "&final=1" : ""}`;
+    const response = await fetch(`/api/projects/${projectId}/upload?${query}`, {
+      method: "PUT",
+      body: chunk,
+      headers: { "content-type": "application/octet-stream" },
+      signal: options?.signal
+    });
+    if (!response.ok) throw new UploadError(await refusal(response));
+    offset += chunk.size;
+    options?.onProgress?.(offset, file.size);
+  } while (offset < file.size);
+}
+
+// plugins/editor/web-src/editor/menu.ts
+var DIVIDER = "divider";
+
+// plugins/editor/web-src/editor/PatchView.tsx
+var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
 var { LoadingLine } = runtime().components;
 function PatchView({ diff, empty, loading = false }) {
-  if (loading) return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "p-4", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LoadingLine, {}) });
-  if (!diff.trim()) return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "p-4 text-center text-sm text-text-muted", children: empty });
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("pre", { className: "h-full overflow-auto bg-bg p-3 font-mono text-xs leading-relaxed", children: diff.split("\n").map((line, i) => {
+  if (loading) return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "p-4", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(LoadingLine, {}) });
+  if (!diff.trim()) return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: "p-4 text-center text-sm text-text-muted", children: empty });
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("pre", { className: "h-full overflow-auto bg-bg p-3 font-mono text-xs leading-relaxed", children: diff.split("\n").map((line, i) => {
     const c = line.startsWith("+") && !line.startsWith("+++") ? "text-success" : line.startsWith("-") && !line.startsWith("---") ? "text-danger" : line.startsWith("@@") ? "text-accent" : "text-text-muted";
-    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: c, children: line || " " }, i);
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: c, children: line || " " }, i);
   }) });
 }
 
@@ -4465,15 +4716,15 @@ function createDOMPurify() {
 var purify = createDOMPurify();
 
 // plugins/editor/web-src/editor/MarkdownPreview.tsx
-var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
 function MarkdownPreview({ source }) {
   const html2 = (0, import_react17.useMemo)(() => purify.sanitize(f.parse(source, { async: false })), [source]);
-  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "markdown-preview h-full overflow-auto p-5 text-sm leading-relaxed text-text", dangerouslySetInnerHTML: { __html: html2 } });
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "markdown-preview h-full overflow-auto p-5 text-sm leading-relaxed text-text", dangerouslySetInnerHTML: { __html: html2 } });
 }
 
 // plugins/editor/web-src/editor/ImagePreview.tsx
 var import_react18 = __toESM(require_react(), 1);
-var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 function ImagePreview({ projectId, path }) {
   const [url, setUrl] = (0, import_react18.useState)(null);
   const [failed, setFailed] = (0, import_react18.useState)(false);
@@ -4497,12 +4748,12 @@ function ImagePreview({ projectId, path }) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [projectId, path]);
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-bg p-6", children: failed ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: "text-sm text-text-muted", children: path }) : url ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("img", { src: url, alt: path, className: "max-h-full max-w-full object-contain" }) : null });
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-bg p-6", children: failed ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "text-sm text-text-muted", children: path }) : url ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("img", { src: url, alt: path, className: "max-h-full max-w-full object-contain" }) : null });
 }
 
 // plugins/editor/web-src/editor/PdfPreview.tsx
 var import_react19 = __toESM(require_react(), 1);
-var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
 function PdfPreview({ projectId, path, failedLabel, office = false }) {
   const [url, setUrl] = (0, import_react19.useState)(null);
   const [failed, setFailed] = (0, import_react19.useState)(false);
@@ -4527,21 +4778,21 @@ function PdfPreview({ projectId, path, failedLabel, office = false }) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [projectId, path, office]);
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "h-full overflow-hidden bg-bg p-3", children: failed ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: "p-4 text-center text-sm text-danger", children: failedLabel.replace("{path}", path) }) : url ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("iframe", { src: url, title: path, className: "h-full w-full rounded-md border border-border bg-white" }) : null });
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "h-full overflow-hidden bg-bg p-3", children: failed ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: "p-4 text-center text-sm text-danger", children: failedLabel.replace("{path}", path) }) : url ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("iframe", { src: url, title: path, className: "h-full w-full rounded-md border border-border bg-white" }) : null });
 }
 
 // plugins/editor/web-src/editor/MediaPreview.tsx
-var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 function MediaPreview({ projectId, path, kind }) {
   const src = `/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}`;
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-bg p-6", children: kind === "video" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("video", { controls: true, preload: "metadata", src, className: "max-h-full max-w-full rounded-md bg-black" }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("audio", { controls: true, preload: "metadata", src, className: "w-full max-w-2xl" }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-bg p-6", children: kind === "video" ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("video", { controls: true, preload: "metadata", src, className: "max-h-full max-w-full rounded-md bg-black" }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("audio", { controls: true, preload: "metadata", src, className: "w-full max-w-2xl" }) });
 }
 
 // plugins/editor/web-src/editor/BinaryPreview.tsx
-var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 var { components } = runtime();
 var { Button: Button2 } = components;
-function formatBytes(bytes) {
+function formatBytes2(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let value = bytes / 1024;
@@ -4561,32 +4812,32 @@ function BinaryPreview({ projectId, path, size, message, downloadLabel, sizeLabe
     anchor.click();
     anchor.remove();
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-bg p-6", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "w-full max-w-md rounded-xl border border-border bg-document p-6 text-center shadow-sm", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(File2, { size: 36, className: "mx-auto text-text-muted", "aria-hidden": true }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "mt-3 break-all font-mono text-sm font-semibold text-text", children: baseName(path) }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "mt-2 text-sm text-text-muted", children: message }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("dl", { className: "mt-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-left text-xs", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("dt", { className: "text-text-muted", children: sizeLabel }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("dd", { className: "text-right text-text", children: formatBytes(size) }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("dt", { className: "text-text-muted", children: typeLabel }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("dd", { className: "break-all text-right font-mono text-text", children: mimeTypeOf(path) })
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-bg p-6", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "w-full max-w-md rounded-xl border border-border bg-document p-6 text-center shadow-sm", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(File2, { size: 36, className: "mx-auto text-text-muted", "aria-hidden": true }),
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: "mt-3 break-all font-mono text-sm font-semibold text-text", children: baseName(path) }),
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: "mt-2 text-sm text-text-muted", children: message }),
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("dl", { className: "mt-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-left text-xs", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("dt", { className: "text-text-muted", children: sizeLabel }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("dd", { className: "text-right text-text", children: formatBytes2(size) }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("dt", { className: "text-text-muted", children: typeLabel }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("dd", { className: "break-all text-right font-mono text-text", children: mimeTypeOf(path) })
     ] }),
-    !downloadAvailable ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "mt-4 text-xs text-warning", children: downloadUnavailableLabel }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "mt-5 flex justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Button2, { variant: "accent", icon: Download, disabled: !downloadAvailable, onClick: download, children: downloadLabel }) })
+    !downloadAvailable ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: "mt-4 text-xs text-warning", children: downloadUnavailableLabel }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "mt-5 flex justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button2, { variant: "accent", icon: Download, disabled: !downloadAvailable, onClick: download, children: downloadLabel }) })
   ] }) });
 }
 
 // plugins/editor/web-src/editor/CsvPreview.tsx
 var import_react20 = __toESM(require_react(), 1);
 var import_papaparse = __toESM(require_papaparse_min(), 1);
-var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 var MAX_ROWS = 1e3;
 function CsvPreview({ source, invalidLabel, limitedLabel }) {
   const parsed = (0, import_react20.useMemo)(() => import_papaparse.default.parse(source, { skipEmptyLines: false }), [source]);
   const fatalErrors = parsed.errors.filter((error) => error.code !== "UndetectableDelimiter");
   if (fatalErrors.length > 0) {
     const first = fatalErrors[0];
-    return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("p", { className: "p-4 text-center text-sm text-danger", children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("p", { className: "p-4 text-center text-sm text-danger", children: [
       invalidLabel,
       ": ",
       first.message
@@ -4594,36 +4845,36 @@ function CsvPreview({ source, invalidLabel, limitedLabel }) {
   }
   const rows = parsed.data.slice(0, MAX_ROWS);
   const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "h-full overflow-auto bg-bg p-4", children: [
-    parsed.data.length > MAX_ROWS ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: "mb-3 text-xs text-text-muted", children: limitedLabel.replace("{count}", String(MAX_ROWS)) }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("table", { className: "min-w-full border-collapse text-left text-xs text-text", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("tbody", { children: rows.map((row, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("tr", { className: rowIndex === 0 ? "bg-elevated font-semibold" : void 0, children: Array.from({ length: width }, (_3, columnIndex) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("td", { className: "whitespace-pre-wrap border border-border px-2 py-1.5 align-top", children: row[columnIndex] ?? "" }, columnIndex)) }, rowIndex)) }) })
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: "h-full overflow-auto bg-bg p-4", children: [
+    parsed.data.length > MAX_ROWS ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: "mb-3 text-xs text-text-muted", children: limitedLabel.replace("{count}", String(MAX_ROWS)) }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("table", { className: "min-w-full border-collapse text-left text-xs text-text", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("tbody", { children: rows.map((row, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("tr", { className: rowIndex === 0 ? "bg-elevated font-semibold" : void 0, children: Array.from({ length: width }, (_3, columnIndex) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("td", { className: "whitespace-pre-wrap border border-border px-2 py-1.5 align-top", children: row[columnIndex] ?? "" }, columnIndex)) }, rowIndex)) }) })
   ] });
 }
 
 // plugins/editor/web-src/editor/Tabs.tsx
-var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 function Tabs({ tabs, active, dirty, onSelect, onClose, closeLabel }) {
   if (tabs.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "flex items-stretch overflow-x-auto border-b border-border bg-bg/40", children: tabs.map((p) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "flex items-stretch overflow-x-auto border-b border-border bg-bg/40", children: tabs.map((p) => {
     const isActive = p === active;
     const isDirty = dirty.has(p);
-    return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: `group flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs ${isActive ? "bg-surface text-text" : "text-text-muted hover:bg-elevated"}`, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", onClick: () => onSelect(p), className: "max-w-40 truncate", title: p, children: baseName(p) }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("button", { type: "button", onClick: () => onClose(p), "aria-label": closeLabel, className: "flex h-4 w-4 items-center justify-center rounded text-text-muted hover:bg-bg hover:text-text", children: [
-        isDirty ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "h-1.5 w-1.5 rounded-full bg-accent group-hover:hidden", "aria-hidden": true }) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(X, { size: 11, className: isDirty ? "hidden group-hover:block" : "block", "aria-hidden": true })
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: `group flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs ${isActive ? "bg-surface text-text" : "text-text-muted hover:bg-elevated"}`, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { type: "button", onClick: () => onSelect(p), className: "max-w-40 truncate", title: p, children: baseName(p) }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("button", { type: "button", onClick: () => onClose(p), "aria-label": closeLabel, className: "flex h-4 w-4 items-center justify-center rounded text-text-muted hover:bg-bg hover:text-text", children: [
+        isDirty ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "h-1.5 w-1.5 rounded-full bg-accent group-hover:hidden", "aria-hidden": true }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(X, { size: 11, className: isDirty ? "hidden group-hover:block" : "block", "aria-hidden": true })
       ] })
     ] }, p);
   }) });
 }
 
 // plugins/editor/web-src/editor/ProjectEditor.tsx
-var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
 var { hooks, components: components2, utils } = runtime();
 var { useProjectFiles, useProjectFile, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useWriteProjectFile, useNewProjectFile, useNewProjectDir, useRenameProjectEntry, useCopyProjectEntry, useDeleteProjectEntry, useMobile, useToast, useTranslation: useTranslation2, usePluginStrings } = hooks;
 var { Button: Button3, LoadingState, EmptyState, ContextMenu } = components2;
-var DIVIDER = "divider";
 var EDITOR_H_KEY = "elowen:editor:height";
+var PREFS_KEY = "elowen:editor:prefs";
 var MIN_EDITOR_H = 320;
 var clampEditorH = (px) => Math.max(MIN_EDITOR_H, Math.min(typeof window !== "undefined" ? window.innerHeight * 0.96 : 4e3, px));
 function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill = false }) {
@@ -4637,7 +4888,12 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const [working] = (0, import_react21.useState)(!!initialWorking);
   const [expanded, setExpanded] = (0, import_react21.useState)(/* @__PURE__ */ new Set());
   const [tab, setTab] = (0, import_react21.useState)("edit");
-  const [wordWrap, setWordWrap] = (0, import_react21.useState)(false);
+  const [prefs, setPrefs] = (0, import_react21.useState)(DEFAULT_PREFS);
+  const [cursor, setCursor] = (0, import_react21.useState)(null);
+  const [openMenu, setOpenMenu] = (0, import_react21.useState)(null);
+  const [uploading, setUploading] = (0, import_react21.useState)(false);
+  const [dropping, setDropping] = (0, import_react21.useState)(false);
+  const fileInput = (0, import_react21.useRef)(null);
   const [fullscreen, setFullscreen] = (0, import_react21.useState)(false);
   const [editorH, setEditorH] = (0, import_react21.useState)(560);
   const dragY = (0, import_react21.useRef)(null);
@@ -4670,6 +4926,23 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     } catch {
     }
   }, [editorH]);
+  (0, import_react21.useEffect)(() => {
+    try {
+      const raw = localStorage.getItem(PREFS_KEY);
+      if (raw) setPrefs(normalisePrefs(JSON.parse(raw)));
+    } catch {
+    }
+  }, []);
+  const updatePrefs = (patch) => {
+    setPrefs((current) => {
+      const next = normalisePrefs({ ...current, ...patch });
+      try {
+        localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+      } catch {
+      }
+      return next;
+    });
+  };
   const commitData = useProjectCommit(projectId, commit);
   const changesData = useProjectChanges(projectId, working);
   const commitFileDiff = useProjectCommitFileDiff(projectId, commit, commit ? selected : null);
@@ -4811,6 +5084,36 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       else toast(s.copyFailed, "error");
     });
   };
+  const uploadDir = selected ? parentDir(selected) : "";
+  const runUpload = (chosen, dir) => {
+    if (!chosen.length || uploading) return;
+    setUploading(true);
+    void (async () => {
+      let done = 0;
+      for (const file of chosen) {
+        try {
+          await uploadFile(projectId, joinPath(dir, file.name), file);
+          done += 1;
+        } catch (error) {
+          toast(`${file.name}: ${error instanceof UploadError ? error.message : String(error)}`, "error");
+        }
+      }
+      setUploading(false);
+      if (done > 0) {
+        files.refetch();
+        expandPath(dir);
+        toast(s.uploaded.replace("{count}", String(done)));
+      }
+    })();
+  };
+  const download = (path) => {
+    const anchor = document.createElement("a");
+    anchor.href = `/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}&download=1`;
+    anchor.download = baseName(path);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  };
   const submitDialog = (val) => {
     if (!dialog) return;
     if (dialog.kind === "newFile") {
@@ -4873,17 +5176,66 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       ...common
     ];
   };
-  const onContextMenu = (e, node) => setMenu({ x: e.clientX, y: e.clientY, items: buildMenu(node) });
+  const onContextMenu = (e, node) => {
+    setOpenMenu(null);
+    setMenu({ x: e.clientX, y: e.clientY, items: buildMenu(node) });
+  };
+  const menus = [
+    { id: "file", label: s.menuFile, items: [
+      { label: s.ctxNewFile, icon: FilePlus, onClick: () => setDialog({ kind: "newFile", dir: uploadDir }) },
+      { label: s.ctxNewFolder, icon: FolderPlus, onClick: () => setDialog({ kind: "newFolder", dir: uploadDir }) },
+      DIVIDER,
+      { label: s.menuUpload, icon: Upload, disabled: uploading, onClick: () => fileInput.current?.click() },
+      { label: s.download, icon: Download, disabled: !selected, onClick: () => {
+        if (selected) download(selected);
+      } },
+      DIVIDER,
+      { label: s.ctxRename, icon: Pencil, disabled: !selected, onClick: () => {
+        if (selected) setDialog({ kind: "rename", target: selected });
+      } },
+      { label: s.ctxDuplicate, icon: Copy, disabled: !selected, onClick: () => {
+        if (selected) setDialog({ kind: "duplicate", target: selected });
+      } },
+      { label: s.ctxDelete, icon: Trash2, danger: true, disabled: !selected, onClick: () => {
+        if (selected) setDialog({ kind: "delete", target: selected });
+      } }
+    ] },
+    { id: "view", label: s.menuView, items: [
+      { label: s.wordWrap, icon: prefs.wordWrap ? Check : WrapText, onClick: () => updatePrefs({ wordWrap: !prefs.wordWrap }) },
+      { label: s.menuMinimap, icon: prefs.minimap ? Check : Map2, onClick: () => updatePrefs({ minimap: !prefs.minimap }) },
+      DIVIDER,
+      { label: fullscreen ? s.exitFullscreen : s.fullscreen, icon: fullscreen ? Minimize2 : Maximize2, onClick: () => setFullscreen((f2) => !f2) }
+    ] },
+    { id: "settings", label: s.menuSettings, items: [
+      { label: s.fontBigger, icon: Type, disabled: prefs.fontSize >= MAX_FONT_SIZE, onClick: () => updatePrefs({ fontSize: prefs.fontSize + 1 }) },
+      { label: s.fontSmaller, icon: Type, disabled: prefs.fontSize <= MIN_FONT_SIZE, onClick: () => updatePrefs({ fontSize: prefs.fontSize - 1 }) },
+      DIVIDER,
+      ...TAB_SIZES.map((n) => ({
+        label: s.tabSizeOption.replace("{n}", String(n)),
+        icon: prefs.tabSize === n ? Check : AlignLeft,
+        onClick: () => updatePrefs({ tabSize: n })
+      }))
+    ] }
+  ];
+  const openTopMenu = (menu2, x2, y2) => {
+    if (!menu2) {
+      setOpenMenu(null);
+      setMenu(null);
+      return;
+    }
+    setOpenMenu(menu2.id);
+    setMenu({ x: x2, y: y2, items: menu2.items });
+  };
   const dialogTitle = dialog?.kind === "newFile" ? s.dlgNewFile : dialog?.kind === "newFolder" ? s.dlgNewFolder : dialog?.kind === "rename" ? s.dlgRename : dialog?.kind === "duplicate" ? s.dlgDuplicate : "";
   const dialogInitial = dialog?.kind === "rename" ? baseName(dialog.target) : dialog?.kind === "duplicate" ? baseName(copyName(dialog.target)) : "";
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(
     "div",
     {
       className: fullscreen ? "fixed inset-0 z-50 flex h-screen flex-col overflow-hidden bg-surface" : "flex flex-col overflow-hidden border-y border-border bg-document",
       style: fullscreen ? void 0 : { height: fill ? "100%" : editorH },
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex items-center gap-2 border-b border-border px-3 py-2", children: [
-          mobile && fullscreen && onClose && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "flex items-center gap-2 border-b border-border px-3 py-2", children: [
+          mobile && fullscreen && onClose && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
             "button",
             {
               type: "button",
@@ -4891,10 +5243,10 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
               "aria-label": t.common.back,
               title: t.common.back,
               className: "flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text",
-              children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ChevronLeft, { size: 18 })
+              children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ChevronLeft, { size: 18 })
             }
           ),
-          mobile && fullscreen && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+          mobile && fullscreen && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
             "button",
             {
               type: "button",
@@ -4903,45 +5255,72 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
               "aria-label": s.toggleTree,
               title: s.toggleTree,
               className: `flex h-7 w-7 items-center justify-center rounded-md transition-colors ${showTree ? "bg-accent/15 text-accent" : "text-text-muted hover:bg-elevated hover:text-text"}`,
-              children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PanelLeft, { size: 15 })
+              children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PanelLeft, { size: 15 })
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(CodeXml, { size: 15, className: "shrink-0 text-accent", "aria-hidden": true }),
-          !(mobile && fullscreen) && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "text-sm font-semibold text-text", children: s.editorTitle }),
-          working ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "truncate font-mono text-xs text-warning", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(GitCompare, { size: 11, className: "mr-1 inline", "aria-hidden": true }),
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(CodeXml, { size: 15, className: "shrink-0 text-accent", "aria-hidden": true }),
+          !(mobile && fullscreen) && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: "text-sm font-semibold text-text", children: s.editorTitle }),
+          working ? /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { className: "truncate font-mono text-xs text-warning", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(GitCompare, { size: 11, className: "mr-1 inline", "aria-hidden": true }),
             s.workingChanges
-          ] }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("button", { type: "button", onClick: () => setSelected(null), disabled: !selected, title: selected ? s.viewCommit : void 0, className: "flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(GitCompare, { size: 11, className: "mr-1 inline shrink-0", "aria-hidden": true }),
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: "truncate", children: [
+          ] }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("button", { type: "button", onClick: () => setSelected(null), disabled: !selected, title: selected ? s.viewCommit : void 0, className: "flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(GitCompare, { size: 11, className: "mr-1 inline shrink-0", "aria-hidden": true }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { className: "truncate", children: [
               s.commitLabel,
               " ",
               commit.slice(0, 8),
               selected ? ` \xB7 ${selected}` : ""
             ] })
           ] }) : null,
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "ml-auto flex items-center gap-1.5", children: [
-            editable ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(import_jsx_runtime13.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button3, { variant: effTab === "edit" ? "accent" : "ghost", onClick: () => setTab("edit"), children: s.tabEdit }),
-              previewableText ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button3, { variant: effTab === "preview" ? "accent" : "ghost", icon: Eye, onClick: () => setTab("preview"), children: s.tabPreview }) : null,
-              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button3, { variant: effTab === "diff" ? "accent" : "ghost", icon: GitCompare, onClick: () => setTab("diff"), children: s.tabDiff }),
-              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button3, { variant: wordWrap ? "accent" : "ghost", icon: WrapText, "aria-label": s.wordWrap, title: s.wordWrap, onClick: () => setWordWrap((w) => !w) }),
-              /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Button3, { variant: "accent", icon: Save, disabled: !dirty || write.isPending, onClick: save, children: t.common.save })
+          !commit && !working && !(mobile && fullscreen) ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MenuBar, { menus, openId: openMenu, onOpen: openTopMenu }) : null,
+          uploading ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: "text-xs text-text-muted", children: s.uploading }) : null,
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "ml-auto flex items-center gap-2", children: [
+            editable ? /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+                ViewSwitch,
+                {
+                  label: s.viewMode,
+                  value: effTab,
+                  onChange: setTab,
+                  options: [
+                    { id: "edit", label: s.tabEdit, icon: CodeXml },
+                    ...previewableText ? [{ id: "preview", label: s.tabPreview, icon: Eye }] : [],
+                    { id: "diff", label: s.tabDiff, icon: GitCompare }
+                  ]
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Button3, { variant: "accent", icon: Save, disabled: !dirty || write.isPending, onClick: save, children: t.common.save })
             ] }) : null,
-            onClose && !(mobile && fullscreen) ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("button", { type: "button", "aria-label": t.common.close, onClick: onClose, className: "flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(X, { size: 15 }) }) : null
+            onClose && !(mobile && fullscreen) ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { type: "button", "aria-label": t.common.close, onClick: onClose, className: "flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(X, { size: 15 }) }) : null
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "relative flex min-h-0 flex-1", children: [
-          mobile && fullscreen && !showTree ? null : /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "relative flex min-h-0 flex-1", children: [
+          mobile && fullscreen && !showTree ? null : /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(
             "div",
             {
-              className: `flex shrink-0 flex-col border-r border-border ${mobile && fullscreen ? "absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-surface shadow-[var(--shadow-raised)]" : "w-64 bg-bg/40"}`,
+              onDragOver: (e) => {
+                if (commit || working) return;
+                e.preventDefault();
+                setDropping(true);
+              },
+              onDragLeave: (e) => {
+                if (e.currentTarget.contains(e.relatedTarget)) return;
+                setDropping(false);
+              },
+              onDrop: (e) => {
+                if (commit || working) return;
+                e.preventDefault();
+                setDropping(false);
+                runUpload(Array.from(e.dataTransfer.files ?? []), uploadDir);
+              },
+              className: `relative flex shrink-0 flex-col border-r border-border ${mobile && fullscreen ? "absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-surface shadow-[var(--shadow-raised)]" : "w-64 bg-bg/40"} ${dropping ? "ring-2 ring-inset ring-accent" : ""}`,
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "min-h-0 flex-1 overflow-auto p-1.5", children: files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
+                dropping ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { className: "pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-accent/10 px-3 text-center text-xs font-medium text-accent", children: s.dropHere.replace("{dir}", uploadDir || "/") }) : null,
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { className: "min-h-0 flex-1 overflow-auto p-1.5", children: files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
                   selectInTree(p);
                   if (mobile && fullscreen) setShowTree(false);
                 }, changed: changedSet, onContextMenu, emptyLabel: s.noFiles, treeLabel: s.editorTitle }) }),
-                /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "shrink-0 border-t border-border p-1.5", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { className: "shrink-0 border-t border-border p-1.5", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(
                   "button",
                   {
                     type: "button",
@@ -4950,7 +5329,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
                     title: fullscreen ? s.exitFullscreen : s.fullscreen,
                     className: "flex w-full items-center justify-center gap-2 rounded-md border border-border bg-elevated px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-border-strong hover:text-text",
                     children: [
-                      fullscreen ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Minimize2, { size: 13, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Maximize2, { size: 13, "aria-hidden": true }),
+                      fullscreen ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Minimize2, { size: 13, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Maximize2, { size: 13, "aria-hidden": true }),
                       fullscreen ? s.exitFullscreen : s.fullscreen
                     ]
                   }
@@ -4958,12 +5337,24 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
               ]
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex min-w-0 flex-1 flex-col", children: [
-            !commit && !working ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Tabs, { tabs: openTabs, active: selected, dirty: dirtyPaths, onSelect: setSelected, onClose: closeTab, closeLabel: t.common.close }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: "min-h-0 flex-1", children: working ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PatchView, { diff: changesData.data?.diff ?? "", loading: changesData.isLoading, empty: s.noChanges }) : commit && selected ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PatchView, { diff: commitFileDiff.data?.diff ?? "", loading: commitFileDiff.isLoading, empty: s.noChanges }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PatchView, { diff: commitData.data?.diff ?? "", loading: commitData.isLoading, empty: s.noChanges }) : !selected ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(EmptyState, { title: s.selectFile, icon: File2 }) : fileKind === "image" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ImagePreview, { projectId, path: selected }) : fileKind === "pdf" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PdfPreview, { projectId, path: selected, failedLabel: s.previewFailed }) : fileKind === "office" && fileSize <= MAX_OFFICE_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PdfPreview, { projectId, path: selected, failedLabel: s.previewFailed, office: true }) : (fileKind === "video" || fileKind === "audio") && fileSize <= MAX_MEDIA_PREVIEW_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(MediaPreview, { projectId, path: selected, kind: fileKind }) : fileKind === "binary" || fileKind === "image" || fileKind === "pdf" || fileKind === "office" || fileKind === "video" || fileKind === "audio" ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(BinaryPreview, { projectId, path: selected, size: fileSize, message: fileKind === "binary" ? s.binaryFile : s.previewTooLarge, downloadLabel: s.download, sizeLabel: s.fileSize, typeLabel: s.fileType, downloadAvailable: fileSize <= MAX_BUFFERED_BYTES, downloadUnavailableLabel: s.downloadUnavailable }) : fileData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(LoadingState, {}) : fileData.data?.truncated ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: "p-4 text-center text-sm text-text-muted", children: s.fileTooBig }) : effTab === "diff" ? headData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(DiffEditorPane, { path: selected, original: headData.data?.content ?? "", modified: value }) : effTab === "preview" && fileKind === "csv" ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(CsvPreview, { source: value, invalidLabel: s.csvInvalid, limitedLabel: s.csvLimited }) : effTab === "preview" ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(MarkdownPreview, { source: value }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(EditorPane, { path: selected, value, onChange, onSave: save, wordWrap }) })
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: "flex min-w-0 flex-1 flex-col", children: [
+            !commit && !working ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Tabs, { tabs: openTabs, active: selected, dirty: dirtyPaths, onSelect: setSelected, onClose: closeTab, closeLabel: t.common.close }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { className: "min-h-0 flex-1", children: working ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PatchView, { diff: changesData.data?.diff ?? "", loading: changesData.isLoading, empty: s.noChanges }) : commit && selected ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PatchView, { diff: commitFileDiff.data?.diff ?? "", loading: commitFileDiff.isLoading, empty: s.noChanges }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PatchView, { diff: commitData.data?.diff ?? "", loading: commitData.isLoading, empty: s.noChanges }) : !selected ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(EmptyState, { title: s.selectFile, icon: File2 }) : fileKind === "image" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ImagePreview, { projectId, path: selected }) : fileKind === "pdf" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PdfPreview, { projectId, path: selected, failedLabel: s.previewFailed }) : fileKind === "office" && fileSize <= MAX_OFFICE_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PdfPreview, { projectId, path: selected, failedLabel: s.previewFailed, office: true }) : (fileKind === "video" || fileKind === "audio") && fileSize <= MAX_MEDIA_PREVIEW_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MediaPreview, { projectId, path: selected, kind: fileKind }) : fileKind === "binary" || fileKind === "image" || fileKind === "pdf" || fileKind === "office" || fileKind === "video" || fileKind === "audio" ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(BinaryPreview, { projectId, path: selected, size: fileSize, message: fileKind === "binary" ? s.binaryFile : s.previewTooLarge, downloadLabel: s.download, sizeLabel: s.fileSize, typeLabel: s.fileType, downloadAvailable: fileSize <= MAX_BUFFERED_BYTES, downloadUnavailableLabel: s.downloadUnavailable }) : fileData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(LoadingState, {}) : fileData.data?.truncated ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { className: "p-4 text-center text-sm text-text-muted", children: s.fileTooBig }) : effTab === "diff" ? headData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(DiffEditorPane, { path: selected, original: headData.data?.content ?? "", modified: value, prefs }) : effTab === "preview" && fileKind === "csv" ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(CsvPreview, { source: value, invalidLabel: s.csvInvalid, limitedLabel: s.csvLimited }) : effTab === "preview" ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MarkdownPreview, { source: value }) : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(EditorPane, { path: selected, value, onChange, onSave: save, prefs, onCursor: setCursor }) }),
+            selected && textFile && !commit && !working && effTab === "edit" ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+              StatusBar,
+              {
+                path: selected,
+                cursor,
+                language: langOf(selected),
+                tabSize: prefs.tabSize,
+                size: fileSize,
+                dirty,
+                labels: { line: s.statusLine, column: s.statusColumn, selected: s.statusSelected, spaces: s.statusSpaces, unsaved: s.statusUnsaved }
+              }
+            ) : null
           ] })
         ] }),
-        !fullscreen && !fill ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+        !fullscreen && !fill ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
           "div",
           {
             role: "separator",
@@ -4990,18 +5381,34 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
               dragY.current = null;
             },
             className: "group flex h-3.5 shrink-0 cursor-row-resize items-center justify-center border-t border-border bg-bg/40 transition-colors hover:bg-elevated",
-            children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "h-1 w-10 rounded-full bg-border transition-all duration-200 group-hover:w-16 group-hover:bg-text-muted" })
+            children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: "h-1 w-10 rounded-full bg-border transition-all duration-200 group-hover:w-16 group-hover:bg-text-muted" })
           }
         ) : null,
-        menu ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ContextMenu, { state: menu, onClose: () => setMenu(null) }) : null,
-        dialog && dialog.kind === "delete" ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ConfirmDialog, { title: s.dlgDelete, message: s.dlgDeleteMsg.replace("{name}", baseName(dialog.target)), confirmLabel: s.ctxDelete, danger: true, icon: Trash2, onConfirm: confirmDelete, onCancel: () => setDialog(null) }) : dialog ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(PromptDialog, { title: dialogTitle, label: s.dlgName, initialValue: dialogInitial, confirmLabel: t.common.save, onConfirm: submitDialog, onCancel: () => setDialog(null) }) : null
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+          "input",
+          {
+            ref: fileInput,
+            type: "file",
+            multiple: true,
+            className: "hidden",
+            onChange: (e) => {
+              runUpload(Array.from(e.target.files ?? []), uploadDir);
+              e.target.value = "";
+            }
+          }
+        ),
+        menu ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ContextMenu, { state: menu, onClose: () => {
+          setMenu(null);
+          setOpenMenu(null);
+        } }) : null,
+        dialog && dialog.kind === "delete" ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ConfirmDialog, { title: s.dlgDelete, message: s.dlgDeleteMsg.replace("{name}", baseName(dialog.target)), confirmLabel: s.ctxDelete, danger: true, icon: Trash2, onConfirm: confirmDelete, onCancel: () => setDialog(null) }) : dialog ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PromptDialog, { title: dialogTitle, label: s.dlgName, initialValue: dialogInitial, confirmLabel: t.common.save, onConfirm: submitDialog, onCancel: () => setDialog(null) }) : null
       ]
     }
   );
 }
 
 // plugins/editor/web-src/EditorPage.tsx
-var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
 var { useProjects, usePluginStrings: usePluginStrings2, useProjectFilter, useFillHeight, useMobile: useMobile2 } = runtime().hooks;
 var {
   ModuleHeader,
@@ -5039,21 +5446,21 @@ function EditorPage() {
     if (window.history.length > 1) window.history.back();
     else navigate("/dash");
   } : void 0;
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(import_jsx_runtime14.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ModuleHeader, { title: s.title, icon: CodeXml }),
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(WorkspacePage, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ModuleHeader, { title: s.title, icon: CodeXml }),
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(WorkspacePage, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
         CompactWorkspaceHeader,
         {
           eyebrow: s.workspaceEyebrow,
           title: s.title,
           description: s.workspaceIntro,
           icon: CodeXml,
-          status: project ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: "workspace-status", children: s.workspaceReady.replace("{project}", project.slug) }) : void 0,
-          action: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ProjectFilterPills, { value: projectId ?? "all", onChange: setProject, includeAll: false, variant: "dropdown" })
+          status: project ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "workspace-status", children: s.workspaceReady.replace("{project}", project.slug) }) : void 0,
+          action: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ProjectFilterPills, { value: projectId ?? "all", onChange: setProject, includeAll: false, variant: "dropdown" })
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { ref: surfaceRef, className: "workspace-content", style: fillHeight ? { height: fillHeight } : void 0, children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ControlSurfaceDocument, { className: "editor-control-surface", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(MotionPresence, { mode: "wait", children: projectId == null ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(EmptyState2, { title: s.noProjects, description: s.noProjectsDescription, icon: CodeXml }) }, "empty") : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ProjectEditor, { projectId, initialCommit: link.commit, initialWorking: link.working, onClose, fill: true }) }, `${projectId}:${link.commit ?? ""}:${link.working}`) }) }) })
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { ref: surfaceRef, className: "workspace-content", style: fillHeight ? { height: fillHeight } : void 0, children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ControlSurfaceDocument, { className: "editor-control-surface", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(MotionPresence, { mode: "wait", children: projectId == null ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(EmptyState2, { title: s.noProjects, description: s.noProjectsDescription, icon: CodeXml }) }, "empty") : /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ProjectEditor, { projectId, initialCommit: link.commit, initialWorking: link.working, onClose, fill: true }) }, `${projectId}:${link.commit ?? ""}:${link.working}`) }) }) })
     ] })
   ] });
 }

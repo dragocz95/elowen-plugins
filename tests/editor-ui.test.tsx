@@ -16,22 +16,61 @@ const strings = (manifest as { web: { strings: Record<string, string> } }).web.s
 // Monaco is browser-only — stub it with a textarea and capture the Cmd+S command the editor
 // registers via `onMount`, so a test can save exactly the way a keyboard user does (the toolbar
 // Save button is disabled while a write is pending; Cmd+S is not).
-const monaco = vi.hoisted(() => ({ save: (() => {}) as () => void, themes: [] as string[] }));
-vi.mock('../plugins/editor/web-src/editor/monacoLoader', () => ({
-  MonacoEditor: ({ value, onChange, onMount, beforeMount }: {
-    value: string;
-    onChange: (v: string | undefined) => void;
-    onMount: (editor: { addCommand: (key: number, cb: () => void) => void }, m: { KeyMod: { CtrlCmd: number }; KeyCode: { KeyS: number } }) => void;
-    beforeMount?: (m: { editor: { defineTheme: (name: string, theme: unknown) => void } }) => void;
-  }) => {
-    // The colour table comes from the host runtime, not from the bundle — record what it registers so
-    // a runtime that stopped exposing it fails loudly instead of silently rendering Monaco's default.
-    beforeMount?.({ editor: { defineTheme: (name) => { monaco.themes.push(name); } } });
-    onMount({ addCommand: (_key, cb) => { monaco.save = cb; } }, { KeyMod: { CtrlCmd: 1 }, KeyCode: { KeyS: 2 } });
-    return <textarea aria-label="editor" value={value} onChange={(e) => onChange(e.target.value)} />;
+const monaco = vi.hoisted(() => ({
+  save: (() => {}) as () => void,
+  themes: [] as string[],
+  cursorListeners: [] as (() => void)[],
+  position: { lineNumber: 1, column: 1 },
+  selection: null as { isEmpty(): boolean } | null,
+  selectedText: '',
+  /** Drives a cursor move the way Monaco would, so the status bar is exercised through its real input. */
+  moveCursor(lineNumber: number, column: number, selectedText = '') {
+    monaco.position = { lineNumber, column };
+    monaco.selectedText = selectedText;
+    monaco.selection = { isEmpty: () => selectedText.length === 0 };
+    for (const listener of monaco.cursorListeners) listener();
   },
-  MonacoDiffEditor: () => null,
 }));
+
+interface MockMonacoEditor {
+  addCommand(key: number, cb: () => void): void;
+  onDidChangeCursorPosition(cb: () => void): void;
+  onDidChangeCursorSelection(cb: () => void): void;
+  getPosition(): { lineNumber: number; column: number };
+  getSelection(): { isEmpty(): boolean } | null;
+  getModel(): { getValueInRange(range: unknown): string };
+}
+vi.mock('../plugins/editor/web-src/editor/monacoLoader', async () => {
+  const { useEffect } = await import('react');
+  return {
+    MonacoEditor: ({ value, onChange, onMount, beforeMount }: {
+      value: string;
+      onChange: (v: string | undefined) => void;
+      onMount: (editor: MockMonacoEditor, m: { KeyMod: { CtrlCmd: number }; KeyCode: { KeyS: number } }) => void;
+      beforeMount?: (m: { editor: { defineTheme: (name: string, theme: unknown) => void } }) => void;
+    }) => {
+      // The colour table comes from the host runtime, not from the bundle — record what it registers so
+      // a runtime that stopped exposing it fails loudly instead of silently rendering Monaco's default.
+      beforeMount?.({ editor: { defineTheme: (name) => { monaco.themes.push(name); } } });
+      // AFTER mount, which is when the real editor fires it — this used to run during render, and the
+      // moment the pane started reporting its cursor position from `onMount` that turned into a
+      // setState-during-render loop that hung the suite rather than failing it.
+      useEffect(() => {
+        onMount({
+          addCommand: (_key, cb) => { monaco.save = cb; },
+          onDidChangeCursorPosition: (cb) => { monaco.cursorListeners.push(cb); },
+          onDidChangeCursorSelection: (cb) => { monaco.cursorListeners.push(cb); },
+          getPosition: () => monaco.position,
+          getSelection: () => monaco.selection,
+          getModel: () => ({ getValueInRange: () => monaco.selectedText }),
+        }, { KeyMod: { CtrlCmd: 1 }, KeyCode: { KeyS: 2 } });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      return <textarea aria-label="editor" value={value} onChange={(e) => onChange(e.target.value)} />;
+    },
+    MonacoDiffEditor: () => null,
+  };
+});
 
 // Only the surrounding views are stubbed: the file content itself goes through the real query, so a
 // save's cache update is what the pane falls back to when it retires its draft.
@@ -87,7 +126,15 @@ setDefaults(
 // the working tree, and an unhandled request here would fail loudly rather than answer a plausible
 // empty body — which is stricter than the app-path mock this test used to carry.
 beforeAll(() => listen());
-beforeEach(() => { stored = new Map(INITIAL); gates.clear(); failing = new Set(); holdReads = false; readGates = []; });
+beforeEach(() => {
+  stored = new Map(INITIAL); gates.clear(); failing = new Set(); holdReads = false; readGates = [];
+  // Cursor listeners are registered per mount; without this they accumulate across tests and a later
+  // one would drive editors that React has already thrown away.
+  monaco.cursorListeners = []; monaco.position = { lineNumber: 1, column: 1 };
+  monaco.selection = null; monaco.selectedText = '';
+  // Editor preferences persist to localStorage, so one test's font change would leak into the next.
+  localStorage.clear();
+});
 afterEach(() => {
   holdReads = false;
   for (const open of [...gates.values(), ...readGates]) open();
@@ -123,13 +170,32 @@ describe('ProjectEditor copy', () => {
     await renderEditor();
 
     expect(await screen.findByText('Code editor')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Diff' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Word wrap' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument();
+    // The view modes are one segmented control, so they are tabs rather than loose buttons — the
+    // role is the assertion that they read as a single either/or choice and not as five unrelated
+    // actions sharing a toolbar.
+    expect(screen.getByRole('tab', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Diff' })).toBeInTheDocument();
+    expect(screen.getByRole('tablist', { name: 'View mode' })).toBeInTheDocument();
+    // File actions moved into the menu bar; its labels are plugin copy too.
+    for (const name of ['File', 'View', 'Settings']) {
+      expect(screen.getByRole('menuitem', { name })).toBeInTheDocument();
+    }
     expect(screen.getByRole('separator', { name: 'Drag to resize the editor' })).toBeInTheDocument();
     // The file tree's accessible name is plugin copy too — `getByRole('tree')` elsewhere never checks it.
     expect(screen.getByRole('tree')).toHaveAccessibleName('Code editor');
+  });
+
+  it('reports the caret and the selection size in the status bar', async () => {
+    await renderEditor();
+
+    // Monaco is the only thing that knows where the caret is, so the bar is driven the way the real
+    // editor drives it — through the cursor events the pane subscribed to.
+    act(() => { monaco.moveCursor(4, 9); });
+    expect(await screen.findByText(/Ln 4, Col 9/)).toBeInTheDocument();
+
+    // A selection adds its size, which is the reading the bar exists for during a review.
+    act(() => { monaco.moveCursor(4, 12, 'abc'); });
+    expect(await screen.findByText(/3 selected/)).toBeInTheDocument();
   });
 });
 

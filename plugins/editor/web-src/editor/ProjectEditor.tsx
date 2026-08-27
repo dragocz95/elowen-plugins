@@ -1,12 +1,18 @@
 import { useMemo, useRef, useState, useEffect, type MouseEvent } from 'react';
-import { File as FileIcon, Save, Code2, GitCompare, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft, ChevronLeft } from 'lucide-react';
+import { File as FileIcon, Save, Code2, GitCompare, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft, ChevronLeft, Upload, Download, Type, AlignLeft, Map as MapIcon, Check } from 'lucide-react';
 import { runtime } from '../runtime';
-import { buildTree, parentDir, joinPath, copyName, fileKindOf, baseName, type TreeNode } from './helpers';
+import { buildTree, parentDir, joinPath, copyName, fileKindOf, baseName, langOf, type TreeNode } from './helpers';
 import { MAX_BUFFERED_BYTES, MAX_MEDIA_PREVIEW_BYTES, MAX_OFFICE_BYTES } from '../../src/fileTypes';
 import { FileTree } from './FileTree';
 import { PromptDialog, ConfirmDialog } from './dialogs';
-import { EditorPane } from './EditorPane';
+import { EditorPane, type CursorState } from './EditorPane';
 import { DiffEditorPane } from './DiffEditorPane';
+import { MenuBar } from './MenuBar';
+import { ViewSwitch } from './ViewSwitch';
+import { StatusBar } from './StatusBar';
+import { uploadFile, UploadError } from './upload';
+import { DIVIDER, type ContextMenuState, type MenuDescriptor, type MenuEntry } from './menu';
+import { normalisePrefs, DEFAULT_PREFS, TAB_SIZES, MIN_FONT_SIZE, MAX_FONT_SIZE, type EditorPrefs } from './editorOptions';
 import { PatchView } from './PatchView';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ImagePreview } from './ImagePreview';
@@ -19,9 +25,6 @@ import { Tabs } from './Tabs';
 const { hooks, components, utils } = runtime();
 const { useProjectFiles, useProjectFile, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useWriteProjectFile, useNewProjectFile, useNewProjectDir, useRenameProjectEntry, useCopyProjectEntry, useDeleteProjectEntry, useMobile, useToast, useTranslation, usePluginStrings } = hooks;
 const { Button, LoadingState, EmptyState, ContextMenu } = components;
-const DIVIDER = 'divider';
-type ContextMenuState = { x: number; y: number; items: MenuEntry[] };
-type MenuEntry = { label: string; icon?: unknown; onClick?: () => void; danger?: boolean } | typeof DIVIDER;
 
 type Tab = 'edit' | 'diff' | 'preview';
 type Dialog =
@@ -31,6 +34,7 @@ type Dialog =
 // Embedded (non-fullscreen) editor height, persisted per device. The user drags the full bottom edge
 // (see the resize handle below); Monaco reflows itself via `automaticLayout`.
 const EDITOR_H_KEY = 'elowen:editor:height';
+const PREFS_KEY = 'elowen:editor:prefs';
 const MIN_EDITOR_H = 320;
 const clampEditorH = (px: number) =>
   Math.max(MIN_EDITOR_H, Math.min(typeof window !== 'undefined' ? window.innerHeight * 0.96 : 4000, px));
@@ -51,7 +55,12 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const [working] = useState<boolean>(!!initialWorking);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [tab, setTab] = useState<Tab>('edit');
-  const [wordWrap, setWordWrap] = useState(false);
+  const [prefs, setPrefs] = useState<EditorPrefs>(DEFAULT_PREFS);
+  const [cursor, setCursor] = useState<CursorState | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [dropping, setDropping] = useState(false);
+  const fileInput = useRef<HTMLInputElement | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   // Embedded height (px), hydrated from localStorage on mount; defaults to ~70vh.
   const [editorH, setEditorH] = useState(560);
@@ -86,6 +95,23 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   useEffect(() => {
     try { localStorage.setItem(EDITOR_H_KEY, String(editorH)); } catch { /* ignore */ }
   }, [editorH]);
+
+  // Editor preferences, same lifecycle as the height above. Everything restored goes through
+  // `normalisePrefs` because localStorage is user-writable: a font size of 0 read back verbatim would
+  // render an editor nobody can use, including the menu that would put it right.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PREFS_KEY);
+      if (raw) setPrefs(normalisePrefs(JSON.parse(raw)));
+    } catch { /* absent, unreadable, or not JSON — the defaults already stand */ }
+  }, []);
+  const updatePrefs = (patch: Partial<EditorPrefs>) => {
+    setPrefs((current) => {
+      const next = normalisePrefs({ ...current, ...patch });
+      try { localStorage.setItem(PREFS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const commitData = useProjectCommit(projectId, commit);
   const changesData = useProjectChanges(projectId, working);
@@ -199,6 +225,42 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const err = (e: unknown) => toast(String(e), 'error');
   const copyPath = (p: string) => { void utils.copyText(p).then((ok) => { if (ok) toast(s.pathCopied); else toast(s.copyFailed, 'error'); }); };
 
+  // A picked or dropped file lands beside whatever is selected, and in the project root otherwise —
+  // the same place a "New file" would have gone, so there is one rule to learn rather than two.
+  const uploadDir = selected ? parentDir(selected) : '';
+  const runUpload = (chosen: File[], dir: string) => {
+    if (!chosen.length || uploading) return;
+    setUploading(true);
+    void (async () => {
+      let done = 0;
+      for (const file of chosen) {
+        try {
+          await uploadFile(projectId, joinPath(dir, file.name), file);
+          done += 1;
+        } catch (error) {
+          // Report per file and keep going: refusing the whole drop because the third file already
+          // exists would throw away two transfers that were perfectly fine.
+          toast(`${file.name}: ${error instanceof UploadError ? error.message : String(error)}`, 'error');
+        }
+      }
+      setUploading(false);
+      if (done > 0) {
+        // The tree is a query, and nothing else knows the project gained a file.
+        files.refetch();
+        expandPath(dir);
+        toast(s.uploaded.replace('{count}', String(done)));
+      }
+    })();
+  };
+  const download = (path: string) => {
+    const anchor = document.createElement('a');
+    anchor.href = `/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}&download=1`;
+    anchor.download = baseName(path);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  };
+
   const submitDialog = (val: string) => {
     if (!dialog) return;
     if (dialog.kind === 'newFile') {
@@ -246,7 +308,45 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
       DIVIDER, ...common,
     ];
   };
-  const onContextMenu = (e: MouseEvent, node: TreeNode | null) => setMenu({ x: e.clientX, y: e.clientY, items: buildMenu(node) });
+  const onContextMenu = (e: MouseEvent, node: TreeNode | null) => { setOpenMenu(null); setMenu({ x: e.clientX, y: e.clientY, items: buildMenu(node) }); };
+
+  // The toolbar menus. They are built from the SAME MenuEntry shape as the right-click menu, so an
+  // action reads and behaves identically wherever the user reaches for it. A toggle shows its state
+  // through a check in the icon slot rather than a marker glued into the label.
+  const menus: MenuDescriptor[] = [
+    { id: 'file', label: s.menuFile, items: [
+      { label: s.ctxNewFile, icon: FilePlus, onClick: () => setDialog({ kind: 'newFile', dir: uploadDir }) },
+      { label: s.ctxNewFolder, icon: FolderPlus, onClick: () => setDialog({ kind: 'newFolder', dir: uploadDir }) },
+      DIVIDER,
+      { label: s.menuUpload, icon: Upload, disabled: uploading, onClick: () => fileInput.current?.click() },
+      { label: s.download, icon: Download, disabled: !selected, onClick: () => { if (selected) download(selected); } },
+      DIVIDER,
+      { label: s.ctxRename, icon: Pencil, disabled: !selected, onClick: () => { if (selected) setDialog({ kind: 'rename', target: selected }); } },
+      { label: s.ctxDuplicate, icon: Copy, disabled: !selected, onClick: () => { if (selected) setDialog({ kind: 'duplicate', target: selected }); } },
+      { label: s.ctxDelete, icon: Trash2, danger: true, disabled: !selected, onClick: () => { if (selected) setDialog({ kind: 'delete', target: selected }); } },
+    ] },
+    { id: 'view', label: s.menuView, items: [
+      { label: s.wordWrap, icon: prefs.wordWrap ? Check : WrapText, onClick: () => updatePrefs({ wordWrap: !prefs.wordWrap }) },
+      { label: s.menuMinimap, icon: prefs.minimap ? Check : MapIcon, onClick: () => updatePrefs({ minimap: !prefs.minimap }) },
+      DIVIDER,
+      { label: fullscreen ? s.exitFullscreen : s.fullscreen, icon: fullscreen ? Minimize2 : Maximize2, onClick: () => setFullscreen((f) => !f) },
+    ] },
+    { id: 'settings', label: s.menuSettings, items: [
+      { label: s.fontBigger, icon: Type, disabled: prefs.fontSize >= MAX_FONT_SIZE, onClick: () => updatePrefs({ fontSize: prefs.fontSize + 1 }) },
+      { label: s.fontSmaller, icon: Type, disabled: prefs.fontSize <= MIN_FONT_SIZE, onClick: () => updatePrefs({ fontSize: prefs.fontSize - 1 }) },
+      DIVIDER,
+      ...TAB_SIZES.map((n): MenuEntry => ({
+        label: s.tabSizeOption.replace('{n}', String(n)),
+        icon: prefs.tabSize === n ? Check : AlignLeft,
+        onClick: () => updatePrefs({ tabSize: n }),
+      })),
+    ] },
+  ];
+  const openTopMenu = (menu: MenuDescriptor | null, x: number, y: number) => {
+    if (!menu) { setOpenMenu(null); setMenu(null); return; }
+    setOpenMenu(menu.id);
+    setMenu({ x, y, items: menu.items });
+  };
 
   const dialogTitle = dialog?.kind === 'newFile' ? s.dlgNewFile
     : dialog?.kind === 'newFolder' ? s.dlgNewFolder
@@ -297,13 +397,24 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         {working ? <span className="truncate font-mono text-xs text-warning"><GitCompare size={11} className="mr-1 inline" aria-hidden />{s.workingChanges}</span>
           : commit ? <button type="button" onClick={() => setSelected(null)} disabled={!selected} title={selected ? s.viewCommit : undefined} className="flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default"><GitCompare size={11} className="mr-1 inline shrink-0" aria-hidden /><span className="truncate">{s.commitLabel} {commit.slice(0, 8)}{selected ? ` · ${selected}` : ''}</span></button>
           : null}
-        <div className="ml-auto flex items-center gap-1.5">
+        {/* The menu bar owns the file actions, so they stop competing with the view mode and Save for
+            the same strip of toolbar. Hidden in the read-only commit and working-diff views, where
+            every one of its entries would be inapplicable. */}
+        {!commit && !working && !(mobile && fullscreen) ? <MenuBar menus={menus} openId={openMenu} onOpen={openTopMenu} /> : null}
+        {uploading ? <span className="text-xs text-text-muted">{s.uploading}</span> : null}
+        <div className="ml-auto flex items-center gap-2">
           {editable ? (
             <>
-              <Button variant={effTab === 'edit' ? 'accent' : 'ghost'} onClick={() => setTab('edit')}>{s.tabEdit}</Button>
-              {previewableText ? <Button variant={effTab === 'preview' ? 'accent' : 'ghost'} icon={Eye} onClick={() => setTab('preview')}>{s.tabPreview}</Button> : null}
-              <Button variant={effTab === 'diff' ? 'accent' : 'ghost'} icon={GitCompare} onClick={() => setTab('diff')}>{s.tabDiff}</Button>
-              <Button variant={wordWrap ? 'accent' : 'ghost'} icon={WrapText} aria-label={s.wordWrap} title={s.wordWrap} onClick={() => setWordWrap((w) => !w)} />
+              <ViewSwitch
+                label={s.viewMode}
+                value={effTab}
+                onChange={setTab}
+                options={[
+                  { id: 'edit' as Tab, label: s.tabEdit, icon: Code2 },
+                  ...(previewableText ? [{ id: 'preview' as Tab, label: s.tabPreview, icon: Eye }] : []),
+                  { id: 'diff' as Tab, label: s.tabDiff, icon: GitCompare },
+                ]}
+              />
               <Button variant="accent" icon={Save} disabled={!dirty || write.isPending} onClick={save}>{t.common.save}</Button>
             </>
           ) : null}
@@ -318,8 +429,24 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
             overlay (default hidden) so it never eats the narrow viewport. */}
         {(mobile && fullscreen && !showTree) ? null : (
           <div
-            className={`flex shrink-0 flex-col border-r border-border ${(mobile && fullscreen) ? 'absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-surface shadow-[var(--shadow-raised)]' : 'w-64 bg-bg/40'}`}
+            // Dropping is scoped to the tree rather than the whole editor on purpose: Monaco handles
+            // drops itself (dragged text lands in the buffer), and a page-wide catcher would quietly
+            // take that over.
+            onDragOver={(e) => { if (commit || working) return; e.preventDefault(); setDropping(true); }}
+            onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget as Node | null)) return; setDropping(false); }}
+            onDrop={(e) => {
+              if (commit || working) return;
+              e.preventDefault();
+              setDropping(false);
+              runUpload(Array.from(e.dataTransfer.files ?? []), uploadDir);
+            }}
+            className={`relative flex shrink-0 flex-col border-r border-border ${(mobile && fullscreen) ? 'absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-surface shadow-[var(--shadow-raised)]' : 'w-64 bg-bg/40'} ${dropping ? 'ring-2 ring-inset ring-accent' : ''}`}
           >
+            {dropping ? (
+              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-accent/10 px-3 text-center text-xs font-medium text-accent">
+                {s.dropHere.replace('{dir}', uploadDir || '/')}
+              </div>
+            ) : null}
             <div className="min-h-0 flex-1 overflow-auto p-1.5">
               {files.isLoading ? <LoadingState />
                 : <FileTree tree={tree} expanded={expanded} onToggle={toggle} selected={selected} onSelect={(p) => { selectInTree(p); if (mobile && fullscreen) setShowTree(false); }} changed={changedSet} onContextMenu={onContextMenu} emptyLabel={s.noFiles} treeLabel={s.editorTitle} />}
@@ -355,11 +482,24 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
                 ? <BinaryPreview projectId={projectId} path={selected} size={fileSize} message={fileKind === 'binary' ? s.binaryFile : s.previewTooLarge} downloadLabel={s.download} sizeLabel={s.fileSize} typeLabel={s.fileType} downloadAvailable={fileSize <= MAX_BUFFERED_BYTES} downloadUnavailableLabel={s.downloadUnavailable} />
               : fileData.isLoading ? <LoadingState />
               : fileData.data?.truncated ? <p className="p-4 text-center text-sm text-text-muted">{s.fileTooBig}</p>
-              : effTab === 'diff' ? (headData.isLoading ? <LoadingState /> : <DiffEditorPane path={selected} original={headData.data?.content ?? ''} modified={value} />)
+              : effTab === 'diff' ? (headData.isLoading ? <LoadingState /> : <DiffEditorPane path={selected} original={headData.data?.content ?? ''} modified={value} prefs={prefs} />)
               : effTab === 'preview' && fileKind === 'csv' ? <CsvPreview source={value} invalidLabel={s.csvInvalid} limitedLabel={s.csvLimited} />
               : effTab === 'preview' ? <MarkdownPreview source={value} />
-              : <EditorPane path={selected} value={value} onChange={onChange} onSave={save} wordWrap={wordWrap} />}
+              : <EditorPane path={selected} value={value} onChange={onChange} onSave={save} prefs={prefs} onCursor={setCursor} />}
           </div>
+          {/* Only under the editor itself: on a preview or a commit diff every reading it offers would
+              describe a file the pane above is not letting you edit. */}
+          {selected && textFile && !commit && !working && effTab === 'edit' ? (
+            <StatusBar
+              path={selected}
+              cursor={cursor}
+              language={langOf(selected)}
+              tabSize={prefs.tabSize}
+              size={fileSize}
+              dirty={dirty}
+              labels={{ line: s.statusLine, column: s.statusColumn, selected: s.statusSelected, spaces: s.statusSpaces, unsaved: s.statusUnsaved }}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -381,7 +521,17 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         </div>
       ) : null}
 
-      {menu ? <ContextMenu state={menu} onClose={() => setMenu(null)} /> : null}
+      {/* The file picker for the Upload menu entry. Reset to '' after every pick so choosing the SAME
+          file twice in a row still fires a change event. */}
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => { runUpload(Array.from(e.target.files ?? []), uploadDir); e.target.value = ''; }}
+      />
+
+      {menu ? <ContextMenu state={menu} onClose={() => { setMenu(null); setOpenMenu(null); }} /> : null}
       {dialog && dialog.kind === 'delete'
         ? <ConfirmDialog title={s.dlgDelete} message={s.dlgDeleteMsg.replace('{name}', baseName(dialog.target))} confirmLabel={s.ctxDelete} danger icon={Trash2} onConfirm={confirmDelete} onCancel={() => setDialog(null)} />
         : dialog

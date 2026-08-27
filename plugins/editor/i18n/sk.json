@@ -59,7 +59,24 @@
       "duplicated": "Skopírované do {path}",
       "deleted": "Vymazané {path}",
       "pathCopied": "Cesta skopírovaná",
-      "copyFailed": "Kopírovanie zlyhalo"
+      "copyFailed": "Kopírovanie zlyhalo",
+      "menuFile": "Súbor",
+      "menuView": "Zobrazenie",
+      "menuSettings": "Nastavenia",
+      "menuUpload": "Nahrať súbory…",
+      "menuMinimap": "Minimapa",
+      "viewMode": "Režim zobrazenia",
+      "uploading": "Nahrávam…",
+      "uploaded": "Nahraných súborov: {count}.",
+      "dropHere": "Pretiahnite súbory do {dir}",
+      "fontBigger": "Väčšie písmo",
+      "fontSmaller": "Menšie písmo",
+      "tabSizeOption": "Odsadenie: {n} medzery",
+      "statusLine": "Riadok",
+      "statusColumn": "Stĺpec",
+      "statusSelected": "vybrané",
+      "statusSpaces": "Medzery",
+      "statusUnsaved": "Neuložené zmeny"
     }
   }
 }

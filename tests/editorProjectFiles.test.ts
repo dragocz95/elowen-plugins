@@ -19,9 +19,9 @@ import {
   convertOfficeToPdf, listProjectFiles, readProjectFile as readFile, writeProjectFile as writeFile, readProjectByteRange as readRange, readProjectBytes as readBytes,
   createProjectFile as createFile, createProjectDir as createDir, deleteProjectEntry as deleteEntry,
   renameProjectEntry as renameEntry, copyProjectEntry as copyEntry, projectCommitDiff, projectCommitFiles,
-  projectCommitFileDiff as commitFileDiff, projectCommitLog,
+  projectCommitFileDiff as commitFileDiff, projectCommitLog, uploadProjectChunk as uploadChunk,
 } from '../plugins/editor/src/files.js';
-import { fileKindOf, mimeTypeOf } from '../plugins/editor/src/fileTypes.js';
+import { fileKindOf, mimeTypeOf, MAX_BUFFERED_BYTES } from '../plugins/editor/src/fileTypes.js';
 
 const readProjectFile = (root: string, path: string) => readFile(safeProjectPath, root, path);
 const writeProjectFile = (root: string, path: string, content: string) => writeFile(safeProjectPath, root, path, content);
@@ -258,6 +258,67 @@ describe('path-traversal safety', () => {
       symlinkSync(join(outside, 'secret.txt'), join(root, 'link')); // existing leaf symlink
       expect(() => writeProjectFile(root, 'link', 'OVERWRITTEN')).toThrow(/outside project/);
       expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('ORIGINAL'); // untouched
+    } finally { rmSync(outside, { recursive: true, force: true }); }
+  });
+});
+
+describe('uploadProjectChunk', () => {
+  const upload = (rel: string, bytes: Buffer, offset: number, final: boolean, overwrite = false) =>
+    uploadChunk(safeProjectPath, root, rel, bytes, offset, final, overwrite);
+
+  it('assembles a file from chunks and only publishes it on the last one', () => {
+    const target = join(root, 'assets', 'big.bin');
+    upload('assets/big.bin', Buffer.from('AAAA'), 0, false);
+    // The destination must not exist yet. A reader arriving mid-transfer has to find nothing at all
+    // rather than a truncated file that looks complete.
+    expect(existsSync(target)).toBe(false);
+    upload('assets/big.bin', Buffer.from('BBBB'), 4, false);
+    expect(existsSync(target)).toBe(false);
+    upload('assets/big.bin', Buffer.from('CC'), 8, true);
+    expect(readFileSync(target, 'utf8')).toBe('AAAABBBBCC');
+  });
+
+  it('hides the half-written temp file from the tree, and stops hiding it once it lands', () => {
+    upload('wip.bin', Buffer.from('half'), 0, false);
+    expect(listProjectFiles(root).some((n) => n.path.includes('wip.bin'))).toBe(false);
+    upload('wip.bin', Buffer.from('done'), 4, true);
+    expect(listProjectFiles(root).some((n) => n.path === 'wip.bin')).toBe(true);
+  });
+
+  it('refuses a chunk that does not continue where the last one stopped', () => {
+    upload('gap.bin', Buffer.from('AAAA'), 0, false);
+    // Zero-filling the hole would produce a corrupt file that no error ever mentioned, so the gap is
+    // a refusal rather than something to paper over.
+    expect(() => upload('gap.bin', Buffer.from('CCCC'), 8, true)).toThrow(/out of order/);
+    expect(existsSync(join(root, 'gap.bin'))).toBe(false);
+  });
+
+  it('will not silently replace an existing file, and does when told to', () => {
+    w('keep.txt', 'ORIGINAL');
+    expect(() => upload('keep.txt', Buffer.from('NEW'), 0, true)).toThrow(/already exists/);
+    expect(readFileSync(join(root, 'keep.txt'), 'utf8')).toBe('ORIGINAL');
+    upload('keep.txt', Buffer.from('NEW'), 0, true, true);
+    expect(readFileSync(join(root, 'keep.txt'), 'utf8')).toBe('NEW');
+  });
+
+  it('creates a zero-byte file, which is a file and not an absence', () => {
+    upload('empty.bin', Buffer.alloc(0), 0, true);
+    expect(existsSync(join(root, 'empty.bin'))).toBe(true);
+    expect(readFileSync(join(root, 'empty.bin')).length).toBe(0);
+  });
+
+  it('refuses an upload that would exceed the size ceiling', () => {
+    expect(() => upload('huge.bin', Buffer.from('x'), MAX_BUFFERED_BYTES, true)).toThrow(/too large/);
+    expect(existsSync(join(root, 'huge.bin'))).toBe(false);
+  });
+
+  it('carries the path guard, so an upload cannot escape the project', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'elowen-outside-'));
+    try {
+      symlinkSync(outside, join(root, 'linkdir'));
+      expect(() => upload('linkdir/pwned.bin', Buffer.from('nope'), 0, true)).toThrow(/outside project/);
+      expect(existsSync(join(outside, 'pwned.bin'))).toBe(false);
+      expect(() => upload('../escape.bin', Buffer.from('nope'), 0, true)).toThrow();
     } finally { rmSync(outside, { recursive: true, force: true }); }
   });
 });

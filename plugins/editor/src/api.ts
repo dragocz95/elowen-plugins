@@ -4,9 +4,9 @@ import {
   copyProjectEntry, createProjectDir, createProjectFile, deleteProjectEntry, listProjectFiles,
   projectChangedFiles, projectCommitDiff, projectCommitFileDiff, projectCommitFiles, projectCommitLog,
   convertOfficeToPdf, OfficePreviewError, projectFileAtHead, projectFileDiff, projectFileSize, projectWorkingDiff,
-  readProjectByteRange, readProjectBytes, readProjectFile, renameProjectEntry, writeProjectFile,
+  readProjectByteRange, readProjectBytes, readProjectFile, renameProjectEntry, uploadProjectChunk, writeProjectFile,
 } from './files.js';
-import { baseName, mimeTypeOf } from './fileTypes.js';
+import { baseName, mimeTypeOf, MAX_UPLOAD_CHUNK_BYTES } from './fileTypes.js';
 
 function projectFor(ctx: PluginContext, req: PluginApiRequest): { path: string } | PluginHttpResponse {
   const id = Number(req.params.id);
@@ -60,6 +60,21 @@ export function registerEditorApi(ctx: PluginContext): void {
     const input = await body(req); const path = requiredString(input?.path); const content = typeof input?.content === 'string' ? input.content : null;
     if (!path || content === null) return { status: 400, body: { error: 'path and content required' } };
     try { writeProjectFile(safe, project.path, path, content); return { body: { ok: true } }; } catch (error) { return fileError(error); }
+  });
+  route('/projects/:id/upload', 'PUT', async (req, project) => {
+    const path = requiredString(req.query.path);
+    if (!path) return { status: 400, body: { error: 'path required' } };
+    const offset = Number(req.query.offset ?? '0');
+    if (!Number.isSafeInteger(offset) || offset < 0) return { status: 400, body: { error: 'invalid offset' } };
+    const bytes = await req.body();
+    // A chunk larger than the split the browser agreed to means the two sides disagree about the
+    // contract, not that this one file is big — answering 413 would send the client into a retry loop
+    // at a size it will keep choosing.
+    if (bytes.length > MAX_UPLOAD_CHUNK_BYTES) return { status: 400, body: { error: 'chunk too large' } };
+    try {
+      const result = uploadProjectChunk(safe, project.path, path, bytes, offset, req.query.final === '1', req.query.overwrite === '1');
+      return { body: { ok: true, ...result } };
+    } catch (error) { return fileError(error); }
   });
   route('/projects/:id/raw', 'GET', (req, project) => {
     const path = requiredString(req.query.path); if (!path) return { status: 400, body: { error: 'path required' } };

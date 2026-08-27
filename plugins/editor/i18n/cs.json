@@ -59,7 +59,24 @@
       "duplicated": "Zkopírováno do {path}",
       "deleted": "Smazáno {path}",
       "pathCopied": "Cesta zkopírována",
-      "copyFailed": "Kopírování selhalo"
+      "copyFailed": "Kopírování selhalo",
+      "menuFile": "Soubor",
+      "menuView": "Zobrazení",
+      "menuSettings": "Nastavení",
+      "menuUpload": "Nahrát soubory…",
+      "menuMinimap": "Minimapa",
+      "viewMode": "Režim zobrazení",
+      "uploading": "Nahrávám…",
+      "uploaded": "Nahráno souborů: {count}.",
+      "dropHere": "Přetáhněte soubory do {dir}",
+      "fontBigger": "Větší písmo",
+      "fontSmaller": "Menší písmo",
+      "tabSizeOption": "Odsazení: {n} mezery",
+      "statusLine": "Řádek",
+      "statusColumn": "Sloupec",
+      "statusSelected": "vybráno",
+      "statusSpaces": "Mezery",
+      "statusUnsaved": "Neuložené změny"
     }
   }
 }

@@ -1,16 +1,20 @@
 {
   "name": "editor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "apiVersion": "1",
   "description": "Project file editor with Monaco, file management, previews for Markdown, images, PDF, media, Office and CSV files, a binary download fallback, and read-only Git history. Disabling it removes the editor UI and makes its grandfathered project-file API unavailable while project registration and task Git history remain available.",
   "entry": "dist/index.js",
   "capabilities": {
-    "reads": ["stores", "project-files"]
+    "reads": [
+      "stores",
+      "project-files"
+    ]
   },
   "provides": {
     "apiRoutes": [
       "/projects/:id/files",
       "/projects/:id/file",
+      "/projects/:id/upload",
       "/projects/:id/raw",
       "/projects/:id/office-preview",
       "/projects/:id/new-file",
@@ -32,7 +36,11 @@
     "css": "web/index.css",
     "requiresApiVersion": 1,
     "nav": [
-      { "label": "Editor", "icon": "Code2", "route": "" }
+      {
+        "label": "Editor",
+        "icon": "Code2",
+        "route": ""
+      }
     ],
     "strings": {
       "title": "Editor",
@@ -89,7 +97,24 @@
       "duplicated": "Copied to {path}",
       "deleted": "Deleted {path}",
       "pathCopied": "Path copied",
-      "copyFailed": "Copy failed"
+      "copyFailed": "Copy failed",
+      "menuFile": "File",
+      "menuView": "View",
+      "menuSettings": "Settings",
+      "menuUpload": "Upload files…",
+      "menuMinimap": "Minimap",
+      "viewMode": "View mode",
+      "uploading": "Uploading…",
+      "uploaded": "Uploaded {count} file(s).",
+      "dropHere": "Drop files into {dir}",
+      "fontBigger": "Larger text",
+      "fontSmaller": "Smaller text",
+      "tabSizeOption": "Indent: {n} spaces",
+      "statusLine": "Ln",
+      "statusColumn": "Col",
+      "statusSelected": "selected",
+      "statusSpaces": "Spaces",
+      "statusUnsaved": "Unsaved changes"
     }
   }
 }
