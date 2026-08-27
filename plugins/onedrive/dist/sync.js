@@ -473,7 +473,15 @@ export class SyncEngine {
                     }
                     // One file failing is not a reason to abandon the rest of the mirror, but it IS a reason to
                     // leave that file's baseline exactly as it was so the next cycle re-decides it from scratch.
-                    this.deps.log.warn(`onedrive mirror ${link.id}: ${rel}: ${message(error)}`);
+                    // The Graph error's status and code are what distinguish "somebody edited it" from "the name is
+                    // taken" from "the grant expired". Logging only the prose sentence threw that away and left the
+                    // same line to describe several unrelated faults.
+                    const detail = error;
+                    const graphDetail = [
+                        typeof detail?.status === 'number' ? `HTTP ${detail.status}` : '',
+                        typeof detail?.code === 'string' && detail.code ? detail.code : '',
+                    ].filter(Boolean).join(' ');
+                    this.deps.log.warn(`onedrive mirror ${link.id}: ${entry.action} ${rel}: ${message(error)}${graphDetail ? ` [${graphDetail}]` : ''}`);
                     failures.push(rel);
                 }
             }
