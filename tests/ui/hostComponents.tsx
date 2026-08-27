@@ -1111,7 +1111,7 @@ export function MarkdownAssetEditor(props: any) {
 /** Publishes the page title into the shell masthead and renders only the page's own toolbar below it.
  *  There is no masthead in this repo, so the title is rendered inline — what a panel depends on is that
  *  the toolbar children land in a wrapping flex row, which is what its layout assertions read. */
-export function ModuleHeader({ title, subtitle, children }: { title: string; count?: number; icon?: LucideIcon; children?: ReactNode; subtitle?: string }) {
+export function ModuleHeader({ title: _title, subtitle, children }: { title: string; count?: number; icon?: LucideIcon; children?: ReactNode; subtitle?: string }) {
   if (!children && !subtitle) return null;
   return (
     <div className="mb-6 flex flex-col gap-2">

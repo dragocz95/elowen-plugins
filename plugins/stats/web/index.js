@@ -634,8 +634,10 @@ function StatsView() {
   const s = usePluginStrings2("stats");
   const { t, locale } = useTranslation2();
   const [rangeRaw, setRangeRaw] = usePersistentState("elowen.stats.range", serializeRange(DEFAULT_RANGE), isStoredRange);
-  const range = (0, import_react7.useMemo)(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
-  const now = (0, import_react7.useMemo)(() => Date.now(), [rangeRaw]);
+  const { range, now } = (0, import_react7.useMemo)(() => ({
+    range: parseRange(rangeRaw) ?? DEFAULT_RANGE,
+    now: Date.now()
+  }), [rangeRaw]);
   const window2 = (0, import_react7.useMemo)(() => rangeBounds(range, now), [range, now]);
   const trendDays = (0, import_react7.useMemo)(() => trendDaysForWindow(window2, now), [window2, now]);
   const usage = useModelUsage(void 0, window2);

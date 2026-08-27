@@ -26,7 +26,7 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync, existsSync } from 'node:fs';
 import { join, dirname, basename, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 
@@ -46,16 +46,6 @@ if (!existsSync(join(coreSharedDir, 'execs.js'))) {
   throw new Error(`[copied-helper-parity] ${coreSource} has no built dist/shared/execs.js: ${coreRoot}`);
 }
 console.info(`[copied-helper-parity] core source: ${coreSource} (${coreRoot})`);
-
-const coreGitSha = await import(pathToFileURL(join(coreSharedDir, 'gitSha.js')).href);
-const coreKeyedMutex = await import(pathToFileURL(join(coreSharedDir, 'keyedMutex.js')).href);
-const coreApiClient = await import(pathToFileURL(join(coreSharedDir, 'apiClient.js')).href);
-const coreSessionInfo = await import(pathToFileURL(join(coreSharedDir, 'sessionInfo.js')).href);
-const coreExecs = await import(pathToFileURL(join(coreSharedDir, 'execs.js')).href);
-const coreIsGitSha = coreGitSha.isGitSha;
-const CoreKeyedMutex = coreKeyedMutex.KeyedMutex;
-const coreCallElowenApi = coreApiClient.callElowenApi;
-const coreClassifySession = coreSessionInfo.classifySession;
 
 /** Ids of the copies this file pins behaviourally. The discovery scan below asserts this list is
  *  exactly what it found, so a NEW copy fails the suite until someone adds cases for it here.

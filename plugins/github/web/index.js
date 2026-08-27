@@ -196,10 +196,10 @@ function GitHubConnectionPanel({ onChanged, surface }) {
   const status = hooks.useQuery({ queryKey: STATUS_KEY, queryFn: () => api("/plugins/github/api/status") });
   const [pending, setPending] = (0, import_react3.useState)(null);
   const [flow, setFlow] = (0, import_react3.useState)(null);
-  const refresh = async () => {
+  const refresh = (0, import_react3.useCallback)(async () => {
     await qc.invalidateQueries({ queryKey: STATUS_KEY });
     await onChanged?.();
-  };
+  }, [onChanged, qc]);
   const connect = hooks.useMutation({
     mutationFn: (value) => api("/plugins/github/api/auth/start", jsonBody(value)),
     onSuccess: (value) => setFlow(value),
@@ -254,7 +254,7 @@ function GitHubConnectionPanel({ onChanged, surface }) {
     else if (state === "cancelled") toast(s.connectionCancelled);
     else if (state === "expired") toast(s.connectionExpired, "error");
     else toast(s.connectionFailed, "error");
-  }, [flowStatus.data?.status]);
+  }, [flowStatus.data?.status, refresh, s.connectionCancelled, s.connectionComplete, s.connectionExpired, s.connectionFailed, toast]);
   (0, import_react3.useEffect)(() => {
     if (!flow || !flowStatus.isError) return;
     const statusCode = flowStatus.error && typeof flowStatus.error === "object" && "status" in flowStatus.error ? Number(flowStatus.error.status) : 0;
@@ -262,7 +262,7 @@ function GitHubConnectionPanel({ onChanged, surface }) {
     setFlow(null);
     void refresh();
     toast(s.connectionFailed, "error");
-  }, [flow, flowStatus.isError, flowStatus.error]);
+  }, [flow, flowStatus.isError, flowStatus.error, refresh, s.connectionFailed, toast, utils]);
   if (status.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => status.refetch() });
   if (status.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "detail" });
   const account = status.data?.account;

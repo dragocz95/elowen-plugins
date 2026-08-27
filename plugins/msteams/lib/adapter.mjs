@@ -714,7 +714,6 @@ export class MsTeamsAdapter {
     // that question is answered by the catalog: everything the daemon or this surface executes, plus the
     // adapter-state commands we implement. A plugin prompt macro is deliberately NOT excluded — that one
     // IS a turn the conversation had.
-    const kind = conv.conversationType ?? 'personal';
     const personal = conv.conversationType === 'personal';
     const said = this.resolveMentions(m);
     const saidCmd = said.startsWith('/') ? String(said.slice(1).trim().split(/\s+/)[0] ?? '').toLowerCase() : '';

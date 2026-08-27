@@ -105,8 +105,10 @@ export function StatsView() {
   const s = usePluginStrings('stats');
   const { t, locale } = useTranslation();
   const [rangeRaw, setRangeRaw] = usePersistentState('elowen.stats.range', serializeRange(DEFAULT_RANGE), isStoredRange);
-  const range = useMemo(() => parseRange(rangeRaw) ?? DEFAULT_RANGE, [rangeRaw]);
-  const now = useMemo(() => Date.now(), [rangeRaw]);
+  const { range, now } = useMemo(() => ({
+    range: parseRange(rangeRaw) ?? DEFAULT_RANGE,
+    now: Date.now(),
+  }), [rangeRaw]);
   const window = useMemo(() => rangeBounds(range, now), [range, now]);
   const trendDays = useMemo(() => trendDaysForWindow(window, now), [window, now]);
   const usage = useModelUsage(undefined, window);

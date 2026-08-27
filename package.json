@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "test": "npm run test:node && npm run test:ui",
     "test:node": "node --test --import=./tests/register-loader.mjs \"tests/*.test.mjs\"",
     "test:ui": "vitest run",
@@ -37,6 +39,10 @@
     "elowen": "^0.28.17",
     "elowen-plugin-shared": "^0.1.7",
     "elowen-plugin-ui-kit": "^0.5.0",
+    "eslint": "^10.9.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "globals": "^17.11.0",
     "grammy": "^1.45.1",
     "jose": "^5.10.0",
     "jsdom": "^25.0.1",
@@ -48,6 +54,7 @@
     "react-dom": "^19.2.8",
     "typebox": "^1.1.38",
     "typescript": "^5.6.0",
+    "typescript-eslint": "^8.68.0",
     "vitest": "^4.1.10",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { GitFork, Github, Hash } from 'lucide-react';
 import { jsonBody, localizedError, runtime, type DeviceFlowResponse, type Preview, type StatusResponse } from './runtime';
 
@@ -15,10 +15,10 @@ export function GitHubConnectionPanel({ onChanged, surface }: { onChanged?: () =
   const [pending, setPending] = useState<PendingConnectionAction | null>(null);
   const [flow, setFlow] = useState<DeviceChallenge | null>(null);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     await qc.invalidateQueries({ queryKey: STATUS_KEY });
     await onChanged?.();
-  };
+  }, [onChanged, qc]);
   const connect = hooks.useMutation<DeviceChallenge, unknown, { replaceIdentity?: boolean; reconnect?: boolean; confirmationToken?: string }>({
     mutationFn: (value: { replaceIdentity?: boolean; reconnect?: boolean; confirmationToken?: string }) => api('/plugins/github/api/auth/start', jsonBody(value)) as Promise<DeviceChallenge>,
     onSuccess: (value: DeviceChallenge) => setFlow(value),
@@ -71,7 +71,7 @@ export function GitHubConnectionPanel({ onChanged, surface }: { onChanged?: () =
     else if (state === 'cancelled') toast(s.connectionCancelled);
     else if (state === 'expired') toast(s.connectionExpired, 'error');
     else toast(s.connectionFailed, 'error');
-  }, [flowStatus.data?.status]);
+  }, [flowStatus.data?.status, refresh, s.connectionCancelled, s.connectionComplete, s.connectionExpired, s.connectionFailed, toast]);
 
   useEffect(() => {
     if (!flow || !flowStatus.isError) return;
@@ -81,7 +81,7 @@ export function GitHubConnectionPanel({ onChanged, surface }: { onChanged?: () =
     setFlow(null);
     void refresh();
     toast(s.connectionFailed, 'error');
-  }, [flow, flowStatus.isError, flowStatus.error]);
+  }, [flow, flowStatus.isError, flowStatus.error, refresh, s.connectionFailed, toast, utils]);
 
   if (status.isError) return <C.ErrorState message={s.loadError} onRetry={() => status.refetch()} />;
   if (status.isLoading) return <C.LoadingState variant="detail" />;
