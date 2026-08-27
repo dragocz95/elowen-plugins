@@ -1,9 +1,0 @@
-{
-  "extends": "./tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "plugins/editor/dist",
-    "rootDir": "plugins/editor/src",
-    "tsBuildInfoFile": "plugins/editor/dist/.tsbuildinfo"
-  },
-  "include": ["plugins/editor/src/**/*"]
-}

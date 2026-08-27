@@ -1,9 +1,0 @@
-{
-  "extends": "./tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "plugins/lsp/dist",
-    "rootDir": "plugins/lsp/src",
-    "tsBuildInfoFile": "plugins/lsp/dist/.tsbuildinfo"
-  },
-  "include": ["plugins/lsp/src/**/*"]
-}
