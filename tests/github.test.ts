@@ -275,10 +275,15 @@ describe('GitHub plugin', () => {
 
   it('declares device auth without App setup or callback routes', () => {
     expect(manifest.userGrantable).not.toBe(true);
-    expect(manifest.version).toBe('0.1.7');
+    expect(manifest.version).toBe('0.1.8');
+    // Still 4, deliberately: `placement` is read by the HOST off the manifest, not called by the bundle,
+    // so a host too old to know the field ignores it and falls back to a rail section. Raising the floor
+    // would refuse to load the plugin there instead — the ceiling cannot express "nice to have".
     expect(manifest.web.requiresApiVersion).toBe(4);
     expect(manifest.web.nav).toBeUndefined();
-    expect(manifest.web.account).toEqual([{ id: 'connection', label: 'GitHub', icon: 'Github' }]);
+    // GitHub is an identity, so it hangs in the Linked accounts drawer beside the chat platforms rather
+    // than as a top-level Account menu of its own.
+    expect(manifest.web.account).toEqual([{ id: 'connection', label: 'GitHub', icon: 'Github', placement: 'linkedAccount' }]);
     expect(manifest.web.project).toEqual([{ id: 'repository', label: 'GitHub', icon: 'Github' }]);
     expect(manifest.configSchema).toBeUndefined();
     expect(manifest.provides.apiRoutes).not.toContain('setup');

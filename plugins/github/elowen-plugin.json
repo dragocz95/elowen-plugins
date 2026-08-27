@@ -1,6 +1,6 @@
 {
   "name": "github",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "apiVersion": "1",
   "requiresCore": "0.28.13",
   "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
@@ -61,7 +61,7 @@
     "entry": "web/index.js",
     "css": "web/index.css",
     "requiresApiVersion": 4,
-    "account": [{ "id": "connection", "label": "GitHub", "icon": "Github" }],
+    "account": [{ "id": "connection", "label": "GitHub", "icon": "Github", "placement": "linkedAccount" }],
     "project": [{ "id": "repository", "label": "GitHub", "icon": "Github" }],
     "strings": {
       "title": "GitHub",
