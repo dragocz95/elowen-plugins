@@ -3,6 +3,7 @@
   "version": "0.2.2",
   "apiVersion": "1",
   "requiresCore": "0.28.6",
+  "requiresSharedApi": 2,
   "description": "Scheduled prompts: recurring jobs (\"every 30m\", \"daily 07:30\") and one-shot wake-ups (\"in 20m\", \"at 18:30\"). Personal schedules run with their owner's rights and return to the originating one-person conversation; instance automation runs with owner powers and reports through the notification channel.",
   "entry": "index.mjs",
   "capabilities": {

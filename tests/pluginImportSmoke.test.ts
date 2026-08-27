@@ -116,12 +116,6 @@ describe('every plugin imports cleanly against the daemon it will run inside', (
     for (const pkg of [...imported].sort()) {
       const declared = daemonPkg.dependencies[pkg];
       if (!declared) continue; // covered by the assertion above
-      // The one deliberate exception, and it points FORWARD rather than papering over a gap: the frozen
-      // cron grammar ships inside elowen-plugin-shared, so this repo needs a version newer than the one
-      // the last elowen release pinned. The daemon's own pluginSharedPackage test keeps its pin exact,
-      // so the two converge at the next elowen release — at which point this line stops mattering and
-      // should be deleted rather than extended to anything else.
-      if (pkg === 'elowen-plugin-shared') continue;
       const installedPath = join(registryRoot, 'node_modules', pkg, 'package.json');
       if (!existsSync(installedPath)) continue; // covered by the resolution assertion below
       const installed = (JSON.parse(readFileSync(installedPath, 'utf-8')) as { version: string }).version;
