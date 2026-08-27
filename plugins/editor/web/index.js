@@ -5454,7 +5454,6 @@ function EditorPage() {
         {
           eyebrow: s.workspaceEyebrow,
           title: s.title,
-          description: s.workspaceIntro,
           icon: CodeXml,
           status: project ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "workspace-status", children: s.workspaceReady.replace("{project}", project.slug) }) : void 0,
           action: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ProjectFilterPills, { value: projectId ?? "all", onChange: setProject, includeAll: false, variant: "dropdown" })

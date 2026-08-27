@@ -53,7 +53,6 @@ export function EditorPage() {
         <CompactWorkspaceHeader
           eyebrow={s.workspaceEyebrow}
           title={s.title}
-          description={s.workspaceIntro}
           icon={Code2}
           status={project ? <span className="workspace-status">{s.workspaceReady.replace('{project}', project.slug)}</span> : undefined}
           action={<ProjectFilterPills value={projectId ?? 'all'} onChange={setProject} includeAll={false} variant="dropdown" />}
