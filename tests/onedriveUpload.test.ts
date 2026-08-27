@@ -113,9 +113,11 @@ describe('onedrive upload name-conflict recovery', () => {
       throw conflict();
     });
 
+    // The refusal has to NAME the item, because the raw Graph sentence describes this and a dead upload
+    // reservation identically, and only one of the two is a file somebody could lose.
     await expect(
       new Drive(graph, 'drive-1').upload('folder-1', 'marketing-zip/1.zip', fakeFile(1024), undefined, true),
-    ).rejects.toThrow('already exists');
+    ).rejects.toThrow('somebody-elses-file');
     // One attempt only: a real item is a merge for the next cycle, never something to replace.
     expect(puts).toBe(1);
   });

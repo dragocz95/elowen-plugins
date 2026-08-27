@@ -288,8 +288,14 @@ export class Drive {
             // and the file never syncs again.
             if (!expectNew || ifMatch || !isNameConflict(error))
                 throw error;
-            if (await this.itemIdAt(folderId, rel) !== null)
-                throw error;
+            const existing = await this.itemIdAt(folderId, rel);
+            // A real item under a name the listing did not report is a genuine disagreement between two Graph
+            // answers, and the mirror must not resolve it by overwriting. Say WHICH item, because "already
+            // exists" repeated every cycle describes this and a dead upload reservation identically, and only
+            // one of them is a file somebody could lose.
+            if (existing !== null) {
+                throw Object.assign(new Error(`the name is taken by item ${existing}, which the folder listing did not report`), { status: error.status, code: error.code });
+            }
             return await send(false);
         }
     }
