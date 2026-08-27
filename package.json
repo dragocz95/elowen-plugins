@@ -11,7 +11,7 @@
     "build:web": "node scripts/build-web.mjs",
     "build:ts": "node scripts/build-ts.mjs",
     "check:web": "node scripts/build-web.mjs && git diff --exit-code -- \"plugins/*/web/index.*\"",
-    "check:dist": "node scripts/build-ts.mjs && git diff --exit-code -- \"plugins/*/dist\"",
+    "check:dist": "node scripts/build-ts.mjs && git diff --exit-code -- \"plugins/*/dist/*\"",
     "check": "npm run check:web-types && npm run check:web && npm run check:dist && npm test",
     "test:e2e:telegram": "node tests/e2e/telegram/run.mjs",
     "test:e2e:whatsapp": "node tests/e2e/whatsapp/run.mjs",
