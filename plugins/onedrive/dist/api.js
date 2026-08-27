@@ -1,5 +1,5 @@
 import { Drive } from './drive.js';
-import { buildIgnore, hashFile, normalizeSubpath } from './scan.js';
+import { buildIgnore, hashFile, normalizeSubpath, openMirrorFile } from './scan.js';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { readdir, rename, stat } from 'node:fs/promises';
@@ -317,7 +317,13 @@ export function registerApi(deps) {
                 return bad('The local file is gone. Sync again and try once more.', 409);
             let uploaded;
             try {
-                uploaded = await drive.upload(`${found.value.remotePath}/${rel}`, absolute, item.remoteEtag);
+                const file = await openMirrorFile(absolute);
+                try {
+                    uploaded = await drive.upload(found.value.remoteItemId, rel, file, item.remoteEtag);
+                }
+                finally {
+                    await file.handle.close();
+                }
             }
             catch (error) {
                 return bad(`The OneDrive copy could not be replaced: ${error instanceof Error ? error.message : String(error)}`, 409);

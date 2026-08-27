@@ -4,7 +4,7 @@ import { mkdir, realpath, rename, stat } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import { Drive, StaleLocalError } from './drive.js';
 import { decide } from './merge.js';
-import { buildIgnore, containedIn, containedInEventually, gitIgnoredAmong, hashFile, scanLocal, TRASH_DIR, } from './scan.js';
+import { buildIgnore, containedIn, containedInEventually, gitIgnoredAmong, hashFile, scanLocal, TRASH_DIR, openMirrorFile, } from './scan.js';
 const LEASE_MS = 5 * 60 * 1000;
 /** Renew on ELAPSED TIME, not on a count of files. One large upload can outlast the lease on its own,
  *  and a counter cannot see that happening. */
@@ -318,6 +318,10 @@ export class SyncEngine {
             }
             this.deps.store.setBlockedDeletions(link.id, 0);
             let bytes = 0;
+            // A file OneDrive will never accept - a name containing `*`, a trailing period - fails on every
+            // cycle forever. Logging it and finishing as "In sync" told the person their project was mirrored
+            // when part of it provably was not, and there was nothing on screen to act on.
+            const failures = [];
             let renewedAt = Date.now();
             for (const entry of planned) {
                 // Losing the claim means another worker has already re-decided this mirror. Anything this cycle
@@ -329,6 +333,16 @@ export class SyncEngine {
                         return;
                     }
                     renewedAt = Date.now();
+                    // The row is re-read on the same beat. Pausing or disconnecting takes effect immediately in the
+                    // database but the loop held a snapshot, so a person who pressed Disconnect watched their
+                    // OneDrive files keep disappearing until this cycle ran out of work. Stopping mid-way is safe by
+                    // construction: every entry commits its own baseline row, so the next cycle simply re-decides
+                    // whatever is left.
+                    const live = this.deps.store.linkById(link.id);
+                    if (!live || !live.enabled || live.remoteItemId !== link.remoteItemId || live.remoteDriveId !== link.remoteDriveId) {
+                        this.deps.log.warn(`onedrive mirror ${link.id}: was stopped or repointed mid-cycle and did not continue`);
+                        return;
+                    }
                 }
                 const { rel, local, remote: remoteFile, known } = entry;
                 const absolute = join(root, rel);
@@ -348,14 +362,23 @@ export class SyncEngine {
                         case 'upload': {
                             if (!local.present)
                                 break;
-                            // Conditional on what we last saw, so a remote edit made since the listing is reported as a
-                            // precondition failure and re-merged next cycle instead of being silently overwritten.
-                            const uploaded = await drive.upload(`${link.remotePath}/${rel}`, absolute, known?.remoteEtag || undefined, !remoteFile.present);
-                            this.deps.store.putItem({
-                                linkId: link.id, rel, localSize: local.size, localMtimeMs: local.mtimeMs, localSha256: local.sha256,
-                                remoteItemId: uploaded.id, remoteEtag: uploaded.etag, state: 'synced', conflictCopy: null,
-                            });
-                            bytes += local.size;
+                            // Opened here, under O_NOFOLLOW, and the SAME descriptor is what gets sent. Passing a path
+                            // to the uploader would let a symlink swapped in since the scan decide what leaves the
+                            // machine. Addressed by the folder's item id, so a folder moved in OneDrive still receives it.
+                            const file = await openMirrorFile(absolute);
+                            try {
+                                // Conditional on what we last saw, so a remote edit made since the listing is reported as a
+                                // precondition failure and re-merged next cycle instead of being silently overwritten.
+                                const uploaded = await drive.upload(link.remoteItemId, rel, file, known?.remoteEtag || undefined, !remoteFile.present);
+                                this.deps.store.putItem({
+                                    linkId: link.id, rel, localSize: local.size, localMtimeMs: local.mtimeMs, localSha256: local.sha256,
+                                    remoteItemId: uploaded.id, remoteEtag: uploaded.etag, state: 'synced', conflictCopy: null,
+                                });
+                                bytes += local.size;
+                            }
+                            finally {
+                                await file.handle.close();
+                            }
                             break;
                         }
                         case 'download': {
@@ -398,11 +421,17 @@ export class SyncEngine {
                             if (known?.remoteItemId && await drive.stillExists(known.remoteItemId))
                                 break;
                             if (!settings.applyRemoteDeletions) {
-                                const restored = await drive.upload(`${link.remotePath}/${rel}`, absolute, undefined, true);
-                                this.deps.store.putItem({
-                                    linkId: link.id, rel, localSize: local.size, localMtimeMs: local.mtimeMs, localSha256: local.sha256,
-                                    remoteItemId: restored.id, remoteEtag: restored.etag, state: 'synced', conflictCopy: null,
-                                });
+                                const file = await openMirrorFile(absolute);
+                                try {
+                                    const restored = await drive.upload(link.remoteItemId, rel, file, undefined, true);
+                                    this.deps.store.putItem({
+                                        linkId: link.id, rel, localSize: local.size, localMtimeMs: local.mtimeMs, localSha256: local.sha256,
+                                        remoteItemId: restored.id, remoteEtag: restored.etag, state: 'synced', conflictCopy: null,
+                                    });
+                                }
+                                finally {
+                                    await file.handle.close();
+                                }
                                 break;
                             }
                             await this.trash(root, rel);
@@ -445,12 +474,16 @@ export class SyncEngine {
                     // One file failing is not a reason to abandon the rest of the mirror, but it IS a reason to
                     // leave that file's baseline exactly as it was so the next cycle re-decides it from scratch.
                     this.deps.log.warn(`onedrive mirror ${link.id}: ${rel}: ${message(error)}`);
+                    failures.push(rel);
                 }
             }
             const after = this.deps.store.items(link.id);
+            const shown = failures.slice(0, 3).join(', ');
             this.deps.store.finish(link.id, {
-                status: 'idle',
-                error: null,
+                status: failures.length > 0 ? 'error' : 'idle',
+                error: failures.length > 0
+                    ? `${failures.length} file(s) could not be synchronised, including: ${shown}. Everything else is up to date.`
+                    : null,
                 fileCount: after.size,
                 byteCount: bytes,
                 // Counted from the BASELINE, not from this cycle's plan. A conflicted file the scan happened to

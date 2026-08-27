@@ -1,7 +1,8 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { lstat, readdir, realpath } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, open, readdir, realpath } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { dirname, join, matchesGlob, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -158,8 +159,13 @@ export async function gitIgnoredAmong(
   const out = new Set<string>();
   if (paths.length === 0) return { ignored: out, ok: true };
   // `promisify(execFile)` cannot write to stdin, and the path list is unbounded, so this one spawns.
+  // Bounded like every other git call here. Without it a wedged git holds this promise forever, and
+  // because the interval walks accounts sequentially, one stuck repository stops the mirror for everyone
+  // on the instance. A killed child exits non-zero, which `ok` already reads as "no answer".
   const child = spawn('git', ['-C', root, 'check-ignore', '--stdin', '-z', '--no-index'], {
     stdio: ['pipe', 'pipe', 'ignore'],
+    timeout: 30_000,
+    killSignal: 'SIGKILL',
   });
   const chunks: Buffer[] = [];
   child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -177,7 +183,7 @@ export async function gitIgnoredAmong(
 }
 
 /** Fallback for a root that is not a repository: a bounded walk that never follows a directory symlink. */
-async function walk(root: string, limit: number): Promise<{ files: string[]; complete: boolean }> {
+async function walk(root: string, limit: number, ignored: (rel: string) => boolean): Promise<{ files: string[]; complete: boolean }> {
   const out: string[] = [];
   const queue: string[] = [''];
   let complete = true;
@@ -196,8 +202,11 @@ async function walk(root: string, limit: number): Promise<{ files: string[]; com
     for (const entry of entries) {
       const rel = dir ? `${dir}/${entry.name}` : entry.name;
       if (isFloorIgnored(rel)) continue;
-      if (entry.isDirectory()) queue.push(rel);
-      else if (entry.isFile() || entry.isSymbolicLink()) out.push(rel);
+      // Pruning the DIRECTORY, not just filtering its files: descending into an ignored tree spends the
+      // whole budget on paths that were never going to be mirrored.
+      if (entry.isDirectory()) { if (!ignored(`${rel}/probe`)) queue.push(rel); continue; }
+      if (ignored(rel)) continue;
+      if (entry.isFile() || entry.isSymbolicLink()) out.push(rel);
       if (out.length >= limit) { complete = false; break; }
     }
   }
@@ -253,8 +262,12 @@ export interface ScanOptions {
 export async function scanLocal(root: string, options: ScanOptions): Promise<ScanResult> {
   const listed = await gitFiles(root);
   const fromGit = listed.files !== null;
-  const fallback = listed.files === null ? await walk(root, options.maxFiles) : null;
-  const candidates = listed.files ?? fallback!.files;
+  const fallback = listed.files === null ? await walk(root, options.maxFiles, options.ignored) : null;
+  // The cap exists to stop the cycle chewing through an unbounded tree, so it has to count the files this
+  // mirror would actually carry - AFTER the ignores. Counting the raw listing meant a repository holding
+  // 20k generated-but-ignored files could never complete a cycle, whatever it had actually asked to
+  // mirror, and an incomplete scan stops the cycle forever rather than degrading.
+  const candidates = (listed.files ?? fallback!.files).filter((rel) => !options.ignored(rel));
   const files = new Map<string, ScannedFile>();
   const skipped: ScanResult['skipped'] = [];
   // An unclassified git failure makes this scan an opinion, not an inventory. Marking it incomplete is
@@ -277,7 +290,6 @@ export async function scanLocal(root: string, options: ScanOptions): Promise<Sca
   }
 
   for (const rel of candidates) {
-    if (options.ignored(rel)) continue;
     if (colliding.has(rel)) { skipped.push({ rel, reason: 'collision' }); continue; }
     const absolute = join(root, rel);
     let stats;
@@ -311,11 +323,49 @@ export async function scanLocal(root: string, options: ScanOptions): Promise<Sca
   };
 }
 
-/** Content hash of one file. Streamed, because a mirror is expected to meet files far larger than the
- *  daemon should hold in memory. */
-export async function hashFile(absolute: string): Promise<string> {
+/** Open a project file for reading WITHOUT following a symlink at the final path component.
+ *
+ *  The scan checks containment and then stores a path, and everything afterwards - hashing, uploading -
+ *  reopens that path. Between the two, anything with write access to the project can replace the file with
+ *  a symlink to `~/.aws/credentials`, and an ordinary `open()` follows it straight out of the project and
+ *  into somebody's OneDrive. `O_NOFOLLOW` makes that path fail rather than resolve, and the `fstat` is on
+ *  the DESCRIPTOR, so what was verified is what is read - not whatever the name points at by then.
+ *
+ *  The caller closes it. Every read is positioned explicitly, so the same descriptor can be hashed and
+ *  then uploaded without a second open. */
+export async function openMirrorFile(absolute: string): Promise<{ handle: FileHandle; size: number }> {
+  const handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stats = await handle.stat();
+    if (!stats.isFile()) throw new Error(`Not a regular file: ${absolute}`);
+    return { handle, size: stats.size };
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+/** Content hash read from an already-open descriptor, streamed, at explicit offsets so the descriptor is
+ *  left usable afterwards. */
+export async function hashHandle(handle: FileHandle): Promise<string> {
   const hash = createHash('sha256');
-  const stream = createReadStream(absolute);
-  for await (const chunk of stream) hash.update(chunk as Buffer);
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let position = 0;
+  for (;;) {
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+    if (bytesRead === 0) break;
+    hash.update(buffer.subarray(0, bytesRead));
+    position += bytesRead;
+  }
   return hash.digest('hex');
+}
+
+/** Content hash of one file, by path. Opens it under the same no-symlink rule as every other read. */
+export async function hashFile(absolute: string): Promise<string> {
+  const { handle } = await openMirrorFile(absolute);
+  try {
+    return await hashHandle(handle);
+  } finally {
+    await handle.close();
+  }
 }

@@ -9,7 +9,7 @@ import { OneDriveStore } from '../plugins/onedrive/src/store.js';
 import { SyncEngine, conflictName, remoteRootFor, safeSegment } from '../plugins/onedrive/src/sync.js';
 import type { MirrorLink } from '../plugins/onedrive/src/store.js';
 import { execFileSync } from 'node:child_process';
-import { TRASH_DIR, gitIgnoredAmong, normalizeSubpath, scanLocal } from '../plugins/onedrive/src/scan.js';
+import { TRASH_DIR, gitIgnoredAmong, hashFile, normalizeSubpath, scanLocal } from '../plugins/onedrive/src/scan.js';
 import { Drive } from '../plugins/onedrive/src/drive.js';
 
 const originalListTree = Drive.prototype.listTree;
@@ -102,7 +102,13 @@ function fakeDrive() {
       if (path.includes(':/content') && method === 'PUT') {
         // `?@microsoft.graph.conflictBehavior=fail` rides on the URL, so strip the query before decoding.
         const bare = path.split('?')[0]!;
-        const remote = decodeURIComponent(bare.replace(/^.*\/root:\//, '').replace(/:\/content$/, ''));
+        // Uploads address the mirror folder by its DURABLE item id and the file relative to it:
+        // `/drives/<d>/items/<folderId>:/<rel>:/content`. That is what survives somebody moving the folder
+        // in OneDrive, and this fake resolves it exactly the way Graph does - folder-1 IS that path.
+        const scoped = /\/items\/([^/]+):\/(.*):\/content$/.exec(bare);
+        const remote = scoped
+          ? `${decodeURIComponent(scoped[1]!) === 'folder-1' ? 'Elowen/projects/demo' : 'unknown-folder'}/${decodeURIComponent(scoped[2]!)}`
+          : decodeURIComponent(bare.replace(/^.*\/root:\//, '').replace(/:\/content$/, ''));
         if (path.includes('conflictBehavior=fail') && files.has(remote)) {
           throw Object.assign(new Error('conflict'), { status: 409 });
         }
@@ -210,6 +216,102 @@ describe('onedrive remote layout', () => {
     expect(safeSegment('')).toBe('workspace');
     expect(conflictName('docs/notes.md', new Date('2026-08-27T01:02:03Z')))
       .toBe('docs/notes.onedrive-conflict-2026-08-27-01-02-03.md');
+  });
+});
+
+describe('onedrive review round six', () => {
+  it('refuses to read a file through a symlink swapped in after the scan', async () => {
+    // The scan checks containment and stores a PATH; hashing and uploading reopen it. Anything with write
+    // access to the project can turn that path into a symlink to a private file in between, and an
+    // ordinary open() follows it straight out of the project.
+    const dir = mkdtempSync(join(tmpdir(), 'onedrive-swap-'));
+    try {
+      const secret = join(dir, 'outside-secret');
+      writeFileSync(secret, 'AWS_SECRET\n');
+      const target = join(dir, 'project', 'notes.txt');
+      mkdirSync(join(dir, 'project'));
+      writeFileSync(target, 'harmless\n');
+
+      expect(await hashFile(target)).toHaveLength(64);
+      rmSync(target);
+      symlinkSync(secret, target);
+      await expect(hashFile(target)).rejects.toThrow();
+      // And the plain read that a symlink WOULD have allowed still resolves, so the test is about the
+      // guard rather than about the file being missing.
+      expect(readFileSync(target, 'utf8')).toBe('AWS_SECRET\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('stops applying changes once the mirror has been paused mid-cycle', async () => {
+    // Pause writes to the database immediately, but the loop held a snapshot taken before it, so the
+    // person watched their OneDrive files keep changing after they pressed the button. Deliberately PAUSE
+    // rather than disconnect: a removed row already fails the claim renewal, whereas a paused one renews
+    // perfectly well and only the liveness re-read can see it.
+    const { root, store, drive, engine, link } = harness({ lease: { ms: 60_000, renewAfterMs: 0 } });
+    for (const name of ['a', 'b', 'c', 'd']) settled(join(root, `${name}.txt`), `${name}\n`);
+
+    let uploads = 0;
+    const realJson = drive.graph.json as unknown as (...args: unknown[]) => Promise<unknown>;
+    (drive.graph as { json: unknown }).json = async (method: string, path: string, options?: unknown) => {
+      if (method === 'PUT' && path.includes(':/content')) {
+        uploads += 1;
+        if (uploads === 1) store.setEnabled(link.id, false);
+      }
+      return realJson(method, path, options);
+    };
+
+    await engine.syncUser(7);
+
+    // One upload was already in flight when the mirror was paused; nothing after it was applied.
+    expect(uploads).toBe(1);
+    expect(drive.files.size).toBe(1);
+  });
+
+  it('reports the files it could not synchronise instead of finishing as in sync', async () => {
+    // OneDrive rejects some perfectly legal local names outright. Logging that and showing "In sync" told
+    // the person their project was mirrored when part of it provably was not.
+    const { root, store, drive, engine, link } = harness();
+    settled(join(root, 'fine.txt'), 'fine\n');
+    settled(join(root, 'rejected.txt'), 'nope\n');
+    const realJson = drive.graph.json as unknown as (...args: unknown[]) => Promise<unknown>;
+    (drive.graph as { json: unknown }).json = async (method: string, path: string, options?: unknown) => {
+      if (method === 'PUT' && path.includes('rejected.txt')) throw new Error('invalid name');
+      return realJson(method, path, options);
+    };
+
+    await engine.syncUser(7);
+
+    const row = store.linkById(link.id)!;
+    expect(row.status).toBe('error');
+    expect(row.error).toContain('rejected.txt');
+    // The rest of the mirror still went through - one bad file is not a reason to abandon the others.
+    expect([...drive.files.keys()]).toContain('Elowen/projects/demo/fine.txt');
+  });
+
+  it('counts the file cap against what would actually be mirrored', async () => {
+    // The cap bounds the work; it is not a punishment for holding ignored files. Counting the RAW
+    // `ls-files` output meant a repository with many generated-but-excluded paths could never complete a
+    // cycle, and an incomplete scan stops the mirror permanently rather than degrading. A real repository,
+    // because the cap only applies on the git path.
+    const dir = mkdtempSync(join(tmpdir(), 'onedrive-cap-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      mkdirSync(join(dir, 'build'), { recursive: true });
+      for (let n = 0; n < 40; n += 1) writeFileSync(join(dir, 'build', `${n}.js`), 'x\n');
+      writeFileSync(join(dir, 'keep.txt'), 'keep\n');
+
+      const result = await scanLocal(dir, {
+        ignored: (rel) => rel.startsWith('build/'),
+        maxBytes: 1_000_000, settleMs: 0, now: Date.now() + 10_000, maxFiles: 20,
+      });
+      expect(result.fromGit).toBe(true);
+      expect(result.complete).toBe(true);
+      expect([...result.files.keys()]).toEqual(['keep.txt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

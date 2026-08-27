@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { open, rename, mkdir, stat, unlink } from 'node:fs/promises';
+import { open, rename, mkdir, unlink } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { MicrosoftDriveGraph } from './coreSeams.js';
 import { PART_PREFIX } from './scan.js';
@@ -9,6 +9,11 @@ import { PART_PREFIX } from './scan.js';
  *  chunk size must be a multiple of 320 KiB — their documented requirement, not a tuning choice. */
 const SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024;
 const CHUNK = 320 * 1024 * 10;
+/** A chunk PUT goes straight to a pre-authenticated storage URL, outside the Graph client and its own
+ *  bounds. Without a deadline one stalled connection holds the cycle open for as long as the socket lives,
+ *  and the interval walks accounts one at a time - so a single hung upload stops every mirror on the
+ *  instance, not just this one. */
+const CHUNK_TIMEOUT_MS = 120_000;
 
 export interface DriveItem {
   id: string;
@@ -208,32 +213,55 @@ export class Drive {
     }
   }
 
-  async upload(remotePath: string, absolute: string, ifMatch?: string, expectNew = false): Promise<DriveItem> {
-    const size = (await stat(absolute)).size;
-    return size <= SIMPLE_UPLOAD_MAX
-      ? this.uploadSmall(remotePath, absolute, ifMatch, expectNew)
-      : this.uploadLarge(remotePath, absolute, size, ifMatch, expectNew);
+  /** Where one mirrored file lives, expressed RELATIVE TO THE MIRROR FOLDER'S ITEM ID.
+   *
+   *  Graph item ids survive a move or a rename; paths do not. Addressing `root:/<stored path>` meant that
+   *  the moment somebody dragged the mirror folder somewhere else in OneDrive, uploads kept writing to the
+   *  old location - recreating the folder they had just moved - while the listing, which already went by
+   *  item id, read the new one. The mirror split in two and neither half was wrong on its own terms. */
+  private itemPath(folderId: string, rel: string): string {
+    return `${this.base()}/items/${encodeURIComponent(folderId)}:/${encodePath(rel)}:`;
   }
 
-  private async uploadSmall(remotePath: string, absolute: string, ifMatch?: string, expectNew = false): Promise<DriveItem> {
-    const handle = await open(absolute, 'r');
-    try {
-      const body = await handle.readFile();
-      const behavior = expectNew && !ifMatch ? '?%40microsoft.graph.conflictBehavior=fail' : '';
-      const raw = await this.graph.json('PUT', `${this.base()}/root:/${encodePath(remotePath)}:/content${behavior}`, {
-        body, contentType: 'application/octet-stream', ...(ifMatch ? { ifMatch } : {}),
-      });
-      return itemFromGraph(raw) ?? { id: '', name: '', etag: '', size: 0, isFolder: false, path: remotePath, deleted: false };
-    } finally {
-      await handle.close();
+  /** Uploads from an ALREADY-OPEN descriptor. The caller opened it under `O_NOFOLLOW` and verified it, so
+   *  the bytes sent are the bytes that were checked - reopening the path here would hand a symlink swapped
+   *  in since then a way out of the project. */
+  async upload(
+    folderId: string, rel: string, file: { handle: FileHandle; size: number },
+    ifMatch?: string, expectNew = false,
+  ): Promise<DriveItem> {
+    return file.size <= SIMPLE_UPLOAD_MAX
+      ? this.uploadSmall(folderId, rel, file, ifMatch, expectNew)
+      : this.uploadLarge(folderId, rel, file, ifMatch, expectNew);
+  }
+
+  private async uploadSmall(
+    folderId: string, rel: string, file: { handle: FileHandle; size: number },
+    ifMatch?: string, expectNew = false,
+  ): Promise<DriveItem> {
+    const body = Buffer.allocUnsafe(file.size);
+    let read = 0;
+    while (read < file.size) {
+      const { bytesRead } = await file.handle.read(body, read, file.size - read, read);
+      if (bytesRead === 0) break;
+      read += bytesRead;
     }
+    const behavior = expectNew && !ifMatch ? '?%40microsoft.graph.conflictBehavior=fail' : '';
+    const raw = await this.graph.json('PUT', `${this.itemPath(folderId, rel)}/content${behavior}`, {
+      body: body.subarray(0, read), contentType: 'application/octet-stream', ...(ifMatch ? { ifMatch } : {}),
+    });
+    return itemFromGraph(raw) ?? { id: '', name: '', etag: '', size: read, isFolder: false, path: rel, deleted: false };
   }
 
-  private async uploadLarge(remotePath: string, absolute: string, size: number, ifMatch?: string, expectNew = false): Promise<DriveItem> {
+  private async uploadLarge(
+    folderId: string, rel: string, file: { handle: FileHandle; size: number },
+    ifMatch?: string, expectNew = false,
+  ): Promise<DriveItem> {
+    const size = file.size;
     // The precondition belongs on the SESSION, not on the chunks: Graph evaluates it when the session is
     // created and again when it commits, so a remote edit made mid-upload still fails the commit rather
     // than replacing the newer content.
-    const session = asRecord(await this.graph.json('POST', `${this.base()}/root:/${encodePath(remotePath)}:/createUploadSession`, {
+    const session = asRecord(await this.graph.json('POST', `${this.itemPath(folderId, rel)}/createUploadSession`, {
       body: { item: { '@microsoft.graph.conflictBehavior': expectNew && !ifMatch ? 'fail' : 'replace' } },
       ...(ifMatch ? { ifMatch } : {}),
     }));
@@ -242,26 +270,28 @@ export class Drive {
 
     let offset = 0;
     let last: unknown = null;
-    const stream = createReadStream(absolute, { highWaterMark: CHUNK });
-    for await (const chunk of stream) {
-      const buffer = chunk as Buffer;
+    const buffer = Buffer.allocUnsafe(CHUNK);
+    while (offset < size) {
+      const { bytesRead } = await file.handle.read(buffer, 0, Math.min(CHUNK, size - offset), offset);
+      if (bytesRead === 0) break;
       // The upload URL is pre-authenticated and MUST be called without the bearer, so this one request
       // goes out directly rather than through the scoped Graph client.
       const response = await fetch(uploadUrl, {
         method: 'PUT',
         headers: {
-          'content-length': String(buffer.byteLength),
-          'content-range': `bytes ${offset}-${offset + buffer.byteLength - 1}/${size}`,
+          'content-length': String(bytesRead),
+          'content-range': `bytes ${offset}-${offset + bytesRead - 1}/${size}`,
         },
-        body: new Uint8Array(buffer),
+        body: new Uint8Array(buffer.subarray(0, bytesRead)),
+        signal: AbortSignal.timeout(CHUNK_TIMEOUT_MS),
       });
       if (!response.ok && response.status !== 202) {
         throw new Error(`Microsoft refused an upload chunk (${response.status}).`);
       }
-      offset += buffer.byteLength;
+      offset += bytesRead;
       if (response.status !== 202) last = await response.json().catch(() => null);
     }
-    return itemFromGraph(last) ?? { id: '', name: '', etag: '', size, isFolder: false, path: remotePath, deleted: false };
+    return itemFromGraph(last) ?? { id: '', name: '', etag: '', size, isFolder: false, path: rel, deleted: false };
   }
 
   /** Fetch one item into `absolute`. Written to a sibling temporary file and renamed, so a reader never
