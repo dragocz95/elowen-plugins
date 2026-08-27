@@ -1,0 +1,16 @@
+{
+  "//": "Type-checks every plugin browser bundle source. build:web runs esbuild, which STRIPS types without checking them, so without this gate a bundle can call a host component with props that do not exist: it compiles, ships, and silently does nothing. That is exactly how the onedrive drawer shipped passing an `open` prop the host never had, which opened every drawer at once.",
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUnusedLocals": true
+  },
+  "include": ["plugins/*/web-src/**/*.ts", "plugins/*/web-src/**/*.tsx"]
+}

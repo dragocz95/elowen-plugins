@@ -23,37 +23,37 @@ const statusLabel = (row: MirrorRow, s: Record<string, string>): string => {
  *  component type on every render, so React unmounts and remounts it — here that meant the conflict rail
  *  losing its in-flight mutation state every time the 15-second refresh landed, which let the same
  *  resolution be submitted twice. */
-function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow | null; onClose: () => void; onResolved: () => void }) {
+function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: () => void; onResolved: () => void }) {
   const { components: C, hooks, api, utils } = runtime();
   const s = hooks.usePluginStrings('onedrive');
   const conflicts = hooks.useQuery<{ conflicts: ConflictRow[] }>({
-    queryKey: ['plugin', 'onedrive', 'conflicts', String(row?.id ?? 0)],
-    queryFn: () => api(`/plugins/onedrive/api/conflicts?id=${row!.id}`),
-    enabled: row !== null,
+    queryKey: ['plugin', 'onedrive', 'conflicts', String(row.id)],
+    queryFn: () => api(`/plugins/onedrive/api/conflicts?id=${row.id}`),
   });
   const resolve = hooks.useMutation<unknown, unknown, { rel: string; keep: 'local' | 'remote' }>({
     mutationFn: (vars: { rel: string; keep: 'local' | 'remote' }) =>
-      api('/plugins/onedrive/api/conflicts/resolve', jsonBody({ id: row!.id, ...vars })),
+      api('/plugins/onedrive/api/conflicts/resolve', jsonBody({ id: row.id, ...vars })),
     onSuccess: () => { conflicts.refetch(); onResolved(); },
   });
 
   return (
-    <C.WorkspaceDetailRail open={row !== null} onClose={onClose} title={s.conflicts} subtitle={s.conflictsHint}>
+    <C.WorkspaceDetailRail label={s.conflicts} closeLabel={s.close} onClose={onClose}>
+      <p className="mb-3 text-xs text-text-muted">{s.conflictsHint}</p>
       {conflicts.isLoading ? <C.LoadingState variant="list" />
         : conflicts.isError
           // A failed load must not look like "no conflicts": this is the screen someone uses to decide
           // which copy of their work survives.
           ? <C.ErrorState message={utils.apiErrorMessage(conflicts.error)} onRetry={() => conflicts.refetch()} />
           : (
-            <C.DataTable>
+            <C.DataTable ariaLabel={s.conflicts} columns="minmax(0,1fr) auto" compactColumns="minmax(0,1fr)">
               {(conflicts.data?.conflicts ?? []).map((conflict) => (
                 <C.DataTableRow key={conflict.rel}>
-                  <C.DataTableCell><span className="font-mono text-xs">{conflict.rel}</span></C.DataTableCell>
-                  <C.DataTableCell align="right">
+                  <C.DataTableCell><span className="truncate font-mono text-xs" title={conflict.rel}>{conflict.rel}</span></C.DataTableCell>
+                  <C.DataTableCell className="justify-end">
                     <div className="flex justify-end gap-2">
-                      <C.Button size="sm" variant="secondary" disabled={resolve.isPending}
+                      <C.Button disabled={resolve.isPending}
                         onClick={() => resolve.mutate({ rel: conflict.rel, keep: 'local' })}>{s.keepLocal}</C.Button>
-                      <C.Button size="sm" variant="ghost" disabled={resolve.isPending}
+                      <C.Button variant="ghost" disabled={resolve.isPending}
                         onClick={() => resolve.mutate({ rel: conflict.rel, keep: 'remote' })}>{s.keepRemote}</C.Button>
                     </div>
                   </C.DataTableCell>
@@ -76,12 +76,19 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
 }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('onedrive');
+  const { locale } = hooks.useTranslation();
+  // WorkspaceMetric is hero furniture - big numerals, one per line. In a drawer this width it turned a
+  // three-value summary into half a screen, so the same three values go in one quiet line instead.
+  const syncedAt = row.lastSyncAt
+    ? new Date(row.lastSyncAt).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })
+    : s.never;
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-4">
-        <C.WorkspaceMetric label={s.title} value={<C.Badge tone={statusTone(row)}>{statusLabel(row, s)}</C.Badge>} />
-        <C.WorkspaceMetric label={s.lastSync} value={row.lastSyncAt ? new Date(row.lastSyncAt).toLocaleString() : s.never} />
-        <C.WorkspaceMetric label={s.files} value={`${row.fileCount} · ${humanBytes(row.byteCount)}`} />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+        <C.Badge tone={statusTone(row)}>{statusLabel(row, s)}</C.Badge>
+        <span>{s.lastSync}: <span className="text-text">{syncedAt}</span></span>
+        <span aria-hidden>·</span>
+        <span>{s.files}: <span className="text-text">{row.fileCount} · {humanBytes(row.byteCount)}</span></span>
       </div>
 
       {row.error ? <C.ErrorState message={row.error} /> : null}
@@ -89,7 +96,7 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
       {/* The refusal asked a question; this is the button that answers it. Confirmation is deliberately
           a distinct action rather than a quieter Sync now, because the answer authorises deletion. */}
       {row.status === 'blocked' && (
-        <C.Button variant="secondary" size="sm" tone="danger" disabled={busy} onClick={onConfirmSync}>
+        <C.Button variant="danger" disabled={busy} onClick={onConfirmSync}>
           {s.confirmDeletions}
         </C.Button>
       )}
@@ -105,15 +112,13 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
 
       <div className="flex flex-wrap gap-2">
         {row.webUrl && (
-          <C.Button variant="secondary" size="sm" onClick={() => window.open(row.webUrl!, '_blank', 'noopener')}>
-            <ExternalLink size={14} aria-hidden /> {s.openFolder}
+          <C.Button icon={ExternalLink} onClick={() => window.open(row.webUrl!, '_blank', 'noopener')}>
+            {s.openFolder}
           </C.Button>
         )}
-        <C.Button variant="secondary" size="sm" disabled={busy} onClick={onSync}>
-          <RefreshCw size={14} aria-hidden /> {s.syncNow}
-        </C.Button>
-        <C.Button variant="ghost" size="sm" onClick={onPause}>{row.enabled ? s.pause : s.resume}</C.Button>
-        <C.Button variant="ghost" size="sm" tone="danger" onClick={onDisconnect}>{s.disconnect}</C.Button>
+        <C.Button icon={RefreshCw} disabled={busy} onClick={onSync}>{s.syncNow}</C.Button>
+        <C.Button variant="ghost" onClick={onPause}>{row.enabled ? s.pause : s.resume}</C.Button>
+        <C.Button variant="ghost-danger" onClick={onDisconnect}>{s.disconnect}</C.Button>
       </div>
     </div>
   );
@@ -176,17 +181,20 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
 
   return (
     <div className="space-y-4 py-3">
-      <C.PluginSection
-        surface="project"
-        title={s.title}
-        description={s.connectHint}
-        icon={Cloud}
-        action={projectLink ? undefined : (
-          <C.Button size="sm" onClick={() => setConnectFor({ workspaceId: null, label: project.slug })}>
-            {s.connectCta}
-          </C.Button>
-        )}
-      >
+      <section className="rounded-xl border border-border bg-surface p-4">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-text">
+              <Cloud size={14} aria-hidden /> {s.title}
+            </h3>
+            <p className="mt-1 text-xs text-text-muted">{s.connectHint}</p>
+          </div>
+          {projectLink ? null : (
+            <C.Button variant="accent" onClick={() => setConnectFor({ workspaceId: null, label: project.slug })}>
+              {s.connectCta}
+            </C.Button>
+          )}
+        </div>
         {projectLink ? (
           <MirrorCard
             row={projectLink}
@@ -198,11 +206,17 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
             onConfirmSync={() => syncNow.mutate({ id: projectLink.id, confirmDeletions: true })}
           />
         ) : <p className="text-xs text-text-muted">{s.mirrorScopeHint}</p>}
-      </C.PluginSection>
+      </section>
 
       {data.workspaces.length > 0 && (
-        <C.PluginSection surface="project" title={s.workspaces} description={s.workspacesHint} icon={Cloud}>
-          <C.DataTable>
+        <section className="rounded-xl border border-border bg-surface p-4">
+          <div className="mb-3 min-w-0">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-text">
+              <Cloud size={14} aria-hidden /> {s.workspaces}
+            </h3>
+            <p className="mt-1 text-xs text-text-muted">{s.workspacesHint}</p>
+          </div>
+          <C.DataTable ariaLabel={s.workspaces} columns="minmax(0,1fr) 7rem auto" compactColumns="minmax(0,1fr)">
             {data.workspaces.map((workspace) => {
               const row = data.links.find((link) => link.workspaceId === workspace.workspaceId) ?? null;
               return (
@@ -211,7 +225,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
                   <C.DataTableCell>
                     {row ? <C.Badge tone={statusTone(row)}>{statusLabel(row, s)}</C.Badge> : null}
                   </C.DataTableCell>
-                  <C.DataTableCell align="right">
+                  <C.DataTableCell className="justify-end">
                     <div className="flex flex-col items-end gap-2">
                       {/* A workspace mirror can block on a bulk deletion or fail exactly like the project
                           one. Showing only a badge left those states with nothing to click, so the same
@@ -219,24 +233,24 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
                       {row?.error ? <p className="text-xs text-danger text-right">{row.error}</p> : null}
                       <div className="flex justify-end gap-2">
                       {row && row.status === 'blocked' && (
-                        <C.Button variant="secondary" size="sm" tone="danger" disabled={syncNow.isPending}
+                        <C.Button variant="danger" disabled={syncNow.isPending}
                           onClick={() => syncNow.mutate({ id: row.id, confirmDeletions: true })}>
                           {s.confirmDeletions}
                         </C.Button>
                       )}
                       {row && (
-                        <C.Button variant="secondary" size="sm" disabled={syncNow.isPending}
+                        <C.Button disabled={syncNow.isPending}
                           onClick={() => syncNow.mutate({ id: row.id })}>{s.syncNow}</C.Button>
                       )}
                       {row && row.conflictCount > 0 && (
-                        <C.Button variant="secondary" size="sm" onClick={() => setConflictsFor(row)}>
+                        <C.Button onClick={() => setConflictsFor(row)}>
                           {s.conflicts} ({row.conflictCount})
                         </C.Button>
                       )}
                       {row ? (
-                        <C.Button variant="ghost" size="sm" onClick={() => setDisconnecting(row)}>{s.disconnect}</C.Button>
+                        <C.Button variant="ghost-danger" onClick={() => setDisconnecting(row)}>{s.disconnect}</C.Button>
                       ) : (
-                        <C.Button variant="secondary" size="sm"
+                        <C.Button
                           onClick={() => setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label })}>
                           {s.connectCta}
                         </C.Button>
@@ -248,43 +262,44 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
               );
             })}
           </C.DataTable>
-        </C.PluginSection>
+        </section>
       )}
 
-      {/* First click opens a drawer; a centred window is only ever the second step from one. */}
-      <C.WorkspaceDetailRail
-        open={connectFor !== null}
-        onClose={() => setConnectFor(null)}
-        title={s.connectCta}
-        subtitle={connectFor?.label}
-      >
+      {/* First click opens a drawer; a centred window is only ever the second step from one. The rail has
+          no `open` prop - it renders whenever it is mounted - so the condition belongs HERE. */}
+      {connectFor && (
+      <C.WorkspaceDetailRail label={s.connectCta} closeLabel={s.close} onClose={() => setConnectFor(null)}>
         <div className="space-y-3 text-sm">
+          <p className="text-sm font-medium">{connectFor.label}</p>
           <div>
             <p className="text-text-muted text-xs uppercase tracking-wide">{s.folder}</p>
-            <p className="font-mono text-xs">{`${data.rootFolder}/${connectFor?.workspaceId ? 'workspaces' : 'projects'}/${project.slug}`}</p>
+            <p className="font-mono text-xs">{`${data.rootFolder}/${connectFor.workspaceId ? 'workspaces' : 'projects'}/${project.slug}`}</p>
           </div>
           <div>
             <p className="text-text-muted text-xs uppercase tracking-wide">{s.mirrorScope}</p>
             <p className="text-xs">{s.mirrorScopeHint}</p>
           </div>
           <C.Button
-            onClick={() => connect.mutate({ workspaceId: connectFor?.workspaceId ?? null })}
+            variant="accent"
+            onClick={() => connect.mutate({ workspaceId: connectFor.workspaceId })}
             disabled={connect.isPending}
           >
             {s.connectConfirm}
           </C.Button>
         </div>
       </C.WorkspaceDetailRail>
+      )}
 
-      <ConflictsRail row={conflictsFor} onClose={() => setConflictsFor(null)} onResolved={refresh} />
+      {conflictsFor && (
+        <ConflictsRail row={conflictsFor} onClose={() => setConflictsFor(null)} onResolved={refresh} />
+      )}
 
       <C.ConfirmDialog
         open={disconnecting !== null}
         title={s.disconnect}
         description={s.disconnectHint}
         confirmLabel={s.disconnect}
-        tone="danger"
-        onCancel={() => setDisconnecting(null)}
+        onClose={() => setDisconnecting(null)}
         onConfirm={() => disconnecting && disconnect.mutate({ id: disconnecting.id })}
       />
     </div>

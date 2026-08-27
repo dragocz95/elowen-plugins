@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import type { ChangeEvent, KeyboardEvent } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { runtime } from '../runtime';
 
@@ -21,7 +22,13 @@ export function PromptDialog({ title, label, initialValue, confirmLabel, icon, o
     <Modal title={title} onClose={onCancel} size="sm" icon={icon}>
       <ModalBody gap={4}>
         <Field label={label}>
-          <Input value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} className="font-mono text-xs" autoFocus />
+          <Input
+            value={value}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setValue(e.target.value)}
+            onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') submit(); }}
+            className="font-mono text-xs"
+            autoFocus
+          />
         </Field>
       </ModalBody>
       <ModalFooter>

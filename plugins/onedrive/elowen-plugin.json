@@ -18,7 +18,12 @@
     ]
   },
   "capabilities": {
-    "reads": ["db", "stores", "controls", "project-files"],
+    "reads": [
+      "db",
+      "stores",
+      "controls",
+      "project-files"
+    ],
     "network": true
   },
   "configSchema": [
@@ -62,9 +67,16 @@
     "entry": "web/index.js",
     "css": "web/index.css",
     "requiresApiVersion": 6,
-    "project": [{ "id": "mirror", "label": "OneDrive", "icon": "Cloud" }],
+    "project": [
+      {
+        "id": "mirror",
+        "label": "OneDrive",
+        "icon": "Cloud"
+      }
+    ],
     "strings": {
       "title": "OneDrive",
+      "status": "Status",
       "connectCta": "Connect OneDrive",
       "connectHint": "Mirror this project into your own OneDrive, in both directions.",
       "connectConfirm": "Start mirroring",
@@ -84,6 +96,7 @@
       "workspacesHint": "Each workspace is mirrored into its own folder, separate from the project itself.",
       "conflicts": "Conflicts",
       "conflictsHint": "Both copies were kept. Choose which one wins; nothing is deleted either way.",
+      "close": "Close",
       "keepLocal": "Keep local",
       "keepRemote": "Take from OneDrive",
       "syncNow": "Sync now",

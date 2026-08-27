@@ -1,6 +1,7 @@
-import type { ComponentType } from 'react';
+import type { ButtonHTMLAttributes, ComponentType, ReactNode } from 'react';
 
-type AnyComponent = ComponentType<any>;
+/** Lucide-shaped icon: what every host component means by `icon`. */
+type IconComponent = ComponentType<{ size?: number | string; className?: string }>;
 
 export interface MirrorRow {
   id: number;
@@ -9,7 +10,9 @@ export interface MirrorRow {
   remotePath: string;
   webUrl: string | null;
   enabled: boolean;
-  status: 'idle' | 'syncing' | 'error' | 'paused';
+  /** 'blocked' is the deletion valve asking a question - a state the panel must offer an answer to,
+   *  not an error it reports. Missing it here is why the UI type has to track the API exactly. */
+  status: 'idle' | 'syncing' | 'error' | 'paused' | 'blocked';
   error: string | null;
   lastSyncAt: number | null;
   fileCount: number;
@@ -46,18 +49,42 @@ interface QueryClient { invalidateQueries(input: { queryKey: unknown[] }): Promi
 
 interface RuntimeHooks {
   usePluginStrings(plugin: string): Record<string, string>;
+  /** The APP's language, which is not the browser's: `toLocaleString()` with no argument formats a
+   *  Czech-language page as US English, which is exactly what it did here. */
+  useTranslation(): { locale: string };
   useToast(): { toast(message: string, tone?: 'ok' | 'error'): void };
   useQuery<T>(options: Record<string, unknown>): QueryResult<T>;
   useMutation<TData, _TError, TVars>(options: Record<string, unknown>): MutationResult<TVars, TData>;
   useQueryClient(): QueryClient;
 }
 
+/** The host publishes its components as `Record<string, ComponentType<never>>`, so nothing on the other
+ *  side of this boundary checks how they are called: every prop a plugin invents type-checks and then
+ *  does nothing at runtime. These declarations are that missing check, and they are only worth anything
+ *  while they match the host - each one mirrors a real signature in `web/components/ui/`. Notably
+ *  `WorkspaceDetailRail` has NO `open` prop: it renders whenever it is mounted, so the CALLER decides
+ *  whether the drawer exists. Getting that wrong opens every drawer at once. */
 interface RuntimeComponents {
-  Button: AnyComponent; Badge: AnyComponent; Toggle: AnyComponent;
-  LoadingState: AnyComponent; ErrorState: AnyComponent; EmptyState: AnyComponent;
-  PluginSection: AnyComponent; WorkspaceMetric: AnyComponent; WorkspaceDetailRail: AnyComponent;
-  DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent;
-  ConfirmDialog: AnyComponent; SettingsRow: AnyComponent;
+  Button: ComponentType<
+    { variant?: 'default' | 'accent' | 'ghost' | 'danger' | 'ghost-danger'; icon?: IconComponent }
+    & ButtonHTMLAttributes<HTMLButtonElement>
+  >;
+  Badge: ComponentType<{ children: ReactNode; tone?: 'default' | 'accent' | 'muted' | 'danger' | 'success' | 'warning' }>;
+  LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'kanban' | 'block'; height?: string }>;
+  ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
+  EmptyState: ComponentType<{ title: string; description?: string; icon?: IconComponent; action?: ReactNode }>;
+  WorkspaceDetailRail: ComponentType<{ label: string; closeLabel: string; onClose(): void; children: ReactNode }>;
+  DataTable: ComponentType<{ ariaLabel: string; columns: string; compactColumns?: string; className?: string; children: ReactNode }>;
+  DataTableRow: ComponentType<{ children: ReactNode; header?: boolean; selected?: boolean; interactive?: boolean; className?: string }>;
+  DataTableCell: ComponentType<{ children: ReactNode; header?: boolean; priority?: 'always' | 'wide'; className?: string }>;
+  ConfirmDialog: ComponentType<{
+    open: boolean;
+    title: string;
+    description?: string;
+    confirmLabel?: string;
+    onConfirm(): void;
+    onClose(): void;
+  }>;
 }
 
 interface OneDriveRuntime {
@@ -71,7 +98,7 @@ interface HostWindow {
   ElowenUiRuntime?: unknown;
   __elowenRegisterPluginUi?: (plugin: string, registration: {
     requiresApiVersion: number;
-    project?: Record<string, ComponentType<any>>;
+    project?: Record<string, ComponentType<{ project: { id: number; slug: string; path: string } }>>;
   }) => void;
 }
 
@@ -81,7 +108,7 @@ export function runtime(): OneDriveRuntime {
   return value;
 }
 
-export function registerOneDriveUi(project: ComponentType<any>): void {
+export function registerOneDriveUi(project: ComponentType<{ project: { id: number; slug: string; path: string } }>): void {
   (window as HostWindow).__elowenRegisterPluginUi?.('onedrive', {
     requiresApiVersion: 6,
     project: { mirror: project },

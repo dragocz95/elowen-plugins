@@ -205,9 +205,8 @@ function ConflictsRail({ row, onClose, onResolved }) {
   const { components: C, hooks, api, utils } = runtime();
   const s = hooks.usePluginStrings("onedrive");
   const conflicts = hooks.useQuery({
-    queryKey: ["plugin", "onedrive", "conflicts", String(row?.id ?? 0)],
-    queryFn: () => api(`/plugins/onedrive/api/conflicts?id=${row.id}`),
-    enabled: row !== null
+    queryKey: ["plugin", "onedrive", "conflicts", String(row.id)],
+    queryFn: () => api(`/plugins/onedrive/api/conflicts?id=${row.id}`)
   });
   const resolve = hooks.useMutation({
     mutationFn: (vars) => api("/plugins/onedrive/api/conflicts/resolve", jsonBody({ id: row.id, ...vars })),
@@ -216,43 +215,58 @@ function ConflictsRail({ row, onClose, onResolved }) {
       onResolved();
     }
   });
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceDetailRail, { open: row !== null, onClose, title: s.conflicts, subtitle: s.conflictsHint, children: conflicts.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) : conflicts.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(conflicts.error), onRetry: () => conflicts.refetch() }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { children: (conflicts.data?.conflicts ?? []).map((conflict) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-xs", children: conflict.rel }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { align: "right", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex justify-end gap-2", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        C.Button,
-        {
-          size: "sm",
-          variant: "secondary",
-          disabled: resolve.isPending,
-          onClick: () => resolve.mutate({ rel: conflict.rel, keep: "local" }),
-          children: s.keepLocal
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        C.Button,
-        {
-          size: "sm",
-          variant: "ghost",
-          disabled: resolve.isPending,
-          onClick: () => resolve.mutate({ rel: conflict.rel, keep: "remote" }),
-          children: s.keepRemote
-        }
-      )
-    ] }) })
-  ] }, conflict.rel)) }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.WorkspaceDetailRail, { label: s.conflicts, closeLabel: s.close, onClose, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mb-3 text-xs text-text-muted", children: s.conflictsHint }),
+    conflicts.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) : conflicts.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(conflicts.error), onRetry: () => conflicts.refetch() }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.conflicts, columns: "minmax(0,1fr) auto", compactColumns: "minmax(0,1fr)", children: (conflicts.data?.conflicts ?? []).map((conflict) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate font-mono text-xs", title: conflict.rel, children: conflict.rel }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex justify-end gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          C.Button,
+          {
+            disabled: resolve.isPending,
+            onClick: () => resolve.mutate({ rel: conflict.rel, keep: "local" }),
+            children: s.keepLocal
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          C.Button,
+          {
+            variant: "ghost",
+            disabled: resolve.isPending,
+            onClick: () => resolve.mutate({ rel: conflict.rel, keep: "remote" }),
+            children: s.keepRemote
+          }
+        )
+      ] }) })
+    ] }, conflict.rel)) })
+  ] });
 }
 function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, onSync, busy }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("onedrive");
+  const { locale } = hooks.useTranslation();
+  const syncedAt = row.lastSyncAt ? new Date(row.lastSyncAt).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" }) : s.never;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-3", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-4", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceMetric, { label: s.title, value: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: statusTone(row), children: statusLabel(row, s) }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceMetric, { label: s.lastSync, value: row.lastSyncAt ? new Date(row.lastSyncAt).toLocaleString() : s.never }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceMetric, { label: s.files, value: `${row.fileCount} \xB7 ${humanBytes(row.byteCount)}` })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: statusTone(row), children: statusLabel(row, s) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+        s.lastSync,
+        ": ",
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-text", children: syncedAt })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { "aria-hidden": true, children: "\xB7" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+        s.files,
+        ": ",
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "text-text", children: [
+          row.fileCount,
+          " \xB7 ",
+          humanBytes(row.byteCount)
+        ] })
+      ] })
     ] }),
     row.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: row.error }) : null,
-    row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "secondary", size: "sm", tone: "danger", disabled: busy, onClick: onConfirmSync, children: s.confirmDeletions }),
+    row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "danger", disabled: busy, onClick: onConfirmSync, children: s.confirmDeletions }),
     row.conflictCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       "button",
       {
@@ -267,18 +281,10 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
       }
     ),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
-      row.webUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Button, { variant: "secondary", size: "sm", onClick: () => window.open(row.webUrl, "_blank", "noopener"), children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ExternalLink, { size: 14, "aria-hidden": true }),
-        " ",
-        s.openFolder
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Button, { variant: "secondary", size: "sm", disabled: busy, onClick: onSync, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCw, { size: 14, "aria-hidden": true }),
-        " ",
-        s.syncNow
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", size: "sm", onClick: onPause, children: row.enabled ? s.pause : s.resume }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", size: "sm", tone: "danger", onClick: onDisconnect, children: s.disconnect })
+      row.webUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { icon: ExternalLink, onClick: () => window.open(row.webUrl, "_blank", "noopener"), children: s.openFolder }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { icon: RefreshCw, disabled: busy, onClick: onSync, children: s.syncNow }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: onPause, children: row.enabled ? s.pause : s.resume }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: onDisconnect, children: s.disconnect })
     ] })
   ] });
 }
@@ -334,104 +340,104 @@ function OneDriveProjectPanel({ project }) {
   }
   const projectLink = data.links.find((row) => row.workspaceId === null) ?? null;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4 py-3", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-      C.PluginSection,
-      {
-        surface: "project",
-        title: s.title,
-        description: s.connectHint,
-        icon: Cloud,
-        action: projectLink ? void 0 : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { size: "sm", onClick: () => setConnectFor({ workspaceId: null, label: project.slug }), children: s.connectCta }),
-        children: projectLink ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          MirrorCard,
-          {
-            row: projectLink,
-            busy: syncNow.isPending,
-            onConflicts: () => setConflictsFor(projectLink),
-            onDisconnect: () => setDisconnecting(projectLink),
-            onPause: () => pause.mutate({ id: projectLink.id, enabled: !projectLink.enabled }),
-            onSync: () => syncNow.mutate({ id: projectLink.id }),
-            onConfirmSync: () => syncNow.mutate({ id: projectLink.id, confirmDeletions: true })
-          }
-        ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-text-muted", children: s.mirrorScopeHint })
-      }
-    ),
-    data.workspaces.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.PluginSection, { surface: "project", title: s.workspaces, description: s.workspacesHint, icon: Cloud, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { children: data.workspaces.map((workspace) => {
-      const row = data.links.find((link) => link.workspaceId === workspace.workspaceId) ?? null;
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: workspace.label }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: statusTone(row), children: statusLabel(row, s) }) : null }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { align: "right", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-end gap-2", children: [
-          row?.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-danger text-right", children: row.error }) : null,
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex justify-end gap-2", children: [
-            row && row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              C.Button,
-              {
-                variant: "secondary",
-                size: "sm",
-                tone: "danger",
-                disabled: syncNow.isPending,
-                onClick: () => syncNow.mutate({ id: row.id, confirmDeletions: true }),
-                children: s.confirmDeletions
-              }
-            ),
-            row && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              C.Button,
-              {
-                variant: "secondary",
-                size: "sm",
-                disabled: syncNow.isPending,
-                onClick: () => syncNow.mutate({ id: row.id }),
-                children: s.syncNow
-              }
-            ),
-            row && row.conflictCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Button, { variant: "secondary", size: "sm", onClick: () => setConflictsFor(row), children: [
-              s.conflicts,
-              " (",
-              row.conflictCount,
-              ")"
-            ] }),
-            row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", size: "sm", onClick: () => setDisconnecting(row), children: s.disconnect }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              C.Button,
-              {
-                variant: "secondary",
-                size: "sm",
-                onClick: () => setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label }),
-                children: s.connectCta
-              }
-            )
-          ] })
-        ] }) })
-      ] }, workspace.workspaceId);
-    }) }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-      C.WorkspaceDetailRail,
-      {
-        open: connectFor !== null,
-        onClose: () => setConnectFor(null),
-        title: s.connectCta,
-        subtitle: connectFor?.label,
-        children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-3 text-sm", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.folder }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "font-mono text-xs", children: `${data.rootFolder}/${connectFor?.workspaceId ? "workspaces" : "projects"}/${project.slug}` })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "rounded-xl border border-border bg-surface p-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mb-4 flex items-start justify-between gap-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", { className: "flex items-center gap-1.5 text-sm font-semibold text-text", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Cloud, { size: 14, "aria-hidden": true }),
+            " ",
+            s.title
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.mirrorScope }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs", children: s.mirrorScopeHint })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            C.Button,
-            {
-              onClick: () => connect.mutate({ workspaceId: connectFor?.workspaceId ?? null }),
-              disabled: connect.isPending,
-              children: s.connectConfirm
-            }
-          )
-        ] })
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ConflictsRail, { row: conflictsFor, onClose: () => setConflictsFor(null), onResolved: refresh }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-text-muted", children: s.connectHint })
+        ] }),
+        projectLink ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: () => setConnectFor({ workspaceId: null, label: project.slug }), children: s.connectCta })
+      ] }),
+      projectLink ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        MirrorCard,
+        {
+          row: projectLink,
+          busy: syncNow.isPending,
+          onConflicts: () => setConflictsFor(projectLink),
+          onDisconnect: () => setDisconnecting(projectLink),
+          onPause: () => pause.mutate({ id: projectLink.id, enabled: !projectLink.enabled }),
+          onSync: () => syncNow.mutate({ id: projectLink.id }),
+          onConfirmSync: () => syncNow.mutate({ id: projectLink.id, confirmDeletions: true })
+        }
+      ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-text-muted", children: s.mirrorScopeHint })
+    ] }),
+    data.workspaces.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "rounded-xl border border-border bg-surface p-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mb-3 min-w-0", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", { className: "flex items-center gap-1.5 text-sm font-semibold text-text", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Cloud, { size: 14, "aria-hidden": true }),
+          " ",
+          s.workspaces
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-text-muted", children: s.workspacesHint })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.workspaces, columns: "minmax(0,1fr) 7rem auto", compactColumns: "minmax(0,1fr)", children: data.workspaces.map((workspace) => {
+        const row = data.links.find((link) => link.workspaceId === workspace.workspaceId) ?? null;
+        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: workspace.label }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: statusTone(row), children: statusLabel(row, s) }) : null }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-end gap-2", children: [
+            row?.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-danger text-right", children: row.error }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex justify-end gap-2", children: [
+              row && row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                C.Button,
+                {
+                  variant: "danger",
+                  disabled: syncNow.isPending,
+                  onClick: () => syncNow.mutate({ id: row.id, confirmDeletions: true }),
+                  children: s.confirmDeletions
+                }
+              ),
+              row && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                C.Button,
+                {
+                  disabled: syncNow.isPending,
+                  onClick: () => syncNow.mutate({ id: row.id }),
+                  children: s.syncNow
+                }
+              ),
+              row && row.conflictCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Button, { onClick: () => setConflictsFor(row), children: [
+                s.conflicts,
+                " (",
+                row.conflictCount,
+                ")"
+              ] }),
+              row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: () => setDisconnecting(row), children: s.disconnect }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                C.Button,
+                {
+                  onClick: () => setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label }),
+                  children: s.connectCta
+                }
+              )
+            ] })
+          ] }) })
+        ] }, workspace.workspaceId);
+      }) })
+    ] }),
+    connectFor && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceDetailRail, { label: s.connectCta, closeLabel: s.close, onClose: () => setConnectFor(null), children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-3 text-sm", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-medium", children: connectFor.label }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.folder }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "font-mono text-xs", children: `${data.rootFolder}/${connectFor.workspaceId ? "workspaces" : "projects"}/${project.slug}` })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.mirrorScope }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs", children: s.mirrorScopeHint })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Button,
+        {
+          variant: "accent",
+          onClick: () => connect.mutate({ workspaceId: connectFor.workspaceId }),
+          disabled: connect.isPending,
+          children: s.connectConfirm
+        }
+      )
+    ] }) }),
+    conflictsFor && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ConflictsRail, { row: conflictsFor, onClose: () => setConflictsFor(null), onResolved: refresh }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
       C.ConfirmDialog,
       {
@@ -439,8 +445,7 @@ function OneDriveProjectPanel({ project }) {
         title: s.disconnect,
         description: s.disconnectHint,
         confirmLabel: s.disconnect,
-        tone: "danger",
-        onCancel: () => setDisconnecting(null),
+        onClose: () => setDisconnecting(null),
         onConfirm: () => disconnecting && disconnect.mutate({ id: disconnecting.id })
       }
     )

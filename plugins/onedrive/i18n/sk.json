@@ -28,6 +28,7 @@
     },
     "strings": {
       "title": "OneDrive",
+      "status": "Stav",
       "connectCta": "Pripojiť OneDrive",
       "connectHint": "Zrkadlite tento projekt do vlastného OneDrive, v oboch smeroch.",
       "connectConfirm": "Spustiť zrkadlenie",
@@ -45,6 +46,7 @@
       "workspacesHint": "Každý pracovný priestor sa zrkadlí do vlastného priečinka, oddelene od samotného projektu.",
       "conflicts": "Konflikty",
       "conflictsHint": "Obe verzie boli zachované. Vyberte, ktorá má platiť; nič sa v žiadnom prípade nezmaže.",
+      "close": "Zavrieť",
       "keepLocal": "Ponechať lokálnu",
       "keepRemote": "Vziať z OneDrive",
       "syncNow": "Synchronizovať teraz",

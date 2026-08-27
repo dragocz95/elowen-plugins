@@ -955,9 +955,18 @@ function PromptDialog({ title, label, initialValue, confirmLabel, icon, onConfir
     if (valid) onConfirm(trimmed);
   };
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Modal, { title, onClose: onCancel, size: "sm", icon, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ModalBody, { gap: 4, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Input, { value, onChange: (e) => setValue(e.target.value), onKeyDown: (e) => {
-      if (e.key === "Enter") submit();
-    }, className: "font-mono text-xs", autoFocus: true }) }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ModalBody, { gap: 4, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      Input,
+      {
+        value,
+        onChange: (e) => setValue(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") submit();
+        },
+        className: "font-mono text-xs",
+        autoFocus: true
+      }
+    ) }) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalFooter, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", onClick: onCancel, children: t.common.cancel }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "accent", onClick: submit, disabled: !valid, children: confirmLabel })
