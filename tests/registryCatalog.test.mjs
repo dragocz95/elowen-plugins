@@ -141,3 +141,41 @@ for (const [name, expected] of Object.entries(EXPECTED_CAPABILITIES)) {
     );
   });
 }
+
+// A manifest that DECLARES a control it never registers is a lie the daemon now acts on: the dependency
+// gate would accept a provider that publishes nothing, and the consumer would enable into silence.
+for (const name of folders) {
+  const declared = manifestOf(name).provides?.controls ?? [];
+  if (declared.length === 0) continue;
+  test(`${name}: registers every control it declares`, () => {
+    const dir = join(pluginsDir, name);
+    const sources = [];
+    const collect = (path) => {
+      for (const entry of readdirSync(path, { withFileTypes: true })) {
+        const full = join(path, entry.name);
+        if (entry.isDirectory()) { if (entry.name !== 'node_modules') collect(full); continue; }
+        if (/\.(mjs|js|ts)$/.test(entry.name)) sources.push(readFileSync(full, 'utf8'));
+      }
+    };
+    collect(dir);
+    const source = sources.join('\n');
+    for (const key of declared) {
+      assert.ok(
+        source.includes(`registerControl('${key}'`) || source.includes(`registerControl("${key}"`),
+        `${name} declares control ${key} but never registers it`,
+      );
+    }
+  });
+}
+
+for (const name of folders) {
+  const required = manifestOf(name).requiresControls ?? [];
+  if (required.length === 0) continue;
+  test(`${name}: something in this registry provides the controls it requires`, () => {
+    // The daemon refuses to enable a plugin whose required control nothing publishes. A dependency on a
+    // key no plugin here provides is therefore a plugin that can never be switched on.
+    const provided = new Set(folders.flatMap((other) => manifestOf(other).provides?.controls ?? []));
+    const orphaned = required.filter((key) => !provided.has(key));
+    assert.deepEqual(orphaned, [], `${name} requires controls nothing in this registry provides: ${orphaned.join(', ')}`);
+  });
+}

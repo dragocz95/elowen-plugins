@@ -111,7 +111,7 @@
     },
     {
       "name": "msteams",
-      "version": "0.5.28",
+      "version": "0.5.29",
       "requiresCore": "0.28.11",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
@@ -120,20 +120,26 @@
       "provides": {
         "platforms": 1,
         "tools": 17,
-        "apiRoutes": 5
+        "apiRoutes": 5,
+        "controls": [
+          "microsoftIdentity"
+        ]
       }
     },
     {
       "name": "onedrive",
-      "version": "0.1.0",
-      "requiresCore": "0.28.16",
+      "version": "0.2.0",
+      "requiresCore": "0.28.17",
       "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
       "category": "productivity",
       "author": "Elowen",
       "apiVersion": "1",
       "provides": {
         "apiRoutes": 7
-      }
+      },
+      "requiresControls": [
+        "microsoftIdentity"
+      ]
     },
     {
       "name": "skills",
