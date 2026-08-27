@@ -9,6 +9,7 @@
     "depcruise": "depcruise plugins scripts tests --config .dependency-cruiser.cjs",
     "languages-check": "node scripts/check-languages.mjs",
     "manifest-check": "node scripts/check-manifests.mjs",
+    "release:plugin": "node scripts/release-plugin.mjs",
     "shared-check": "node scripts/check-shared-compat.mjs",
     "typecheck": "tsc -p tsconfig.plugins.json --noEmit && tsc -p tsconfig.plugins-web.json --noEmit",
     "test": "npm run test:node && npm run test:ui",
