@@ -175,7 +175,13 @@ export function registerApi(deps) {
             // folder the person deleted in OneDrive and we just recreated empty. The old baseline describes
             // files that folder never had, so comparing against it would read every local file as remotely
             // deleted and move the whole project into the trash. Start from no assumptions instead.
-            if (previous && (previous.remoteItemId !== folder.id || previous.remoteDriveId !== drive.driveId)) {
+            // A changed SUBPATH is the same problem wearing different clothes: the baseline describes files of
+            // a different local directory. Two distinct folders can even land on one remote item, because
+            // `safeSegment` maps `a:b` and `a?b` to the same name - so the remote id matching proves nothing
+            // about the local side.
+            if (previous && (previous.remoteItemId !== folder.id
+                || previous.remoteDriveId !== drive.driveId
+                || previous.subpath !== subpath)) {
                 store.clearItems(link.id);
             }
             // A fresh mirror should not wait for the next tick to show signs of life.

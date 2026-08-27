@@ -86,6 +86,7 @@ describe('a local scan that admits it saw only part of the project', () => {
           driveGraphFor: async () => ({ json, binary: vi.fn(), request: vi.fn() }),
         }) as never,
         rootFor: () => root,
+        baseFor: () => root,
         settings: () => ({ rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: '', applyRemoteDeletions: true }),
         log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });

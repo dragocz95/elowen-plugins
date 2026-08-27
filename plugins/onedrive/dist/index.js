@@ -65,6 +65,7 @@ export function register(published) {
         store,
         identity: () => ctx.control('microsoftIdentity'),
         rootFor,
+        baseFor,
         settings,
         log: ctx.logger,
     });

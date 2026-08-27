@@ -5,6 +5,7 @@ import { lstat, readdir, realpath } from 'node:fs/promises';
 import { dirname, join, matchesGlob, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 const run = promisify(execFile);
+const message = (error) => (error instanceof Error ? error.message : String(error));
 /** The trash a mirror moves remotely-deleted files into. Always ignored, or the next scan would upload the
  *  very file the person just deleted straight back into OneDrive under a new name. */
 export const TRASH_DIR = '.elowen-trash';
@@ -100,10 +101,17 @@ export function remoteKey(rel) {
 async function gitFiles(root) {
     try {
         const { stdout } = await run('git', ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], { maxBuffer: 64 * 1024 * 1024, timeout: 30_000, encoding: 'utf8' });
-        return stdout.split('\0').filter(Boolean);
+        return { files: stdout.split('\0').filter(Boolean), ok: true };
     }
-    catch {
-        return null;
+    catch (error) {
+        // "This is not a repository" is an ANSWER: walk the directory and let the floor decide. Anything
+        // else - git missing, the 30s timeout, a corrupt index, a permission error - is NOT an answer, and
+        // treating it as one silently drops .gitignore from the filter. The fallback walk knows only the
+        // floor, so a repository whose .gitignore hides `customer-export.csv` would upload it into somebody's
+        // personal OneDrive the first time git was slow. A failure we cannot classify stops the cycle.
+        const text = `${error.stderr ?? ''} ${message(error)}`.toLowerCase();
+        const notARepository = text.includes('not a git repository') || text.includes('unknown revision');
+        return { files: null, ok: notARepository };
     }
 }
 /** Which of these paths does GIT consider ignored?
@@ -213,12 +221,14 @@ export async function containedInEventually(root, absolute) {
 }
 export async function scanLocal(root, options) {
     const listed = await gitFiles(root);
-    const fromGit = listed !== null;
-    const fallback = listed === null ? await walk(root, options.maxFiles) : null;
-    const candidates = listed ?? fallback.files;
+    const fromGit = listed.files !== null;
+    const fallback = listed.files === null ? await walk(root, options.maxFiles) : null;
+    const candidates = listed.files ?? fallback.files;
     const files = new Map();
     const skipped = [];
-    let complete = fallback ? fallback.complete : true;
+    // An unclassified git failure makes this scan an opinion, not an inventory. Marking it incomplete is
+    // what the rest of the cycle already understands: it refuses to derive deletions from it and stops.
+    let complete = listed.ok && (fallback ? fallback.complete : true);
     if (fromGit && candidates.length >= options.maxFiles)
         complete = false;
     // Names that collide once OneDrive's case-insensitive, Unicode-normalising rules are applied cannot

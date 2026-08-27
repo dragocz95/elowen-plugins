@@ -39,6 +39,9 @@ export interface SyncDeps {
   lease?: { ms: number; renewAfterMs: number };
   identity: () => MicrosoftIdentityControl | undefined;
   rootFor: (link: MirrorLink) => string | null;
+  /** The project or worktree directory the link starts from, BEFORE its chosen subfolder narrows it.
+   *  Two mirrors of overlapping scopes share this, and that is what serialises them. */
+  baseFor: (link: MirrorLink) => string | null;
   settings: () => SyncSettings;
   log: { info(m: string): void; warn(m: string): void; error(m: string): void };
 }
@@ -118,6 +121,13 @@ export class SyncEngine {
   /** Coalescing entry point: a second caller joins the run already happening rather than starting one. */
   syncUser(userId: number, options: SyncOptions = {}): Promise<void> {
     const running = this.inFlight.get(userId);
+    // A confirmation is not a duplicate of the cycle already in flight - that cycle is the one that
+    // REFUSED the deletions and is running without the answer. Joining it would report success while
+    // the mirror stays blocked, so a confirmation queues its own run behind it instead.
+    if (running && options.confirmDeletions?.size) {
+      const queued = running.catch(() => undefined).then(() => this.syncUser(userId, options));
+      return queued;
+    }
     if (running) return running;
     const started = this.runUser(userId, options).finally(() => this.inFlight.delete(userId));
     this.inFlight.set(userId, started);
@@ -148,7 +158,10 @@ export class SyncEngine {
     }
   }
 
-  /** Run `work` with exclusive use of one local directory. */
+  /** Run `work` with exclusive use of one local directory TREE.
+   *
+   *  Keyed on the project or worktree base rather than the folder a link narrowed itself to, because two
+   *  mirrors of overlapping scopes are two writers of the same files. */
   private async underRootLock<T>(root: string, work: () => Promise<T>): Promise<T> {
     const key = await realpath(root).catch(() => root);
     const previous = this.rootLocks.get(key) ?? Promise.resolve();
@@ -184,7 +197,12 @@ export class SyncEngine {
       }
 
       this.deps.store.setStatus(link.id, 'syncing');
-      await this.underRootLock(root, () => this.applyCycle(link, drive, confirmDeletions, root, lease));
+      // Locked on the BASE directory, not on the narrowed root. Account A mirroring `/project` and
+      // account B mirroring `/project/docs` write to the same files while holding different keys, and
+      // the loser's OneDrive edit is silently overwritten on the next cycle. Containment is the whole
+      // point: a mirror of a subfolder is a mirror of part of the same directory.
+      const base = this.deps.baseFor(link) ?? root;
+      await this.underRootLock(base, () => this.applyCycle(link, drive, confirmDeletions, root, lease));
     } finally {
       this.deps.store.release(link.id, this.owner);
     }

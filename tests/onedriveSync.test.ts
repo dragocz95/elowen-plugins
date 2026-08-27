@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PluginDb } from 'elowen/plugin-api';
@@ -169,6 +169,7 @@ function harness(options: { applyRemoteDeletions?: boolean; lease?: { ms: number
     store,
     identity: () => ({ identityFor: () => ({ linked: true }), driveGraphFor: async () => drive.graph }),
     rootFor: () => root,
+    baseFor: () => root,
     settings: () => settings,
     ...(options.lease ? { lease: options.lease } : {}),
     log,
@@ -209,6 +210,107 @@ describe('onedrive remote layout', () => {
     expect(safeSegment('')).toBe('workspace');
     expect(conflictName('docs/notes.md', new Date('2026-08-27T01:02:03Z')))
       .toBe('docs/notes.onedrive-conflict-2026-08-27-01-02-03.md');
+  });
+});
+
+describe('onedrive review round five', () => {
+  it('refuses to scan when git fails for a reason it cannot classify', async () => {
+    // A git that times out or is missing is not a statement that the project has no .gitignore. Falling
+    // back to a floor-only walk would upload exactly the files the project asked to keep private.
+    const dir = mkdtempSync(join(tmpdir(), 'onedrive-gitfail-'));
+    try {
+      mkdirSync(join(dir, 'bin'));
+      // A `git` on PATH that always fails with something other than "not a git repository".
+      writeFileSync(join(dir, 'bin', 'git'), '#!/bin/sh\necho "fatal: index file corrupt" >&2\nexit 128\n');
+      chmodSync(join(dir, 'bin', 'git'), 0o755);
+      writeFileSync(join(dir, 'secret.csv'), 'customers\n');
+
+      const previous = process.env.PATH;
+      process.env.PATH = `${join(dir, 'bin')}:${previous}`;
+      try {
+        const result = await scanLocal(dir, { ignored: () => false, maxBytes: 1_000_000, now: Date.now(), maxFiles: 1000 });
+        expect(result.complete).toBe(false);
+      } finally {
+        process.env.PATH = previous;
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('still walks a directory that genuinely is not a repository', async () => {
+    // The other half of the same rule: "not a repository" IS an answer, and a plain directory must
+    // remain mirrorable.
+    const dir = mkdtempSync(join(tmpdir(), 'onedrive-norepo-'));
+    try {
+      writeFileSync(join(dir, 'note.txt'), 'hello\n');
+      const result = await scanLocal(dir, { ignored: () => false, maxBytes: 1_000_000, now: Date.now(), maxFiles: 1000 });
+      expect(result.complete).toBe(true);
+      expect([...result.files.keys()]).toEqual(['note.txt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('serialises a project mirror against a mirror of one of its subfolders', async () => {
+    // Two accounts, same project on disk, but one narrowed itself to `docs`. Their claims differ and
+    // their NARROWED roots differ, so locking the narrowed root gave them separate keys - while both
+    // still write `<project>/docs/*`. Whoever renames last wins and the other person's OneDrive edit is
+    // gone, with no trash copy anywhere, because neither cycle ever saw the other.
+    const { root, store, engine, link } = harness();
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    settled(join(root, 'docs', 'shared.md'), 'shared\n');
+    const narrowed = store.createLink({
+      userId: 8, projectId: 1, workspaceId: null, workspaceLabel: null, subpath: 'docs',
+      remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo/docs', webUrl: null,
+    });
+
+    // The real resolvers: the root follows the subpath, the base does not.
+    const deps = (engine as unknown as { deps: { rootFor: unknown; baseFor: unknown } }).deps;
+    deps.rootFor = (row: { subpath: string }) => (row.subpath ? join(root, row.subpath) : root);
+    deps.baseFor = () => root;
+
+    let concurrent = 0;
+    let peak = 0;
+    const spy = vi.spyOn(Drive.prototype, 'listTree').mockImplementation(async function listTree(this: Drive, ...args) {
+      concurrent += 1; peak = Math.max(peak, concurrent);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      concurrent -= 1;
+      return originalListTree.apply(this, args as never);
+    });
+    await Promise.all([engine.syncUser(7), engine.syncUser(8)]);
+    spy.mockRestore();
+
+    expect(peak).toBe(1);
+    expect(store.linkById(link.id)?.status).toBe('idle');
+    expect(store.linkById(narrowed.id)?.status).toBe('idle');
+  });
+
+  it('queues a deletion confirmation instead of joining the cycle that refused it', async () => {
+    // The running cycle is the one that said no. Handing the caller that same promise reports success
+    // while the mirror stays blocked, and the answer is simply lost.
+    const h = harness();
+    const link = h.store.createLink({
+      subpath: '',
+      userId: 7, projectId: 1, workspaceId: null, workspaceLabel: null,
+      remoteDriveId: 'd', remoteItemId: 'f', remotePath: 'Elowen/projects/a', webUrl: null,
+    });
+    const runs: (ReadonlySet<number> | undefined)[] = [];
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    (h.engine as unknown as { runUser: unknown }).runUser = async (_id: number, options: { confirmDeletions?: ReadonlySet<number> }) => {
+      runs.push(options.confirmDeletions);
+      if (runs.length === 1) await gate;
+    };
+
+    const first = h.engine.syncUser(7);
+    const confirming = h.engine.syncUser(7, { confirmDeletions: new Set([link.id]) });
+    release();
+    await Promise.all([first, confirming]);
+
+    expect(runs.length).toBe(2);
+    expect(runs[0]).toBeUndefined();
+    expect([...(runs[1] ?? [])]).toEqual([link.id]);
   });
 });
 
@@ -869,6 +971,7 @@ describe('onedrive sync cycle', () => {
       store,
       identity: () => ({ identityFor: () => ({ linked: true }), driveGraphFor: async () => fakeDrive().graph }),
       rootFor: () => null,
+      baseFor: () => null,
       settings: () => ({ rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: '', applyRemoteDeletions: true }),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
@@ -884,6 +987,7 @@ describe('onedrive sync cycle', () => {
       store,
       identity: () => ({ identityFor: () => ({ linked: true }), driveGraphFor: async () => null }),
       rootFor: () => '/tmp',
+      baseFor: () => '/tmp',
       settings: () => ({ rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: '', applyRemoteDeletions: true }),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
@@ -897,6 +1001,7 @@ describe('onedrive sync cycle', () => {
       store,
       identity: () => undefined,
       rootFor: () => '/tmp',
+      baseFor: () => '/tmp',
       settings: () => ({ rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: '', applyRemoteDeletions: true }),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
