@@ -24,6 +24,6 @@ test('the local check script composes every static-analysis gate', () => {
   const pkg = JSON.parse(readFileSync(new URL('package.json', root), 'utf8'));
   assert.equal(
     pkg.scripts.check,
-    'npm run lint && npm run deadcode && npm run depcruise && npm run typecheck && npm run languages-check && npm run shared-check',
+    'npm run lint && npm run deadcode && npm run depcruise && npm run typecheck && npm run languages-check && npm run shared-check && npm run manifest-check',
   );
 });
