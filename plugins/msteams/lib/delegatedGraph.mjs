@@ -2,8 +2,21 @@ const GRAPH_ORIGIN = 'https://graph.microsoft.com';
 const GRAPH_BASE = `${GRAPH_ORIGIN}/v1.0`;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_OUTPUT_LIMIT = 20_000;
+/** Ceiling for a caller-supplied deadline. The default suits a JSON round trip, but uploading file
+ *  content takes as long as the file and the link decide, so that one caller has to be able to ask for
+ *  longer. It may not ask for forever: a request with no effective deadline pins a socket, and these run
+ *  on a background interval that walks accounts one at a time. */
+const MAX_TIMEOUT_MS = 20 * 60_000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Untrusted input reaching a deadline, so anything that is not a usable positive number falls back to
+ *  the default rather than disabling the deadline or aborting the request instantly. */
+function requestTimeout(requested, fallback) {
+  const value = Number(requested);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(value, MAX_TIMEOUT_MS);
+}
 
 function graphMessage(data, fallback) {
   const message = data?.error?.message;
@@ -103,7 +116,7 @@ export class DelegatedGraphClient {
           ...(options.body !== undefined
             ? { body: options.contentType && options.contentType !== 'application/json' ? options.body : JSON.stringify(options.body) }
             : {}),
-          signal: AbortSignal.timeout(this.timeoutMs),
+          signal: AbortSignal.timeout(requestTimeout(options.timeoutMs, this.timeoutMs)),
         });
       } catch {
         last = new DelegatedGraphError('Microsoft Graph is temporarily unavailable.', { permission: options.permission });

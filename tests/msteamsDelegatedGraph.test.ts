@@ -25,6 +25,27 @@ describe('delegated Microsoft Graph client', () => {
     await expect(graph.json('GET', '/../beta/me')).rejects.toThrow('v1.0');
   });
 
+  it('lets one request carry its own deadline, and falls back rather than dropping it', async () => {
+    const signals: AbortSignal[] = [];
+    const fetch = vi.fn(async (_url: string, init: { signal: AbortSignal }) => {
+      signals.push(init.signal);
+      return response(200, { ok: true });
+    });
+    const graph = new DelegatedGraphClient('token', { fetch, timeoutMs: 60_000 });
+
+    // Uploading file content takes as long as the file and the link decide, so that caller names its own
+    // deadline instead of inheriting one sized for a JSON round trip.
+    await graph.json('PUT', '/me/drive/items/x:/a.zip:/content', {
+      body: new Uint8Array(1), contentType: 'application/octet-stream', timeoutMs: 20,
+    });
+    // A value that is not a usable deadline must land on the default, never disable the deadline.
+    await graph.json('GET', '/me', { timeoutMs: -1 } as never);
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(signals[0]!.aborted).toBe(true);
+    expect(signals[1]!.aborted).toBe(false);
+  });
+
   it('accepts only Graph pagination cursors for the expected collection', () => {
     const cursor = encodeCursor('https://graph.microsoft.com/v1.0/me/messages?$skiptoken=abc');
     expect(decodeCursor(cursor, '/me/messages')).toBe('/me/messages?$skiptoken=abc');

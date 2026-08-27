@@ -5,15 +5,32 @@ import { dirname, join } from 'node:path';
 import type { MicrosoftDriveGraph } from './coreSeams.js';
 import { PART_PREFIX } from './scan.js';
 
-/** Microsoft's own boundary for a plain content PUT. Above it an upload session is required, and the
- *  chunk size must be a multiple of 320 KiB — their documented requirement, not a tuning choice. */
-const SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024;
+/** Microsoft's own boundary for a plain content PUT. Graph documents `PUT /content` as supporting files
+ *  up to 250 MB, and only above it is an upload session required; the 320 KiB chunk multiple is likewise
+ *  their documented requirement, not a tuning choice.
+ *
+ *  Sitting far below the real ceiling bought nothing and cost reliability. A session is a multi-request
+ *  dance, and its reservation on the file NAME outlives a connection that dies mid-flight: the folder
+ *  listing cannot see a half-finished session, so the mirror keeps believing the file is new, keeps
+ *  creating it with `fail`, and keeps being told the name already exists. That is a permanent loop no
+ *  cycle can leave. A single PUT either lands or does not, so every file Graph will take that way goes
+ *  that way. */
+const SIMPLE_UPLOAD_MAX = 250 * 1024 * 1024;
 const CHUNK = 320 * 1024 * 10;
 /** A chunk PUT goes straight to a pre-authenticated storage URL, outside the Graph client and its own
  *  bounds. Without a deadline one stalled connection holds the cycle open for as long as the socket lives,
  *  and the interval walks accounts one at a time - so a single hung upload stops every mirror on the
  *  instance, not just this one. */
 const CHUNK_TIMEOUT_MS = 120_000;
+/** How long ONE content PUT may take. The Graph client's default deadline is sized for a JSON round trip
+ *  and would abort a large upload long before a healthy link had finished it — raising the simple-upload
+ *  ceiling without this would just move the failure. So the deadline follows the file: a fixed grace for
+ *  the round trip plus the time the body needs at a deliberately pessimistic floor rate. Nothing waits
+ *  this long in the normal case; it is the point at which a stalled socket is given up on. */
+const UPLOAD_FLOOR_BYTES_PER_SECOND = 256 * 1024;
+const UPLOAD_GRACE_MS = 60_000;
+export const uploadTimeoutMs = (size: number): number =>
+  UPLOAD_GRACE_MS + Math.ceil(Math.max(size, 0) / UPLOAD_FLOOR_BYTES_PER_SECOND) * 1_000;
 
 export interface DriveItem {
   id: string;
@@ -34,6 +51,14 @@ const asRecord = (value: unknown): Record<string, unknown> =>
 export function isNotFound(error: unknown): boolean {
   const status = (error as { status?: unknown })?.status;
   return status === 404;
+}
+
+/** Graph's "that name is already taken", the answer to a create that was told to refuse a collision.
+ *  Matched on the code as well as the status, because 409 also covers conflicts this must not react to —
+ *  and what it drives is a retry that overwrites. */
+export function isNameConflict(error: unknown): boolean {
+  const value = error as { status?: unknown; code?: unknown };
+  return value?.status === 409 && value?.code === 'nameAlreadyExists';
 }
 
 /** Percent-encode each path segment for a Graph `root:/…:` addressing expression. Encoding the whole
@@ -219,8 +244,30 @@ export class Drive {
    *  the moment somebody dragged the mirror folder somewhere else in OneDrive, uploads kept writing to the
    *  old location - recreating the folder they had just moved - while the listing, which already went by
    *  item id, read the new one. The mirror split in two and neither half was wrong on its own terms. */
+  private itemAddress(folderId: string, rel: string): string {
+    return `${this.base()}/items/${encodeURIComponent(folderId)}:/${encodePath(rel)}`;
+  }
+
+  /** The same address in the form that takes a trailing action (`…:/content`, `…:/createUploadSession`). */
   private itemPath(folderId: string, rel: string): string {
-    return `${this.base()}/items/${encodeURIComponent(folderId)}:/${encodePath(rel)}:`;
+    return `${this.itemAddress(folderId, rel)}:`;
+  }
+
+  /** Is there a real, addressable item at this path? Asked only when Graph has just refused to create one
+   *  because the name is taken, while the folder listing said the name was free.
+   *
+   *  Those two answers are not a contradiction: a listing cannot see the name an unfinished upload session
+   *  is holding. So a 404 here is the signature of an upload of OURS that died mid-flight, leaving a
+   *  reservation and nothing a user can see — and a real item is a real item, which the mirror must merge
+   *  rather than overwrite. */
+  private async itemIdAt(folderId: string, rel: string): Promise<string | null> {
+    try {
+      const item = asRecord(await this.graph.json('GET', `${this.itemAddress(folderId, rel)}?$select=id`));
+      return typeof item.id === 'string' && item.id ? item.id : null;
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
   }
 
   /** Uploads from an ALREADY-OPEN descriptor. The caller opened it under `O_NOFOLLOW` and verified it, so
@@ -230,9 +277,22 @@ export class Drive {
     folderId: string, rel: string, file: { handle: FileHandle; size: number },
     ifMatch?: string, expectNew = false,
   ): Promise<DriveItem> {
-    return file.size <= SIMPLE_UPLOAD_MAX
-      ? this.uploadSmall(folderId, rel, file, ifMatch, expectNew)
-      : this.uploadLarge(folderId, rel, file, ifMatch, expectNew);
+    const send = (asNew: boolean): Promise<DriveItem> => file.size <= SIMPLE_UPLOAD_MAX
+      ? this.uploadSmall(folderId, rel, file, ifMatch, asNew)
+      : this.uploadLarge(folderId, rel, file, ifMatch, asNew);
+
+    try {
+      return await send(expectNew);
+    } catch (error) {
+      // `expectNew` refuses to overwrite something this mirror has never seen, and that refusal stays
+      // intact: the retry below happens ONLY once Graph has confirmed there is nothing at the path to
+      // overwrite. Without it the refusal is permanent rather than protective — the name stays reserved
+      // by our own dead upload session, every later cycle asks the same question and gets the same no,
+      // and the file never syncs again.
+      if (!expectNew || ifMatch || !isNameConflict(error)) throw error;
+      if (await this.itemIdAt(folderId, rel) !== null) throw error;
+      return await send(false);
+    }
   }
 
   private async uploadSmall(
@@ -248,7 +308,8 @@ export class Drive {
     }
     const behavior = expectNew && !ifMatch ? '?%40microsoft.graph.conflictBehavior=fail' : '';
     const raw = await this.graph.json('PUT', `${this.itemPath(folderId, rel)}/content${behavior}`, {
-      body: body.subarray(0, read), contentType: 'application/octet-stream', ...(ifMatch ? { ifMatch } : {}),
+      body: body.subarray(0, read), contentType: 'application/octet-stream',
+      timeoutMs: uploadTimeoutMs(read), ...(ifMatch ? { ifMatch } : {}),
     });
     return itemFromGraph(raw) ?? { id: '', name: '', etag: '', size: read, isFolder: false, path: rel, deleted: false };
   }

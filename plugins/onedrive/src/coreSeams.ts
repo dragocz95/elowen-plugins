@@ -36,6 +36,9 @@ export interface MicrosoftGraphRequestOptions {
   ifMatch?: string;
   headers?: Record<string, string>;
   maxBytes?: number;
+  /** Deadline for this one request, when the client's default is the wrong shape for it — a content
+   *  upload takes as long as the file and the link decide. Bounded by the client. */
+  timeoutMs?: number;
 }
 
 /** A delegated Microsoft Graph client already confined to the signed-in person's drive namespace. */
