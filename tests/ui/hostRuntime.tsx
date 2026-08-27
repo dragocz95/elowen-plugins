@@ -15,7 +15,7 @@ import * as H from './hostHooks';
 import { api, apiErrorMessage, ElowenApiError, elowenClient } from './hostClient';
 import * as U from './hostUtils';
 
-export const PLUGIN_UI_API_VERSION = 3;
+const PLUGIN_UI_API_VERSION = 3;
 
 interface HostWindow extends Window {
   ElowenUiRuntime?: unknown;
@@ -146,4 +146,3 @@ export function ensurePluginUiRuntime(): void {
 }
 
 /** What a bundle registered through `__elowenRegisterPluginUi` — the production entry point's own path. */
-export const pluginRegistration = (plugin: string): unknown => registrations.get(plugin);

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
+import { packageVersion } from '../plugins/msteams/lib/appPackage.mjs';
 import { buildAskCard, buildPickerCard, buildTableCard, settledCard } from '../plugins/msteams/lib/cards.mjs';
 
 const log = { info() {}, warn() {}, error() {} };
@@ -1194,10 +1195,7 @@ describe('msteams proactive notify + app package', () => {
     expect(on.webApplicationInfo?.resource).toBeTruthy();
   });
 
-  it('stamps every package with a version Teams will accept as an update', async () => {
-    const { packageVersion } = await import(join(repoRoot, 'plugins/msteams/lib/appPackage.mjs')) as {
-      packageVersion: (now?: Date) => string;
-    };
+  it('stamps every package with a version Teams will accept as an update', () => {
     // A constant version is why the second upload was refused with "This update needs a new app
     // version number" — so the property under test is ORDER, not shape.
     const at = (iso: string) => packageVersion(new Date(iso));

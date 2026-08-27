@@ -19,9 +19,9 @@ export type RemoteFile =
 /** What the two sides looked like when they last agreed. `null` means this path has never been synced. */
 export type Baseline = { sha256: string; etag: string } | null;
 
-export type SideState = 'added' | 'changed' | 'unchanged' | 'deleted' | 'absent';
+type SideState = 'added' | 'changed' | 'unchanged' | 'deleted' | 'absent';
 
-export type MergeAction =
+type MergeAction =
   /** Local content is authoritative: put it in OneDrive. */
   | 'upload'
   /** Remote content is authoritative: bring it down, atomically. */

@@ -1050,5 +1050,3 @@ export const cs = {
     showLess: "Zobrazit méně",
   },
 } as const;
-
-export type LocaleDict = typeof en;

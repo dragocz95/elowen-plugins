@@ -16,11 +16,11 @@ const REPLY_EXCERPT = 300;               // quoted-reply excerpt length
 export const splitContent = (text) => splitAtChunk(renderChatTables(text, { fence: true, maxWidth: CHAT_TABLE_WIDTH }), CHUNK);
 
 /** The roleId that matches anyone. */
-export const WILDCARD = '*';
+const WILDCARD = '*';
 
 /** Whether a policy id IS the wildcard. Trimmed, like every other comparison here: a row saved as
  *  `' * '` must mean the same thing in the policy-level branch and in the per-id one. */
-export const isWildcard = (policyId) => String(policyId ?? '').trim() === WILDCARD;
+const isWildcard = (policyId) => String(policyId ?? '').trim() === WILDCARD;
 
 /** Whether a policy `roleId` matches one of a member's role ids. Discord role ids are opaque snowflakes
  *  and compare exactly; `*` matches every role. */

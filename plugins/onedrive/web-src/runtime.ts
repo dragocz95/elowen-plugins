@@ -24,7 +24,7 @@ export interface MirrorRow {
   blockedDeletions: number;
 }
 
-export interface WorkspaceRow {
+interface WorkspaceRow {
   workspaceId: string;
   label: string;
   connected: boolean;

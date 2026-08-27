@@ -31,7 +31,7 @@ import { createRequire } from 'node:module';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-export type CatalogGroup = Record<string, unknown>;
+type CatalogGroup = Record<string, unknown>;
 export type Catalog = Record<string, CatalogGroup>;
 
 /** A minified object literal is not JSON: keys are bare identifiers and strings may be single-quoted.

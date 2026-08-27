@@ -10,7 +10,7 @@ const TASK_STATUS_SCHEMA = Type.Union(TASK_STATUSES.map((status) => Type.Literal
  *  later topic indefinitely. New work clears an aged finished list immediately, before its first task lands. */
 export const COMPLETED_LIST_GRACE_TURNS = 3;
 
-export const TASK_MIGRATIONS = [{
+const TASK_MIGRATIONS = [{
   version: 1,
   up(db) {
     db.exec(`

@@ -72,7 +72,7 @@ function authorizedAction(req: PluginApiRequest, input: Record<string, unknown>)
   return action;
 }
 
-export function mutationAction(input: Record<string, unknown>): MutationAction {
+function mutationAction(input: Record<string, unknown>): MutationAction {
   const type = text(input.type);
   if (type === 'disconnect' || type === 'replace_identity') return { type };
   if (type === 'remove_mapping') return { type, projectId: requiredProject(input.projectId) };

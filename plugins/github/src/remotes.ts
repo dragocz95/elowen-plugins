@@ -22,13 +22,13 @@ export function canonicalHttpsRepository(ref: RemoteRepositoryRef): string {
   return `https://github.com/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.name)}.git`;
 }
 
-export function sameRepository(a: RemoteRepositoryRef, b: RemoteRepositoryRef): boolean {
+function sameRepository(a: RemoteRepositoryRef, b: RemoteRepositoryRef): boolean {
   return a.owner.toLowerCase() === b.owner.toLowerCase() && a.name.toLowerCase() === b.name.toLowerCase();
 }
 
 export interface RemoteCandidate extends RemoteRepositoryRef { remote: string; kind: 'fetch' | 'push' }
 
-export function remoteCandidates(remotes: { name: string; fetchUrl: string; pushUrl: string }[]): RemoteCandidate[] {
+function remoteCandidates(remotes: { name: string; fetchUrl: string; pushUrl: string }[]): RemoteCandidate[] {
   const out: RemoteCandidate[] = [];
   for (const remote of remotes) {
     const fetch = parseGitHubRemote(remote.fetchUrl);

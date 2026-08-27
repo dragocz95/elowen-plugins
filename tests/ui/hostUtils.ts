@@ -108,7 +108,7 @@ export function formatCost(usd: number, decimals = 4): string {
   return `$${usd.toFixed(decimals)}`;
 }
 
-export function formatSpeed(tps: number | null | undefined): string {
+function formatSpeed(tps: number | null | undefined): string {
   return tps != null && tps > 0 ? `${Math.round(tps)} tok/s` : '—';
 }
 
@@ -116,7 +116,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface TaskTimeLabel { label: string; title: string }
 
-export function localDateTime(iso: string, locale?: string, seconds = true): string {
+function localDateTime(iso: string, locale?: string, seconds = true): string {
   const ms = parseTs(iso);
   if (ms == null) return iso;
   return new Date(ms).toLocaleString(locale, {
@@ -386,7 +386,7 @@ export function epicEffectiveStatus(epic: Task, missions: Mission[], children: T
 // ── date window (web/lib/dateRange.ts) ───────────────────────────────────────────────────────────────
 
 export type RangePreset = '7d' | '30d' | '90d' | 'today' | 'all' | 'custom';
-export const RANGE_PRESETS: readonly RangePreset[] = ['7d', '30d', '90d', 'today', 'all', 'custom'];
+const RANGE_PRESETS: readonly RangePreset[] = ['7d', '30d', '90d', 'today', 'all', 'custom'];
 
 export interface DateRange { preset: RangePreset; from: string | null; to: string | null }
 
@@ -444,7 +444,7 @@ export function rangeWindowCapHours(r: DateRange, now: number): number {
 
 // ── models (web/lib/execPresets.ts + modelProvider.ts) ───────────────────────────────────────────────
 
-export const EXEC_PRESETS: { label: string; exec: string }[] = [
+const EXEC_PRESETS: { label: string; exec: string }[] = [
   { label: 'GLM 5.2', exec: 'opencode:ollama-cloud/glm-5.2' },
   { label: 'GPT 5.5', exec: 'codex:gpt-5.5' },
   { label: 'Claude Sonnet 4.5', exec: 'sonnet' },
@@ -511,7 +511,7 @@ export interface UsageSummary {
 
 const DASH = '—';
 
-export function cacheHitPct(u: { cacheRead: number; input: number }): number | null {
+function cacheHitPct(u: { cacheRead: number; input: number }): number | null {
   const reads = u.cacheRead + u.input;
   return reads > 0 ? (u.cacheRead / reads) * 100 : null;
 }

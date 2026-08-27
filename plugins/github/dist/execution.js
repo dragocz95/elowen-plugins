@@ -72,7 +72,7 @@ async function git(ctx, cwd, args, runner) {
     const prepared = await prepare(ctx, cwd, 'git', ['-C', cwd, ...args]);
     return runner(prepared);
 }
-export async function assertSafeRepositoryConfig(ctx, cwd, runner = spawnPrepared) {
+async function assertSafeRepositoryConfig(ctx, cwd, runner = spawnPrepared) {
     const paths = await git(ctx, cwd, ['rev-parse', '--git-common-dir', '--git-dir'], runner);
     const [commonRaw, worktreeRaw] = paths.stdout.trim().split(/\r?\n/);
     if (!commonRaw || !worktreeRaw)

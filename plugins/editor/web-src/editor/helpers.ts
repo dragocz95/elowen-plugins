@@ -1,7 +1,7 @@
 import type { FileNode } from '../runtime';
 import { baseName, extOf, fileKindOf, mimeTypeOf } from '../../src/fileTypes';
 
-export { baseName, extOf, fileKindOf, mimeTypeOf };
+export { baseName, fileKindOf, mimeTypeOf };
 
 export interface TreeNode { name: string; path: string; type: 'file' | 'dir'; children: TreeNode[] }
 

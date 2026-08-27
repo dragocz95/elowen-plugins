@@ -22,10 +22,10 @@ export function parseGitHubRemote(raw) {
 export function canonicalHttpsRepository(ref) {
     return `https://github.com/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.name)}.git`;
 }
-export function sameRepository(a, b) {
+function sameRepository(a, b) {
     return a.owner.toLowerCase() === b.owner.toLowerCase() && a.name.toLowerCase() === b.name.toLowerCase();
 }
-export function remoteCandidates(remotes) {
+function remoteCandidates(remotes) {
     const out = [];
     for (const remote of remotes) {
         const fetch = parseGitHubRemote(remote.fetchUrl);

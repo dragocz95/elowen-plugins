@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, createContext, useCo
 import { QueryClient, QueryClientProvider, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   elowenClient,
-  type CronJobRow, type DepEdge, type Mission, type PluginSkillRow, type SkillOwner, type Task,
+  type CronJobRow, type DepEdge, type PluginSkillRow, type SkillOwner, type Task,
 } from './hostClient';
 import { apiErrorMessage } from './hostClient';
 import { agentDisplayName, pendingEscalations, taskExec, taskSessionName } from './hostUtils';
@@ -20,7 +20,7 @@ export { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient };
 // The app's own catalog (hostDictionary), served as the host serves it. These are CORE labels — the
 // copy a bundle reads through `useTranslation` — as opposed to a plugin's own manifest `web.strings`.
 
-export const DICTIONARY = en;
+const DICTIONARY = en;
 
 export const useTranslation = () => ({ t: DICTIONARY as unknown as Record<string, Record<string, string>>, locale: 'en' });
 
@@ -699,5 +699,3 @@ export function useTaskControls(task: Task): { session: string | null; running: 
 
   return { session, running, start, stop, pause };
 }
-
-export type { Mission };

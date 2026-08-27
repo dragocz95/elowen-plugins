@@ -6,7 +6,7 @@
  *  and "mine" travels as the explicit `me`, never as an absent param (the daemon reads an absent one as
  *  the pre-ownership default, instance-wide for an admin, which is not what the UI means by "mine"). */
 
-export const BASE = '/api';
+const BASE = '/api';
 
 export class ElowenApiError extends Error {
   constructor(message: string, public status: number, public code?: string) {

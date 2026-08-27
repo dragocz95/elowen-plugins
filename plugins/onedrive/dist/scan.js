@@ -91,7 +91,7 @@ export function buildIgnore(extra) {
 /** OneDrive matches names case-insensitively and normalises Unicode; Linux does neither. Two local paths
  *  that differ only in case or in NFC/NFD spelling therefore address ONE remote item, and mirroring both
  *  makes them overwrite each other and then delete each other. This is the key those collisions share. */
-export function remoteKey(rel) {
+function remoteKey(rel) {
     return rel.normalize('NFC').toLowerCase();
 }
 /** The project's own view of which files matter: tracked files plus untracked ones its .gitignore keeps.
@@ -340,7 +340,7 @@ export async function openMirrorFile(absolute) {
 }
 /** Content hash read from an already-open descriptor, streamed, at explicit offsets so the descriptor is
  *  left usable afterwards. */
-export async function hashHandle(handle) {
+async function hashHandle(handle) {
     const hash = createHash('sha256');
     const buffer = Buffer.allocUnsafe(1024 * 1024);
     let position = 0;

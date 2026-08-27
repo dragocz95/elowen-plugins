@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "plugins/*/index.mjs",
+    "plugins/*/src/index.ts",
+    "plugins/*/web-src/index.tsx",
+    "scripts/*.mjs",
+    "tests/e2e/*/run.mjs",
+    "tests/e2e/whatsapp/fake-baileys-socket.mjs"
+  ],
+  "project": [
+    "plugins/**/*.{mjs,ts,tsx}",
+    "scripts/**/*.mjs",
+    "tests/**/*.{mjs,ts,tsx}"
+  ],
+  "ignoreBinaries": [
+    "soffice"
+  ]
+}

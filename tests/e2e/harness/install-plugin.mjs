@@ -42,7 +42,7 @@ const registryRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '
  * @param {string[]} names  Plugin names to strip — exactly the ones the caller installs.
  * @returns {string[]} The plugin names actually stripped (empty once the host stops bundling them).
  */
-export function stripShadowingPlugins(names) {
+function stripShadowingPlugins(names) {
   if (!Array.isArray(names) || names.length === 0) throw new Error('stripShadowingPlugins: pass the plugin names you install');
   const bundledDir = join(registryRoot, 'node_modules', 'elowen', 'dist', 'plugins');
   if (!existsSync(bundledDir)) throw new Error(`stripShadowingPlugins: no bundled plugin dir at ${bundledDir}`);

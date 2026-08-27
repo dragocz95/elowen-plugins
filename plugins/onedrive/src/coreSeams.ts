@@ -15,7 +15,7 @@ import type { PluginContext } from 'elowen/plugin-api';
 
 /** One badge on a project row in the Projects list. Written out for the same reason as everything else
  *  in this file: the published package predates its export. */
-export interface ProjectIndicator {
+interface ProjectIndicator {
   projectId: number;
   label: string;
   value?: string;
@@ -23,7 +23,7 @@ export interface ProjectIndicator {
   tone?: 'muted' | 'accent' | 'success' | 'warning' | 'danger';
 }
 
-export interface MicrosoftIdentity {
+interface MicrosoftIdentity {
   linked: boolean;
   upn?: string;
   displayName?: string;
@@ -53,7 +53,7 @@ export interface MicrosoftIdentityControl {
   driveGraphFor(userId: number): Promise<MicrosoftDriveGraph | null>;
 }
 
-export interface SandboxWorkspaceView {
+interface SandboxWorkspaceView {
   workspaceId: string;
   projectId: number;
   path: string;
@@ -62,11 +62,11 @@ export interface SandboxWorkspaceView {
   baseRef: string;
 }
 
-export interface SandboxAccountControl {
+interface SandboxAccountControl {
   workspacesFor(input: { userId: number; projectIds?: readonly number[] }): SandboxWorkspaceView[];
 }
 
-export type UiVisibility = (req: { userId: number | null; isAdmin: boolean }) =>
+type UiVisibility = (req: { userId: number | null; isAdmin: boolean }) =>
   { account?: readonly string[]; project?: readonly string[] } | null;
 
 /** The plugin context as this plugin actually uses it. */

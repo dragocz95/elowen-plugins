@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 
 type AnyComponent = ComponentType<any>;
-export interface Account {
+interface Account {
   userId: number; githubUserId: number; login: string; name: string | null; avatarUrl: string | null;
   status: 'connected' | 'reconnect_required'; lastError: string | null;
 }

@@ -74,7 +74,7 @@ function authorizedAction(req, input) {
         projectId(req, action.projectId);
     return action;
 }
-export function mutationAction(input) {
+function mutationAction(input) {
     const type = text(input.type);
     if (type === 'disconnect' || type === 'replace_identity')
         return { type };

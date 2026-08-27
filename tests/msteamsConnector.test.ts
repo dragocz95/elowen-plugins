@@ -6,6 +6,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { retryAfterMs } from '../plugins/msteams/lib/connector.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const log = { info() {}, warn() {}, error() {} };
@@ -28,10 +29,7 @@ const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
 
 describe('ConnectorClient message reactions', () => {
-  it('honors Retry-After seconds and dates with an exponential fallback and cap', async () => {
-    const { retryAfterMs } = await import(join(repoRoot, 'plugins/msteams/lib/connector.mjs')) as {
-      retryAfterMs: (value: string | null, attempt?: number, now?: number) => number;
-    };
+  it('honors Retry-After seconds and dates with an exponential fallback and cap', () => {
     const now = Date.parse('2026-08-19T12:00:00Z');
     expect(retryAfterMs('2', 0, now)).toBe(2000);
     expect(retryAfterMs('Wed, 19 Aug 2026 12:00:07 GMT', 0, now)).toBe(7000);

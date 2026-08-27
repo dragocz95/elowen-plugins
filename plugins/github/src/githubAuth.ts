@@ -8,8 +8,7 @@ export const DEVICE_LOGIN_ARGS = [
   'auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--skip-ssh-key', '--insecure-storage',
 ] as const;
 export const TOKEN_ARGS = ['auth', 'token', '--hostname', 'github.com'] as const;
-export const VERSION_ARGS = ['--version'] as const;
-export const DEVICE_URL = 'https://github.com/login/device';
+const VERSION_ARGS = ['--version'] as const;
 export const DEVICE_FLOW_TTL = 10 * 60_000;
 const MAX_OUTPUT = 64 * 1024;
 const MAX_VERSION_OUTPUT = 8 * 1024;

@@ -5,6 +5,7 @@
   "scripts": {
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "deadcode": "knip",
     "test": "npm run test:node && npm run test:ui",
     "test:node": "node --test --import=./tests/register-loader.mjs \"tests/*.test.mjs\"",
     "test:ui": "vitest run",
@@ -46,16 +47,19 @@
     "grammy": "^1.45.1",
     "jose": "^5.10.0",
     "jsdom": "^25.0.1",
+    "knip": "^6.32.3",
     "lucide-react": "^0.460.0",
     "marked": "^18.0.7",
     "papaparse": "^5.6.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "semver": "^7.8.5",
     "typebox": "^1.1.38",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.68.0",
     "vitest": "^4.1.10",
+    "ws": "^8.21.3",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   }

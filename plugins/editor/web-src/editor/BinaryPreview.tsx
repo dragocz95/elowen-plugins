@@ -5,7 +5,7 @@ import { baseName, mimeTypeOf } from './helpers';
 const { components } = runtime();
 const { Button } = components;
 
-export function formatBytes(bytes: number): string {
+function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ['KB', 'MB', 'GB', 'TB'];
   let value = bytes / 1024;

@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 
-export interface TeamsIdentityUser {
+interface TeamsIdentityUser {
   id: number;
   username: string;
   isAdmin: boolean;
@@ -24,7 +24,7 @@ export interface TeamsPerson {
   identity?: TeamsIdentity;
 }
 
-export interface TeamsAccountProfile {
+interface TeamsAccountProfile {
   id: string;
   displayName: string;
   userPrincipalName: string;

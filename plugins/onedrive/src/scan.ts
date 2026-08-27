@@ -90,7 +90,7 @@ export function buildIgnore(extra: string): (rel: string) => boolean {
   return (rel: string) => isFloorIgnored(rel) || patterns.some((pattern) => matchesGlob(rel, pattern));
 }
 
-export interface ScannedFile {
+interface ScannedFile {
   rel: string;
   size: number;
   mtimeMs: number;
@@ -118,7 +118,7 @@ export interface ScanResult {
 /** OneDrive matches names case-insensitively and normalises Unicode; Linux does neither. Two local paths
  *  that differ only in case or in NFC/NFD spelling therefore address ONE remote item, and mirroring both
  *  makes them overwrite each other and then delete each other. This is the key those collisions share. */
-export function remoteKey(rel: string): string {
+function remoteKey(rel: string): string {
   return rel.normalize('NFC').toLowerCase();
 }
 
@@ -347,7 +347,7 @@ export async function openMirrorFile(absolute: string): Promise<{ handle: FileHa
 
 /** Content hash read from an already-open descriptor, streamed, at explicit offsets so the descriptor is
  *  left usable afterwards. */
-export async function hashHandle(handle: FileHandle): Promise<string> {
+async function hashHandle(handle: FileHandle): Promise<string> {
   const hash = createHash('sha256');
   const buffer = Buffer.allocUnsafe(1024 * 1024);
   let position = 0;

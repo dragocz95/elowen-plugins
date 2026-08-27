@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, realpath, rename, stat } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import type { MicrosoftIdentityControl } from './coreSeams.js';
-import { Drive, RemoteItemAppearedError, StaleLocalError, type DriveItem } from './drive.js';
+import { Drive, RemoteItemAppearedError, StaleLocalError } from './drive.js';
 import { decide, type Baseline, type LocalFile, type RemoteFile } from './merge.js';
 import {
   buildIgnore, containedIn, containedInEventually, gitIgnoredAmong, hashFile, scanLocal, TRASH_DIR,
@@ -662,5 +662,3 @@ async function localUnchanged(absolute: string, local: LocalFile): Promise<boole
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
-export type { DriveItem };

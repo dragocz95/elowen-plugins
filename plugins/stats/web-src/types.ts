@@ -45,7 +45,7 @@ export interface UsageByOriginResult {
   trackingSince: string | null;
 }
 
-export interface UsageRow {
+interface UsageRow {
   exec: string;
   totalTokens: number;
   costUsd: number | null;
@@ -69,5 +69,5 @@ export interface UsageSummary {
   hasAnyUsage: boolean;
 }
 
-export type RangePreset = '7d' | '30d' | '90d' | 'today' | 'all' | 'custom';
+type RangePreset = '7d' | '30d' | '90d' | 'today' | 'all' | 'custom';
 export interface DateRange { preset: RangePreset; from: string | null; to: string | null }

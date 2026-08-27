@@ -10,7 +10,7 @@ export class GitHubPluginError extends Error {
         this.name = 'GitHubPluginError';
     }
 }
-export function asPluginError(error) {
+function asPluginError(error) {
     if (error instanceof GitHubPluginError)
         return error;
     return new GitHubPluginError('github_unavailable', 502, 'GitHub is unavailable. Try again later.');

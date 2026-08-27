@@ -85,7 +85,7 @@ export interface PullRequestDetails extends PullRequestSummary {
   reviews: { id: number; user: string; state: string; body: string; submittedAt: string | null }[];
 }
 
-export type ChecksState = 'pending' | 'success' | 'failure' | 'action_required';
+type ChecksState = 'pending' | 'success' | 'failure' | 'action_required';
 export interface CombinedChecks {
   state: ChecksState;
   items: { name: string; state: ChecksState; description: string | null; targetUrl: string | null }[];

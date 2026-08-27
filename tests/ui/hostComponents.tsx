@@ -26,7 +26,7 @@ import {
   useSessionPane, useTaskUsage, useTasks, useToast, useTranslation, type StallState,
 } from './hostHooks';
 import {
-  agentDisplayName, allModels as allModelsUtil, DIVIDER, execModel, formatCost, formatTokens,
+  agentDisplayName, DIVIDER, formatCost, formatTokens,
   liveState, PROVIDERS, taskAgentName, taskElapsed, taskExec, taskForSession, taskSessionName,
   tailSnippet, type DateRange, type DerivedSignal, type RangePreset, type Tone,
 } from './hostUtils';
@@ -34,7 +34,6 @@ import { ProjectIcon } from './hostProjectIcon';
 import type { SaveStatus } from './useAutoSaveStatus';
 
 export { ProjectIcon };
-export { DIVIDER as contextMenuDivider };
 
 /** The instance's display name — the app reads it from the brand config; here it is the default, which
  *  is what the moved suites assert the hero mascot is labelled with. */
@@ -223,7 +222,7 @@ export function WorkspacePage({ children, className = '' }: { children: ReactNod
 /** The workspace mascot. The app's WebGL scene is skipped under test even in production code; what a
  *  page depends on — and what the moved suites count, to prove a page grew exactly one hero — is the
  *  `role="img"` named after the instance. */
-export function SpatialMascot() {
+function SpatialMascot() {
   return <div className="spatial-mascot" role="img" aria-label={APP_NAME} />;
 }
 
@@ -231,7 +230,7 @@ export function SpatialMascot() {
  *  when it carries one, with the arrow/Home/End roving the selection. */
 export interface SpatialDeckSection { id: string; label: string; icon: LucideIcon; description?: string; count?: number }
 
-export function SpatialSectionRail({ sections, value, onChange, ariaLabel }: {
+function SpatialSectionRail({ sections, value, onChange, ariaLabel }: {
   sections: SpatialDeckSection[];
   value: string;
   onChange: (id: string) => void;
@@ -1153,9 +1152,6 @@ export function MotionLayout({ children, ...rest }: HTMLAttributes<HTMLDivElemen
 export function MotionLayoutItem({ children, layoutId: _layoutId, ...rest }: HTMLAttributes<HTMLDivElement> & { children: ReactNode; layoutId?: string }) {
   return <div {...rest}>{children}</div>;
 }
-export function MotionReveal({ children, delay: _delay, ...rest }: HTMLAttributes<HTMLDivElement> & { children: ReactNode; delay?: number }) {
-  return <div {...rest}>{children}</div>;
-}
 
 // ── loading line ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -1489,7 +1485,7 @@ export function TaskContextLine({ task, sessionName, blockers }: { task: Task; s
 }
 
 /** Token usage as IN / CACHE / OUT (and cost) pills. */
-export function UsageBadge({ usage }: { usage: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number; costUsd: number | null } }) {
+function UsageBadge({ usage }: { usage: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number; costUsd: number | null } }) {
   const { t } = useTranslation();
   if (!usage || usage.total === 0) return null;
   const cache = usage.cacheRead + usage.cacheWrite;
@@ -2041,5 +2037,3 @@ export function PluginSection({ surface, title, description, icon, action, actio
     </PluginPageFrame>
   );
 }
-
-export { allModelsUtil as allModels, execModel };
