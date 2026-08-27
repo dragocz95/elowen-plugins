@@ -1,0 +1,13 @@
+{
+  "description": "Úprava existujúceho obrázka podľa textového zadania (image-to-image) cez OpenAI Images edits API. Výsledok sa zobrazí priamo v chate.",
+  "fields": {
+    "provider": {
+      "label": "Poskytovateľ",
+      "hint": "Ktorého nakonfigurovaného poskytovateľa kompatibilného s OpenAI použiť (prevezme jeho kľúč a základnú URL). Poskytovateľov pridáte v Nastaveniach → Brain."
+    },
+    "model": {
+      "label": "Model",
+      "hint": "Vyberte z nakonfigurovaných modelov. Predvolený: gpt-image-1."
+    }
+  }
+}

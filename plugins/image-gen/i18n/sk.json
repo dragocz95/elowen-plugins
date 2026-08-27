@@ -1,0 +1,17 @@
+{
+  "description": "Generovanie obrázkov cez OpenAI Images API (predvolený model gpt-image-1). Vygenerované obrázky sa zobrazia priamo v chate.",
+  "fields": {
+    "provider": {
+      "label": "Poskytovateľ",
+      "hint": "Ktorého nakonfigurovaného poskytovateľa kompatibilného s OpenAI použiť (prevezme jeho kľúč a základnú URL). Poskytovateľov pridáte v Nastaveniach → Brain."
+    },
+    "model": {
+      "label": "Model",
+      "hint": "Vyberte z nakonfigurovaných modelov. Predvolený: gpt-image-1."
+    },
+    "size": {
+      "label": "Veľkosť",
+      "hint": "1024x1024 (predvolené), 1536x1024 alebo 1024x1536."
+    }
+  }
+}

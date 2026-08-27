@@ -1,0 +1,9 @@
+{
+  "description": "Prepojenie externých serverov MCP (Model Context Protocol) s agentom. Nakonfigurujete stdio MCP servery a nástroje každého servera sa sprístupnia mozgu ako mcp__<server>__<tool>.",
+  "fields": {
+    "servers": {
+      "label": "MCP servery",
+      "hint": "Externé MCP servery na spustenie (stdio). Nástroje každého servera sa agentovi zobrazia ako mcp__<server>__<tool>. Zmeny sa po uložení znova pripoja."
+    }
+  }
+}
