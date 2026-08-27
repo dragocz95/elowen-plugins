@@ -60,6 +60,8 @@ export function ensurePluginUiRuntime(): void {
       // The settings-extraction surface (the moved CLI-agents / autopilot / GitHub sections).
       SettingsDocument: C.SettingsDocument, SettingsGroup: C.SettingsGroup, SettingsRow: C.SettingsRow,
       SpatialIdentity: C.SpatialIdentity, TimeSeriesChart: C.TimeSeriesChart,
+      // A connector identity in the Linked accounts drawer, and its chip in the closed summary.
+      LinkedAccountRow: C.LinkedAccountRow, SummaryChip: C.SummaryChip,
       BackendPicker: C.BackendPicker, ProviderPicker: C.ProviderPicker, ModelCatalogField: C.ModelCatalogField,
       ChoiceField: C.ChoiceField, ConstellationScope: C.ConstellationScope, ProviderLogo: C.ProviderLogo,
       PluginPageFrame: C.PluginPageFrame, PluginPageHeader: C.PluginPageHeader, PluginSection: C.PluginSection,

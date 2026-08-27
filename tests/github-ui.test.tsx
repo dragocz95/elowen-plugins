@@ -42,9 +42,11 @@ describe('GitHub plugin UI', () => {
       http.post('/api/plugins/github/api/setup/secret', () => { setupRequests += 1; return HttpResponse.json({}); }),
     );
     mountAccount();
-    // The section rail names this section, so the panel repeats neither the title nor the hint; a
-    // disconnected account explains itself through the empty state's own words.
-    expect(await screen.findByText(strings.disconnected)).toBeInTheDocument();
+    // GitHub is one row of the Linked accounts drawer now, so an unlinked account reads like an unfilled
+    // Discord id: the platform's name, the reason to fill it, and the action. Its own empty state is
+    // gone — a panel-sized "Not connected" card was exactly what made this the odd row out, and a row
+    // holding nothing but a Connect action already says as much.
+    expect(await screen.findByText(strings.title)).toBeInTheDocument();
     expect(screen.getByText(strings.intro)).toBeInTheDocument();
     expect(screen.queryByText(strings.accountTitle)).toBeNull();
     expect(screen.getByRole('button', { name: strings.connect })).toBeEnabled();
