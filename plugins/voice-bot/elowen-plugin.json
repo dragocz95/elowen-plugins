@@ -61,6 +61,15 @@
       "hint": "Calls started in any 60-minute window. This is the only brake on the feature: it exists to stop a repeating agent from dialling somebody over and over, and it survives a restart."
     },
     {
+      "key": "callTimeoutSeconds",
+      "label": "Longest call",
+      "type": "number",
+      "default": 300,
+      "min": 60,
+      "max": 1800,
+      "hint": "How long a single call may run before the connection is given up on. The service holds the request open for the whole conversation, so this is a call length, not a connection timeout: set too low, a call that went perfectly well is reported as having an unknown outcome. A measured short call took 42 seconds."
+    },
+    {
       "key": "defaultInitMessage",
       "label": "Default opening sentence",
       "type": "string",

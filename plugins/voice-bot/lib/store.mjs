@@ -5,8 +5,10 @@
 /** How long a placed call keeps counting against the hourly limit. */
 export const WINDOW_MS = 60 * 60 * 1000;
 
-/** Stored response bodies are evidence, not payload — enough to diagnose a refusal, not a whole page. */
-const RESPONSE_CAP = 2000;
+/** The stored body is the audit record, and for a completed call it carries the TRANSCRIPT — what was
+ *  actually said to somebody on our behalf, which is the part worth keeping. Hence the generous cap:
+ *  truncating a refusal costs nothing, truncating a conversation loses the evidence. */
+const RESPONSE_CAP = 8000;
 
 const MIGRATIONS = [{
   version: 1,

@@ -2,7 +2,23 @@ import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { WINDOW_MS, openStore } from './store.mjs';
 
-const REQUEST_TIMEOUT_MS = 30_000;
+/** The service holds the request open for the ENTIRE call and answers only once it has ended — a real
+ *  three-exchange call measured 41.6 s. So this is not a "did the server acknowledge us" deadline, it is
+ *  the longest conversation we are willing to sit through, and it has to be generous: cutting it short
+ *  reports a call that went perfectly well as UNKNOWN. The service enforces its own limit and says so in
+ *  `timed_out`, which is the bound that should normally end a call, not this one. */
+export const DEFAULT_CALL_TIMEOUT_S = 300;
+
+/** The clamp exists to reject nonsense written straight to the config API (zero, negative, text), not to
+ *  overrule a deliberate choice — an operator who picks the floor gets the floor. */
+export const MIN_CALL_TIMEOUT_S = 60;
+export const MAX_CALL_TIMEOUT_S = 1800;
+
+export function resolveCallTimeoutMs(raw) {
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds <= 0) return DEFAULT_CALL_TIMEOUT_S * 1000;
+  return Math.min(MAX_CALL_TIMEOUT_S, Math.max(MIN_CALL_TIMEOUT_S, Math.floor(seconds))) * 1000;
+}
 
 /** E.164: a plus, a non-zero country digit, then 7-14 more. The one guard that catches a mistyped
  *  number before it reaches a stranger's phone, and it costs nothing. */
@@ -44,6 +60,7 @@ export function registerVoiceCall(ctx, db) {
   const rawLimit = Number(ctx.config.maxCallsPerHour);
   const maxCallsPerHour = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.floor(rawLimit) : 10;
   const defaultInitMessage = text(ctx.config.defaultInitMessage);
+  const callTimeoutMs = resolveCallTimeoutMs(ctx.config.callTimeoutSeconds);
 
   ctx.registerTool(defineTool({
     name: 'VoiceCall',
@@ -60,6 +77,9 @@ export function registerVoiceCall(ctx, db) {
       'attempt reported an error.',
       'The prompt is spoken instructions for the voice agent, not a message read aloud: describe what it',
       'should find out or convey, in the language the callee speaks, and say how it should behave.',
+      'This tool BLOCKS for the whole length of the call, which is normally tens of seconds, and returns',
+      'once the call has ended — with whether it was answered and a full transcript of what was said.',
+      'There is nothing to poll and nothing to wait for afterwards: read the transcript and act on it.',
     ].join(' '),
     parameters: Type.Object({
       phone_number: Type.String({
@@ -114,7 +134,7 @@ export function registerVoiceCall(ctx, db) {
           method: 'POST',
           headers: { authorization: `Bearer ${apiToken}`, 'content-type': 'application/json' },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          signal: AbortSignal.timeout(callTimeoutMs),
         });
       } catch (error) {
         // A timeout is NOT a failure: the request may well have reached the service and the phone may
@@ -122,7 +142,7 @@ export function registerVoiceCall(ctx, db) {
         const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
         store.settle(rowId, { status: timedOut ? 'unknown' : 'failed' });
         if (timedOut) {
-          return ok(`UNKNOWN: the call service did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds. The call may or may not have been placed — do NOT retry automatically. Ask the user to check before dialling again. (call record #${rowId})`);
+          return ok(`UNKNOWN: the call service did not answer within ${callTimeoutMs / 1000} seconds. The call may or may not have been placed — do NOT retry automatically. Ask the user to check before dialling again. (call record #${rowId})`);
         }
         const reason = redact(error instanceof Error ? error.message : String(error), apiToken);
         return fail(`Could not reach the call service: ${reason}. No call was placed. (call record #${rowId})`);
@@ -136,11 +156,30 @@ export function registerVoiceCall(ctx, db) {
         return fail(`The call service refused the request with HTTP ${response.status}.${excerpt} No call was placed. (call record #${rowId})`);
       }
 
-      // remote_call_id stays null until the service's real response shape is known — the column is here
-      // so identifying a call later costs no migration, not because a key has been guessed.
-      store.settle(rowId, { status: 'accepted', httpStatus: response.status, response: raw });
-      const detail = raw ? ` Service replied: ${raw.slice(0, EXCERPT)}` : '';
-      return ok(`Call to ${phone} accepted by the voice service (HTTP ${response.status}).${detail} (call record #${rowId})`);
+      // The service does not acknowledge and hang up: it holds the request open for the whole call and
+      // answers with the FINISHED result — verdict, whether anybody picked up, and the transcript. So
+      // this is where the outcome is known, and there is no second half to wait for.
+      let payload = null;
+      try { payload = JSON.parse(raw); } catch { payload = null; }
+      const record = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+      const callSid = typeof record.call_sid === 'string' && record.call_sid ? record.call_sid : null;
+
+      store.settle(rowId, { status: 'completed', httpStatus: response.status, response: raw, remoteCallId: callSid });
+
+      const parts = [record.answered === true
+        ? `Call to ${phone} was answered and has ended.`
+        : `Call to ${phone} was placed, but it was not answered.`];
+      if (typeof record.elapsed_seconds === 'number') parts.push(`It lasted ${Math.round(record.elapsed_seconds)} seconds.`);
+      const verdict = text(record.status) || text(record.result);
+      if (verdict) parts.push(`Service status: ${verdict}.`);
+      if (record.timed_out === true) parts.push('The voice service ended it on its own time limit.');
+
+      const transcript = text(record.transcript);
+      const detail = transcript
+        ? `\n\nTranscript:\n${transcript}`
+        : payload ? '' : raw ? `\n\nService replied: ${raw.slice(0, EXCERPT)}` : '';
+
+      return ok(`${parts.join(' ')}${detail}\n\n(call record #${rowId}${callSid ? `, ${callSid}` : ''})`);
     },
   }));
 }

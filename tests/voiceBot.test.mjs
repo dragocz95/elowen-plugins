@@ -5,11 +5,36 @@ import { openDb } from 'elowen/dist/store/db.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
 import { register } from '../plugins/voice-bot/index.mjs';
 import { WINDOW_MS } from '../plugins/voice-bot/lib/store.mjs';
+import {
+  DEFAULT_CALL_TIMEOUT_S, MAX_CALL_TIMEOUT_S, MIN_CALL_TIMEOUT_S, resolveCallTimeoutMs,
+} from '../plugins/voice-bot/lib/tool.mjs';
 
 const TOKEN = 'super-secret-token-value';
 const URL_ = 'https://voice.example/calls';
 
 const text = (result) => result.content[0].text;
+
+/** The shape the service ACTUALLY returned when this was probed with one live call, not a shape anybody
+ *  guessed. The important property is that a successful POST does not merely acknowledge the request: it
+ *  blocks for the entire call and comes back with the finished verdict and a transcript. Every
+ *  expectation below is anchored on that, because it is what removed the need for any polling. */
+const CALL_SID = 'CA1abe44d637ed02a5f87d036f14eb5607';
+const ANSWERED = {
+  call_sid: CALL_SID,
+  status: 'completed',
+  result: 'completed',
+  provider_status: 'completed',
+  answered: true,
+  phone_number: '+420735040714',
+  transcript: 'Assistant: Dobrý den.\nUser: Ano, slyším.\nAssistant: Děkuji, hezký den.',
+  timed_out: false,
+  elapsed_seconds: 41.649446,
+  started_at: '2026-08-27T12:09:28.696770Z',
+  ended_at: '2026-08-27T12:10:10.346216Z',
+};
+
+const jsonResponse = (payload, status = 200) =>
+  new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } });
 
 /** The fetch double RECORDS every request, so "no HTTP happened" is an assertion rather than a hope. */
 function harness(t, options = {}) {
@@ -23,7 +48,7 @@ function harness(t, options = {}) {
   globalThis.fetch = async (url, init) => {
     requests.push({ url, init });
     if (options.respond) return options.respond(url, init);
-    return new Response('{"status":"queued"}', { status: 200, headers: { 'content-type': 'application/json' } });
+    return jsonResponse(ANSWERED);
   };
   t.after(() => {
     globalThis.fetch = originalFetch;
@@ -104,13 +129,70 @@ test('the request matches the documented contract exactly', async (t) => {
     init_message: 'Good morning, calling about tomorrow.',
   });
 
-  assert.match(text(result), /accepted by the voice service \(HTTP 200\)/);
+  assert.match(text(result), /was answered and has ended/);
   const [row] = h.rows();
-  assert.equal(row.status, 'accepted');
+  assert.equal(row.status, 'completed');
   assert.equal(row.http_status, 200);
   assert.equal(row.user_id, 7);
   assert.equal(row.session_id, 'brain-7-a');
-  assert.equal(row.remote_call_id, null, 'no call id is invented before the real response shape is known');
+  assert.equal(row.remote_call_id, CALL_SID, 'the service call id is kept, so a call can be identified later');
+});
+
+test('a finished call comes back with its verdict and its transcript', async (t) => {
+  const h = harness(t);
+  const result = await h.tool().execute('1', { phone_number: '+420721909701', prompt: 'Confirm tomorrow.' });
+
+  // The whole reason there is no polling worker: the outcome is already here.
+  const answer = text(result);
+  assert.match(answer, /was answered and has ended/);
+  assert.match(answer, /lasted 42 seconds/);
+  assert.match(answer, /Service status: completed/);
+  assert.match(answer, /Transcript:/);
+  assert.match(answer, /User: Ano, slyším\./, 'what was actually said reaches the agent');
+  assert.match(answer, new RegExp(CALL_SID));
+  assert.ok(h.rows()[0].response.includes('Ano, slyším'), 'and is kept as the audit record');
+});
+
+test('the call deadline is configurable, and nonsense falls back instead of cutting calls short', () => {
+  // The request is held open for the WHOLE conversation: a measured three-exchange call took 41.6 s.
+  // A deadline in the tens of seconds would abort calls that were going perfectly well and report them
+  // as UNKNOWN, which is the one outcome the agent is told never to retry — so the call would be lost.
+  // These are floors, not pins: raise them freely, never drop back to acknowledgement scale.
+  assert.ok(DEFAULT_CALL_TIMEOUT_S >= 120, `default is ${DEFAULT_CALL_TIMEOUT_S}s, too short to sit through a real call`);
+  assert.ok(MIN_CALL_TIMEOUT_S > 45, 'even the floor must outlast the call that was actually measured');
+
+  assert.equal(resolveCallTimeoutMs(600), 600_000, 'a configured value is honoured');
+  assert.equal(resolveCallTimeoutMs('600'), 600_000, 'config values arrive as text from the settings form');
+  assert.equal(resolveCallTimeoutMs(5), MIN_CALL_TIMEOUT_S * 1000, 'clamped up');
+  assert.equal(resolveCallTimeoutMs(99_999), MAX_CALL_TIMEOUT_S * 1000, 'clamped down');
+  for (const junk of [undefined, null, '', 'soon', 0, -30, NaN]) {
+    assert.equal(resolveCallTimeoutMs(junk), DEFAULT_CALL_TIMEOUT_S * 1000, `falls back for ${JSON.stringify(junk)}`);
+  }
+});
+
+test('the configured deadline is the one the request actually gets', async (t) => {
+  // Proving the setting reaches the request path, not merely that it resolves: the timeout report names
+  // the deadline it gave up after, so a configured 90 seconds has to show up as 90.
+  const h = harness(t, {
+    config: { callTimeoutSeconds: 90 },
+    respond: () => { throw Object.assign(new Error('aborted'), { name: 'TimeoutError' }); },
+  });
+
+  const result = await h.tool().execute('1', { phone_number: '+420721909701', prompt: 'Ask about the invoice.' });
+  assert.match(text(result), /did not answer within 90 seconds/);
+});
+
+test('a call nobody picked up is reported as exactly that, not as a success', async (t) => {
+  const h = harness(t, {
+    respond: () => jsonResponse({ ...ANSWERED, answered: false, status: 'no-answer', result: 'no-answer', transcript: '', timed_out: true }),
+  });
+
+  const answer = text(await h.tool().execute('1', { phone_number: '+420721909701', prompt: 'Confirm tomorrow.' }));
+  assert.match(answer, /was placed, but it was not answered/);
+  assert.match(answer, /Service status: no-answer/);
+  assert.match(answer, /ended it on its own time limit/);
+  assert.doesNotMatch(answer, /Transcript:/, 'there is nothing to quote');
+  assert.equal(h.rows()[0].status, 'completed', 'the REQUEST completed; whether a human answered is the service verdict');
 });
 
 test('the opening sentence falls back to the default, and is absent when there is none', async (t) => {
@@ -149,7 +231,7 @@ test('the hourly limit stops a repeating agent, and releases as calls age out', 
   // Age the first call past the window: one slot comes back, and only one.
   h.rawDb.prepare('UPDATE p_voice_bot_calls SET created_at = ? WHERE id = 1').run(Date.now() - WINDOW_MS - 1000);
   const allowed = await call.execute('4', { phone_number: '+420721909704', prompt: 'Four.' });
-  assert.match(text(allowed), /accepted by the voice service/);
+  assert.match(text(allowed), /was answered and has ended/);
   assert.equal(h.requests.length, 3);
 
   const blockedAgain = await call.execute('5', { phone_number: '+420721909705', prompt: 'Five.' });
@@ -228,6 +310,15 @@ test('the manifest and the catalog agree about the plugin', () => {
   assert.equal(manifest.userGrantable, true, 'an admin must be able to decide who may ring a stranger');
   assert.ok(manifest.capabilities.reads.includes('db'), 'the rate-limit window needs the database');
   assert.equal(manifest.capabilities.network, true);
+
+  // Every setting the code reads has to be a field an operator can actually see and change. A rename on
+  // one side alone fails SILENTLY — the code reads undefined and quietly falls back to its default, so
+  // the form still looks right while the value it offers does nothing.
+  const declared = new Set(manifest.configSchema.map((field) => field.key));
+  const source = readFileSync(new URL('../plugins/voice-bot/lib/tool.mjs', import.meta.url), 'utf8');
+  const used = [...source.matchAll(/ctx\.config\.([A-Za-z0-9_]+)/g)].map((match) => match[1]);
+  assert.ok(used.length >= 4, `expected the tool to read its settings, found ${used.length}`);
+  assert.deepEqual(used.filter((key) => !declared.has(key)), [], 'settings read by the code but absent from the form');
 
   const catalog = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
   const entry = catalog.plugins.find((plugin) => plugin.name === 'voice-bot');

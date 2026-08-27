@@ -19,6 +19,10 @@
       "label": "Nejvýše hovorů za hodinu",
       "hint": "Počet hovorů zahájených v libovolném šedesátiminutovém okně. Je to jediná pojistka této funkce: brání tomu, aby opakující se agent volal někomu stále dokola, a přežije restart."
     },
+    "callTimeoutSeconds": {
+      "label": "Nejdelší hovor",
+      "hint": "Jak dlouho smí jeden hovor běžet, než se spojení vzdáme. Služba drží požadavek otevřený po celou dobu rozhovoru, takže jde o délku hovoru, nikoli o timeout spojení: při příliš nízké hodnotě se i zcela vydařený hovor ohlásí jako hovor s neznámým výsledkem. Změřený krátký hovor trval 42 sekund."
+    },
     "defaultInitMessage": {
       "label": "Výchozí úvodní věta",
       "hint": "Zazní jako první vždy, když hovor nenese vlastní úvodní větu. Ponechte prázdné, pokud si má úvod řídit hlasová služba sama."
