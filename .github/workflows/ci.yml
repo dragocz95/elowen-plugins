@@ -29,6 +29,9 @@ jobs:
 
       - run: npm ci
 
+      # Static analysis is the same mandatory gate developers run locally.
+      - run: npm run check
+
       - run: npm test
 
       # A plugin's browser bundle is COMMITTED, because the Elowen marketplace installs a plugin by
@@ -36,6 +39,9 @@ jobs:
       # actually run. Rebuilding it here and demanding an empty diff is the only thing standing between
       # "the source changed" and "the file everyone downloads still does the old thing".
       - run: npm run check:web
+
+      # TypeScript plugin dist/ is installed just as directly as browser bundles and needs the same drift guard.
+      - run: npm run check:dist
 
   e2e:
     name: E2E against the published daemon
