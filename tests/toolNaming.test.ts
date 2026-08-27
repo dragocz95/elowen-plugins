@@ -29,6 +29,9 @@ const CONFIG = {
   whatsapp: { rolePolicies: [] },
   'image-gen': { provider: 'openai' },
   'image-edit': { provider: 'openai' },
+  // An unreachable endpoint on purpose: registering VoiceCall must not depend on the service existing,
+  // and nothing in this suite may ever place a call.
+  'voice-bot': { apiUrl: 'https://voice.example.invalid/calls', apiToken: 'tok' },
 };
 
 async function loadEveryRegistryPlugin() {

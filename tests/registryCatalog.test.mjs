@@ -110,6 +110,11 @@ const EXPECTED_CAPABILITIES = {
   onedrive: { reads: ['controls', 'db', 'project-files', 'stores'], network: true },
   skills: { reads: ['stores'] },
   todo: { reads: ['db'] },
+  // `network` is the whole point — it dials a telephone through an HTTP service — and `db` is what makes
+  // the hourly call limit survive a restart, which is the only thing standing between a repeating agent
+  // and somebody's ringing phone. Nothing else: it reads no project files and touches no other plugin's
+  // domain. Anything added here widens what the agent can do with a real phone line, so weigh it as that.
+  'voice-bot': { reads: ['db'], network: true },
 };
 
 const normalizeCapabilities = (capabilities) =>

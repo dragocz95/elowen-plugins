@@ -58,7 +58,9 @@ test('a number that is not E.164 is refused before anything is dialled', async (
   const h = harness(t);
   const call = h.tool();
 
-  for (const bad of ['420721909701', '+0721909701', '+42072190', '+420 721 909 701', '+420abc909701', '+4207219097011234567', '']) {
+  // Too short, too long, no plus, a leading zero where the country code belongs, and the two shapes a
+  // model actually produces: a human-formatted number and one with letters in it.
+  for (const bad of ['+4207', '+4207219097011234567', '420721909701', '+0721909701', '+420 721 909 701', '+420abc909701', '']) {
     const result = await call.execute('1', { phone_number: bad, prompt: 'Confirm the meeting.' });
     assert.match(text(result), /Error:/, `refused ${JSON.stringify(bad)}`);
   }
