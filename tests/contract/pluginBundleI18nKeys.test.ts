@@ -39,6 +39,19 @@ function pluginsDeclaringABundle(): string[] {
   }).sort();
 }
 
+/** The bundles that actually render host copy, pinned rather than counted.
+ *
+ *  This list is the scan's proof of life: if the reference pattern drifted, the runtime stopped naming
+ *  the binding `t`, or the catalog resolved to a stub, every reference would be skipped and `missing`
+ *  would stay empty for the wrong reason. A floor on the number of references used to guard that, but a
+ *  bare number invites a nudge every time a view is reworded — it went 300 -> 18 -> 17 already. A pinned
+ *  set cannot be nudged: a plugin that starts or stops reading host copy has to be added or removed here
+ *  deliberately, which is a reviewed change with a reason attached.
+ *
+ *  Today: `cronjob`, `editor` and `stats` use `common` (save/close/cancel/back/daemonUnreachable) plus
+ *  `managePicker`; `skills` uses `assetEditor`. The other bundles ship their own strings only. */
+const HOST_COPY_CONSUMERS = ['cronjob', 'editor', 'skills', 'stats'];
+
 function bundleFiles(): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
@@ -81,14 +94,14 @@ describe('plugin web bundles against the host translation catalog', () => {
     expect(files.length).toBeGreaterThanOrEqual(39);
 
     const missing: string[] = [];
-    let checked = 0;
+    const consumers = new Set<string>();
     for (const file of files) {
       const src = readFileSync(file, 'utf-8');
       for (const [, ns, key, sub] of src.matchAll(REF)) {
         if (!namespaces.has(ns!)) continue;
-        checked++;
         const group = en[ns!]!;
         const rel = file.slice(BUNDLES.length + 1);
+        consumers.add(rel.slice(0, rel.indexOf('/')));
         if (!(key! in group)) { missing.push(`${rel}: t.${ns}.${key}`); continue; }
         const leaf = group[key!];
         if (sub && leaf !== null && typeof leaf === 'object' && !(sub in (leaf as Record<string, unknown>))) {
@@ -96,15 +109,9 @@ describe('plugin web bundles against the host translation catalog', () => {
         }
       }
     }
-    // Finding the FILES is not the same as finding the references: the whole check would go quiet if the
-    // pattern drifted or the runtime stopped naming the binding `t`, and `missing` would stay empty for
-    // the wrong reason. The floor fails an idle scan long before it reaches zero.
-    //
-    // It used to read 300, against 430 references across six bundles. `agents` and `work` carried nearly
-    // all of them — they were the two bundles with real translated screens — so removing those plugins
-    // took the honest count down to 18. The floor follows the reality rather than the other way round;
-    // holding the old number would only mean deleting the check the next time someone hit it.
-    expect(checked).toBeGreaterThanOrEqual(18);
+    // Finding the FILES is not the same as finding the references: see HOST_COPY_CONSUMERS above for why
+    // an idle scan is caught by the exact set of bundles rather than by a reference count.
+    expect([...consumers].sort()).toEqual(HOST_COPY_CONSUMERS);
     expect(missing).toEqual([]);
   });
 });

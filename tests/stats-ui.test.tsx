@@ -66,7 +66,8 @@ describe('StatsView', () => {
   it('renders distinct token and cost distributions plus the daily trend from the shared endpoints', async () => {
     renderStats();
     const tokenFigure = await screen.findByRole('figure', { name: strings.tokensByModel });
-    expect(screen.getByRole('textbox', { name: strings.searchPlaceholder })).toBeVisible();
+    // RegisterSearch renders `type="search"`, which is a searchbox rather than a textbox.
+    expect(screen.getByRole('searchbox', { name: strings.searchPlaceholder })).toBeVisible();
     const costFigure = screen.getByRole('figure', { name: strings.costByModel });
     const tokenLegend = within(tokenFigure).getAllByRole('listitem');
     const costLegend = within(costFigure).getAllByRole('listitem');
@@ -103,11 +104,12 @@ describe('StatsView', () => {
     expect(screen.queryByLabelText('Loading')).toBeNull();
   });
 
-  it('opens a model detail rail from the keyboard and exposes cache figures', async () => {
+  it('opens a model detail rail from the row control and exposes cache figures', async () => {
     renderStats();
     const rows = await screen.findAllByTestId('model-usage-row');
-    expect(rows[1]).toHaveAttribute('tabindex', '0');
-    fireEvent.keyDown(rows[1]!, { key: 'Enter' });
+    // One tab stop per row: the host's own button, named by `openLabel` rather than by the whole row.
+    const open = within(rows[1]!).getByRole('button', { name: `${strings.detailTitle}: cost-heavy` });
+    fireEvent.click(open);
     const dialog = await screen.findByRole('dialog', { name: `${strings.detailTitle}: cost-heavy` });
     expect(within(dialog).getByText(strings.detailCacheRead)).toBeTruthy();
     expect(within(dialog).getByText('100')).toBeTruthy();

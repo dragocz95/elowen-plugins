@@ -311,25 +311,31 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
 
   return (
     <C.ControlSurfaceDocument>
+      {/* The toolbar is itself a wrapping flex row whose children may shrink, so the search field and
+          the filter need no wrapper of their own — the copy-pasted `min-w-[15rem]` box around the input
+          was what pushed the filter out of the surface at 320px. */}
       <C.ControlSurfaceToolbar>
-        <div className="flex w-full flex-wrap items-center gap-3">
-          <div className="relative min-w-[15rem] flex-1">
-            <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <C.Input value={search} onChange={(event: { target: { value: string } }) => setSearch(event.target.value)} placeholder={s.peopleSearch} className="pl-9" />
-          </div>
-          <div className="flex rounded-lg border border-border bg-surface p-1">
-            {(['all', 'mapped', 'unmapped'] as const).map((value) => (
-              <button
-                type="button"
-                key={value}
-                onClick={() => setFilter(value)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${filter === value ? 'bg-accent text-accent-foreground' : 'text-text-muted hover:text-text'}`}
-              >
-                {value === 'all' ? s.filterAll : value === 'mapped' ? s.filterMapped : s.filterUnmapped}
-              </button>
-            ))}
-          </div>
-        </div>
+        <C.RegisterSearch
+          value={search}
+          onChange={setSearch}
+          placeholder={s.peopleSearch}
+          label={s.peopleSearch}
+          onClear={() => setSearch('')}
+          clearLabel={s.peopleSearchClear}
+          count={visible.length}
+          countLabel={s.peopleSearchCount}
+        />
+        <C.Segmented
+          aria-label={s.peopleFilter}
+          nowrap
+          value={filter}
+          onChange={(value: string) => setFilter(value as PersonFilter)}
+          options={[
+            { value: 'all', label: s.filterAll },
+            { value: 'mapped', label: s.filterMapped },
+            { value: 'unmapped', label: s.filterUnmapped },
+          ]}
+        />
       </C.ControlSurfaceToolbar>
 
       {response.people.length === 0 ? (
@@ -458,7 +464,7 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
     eyebrow: s.workspaceEyebrow,
     title: s.title,
     description: s.workspaceIntro,
-    mascotState: peopleError !== null || !configured ? 'error' : draft.status === 'saving' ? 'saving' : 'idle',
+    mascot: peopleError !== null || !configured ? 'error' : draft.status === 'saving' ? 'saving' : 'idle',
     status: (
       <span className="flex items-center gap-3">
         <span className="workspace-status">{configured && people?.active ? s.workspaceReady : s.workspaceSetup}</span>
@@ -481,7 +487,8 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
   };
 
   return (
-    <C.SpatialWorkspaceLayout
+    <C.WorkspaceShell
+      variant="register"
       hero={hero}
       navigation={{
         sections: [
@@ -514,7 +521,7 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
           />
         </C.SettingsDocument>
       )}
-    </C.SpatialWorkspaceLayout>
+    </C.WorkspaceShell>
   );
 }
 
@@ -524,10 +531,10 @@ export function TeamsWorkspace() {
   const detail = hooks.usePluginDetail('msteams');
   const hero = useMemo(() => ({ eyebrow: s.workspaceEyebrow, title: s.title, description: s.workspaceIntro }), [s]);
   if (detail.isError) {
-    return <C.SpatialWorkspaceLayout hero={hero}><C.ControlSurfaceDocument><C.ControlSurfaceState tone="danger"><C.ErrorState message={s.settingsLoadError} onRetry={() => detail.refetch()} /></C.ControlSurfaceState></C.ControlSurfaceDocument></C.SpatialWorkspaceLayout>;
+    return <C.WorkspaceShell variant="register" hero={hero}><C.ControlSurfaceDocument><C.ControlSurfaceState tone="danger"><C.ErrorState message={s.settingsLoadError} onRetry={() => detail.refetch()} /></C.ControlSurfaceState></C.ControlSurfaceDocument></C.WorkspaceShell>;
   }
   if (detail.isLoading || detail.data === undefined) {
-    return <C.SpatialWorkspaceLayout hero={hero}><C.ControlSurfaceDocument><C.ControlSurfaceState><C.LoadingState variant="cards" /></C.ControlSurfaceState></C.ControlSurfaceDocument></C.SpatialWorkspaceLayout>;
+    return <C.WorkspaceShell variant="register" hero={hero}><C.ControlSurfaceDocument><C.ControlSurfaceState><C.LoadingState variant="cards" /></C.ControlSurfaceState></C.ControlSurfaceDocument></C.WorkspaceShell>;
   }
   return <LoadedWorkspace detail={detail.data} />;
 }

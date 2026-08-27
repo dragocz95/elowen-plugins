@@ -7,9 +7,9 @@
  *  suites assert on — a mission's rolled-up elapsed time, an epic's effective status, the model list a
  *  picker offers — so a plausible-looking reimplementation would quietly change what the tests measure.
  *  Only the app's `types.ts` import is replaced by the structural shapes in hostClient. */
-import { Bug, Circle, Database, File, FileCode, FileCog, FileJson, FileText, Image, Layers,
-  ListChecks, Palette, Radio, Rocket, ShieldCheck, Sparkles, Terminal, Wrench, type LucideIcon } from 'lucide-react';
-import type { DepEdge, Mission, ModelUsage, Task } from './hostClient';
+import { Circle, Database, File, FileCode, FileCog, FileJson, FileText, Image,
+  ListChecks, Palette, Radio, Rocket, ShieldCheck, Terminal, type LucideIcon } from 'lucide-react';
+import type { ModelUsage } from './hostClient';
 
 // The plugin is untyped .mjs, so the import is given the one signature this file uses.
 const { parseSchedule } = await import('../../plugins/cronjob/index.mjs') as {
@@ -97,7 +97,7 @@ export function formatDuration(ms: number): string {
 }
 
 /** Compact token count: 950 → "950", 12345 → "12.3k", 1_200_000 → "1.2M". */
-export function formatTokens(n: number): string {
+function formatTokens(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0';
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
@@ -110,32 +110,6 @@ export function formatCost(usd: number, decimals = 4): string {
 
 function formatSpeed(tps: number | null | undefined): string {
   return tps != null && tps > 0 ? `${Math.round(tps)} tok/s` : '—';
-}
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-export interface TaskTimeLabel { label: string; title: string }
-
-function localDateTime(iso: string, locale?: string, seconds = true): string {
-  const ms = parseTs(iso);
-  if (ms == null) return iso;
-  return new Date(ms).toLocaleString(locale, {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}),
-  });
-}
-
-/** Relative within the last 24h, a locale date beyond it; the absolute local time rides along as the
- *  tooltip so the exact moment is always reachable and never shows raw UTC. */
-export function formatTaskTime(iso: string | null | undefined, nowMs: number, locale?: string): TaskTimeLabel {
-  if (!iso) return { label: '', title: '' };
-  const ms = parseTs(iso);
-  if (ms == null) return { label: iso, title: iso };
-  const title = localDateTime(iso, locale);
-  const delta = nowMs - ms;
-  if (delta < DAY_MS) return { label: compactElapsed(delta), title };
-  const label = new Date(ms).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  return { label, title };
 }
 
 // ── file paths (web/lib/filePath.ts + fileIcon.ts) ───────────────────────────────────────────────────
@@ -169,41 +143,6 @@ export function fileIcon(path: string): LucideIcon {
 
 export type Tone = 'default' | 'accent' | 'muted' | 'danger' | 'success' | 'warning';
 
-export const TONE_TEXT: Record<Tone, string> = {
-  default: 'text-text-muted',
-  accent: 'text-accent',
-  muted: 'text-text-muted',
-  danger: 'text-danger',
-  success: 'text-success',
-  warning: 'text-warning',
-};
-
-export interface TaskTypeMeta { icon: LucideIcon; label: string; tone: Tone }
-
-const TYPE_META: Record<string, TaskTypeMeta> = {
-  task: { icon: ListChecks, label: 'Task', tone: 'default' },
-  bug: { icon: Bug, label: 'Bug', tone: 'danger' },
-  feature: { icon: Sparkles, label: 'Feature', tone: 'accent' },
-  epic: { icon: Layers, label: 'Epic', tone: 'accent' },
-  chore: { icon: Wrench, label: 'Chore', tone: 'muted' },
-};
-
-export function taskTypeMeta(type?: string): TaskTypeMeta {
-  return TYPE_META[type ?? 'task'] ?? { icon: Circle, label: type ?? 'Task', tone: 'default' };
-}
-
-const STATUS_TONE: Record<string, Tone> = {
-  open: 'success',
-  in_progress: 'warning',
-  blocked: 'danger',
-  closed: 'danger',
-  cancelled: 'muted',
-};
-
-export function statusTone(status: string): Tone {
-  return STATUS_TONE[status] as Tone;
-}
-
 export function eventIcon(type: string): LucideIcon {
   switch (type) {
     case 'task': return ListChecks;
@@ -216,172 +155,6 @@ export function eventIcon(type: string): LucideIcon {
 
 /** The sentinel a menu spec uses for a separator row (web/components/ui/ContextMenu.tsx). */
 export const DIVIDER = 'divider' as const;
-
-// ── agent / task mapping (web/lib/agentUtils.ts) ─────────────────────────────────────────────────────
-
-const AGENT_PREFIX = 'agent:';
-const EXEC_PREFIX = 'exec:';
-
-export function taskExec(labels?: string[]): string {
-  const label = labels?.find((l) => l.startsWith(EXEC_PREFIX));
-  return label ? label.slice(EXEC_PREFIX.length) : '';
-}
-
-/** A phase's own details, with the mission overgoal the daemon appends (`\n\nOverall goal: …`) stripped
- *  — it repeats on every phase, so only the phase's own text belongs in the detail pane. */
-export function phaseDetails(description?: string | null): string {
-  if (!description) return '';
-  if (description.trimStart().startsWith('Overall goal:')) return '';
-  const at = description.lastIndexOf('\n\nOverall goal:');
-  if (at < 0) return description.trim();
-  return description.slice(0, at).trim();
-}
-
-export function taskAgentName(task: Pick<Task, 'labels'>): string | null {
-  const label = task.labels?.find((l) => l.startsWith(AGENT_PREFIX));
-  return label ? label.slice(AGENT_PREFIX.length) : null;
-}
-
-export function taskSessionName(task: Pick<Task, 'labels'>): string | null {
-  const agent = taskAgentName(task);
-  return agent ? `elowen-${agent}` : null;
-}
-
-export function agentDisplayName(session: string): string {
-  return session.replace(/^elowen-/, '') || session;
-}
-
-export function missionEpicId(missionId: string): string {
-  return missionId.replace(/^m-/, '');
-}
-
-/** Epoch ms the agent actually spawned: the precise `started:<ms>` label, falling back to `created_at`. */
-export function taskStartedMs(task: Pick<Task, 'labels' | 'created_at'>): number | null {
-  const label = task.labels?.find((l) => l.startsWith('started:'));
-  if (label) { const n = Number(label.slice('started:'.length)); if (Number.isFinite(n)) return n; }
-  return parseTs(task.created_at);
-}
-
-/** Raw elapsed ms, frozen at close time for a finished task. A mission phase that never spawned has
- *  run for zero time — its row was created up front at plan time, so the created_at fallback would
- *  otherwise credit it with hours of phantom work in the mission's rolled-up total. */
-export function taskElapsedMs(task: Pick<Task, 'labels' | 'created_at' | 'closed_at' | 'status' | 'parent_id'>, nowMs: number): number | null {
-  const finished = task.status === 'closed' || task.status === 'cancelled';
-  const isPendingPhase = task.parent_id != null && !finished
-    && !(task.labels?.some((l) => l.startsWith('started:')) ?? false);
-  if (isPendingPhase) return null;
-  const start = taskStartedMs(task);
-  if (start == null) return null;
-  const end = finished ? (parseTs(task.closed_at) ?? nowMs) : nowMs;
-  return Math.max(0, end - start);
-}
-
-export function taskElapsed(task: Pick<Task, 'labels' | 'created_at' | 'closed_at' | 'status'>, nowMs: number): string | null {
-  const ms = taskElapsedMs(task, nowMs);
-  return ms == null ? null : compactElapsed(ms);
-}
-
-/** Unresolved dependencies (not closed/cancelled) that keep a task blocked. */
-export function taskBlockers(taskId: string, deps: DepEdge[], byId: Map<string, Task>): Task[] {
-  return deps
-    .filter((d) => d.task_id === taskId)
-    .map((d) => byId.get(d.depends_on_id))
-    .filter((t): t is Task => !!t && t.status !== 'closed' && t.status !== 'cancelled');
-}
-
-export type DerivedSignal = { type: 'needs_input' | 'working' | 'idle' | 'done' | 'complete'; question?: string; options?: { id: string; label: string }[] };
-export type LiveState = 'working' | 'needs_input' | 'complete' | 'idle' | 'stalled' | 'stuck';
-
-export function liveState(signal: DerivedSignal | undefined, live: boolean): LiveState {
-  if (signal?.type === 'needs_input') return 'needs_input';
-  if (live || signal?.type === 'working') return 'working';
-  if (signal?.type === 'complete') return 'complete';
-  return 'idle';
-}
-
-export function needsInputSessions(sessions: string[], signals: Record<string, DerivedSignal>): string[] {
-  return sessions.filter((s) => signals[s]?.type === 'needs_input');
-}
-
-/** Keys that select an option in an agent's multiple-choice list: the list opens with option 1
- *  focused, so a 1-based id maps to Down × (id-1) then Enter. A non-numeric id keeps the default. */
-export function keysForOption(id: string): string[] {
-  const n = Number(id);
-  const steps = Number.isFinite(n) ? Math.max(0, n - 1) : 0;
-  return [...Array<string>(steps).fill('Down'), 'Enter'];
-}
-
-/** Agent names come from a small pool and get reused, so prefer an in_progress match, then the newest. */
-export function taskForSession(tasks: Task[], sessionName: string): Task | undefined {
-  if (!sessionName.startsWith('elowen-')) return undefined;
-  const label = `${AGENT_PREFIX}${sessionName.slice('elowen-'.length)}`;
-  const matches = tasks.filter((t) => (t.labels ?? []).includes(label));
-  if (matches.length <= 1) return matches[0];
-  return matches.find((t) => t.status === 'in_progress')
-    ?? [...matches].sort((a, b) => (parseTs(b.created_at) ?? 0) - (parseTs(a.created_at) ?? 0))[0];
-}
-
-/** Last non-empty terminal line, for a one-line live preview. The app strips ANSI here; this repo's
- *  pane fixtures are plain text, so the split is the whole of it. */
-export function tailSnippet(pane: string): string {
-  const lines = pane.split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const text = (lines[i] ?? '').trim();
-    if (text) return text;
-  }
-  return '';
-}
-
-// ── epic / phase tree (web/lib/taskTree.ts) ──────────────────────────────────────────────────────────
-
-export function epicChildren(tasks: Task[]): Map<string, Task[]> {
-  const epicIds = new Set(tasks.filter((t) => t.type === 'epic').map((t) => t.id));
-  const out = new Map<string, Task[]>();
-  for (const t of tasks) {
-    if (t.parent_id && epicIds.has(t.parent_id)) {
-      const list = out.get(t.parent_id) ?? [];
-      list.push(t);
-      out.set(t.parent_id, list);
-    }
-  }
-  for (const list of out.values()) list.sort((a, b) => (parseTs(a.created_at) ?? 0) - (parseTs(b.created_at) ?? 0));
-  return out;
-}
-
-export function phaseIds(tasks: Task[]): Set<string> {
-  const ids = new Set<string>();
-  for (const list of epicChildren(tasks).values()) for (const c of list) ids.add(c.id);
-  return ids;
-}
-
-export function epicProgress(children: Task[]): { done: number; total: number } {
-  const done = children.filter((c) => c.status === 'closed' || c.status === 'cancelled').length;
-  return { done, total: children.length };
-}
-
-export function epicLive(children: Task[], sessions: string[], signals: Record<string, DerivedSignal>): { running: number; needsInput: number } {
-  let running = 0;
-  let needsInput = 0;
-  for (const c of children) {
-    const s = taskSessionName(c);
-    if (c.status === 'in_progress' && s && sessions.includes(s)) running++;
-    // Only for a still-live session: a dead agent's signal lingers stale in the cache.
-    if (s && sessions.includes(s) && signals[s]?.type === 'needs_input') needsInput++;
-  }
-  return { running, needsInput };
-}
-
-/** What an epic should DISPLAY as, derived from its mission + phases rather than its own often-stale
- *  'open' row. Its true task status stays available separately. */
-export function epicEffectiveStatus(epic: Task, missions: Mission[], children: Task[] = []): string {
-  if (epic.type !== 'epic') return epic.status;
-  if (missions.some((m) => m.epic_id === epic.id && m.state !== 'disengaged')) return 'in_progress';
-  if (children.length === 0) return epic.status;
-  if (children.some((c) => c.status === 'in_progress')) return 'in_progress';
-  if (children.some((c) => c.status === 'blocked')) return 'blocked';
-  if (children.some((c) => c.status === 'open')) return 'open';
-  return 'closed';
-}
 
 // ── date window (web/lib/dateRange.ts) ───────────────────────────────────────────────────────────────
 
@@ -432,16 +205,6 @@ export function rangeBounds(r: DateRange, now: number): { fromMs: number; toMs: 
   return { fromMs: startOfDay(now) - (days - 1) * DAY, toMs: Infinity };
 }
 
-export function inRange(ms: number, r: DateRange, now: number): boolean {
-  const { fromMs, toMs } = rangeBounds(r, now);
-  return ms >= fromMs && ms <= toMs;
-}
-
-export function rangeWindowCapHours(r: DateRange, now: number): number {
-  const { fromMs } = rangeBounds(r, now);
-  return Number.isFinite(fromMs) ? (now - fromMs) / 3_600_000 : Infinity;
-}
-
 // ── models (web/lib/execPresets.ts + modelProvider.ts) ───────────────────────────────────────────────
 
 const EXEC_PRESETS: { label: string; exec: string }[] = [
@@ -464,24 +227,6 @@ export function allModels(custom: { label: string; exec: string }[] = [], hidden
   const hiddenExecs = new Set(hidden);
   const presets = EXEC_PRESETS.filter((p) => !customExecs.has(p.exec) && !hiddenExecs.has(p.exec));
   return [...presets, ...custom];
-}
-
-const PROVIDER_PREFIXES: readonly [string, string][] = [
-  ['elowen:', 'elowen'],
-  ['codex:', 'codex'],
-  ['opencode:', 'opencode'],
-  ['claude:', 'claude-code'],
-  ['kilo:', 'kilo'],
-  ['pi:', 'pi'],
-  ['omp:', 'omp'],
-];
-
-/** The bare model id with any provider prefix stripped (for display/edit). */
-export function execModel(exec: string): string {
-  for (const [prefix] of PROVIDER_PREFIXES) {
-    if (exec.startsWith(prefix)) return exec.slice(prefix.length);
-  }
-  return exec;
 }
 
 /** CLI provider metadata (web/modules/settings/providers.tsx), narrowed to the fields the moved
@@ -559,50 +304,4 @@ export function buildUsageSummary(data: ModelUsage[] | undefined): UsageSummary 
     avgSpeedLabel: measuredSeconds > 0 ? formatSpeed(measuredOutput / measuredSeconds) : DASH,
     hasAnyUsage: totalTokens > 0 || costs.some((cost) => cost > 0),
   };
-}
-
-// ── escalations (web/lib/escalations.ts) ─────────────────────────────────────────────────────────────
-
-export interface Escalation {
-  taskId: string; title: string; rationale: string; ts: string; epicId: string | null; blocked: Task[];
-}
-
-/** Pending overseer escalations, newest-first: a review rejected a phase and a human still has
- *  something to act on. A phase the engine re-opened is mid-flight self-heal, not an escalation. */
-export function pendingEscalations(events: { type: string; detail: string; target: string; ts: string; label?: string }[], tasks: Task[], deps: DepEdge[]): Escalation[] {
-  const byId = new Map(tasks.map((t) => [t.id, t]));
-  const seen = new Set<string>();
-  const out: Escalation[] = [];
-  for (const e of events) { // newest-first → first hit per target is the latest verdict
-    if (e.type !== 'review' || !e.detail.startsWith('escalated')) continue;
-    if (seen.has(e.target)) continue;
-    seen.add(e.target);
-    const task = byId.get(e.target);
-    if (task?.status === 'open' || task?.status === 'in_progress') continue;
-    const blocked = deps
-      .filter((d) => d.depends_on_id === e.target)
-      .map((d) => byId.get(d.task_id))
-      .filter((t): t is Task => !!t && t.status === 'blocked');
-    if (blocked.length === 0 && task?.status !== 'blocked') continue; // already resolved
-    out.push({
-      taskId: e.target,
-      title: task?.title || e.label || e.target,
-      rationale: e.detail.replace(/^escalated:\s*/, ''),
-      ts: e.ts,
-      epicId: (task?.parent_id as string | null | undefined) ?? null,
-      blocked,
-    });
-  }
-  return out;
-}
-
-// ── host services ────────────────────────────────────────────────────────────────────────────────────
-
-/** Pop a session's terminal out into its own window, keyed by session so re-opening focuses it. */
-export function openTerminalWindow(name: string): void {
-  window.open(
-    `/terminal/${encodeURIComponent(name)}`,
-    `elowen-terminal-${name}`,
-    'width=900,height=600,noopener',
-  );
 }

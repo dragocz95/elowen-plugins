@@ -54,7 +54,7 @@ interface SkillsComponents {
   Badge: AnyComponent; Toggle: AnyComponent; SettingsGroup: AnyComponent; PluginSection: AnyComponent;
   MarkdownAssetEditor: AnyComponent; Button: AnyComponent; Field: AnyComponent; Segmented: AnyComponent;
   ControlSurfaceDocument: AnyComponent;
-  SpatialWorkspaceLayout: AnyComponent; WorkspaceMetric: AnyComponent;
+  WorkspaceShell: AnyComponent; WorkspaceMetric: AnyComponent;
 }
 
 interface SkillsRuntime {
@@ -69,6 +69,9 @@ interface SkillsRegistration {
   requiresApiVersion: number;
   pages?: Record<string, PluginPageComponent>;
   settings?: Record<string, PluginPageComponent>;
+  /** Settings sections that draw their OWN page frame. The host wraps a section in its page column and
+   *  module header by default, which nests two frames around one that already brings its own. */
+  ownsPageFrame?: string[];
 }
 interface HostWindow {
   ElowenUiRuntime?: unknown;

@@ -53,7 +53,7 @@ function runtime() {
   return value;
 }
 function registerStatsUi(pages) {
-  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 6, pages });
+  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 8, pages });
 }
 
 // plugins/stats/web-src/StatsView.tsx
@@ -555,18 +555,20 @@ var {
   ControlSurfaceToolbar,
   DataTable,
   DataTableCell,
+  DataTableChevronCell,
   DataTableRow,
   DateRangeFilter,
   EmptyState: EmptyState2,
   ErrorState: ErrorState2,
-  Input: Input2,
   LoadingState: LoadingState2,
   ModelIcon,
   ModuleHeader,
+  Pager,
+  RegisterSearch,
   Segmented: Segmented2,
-  SpatialWorkspaceLayout,
   WorkspaceDetailRail: WorkspaceDetailRail2,
-  WorkspaceMetric
+  WorkspaceMetric,
+  WorkspaceShell
 } = runtime().components;
 var { useMe, useModelUsage, usePersistentState, usePluginStrings: usePluginStrings2, useTranslation: useTranslation2, useUsageByDay } = runtime().hooks;
 var { buildUsageSummary, DEFAULT_RANGE, isStoredRange, parseRange, rangeBounds, serializeRange } = runtime().utils;
@@ -699,12 +701,12 @@ function StatsView() {
   };
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModuleHeader, { title: s.title, count: summary.modelsUsed, icon: ChartColumn }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(SpatialWorkspaceLayout, { hero: {
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceShell, { variant: "register", hero: {
       eyebrow: s.workspaceEyebrow,
       title: s.title,
       count: summary.modelsUsed,
       description: s.workspaceIntro,
-      mascotState: hasError ? "error" : isLoading ? "saving" : "idle",
+      mascot: hasError ? "error" : isLoading ? "saving" : "idle",
       status: !hasError && !isLoading ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "workspace-status", children: s.workspaceReady }) : void 0,
       // Admin-only affordances. The origin view's real gate is the daemon route (403 for anyone
       // else); hiding the button is presentation, not access control.
@@ -721,13 +723,23 @@ function StatsView() {
     }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceDocument, { children: hasError ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ErrorState2, { message: t.common.daemonUnreachable, onRetry: retry }) }) : isLoading ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LoadingState2, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "workspace-master-detail", "data-detail": originOpen || selected != null, children: [
       /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex w-full min-w-0 flex-wrap items-center gap-2 py-3", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "relative min-w-[15rem] flex-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Search, { size: 14, "aria-hidden": true, className: "pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" }),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Input2, { "aria-label": s.searchPlaceholder, value: query, onChange: (event) => {
-              setQuery(event.target.value);
-              resetPage();
-            }, placeholder: s.searchPlaceholder, className: "pl-9" })
-          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+            RegisterSearch,
+            {
+              value: query,
+              onChange: (value) => {
+                setQuery(value);
+                resetPage();
+              },
+              placeholder: s.searchPlaceholder,
+              label: s.searchPlaceholder,
+              onClear: () => {
+                setQuery("");
+                resetPage();
+              },
+              clearLabel: s.searchClear
+            }
+          ),
           /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
             Segmented2,
             {
@@ -777,45 +789,27 @@ function StatsView() {
                 /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, priority: "wide", className: "text-right", children: s.columnSpeed }),
                 /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "rowgroup", children: pageRows.map((row) => {
-                return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
-                  DataTableRow,
-                  {
-                    "data-testid": "model-usage-row",
-                    interactive: true,
-                    tabIndex: 0,
-                    className: "group cursor-pointer",
-                    onClick: () => setSelectedExec(row.exec),
-                    onKeyDown: (event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      setSelectedExec(row.exec);
-                    },
-                    children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "flex items-center gap-1.5 text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "truncate font-mono text-xs text-text", title: row.exec, children: row.exec }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "truncate text-right font-mono text-xs tabular-nums text-text-muted", title: row.tokensLabel, children: row.tokensLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "truncate text-right font-mono text-xs tabular-nums text-text", title: row.costLabel, children: row.costLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "truncate text-right font-mono text-xs tabular-nums text-text-muted", title: percent(row.cacheHitPct), children: percent(row.cacheHitPct) }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "truncate text-right font-mono text-xs tabular-nums text-text-muted", title: row.speedLabel, children: row.speedLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "flex items-center justify-end gap-1.5 text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ChevronRight, { size: 12, className: "group-hover:text-text", "aria-hidden": true }) })
-                    ]
-                  },
-                  row.exec
-                );
-              }) })
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "rowgroup", children: pageRows.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+                DataTableRow,
+                {
+                  "data-testid": "model-usage-row",
+                  selected: selectedExec === row.exec,
+                  onOpen: () => setSelectedExec(row.exec),
+                  openLabel: `${s.detailTitle}: ${row.exec}`,
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: "auto", className: "flex items-center gap-1.5 text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "font-mono text-xs text-text", children: row.exec }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.tokensLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "text-right font-mono text-xs tabular-nums text-text", children: row.costLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: percent(row.cacheHitPct) }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.speedLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableChevronCell, {})
+                  ]
+                },
+                row.exec
+              )) })
             ] }),
-            filtered.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex flex-col gap-2 border-b border-border/80 pb-3 sm:flex-row sm:items-center sm:justify-between", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "font-mono text-xs text-text-muted", children: s.pageRange.replace("{from}", String(clampedPage * PAGE_SIZE + 1)).replace("{to}", String(clampedPage * PAGE_SIZE + pageRows.length)).replace("{total}", String(filtered.length)) }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex items-center gap-1", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Button3, { variant: "ghost", icon: ChevronLeft, disabled: clampedPage === 0, onClick: () => setPage(clampedPage - 1), children: s.previousPage }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "min-w-24 text-center font-mono text-xs text-text-muted", children: s.pageLabel.replace("{page}", String(clampedPage + 1)).replace("{pages}", String(pageCount)) }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(Button3, { variant: "ghost", disabled: clampedPage >= pageCount - 1, onClick: () => setPage(clampedPage + 1), children: [
-                  s.nextPage,
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ChevronRight, { size: 15, className: "ml-1", "aria-hidden": true })
-                ] })
-              ] })
-            ] }) : null
+            filtered.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Pager, { page: clampedPage, pageSize: PAGE_SIZE, total: filtered.length, onPageChange: setPage, ariaLabel: s.tableTitle }) : null
           ] })
         ] }) })
       ] }),

@@ -155,7 +155,7 @@ function runtime() {
 }
 function registerGitHubUi(account, chip, project) {
   window.__elowenRegisterPluginUi?.("github", {
-    requiresApiVersion: 7,
+    requiresApiVersion: 8,
     account: { connection: account },
     accountChip: { connection: chip },
     project: { repository: project }
@@ -435,7 +435,7 @@ function GitHubProjectPanel({ project }) {
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "mt-4 flex flex-wrap gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { icon: Link2, onClick: () => setMapping(mappingFrom(row)), children: s.map }),
-          row.mapping ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("a", { href: `https://github.com/${encodeURIComponent(row.mapping.baseOwner)}/${encodeURIComponent(row.mapping.baseName)}`, target: "_blank", rel: "noreferrer", className: "inline-flex h-9 items-center text-xs font-medium text-accent hover:underline", children: s.openGitHub }) : null
+          row.mapping ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("a", { href: `https://github.com/${encodeURIComponent(row.mapping.baseOwner)}/${encodeURIComponent(row.mapping.baseName)}`, target: "_blank", rel: "noreferrer", className: "inline-flex h-9 items-center text-xs font-medium text-accent hover:underline pointer-coarse:min-h-[var(--touch-target)]", children: s.openGitHub }) : null
         ] })
       ] }),
       mapped ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
@@ -446,33 +446,35 @@ function GitHubProjectPanel({ project }) {
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "accent", onClick: () => setCreateOpen(true), disabled: !sessionId, children: s.createPullRequest })
           ] })
         ] }),
-        pulls.isError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => pulls.refetch() }) : pulls.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.LoadingState, { variant: "list" }) : (pulls.data?.pullRequests ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.EmptyState, { title: s.noPullRequests, icon: GitPullRequest }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTable, { ariaLabel: s.tabPullRequests, columns: "minmax(0,1fr) minmax(8rem,.5fr)", compactColumns: "minmax(0,1fr)", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTableRow, { header: true, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { header: true, children: s.columnPullRequest }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { header: true, priority: "wide", children: s.columnChecks })
-          ] }),
-          (pulls.data?.pullRequests ?? []).map((pull) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTableRow, { interactive: true, tabIndex: 0, onClick: () => setSelectedPr(pull.number), onKeyDown: (event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              setSelectedPr(pull.number);
-            }
-          }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTableCell, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "truncate text-sm font-medium text-text", children: [
-                "#",
-                pull.number,
-                " ",
-                pull.title
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "truncate font-mono text-[11px] text-text-muted", children: [
-                pull.headRef,
-                " \u2192 ",
-                pull.baseRef
-              ] })
+        pulls.isError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => pulls.refetch() }) : pulls.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.LoadingState, { variant: "list" }) : (pulls.data?.pullRequests ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.EmptyState, { title: s.noPullRequests, icon: GitPullRequest }) : (
+          // The trailing 1.25rem track is the chevron's, in BOTH templates, so the open affordance
+          // survives the compact layout. Opening a row is the host's `onOpen` + `openLabel` contract:
+          // one stretched button, one tab stop, native Enter/Space — no hand-rolled key handling.
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTable, { ariaLabel: s.tabPullRequests, columns: "minmax(0,1fr) minmax(8rem,.5fr) 1.25rem", compactColumns: "minmax(0,1fr) 1.25rem", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTableRow, { header: true, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { header: true, children: s.columnPullRequest }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { header: true, priority: "wide", children: s.columnChecks }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { header: true, "aria-hidden": true })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { priority: "wide", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { tone: pull.mergeable === false ? "danger" : "neutral", children: pull.reviewDecision?.replace("_", " ") ?? pull.mergeableState ?? "unknown" }) })
-          ] }, pull.number))
-        ] })
+            (pulls.data?.pullRequests ?? []).map((pull) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTableRow, { height: "tall", onOpen: () => setSelectedPr(pull.number), openLabel: `${s.openPullRequest} #${pull.number}`, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTableCell, { lines: "auto", title: `#${pull.number} ${pull.title}`, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "truncate text-sm font-medium text-text", children: [
+                  "#",
+                  pull.number,
+                  " ",
+                  pull.title
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "truncate font-mono text-[11px] text-text-muted", children: [
+                  pull.headRef,
+                  " \u2192 ",
+                  pull.baseRef
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { priority: "wide", lines: "auto", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { tone: pull.mergeable === false ? "danger" : "neutral", children: pull.reviewDecision?.replace("_", " ") ?? pull.mergeableState ?? "unknown" }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableChevronCell, {})
+            ] }, pull.number))
+          ] })
+        )
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.EmptyState, { title: s.mappingMissing, description: s.detectedRemotes, icon: Link2, action: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { icon: Link2, onClick: () => setMapping(mappingFrom(row)), children: s.map }) })
     ] }),
     mapping ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.Modal, { title: s.map, size: "md", onClose: () => setMapping(null), children: [

@@ -15,7 +15,9 @@ import * as H from './hostHooks';
 import { api, apiErrorMessage, ElowenApiError, elowenClient } from './hostClient';
 import * as U from './hostUtils';
 
-const PLUGIN_UI_API_VERSION = 3;
+/** The host's own constant, mirrored. `tests/hostRuntimeParity.test.ts` is what keeps this file and the
+ *  maps below from drifting away from the runtime a bundle actually finds in production. */
+const PLUGIN_UI_API_VERSION = 8;
 
 interface HostWindow extends Window {
   ElowenUiRuntime?: unknown;
@@ -40,22 +42,26 @@ export function ensurePluginUiRuntime(): void {
       ControlSurfaceDocument: C.ControlSurfaceDocument, ControlSurfaceToolbar: C.ControlSurfaceToolbar,
       ControlSurfaceRegister: C.ControlSurfaceRegister, ControlSurfaceState: C.ControlSurfaceState,
       DataTable: C.DataTable, DataTableRow: C.DataTableRow, DataTableCell: C.DataTableCell,
+      // The register footer, the toolbar's search field and the row's trailing open affordance — the
+      // three pieces every plugin register used to hand-roll (API 8).
+      Pager: C.Pager, RegisterSearch: C.RegisterSearch, DataTableChevronCell: C.DataTableChevronCell,
       EmptyState: C.EmptyState, LoadingState: C.LoadingState, LoadingLine: C.LoadingLine, ErrorState: C.ErrorState,
       ConfirmDialog: C.ConfirmDialog, WorkspaceDetailRail: C.WorkspaceDetailRail,
       AutoSaveStatus: C.AutoSaveStatus, Spinner: C.Spinner, Checkbox: C.Checkbox, ModelIcon: C.ModelIcon,
       SelectionSummary: C.SelectionSummary, ManageSelectionModal: C.ManageSelectionModal, BrainModelField: C.BrainModelField,
+      // The canonical page shell and its hero, plus the pre-unification aliases onto them that shipped
+      // bundles still mount by name.
+      WorkspaceShell: C.WorkspaceShell, WorkspaceHero: C.WorkspaceHero, WorkspaceTakeover: C.WorkspaceTakeover,
       WorkspacePage: C.WorkspacePage, SpatialWorkspaceLayout: C.SpatialWorkspaceLayout, WorkspaceMetric: C.WorkspaceMetric,
       CompactWorkspaceHeader: C.CompactWorkspaceHeader, MarkdownAssetEditor: C.MarkdownAssetEditor,
-      // The work and stats surfaces compose these shared workspace primitives. They are app chrome shared
-      // with the surfaces that stay in core, which is why they live on the runtime rather than inside either
-      // bundle.
-      ActionMenu: C.ActionMenu, AgentIdentityStrip: C.AgentIdentityStrip, AgentStatusDot: C.AgentStatusDot,
+      // App chrome shared with the surfaces that stay in core, which is why it lives on the runtime
+      // rather than inside a bundle.
+      ActionMenu: C.ActionMenu,
       ContextMenu: C.ContextMenu, DateRangeFilter: C.DateRangeFilter, EntityList: C.EntityList, EntityRow: C.EntityRow,
       ExecutorPicker: C.ExecutorPicker, IconButton: C.IconButton, LiveTail: C.LiveTail, ModuleHeader: C.ModuleHeader,
       MotionLayout: C.MotionLayout, MotionLayoutItem: C.MotionLayoutItem, MotionPresence: C.MotionPresence,
       OutcomeBadge: C.OutcomeBadge, PatchView: C.PatchView, ProgressRibbon: C.ProgressRibbon,
-      ProjectFilterPills: C.ProjectFilterPills, ProjectIcon: C.ProjectIcon, ProjectPill: C.ProjectPill,
-      TaskContextLine: C.TaskContextLine, TaskUsageBadge: C.TaskUsageBadge, TerminalModal: C.TerminalModal,
+      ProjectFilterPills: C.ProjectFilterPills, ProjectPill: C.ProjectPill,
       ChangeStrip: C.ChangeStrip,
       // The settings-extraction surface (the moved CLI-agents / autopilot / GitHub sections).
       SettingsDocument: C.SettingsDocument, SettingsGroup: C.SettingsGroup, SettingsRow: C.SettingsRow,
@@ -63,7 +69,7 @@ export function ensurePluginUiRuntime(): void {
       // A connector identity in the Linked accounts drawer, and its chip in the closed summary.
       LinkedAccountRow: C.LinkedAccountRow, SummaryChip: C.SummaryChip,
       BackendPicker: C.BackendPicker, ProviderPicker: C.ProviderPicker, ModelCatalogField: C.ModelCatalogField,
-      ChoiceField: C.ChoiceField, ConstellationScope: C.ConstellationScope, ProviderLogo: C.ProviderLogo,
+      ChoiceField: C.ChoiceField, ProviderLogo: C.ProviderLogo,
       PluginPageFrame: C.PluginPageFrame, PluginPageHeader: C.PluginPageHeader, PluginSection: C.PluginSection,
     },
     // The data hooks keep the react-query cache in the HOST, so a plugin panel and the app share one
@@ -71,7 +77,7 @@ export function ensurePluginUiRuntime(): void {
     // QueryClient context and read an empty cache.
     hooks: {
       useTranslation: H.useTranslation, useToast: H.useToast, usePluginStrings: H.usePluginStrings,
-      useMe: H.useMe, usePluginUi: H.usePluginUi,
+      useMe: H.useMe,
       usePluginSkills: H.usePluginSkills, useCreatePluginSkill: H.useCreatePluginSkill,
       useUpdatePluginSkill: H.useUpdatePluginSkill, useDeletePluginSkill: H.useDeletePluginSkill,
       useCronJobs: H.useCronJobs, useSaveCronJob: H.useSaveCronJob, useDeleteCronJob: H.useDeleteCronJob,
@@ -85,30 +91,12 @@ export function ensurePluginUiRuntime(): void {
       useMobile: H.useMobile,
       // Layout/selection behaviour shared with the built-in workspaces.
       usePersistentState: H.usePersistentState, useProjectFilter: H.useProjectFilter, useFillHeight: H.useFillHeight,
-      // Work, agents and usage data stay on the HOST so plugin pages and core surfaces share ONE
+      // Config, project and usage data stay on the HOST so plugin pages and core surfaces share ONE
       // react-query cache and ONE invalidation path.
-      useTasks: H.useTasks, useAllDeps: H.useAllDeps, useMissions: H.useMissions, useSessions: H.useSessions,
-      useSessionInfos: H.useSessionInfos, useSessionSignals: H.useSessionSignals, useSessionSignal: H.useSessionSignal,
-      useConfig: H.useConfig, useProjects: H.useProjects, useProjectGit: H.useProjectGit,
+      useConfig: H.useConfig, useUpdateConfig: H.useUpdateConfig, useProjects: H.useProjects,
       useActivity: H.useActivity, useModelUsage: H.useModelUsage, useUsageByDay: H.useUsageByDay,
-      useUsageByOrigin: H.useUsageByOrigin,
-      useProjectsCommits: H.useProjectsCommits, useTaskConversation: H.useTaskConversation,
-      useTaskBrainConversation: H.useTaskBrainConversation, useTaskCommits: H.useTaskCommits,
-      useTaskCommitFileDiff: H.useTaskCommitFileDiff, useTaskUsage: H.useTaskUsage,
-      useMissionNotes: H.useMissionNotes, usePlanJob: H.usePlanJob,
-      useEscalations: H.useEscalations, usePendingAsks: H.usePendingAsks,
-      useSystemSkills: H.useSystemSkills, useInstallSkills: H.useInstallSkills,
+      useUsageByOrigin: H.useUsageByOrigin, useResetUsage: H.useResetUsage,
       usePluginDetail: H.usePluginDetail, useSavePluginConfig: H.useSavePluginConfig,
-      useAgentsPlugin: H.useAgentsPlugin, useEditorPlugin: H.useEditorPlugin, useWorkPlugin: H.useWorkPlugin,
-      useCreateTask: H.useCreateTask, useUpdateTask: H.useUpdateTask, useDeleteTask: H.useDeleteTask,
-      useCloseTask: H.useCloseTask, useSetTaskStatus: H.useSetTaskStatus, useSetTaskExec: H.useSetTaskExec,
-      useSpawn: H.useSpawn, usePlanTask: H.usePlanTask, useInsertPhases: H.useInsertPhases,
-      useEngage: H.useEngage, usePauseMission: H.usePauseMission, useResumeMission: H.useResumeMission,
-      useDisengage: H.useDisengage, useDeleteMission: H.useDeleteMission,
-      useOpenMissionPr: H.useOpenMissionPr, useMergeMissionPr: H.useMergeMissionPr,
-      useApproveGate: H.useApproveGate, useReplyAsk: H.useReplyAsk, useKillSession: H.useKillSession,
-      useSendInput: H.useSendInput, useUpdateConfig: H.useUpdateConfig, useResetUsage: H.useResetUsage,
-      useSessionStall: H.useSessionStall, useTaskControls: H.useTaskControls,
       // Batched queries against the HOST's react-query client — a bundle that imported the library
       // itself would get a second QueryClient context and read an empty cache.
       useQuery: H.useQuery, useMutation: H.useMutation, useInfiniteQuery: H.useInfiniteQuery,
@@ -117,29 +105,18 @@ export function ensurePluginUiRuntime(): void {
     utils: {
       apiErrorMessage, parseTs: U.parseTs, compactElapsed: U.compactElapsed, isValidSchedule: U.isValidSchedule,
       copyText: U.copyText, defineEditorThemes: U.defineEditorThemes, editorTheme: U.editorTheme,
-      // Task/agent mapping and the epic tree.
-      taskExec: U.taskExec, taskAgentName: U.taskAgentName, taskSessionName: U.taskSessionName,
-      taskStartedMs: U.taskStartedMs, taskElapsedMs: U.taskElapsedMs, taskElapsed: U.taskElapsed,
-      taskBlockers: U.taskBlockers, agentDisplayName: U.agentDisplayName, phaseDetails: U.phaseDetails,
-      needsInputSessions: U.needsInputSessions, taskForSession: U.taskForSession,
-      missionEpicId: U.missionEpicId, keysForOption: U.keysForOption,
-      epicChildren: U.epicChildren, phaseIds: U.phaseIds, epicProgress: U.epicProgress,
-      epicLive: U.epicLive, epicEffectiveStatus: U.epicEffectiveStatus,
-      // The date window.
+      // The date window a usage page needs to persist and read back its own filter.
       DEFAULT_RANGE: U.DEFAULT_RANGE, serializeRange: U.serializeRange, parseRange: U.parseRange,
-      isStoredRange: U.isStoredRange, rangeBounds: U.rangeBounds, inRange: U.inRange,
-      rangeWindowCapHours: U.rangeWindowCapHours,
-      // Formatting + presentation vocabulary shared with the core surfaces that render task shapes.
-      formatCost: U.formatCost, formatDuration: U.formatDuration, formatTokens: U.formatTokens,
-      formatTaskTime: U.formatTaskTime, baseName: U.baseName, dirName: U.dirName, fileIcon: U.fileIcon,
-      taskTypeMeta: U.taskTypeMeta, statusTone: U.statusTone, eventIcon: U.eventIcon,
-      TONE_TEXT: U.TONE_TEXT, contextMenuDivider: U.DIVIDER,
+      isStoredRange: U.isStoredRange, rangeBounds: U.rangeBounds,
+      // Formatting + presentation vocabulary shared with the core surfaces.
+      formatCost: U.formatCost, formatDuration: U.formatDuration,
+      baseName: U.baseName, dirName: U.dirName, fileIcon: U.fileIcon, eventIcon: U.eventIcon,
+      contextMenuDivider: U.DIVIDER,
       // Models + usage.
-      allModels: U.allModels, execModel: U.execModel, buildUsageSummary: U.buildUsageSummary,
-      cliProviders: U.PROVIDERS,
+      allModels: U.allModels, buildUsageSummary: U.buildUsageSummary, cliProviders: U.PROVIDERS,
       // Host services. `elowenClient` is the app's ONE HTTP client — a bundle narrows it to the calls
       // it makes rather than shipping a second one.
-      openTerminalWindow: U.openTerminalWindow, elowenClient, ElowenApiError,
+      elowenClient, ElowenApiError,
     },
     api,
     navigate: (href: string) => { window.location.assign(href); },

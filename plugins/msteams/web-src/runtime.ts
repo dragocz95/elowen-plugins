@@ -97,14 +97,17 @@ interface TeamsHooks {
 
 type AnyComponent = ComponentType<any>;
 interface TeamsComponents {
-  SpatialWorkspaceLayout: AnyComponent;
+  WorkspaceShell: AnyComponent;
   WorkspaceMetric: AnyComponent;
   ControlSurfaceDocument: AnyComponent;
   ControlSurfaceToolbar: AnyComponent;
   ControlSurfaceRegister: AnyComponent;
   ControlSurfaceState: AnyComponent;
+  /** The register toolbar's search field. It replaces a hand-built wrapper whose hard 15rem minimum
+   *  pushed the filter out of the surface on a phone. */
+  RegisterSearch: AnyComponent;
+  Segmented: AnyComponent;
   SettingsDocument: AnyComponent;
-  SettingsGroup: AnyComponent;
   PluginConfigEditor: AnyComponent;
   AutoSaveStatus: AnyComponent;
   LoadingState: AnyComponent;
@@ -118,9 +121,6 @@ interface TeamsComponents {
   Field: AnyComponent;
   Toggle: AnyComponent;
   SelectMenu: AnyComponent;
-  Checkbox: AnyComponent;
-  ManageSelectionModal: AnyComponent;
-  SelectionSummary: AnyComponent;
 }
 
 interface TeamsRuntime {

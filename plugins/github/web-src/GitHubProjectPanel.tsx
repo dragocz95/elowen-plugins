@@ -111,12 +111,35 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
           <div className="min-w-0"><h3 className="text-sm font-semibold text-text">{s.projectRepository}</h3><p className="mt-1 truncate font-mono text-xs text-text-muted">{mappingLabel}</p><p className="mt-1 truncate font-mono text-[11px] text-text-muted">{s.pushRepository}: {pushLabel}</p></div>
           <C.Badge tone={mapped ? 'success' : row.detected.ambiguous ? 'warning' : 'neutral'}>{mapped ? s.mappingHealthy : s.mappingMissing}</C.Badge>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2"><C.Button icon={Link2} onClick={() => setMapping(mappingFrom(row))}>{s.map}</C.Button>{row.mapping ? <a href={`https://github.com/${encodeURIComponent(row.mapping.baseOwner)}/${encodeURIComponent(row.mapping.baseName)}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center text-xs font-medium text-accent hover:underline">{s.openGitHub}</a> : null}</div>
+        <div className="mt-4 flex flex-wrap gap-2"><C.Button icon={Link2} onClick={() => setMapping(mappingFrom(row))}>{s.map}</C.Button>{row.mapping ? <a href={`https://github.com/${encodeURIComponent(row.mapping.baseOwner)}/${encodeURIComponent(row.mapping.baseName)}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center text-xs font-medium text-accent hover:underline pointer-coarse:min-h-[var(--touch-target)]">{s.openGitHub}</a> : null}</div>
       </section>
 
       {mapped ? <>
         <div className="flex flex-col gap-2"><C.SelectMenu value={sessionId} onChange={setSessionId} label={s.conversation} options={(sessions.data ?? []).map((session) => ({ value: session.id, label: session.title }))} /><div className="flex flex-wrap gap-2"><C.Button onClick={() => preview.mutate({ type: 'publish', projectId: project.id, sessionId })} disabled={!sessionId}>{s.publish}</C.Button><C.Button variant="accent" onClick={() => setCreateOpen(true)} disabled={!sessionId}>{s.createPullRequest}</C.Button></div></div>
-        {pulls.isError ? <C.ErrorState message={s.loadError} onRetry={() => pulls.refetch()} /> : pulls.isLoading ? <C.LoadingState variant="list" /> : (pulls.data?.pullRequests ?? []).length === 0 ? <C.EmptyState title={s.noPullRequests} icon={GitPullRequest} /> : <C.DataTable ariaLabel={s.tabPullRequests} columns="minmax(0,1fr) minmax(8rem,.5fr)" compactColumns="minmax(0,1fr)"><C.DataTableRow header><C.DataTableCell header>{s.columnPullRequest}</C.DataTableCell><C.DataTableCell header priority="wide">{s.columnChecks}</C.DataTableCell></C.DataTableRow>{(pulls.data?.pullRequests ?? []).map((pull) => <C.DataTableRow key={pull.number} interactive tabIndex={0} onClick={() => setSelectedPr(pull.number)} onKeyDown={(event: React.KeyboardEvent) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedPr(pull.number); } }}><C.DataTableCell><div className="truncate text-sm font-medium text-text">#{pull.number} {pull.title}</div><div className="truncate font-mono text-[11px] text-text-muted">{pull.headRef} → {pull.baseRef}</div></C.DataTableCell><C.DataTableCell priority="wide"><C.Badge tone={pull.mergeable === false ? 'danger' : 'neutral'}>{pull.reviewDecision?.replace('_', ' ') ?? pull.mergeableState ?? 'unknown'}</C.Badge></C.DataTableCell></C.DataTableRow>)}</C.DataTable>}
+        {pulls.isError ? <C.ErrorState message={s.loadError} onRetry={() => pulls.refetch()} /> : pulls.isLoading ? <C.LoadingState variant="list" /> : (pulls.data?.pullRequests ?? []).length === 0 ? <C.EmptyState title={s.noPullRequests} icon={GitPullRequest} /> : (
+          // The trailing 1.25rem track is the chevron's, in BOTH templates, so the open affordance
+          // survives the compact layout. Opening a row is the host's `onOpen` + `openLabel` contract:
+          // one stretched button, one tab stop, native Enter/Space — no hand-rolled key handling.
+          <C.DataTable ariaLabel={s.tabPullRequests} columns="minmax(0,1fr) minmax(8rem,.5fr) 1.25rem" compactColumns="minmax(0,1fr) 1.25rem">
+            <C.DataTableRow header>
+              <C.DataTableCell header>{s.columnPullRequest}</C.DataTableCell>
+              <C.DataTableCell header priority="wide">{s.columnChecks}</C.DataTableCell>
+              <C.DataTableCell header aria-hidden />
+            </C.DataTableRow>
+            {(pulls.data?.pullRequests ?? []).map((pull) => (
+              <C.DataTableRow key={pull.number} height="tall" onOpen={() => setSelectedPr(pull.number)} openLabel={`${s.openPullRequest} #${pull.number}`}>
+                <C.DataTableCell lines="auto" title={`#${pull.number} ${pull.title}`}>
+                  <div className="truncate text-sm font-medium text-text">#{pull.number} {pull.title}</div>
+                  <div className="truncate font-mono text-[11px] text-text-muted">{pull.headRef} → {pull.baseRef}</div>
+                </C.DataTableCell>
+                <C.DataTableCell priority="wide" lines="auto">
+                  <C.Badge tone={pull.mergeable === false ? 'danger' : 'neutral'}>{pull.reviewDecision?.replace('_', ' ') ?? pull.mergeableState ?? 'unknown'}</C.Badge>
+                </C.DataTableCell>
+                <C.DataTableChevronCell />
+              </C.DataTableRow>
+            ))}
+          </C.DataTable>
+        )}
       </> : <C.EmptyState title={s.mappingMissing} description={s.detectedRemotes} icon={Link2} action={<C.Button icon={Link2} onClick={() => setMapping(mappingFrom(row))}>{s.map}</C.Button>} />}
     </div>
 

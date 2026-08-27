@@ -58,7 +58,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 2,
+    "requiresApiVersion": 8,
     "adminOnly": true,
     "nav": [
       {
@@ -81,6 +81,9 @@
       "peopleTab": "People & access",
       "settingsTab": "Settings",
       "peopleSearch": "Search by name, e-mail or Entra ID…",
+      "peopleSearchClear": "Clear search",
+      "peopleSearchCount": "Matching people",
+      "peopleFilter": "Filter people",
       "filterAll": "All",
       "filterMapped": "Configured",
       "filterUnmapped": "Not configured",

@@ -29,7 +29,7 @@ export function ViewSwitch<T extends string>({ options, value, onChange, label }
             role="tab"
             aria-selected={active}
             onClick={() => onChange(option.id)}
-            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+            className={`overlay-menu-item flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
               active ? 'bg-elevated text-text shadow-sm' : 'text-text-muted hover:text-text'
             }`}
           >

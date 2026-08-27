@@ -45,12 +45,10 @@ interface RuntimeHooks {
 interface RuntimeComponents {
   Button: AnyComponent; Input: AnyComponent; Badge: AnyComponent; Field: AnyComponent; SelectMenu: AnyComponent;
   Modal: AnyComponent; ModalBody: AnyComponent; ModalFooter: AnyComponent; LoadingState: AnyComponent; ErrorState: AnyComponent;
-  EmptyState: AnyComponent; SpatialWorkspaceLayout: AnyComponent; WorkspaceMetric: AnyComponent; WorkspaceDetailRail: AnyComponent;
-  PluginSection: AnyComponent; DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent; PatchView: AnyComponent; ConfirmDialog: AnyComponent;
-  // The host's own account primitives. The connection panel is one section of the Account page and
-  // has to be built from the same pieces the native sections are, not from an approximation of them.
-  SpatialIdentity: AnyComponent; SettingsRow: AnyComponent; Avatar: AnyComponent;
-  Segmented: AnyComponent;
+  EmptyState: AnyComponent; PatchView: AnyComponent; ConfirmDialog: AnyComponent;
+  // The register table of open pull requests. `DataTableChevronCell` is the trailing open affordance
+  // that belongs to a row carrying `onOpen`; it needs its own 1.25rem track in both grid templates.
+  DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent; DataTableChevronCell: AnyComponent;
   // The Linked accounts drawer row and its chip in the closed summary — the SAME components the host
   // draws for Discord, Teams and the rest. GitHub is one identity among them and must read as one:
   // building this out of an avatar and a card of its own is what made it the odd row out.
@@ -69,7 +67,7 @@ export function runtime(): GitHubRuntime {
  *  first paint, the panel only once the drawer is opened. */
 export function registerGitHubUi(account: ComponentType<any>, chip: ComponentType<any>, project: ComponentType<any>): void {
   (window as HostWindow).__elowenRegisterPluginUi?.('github', {
-    requiresApiVersion: 7,
+    requiresApiVersion: 8,
     account: { connection: account },
     accountChip: { connection: chip },
     project: { repository: project },

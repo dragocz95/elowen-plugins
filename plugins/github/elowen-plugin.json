@@ -101,7 +101,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 7,
+    "requiresApiVersion": 8,
     "account": [
       {
         "id": "connection",
@@ -176,6 +176,7 @@
       "columnPullRequest": "Pull request",
       "columnBranch": "Branches",
       "columnChecks": "Checks",
+      "openPullRequest": "Open pull request",
       "columnUpdated": "Updated",
       "noRepositories": "No accessible Projects are available.",
       "noPullRequests": "No pull requests match this filter.",

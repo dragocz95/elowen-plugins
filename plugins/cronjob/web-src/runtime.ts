@@ -72,12 +72,12 @@ interface CronComponents {
   Badge: AnyComponent; Button: AnyComponent; Input: AnyComponent; Field: AnyComponent; Toggle: AnyComponent;
   ConfirmDialog: AnyComponent; AutoSaveStatus: AnyComponent; LoadingState: AnyComponent; ErrorState: AnyComponent;
   ManageSelectionModal: AnyComponent; SelectionSummary: AnyComponent; BrainModelField: AnyComponent;
-  EmptyState: AnyComponent; Segmented: AnyComponent;
-  DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent;
+  EmptyState: AnyComponent; Segmented: AnyComponent; Pager: AnyComponent; RegisterSearch: AnyComponent;
+  DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent; DataTableChevronCell: AnyComponent;
   ControlSurfaceDocument: AnyComponent; ControlSurfaceToolbar: AnyComponent;
   ControlSurfaceRegister: AnyComponent; ControlSurfaceState: AnyComponent;
   PluginSection: AnyComponent;
-  SpatialWorkspaceLayout: AnyComponent; WorkspaceMetric: AnyComponent; WorkspaceDetailRail: AnyComponent;
+  WorkspaceShell: AnyComponent; WorkspaceMetric: AnyComponent; WorkspaceDetailRail: AnyComponent;
   SettingsGroup: AnyComponent;
 }
 
@@ -93,6 +93,9 @@ interface CronRegistration {
   requiresApiVersion: number;
   pages?: Record<string, PluginPageComponent>;
   settings?: Record<string, PluginPageComponent>;
+  /** Settings sections that draw their OWN page frame. The host wraps a section in its page column and
+   *  module header by default, which nests two frames around one that already brings its own. */
+  ownsPageFrame?: string[];
 }
 interface HostWindow {
   ElowenUiRuntime?: unknown;

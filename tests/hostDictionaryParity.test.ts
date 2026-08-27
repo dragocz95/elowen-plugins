@@ -35,6 +35,7 @@ import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
 
 import { en as copiedEn, cs as copiedCs } from './ui/hostDictionary';
+import { AHEAD_OF_RELEASE_DICTIONARY } from './ui/hostAheadOfRelease';
 
 const requireFromHere = createRequire(import.meta.url);
 const packageRoot = dirname(requireFromHere.resolve('elowen/package.json'));
@@ -161,9 +162,22 @@ describe('the copy of the daemon dictionary that the UI suites assert against', 
   it.each(locales)('carries no %s key the package does not have', (locale, copied) => {
     // The copy is allowed to be a subset, never a superset: a key the package has dropped or never had
     // is text the product cannot render, so any suite asserting it is testing this file alone.
+    //
+    // The one exception is a section the daemon's main branch has already added and the pinned release
+    // does not carry yet — the copy has to lead it for the suites that render the component reading it.
+    // Each such key is named in tests/ui/hostAheadOfRelease.ts and checked below, so the exemption is a
+    // list that can only shrink, not a hole in this guard.
     const packagedLeaves = flatten(packaged![locale as 'en' | 'cs']);
-    const unknownKeys = [...flatten(copied).keys()].filter((key) => !packagedLeaves.has(key));
+    const ahead = new Set(AHEAD_OF_RELEASE_DICTIONARY);
+    const unknownKeys = [...flatten(copied).keys()].filter((key) => !packagedLeaves.has(key) && !ahead.has(key));
     expect(unknownKeys).toEqual([]);
+  });
+
+  it.each(locales)('claims no %s key as unreleased that the package already ships', (locale) => {
+    // The forcing function: bumping the elowen devDependency to a release carrying these keys fails
+    // here until the entry is deleted and the copy is resynced against the package like every other key.
+    const packagedLeaves = flatten(packaged![locale as 'en' | 'cs']);
+    expect(AHEAD_OF_RELEASE_DICTIONARY.filter((key) => packagedLeaves.has(key))).toEqual([]);
   });
 
   it.each(locales)('reproduces every %s string it carries verbatim', (locale, copied) => {

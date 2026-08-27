@@ -185,6 +185,29 @@ describe('ProjectEditor copy', () => {
     expect(screen.getByRole('tree')).toHaveAccessibleName('Code editor');
   });
 
+  // Fullscreen used to be a hand-rolled `fixed inset-0 z-50 h-screen` div: it measured `vh` rather than
+  // `dvh`, it tied with the navigation drawer and the advisor launcher on the shared overlay scale, and
+  // its only exit was an unlabelled chevron. It is the host's takeover primitive now, and these are the
+  // three properties the hand-rolled surface could not offer.
+  it('goes fullscreen as a labelled takeover rather than a hand-rolled overlay', async () => {
+    await renderEditor();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'View' }));
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Fullscreen' }));
+
+    const takeover = await screen.findByRole('dialog', { name: 'Code editor' });
+    expect(takeover).toHaveAttribute('data-presentation', 'fullscreen');
+    // The view controls ride in the takeover's own header, which is the strip that is always on screen.
+    expect(within(takeover).getByRole('tablist', { name: 'View mode' })).toBeInTheDocument();
+    // One exit, and it says what it does.
+    const back = within(takeover).getByRole('button', { name: 'Exit fullscreen' });
+
+    fireEvent.click(back);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // …and the editor is still there, inline, with the file still open.
+    expect(editorEl().value).toBe('line one\n');
+  });
+
   it('reports the caret and the selection size in the status bar', async () => {
     await renderEditor();
 

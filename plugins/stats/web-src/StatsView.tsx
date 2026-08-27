@@ -1,7 +1,5 @@
-import { useMemo, useState, type KeyboardEvent } from 'react';
-import {
-  BarChart3, ChevronLeft, ChevronRight, Database, DollarSign, Gauge, MapPin, Search, Trash2,
-} from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { BarChart3, Database, DollarSign, Gauge, MapPin, Search, Trash2 } from 'lucide-react';
 import { PieChart } from './components/PieChart';
 import { UsageTrend } from './components/UsageTrend';
 import { ResetUsageModal } from './ResetUsageModal';
@@ -15,8 +13,9 @@ const DAY_MS = 86_400_000;
 
 const {
   Button, ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar,
-  DataTable, DataTableCell, DataTableRow, DateRangeFilter, EmptyState, ErrorState, Input, LoadingState,
-  ModelIcon, ModuleHeader, Segmented, SpatialWorkspaceLayout, WorkspaceDetailRail, WorkspaceMetric,
+  DataTable, DataTableCell, DataTableChevronCell, DataTableRow, DateRangeFilter, EmptyState, ErrorState,
+  LoadingState, ModelIcon, ModuleHeader, Pager, RegisterSearch, Segmented, WorkspaceDetailRail,
+  WorkspaceMetric, WorkspaceShell,
 } = runtime().components;
 const { useMe, useModelUsage, usePersistentState, usePluginStrings, useTranslation, useUsageByDay } = runtime().hooks;
 const { buildUsageSummary, DEFAULT_RANGE, isStoredRange, parseRange, rangeBounds, serializeRange } = runtime().utils;
@@ -170,12 +169,12 @@ export function StatsView() {
   return (
     <>
       <ModuleHeader title={s.title} count={summary.modelsUsed} icon={BarChart3} />
-      <SpatialWorkspaceLayout hero={{
+      <WorkspaceShell variant="register" hero={{
         eyebrow: s.workspaceEyebrow,
         title: s.title,
         count: summary.modelsUsed,
         description: s.workspaceIntro,
-        mascotState: hasError ? 'error' : isLoading ? 'saving' : 'idle',
+        mascot: hasError ? 'error' : isLoading ? 'saving' : 'idle',
         status: !hasError && !isLoading ? <span className="workspace-status">{s.workspaceReady}</span> : undefined,
         // Admin-only affordances. The origin view's real gate is the daemon route (403 for anyone
         // else); hiding the button is presentation, not access control.
@@ -206,10 +205,14 @@ export function StatsView() {
                   {/* w-full, not items-stretch: a plugin's utilities live in @layer utilities and lose
                       to the host's unlayered .control-surface-toolbar { align-items: center }. */}
                   <div className="flex w-full min-w-0 flex-wrap items-center gap-2 py-3">
-                    <div className="relative min-w-[15rem] flex-1">
-                      <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-                      <Input aria-label={s.searchPlaceholder} value={query} onChange={(event) => { setQuery(event.target.value); resetPage(); }} placeholder={s.searchPlaceholder} className="pl-9" />
-                    </div>
+                    <RegisterSearch
+                      value={query}
+                      onChange={(value: string) => { setQuery(value); resetPage(); }}
+                      placeholder={s.searchPlaceholder}
+                      label={s.searchPlaceholder}
+                      onClear={() => { setQuery(''); resetPage(); }}
+                      clearLabel={s.searchClear}
+                    />
                     <Segmented
                       nowrap
                       aria-label={s.filterLabel}
@@ -265,46 +268,29 @@ export function StatsView() {
                               <DataTableCell header role="presentation" aria-hidden>{null}</DataTableCell>
                             </DataTableRow>
                             <div role="rowgroup">
-                              {pageRows.map((row) => {
-                                return (
-                                  <DataTableRow
-                                    key={row.exec}
-                                    data-testid="model-usage-row"
-                                    interactive
-                                    tabIndex={0}
-                                    className="group cursor-pointer"
-                                    onClick={() => setSelectedExec(row.exec)}
-                                    onKeyDown={(event: KeyboardEvent) => {
-                                      if (event.key !== 'Enter' && event.key !== ' ') return;
-                                      event.preventDefault();
-                                      setSelectedExec(row.exec);
-                                    }}
-                                  >
-                                    <DataTableCell className="flex items-center gap-1.5 text-text-muted"><ModelIcon name={row.exec} size={12} /></DataTableCell>
-                                    <DataTableCell className="truncate font-mono text-xs text-text" title={row.exec}>{row.exec}</DataTableCell>
-                                    <DataTableCell priority="wide" className="truncate text-right font-mono text-xs tabular-nums text-text-muted" title={row.tokensLabel}>{row.tokensLabel}</DataTableCell>
-                                    <DataTableCell className="truncate text-right font-mono text-xs tabular-nums text-text" title={row.costLabel}>{row.costLabel}</DataTableCell>
-                                    <DataTableCell priority="wide" className="truncate text-right font-mono text-xs tabular-nums text-text-muted" title={percent(row.cacheHitPct)}>{percent(row.cacheHitPct)}</DataTableCell>
-                                    <DataTableCell priority="wide" className="truncate text-right font-mono text-xs tabular-nums text-text-muted" title={row.speedLabel}>{row.speedLabel}</DataTableCell>
-                                    <DataTableCell className="flex items-center justify-end gap-1.5 text-text-muted"><ChevronRight size={12} className="group-hover:text-text" aria-hidden /></DataTableCell>
-                                  </DataTableRow>
-                                );
-                              })}
+                              {pageRows.map((row) => (
+                                <DataTableRow
+                                  key={row.exec}
+                                  data-testid="model-usage-row"
+                                  selected={selectedExec === row.exec}
+                                  onOpen={() => setSelectedExec(row.exec)}
+                                  openLabel={`${s.detailTitle}: ${row.exec}`}
+                                >
+                                  <DataTableCell lines="auto" className="flex items-center gap-1.5 text-text-muted"><ModelIcon name={row.exec} size={12} /></DataTableCell>
+                                  <DataTableCell className="font-mono text-xs text-text">{row.exec}</DataTableCell>
+                                  <DataTableCell priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{row.tokensLabel}</DataTableCell>
+                                  <DataTableCell className="text-right font-mono text-xs tabular-nums text-text">{row.costLabel}</DataTableCell>
+                                  <DataTableCell priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{percent(row.cacheHitPct)}</DataTableCell>
+                                  <DataTableCell priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{row.speedLabel}</DataTableCell>
+                                  <DataTableChevronCell />
+                                </DataTableRow>
+                              ))}
                             </div>
                           </DataTable>
                         )}
 
                         {filtered.length > 0 ? (
-                          <div className="flex flex-col gap-2 border-b border-border/80 pb-3 sm:flex-row sm:items-center sm:justify-between">
-                            <span className="font-mono text-xs text-text-muted">
-                              {s.pageRange.replace('{from}', String(clampedPage * PAGE_SIZE + 1)).replace('{to}', String(clampedPage * PAGE_SIZE + pageRows.length)).replace('{total}', String(filtered.length))}
-                            </span>
-                            <div className="flex items-center gap-1">
-                              <Button variant="ghost" icon={ChevronLeft} disabled={clampedPage === 0} onClick={() => setPage(clampedPage - 1)}>{s.previousPage}</Button>
-                              <span className="min-w-24 text-center font-mono text-xs text-text-muted">{s.pageLabel.replace('{page}', String(clampedPage + 1)).replace('{pages}', String(pageCount))}</span>
-                              <Button variant="ghost" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(clampedPage + 1)}>{s.nextPage}<ChevronRight size={15} className="ml-1" aria-hidden /></Button>
-                            </div>
-                          </div>
+                          <Pager page={clampedPage} pageSize={PAGE_SIZE} total={filtered.length} onPageChange={setPage} ariaLabel={s.tableTitle} />
                         ) : null}
                       </div>
                     </>
@@ -332,7 +318,7 @@ export function StatsView() {
             </div>
           )}
         </ControlSurfaceDocument>
-      </SpatialWorkspaceLayout>
+      </WorkspaceShell>
       {resetOpen ? <ResetUsageModal onClose={() => setResetOpen(false)} /> : null}
     </>
   );

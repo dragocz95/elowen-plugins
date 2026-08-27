@@ -27,6 +27,7 @@ interface StatsRuntime {
     ControlSurfaceToolbar: AnyComponent;
     DataTable: AnyComponent;
     DataTableCell: AnyComponent;
+    DataTableChevronCell: AnyComponent;
     DataTableRow: AnyComponent;
     DateRangeFilter: DateRangeComponent;
     EmptyState: AnyComponent;
@@ -39,8 +40,29 @@ interface StatsRuntime {
     ModalFooter: AnyComponent;
     ModelIcon: AnyComponent;
     ModuleHeader: AnyComponent;
+    /** The one pager of the app. It derives the page count and the range text itself and reads its
+     *  labels from the host `pagination` namespace, so this bundle ships none of that copy. */
+    Pager: ComponentType<{
+      /** Zero-based. */
+      page: number;
+      pageSize: number;
+      total: number;
+      onPageChange(page: number): void;
+      ariaLabel?: string;
+      className?: string;
+    }>;
+    RegisterSearch: ComponentType<{
+      value: string;
+      onChange(value: string): void;
+      placeholder?: string;
+      label?: string;
+      onClear?(): void;
+      clearLabel?: string;
+      count?: number;
+      countLabel?: string;
+      className?: string;
+    }>;
     Segmented: SegmentedComponent;
-    SpatialWorkspaceLayout: AnyComponent;
     /** The host's real chart: ticks, cursor tooltip and one axis per unit. Recharts lives in the
      *  app and loads lazily there, so this bundle never carries a charting library. */
     TimeSeriesChart: ComponentType<{
@@ -52,6 +74,7 @@ interface StatsRuntime {
     }>;
     WorkspaceDetailRail: AnyComponent;
     WorkspaceMetric: AnyComponent;
+    WorkspaceShell: AnyComponent;
   };
   hooks: {
     useMe(): QueryResult<{ user?: { id: number; username: string; is_admin: boolean } }>;
@@ -93,5 +116,5 @@ export function runtime(): StatsRuntime {
 }
 
 export function registerStatsUi(pages: Record<string, PluginPage>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 6, pages });
+  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 8, pages });
 }

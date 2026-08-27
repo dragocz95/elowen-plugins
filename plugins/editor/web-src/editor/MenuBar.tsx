@@ -26,7 +26,10 @@ export function MenuBar({ menus, openId, onOpen }: {
             const rect = event.currentTarget.getBoundingClientRect();
             onOpen(menu, rect.left, rect.bottom + 4);
           }}
-          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+          // `.overlay-menu-item` is the host's coarse-pointer floor for a dense labelled row. These are
+          // drawn 24px tall, and on a touch device the menu bar is the only reachable trigger for the
+          // file actions — there is no right-click there to fall back to.
+          className={`overlay-menu-item rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
             openId === menu.id ? 'bg-elevated text-text' : 'text-text-muted hover:bg-elevated hover:text-text'
           }`}
         >

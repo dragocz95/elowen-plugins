@@ -80,7 +80,9 @@ interface RuntimeComponents {
   WorkspaceDetailRail: ComponentType<{ label: string; closeLabel: string; onClose(): void; children: ReactNode }>;
   DataTable: ComponentType<{ ariaLabel: string; columns: string; compactColumns?: string; className?: string; children: ReactNode }>;
   DataTableRow: ComponentType<{ children: ReactNode; header?: boolean; selected?: boolean; interactive?: boolean; className?: string }>;
-  DataTableCell: ComponentType<{ children: ReactNode; header?: boolean; priority?: 'always' | 'wide'; className?: string }>;
+  /** `lines` defaults to 1: one truncated line, with the full value put on `title` automatically when the
+   *  cell IS its text. A cell that hosts controls has to opt out with `auto`, or the controls are clipped. */
+  DataTableCell: ComponentType<{ children: ReactNode; header?: boolean; priority?: 'always' | 'wide'; lines?: 1 | 'auto'; className?: string }>;
   ConfirmDialog: ComponentType<{
     open: boolean;
     title: string;
@@ -114,7 +116,7 @@ export function runtime(): OneDriveRuntime {
 
 export function registerOneDriveUi(project: ComponentType<{ project: { id: number; slug: string; path: string } }>): void {
   (window as HostWindow).__elowenRegisterPluginUi?.('onedrive', {
-    requiresApiVersion: 6,
+    requiresApiVersion: 8,
     project: { mirror: project },
   });
 }

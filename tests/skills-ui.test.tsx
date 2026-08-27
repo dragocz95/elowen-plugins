@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react';
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
@@ -13,6 +14,26 @@ ensurePluginUiRuntime();
 // View copy is served per-plugin by /plugins/ui; serving the REAL manifest en fallback keeps the
 // assertions in lockstep with what production users see.
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
+const manifestApiVersion = (manifest as { web: { requiresApiVersion: number } }).web.requiresApiVersion;
+
+type PluginSectionComponent = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[]; surface: 'page' | 'deck' }>;
+interface BundleRegistration {
+  requiresApiVersion: number;
+  settings?: Record<string, PluginSectionComponent>;
+  ownsPageFrame?: string[];
+}
+
+/** Load the bundle entry the way the host does — it registers itself on import — and hand back what it
+ *  registered. The entry is what carries `ownsPageFrame`, so nothing short of importing it proves the
+ *  declaration is really there. */
+const loadBundleRegistration = async (): Promise<BundleRegistration> => {
+  let captured: BundleRegistration | undefined;
+  (window as unknown as { __elowenRegisterPluginUi?: (plugin: string, registration: BundleRegistration) => void })
+    .__elowenRegisterPluginUi = (_plugin, registration) => { captured = registration; };
+  await import('../plugins/skills/web-src/index');
+  if (!captured) throw new Error('the skills bundle registered no UI');
+  return captured;
+};
 
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'skills', url: '/plugins/skills/web/index.js', apiVersion: 1, nav: [], settings: [], strings }])),
@@ -214,15 +235,41 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     use(http.get('/api/plugins/skills/list', () => HttpResponse.json(list)));
 
     const page = mount('page');
-    await waitFor(() => expect(page.container.querySelector('.spatial-workspace-hero h1')?.textContent).toBe(strings.title));
-    expect(page.container.querySelector('.workspace-header__eyebrow')?.textContent).toBeTruthy();
-    expect(page.container.querySelector('.spatial-workspace-hero__metrics')?.textContent).toBeTruthy();
+    await waitFor(() => expect(page.container.querySelector('.workspace-hero h1')?.textContent).toBe(strings.title));
+    expect(page.container.querySelector('.workspace-hero__eyebrow')?.textContent).toBeTruthy();
+    expect(page.container.querySelector('.workspace-hero__metrics')?.textContent).toBeTruthy();
     // The register is the same control surface the built-in workspaces use.
     expect(page.container.querySelector('[data-control-surface]')).not.toBeNull();
     page.unmount();
 
     const deck = mount('deck');
     await waitFor(() => expect(deck.container.querySelector('[data-control-surface]')).not.toBeNull());
-    expect(deck.container.querySelector('.spatial-workspace-hero')).toBeNull();
+    expect(deck.container.querySelector('.workspace-hero')).toBeNull();
+  });
+
+  // The host wraps a settings section in its own page column and module header. This section brings a
+  // whole workspace shell of its own, so that wrapper nested two page frames: the gutter and the bottom
+  // padding were spent twice and the page came out narrower than every sibling register. The bundle
+  // declares the section id it frames itself, and the page it renders holds exactly one frame.
+  it('claims the page frame for the section that draws its own', async () => {
+    use(http.get('/api/plugins/skills/list', () => HttpResponse.json(list)));
+    const registration = await loadBundleRegistration();
+
+    expect(registration.ownsPageFrame).toContain('skills');
+    // The two places the ceiling is written must agree, or the host loads a bundle built against a
+    // contract it does not serve — or refuses one it does.
+    expect(registration.requiresApiVersion).toBe(manifestApiVersion);
+    // Every id it claims must be a section it actually registers, or the host drops a frame nobody draws.
+    const sections = registration.settings ?? {};
+    for (const id of registration.ownsPageFrame ?? []) expect(Object.keys(sections)).toContain(id);
+
+    const Section = sections.skills;
+    if (!Section) throw new Error('the bundle registered no skills section');
+    const { wrapper: Wrapper } = createWrapper();
+    const page = render(
+      <Wrapper><ToastProvider><Section plugin="skills" params={{ id: 'skills' }} rest={[]} surface="page" /></ToastProvider></Wrapper>,
+    );
+    await waitFor(() => expect(page.container.querySelector('[data-control-surface]')).not.toBeNull());
+    expect(page.container.querySelectorAll('.workspace-page, .workspace-shell')).toHaveLength(1);
   });
 });

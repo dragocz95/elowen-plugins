@@ -165,13 +165,14 @@ export const en = {
     interrupted: 'Interrupted {name}',
     killed: 'Killed {name}',
   },
-  calendar: {
-    day: 'Day',
-    week: 'Week',
-    month: 'Month',
-    today: 'Today',
+  pagination: {
+    label: 'Pagination',
     previous: 'Previous',
     next: 'Next',
+    previousPage: 'Previous page',
+    nextPage: 'Next page',
+    range: '{from}–{to} of {total}',
+    pageLabel: 'Page {page} of {pages}',
   },
   projects: {
     newProject: 'New project',
@@ -686,13 +687,14 @@ export const cs = {
     interrupted: 'Přerušeno {name}',
     killed: 'Ukončeno {name}',
   },
-  calendar: {
-    day: 'Den',
-    week: 'Týden',
-    month: 'Měsíc',
-    today: 'Dnes',
+  pagination: {
+    label: 'Stránkování',
     previous: 'Předchozí',
-    next: 'Následující',
+    next: 'Další',
+    previousPage: 'Předchozí strana',
+    nextPage: 'Další strana',
+    range: '{from}–{to} z {total}',
+    pageLabel: 'Strana {page} z {pages}',
   },
   projects: {
     newProject: 'Nový projekt',

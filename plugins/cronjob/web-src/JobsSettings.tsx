@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, CalendarClock, Check, ChevronLeft, ChevronRight, Clock, Hash, MessageSquare, PauseCircle, Plus, Search, Timer, Trash2, X } from 'lucide-react';
+import { Activity, CalendarClock, Check, Clock, Hash, MessageSquare, PauseCircle, Plus, Search, Timer, Trash2, X } from 'lucide-react';
 import { runtime, type BrainModelOption, type CronJob, type NotificationDestinationOption, type ManageSelectionItem } from './runtime';
 
 /** One page of jobs, matching the register size the built-in workspaces page at. */
@@ -168,8 +168,14 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
 
   return (
     <>
-      <C.DataTableRow interactive selected={selected} aria-selected={selected} className="group">
-        <C.DataTableCell className="flex items-center justify-center">
+      <C.DataTableRow
+        selected={selected}
+        aria-selected={selected}
+        onOpen={onSelect}
+        openLabel={s.openJob.replace('{name}', name)}
+        className="group"
+      >
+        <C.DataTableCell lines="auto" className="flex items-center justify-center">
           <span
             className={`h-2 w-2 rounded-full ${enabled ? 'bg-success' : 'bg-text-muted/50'}`}
             title={enabled ? s.enabled : s.paused}
@@ -179,11 +185,9 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
               also travels as text a screen reader reads out with the row. */}
           <span className="sr-only">{enabled ? s.enabled : s.paused}</span>
         </C.DataTableCell>
-        <C.DataTableCell>
-          <button type="button" onClick={onSelect} className="flex w-full min-w-0 items-center gap-2 text-left">
-            <span className="truncate text-sm text-text">{name}</span>
-            {!enabled ? <C.Badge tone="muted">{s.paused}</C.Badge> : null}
-          </button>
+        <C.DataTableCell title={name} className="flex items-center gap-2">
+          <span className="truncate text-sm text-text">{name}</span>
+          {!enabled ? <C.Badge tone="muted">{s.paused}</C.Badge> : null}
         </C.DataTableCell>
         <C.DataTableCell priority="wide" className="whitespace-nowrap">
           <C.Badge tone={validSchedule ? 'default' : 'danger'}>
@@ -192,7 +196,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
           </C.Badge>
         </C.DataTableCell>
         {ownerLabel !== null ? (
-          <C.DataTableCell priority="wide" title={ownerLabel} className="truncate text-xs text-text-muted">{ownerLabel}</C.DataTableCell>
+          <C.DataTableCell priority="wide" className="text-xs text-text-muted">{ownerLabel}</C.DataTableCell>
         ) : null}
         {/* Destination: one line that truncates, full name on hover. A channel or thread title can be far
             longer than the column, and wrapping it pushed every other row out of alignment. Shown only to
@@ -200,7 +204,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             that, so the column would repeat one value down the whole page — and "default channel" would
             name a channel the job never writes to. */}
         {adminFields ? (
-          <C.DataTableCell priority="wide" title={dest ?? s.channelDefault} className="truncate text-xs text-text-muted">
+          <C.DataTableCell priority="wide" title={dest ?? s.channelDefault} className="text-xs text-text-muted">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="shrink-0">
                 {destination && destination.kind !== 'channel' ? <MessageSquare size={12} aria-hidden /> : <Hash size={12} aria-hidden />}
@@ -217,12 +221,12 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             </span>
           </span>
         </C.DataTableCell>
-        <C.DataTableCell className="flex items-center justify-end gap-1.5">
+        <C.DataTableCell lines="auto" className="flex items-center justify-end">
           {/* On the row, not only in the drawer: a save that fails after the user closed the editor still
               has to show itself — and still has to offer Retry. */}
           <C.AutoSaveStatus status={autosave.status} onRetry={autosave.retry} />
-          <ChevronRight size={15} aria-hidden className="shrink-0 text-text-muted/50 transition-colors group-hover:text-text" />
         </C.DataTableCell>
+        <C.DataTableChevronCell />
       </C.DataTableRow>
 
       {selected ? (
@@ -409,17 +413,19 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
     <div className="flex min-w-0 flex-col gap-3">
       <C.DataTable
         ariaLabel={s.title}
-        columns={isAdmin ? '2rem minmax(0,1fr) 9.5rem 7rem minmax(0,12rem) 7rem 5.5rem' : '2rem minmax(0,1fr) 9.5rem 7rem 5.5rem'}
-        compactColumns="2rem minmax(0,1fr) 5.5rem"
+        columns={isAdmin ? '2rem minmax(0,1fr) 9.5rem 7rem minmax(0,12rem) 7rem 4.5rem 1.25rem' : '2rem minmax(0,1fr) 9.5rem 7rem 4.5rem 1.25rem'}
+        compactColumns="2rem minmax(0,1fr) 4.5rem 1.25rem"
       >
         <C.DataTableRow header>
-          <C.DataTableCell header><span className="sr-only">{s.enabled}</span></C.DataTableCell>
+          {/* The dot column is an icon column: it needs the accessible name, not a second visible one. */}
+          <C.DataTableCell header labelHidden>{s.enabled}</C.DataTableCell>
           <C.DataTableCell header>{s.name}</C.DataTableCell>
           <C.DataTableCell header priority="wide">{s.schedule}</C.DataTableCell>
           {isAdmin ? <C.DataTableCell header priority="wide">{s.ownerColumn}</C.DataTableCell> : null}
           {isAdmin ? <C.DataTableCell header priority="wide">{s.channel}</C.DataTableCell> : null}
           <C.DataTableCell header priority="wide" className="whitespace-nowrap">{s.colLastRun}</C.DataTableCell>
           <C.DataTableCell header role="presentation" aria-hidden>{null}</C.DataTableCell>
+          <C.DataTableCell header aria-hidden>{null}</C.DataTableCell>
         </C.DataTableRow>
         {pageItems.map((job) => (
           <CronJobRow
@@ -439,21 +445,7 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
         ))}
       </C.DataTable>
 
-      <div className="flex flex-col gap-2 border-b border-border/80 pb-3 sm:flex-row sm:items-center sm:justify-between">
-        <span className="font-mono text-xs text-text-muted">
-          {s.pageRange
-            .replace('{from}', String(clampedPage * PAGE_SIZE + 1))
-            .replace('{to}', String(clampedPage * PAGE_SIZE + pageItems.length))
-            .replace('{total}', String(filtered.length))}
-        </span>
-        <div className="flex items-center gap-1">
-          <C.Button variant="ghost" icon={ChevronLeft} disabled={clampedPage === 0} onClick={() => setPage(clampedPage - 1)}>{s.prevPage}</C.Button>
-          <span className="min-w-24 text-center font-mono text-xs text-text-muted">
-            {s.pageLabel.replace('{page}', String(clampedPage + 1)).replace('{pages}', String(pageCount))}
-          </span>
-          <C.Button variant="ghost" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(clampedPage + 1)}>{s.nextPage}<ChevronRight size={15} className="ml-1" aria-hidden /></C.Button>
-        </div>
-      </div>
+      <C.Pager page={clampedPage} pageSize={PAGE_SIZE} total={filtered.length} onPageChange={setPage} ariaLabel={s.title} />
     </div>
   );
 
@@ -465,10 +457,7 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
           <div className="flex min-w-0 flex-col gap-4">
             <C.ControlSurfaceToolbar className="flex-col items-stretch">
               <div className="flex min-w-0 flex-wrap items-center gap-2 py-3">
-                <div className="relative min-w-[15rem] flex-1">
-                  <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-                  <C.Input value={query} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)} placeholder={s.searchPlaceholder} className="pl-9" />
-                </div>
+                <C.RegisterSearch value={query} onChange={setQuery} placeholder={s.searchPlaceholder} label={s.searchPlaceholder} />
                 <C.Segmented
                   value={filter}
                   onChange={(v: string) => setFilter(v as Filter)}
@@ -502,16 +491,17 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
   );
 
   // In the Settings deck the surrounding panel supplies the page frame; on its own page the section
-  // wears the same spatial workspace every built-in page wears.
+  // draws the whole frame itself, which is why the bundle declares `jobs` in `ownsPageFrame`.
   if (surface === 'deck') return surfaceDocument;
   return (
-    <C.SpatialWorkspaceLayout
+    <C.WorkspaceShell
+      variant="register"
       hero={{
         eyebrow: s.workspaceEyebrow,
         title: s.title,
         count: rows.length,
         description: s.sectionHint,
-        mascotState: isLoading ? 'saving' : isError ? 'error' : 'idle',
+        mascot: isLoading ? 'saving' : isError ? 'error' : 'idle',
         status: !isLoading && !isError ? <span className="workspace-status">{s.workspaceReady}</span> : undefined,
         action: addButton,
         metrics: <>
@@ -522,6 +512,6 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
       }}
     >
       {surfaceDocument}
-    </C.SpatialWorkspaceLayout>
+    </C.WorkspaceShell>
   );
 }

@@ -1,16 +1,17 @@
 /** cronjob — browser UI bundle.
  *
- *  Registers the scheduled-jobs editor both as Automation's own workspace and as a Settings section.
- *  The page registration keeps the host from wrapping a self-contained spatial workspace in a second
- *  page frame. Built by elowen-plugin-ui-kit into web/index.js.
+ *  Registers the scheduled-jobs editor as Automation's Settings section. The host serves that sole
+ *  section at the bare `/p/cronjob` route as well, and `ownsPageFrame` tells it to draw no page frame
+ *  of its own around a section that already renders a whole workspace shell. Built by
+ *  elowen-plugin-ui-kit into web/index.js.
  */
 import { registerCronUi } from './runtime';
 import { JobsSettings } from './JobsSettings';
 
 registerCronUi({
-  requiresApiVersion: 1,
-  pages: { '': JobsSettings },
+  requiresApiVersion: 8,
   settings: {
     'jobs': JobsSettings,
   },
+  ownsPageFrame: ['jobs'],
 });

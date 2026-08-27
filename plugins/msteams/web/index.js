@@ -473,22 +473,35 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
   };
   const inherited = policies.some((item) => item.roleId === "*");
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceDocument, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex w-full flex-wrap items-center gap-3", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "relative min-w-[15rem] flex-1", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, { size: 14, "aria-hidden": true, className: "pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { value: search, onChange: (event) => setSearch(event.target.value), placeholder: s.peopleSearch, className: "pl-9" })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex rounded-lg border border-border bg-surface p-1", children: ["all", "mapped", "unmapped"].map((value) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "button",
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceToolbar, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.RegisterSearch,
         {
-          type: "button",
-          onClick: () => setFilter(value),
-          className: `rounded-md px-3 py-1.5 text-xs font-medium transition ${filter === value ? "bg-accent text-accent-foreground" : "text-text-muted hover:text-text"}`,
-          children: value === "all" ? s.filterAll : value === "mapped" ? s.filterMapped : s.filterUnmapped
-        },
-        value
-      )) })
-    ] }) }),
+          value: search,
+          onChange: setSearch,
+          placeholder: s.peopleSearch,
+          label: s.peopleSearch,
+          onClear: () => setSearch(""),
+          clearLabel: s.peopleSearchClear,
+          count: visible.length,
+          countLabel: s.peopleSearchCount
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Segmented,
+        {
+          "aria-label": s.peopleFilter,
+          nowrap: true,
+          value: filter,
+          onChange: (value) => setFilter(value),
+          options: [
+            { value: "all", label: s.filterAll },
+            { value: "mapped", label: s.filterMapped },
+            { value: "unmapped", label: s.filterUnmapped }
+          ]
+        }
+      )
+    ] }),
     response.people.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleEmptyTitle, description: s.peopleEmptyDescription, icon: Users }) }) : visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleNoResults, description: s.peopleNoResultsDescription, icon: Search }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceRegister, { className: "grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(18rem,0.8fr)_minmax(24rem,1.2fr)]", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex min-w-0 flex-col gap-2", children: visible.map((person) => {
         const mapped = directPolicyIndex(policies, person) >= 0;
@@ -595,7 +608,7 @@ function LoadedWorkspace({ detail }) {
     eyebrow: s.workspaceEyebrow,
     title: s.title,
     description: s.workspaceIntro,
-    mascotState: peopleError !== null || !configured ? "error" : draft.status === "saving" ? "saving" : "idle",
+    mascot: peopleError !== null || !configured ? "error" : draft.status === "saving" ? "saving" : "idle",
     status: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-3", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "workspace-status", children: configured && people?.active ? s.workspaceReady : s.workspaceSetup }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.AutoSaveStatus, { status: draft.status, onRetry: draft.retry })
@@ -611,8 +624,9 @@ function LoadedWorkspace({ detail }) {
     ] })
   };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-    C.SpatialWorkspaceLayout,
+    C.WorkspaceShell,
     {
+      variant: "register",
       hero,
       navigation: {
         sections: [
@@ -646,16 +660,16 @@ function TeamsWorkspace() {
   const detail = hooks.usePluginDetail("msteams");
   const hero = (0, import_react3.useMemo)(() => ({ eyebrow: s.workspaceEyebrow, title: s.title, description: s.workspaceIntro }), [s]);
   if (detail.isError) {
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SpatialWorkspaceLayout, { hero, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: s.settingsLoadError, onRetry: () => detail.refetch() }) }) }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceShell, { variant: "register", hero, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: s.settingsLoadError, onRetry: () => detail.refetch() }) }) }) });
   }
   if (detail.isLoading || detail.data === void 0) {
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SpatialWorkspaceLayout, { hero, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "cards" }) }) }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceShell, { variant: "register", hero, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "cards" }) }) }) });
   }
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoadedWorkspace, { detail: detail.data });
 }
 
 // plugins/msteams/web-src/index.tsx
 registerTeamsUi({
-  requiresApiVersion: 2,
+  requiresApiVersion: 8,
   pages: { "": TeamsWorkspace }
 });

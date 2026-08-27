@@ -60,8 +60,8 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: 
             <C.DataTable ariaLabel={s.conflicts} columns="minmax(0,1fr) auto" compactColumns="minmax(0,1fr)">
               {(conflicts.data?.conflicts ?? []).map((conflict) => (
                 <C.DataTableRow key={conflict.rel}>
-                  <C.DataTableCell><span className="truncate font-mono text-xs" title={conflict.rel}>{conflict.rel}</span></C.DataTableCell>
-                  <C.DataTableCell className="justify-end">
+                  <C.DataTableCell className="font-mono text-xs">{conflict.rel}</C.DataTableCell>
+                  <C.DataTableCell lines="auto" className="justify-end">
                     <div className="flex flex-wrap justify-end gap-2">
                       <C.Button disabled={resolve.isPending}
                         onClick={() => resolve.mutate({ rel: conflict.rel, keep: 'local' })}>{s.keepLocal}</C.Button>
@@ -347,10 +347,10 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
               return (
                 <C.DataTableRow key={workspace.workspaceId}>
                   <C.DataTableCell>{workspace.label}</C.DataTableCell>
-                  <C.DataTableCell>
+                  <C.DataTableCell lines="auto">
                     {row ? <C.Badge tone={statusTone(row)}>{statusLabel(row, s)}</C.Badge> : null}
                   </C.DataTableCell>
-                  <C.DataTableCell className="justify-end">
+                  <C.DataTableCell lines="auto" className="justify-end">
                     <div className="flex flex-col items-end gap-2">
                       {/* A workspace mirror can block on a bulk deletion or fail exactly like the project
                           one. Showing only a badge left those states with nothing to click, so the same

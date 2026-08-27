@@ -290,7 +290,7 @@ function PairModal({ onClose }) {
     ) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-center gap-4 py-2 text-center", children: [
       state?.qrImage ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-text-muted", children: s.pairScan }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: state.qrImage, alt: "WhatsApp QR", width: 280, height: 280, className: "rounded-md bg-white p-2" })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: state.qrImage, alt: "WhatsApp QR", width: 280, height: 280, className: "h-auto w-full max-w-[280px] rounded-md bg-white p-2" })
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "py-6 text-sm text-text-muted", children: s.pairWaiting }),
       state?.code ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "w-full border-t border-border pt-3", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-text-muted", children: s.pairCode }),

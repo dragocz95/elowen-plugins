@@ -10,30 +10,23 @@
  *  are simplified: the hero mascot and the HelpTip tooltip body. HelpTip keeps its trigger BUTTON, so the
  *  form's button set matches production.
  */
-import {
-  createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState,
+import { useCallback, useEffect, useId, useMemo, useRef, useState,
   type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type InputHTMLAttributes, type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Coins, Cpu, FolderGit2,
-  GitCommitHorizontal, Link2, Loader2, Maximize2, Search, Settings2, Timer, Trash2, TriangleAlert,
+  CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Cpu, FolderGit2,
+  GitCommitHorizontal, Loader2, Maximize2, Search, Settings2, Trash2, TriangleAlert,
   XCircle, type LucideIcon,
 } from 'lucide-react';
 import { apiErrorMessage, type Task } from './hostClient';
-import {
-  useAgentsPlugin, useBrainModels, useConfig, useProjectGit, useProjects, useSessionInfos,
-  useSessionPane, useTaskUsage, useTasks, useToast, useTranslation, type StallState,
+import { useBrainModels, useConfig, useProjectGit, useProjects,
+  useSessionPane, useToast, useTranslation,
 } from './hostHooks';
-import {
-  agentDisplayName, DIVIDER, formatCost, formatTokens,
-  liveState, PROVIDERS, taskAgentName, taskElapsed, taskExec, taskForSession, taskSessionName,
-  tailSnippet, type DateRange, type DerivedSignal, type RangePreset, type Tone,
+import { DIVIDER, PROVIDERS, type DateRange, type RangePreset, type Tone,
 } from './hostUtils';
 import { ProjectIcon } from './hostProjectIcon';
 import type { SaveStatus } from './useAutoSaveStatus';
-
-export { ProjectIcon };
 
 /** The instance's display name — the app reads it from the brand config; here it is the default, which
  *  is what the moved suites assert the hero mascot is labelled with. */
@@ -160,32 +153,170 @@ export function DataTable({ ariaLabel, columns, compactColumns = 'minmax(0,1fr)'
   const style: TableStyle = { '--data-table-columns': columns, '--data-table-compact-columns': compactColumns };
   return <div role="table" aria-label={ariaLabel} style={style} className={`@container overflow-x-clip rounded-lg border border-border/80 ${className}`} {...rest}>{children}</div>;
 }
-export function DataTableRow({ children, header = false, selected = false, interactive = false, className = '', ...rest }: {
+type DataTableRowBase = {
   children: ReactNode; header?: boolean; selected?: boolean; interactive?: boolean;
-} & HTMLAttributes<HTMLDivElement>) {
+  height?: 'standard' | 'tall';
+} & HTMLAttributes<HTMLDivElement>;
+
+/** Opening a row is ONE contract and the short label is part of it: it becomes the accessible name of
+ *  the row's control, and without it that name falls back to the row's entire text. */
+type DataTableRowOpen =
+  | { onOpen: () => void; openLabel: string }
+  | { onOpen?: undefined; openLabel?: undefined };
+
+export type DataTableRowProps = DataTableRowBase & DataTableRowOpen;
+
+export function DataTableRow({ children, header = false, selected = false, interactive = false, height = 'standard', onOpen, openLabel, className = '', ...rest }: DataTableRowProps) {
   return (
     <div
       role="row"
       data-state={selected ? 'selected' : 'idle'}
-      className={`data-table-grid items-center gap-x-3 border-b border-border/70 px-4 last:border-b-0 ${header ? 'data-table-header sticky top-0 z-10 py-2.5' : `py-3.5 ${interactive ? 'interactive-row' : ''}`} ${selected ? 'bg-accent/[0.055]' : ''} ${className}`}
+      data-row-height={header ? undefined : height}
+      className={`data-table-grid items-center gap-x-3 border-b border-border/70 px-4 last:border-b-0 ${header ? 'data-table-header sticky top-0' : `${interactive || onOpen ? 'interactive-row' : ''}`} ${selected ? 'bg-accent/[0.055]' : ''} ${className}`}
       {...rest}
     >
       {children}
+      {onOpen ? (
+        // The real button the host stretches over the row: ONE tab stop, native Enter/Space, and a short
+        // accessible name. It stops propagation so a row that also carries an onClick does not fire twice.
+        <button
+          type="button"
+          className="data-table-row-open"
+          aria-label={openLabel}
+          onClick={(event) => { event.stopPropagation(); onOpen(); }}
+        />
+      ) : null}
     </div>
   );
 }
-export function DataTableCell({ children, header = false, priority = 'always', className = '', ...rest }: {
+export function DataTableCell({ children, header = false, priority = 'always', lines = 1, labelHidden = false, reveal = false, title, className = '', ...rest }: {
   children: ReactNode; header?: boolean; priority?: 'always' | 'wide';
+  lines?: 1 | 'auto'; labelHidden?: boolean; reveal?: boolean;
 } & HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       role={header ? 'columnheader' : 'cell'}
       data-priority={priority}
-      className={`${priority === 'wide' ? 'data-table-wide' : ''} min-w-0 ${header ? 'text-[10px] font-semibold uppercase tracking-wider text-text-muted' : ''} ${className}`}
+      data-lines={lines}
+      data-reveal={reveal ? 'hover' : undefined}
+      // A truncated cell hides part of its own content, so the full value stays reachable on `title`.
+      // Only when the cell IS the text; a composed cell passes its own.
+      title={title ?? (lines === 1 && typeof children === 'string' ? children : undefined)}
+      className={`data-table-cell ${priority === 'wide' ? 'data-table-wide' : ''} min-w-0 ${header ? 'text-[10px] font-semibold uppercase tracking-wider text-text-muted' : ''} ${className}`}
       {...rest}
     >
-      {children}
+      {labelHidden ? <span className="sr-only">{children}</span> : children}
     </div>
+  );
+}
+
+/** The trailing open affordance of an interactive register — its own `1.25rem` track in both templates. */
+export function DataTableChevronCell({ className = '' }: { className?: string }) {
+  return (
+    <DataTableCell aria-hidden className={`data-table-chevron flex items-center justify-end ${className}`}>
+      <ChevronRight size={12} />
+    </DataTableCell>
+  );
+}
+
+/** The ONE pager: range on the left, previous / page / next on the right. `pageCount`, `from` and `to`
+ *  are derived here so no caller can drift, and every label comes from the host `pagination` namespace —
+ *  a caller passes none. */
+export function Pager({ page, pageSize, total, onPageChange, ariaLabel, className = '' }: {
+  page: number; pageSize: number; total: number; onPageChange: (page: number) => void;
+  ariaLabel?: string; className?: string;
+}) {
+  const { t } = useTranslation();
+  const pageCount = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
+  const current = Math.min(Math.max(page, 0), pageCount - 1);
+  const from = total === 0 ? 0 : current * pageSize + 1;
+  const to = Math.min(total, (current + 1) * pageSize);
+  return (
+    <nav aria-label={ariaLabel ?? t.pagination.label} className={`pager ${className}`}>
+      <span>{t.pagination.range.replace('{from}', String(from)).replace('{to}', String(to)).replace('{total}', String(total))}</span>
+      <div>
+        <Button aria-label={t.pagination.previousPage} disabled={current === 0} onClick={() => onPageChange(current - 1)}>
+          <ChevronLeft size={14} aria-hidden />
+          <span>{t.pagination.previous}</span>
+        </Button>
+        <span aria-live="polite">{t.pagination.pageLabel.replace('{page}', String(current + 1)).replace('{pages}', String(pageCount))}</span>
+        <Button aria-label={t.pagination.nextPage} disabled={current >= pageCount - 1} onClick={() => onPageChange(current + 1)}>
+          <span>{t.pagination.next}</span>
+          <ChevronRight size={14} aria-hidden />
+        </Button>
+      </div>
+    </nav>
+  );
+}
+
+/** The register toolbar's search field: leading icon, optional clear button, optional match count. It
+ *  grows to fill the toolbar but may shrink to nothing — the copy-pasted original hard-coded a 240px
+ *  minimum that pushed every sibling control out of a narrow toolbar. */
+export function RegisterSearch({ value, onChange, placeholder, label, onClear, clearLabel, count, countLabel, className = '' }: {
+  value: string; onChange: (value: string) => void; placeholder?: string; label?: string;
+  onClear?: () => void; clearLabel?: string; count?: number; countLabel?: string; className?: string;
+}) {
+  const clearable = !!onClear && !!clearLabel && value !== '';
+  const showCount = typeof count === 'number';
+  return (
+    <div className={`register-search ${className}`}>
+      <Search size={14} aria-hidden />
+      <Input
+        type="search"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        aria-label={label ?? placeholder}
+      />
+      <div>
+        {showCount ? (
+          <span role="status">
+            <span aria-hidden>{count}</span>
+            {countLabel ? <span className="sr-only">{countLabel}</span> : null}
+          </span>
+        ) : null}
+        {clearable ? <button type="button" aria-label={clearLabel} onClick={onClear}>×</button> : null}
+      </div>
+    </div>
+  );
+}
+
+/** A full-application takeover: portaled to <body>, `role="dialog"` named by its title, one labelled
+ *  back control, and Escape as its second exit. */
+export function WorkspaceTakeover({ title, onBack, backLabel, toolbar, children }: {
+  title: string; onBack: () => void; backLabel?: string; toolbar?: ReactNode; children: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onBack(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onBack]);
+  const back = backLabel ?? t.common.back;
+  if (!mounted) return null;
+  return createPortal(
+    <div className="overlay-layer-modal">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        data-elowen-takeover
+        data-presentation="fullscreen"
+        className="overlay-surface workspace-takeover"
+      >
+        <div className="workspace-takeover__header">
+          <button type="button" aria-label={back} title={back} onClick={onBack}><ChevronLeft size={18} aria-hidden /></button>
+          <h2 id={titleId}>{title}</h2>
+          {toolbar ? <div>{toolbar}</div> : null}
+        </div>
+        <div className="workspace-takeover__body">{children}</div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -279,70 +410,95 @@ function SpatialSectionRail({ sections, value, onChange, ariaLabel }: {
   );
 }
 
-function SpatialWorkspaceHero({ eyebrow, title, count, description, status, action, children }: {
+export interface WorkspaceHeroProps {
   eyebrow?: string; title: string; count?: number; description?: string;
-  status?: ReactNode; action?: ReactNode; mascotState?: string; children: ReactNode;
-}) {
+  status?: ReactNode; action?: ReactNode; icon?: LucideIcon;
+  /** The decorative mascot panel. `false` (the default) is the compact title block a single working
+   *  surface wants; a state renders the panel and makes the hero the full register opening. */
+  mascot?: string | false;
+  /** WorkspaceMetric children. Supplying them opens the metric row under the title block. */
+  metrics?: ReactNode;
+}
+
+/** The ONE workspace hero every shell opens with. */
+export function WorkspaceHero({ eyebrow, title, count, description, status, action, icon: Icon, mascot = false, metrics }: WorkspaceHeroProps) {
+  const hasMascot = mascot !== false;
+  const hasBody = hasMascot || metrics != null;
+  const hasActions = status != null || action != null;
   return (
-    <section className="spatial-workspace-hero">
-      <header className="spatial-workspace-hero__header">
-        <div>
-          {eyebrow ? <div className="workspace-header__eyebrow">{eyebrow}</div> : null}
-          <div>
+    <section className="workspace-hero" data-mascot={hasMascot ? mascot : undefined}>
+      <header className="workspace-hero__head">
+        {Icon ? <span className="workspace-hero__icon"><Icon size={20} aria-hidden /></span> : null}
+        <div className="workspace-hero__titles">
+          {eyebrow ? <div className="workspace-hero__eyebrow">{eyebrow}</div> : null}
+          <div className="workspace-hero__headline">
             <h1>{title}</h1>
-            {count !== undefined ? <span className="workspace-header__count">{count}</span> : null}
+            {count !== undefined ? <span className="workspace-hero__count">{count}</span> : null}
           </div>
-          {description ? <p>{description}</p> : null}
+          {description ? <p className="workspace-hero__description">{description}</p> : null}
         </div>
-        <div className="workspace-header__actions">{status}{action}</div>
+        {hasActions ? (
+          <div className="workspace-hero__actions">
+            {status != null ? <span className="workspace-hero__status">{status}</span> : null}
+            {action}
+          </div>
+        ) : null}
       </header>
-      <div className="spatial-workspace-hero__body">
-        <div className="spatial-workspace-hero__mascot" data-testid="workspace-hero-mascot"><SpatialMascot /></div>
-        <div className="spatial-workspace-hero__metrics">{children}</div>
-      </div>
+      {hasBody ? (
+        <div className="workspace-hero__body">
+          {hasMascot ? <div className="workspace-hero__mascot" data-testid="workspace-hero-mascot"><SpatialMascot /></div> : null}
+          <div className="workspace-hero__metrics">{metrics}</div>
+        </div>
+      ) : null}
     </section>
   );
 }
 
-export function SpatialWorkspaceLayout({ hero, navigation, children, className = '' }: {
-  hero: { eyebrow?: string; title: string; count?: number; description?: string; status?: ReactNode; action?: ReactNode; mascotState?: string; metrics: ReactNode };
+/** The canonical page shell. All three variants share one anatomy (hero, optional rail, content); the
+ *  variant only decides which parts are present. */
+export function WorkspaceShell({ variant = 'register', hero, navigation, children, className = '' }: {
+  variant?: 'register' | 'deck' | 'single';
+  hero: WorkspaceHeroProps;
   navigation?: { sections: SpatialDeckSection[]; value: string; onChange: (id: string) => void; ariaLabel: string };
   children: ReactNode;
   className?: string;
 }) {
-  const { metrics, ...heroProps } = hero;
   return (
-    <WorkspacePage className={`spatial-workspace-layout ${className}`}>
-      <div className="spatial-workspace-layout__hero">
-        <SpatialWorkspaceHero {...heroProps}>{metrics}</SpatialWorkspaceHero>
-      </div>
+    <div className={`workspace-shell ${className}`.trim()} data-variant={variant}>
+      <WorkspaceHero {...hero} />
       {navigation ? <SpatialSectionRail {...navigation} /> : null}
-      <div className="workspace-content" data-testid="spatial-workspace-layout">{children}</div>
-    </WorkspacePage>
+      <section
+        className="workspace-shell__content spatial-content-surface"
+        data-testid={variant === 'register' ? 'spatial-workspace-layout' : 'spatial-content-surface'}
+      >
+        {children}
+      </section>
+    </div>
   );
 }
 
-/** The slim header a workspace wears when it is mostly one working surface (no mascot hero). */
-export function CompactWorkspaceHeader({ eyebrow, title, count, description, status, action, icon: Icon }: {
+/** The register shell under its pre-unification name — a thin alias onto WorkspaceShell's `register`
+ *  variant, kept because bundles across two repositories mount it by that name. */
+export function SpatialWorkspaceLayout({ hero, navigation, children, className = '' }: {
+  hero: Omit<WorkspaceHeroProps, 'mascot' | 'metrics'> & { mascotState?: string; metrics: ReactNode };
+  navigation?: { sections: SpatialDeckSection[]; value: string; onChange: (id: string) => void; ariaLabel: string };
+  children: ReactNode;
+  className?: string;
+}) {
+  const { metrics, mascotState = 'idle', ...heroProps } = hero;
+  return (
+    <WorkspaceShell variant="register" className={className} hero={{ ...heroProps, mascot: mascotState, metrics }} navigation={navigation}>
+      {children}
+    </WorkspaceShell>
+  );
+}
+
+/** The slim header a workspace wears when it is mostly one working surface: the mascot-less hero. */
+export function CompactWorkspaceHeader({ eyebrow, title, count, description, status, action, icon }: {
   eyebrow?: string; title: string; count?: number; description?: string;
   status?: ReactNode; action?: ReactNode; icon?: LucideIcon;
 }) {
-  return (
-    <header className="workspace-header">
-      <div>
-        {Icon ? <span className="workspace-header__icon"><Icon size={20} aria-hidden /></span> : null}
-        <div>
-          {eyebrow ? <div className="workspace-header__eyebrow">{eyebrow}</div> : null}
-          <div>
-            <h1>{title}</h1>
-            {count !== undefined ? <span className="workspace-header__count">{count}</span> : null}
-          </div>
-          {description ? <p>{description}</p> : null}
-        </div>
-      </div>
-      <div className="workspace-header__actions">{status}{action}</div>
-    </header>
-  );
+  return <WorkspaceHero eyebrow={eyebrow} title={title} count={count} description={description} status={status} action={action} icon={icon} mascot={false} />;
 }
 
 export function WorkspaceMetric({ label, value, icon: Icon }: { label: string; value: ReactNode; icon?: LucideIcon }) {
@@ -1392,39 +1548,6 @@ export function OutcomeBadge({ outcome }: { outcome?: string | null }) {
   );
 }
 
-/** One-line agent identity: the friendly agent name (or the model as a fallback) and the run duration,
- *  frozen once the task finishes. */
-export function AgentIdentityStrip({ task, showTime = true, showIcon = false, iconSize = 14 }: { task: Task; showTime?: boolean; showIcon?: boolean; iconSize?: number }) {
-  const { data: config } = useConfig();
-  const exec = taskExec(task.labels) || (config as { defaults?: { exec?: string } } | undefined)?.defaults?.exec || '';
-  const identity = taskSessionName(task) ?? taskAgentName(task) ?? exec;
-  const ran = showTime ? taskElapsed(task, Date.now()) : null;
-  if (!identity && !ran) return null;
-  return (
-    <div>
-      {showIcon ? <ModelIcon name={exec} size={iconSize} /> : null}
-      {identity ? <span>{agentDisplayName(identity)}</span> : null}
-      {ran ? <><span aria-hidden>·</span><span><Timer size={11} aria-hidden />{ran}</span></> : null}
-    </div>
-  );
-}
-
-/** The live-state dot. Gated on the agents plugin product-wide: without it the dot could only ever say
- *  a meaningless neutral 'idle', so it hides rather than lie. */
-export function AgentStatusDot({ signal, live = false, stall, silenceSec = 0 }: {
-  signal?: DerivedSignal; live?: boolean; size?: 'sm' | 'md'; stall?: StallState; silenceSec?: number;
-}) {
-  const { t } = useTranslation();
-  const agentsUi = useAgentsPlugin();
-  if (!agentsUi) return null;
-  const state = stall === 'stuck' ? 'stuck' : stall === 'stalled' ? 'stalled' : liveState(signal, live);
-  const minutes = String(Math.max(1, Math.floor(silenceSec / 60)));
-  const label = state === 'stalled' ? t.agent.stalled.replace('{min}', minutes)
-    : state === 'stuck' ? t.agent.stuck.replace('{min}', minutes)
-    : t.agent[state === 'idle' ? 'idle' : state === 'needs_input' ? 'needsInput' : state];
-  return <span role="status" aria-label={label} title={label} data-live-state={state} />;
-}
-
 /** Compact segmented progress bar for an epic's phases. */
 export function ProgressRibbon({ phases, className = '' }: { phases: Task[]; className?: string; active?: boolean }) {
   return (
@@ -1443,68 +1566,6 @@ export function PatchView({ diff, empty, loading = false }: { diff: string; empt
       {diff.split('\n').map((line, i) => <div key={i}>{line || ' '}</div>)}
     </pre>
   );
-}
-
-/** Live tail line for a running session — polls only while mounted, so closed cards stay quiet. */
-function LiveTailLine({ name }: { name: string }) {
-  const { t } = useTranslation();
-  const { tail, isLoading } = useSessionPane(name, 3);
-  const line = tailSnippet(tail);
-  return (
-    <div>
-      <ChevronRight size={12} aria-hidden />
-      <span>{line || (isLoading ? t.common.loading : t.sessions.noOutput)}</span>
-    </div>
-  );
-}
-
-/** One context line per task: live tail (running), result summary (closed), blocker reason (blocked)
- *  or a subtle Ready. Nothing when there is nothing to say. */
-export function TaskContextLine({ task, sessionName, blockers }: { task: Task; sessionName?: string | null; blockers?: Task[] }) {
-  const { t } = useTranslation();
-  if (sessionName) return <LiveTailLine name={sessionName} />;
-  if (task.status === 'closed' || task.status === 'cancelled') {
-    const fail = task.outcome === 'fail';
-    return (
-      <p>
-        {fail ? <XCircle size={12} aria-hidden /> : <CheckCircle2 size={12} aria-hidden />}
-        <span>{task.result_summary?.trim() || t.tasks.noSummary}</span>
-      </p>
-    );
-  }
-  if (blockers && blockers.length > 0) {
-    return (
-      <p>
-        <Link2 size={12} aria-hidden />
-        <span>{t.agent.waitingFor.replace('{deps}', blockers.map((b) => b.title).join(', '))}</span>
-      </p>
-    );
-  }
-  if (task.status === 'open') return <p>{t.agent.ready}</p>;
-  return null;
-}
-
-/** Token usage as IN / CACHE / OUT (and cost) pills. */
-function UsageBadge({ usage }: { usage: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number; costUsd: number | null } }) {
-  const { t } = useTranslation();
-  if (!usage || usage.total === 0) return null;
-  const cache = usage.cacheRead + usage.cacheWrite;
-  const hasCost = usage.costUsd != null && usage.costUsd > 0;
-  return (
-    <span>
-      <span>{t.usage.input}{formatTokens(usage.input)}</span>
-      {cache > 0 ? <span>{t.usage.cache}{formatTokens(cache)}</span> : null}
-      <span>{t.usage.output}{formatTokens(usage.output)}</span>
-      {hasCost ? <span><Coins size={10} aria-hidden />{t.usage.cost}{formatCost(usage.costUsd!)}</span> : null}
-    </span>
-  );
-}
-
-/** Connected UsageBadge: fetches a task's usage (polling while live). Nothing until it resolves. */
-export function TaskUsageBadge({ taskId, live = false }: { taskId: string; live?: boolean }) {
-  const { data } = useTaskUsage(taskId, live);
-  if (!data) return null;
-  return <UsageBadge usage={data} />;
 }
 
 /** Compact "what changed" strip: dirty count + last commit subject, resolved against the first project. */
@@ -1822,61 +1883,20 @@ export function LiveTail({ name, lines = 20, onExpand }: { name: string; lines?:
   );
 }
 
-/** The full agent terminal in a modal, titled by the session's role (Autopilot, Planner) or its
- *  friendly agent name, with the task it is working on as the subtitle.
- *
- *  The app mounts xterm in here through a dynamic import. This repo has no xterm and no next/dynamic,
- *  so the pane is the terminal's own `data-testid` and the session name — which is exactly what the
- *  moved suites assert, because they stubbed the xterm panel with the same node. */
-export function TerminalModal({ session, onClose }: { session: string; onClose: () => void }) {
-  const tasks = useTasks();
-  const { t } = useTranslation();
-  const info = useSessionInfos().data?.find((s) => s.name === session);
-  const task = taskForSession((tasks.data ?? []) as Task[], session);
-  const title = info?.role === 'overseer' ? t.sessions.roleOverseer
-    : info?.role === 'pilot' ? t.sessions.rolePilot
-    : agentDisplayName(session);
-  return (
-    <Modal title={title} description={task?.title} onClose={onClose}>
-      <div data-testid="term">{session}</div>
-    </Modal>
-  );
-}
-
 // ── settings surfaces ────────────────────────────────────────────────────────────────────────────────
-
-/** Inside a ConstellationScope a settings group renders as an orbital field and each row as a floating
- *  pod. The app draws the ellipse and its filaments from measured geometry; jsdom measures zero, so only
- *  the DOM contract travels — and that contract is what a section is asserted through: the pod's orb is
- *  a second button carrying the row's label, and clicking it forwards to the control's hidden
- *  [data-selection-manage] trigger. */
-const ConstellationContext = createContext<{ core: string } | null>(null);
-
-export function ConstellationScope({ core, children }: { core: string; children: ReactNode }) {
-  return <ConstellationContext.Provider value={{ core }}>{children}</ConstellationContext.Provider>;
-}
-
-/** Opts a subtree back OUT of an enclosing scope — a hybrid section keeps its list groups classic. */
-function ClassicScope({ children }: { children: ReactNode }) {
-  return <ConstellationContext.Provider value={null}>{children}</ConstellationContext.Provider>;
-}
-
-const useConstellation = () => useContext(ConstellationContext);
 
 export function SettingsDocument({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <div data-control-surface data-settings-document className={`control-surface-document settings-document ${className}`}>{children}</div>;
 }
 
-export function SettingsGroup({ title, description, icon: Icon, actions, tone = 'default', density = 'comfortable', children, className = '', variant }: {
+export function SettingsGroup({ title, description, icon: Icon, actions, tone = 'default', density = 'comfortable', children, className = '' }: {
   title?: string; description?: string; icon?: LucideIcon; actions?: ReactNode;
   tone?: 'default' | 'danger'; density?: 'comfortable' | 'compact';
-  children?: ReactNode; className?: string; variant?: 'classic';
+  children?: ReactNode; className?: string;
+  /** Accepted and ignored: it opted a group out of the orbital rendering the host has since retired. */
+  variant?: 'classic';
 }) {
-  const cosmos = useConstellation();
-  if (cosmos && variant !== 'classic') {
-    return <section className="cosmos" data-testid="cosmos" data-core={title ?? cosmos.core}><div className="cosmos-pods">{children}</div></section>;
-  }
-  const classic = (
+  return (
     <section data-settings-group data-tone={tone} data-density={density} className={`settings-group ${className}`}>
       {title || description || actions ? (
         <header className="settings-group__header">
@@ -1893,39 +1913,12 @@ export function SettingsGroup({ title, description, icon: Icon, actions, tone = 
       {children ? <div className="settings-group__body">{children}</div> : null}
     </section>
   );
-  return cosmos ? <ClassicScope>{classic}</ClassicScope> : classic;
 }
 
 export function SettingsRow({ label, description, icon: Icon, status, actions, children, className = '' }: {
   label: string; description?: string; icon?: LucideIcon; status?: ReactNode; actions?: ReactNode;
   children?: ReactNode; className?: string;
 }) {
-  const cosmos = useConstellation();
-  const podRef = useRef<HTMLDivElement>(null);
-  if (cosmos) {
-    return (
-      <div className="cosmos-pod" ref={podRef}>
-        <div className="cosmos-pod__inner">
-          {Icon ? (
-            <button
-              type="button"
-              className="cosmos-pod__orb"
-              aria-label={label}
-              onClick={() => podRef.current?.querySelector<HTMLButtonElement>('[data-selection-manage]')?.click()}
-            >
-              <Icon size={17} aria-hidden />
-            </button>
-          ) : null}
-          <span className="cosmos-pod__title">
-            {label}
-            {description ? <HelpTip>{description}</HelpTip> : null}
-          </span>
-          {status ? <div className="cosmos-pod__status">{status}</div> : null}
-          <div className="cosmos-pod__control">{children}{actions}</div>
-        </div>
-      </div>
-    );
-  }
   return (
     <div className={`settings-row ${className}`}>
       <div className="settings-row__label">

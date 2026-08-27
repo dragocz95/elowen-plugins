@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect, type MouseEvent } from 'react';
-import { File as FileIcon, Save, Code2, GitCompare, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft, ChevronLeft, Upload, Download, Type, AlignLeft, Map as MapIcon, Check } from 'lucide-react';
+import { File as FileIcon, Save, Code2, GitCompare, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft, Upload, Download, Type, AlignLeft, Map as MapIcon, Check } from 'lucide-react';
 import { runtime } from '../runtime';
 import { buildTree, parentDir, joinPath, copyName, fileKindOf, baseName, langOf, type TreeNode } from './helpers';
 import { MAX_BUFFERED_BYTES, MAX_MEDIA_PREVIEW_BYTES, MAX_OFFICE_BYTES } from '../../src/fileTypes';
@@ -13,7 +13,6 @@ import { StatusBar } from './StatusBar';
 import { uploadFile, UploadError } from './upload';
 import { DIVIDER, type ContextMenuState, type MenuDescriptor, type MenuEntry } from './menu';
 import { normalisePrefs, DEFAULT_PREFS, TAB_SIZES, MIN_FONT_SIZE, MAX_FONT_SIZE, type EditorPrefs } from './editorOptions';
-import { PatchView } from './PatchView';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ImagePreview } from './ImagePreview';
 import { PdfPreview } from './PdfPreview';
@@ -24,7 +23,9 @@ import { Tabs } from './Tabs';
 
 const { hooks, components, utils } = runtime();
 const { useProjectFiles, useProjectFile, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useWriteProjectFile, useNewProjectFile, useNewProjectDir, useRenameProjectEntry, useCopyProjectEntry, useDeleteProjectEntry, useMobile, useToast, useTranslation, usePluginStrings } = hooks;
-const { Button, LoadingState, EmptyState, ContextMenu } = components;
+// PatchView is the host's own diff renderer — the editor carried a verbatim copy of it until the
+// runtime started publishing it.
+const { Button, LoadingState, EmptyState, ContextMenu, PatchView, WorkspaceTakeover } = components;
 
 type Tab = 'edit' | 'diff' | 'preview';
 type Dialog =
@@ -159,16 +160,22 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const toggle = (p: string) => setExpanded((cur) => { const n = new Set(cur); n.has(p) ? n.delete(p) : n.add(p); return n; });
   const expandPath = (dir: string) => setExpanded((cur) => { const n = new Set(cur); let acc = ''; for (const part of dir.split('/').filter(Boolean)) { acc = acc ? `${acc}/${part}` : part; n.add(acc); } return n; });
 
-  // Esc leaves fullscreen (without closing the editor); ignored while a dialog/menu owns Esc.
-  useEffect(() => {
-    if (!fullscreen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !dialog && !menu) { e.stopPropagation(); setFullscreen(false); setShowTree(false); } };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [fullscreen, dialog, menu]);
+  // The one exit from the fullscreen takeover — its back control and Escape both land here. On a phone
+  // the takeover replaced the app navigation and fullscreen is not the user's choice (it is forced
+  // below), so leaving means leaving the editor; on desktop it means dropping back to the inline card.
+  //
+  // A dialog registers with the host's overlay stack and takes Escape before the takeover ever sees it,
+  // but the context menu is portalled outside that stack, so it is dismissed here instead of letting
+  // one key press close both it and the editor.
+  const leaveFullscreen = () => {
+    if (menu) { setMenu(null); setOpenMenu(null); return; }
+    setShowTree(false);
+    if (mobile && onClose) onClose(); else setFullscreen(false);
+  };
 
-  // Auto-fullscreen on mobile so the editor owns the whole viewport (the 70vh inline view is too
-  // cramped on a phone); the user can still exit to the inline card via the toolbar toggle.
+  // Auto-fullscreen on mobile so the editor owns the whole viewport (the inline card is too cramped on
+  // a phone). There is no inline view to return to there — the takeover's back control leaves the
+  // editor instead, which is what `leaveFullscreen` does above.
   useEffect(() => { if (mobile) setFullscreen(true); }, [mobile]);
   // Reset the tree overlay whenever it stops being relevant (exit fullscreen, or switch to desktop).
   useEffect(() => { if (!fullscreen || !mobile) setShowTree(false); }, [fullscreen, mobile]);
@@ -355,28 +362,29 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const dialogInitial = dialog?.kind === 'rename' ? baseName(dialog.target)
     : dialog?.kind === 'duplicate' ? baseName(copyName(dialog.target)) : '';
 
-  return (
-    <div
-      className={fullscreen
-        ? 'fixed inset-0 z-50 flex h-screen flex-col overflow-hidden bg-surface'
-        : 'flex flex-col overflow-hidden border-y border-border bg-document'}
-      style={fullscreen ? undefined : { height: fill ? '100%' : editorH }}
-    >
-      {/* toolbar */}
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        {/* On mobile fullscreen the editor covers the app nav, so a prominent back button is the way
-            out of the editor (calls onClose → leaves back to the app). */}
-        {mobile && fullscreen && onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t.common.back}
-            title={t.common.back}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text"
-          >
-            <ChevronLeft size={18} />
-          </button>
-        )}
+  // The view mode and Save. In fullscreen they ride in the takeover's own header row — the one strip
+  // that is always on screen — and in the inline card they sit at the end of the editor's toolbar.
+  const viewControls = editable ? (
+    <>
+      <ViewSwitch
+        label={s.viewMode}
+        value={effTab}
+        onChange={setTab}
+        options={[
+          { id: 'edit' as Tab, label: s.tabEdit, icon: Code2 },
+          ...(previewableText ? [{ id: 'preview' as Tab, label: s.tabPreview, icon: Eye }] : []),
+          { id: 'diff' as Tab, label: s.tabDiff, icon: GitCompare },
+        ]}
+      />
+      <Button variant="accent" icon={Save} disabled={!dirty || write.isPending} onClick={save}>{t.common.save}</Button>
+    </>
+  ) : null;
+
+  const surface = (
+    <>
+      {/* Toolbar. It wraps rather than clips: at 320px the menu bar and the commit label do not fit on
+          one line, and a row that overflows hides whichever of them lands last. */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         {/* On mobile (fullscreen + tree hidden) a toggle surfaces the file tree as an overlay. */}
         {mobile && fullscreen && (
           <button
@@ -385,41 +393,36 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
             aria-pressed={showTree}
             aria-label={s.toggleTree}
             title={s.toggleTree}
-            className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${showTree ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-elevated hover:text-text'}`}
+            className={`overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md transition-colors ${showTree ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-elevated hover:text-text'}`}
           >
             <PanelLeft size={15} />
           </button>
         )}
-        <Code2 size={15} className="shrink-0 text-accent" aria-hidden />
-        {/* On a phone the toolbar is tight (back + tree toggle + tab buttons), so drop the static
-            "Code editor" label — the icon is marker enough — and keep the row to one line. */}
-        {!(mobile && fullscreen) && <span className="text-sm font-semibold text-text">{s.editorTitle}</span>}
+        {/* In fullscreen the takeover's header already names the surface, so the icon and the static
+            "Code editor" label would be the same title twice. */}
+        {!fullscreen && (
+          <>
+            <Code2 size={15} className="shrink-0 text-accent" aria-hidden />
+            <span className="text-sm font-semibold text-text">{s.editorTitle}</span>
+          </>
+        )}
         {working ? <span className="truncate font-mono text-xs text-warning"><GitCompare size={11} className="mr-1 inline" aria-hidden />{s.workingChanges}</span>
-          : commit ? <button type="button" onClick={() => setSelected(null)} disabled={!selected} title={selected ? s.viewCommit : undefined} className="flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default"><GitCompare size={11} className="mr-1 inline shrink-0" aria-hidden /><span className="truncate">{s.commitLabel} {commit.slice(0, 8)}{selected ? ` · ${selected}` : ''}</span></button>
+          : commit ? <button type="button" onClick={() => setSelected(null)} disabled={!selected} title={selected ? s.viewCommit : undefined} className="overlay-menu-item flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default"><GitCompare size={11} className="mr-1 inline shrink-0" aria-hidden /><span className="truncate">{s.commitLabel} {commit.slice(0, 8)}{selected ? ` · ${selected}` : ''}</span></button>
           : null}
         {/* The menu bar owns the file actions, so they stop competing with the view mode and Save for
             the same strip of toolbar. Hidden in the read-only commit and working-diff views, where
-            every one of its entries would be inapplicable. */}
-        {!commit && !working && !(mobile && fullscreen) ? <MenuBar menus={menus} openId={openMenu} onOpen={openTopMenu} /> : null}
+            every one of its entries would be inapplicable. It used to be hidden on a phone as well,
+            which left new/rename/delete with no reachable trigger there at all — a touch device has no
+            right-click either; the takeover header now carries the title and the exit, so the row has
+            the space for it. */}
+        {!commit && !working ? <MenuBar menus={menus} openId={openMenu} onOpen={openTopMenu} /> : null}
         {uploading ? <span className="text-xs text-text-muted">{s.uploading}</span> : null}
-        <div className="ml-auto flex items-center gap-2">
-          {editable ? (
-            <>
-              <ViewSwitch
-                label={s.viewMode}
-                value={effTab}
-                onChange={setTab}
-                options={[
-                  { id: 'edit' as Tab, label: s.tabEdit, icon: Code2 },
-                  ...(previewableText ? [{ id: 'preview' as Tab, label: s.tabPreview, icon: Eye }] : []),
-                  { id: 'diff' as Tab, label: s.tabDiff, icon: GitCompare },
-                ]}
-              />
-              <Button variant="accent" icon={Save} disabled={!dirty || write.isPending} onClick={save}>{t.common.save}</Button>
-            </>
-          ) : null}
-          {onClose && !(mobile && fullscreen) ? <button type="button" aria-label={t.common.close} onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text"><X size={15} /></button> : null}
-        </div>
+        {!fullscreen ? (
+          <div className="ml-auto flex items-center gap-2">
+            {viewControls}
+            {onClose ? <button type="button" aria-label={t.common.close} onClick={onClose} className="overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text"><X size={15} /></button> : null}
+          </div>
+        ) : null}
       </div>
 
       {/* `relative` scopes the mobile tree overlay (absolute) to this row — without it the overlay
@@ -440,7 +443,12 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
               setDropping(false);
               runUpload(Array.from(e.dataTransfer.files ?? []), uploadDir);
             }}
-            className={`relative flex shrink-0 flex-col border-r border-border ${(mobile && fullscreen) ? 'absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-surface shadow-[var(--shadow-raised)]' : 'w-64 bg-bg/40'} ${dropping ? 'ring-2 ring-inset ring-accent' : ''}`}
+            // The desktop width is proportional with bounds rather than a flat 16rem. The app used to
+            // be drawn on a 1900px canvas and scaled down to fit the window, so that 16rem reached the
+            // user as ~11.5rem on a 1024px screen; rendering natively it took a quarter of the width
+            // away from the editor. The clamp lands on the old apparent size at 1024px and grows back
+            // to the full 16rem on the wide screen it was drawn for.
+            className={`relative flex shrink-0 flex-col border-r border-border ${(mobile && fullscreen) ? 'absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-surface shadow-[var(--shadow-raised)]' : 'w-[clamp(11rem,18vw,16rem)] bg-bg/40'} ${dropping ? 'ring-2 ring-inset ring-accent' : ''}`}
           >
             {dropping ? (
               <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-accent/10 px-3 text-center text-xs font-medium text-accent">
@@ -451,18 +459,21 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
               {files.isLoading ? <LoadingState />
                 : <FileTree tree={tree} expanded={expanded} onToggle={toggle} selected={selected} onSelect={(p) => { selectInTree(p); if (mobile && fullscreen) setShowTree(false); }} changed={changedSet} onContextMenu={onContextMenu} emptyLabel={s.noFiles} treeLabel={s.editorTitle} />}
             </div>
-            <div className="shrink-0 border-t border-border p-1.5">
-              <button
-                type="button"
-                onClick={() => setFullscreen((f) => !f)}
-                aria-pressed={fullscreen}
-                title={fullscreen ? s.exitFullscreen : s.fullscreen}
-                className="flex w-full items-center justify-center gap-2 rounded-md border border-border bg-elevated px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-border-strong hover:text-text"
-              >
-                {fullscreen ? <Minimize2 size={13} aria-hidden /> : <Maximize2 size={13} aria-hidden />}
-                {fullscreen ? s.exitFullscreen : s.fullscreen}
-              </button>
-            </div>
+            {/* Only the way IN. A takeover has exactly one exit — its own back control — and a second
+                button carrying the same label from inside it made "Exit fullscreen" ambiguous. */}
+            {!fullscreen ? (
+              <div className="shrink-0 border-t border-border p-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFullscreen(true)}
+                  title={s.fullscreen}
+                  className="overlay-menu-item flex w-full items-center justify-center gap-2 rounded-md border border-border bg-elevated px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-border-strong hover:text-text"
+                >
+                  <Maximize2 size={13} aria-hidden />
+                  {s.fullscreen}
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -537,6 +548,30 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         : dialog
         ? <PromptDialog title={dialogTitle} label={s.dlgName} initialValue={dialogInitial} confirmLabel={t.common.save} onConfirm={submitDialog} onCancel={() => setDialog(null)} />
         : null}
+    </>
+  );
+
+  // Fullscreen is a takeover, not a hand-rolled `fixed inset-0 z-50 h-screen` overlay: that measured
+  // `vh`, so on a phone with a visible browser toolbar the file toolbar along the bottom fell outside
+  // the viewport; it sat at a literal z-index of fifty, tying with the navigation drawer, the advisor
+  // launcher and the toasts; and its only exit was an unlabelled 28px chevron. The primitive owns the
+  // dvh sizing, the safe-area padding, the modal layer, the focus trap, Escape and a labelled back
+  // control that meets the touch floor.
+  if (fullscreen) {
+    return (
+      <WorkspaceTakeover
+        title={s.editorTitle}
+        onBack={leaveFullscreen}
+        backLabel={mobile && onClose ? t.common.back : s.exitFullscreen}
+        toolbar={viewControls}
+      >
+        {surface}
+      </WorkspaceTakeover>
+    );
+  }
+  return (
+    <div className="flex flex-col overflow-hidden border-y border-border bg-document" style={{ height: fill ? '100%' : editorH }}>
+      {surface}
     </div>
   );
 }

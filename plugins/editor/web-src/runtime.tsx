@@ -12,8 +12,22 @@ interface Project { id: number; slug: string; path: string; notes: string; pr_en
 export interface FileNode { path: string; type: 'file' | 'dir'; size?: number }
 type Dict = Record<string, Record<string, string>>;
 
+/** The host publishes its components as an untyped record, so this list is what stops the bundle from
+ *  reaching for a primitive the runtime does not carry — a name that is not here is a build error
+ *  rather than an `undefined` component at first render. `any` props keep the JSX call sites identical
+ *  to the core originals without restating every core prop type. */
+interface EditorComponents {
+  Button: AnyComponent; ContextMenu: AnyComponent; EmptyState: AnyComponent;
+  Field: AnyComponent; Input: AnyComponent; LoadingState: AnyComponent;
+  Modal: AnyComponent; ModalBody: AnyComponent; ModalFooter: AnyComponent;
+  ModuleHeader: AnyComponent; MotionLayoutItem: AnyComponent; MotionPresence: AnyComponent;
+  PatchView: AnyComponent; ProjectFilterPills: AnyComponent;
+  ControlSurfaceDocument: AnyComponent;
+  WorkspacePage: AnyComponent; WorkspaceHero: AnyComponent; WorkspaceTakeover: AnyComponent;
+}
+
 interface EditorRuntime {
-  components: Record<string, AnyComponent>;
+  components: EditorComponents;
   hooks: {
     useTranslation(): { t: Dict };
     usePluginStrings(plugin: string): Record<string, string>;

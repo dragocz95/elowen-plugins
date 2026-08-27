@@ -44,7 +44,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 1,
+    "requiresApiVersion": 8,
     "settings": [
       {
         "id": "skills",

@@ -343,14 +343,15 @@ function SkillsSettings({ surface }) {
   ) });
   if (surface === "deck") return surfaceDocument;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-    C.SpatialWorkspaceLayout,
+    C.WorkspaceShell,
     {
+      variant: "register",
       hero: {
         eyebrow: s.workspaceEyebrow,
         title: s.title,
         count: skills.length,
         description: s.sectionHint,
-        mascotState: query.isLoading ? "saving" : query.isError ? "error" : "idle",
+        mascot: query.isLoading ? "saving" : query.isError ? "error" : "idle",
         status: !query.isLoading && !query.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "workspace-status", children: s.workspaceReady }) : void 0,
         action: addButton,
         metrics: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
@@ -366,9 +367,9 @@ function SkillsSettings({ surface }) {
 
 // plugins/skills/web-src/index.tsx
 registerSkillsUi({
-  requiresApiVersion: 1,
-  pages: { "": SkillsSettings },
+  requiresApiVersion: 8,
   settings: {
     "skills": SkillsSettings
-  }
+  },
+  ownsPageFrame: ["skills"]
 });

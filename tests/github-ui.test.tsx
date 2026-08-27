@@ -154,7 +154,9 @@ describe('GitHub plugin UI', () => {
       http.post('/api/plugins/github/api/actions/confirm', () => HttpResponse.json({ error: 'head_changed' }, { status: 409 })),
     );
     mountProject();
-    fireEvent.click(await screen.findByText('#7 Feature'));
+    // A register row opens through the host's stretched open button, not through its text: one tab
+    // stop with a short accessible name, instead of the whole row's content being read out.
+    fireEvent.click(await screen.findByRole('button', { name: `${strings.openPullRequest} #7` }));
     await screen.findByText('Body');
     await waitFor(() => expect(screen.getByRole('button', { name: strings.merge })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: strings.merge }));

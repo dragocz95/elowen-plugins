@@ -14,7 +14,9 @@ type AnyComponent = ComponentType<any>;
 
 interface WhatsAppComponents {
   Button: AnyComponent; Modal: AnyComponent; ModalBody: AnyComponent; ModalFooter: AnyComponent;
-  ConfirmDialog: AnyComponent; SettingsGroup: AnyComponent; PluginSection: AnyComponent;
+  // PluginSection delegates the page frame to the host route, which is why this plugin declares no
+  // `ownsPageFrame`: the host's WorkspacePage + ModuleHeader wrapper is the frame this section wants.
+  ConfirmDialog: AnyComponent; PluginSection: AnyComponent;
 }
 
 interface WhatsAppRuntime {

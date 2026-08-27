@@ -5,7 +5,7 @@ import { ProjectEditor } from './editor/ProjectEditor';
 
 const { useProjects, usePluginStrings, useProjectFilter, useFillHeight, useMobile } = runtime().hooks;
 const {
-  ModuleHeader, EmptyState, WorkspacePage, CompactWorkspaceHeader, ProjectFilterPills,
+  ModuleHeader, EmptyState, WorkspacePage, WorkspaceHero, ProjectFilterPills,
   ControlSurfaceDocument, MotionPresence, MotionLayoutItem,
 } = runtime().components;
 const { navigate } = runtime();
@@ -50,7 +50,7 @@ export function EditorPage() {
     <>
       <ModuleHeader title={s.title} icon={Code2} />
       <WorkspacePage>
-        <CompactWorkspaceHeader
+        <WorkspaceHero
           eyebrow={s.workspaceEyebrow}
           title={s.title}
           icon={Code2}

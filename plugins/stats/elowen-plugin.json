@@ -9,7 +9,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 6,
+    "requiresApiVersion": 8,
     "nav": [
       {
         "label": "Statistics",
@@ -27,6 +27,7 @@
       "metricCache": "Cache tokens",
       "metricSpeed": "Average speed",
       "searchPlaceholder": "Search models",
+      "searchClear": "Clear the model search",
       "filterLabel": "Usage filter",
       "filterAll": "All",
       "filterCosted": "With cost",
@@ -50,10 +51,6 @@
       "emptyDescription": "Model consumption in the selected range will appear here.",
       "emptySearch": "No model matches these filters",
       "noChartData": "No data is available for this chart.",
-      "pageRange": "{from}–{to} of {total}",
-      "pageLabel": "Page {page} of {pages}",
-      "previousPage": "Previous",
-      "nextPage": "Next",
       "detailTitle": "Model detail",
       "detailInput": "Input tokens",
       "detailOutput": "Output tokens",

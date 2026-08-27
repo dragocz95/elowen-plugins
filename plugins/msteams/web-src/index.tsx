@@ -2,6 +2,6 @@ import { registerTeamsUi } from './runtime';
 import { TeamsWorkspace } from './TeamsWorkspace';
 
 registerTeamsUi({
-  requiresApiVersion: 2,
+  requiresApiVersion: 8,
   pages: { '': TeamsWorkspace },
 });

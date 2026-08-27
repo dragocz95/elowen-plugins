@@ -67,7 +67,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 6,
+    "requiresApiVersion": 8,
     "project": [
       {
         "id": "mirror",

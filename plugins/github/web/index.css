@@ -200,6 +200,11 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
+  @media (pointer: coarse) {
+    .pointer-coarse\:min-h-\[var\(--touch-target\)\] {
+      min-height: var(--touch-target);
+    }
+  }
 }
 @property --tw-rotate-x {
   syntax: "*";

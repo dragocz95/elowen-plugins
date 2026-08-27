@@ -102,7 +102,9 @@ function PairModal({ onClose }: { onClose: () => void }) {
             {state?.qrImage ? (
               <>
                 <p className="text-sm text-text-muted">{s.pairScan}</p>
-                <img src={state.qrImage} alt="WhatsApp QR" width={280} height={280} className="rounded-md bg-white p-2" />
+                {/* Square, but never wider than the modal: a fixed 280px sat outside a phone-width
+                    dialog and clipped the code's right edge, which is exactly the part a scan needs. */}
+                <img src={state.qrImage} alt="WhatsApp QR" width={280} height={280} className="h-auto w-full max-w-[280px] rounded-md bg-white p-2" />
               </>
             ) : (
               <p className="py-6 text-sm text-text-muted">{s.pairWaiting}</p>

@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react';
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
@@ -14,6 +15,31 @@ ensurePluginUiRuntime();
 // View copy is served per-plugin by /plugins/ui; serving the REAL manifest en fallback keeps the
 // assertions in lockstep with what production users see.
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
+const manifestApiVersion = (manifest as { web: { requiresApiVersion: number } }).web.requiresApiVersion;
+
+type PluginSectionComponent = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[]; surface: 'page' | 'deck' }>;
+interface BundleRegistration {
+  requiresApiVersion: number;
+  settings?: Record<string, PluginSectionComponent>;
+  ownsPageFrame?: string[];
+}
+
+/** Load the bundle entry the way the host does — it registers itself on import — and hand back what it
+ *  registered. The entry is what carries `ownsPageFrame`, so nothing short of importing it proves the
+ *  declaration is really there. */
+const loadBundleRegistration = async (): Promise<BundleRegistration> => {
+  let captured: BundleRegistration | undefined;
+  (window as unknown as { __elowenRegisterPluginUi?: (plugin: string, registration: BundleRegistration) => void })
+    .__elowenRegisterPluginUi = (_plugin, registration) => { captured = registration; };
+  await import('../plugins/cronjob/web-src/index');
+  if (!captured) throw new Error('the cronjob bundle registered no UI');
+  return captured;
+};
+
+/** A row is opened through its own control now — one tab stop with a short accessible name — not by
+ *  clicking whichever text happens to sit in the row. */
+const openRow = async (name: string) =>
+  fireEvent.click(await screen.findByRole('button', { name: strings.openJob.replace('{name}', name) }));
 
 
 const job = (over: Partial<CronJob>): CronJob =>
@@ -49,7 +75,7 @@ async function mountWith(jobs: CronJob[]) {
   const { wrapper: Wrapper } = createWrapper();
   render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
   // Open the job's drawer so the channel/model fields render.
-  fireEvent.click(await screen.findByText('digest'));
+  await openRow('digest');
 }
 
 describe('cronjob JobsSettings — error state', () => {
@@ -95,11 +121,11 @@ describe('cronjob JobsSettings — error state', () => {
     // "Owner", and also spells one of its options "Mine" — searched globally, it answers for the drawer.
     const ownerSwitch = () => within(screen.getByRole('dialog')).queryByRole('radiogroup', { name: strings.ownerColumn });
 
-    fireEvent.click(await screen.findByText('her digest'));
+    await openRow('her digest');
     await screen.findByText(strings.prompt);
     expect(ownerSwitch()).toBeNull();
 
-    fireEvent.click(screen.getByText('instance digest'));
+    await openRow('instance digest');
     await screen.findByText(strings.prompt);
     fireEvent.click(within(ownerSwitch()!).getByRole('radio', { name: strings.ownerMine }));
 
@@ -118,7 +144,7 @@ describe('cronjob JobsSettings — error state', () => {
     );
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
-    fireEvent.click(await screen.findByText('my digest'));
+    await openRow('my digest');
 
     await screen.findByText(strings.prompt);
     expect(screen.queryByText(strings.check)).toBeNull();
@@ -158,7 +184,7 @@ describe('cronjob JobsSettings — error state', () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
 
-    fireEvent.click(await screen.findByText('digest'));
+    await openRow('digest');
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull(); // no error state for the section
     // The configured destination is still shown — as its raw id, since nothing can resolve the name.
     expect(screen.getAllByText('destination:discord:100').length).toBeGreaterThan(0);
@@ -172,7 +198,7 @@ describe('cronjob JobsSettings — error state', () => {
 /** Open the named job's drawer, hit its Delete, then the dialog's confirm (both are labelled
  *  "Delete job"). Deleting lives in the drawer, so the row it belongs to has to be opened first. */
 const deleteJob = async (name: string) => {
-  fireEvent.click((await screen.findAllByText(name))[0]!);
+  await openRow(name);
   fireEvent.click((await screen.findAllByRole('button', { name: 'Delete job' }))[0]!);
   const buttons = await screen.findAllByRole('button', { name: 'Delete job' });
   fireEvent.click(buttons[buttons.length - 1]!);
@@ -243,7 +269,7 @@ describe('cronjob JobsSettings writes', () => {
   it('saves only the job that was edited', async () => {
     const writes: { id: string; body: unknown }[] = [];
     mount([job({}), job({ id: 'j2', name: 'other' })], writes, []);
-    fireEvent.click(await screen.findByText('digest'));
+    await openRow('digest');
     fireEvent.change(screen.getByPlaceholderText('morning-digest'), { target: { value: 'renamed' } });
     await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
     expect(writes[0]?.id).toBe('j1');
@@ -262,7 +288,7 @@ describe('cronjob JobsSettings writes', () => {
     const writes: { id: string; body: unknown }[] = [];
     const jobs = [job({})];
     mount(jobs, writes, []);
-    fireEvent.click(await screen.findByText('digest'));
+    await openRow('digest');
     // Someone else adds a job to the shared file (the scheduler, CronAdd, a hand edit)…
     jobs.push(job({ id: 'j2', name: 'added-elsewhere' }));
     // …and this page saves the row it happened to be editing.
@@ -336,7 +362,7 @@ describe('a cron job row', () => {
     await deleteJob('digest');
     await waitFor(() => expect(calls.deletes).toEqual(['j1']));
     // The job is still there. An edit to it must still be persisted — not swallowed under a "saved" chip.
-    fireEvent.click(await screen.findByText('digest'));
+    await openRow('digest');
     fireEvent.change(nameBox(), { target: { value: 'still here' } });
     await waitFor(() => expect(calls.writes).toHaveLength(1), { timeout: 3000 });
     expect(calls.writes[0]?.body).toMatchObject({ id: 'j1', name: 'still here' });
@@ -346,14 +372,14 @@ describe('a cron job row', () => {
     const calls = { writes: [] as { id: string; body: unknown }[], deletes: [] as string[] };
     const jobs = [job({}), job({ id: 'j2', name: 'other' })];
     mount(jobs, calls);
-    fireEvent.click(await screen.findByText('other')); // edit the row we are NOT watching
+    await openRow('other'); // edit the row we are NOT watching
     // The brain's cron tooling rewrites the first job's prompt while the page sits open…
     jobs[0] = job({ prompt: 'Rewritten by the agent.' });
     // …and an edit to the OTHER row refreshes the list.
     fireEvent.change(nameBox(), { target: { value: 'other renamed' } });
     await waitFor(() => expect(calls.writes.map((w) => w.id)).toEqual(['j2']), { timeout: 3000 });
     // The untouched row adopted what the server actually holds — the next save cannot revert it.
-    fireEvent.click(screen.getByText('digest'));
+    await openRow('digest');
     await waitFor(() => expect(screen.getByDisplayValue('Rewritten by the agent.')).toBeInTheDocument());
   });
 });
@@ -380,5 +406,38 @@ describe('cronjob JobsSettings model', () => {
     expect(screen.getByText('claude-sonnet-4-5')).toBeInTheDocument(); // summary chip
     fireEvent.click(manageButtons()[1]);
     expect(await screen.findByRole('button', { name: 'claude-sonnet-4-5' })).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('cronjob bundle registration', () => {
+  // The host wraps a settings section in its own page column and module header. This section brings a
+  // whole workspace shell of its own, so that wrapper nested two page frames: the gutter and the bottom
+  // padding were spent twice and the page came out narrower than every sibling register. The bundle
+  // declares the section id it frames itself — and the section really does frame itself, which is what
+  // makes the declaration true.
+  it('claims the page frame for the section that draws its own', async () => {
+    use(
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job({})])),
+      http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
+      http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
+    );
+    const registration = await loadBundleRegistration();
+
+    expect(registration.ownsPageFrame).toContain('jobs');
+    // The two places the ceiling is written must agree, or the host loads a bundle built against a
+    // contract it does not serve — or refuses one it does.
+    expect(registration.requiresApiVersion).toBe(manifestApiVersion);
+    // Every id it claims must be a section it actually registers, or the host drops a frame nobody draws.
+    const sections = registration.settings ?? {};
+    for (const id of registration.ownsPageFrame ?? []) expect(Object.keys(sections)).toContain(id);
+
+    const Section = sections.jobs;
+    if (!Section) throw new Error('the bundle registered no jobs section');
+    const { wrapper: Wrapper } = createWrapper();
+    const page = render(
+      <Wrapper><ToastProvider><Section plugin="cronjob" params={{ id: 'jobs' }} rest={[]} surface="page" /></ToastProvider></Wrapper>,
+    );
+    await waitFor(() => expect(page.container.querySelector('[data-control-surface]')).not.toBeNull());
+    expect(page.container.querySelectorAll('.workspace-page, .workspace-shell')).toHaveLength(1);
   });
 });

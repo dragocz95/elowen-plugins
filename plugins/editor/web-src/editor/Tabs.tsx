@@ -17,9 +17,12 @@ export function Tabs({ tabs, active, dirty, onSelect, onClose, closeLabel }: {
         return (
           <div key={p} className={`group flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs ${isActive ? 'bg-surface text-text' : 'text-text-muted hover:bg-elevated'}`}>
             <button type="button" onClick={() => onSelect(p)} className="max-w-40 truncate" title={p}>{baseName(p)}</button>
-            <button type="button" onClick={() => onClose(p)} aria-label={closeLabel} className="flex h-4 w-4 items-center justify-center rounded text-text-muted hover:bg-bg hover:text-text">
-              {isDirty ? <span className="h-1.5 w-1.5 rounded-full bg-accent group-hover:hidden" aria-hidden /> : null}
-              <X size={11} className={isDirty ? 'hidden group-hover:block' : 'block'} aria-hidden />
+            {/* A dirty tab shows the dot and reveals the cross on hover — but a finger never hovers, so
+                on a coarse pointer the cross is shown outright and the dot stands down, the same
+                bargain the host's hover-revealed row actions make. */}
+            <button type="button" onClick={() => onClose(p)} aria-label={closeLabel} className="overlay-touch-target flex h-4 w-4 items-center justify-center rounded text-text-muted hover:bg-bg hover:text-text">
+              {isDirty ? <span className="h-1.5 w-1.5 rounded-full bg-accent group-hover:hidden [@media(pointer:coarse)]:hidden" aria-hidden /> : null}
+              <X size={11} className={isDirty ? 'hidden group-hover:block [@media(pointer:coarse)]:block' : 'block'} aria-hidden />
             </button>
           </div>
         );

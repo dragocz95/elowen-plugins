@@ -203,16 +203,17 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
   );
 
   // In the Settings deck the surrounding panel supplies the page frame; on its own page the section
-  // wears the same spatial workspace every built-in page wears.
+  // draws the whole frame itself, which is why the bundle declares `skills` in `ownsPageFrame`.
   if (surface === 'deck') return surfaceDocument;
   return (
-    <C.SpatialWorkspaceLayout
+    <C.WorkspaceShell
+      variant="register"
       hero={{
         eyebrow: s.workspaceEyebrow,
         title: s.title,
         count: skills.length,
         description: s.sectionHint,
-        mascotState: query.isLoading ? 'saving' : query.isError ? 'error' : 'idle',
+        mascot: query.isLoading ? 'saving' : query.isError ? 'error' : 'idle',
         status: !query.isLoading && !query.isError ? <span className="workspace-status">{s.workspaceReady}</span> : undefined,
         action: addButton,
         metrics: <>
@@ -223,6 +224,6 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
       }}
     >
       {surfaceDocument}
-    </C.SpatialWorkspaceLayout>
+    </C.WorkspaceShell>
   );
 }
