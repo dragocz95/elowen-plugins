@@ -13,7 +13,7 @@
 // Scenarios:
 //   1. A private text message round-trips to the brain and the reply is sent back as Telegram plain text
 //      (no parse_mode / no markdown escaping — the shared live-trace `style` is all-identity for Telegram).
-//   2. /status through the shared runControlCommand core (a real session exists → the status line).
+//   2. /stats through the shared runControlCommand core (a real session exists → the status line).
 //   3. /new (fresh conversation) and /fast — with a bogus arg (the `fastUsage` fallthrough that was a real
 //      bug), with `off`, and with `on` (the fastAvailable gate) — all through the shared core.
 //   4. TEETH: a provider error surfaces as the bot's "⚠️ …" error reply.
@@ -138,10 +138,11 @@ async function main() {
     assert(model.requests.length >= 1, `model server served the turn (>=1 request), got ${model.requests.length}`);
     console.log('PASS scenario 1: message round-tripped through the real brain; reply posted as Telegram plain text.');
 
-    // ── Scenario 2: /status through the shared control core (a live session now exists) ───────────────
-    const statusParams = await expectReply(fake, '/status', (t) => t.startsWith('🧠') && /Context/.test(t), '/status reply');
-    assert(statusParams.text.includes('mock-model'), `/status reports the model; got "${statusParams.text}"`);
-    console.log('PASS scenario 2: /status via runControlCommand returned the live model + context line.');
+    // ── Scenario 2: /stats through the shared control core (a live session now exists) ────────────────
+    // Renamed from /status in the daemon's catalog, with no alias; an adapter routes only published names.
+    const statusParams = await expectReply(fake, '/stats', (t) => t.startsWith('🧠') && /Context/.test(t), '/stats reply');
+    assert(statusParams.text.includes('mock-model'), `/stats reports the model; got "${statusParams.text}"`);
+    console.log('PASS scenario 2: /stats via runControlCommand returned the live model + context line.');
 
     // ── Scenario 3: /new + /fast (shared control core) ───────────────────────────────────────────────
     await expectReply(fake, '/new', (t) => t.includes('Fresh conversation started'), '/new reply');

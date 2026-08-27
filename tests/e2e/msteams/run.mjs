@@ -16,7 +16,7 @@
 //   1. A signed message activity is accepted (200 under Microsoft's 15s callback deadline), round-trips
 //      to the brain, and the reply arrives ASYNC through the Connector as a THREADED reply — with a live
 //      tool trace edited in place (PUT) along the way, Teams' equivalent of Discord's edit stream.
-//   2. /status through the shared runControlCommand core → the live model + context line.
+//   2. /stats through the shared runControlCommand core → the live model + context line.
 //   3. TEETH: an activity with a garbage JWT bounces at the webhook (401) and never reaches the brain.
 //   4. TEETH: a provider failure surfaces as the bot's "⚠️ …" reply.
 // Every wait is deadline-bounded on the fake's captured calls — no sleep-based flakiness.
@@ -147,11 +147,14 @@ async function main() {
     assert(fake.updates().length >= 1, `the live trace edited a message in place (PUT); got ${fake.updates().length} updates`);
     console.log('PASS scenario 1: signed activity accepted fast, reply delivered async via the Connector, trace edited live.');
 
-    // ── Scenario 2: /status through the shared control core (a live session now exists) ──────────────
-    const statusReply = await expectReply(fake, baseUrl, '/status', (t) => t.includes('mock-model') && /Context/.test(t), '/status reply');
+    // ── Scenario 2: /stats through the shared control core (a live session now exists) ───────────────
+    // The daemon renamed this command from /status to /stats so one name covers every surface, and it
+    // published no alias. An adapter routes only what the catalog publishes, so the old name now falls
+    // through to the brain as ordinary text - which is what this suite was really asserting for a while.
+    const statusReply = await expectReply(fake, baseUrl, '/stats', (t) => t.includes('mock-model') && /Context/.test(t), '/stats reply');
     assert(/🧠 .*mock-model/.test(statusReply.text) && /📊 Context \d/.test(statusReply.text),
-      `/status carries the model + context lines; got "${statusReply.text}"`);
-    console.log('PASS scenario 2: /status via runControlCommand returned the live model + context line.');
+      `/stats carries the model + context lines; got "${statusReply.text}"`);
+    console.log('PASS scenario 2: /stats via runControlCommand returned the live model + context line.');
 
     // ── Scenario 3: TEETH — a garbage JWT bounces at the webhook and never reaches the brain ─────────
     const turnsBefore = model.requests.length;

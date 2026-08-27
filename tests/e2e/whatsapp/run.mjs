@@ -22,7 +22,7 @@
 //   1. A private text message round-trips to the brain and the reply is SENT back via sock.sendMessage to
 //      the sender's JID, as WhatsApp-correct text (single-asterisk `*bold*`, never Discord's `**` / no
 //      Discord backslash escaping), quoting the trigger — plus the 👀/✅ status reactions & typing presence.
-//   2. /status through the shared runControlCommand core (a live session exists → the status line, with the
+//   2. /stats through the shared runControlCommand core (a live session exists → the status line, with the
 //      model wrapped in WhatsApp single-asterisk bold).
 //   3. /new (fresh conversation) + /fast — bogus arg (the fastUsage fallthrough), `off`, and `on` (the
 //      fastAvailable gate) — all routed through the shared control core.
@@ -211,13 +211,14 @@ async function main() {
     assert(model.requests.length >= 1, `model server served the turn (>=1 request), got ${model.requests.length}`);
     console.log('PASS scenario 1: message round-tripped through the real brain; reply sent as WhatsApp text (quoted).');
 
-    // ── Scenario 2: /status through the shared control core (a live session now exists) ───────────────
-    const status = await bridge.expectReply('/status', (t) => t.startsWith('🧠') && /Context/.test(t), '/status reply');
-    assert(status.text.includes('mock-model'), `/status reports the model; got "${status.text}"`);
+    // ── Scenario 2: /stats through the shared control core (a live session now exists) ────────────────
+    // Renamed from /status in the daemon's catalog, with no alias; an adapter routes only published names.
+    const status = await bridge.expectReply('/stats', (t) => t.startsWith('🧠') && /Context/.test(t), '/stats reply');
+    assert(status.text.includes('mock-model'), `/stats reports the model; got "${status.text}"`);
     // WhatsApp-specific formatting: single-asterisk bold around the model — never Discord's double asterisk.
-    assert(/\*[^*]*mock-model[^*]*\*/.test(status.text), `/status uses WhatsApp single-asterisk bold; got "${status.text}"`);
-    assert(!/\*\*[^*]*mock-model[^*]*\*\*/.test(status.text), `/status does NOT use Discord double-asterisk bold; got "${status.text}"`);
-    console.log('PASS scenario 2: /status via runControlCommand returned the live model + context line.');
+    assert(/\*[^*]*mock-model[^*]*\*/.test(status.text), `/stats uses WhatsApp single-asterisk bold; got "${status.text}"`);
+    assert(!/\*\*[^*]*mock-model[^*]*\*\*/.test(status.text), `/stats does NOT use Discord double-asterisk bold; got "${status.text}"`);
+    console.log('PASS scenario 2: /stats via runControlCommand returned the live model + context line.');
 
     // ── Scenario 3: /new + /fast (shared control core) ───────────────────────────────────────────────
     await bridge.expectReply('/new', (t) => t.includes('Fresh conversation started'), '/new reply');

@@ -16,7 +16,7 @@
 // Scenarios:
 //   1. A guild text message round-trips to the brain and the reply is POSTed back as a real Discord reply
 //      (message_reference to the trigger — a Discord-specific behavior Telegram's plain sendMessage lacks).
-//   2. /status as a SLASH-COMMAND interaction through the shared runControlCommand core → an ephemeral
+//   2. /stats as a SLASH-COMMAND interaction through the shared runControlCommand core → an ephemeral
 //      (flags 64) interaction callback carrying markdown-bold `**mock-model**` (Discord-specific formatting).
 //   3. /new + /fast off + /fast on — all as slash interactions routed through the shared control core.
 //   4. TEETH: a provider error surfaces as the bot's "⚠️ …" channel reply.
@@ -181,13 +181,15 @@ async function main() {
     assert(model.requests.length >= 1, `model server served the turn (>=1 request), got ${model.requests.length}`);
     console.log('PASS scenario 1: message round-tripped through the real brain; reply POSTed as a Discord reply.');
 
-    // ── Scenario 2: /status slash command through the shared control core (a live session now exists) ──
-    const statusBody = await expectInteractionReply(fake, 'status', undefined, (t) => t.includes('mock-model') && /Context/.test(t), '/status interaction reply');
-    assert(statusBody.type === 4, `/status answered with an immediate interaction callback (type 4); got ${statusBody.type}`);
-    assert(statusBody.data?.flags === 64, `/status reply is ephemeral (flags 64); got ${statusBody.data?.flags}`);
+    // ── Scenario 2: /stats slash command through the shared control core (a live session now exists) ───
+    // Renamed from /status in the daemon's catalog, with no alias; an adapter registers and routes only
+    // the names the catalog publishes, so the old one is not a slash command here at all any more.
+    const statusBody = await expectInteractionReply(fake, 'stats', undefined, (t) => t.includes('mock-model') && /Context/.test(t), '/stats interaction reply');
+    assert(statusBody.type === 4, `/stats answered with an immediate interaction callback (type 4); got ${statusBody.type}`);
+    assert(statusBody.data?.flags === 64, `/stats reply is ephemeral (flags 64); got ${statusBody.data?.flags}`);
     // Discord-specific formatting: the status line wraps the model in markdown bold — Telegram's is plain text.
-    assert(/\*\*[^*]*mock-model[^*]*\*\*/.test(String(statusBody.data.content)), `/status uses Discord markdown bold around the model; got "${statusBody.data.content}"`);
-    console.log('PASS scenario 2: /status via runControlCommand returned an ephemeral, markdown-bold live status.');
+    assert(/\*\*[^*]*mock-model[^*]*\*\*/.test(String(statusBody.data.content)), `/stats uses Discord markdown bold around the model; got "${statusBody.data.content}"`);
+    console.log('PASS scenario 2: /stats via runControlCommand returned an ephemeral, markdown-bold live status.');
 
     // ── Scenario 3: /new + /fast (shared control core, over slash interactions) ───────────────────────
     await expectInteractionReply(fake, 'new', undefined, (t) => t.includes('Fresh conversation started'), '/new interaction reply');
