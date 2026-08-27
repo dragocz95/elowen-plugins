@@ -11,6 +11,10 @@ export interface MirrorLink {
   /** `null` = the registered project checkout; otherwise one sandbox worktree of that project. */
   workspaceId: string | null;
   workspaceLabel: string | null;
+  /** Relative POSIX path INSIDE that root, or `''` for the whole thing. Mirroring a whole project is
+   *  often far more than someone wants in their own OneDrive, so the mirror can be narrowed to one
+   *  folder. It is stored, never trusted: the root is re-resolved and re-contained every cycle. */
+  subpath: string;
   remoteDriveId: string;
   remoteItemId: string;
   remotePath: string;
@@ -52,6 +56,7 @@ function toLink(row: Record<string, unknown>): MirrorLink {
     projectId: num(row.project_id),
     workspaceId: nullableStr(row.workspace_id),
     workspaceLabel: nullableStr(row.workspace_label),
+    subpath: str(row.subpath),
     remoteDriveId: str(row.remote_drive_id),
     remoteItemId: str(row.remote_item_id),
     remotePath: str(row.remote_path),
@@ -129,22 +134,30 @@ export class OneDriveStore {
 
     `) }, { version: 2, up: (migration) => migration.exec(`
       ALTER TABLE p_onedrive_links ADD COLUMN blocked_deletions INTEGER NOT NULL DEFAULT 0;
+    `) }, { version: 3, up: (migration) => migration.exec(`
+      -- '' means the whole root, which is what every existing mirror already covers, so the default
+      -- migrates them without touching a row.
+      ALTER TABLE p_onedrive_links ADD COLUMN subpath TEXT NOT NULL DEFAULT '';
     `) }]);
   }
 
   createLink(input: Omit<MirrorLink, 'id' | 'status' | 'error' | 'lastSyncAt' | 'fileCount' | 'byteCount' | 'conflictCount' | 'blockedDeletions' | 'createdAt' | 'enabled'>): MirrorLink {
     const now = Date.now();
     this.db.prepare(`INSERT INTO p_onedrive_links
-      (user_id, project_id, workspace_id, workspace_label, remote_drive_id, remote_item_id, remote_path, web_url, enabled, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'idle', ?)
+      (user_id, project_id, workspace_id, workspace_label, subpath, remote_drive_id, remote_item_id, remote_path, web_url, enabled, status, blocked_deletions, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'idle', 0, ?)
       ON CONFLICT (user_id, project_id, COALESCE(workspace_id, '')) DO UPDATE SET
         enabled = 1, status = 'idle', error = NULL,
+        -- A refusal belongs to the mirror that made it. Reconnecting - to another folder especially -
+        -- is a new mirror as far as that question goes, so an unanswered count must not survive it.
+        blocked_deletions = 0,
+        subpath = excluded.subpath,
         remote_drive_id = excluded.remote_drive_id,
         remote_item_id = excluded.remote_item_id,
         remote_path = excluded.remote_path,
         web_url = excluded.web_url,
         workspace_label = excluded.workspace_label`)
-      .run(input.userId, input.projectId, input.workspaceId, input.workspaceLabel,
+      .run(input.userId, input.projectId, input.workspaceId, input.workspaceLabel, input.subpath,
         input.remoteDriveId, input.remoteItemId, input.remotePath, input.webUrl, now);
     return this.linkFor(input.userId, input.projectId, input.workspaceId)!;
   }

@@ -7,6 +7,8 @@ export interface MirrorRow {
   id: number;
   workspaceId: string | null;
   workspaceLabel: string | null;
+  /** Which folder of the project this mirror covers; empty means the whole project. */
+  subpath: string;
   remotePath: string;
   webUrl: string | null;
   enabled: boolean;

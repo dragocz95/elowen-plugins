@@ -120,6 +120,11 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
+// node_modules/lucide-react/dist/esm/icons/chevron-right.js
+var ChevronRight = createLucideIcon("ChevronRight", [
+  ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/cloud-off.js
 var CloudOff = createLucideIcon("CloudOff", [
   ["path", { d: "m2 2 20 20", key: "1ooewy" }],
@@ -140,6 +145,28 @@ var ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/folder-open.js
+var FolderOpen = createLucideIcon("FolderOpen", [
+  [
+    "path",
+    {
+      d: "m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2",
+      key: "usdka0"
+    }
+  ]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/folder.js
+var Folder = createLucideIcon("Folder", [
+  [
+    "path",
+    {
+      d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
+      key: "1kt360"
+    }
+  ]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/refresh-cw.js
@@ -241,6 +268,81 @@ function ConflictsRail({ row, onClose, onResolved }) {
     ] }, conflict.rel)) })
   ] });
 }
+function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
+  const { components: C, hooks, api, utils } = runtime();
+  const s = hooks.usePluginStrings("onedrive");
+  const [browsing, setBrowsing] = (0, import_react3.useState)("");
+  const query = new URLSearchParams({ projectId: String(projectId), path: browsing });
+  if (workspaceId) query.set("workspaceId", workspaceId);
+  const listing = hooks.useQuery({
+    queryKey: ["plugin", "onedrive", "folders", String(projectId), workspaceId ?? "", browsing],
+    queryFn: () => api(`/plugins/onedrive/api/folders?${query.toString()}`)
+  });
+  const crumbs = browsing ? browsing.split("/") : [];
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-2", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-1 text-xs", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "button",
+        {
+          type: "button",
+          onClick: () => setBrowsing(""),
+          className: `rounded px-1.5 py-0.5 hover:bg-surface-2 ${browsing === "" ? "text-text font-medium" : "text-text-muted"}`,
+          children: rootLabel
+        }
+      ),
+      crumbs.map((crumb, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-1", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronRight, { size: 12, className: "text-text-muted", "aria-hidden": true }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            type: "button",
+            onClick: () => setBrowsing(crumbs.slice(0, index + 1).join("/")),
+            className: `rounded px-1.5 py-0.5 hover:bg-surface-2 ${index === crumbs.length - 1 ? "text-text font-medium" : "text-text-muted"}`,
+            children: crumb
+          }
+        )
+      ] }, crumbs.slice(0, index + 1).join("/")))
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "max-h-52 overflow-y-auto rounded-md border border-border/70", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+        "button",
+        {
+          type: "button",
+          onClick: () => onChange(browsing),
+          className: `flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-surface-2 ${value === browsing ? "bg-accent/10 text-accent" : ""}`,
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderOpen, { size: 13, "aria-hidden": true }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", children: browsing === "" ? s.mirrorWholeProject : `${s.mirrorThisFolder}: ${browsing}` })
+          ]
+        }
+      ),
+      listing.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "p-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(listing.error), onRetry: () => listing.refetch() }) }) : listing.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "p-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) }) : (listing.data?.folders ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "px-3 py-2 text-xs text-text-muted", children: s.noSubfolders }) : (listing.data?.folders ?? []).map((folder) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-stretch border-b border-border/70 last:border-b-0", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "button",
+          {
+            type: "button",
+            onClick: () => onChange(folder.path),
+            className: `flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-2 ${value === folder.path ? "bg-accent/10 text-accent" : ""}`,
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Folder, { size: 13, "aria-hidden": true }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", title: folder.path, children: folder.name })
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            type: "button",
+            onClick: () => setBrowsing(folder.path),
+            "aria-label": `${s.openFolderLabel}: ${folder.name}`,
+            className: "px-2 text-text-muted hover:bg-surface-2 hover:text-text",
+            children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronRight, { size: 14, "aria-hidden": true })
+          }
+        )
+      ] }, folder.path))
+    ] })
+  ] });
+}
 function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, onSync, busy }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("onedrive");
@@ -263,7 +365,15 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
           " \xB7 ",
           humanBytes(row.byteCount)
         ] })
-      ] })
+      ] }),
+      row.subpath ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { "aria-hidden": true, children: "\xB7" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+          s.mirroredFolder,
+          ": ",
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-text", title: row.subpath, children: row.subpath })
+        ] })
+      ] }) : null
     ] }),
     row.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: row.error }) : null,
     row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "danger", disabled: busy, onClick: onConfirmSync, children: s.confirmDeletions }),
@@ -300,6 +410,7 @@ function OneDriveProjectPanel({ project }) {
     refetchInterval: 15e3
   });
   const [connectFor, setConnectFor] = (0, import_react3.useState)(null);
+  const [subpath, setSubpath] = (0, import_react3.useState)("");
   const [conflictsFor, setConflictsFor] = (0, import_react3.useState)(null);
   const [disconnecting, setDisconnecting] = (0, import_react3.useState)(null);
   const refresh = () => {
@@ -307,7 +418,7 @@ function OneDriveProjectPanel({ project }) {
   };
   const fail = (error) => toast(utils.apiErrorMessage(error), "error");
   const connect = hooks.useMutation({
-    mutationFn: (vars) => api("/plugins/onedrive/api/connect", jsonBody({ projectId: project.id, workspaceId: vars.workspaceId })),
+    mutationFn: (vars) => api("/plugins/onedrive/api/connect", jsonBody({ projectId: project.id, workspaceId: vars.workspaceId, subpath: vars.subpath })),
     onSuccess: () => {
       setConnectFor(null);
       refresh();
@@ -350,7 +461,10 @@ function OneDriveProjectPanel({ project }) {
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-text-muted", children: s.connectHint })
         ] }),
-        projectLink ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: () => setConnectFor({ workspaceId: null, label: project.slug }), children: s.connectCta })
+        projectLink ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: () => {
+          setSubpath("");
+          setConnectFor({ workspaceId: null, label: project.slug });
+        }, children: s.connectCta })
       ] }),
       projectLink ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         MirrorCard,
@@ -408,7 +522,10 @@ function OneDriveProjectPanel({ project }) {
               row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: () => setDisconnecting(row), children: s.disconnect }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                 C.Button,
                 {
-                  onClick: () => setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label }),
+                  onClick: () => {
+                    setSubpath("");
+                    setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label });
+                  },
                   children: s.connectCta
                 }
               )
@@ -417,11 +534,27 @@ function OneDriveProjectPanel({ project }) {
         ] }, workspace.workspaceId);
       }) })
     ] }),
-    connectFor && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceDetailRail, { label: s.connectCta, closeLabel: s.close, onClose: () => setConnectFor(null), children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-3 text-sm", children: [
+    connectFor && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceDetailRail, { label: s.connectCta, closeLabel: s.close, onClose: () => setConnectFor(null), children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4 text-sm", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-medium", children: connectFor.label }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.chooseFolder }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-text-muted", children: s.chooseFolderHint })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          FolderPicker,
+          {
+            projectId: project.id,
+            workspaceId: connectFor.workspaceId,
+            value: subpath,
+            onChange: setSubpath,
+            rootLabel: connectFor.label
+          }
+        )
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.folder }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "font-mono text-xs", children: `${data.rootFolder}/${connectFor.workspaceId ? "workspaces" : "projects"}/${project.slug}` })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all font-mono text-xs", children: `${data.rootFolder}/${connectFor.workspaceId ? "workspaces" : "projects"}/${project.slug}${subpath ? `/${subpath}` : ""}` })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.mirrorScope }),
@@ -431,7 +564,7 @@ function OneDriveProjectPanel({ project }) {
         C.Button,
         {
           variant: "accent",
-          onClick: () => connect.mutate({ workspaceId: connectFor.workspaceId }),
+          onClick: () => connect.mutate({ workspaceId: connectFor.workspaceId, subpath }),
           disabled: connect.isPending,
           children: s.connectConfirm
         }

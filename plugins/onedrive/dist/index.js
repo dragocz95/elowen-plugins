@@ -1,8 +1,10 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { asOneDriveContext } from './coreSeams.js';
 import { registerApi } from './api.js';
 import { OneDriveStore } from './store.js';
 import { SyncEngine } from './sync.js';
+import { normalizeSubpath } from './scan.js';
 const numberSetting = (value, fallback) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -25,7 +27,7 @@ export function register(published) {
      *  Re-resolved every cycle rather than trusted from the row: a project can be re-pointed, a worktree
      *  removed, and an account's access to a project revoked, and each of those must stop the mirror rather
      *  than leave it writing into a path that no longer means what it meant when it was connected. */
-    const rootFor = (link) => {
+    const baseFor = (link) => {
         if (!ctx.host.stores().userProjects.canAccess(link.userId, link.projectId))
             return null;
         if (link.workspaceId) {
@@ -35,6 +37,30 @@ export function register(published) {
         const project = ctx.host.stores().projects.get(link.projectId);
         return project && existsSync(project.path) ? project.path : null;
     };
+    /** Join a stored subpath onto a base and prove the result is still inside it.
+     *
+     *  Normalising the string is not enough on its own: a symlink inside the project can point anywhere,
+     *  so containment is decided on the RESOLVED paths. Anything that fails stops the mirror rather than
+     *  widening it back to the whole project - the person narrowed it on purpose. */
+    const withinBase = (base, subpath) => {
+        const rel = normalizeSubpath(subpath);
+        if (rel === null)
+            return null;
+        if (rel === '')
+            return base;
+        try {
+            const realBase = realpathSync(base);
+            const target = realpathSync(join(realBase, rel));
+            return target === realBase || target.startsWith(realBase + sep) ? target : null;
+        }
+        catch {
+            return null; // the folder was renamed or removed; syncing the parent instead is not the answer
+        }
+    };
+    const rootFor = (link) => {
+        const base = baseFor(link);
+        return base === null ? null : withinBase(base, link.subpath);
+    };
     const engine = new SyncEngine({
         store,
         identity: () => ctx.control('microsoftIdentity'),
@@ -42,7 +68,7 @@ export function register(published) {
         settings,
         log: ctx.logger,
     });
-    registerApi({ ctx, store, engine, settings, rootFor, workspacesOf });
+    registerApi({ ctx, store, engine, settings, rootFor, baseFor, withinBase, workspacesOf });
     // Only an account actually bound to a Microsoft identity is offered the tab. Answered from the Teams
     // plugin's local directory read - no network on a page load - and fail-closed, because a panel that
     // cannot possibly work is worse than no panel at all.

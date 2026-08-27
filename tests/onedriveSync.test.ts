@@ -7,8 +7,9 @@ import { join } from 'node:path';
 import type { PluginDb } from 'elowen/plugin-api';
 import { OneDriveStore } from '../plugins/onedrive/src/store.js';
 import { SyncEngine, conflictName, remoteRootFor, safeSegment } from '../plugins/onedrive/src/sync.js';
+import type { MirrorLink } from '../plugins/onedrive/src/store.js';
 import { execFileSync } from 'node:child_process';
-import { TRASH_DIR, gitIgnoredAmong, scanLocal } from '../plugins/onedrive/src/scan.js';
+import { TRASH_DIR, gitIgnoredAmong, normalizeSubpath, scanLocal } from '../plugins/onedrive/src/scan.js';
 import { Drive } from '../plugins/onedrive/src/drive.js';
 
 const originalListTree = Drive.prototype.listTree;
@@ -173,6 +174,7 @@ function harness(options: { applyRemoteDeletions?: boolean; lease?: { ms: number
     log,
   });
   const link = store.createLink({
+    subpath: '',
     userId: 7, projectId: 1, workspaceId: null, workspaceLabel: null,
     remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo', webUrl: null,
   });
@@ -207,6 +209,48 @@ describe('onedrive remote layout', () => {
     expect(safeSegment('')).toBe('workspace');
     expect(conflictName('docs/notes.md', new Date('2026-08-27T01:02:03Z')))
       .toBe('docs/notes.onedrive-conflict-2026-08-27-01-02-03.md');
+  });
+});
+
+describe('onedrive subfolder selection', () => {
+  it('accepts a plain folder and normalises the ways of writing it', () => {
+    expect(normalizeSubpath(undefined)).toBe('');
+    expect(normalizeSubpath('')).toBe('');
+    expect(normalizeSubpath('docs')).toBe('docs');
+    expect(normalizeSubpath('/docs/notes/')).toBe('docs/notes');
+    expect(normalizeSubpath('docs//./notes')).toBe('docs/notes');
+    expect(normalizeSubpath('docs\\notes')).toBe('docs/notes');
+  });
+
+  it('refuses a subpath that would walk out of the project', () => {
+    // The value arrives over HTTP and then sits in a database row, so it is re-checked on every read.
+    // A `..` here does not narrow the mirror, it points it at somebody else's files.
+    expect(normalizeSubpath('..')).toBeNull();
+    expect(normalizeSubpath('docs/../../etc')).toBeNull();
+    expect(normalizeSubpath('../secrets')).toBeNull();
+    expect(normalizeSubpath('C:/Windows')).toBeNull();
+    expect(normalizeSubpath('docs/\0/notes')).toBeNull();
+    expect(normalizeSubpath(42)).toBeNull();
+  });
+
+  it('refuses a folder the ignore floor covers, named directly or as a parent', () => {
+    // Reaching `.git` through a scan is filtered; NAMING it as the mirror root would walk straight past
+    // that filter, which is the whole point of the floor.
+    expect(normalizeSubpath('.git')).toBeNull();
+    expect(normalizeSubpath('node_modules')).toBeNull();
+    expect(normalizeSubpath('node_modules/some-package/dist')).toBeNull();
+    expect(normalizeSubpath('.elowen-trash')).toBeNull();
+    expect(normalizeSubpath('.ssh')).toBeNull();
+  });
+
+  it('puts the chosen folder in the OneDrive path so two folders never collide', () => {
+    const base = { workspaceId: null, workspaceLabel: null } as unknown as MirrorLink;
+    expect(remoteRootFor('Elowen', 'demo', { ...base, subpath: '' })).toBe('Elowen/projects/demo');
+    expect(remoteRootFor('Elowen', 'demo', { ...base, subpath: 'docs' })).toBe('Elowen/projects/demo/docs');
+    // Without the subpath in the remote path these two would be the same OneDrive folder, and each cycle
+    // would read the other's files as deletions.
+    expect(remoteRootFor('Elowen', 'demo', { ...base, subpath: 'docs' }))
+      .not.toBe(remoteRootFor('Elowen', 'demo', { ...base, subpath: 'design' }));
   });
 });
 
@@ -654,7 +698,7 @@ describe('onedrive sync cycle', () => {
     // A DIFFERENT account, deliberately: cycles for one account are already sequential, so a same-account
     // pair would pass this test with the lock removed. Two accounts are what nothing else serialises.
     const second = store.createLink({
-      userId: 8, projectId: 1, workspaceId: null, workspaceLabel: null,
+      userId: 8, projectId: 1, workspaceId: null, workspaceLabel: null, subpath: '',
       remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo', webUrl: null,
     });
     settled(join(root, 'shared.md'), 'shared\n');
@@ -849,6 +893,7 @@ describe('onedrive project and account removal', () => {
   it('drops every mirror of a removed project and account', () => {
     const { store } = harness();
     store.createLink({
+    subpath: '',
       userId: 7, projectId: 9, workspaceId: null, workspaceLabel: null,
       remoteDriveId: 'd', remoteItemId: 'i', remotePath: 'Elowen/projects/other', webUrl: null,
     });

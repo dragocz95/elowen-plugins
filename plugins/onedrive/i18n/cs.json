@@ -57,7 +57,14 @@
       "mirrorScope": "Co se zrcadlí",
       "mirrorScopeHint": "Vše, co ponechává soubor .gitignore daného projektu. Interní soubory správy verzí, závislosti a přihlašovací údaje jsou vyloučeny vždy.",
       "statusBlocked": "Čeká na potvrzení",
-      "confirmDeletions": "Potvrdit a smazat v OneDrivu"
+      "confirmDeletions": "Potvrdit a smazat v OneDrivu",
+      "chooseFolder": "Zrcadlená složka",
+      "chooseFolderHint": "Vyberte jednu složku, nebo ponechte celý projekt. Do OneDrivu se zkopíruje pouze zvolená část.",
+      "mirrorWholeProject": "Zrcadlit celý projekt",
+      "mirrorThisFolder": "Zrcadlit tuto složku",
+      "noSubfolders": "Tato složka neobsahuje žádné podsložky, které lze zrcadlit.",
+      "openFolderLabel": "Otevřít složku",
+      "mirroredFolder": "Složka"
     }
   }
 }

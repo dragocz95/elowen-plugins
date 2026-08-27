@@ -28,10 +28,15 @@ const DELETION_ABSOLUTE = 50;
  *  each other's files — the label is for the person, the id is what makes the folder actually theirs. */
 export function remoteRootFor(rootFolder, projectSlug, link) {
     const root = rootFolder.replace(/^\/+|\/+$/g, '') || 'Elowen';
-    if (!link.workspaceId)
-        return `${root}/projects/${projectSlug}`;
-    const label = safeSegment(link.workspaceLabel ?? '');
-    return `${root}/workspaces/${projectSlug}/${label} (${safeSegment(link.workspaceId)})`;
+    const base = link.workspaceId
+        ? `${root}/workspaces/${projectSlug}/${safeSegment(link.workspaceLabel ?? '')} (${safeSegment(link.workspaceId)})`
+        : `${root}/projects/${projectSlug}`;
+    // A narrowed mirror keeps the folder it covers in its remote path. Dropping it and putting `docs/`
+    // straight at the project root would make two subfolders of one project collide in OneDrive, and would
+    // leave the person unable to tell from the folder alone WHICH part of the project they are looking at.
+    if (!link.subpath)
+        return base;
+    return `${base}/${link.subpath.split('/').filter(Boolean).map(safeSegment).join('/')}`;
 }
 export function safeSegment(value) {
     // OneDrive refuses these outright, and a path separator would silently create a nested folder.

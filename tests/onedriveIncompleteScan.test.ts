@@ -61,6 +61,7 @@ describe('a local scan that admits it saw only part of the project', () => {
 
       const store = new OneDriveStore(pluginDb());
       const link = store.createLink({
+    subpath: '',
         userId: 7, projectId: 1, workspaceId: null, workspaceLabel: null,
         remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo', webUrl: null,
       });

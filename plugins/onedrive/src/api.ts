@@ -1,10 +1,10 @@
 import type { PluginApiRequest, PluginHttpResponse } from 'elowen/plugin-api';
 import type { OneDriveContext } from './coreSeams.js';
 import { Drive } from './drive.js';
-import { hashFile } from './scan.js';
+import { buildIgnore, hashFile, normalizeSubpath } from './scan.js';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { rename, stat } from 'node:fs/promises';
+import { readdir, rename, stat } from 'node:fs/promises';
 import type { MirrorLink, OneDriveStore } from './store.js';
 import { remoteRootFor, trashFile, type SyncEngine, type SyncSettings } from './sync.js';
 
@@ -16,6 +16,10 @@ export interface ApiDeps {
   engine: SyncEngine;
   settings: () => SyncSettings;
   rootFor: (link: MirrorLink) => string | null;
+  /** The project or worktree directory a link starts from, BEFORE its chosen subfolder is applied. */
+  baseFor: (link: MirrorLink) => string | null;
+  /** Join a subpath onto a base and prove the result is still inside it; `null` when it is not. */
+  withinBase: (base: string, subpath: string) => string | null;
   /** Active sandbox worktrees of a project for an explicitly named account. */
   workspacesOf: (userId: number, projectId: number) => { workspaceId: string; label: string }[];
 }
@@ -79,6 +83,7 @@ export function registerApi(deps: ApiDeps): void {
           id: link.id,
           workspaceId: link.workspaceId,
           workspaceLabel: link.workspaceLabel,
+          subpath: link.subpath,
           remotePath: link.remotePath,
           webUrl: link.webUrl,
           enabled: link.enabled,
@@ -90,6 +95,49 @@ export function registerApi(deps: ApiDeps): void {
           conflictCount: link.conflictCount,
         })),
       });
+    },
+  });
+
+  ctx.registerApiRoute({
+    path: 'folders', method: 'GET', access: 'user',
+    handler: async (req) => {
+      const projectId = projectIdOf(req.query?.projectId);
+      const gate = guard(req, projectId);
+      if (!gate.ok) return gate.response;
+
+      const workspaceId = typeof req.query?.workspaceId === 'string' && req.query.workspaceId ? req.query.workspaceId : null;
+      if (workspaceId && !deps.workspacesOf(gate.value, projectId).some((entry) => entry.workspaceId === workspaceId)) {
+        return bad('that workspace is not yours or is no longer active', 404);
+      }
+      const rel = normalizeSubpath(req.query?.path);
+      if (rel === null) return bad('that folder cannot be mirrored', 400);
+
+      // Deliberately built from the SAME resolver the sync cycle uses. A browser that could reach a
+      // directory the cycle would then refuse - or worse, one the cycle would accept and the browser
+      // never showed - is how a picker starts lying about what it is offering.
+      const probe = { userId: gate.value, projectId, workspaceId, subpath: '' } as MirrorLink;
+      const base = deps.baseFor(probe);
+      if (!base) return bad('not found', 404);
+      const dir = deps.withinBase(base, rel);
+      if (!dir) return bad('that folder cannot be mirrored', 400);
+
+      const ignored = buildIgnore(deps.settings().extraIgnore);
+      let entries;
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch {
+        return bad('that folder cannot be read', 404);
+      }
+      const folders = entries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => ({ name: entry.name, path: rel ? `${rel}/${entry.name}` : entry.name }))
+        // The floor is not negotiable in the picker either: offering `.git` or `node_modules` as a
+        // choice would let someone mirror by name exactly what the scan exists to keep out.
+        .filter((entry) => normalizeSubpath(entry.path) !== null && !ignored(entry.path))
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .slice(0, 500);
+
+      return json({ path: rel, parent: rel ? rel.split('/').slice(0, -1).join('/') : null, folders });
     },
   });
 
@@ -106,6 +154,9 @@ export function registerApi(deps: ApiDeps): void {
       const workspace = workspaceId ? workspaces.find((entry) => entry.workspaceId === workspaceId) : null;
       if (workspaceId && !workspace) return bad('that workspace is not yours or is no longer active', 404);
 
+      const subpath = normalizeSubpath(body.subpath);
+      if (subpath === null) return bad('that folder cannot be mirrored', 400);
+
       const identity = ctx.control('microsoftIdentity');
       const graph = identity ? await identity.driveGraphFor(gate.value) : null;
       if (!graph) return bad('Your account is not connected to Microsoft.', 409);
@@ -114,11 +165,16 @@ export function registerApi(deps: ApiDeps): void {
       if (!project) return bad('not found', 404);
 
       const draft = {
-        userId: gate.value, projectId, workspaceId,
+        userId: gate.value, projectId, workspaceId, subpath,
         workspaceLabel: workspace?.label ?? null,
         remoteDriveId: '', remoteItemId: '', remotePath: '', webUrl: null as string | null,
       };
       const remotePath = remoteRootFor(deps.settings().rootFolder, project.slug, draft as unknown as MirrorLink);
+
+      // Prove the chosen folder is really there and really inside the project before creating anything
+      // in OneDrive; a mirror whose local side does not exist is a folder the person has to clean up.
+      const base = deps.baseFor(draft as unknown as MirrorLink);
+      if (!base || !deps.withinBase(base, subpath)) return bad('that folder cannot be mirrored', 400);
 
       const drive = await Drive.open(graph);
       const folder = await drive.ensureFolder(remotePath);

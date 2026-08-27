@@ -57,7 +57,14 @@
       "mirrorScope": "Čo sa zrkadlí",
       "mirrorScopeHint": "Všetko, čo ponecháva súbor .gitignore daného projektu. Interné súbory správy verzií, závislosti a prihlasovacie údaje sú vylúčené vždy.",
       "statusBlocked": "Čaká na potvrdenie",
-      "confirmDeletions": "Potvrdiť a zmazať v OneDrive"
+      "confirmDeletions": "Potvrdiť a zmazať v OneDrive",
+      "chooseFolder": "Zrkadlený priečinok",
+      "chooseFolderHint": "Vyberte jeden priečinok, alebo ponechajte celý projekt. Do OneDrivu sa skopíruje iba zvolená časť.",
+      "mirrorWholeProject": "Zrkadliť celý projekt",
+      "mirrorThisFolder": "Zrkadliť tento priečinok",
+      "noSubfolders": "Tento priečinok neobsahuje žiadne podpriečinky, ktoré možno zrkadliť.",
+      "openFolderLabel": "Otvoriť priečinok",
+      "mirroredFolder": "Priečinok"
     }
   }
 }

@@ -105,7 +105,14 @@
       "disconnect": "Disconnect",
       "disconnectHint": "Stops mirroring. Files already in OneDrive stay where they are.",
       "mirrorScope": "What is mirrored",
-      "mirrorScopeHint": "Everything the project's own .gitignore keeps. Version control internals, dependencies and credentials are always excluded."
+      "mirrorScopeHint": "Everything the project's own .gitignore keeps. Version control internals, dependencies and credentials are always excluded.",
+      "chooseFolder": "Folder to mirror",
+      "chooseFolderHint": "Pick one folder, or keep the whole project. Only what you choose is copied to OneDrive.",
+      "mirrorWholeProject": "Mirror the whole project",
+      "mirrorThisFolder": "Mirror this folder",
+      "noSubfolders": "This folder has no subfolders that can be mirrored.",
+      "openFolderLabel": "Open folder",
+      "mirroredFolder": "Folder"
     }
   }
 }

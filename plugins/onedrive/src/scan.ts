@@ -38,6 +38,41 @@ export const IGNORE_FLOOR: readonly string[] = [
   `${PART_PREFIX}*`, `**/${PART_PREFIX}*`,
 ];
 
+/** A stored subpath turned into something safe to join onto a root, or `null` when it is not.
+ *
+ *  This is the ONLY place a subpath is accepted. It is user input that arrived over HTTP and then sat in
+ *  a database row, so it is re-checked on every read rather than trusted because it was checked once: a
+ *  `..` segment would walk the mirror out of the project and start syncing whatever it landed on, and a
+ *  segment the ignore floor covers would mirror `.git` or `node_modules` wholesale by naming it directly
+ *  instead of being reached through a scan the floor filters.
+ *
+ *  Rejecting is deliberately the answer for anything unclear. The caller stops the mirror; it never falls
+ *  back to the whole project, because quietly widening what someone chose to share is the one outcome
+ *  this feature exists to prevent. */
+export function normalizeSubpath(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value !== 'string') return null;
+  if (value.length > 400) return null;
+  const segments = value.split(/[/\\]+/).filter((segment) => segment !== '' && segment !== '.');
+  if (segments.length === 0) return '';
+  if (segments.length > 32) return null;
+  for (const segment of segments) {
+    if (segment === '..') return null;
+    // A drive letter or a leading colon would make this absolute on some platforms; NUL ends a path in
+    // every syscall that takes one.
+    if (segment.includes('\0') || segment.includes(':')) return null;
+  }
+  // The floor covers a path AND its ancestors, and it is written for FILES: most entries look like
+  // `node_modules/**` or `.ssh/**`, which the bare directory name does not match. Asking whether a probe
+  // child would be ignored is what actually answers "may this directory be the mirror root" - checking
+  // the name alone would happily accept `node_modules` and mirror the whole of it.
+  for (let depth = 1; depth <= segments.length; depth += 1) {
+    const prefix = segments.slice(0, depth).join('/');
+    if (isFloorIgnored(prefix) || isFloorIgnored(`${prefix}/probe`)) return null;
+  }
+  return segments.join('/');
+}
+
 export function isFloorIgnored(rel: string): boolean {
   return IGNORE_FLOOR.some((pattern) => matchesGlob(rel, pattern));
 }

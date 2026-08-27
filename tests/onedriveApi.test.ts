@@ -103,6 +103,8 @@ function harness(drive?: ReturnType<typeof fakeGraph>, root = '/tmp/demo') {
     engine: engine as never,
     settings: () => ({ rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: '', applyRemoteDeletions: true }),
     rootFor: () => root,
+    baseFor: () => root,
+    withinBase: (base: string, subpath: string) => (subpath ? `${base}/${subpath}` : base),
     workspacesOf: () => [],
   });
 
@@ -113,6 +115,7 @@ describe('onedrive api routes', () => {
   it('reads the JSON payload the daemon actually delivers', async () => {
     const { store, routes, engine } = harness();
     const link = store.createLink({
+      subpath: '',
       userId: 7, projectId: 1, workspaceId: null, workspaceLabel: null,
       remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo', webUrl: null,
     });
@@ -128,10 +131,12 @@ describe('onedrive api routes', () => {
   it('passes a bulk-deletion confirmation through for that one mirror only', async () => {
     const { store, routes, engine } = harness();
     const mine = store.createLink({
+      subpath: '',
       userId: 7, projectId: 1, workspaceId: null, workspaceLabel: null,
       remoteDriveId: 'd', remoteItemId: 'f', remotePath: 'p', webUrl: null,
     });
     const other = store.createLink({
+      subpath: '',
       userId: 7, projectId: 2, workspaceId: null, workspaceLabel: null,
       remoteDriveId: 'd', remoteItemId: 'f2', remotePath: 'p2', webUrl: null,
     });
@@ -147,6 +152,7 @@ describe('onedrive api routes', () => {
   it('refuses to touch a mirror belonging to somebody else in a shared project', async () => {
     const { store, routes } = harness();
     const theirs = store.createLink({
+      subpath: '',
       userId: 99, projectId: 1, workspaceId: null, workspaceLabel: null,
       remoteDriveId: 'd', remoteItemId: 'f', remotePath: 'p', webUrl: null,
     });
@@ -161,6 +167,7 @@ describe('onedrive api routes', () => {
   it('pauses and resumes from the payload rather than defaulting to one of them', async () => {
     const { store, routes } = harness();
     const link = store.createLink({
+      subpath: '',
       userId: 7, projectId: 1, workspaceId: null, workspaceLabel: null,
       remoteDriveId: 'd', remoteItemId: 'f', remotePath: 'p', webUrl: null,
     });
@@ -186,6 +193,7 @@ describe('onedrive conflict resolution', () => {
     const drive = fakeGraph({ id: 'item-1', etag: 'etag-1', body });
     const h = harness(drive, root);
     const link = h.store.createLink({
+      subpath: '',
       userId: 7, projectId: 1, workspaceId: null, workspaceLabel: null,
       remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo', webUrl: null,
     });
