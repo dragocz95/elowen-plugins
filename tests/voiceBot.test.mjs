@@ -43,6 +43,7 @@ function harness(t, options = {}) {
   const tools = [];
   const warnings = [];
   const requests = [];
+  let userRemoved;
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -62,10 +63,15 @@ function harness(t, options = {}) {
     db: () => pluginDb,
     logger: { info() {}, warn: (message) => warnings.push(message) },
     registerTool: (tool) => tools.push(tool),
+    registerUserRemoved: (fn) => { userRemoved = fn; },
   };
   register(ctx);
 
   return {
+    removeUser: (userId) => {
+      assert.ok(userRemoved, 'the plugin must register an account-teardown handler');
+      return userRemoved(userId);
+    },
     tools,
     warnings,
     requests,
@@ -293,6 +299,26 @@ test('an unreachable service is a failure, and says no call was placed', async (
   assert.match(text(result), /Could not reach the call service/);
   assert.match(text(result), /No call was placed/);
   assert.equal(h.rows()[0].status, 'failed');
+});
+
+test('a deleted account takes its call history with it, configured or not', async (t) => {
+  const h = harness(t);
+  const call = h.tool();
+  await call.execute('1', { phone_number: '+420721909701', prompt: 'One.' });
+  await call.execute('2', { phone_number: '+420721909702', prompt: 'Two.' });
+  assert.equal(h.rows().length, 2);
+
+  assert.equal(h.removeUser(999), 0, 'another account is left alone');
+  assert.equal(h.rows().length, 2);
+
+  assert.equal(h.removeUser(7), 2, 'the rows naming that account go');
+  assert.deepEqual(h.rows(), [], 'phone numbers and transcripts do not outlive the account that asked');
+
+  // The daemon warns when a plugin holding per-account state registers no teardown, and it warns
+  // whether or not the plugin is configured — so the handler cannot live behind the config check.
+  const unconfigured = harness(t, { config: { apiToken: '' } });
+  assert.deepEqual(unconfigured.tools, [], 'no tool here');
+  assert.equal(unconfigured.removeUser(7), 0, 'yet the account can still be torn down');
 });
 
 test('without an endpoint or a token no call tool exists at all', async (t) => {

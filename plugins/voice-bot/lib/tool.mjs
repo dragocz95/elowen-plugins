@@ -1,6 +1,6 @@
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { WINDOW_MS, openStore } from './store.mjs';
+import { WINDOW_MS } from './store.mjs';
 
 /** The service holds the request open for the ENTIRE call and answers only once it has ended — a real
  *  three-exchange call measured 41.6 s. So this is not a "did the server acknowledge us" deadline, it is
@@ -48,7 +48,7 @@ function minutesUntil(freeAt, now) {
   return Math.max(1, Math.ceil((freeAt - now) / 60_000));
 }
 
-export function registerVoiceCall(ctx, db) {
+export function registerVoiceCall(ctx, store) {
   const apiUrl = text(ctx.config.apiUrl).replace(/\/+$/, '');
   const apiToken = text(ctx.config.apiToken);
   if (!apiUrl || !apiToken) {
@@ -56,7 +56,6 @@ export function registerVoiceCall(ctx, db) {
     return;
   }
 
-  const store = openStore(db);
   const rawLimit = Number(ctx.config.maxCallsPerHour);
   const maxCallsPerHour = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.floor(rawLimit) : 10;
   const defaultInitMessage = text(ctx.config.defaultInitMessage);

@@ -79,5 +79,13 @@ export function openStore(db) {
     get(id) {
       return db.prepare('SELECT * FROM p_voice_bot_calls WHERE id = ?').get(id) ?? null;
     },
+
+    /** A deleted account takes its call history with it. The row names who asked for the call, the
+     *  number that was dialled and everything that was said on it — keeping that after the account is
+     *  gone would leave personal data with nobody left to own it. The hourly window loses those entries
+     *  too, which is harmless: they age out within the hour anyway. */
+    removeUser(userId) {
+      return db.prepare('DELETE FROM p_voice_bot_calls WHERE user_id = ?').run(userId).changes;
+    },
   };
 }
