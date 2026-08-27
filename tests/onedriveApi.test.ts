@@ -124,6 +124,52 @@ describe('onedrive plugin manifest', () => {
   });
 });
 
+describe('onedrive panel strings', () => {
+  const stringsOf = (manifest: Record<string, unknown>): Record<string, string> => {
+    const found: Record<string, string> = {};
+    const walk = (node: unknown): void => {
+      if (!node || typeof node !== 'object') return;
+      const record = node as Record<string, unknown>;
+      if (typeof record.mirrorScopeHint === 'string') {
+        for (const [key, value] of Object.entries(record)) if (typeof value === 'string') found[key] = value;
+        return;
+      }
+      for (const value of Object.values(record)) walk(value);
+    };
+    walk(manifest);
+    return found;
+  };
+
+  it('substitutes every placeholder it renders', () => {
+    // A string carrying {count} that reaches the page unsubstituted renders the braces literally, and
+    // the panel then asks somebody to "Remove {count} files from OneDrive". The compiler cannot see it:
+    // it is a plain string read out of a JSON file.
+    const manifest = JSON.parse(readFileSync(new URL('../plugins/onedrive/elowen-plugin.json', import.meta.url), 'utf8'));
+    const strings = stringsOf(manifest);
+    const templated = Object.keys(strings).filter((key) => strings[key].includes('{count}'));
+    expect(templated.length).toBeGreaterThan(0);
+
+    const panel = readFileSync(new URL('../plugins/onedrive/web-src/OneDriveProjectPanel.tsx', import.meta.url), 'utf8');
+    const raw: string[] = [];
+    for (const key of templated) {
+      const uses = [...panel.matchAll(new RegExp(`s\\.${key}(\\.replace\\()?`, 'g'))];
+      for (const use of uses) if (!use[1]) raw.push(key);
+    }
+    expect(raw).toEqual([]);
+  });
+
+  it('keeps every locale in step with the manifest keys', () => {
+    // A key added to the English fallback and forgotten in cs.json shows an English sentence in the
+    // middle of a Czech page.
+    const manifest = JSON.parse(readFileSync(new URL('../plugins/onedrive/elowen-plugin.json', import.meta.url), 'utf8'));
+    const expected = Object.keys(stringsOf(manifest)).sort();
+    for (const locale of ['cs', 'sk']) {
+      const file = JSON.parse(readFileSync(new URL(`../plugins/onedrive/i18n/${locale}.json`, import.meta.url), 'utf8'));
+      expect({ locale, keys: Object.keys(stringsOf(file)).sort() }).toEqual({ locale, keys: expected });
+    }
+  });
+});
+
 describe('onedrive api routes', () => {
   it('reads the JSON payload the daemon actually delivers', async () => {
     const { store, routes, engine } = harness();

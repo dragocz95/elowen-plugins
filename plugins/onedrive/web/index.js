@@ -289,6 +289,10 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
     queryKey: ["plugin", "onedrive", "folders", String(projectId), workspaceId ?? "", browsing],
     queryFn: () => api(`/plugins/onedrive/api/folders?${query.toString()}`)
   });
+  const rootRemotePath = browsing === "" ? listing.data?.remotePath : void 0;
+  (0, import_react3.useEffect)(() => {
+    if (!value && rootRemotePath !== void 0) onChange({ subpath: "", remotePath: rootRemotePath });
+  }, [value, rootRemotePath, onChange]);
   const crumbs = browsing ? browsing.split("/") : [];
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-2", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-1 text-xs", children: [
@@ -320,14 +324,14 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
         "button",
         {
           type: "button",
-          "aria-pressed": value === browsing,
+          "aria-pressed": value?.subpath === browsing,
           disabled: !listing.data,
           onClick: () => listing.data && onChange({ subpath: browsing, remotePath: listing.data.remotePath }),
-          className: `flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-surface-2 disabled:opacity-50 ${value === browsing ? "bg-accent/10 text-accent" : ""}`,
+          className: `flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-surface-2 disabled:opacity-50 ${value?.subpath === browsing ? "bg-accent/10 text-accent" : ""}`,
           children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderOpen, { size: 13, "aria-hidden": true }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", children: browsing === "" ? s.mirrorWholeProject : `${s.mirrorThisFolder}: ${browsing}` }),
-            value === browsing ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ml-auto shrink-0 font-medium", children: s.selected }) : null
+            value?.subpath === browsing ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ml-auto shrink-0 font-medium", children: s.selected }) : null
           ]
         }
       ),
@@ -336,13 +340,13 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
           "button",
           {
             type: "button",
-            "aria-pressed": value === folder.path,
+            "aria-pressed": value?.subpath === folder.path,
             onClick: () => onChange({ subpath: folder.path, remotePath: folder.remotePath }),
-            className: `flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-2 ${value === folder.path ? "bg-accent/10 text-accent" : ""}`,
+            className: `flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-2 ${value?.subpath === folder.path ? "bg-accent/10 text-accent" : ""}`,
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Folder, { size: 13, "aria-hidden": true }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", title: folder.path, children: folder.name }),
-              value === folder.path ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ml-auto shrink-0 font-medium", children: s.selected }) : null
+              value?.subpath === folder.path ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ml-auto shrink-0 font-medium", children: s.selected }) : null
             ]
           }
         ),
@@ -399,7 +403,7 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-medium", children: s.blockedTitle.replace("{count}", String(row.blockedDeletions)) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-text-muted", children: s.blockedBody.replace("{count}", String(row.blockedDeletions)) })
     ] }) : row.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: row.error }) : null,
-    row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "danger", disabled: busy, onClick: onConfirmSync, children: s.confirmDeletions }),
+    row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "danger", disabled: busy, onClick: onConfirmSync, children: s.confirmDeletions.replace("{count}", String(row.blockedDeletions)) }),
     row.conflictCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       "button",
       {
@@ -415,7 +419,7 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
     ),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
       row.webUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { icon: ExternalLink, onClick: () => window.open(row.webUrl, "_blank", "noopener"), children: s.openFolder }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { icon: RefreshCw, disabled: busy, onClick: onSync, children: s.syncNow }),
+      row.enabled ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { icon: RefreshCw, disabled: busy, onClick: onSync, children: s.syncNow }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: onPause, children: row.enabled ? s.pause : s.resume }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: onDisconnect, children: s.disconnect })
     ] })
@@ -577,7 +581,7 @@ function OneDriveProjectPanel({ project }) {
           {
             projectId: project.id,
             workspaceId: connectFor.workspaceId,
-            value: choice?.subpath ?? "",
+            value: choice,
             onChange: setChoice,
             rootLabel: connectFor.label
           }

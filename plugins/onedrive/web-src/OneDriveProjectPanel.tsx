@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronRight, Cloud, CloudOff, ExternalLink, Folder, FolderOpen, RefreshCw, TriangleAlert } from 'lucide-react';
 import { humanBytes, jsonBody, runtime, type ConflictRow, type MirrorRow, type Overview } from './runtime';
 
@@ -85,11 +85,13 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: 
  *  option. Descending is a click; the breadcrumb walks back out. Only directories the mirror could
  *  actually take are listed - the server applies the same ignore floor the sync cycle does, so the
  *  picker cannot offer something the cycle would then refuse. */
+type FolderChoice = { subpath: string; remotePath: string };
+
 function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
   projectId: number;
   workspaceId: string | null;
-  value: string;
-  onChange: (choice: { subpath: string; remotePath: string }) => void;
+  value: FolderChoice | null;
+  onChange: (choice: FolderChoice) => void;
   rootLabel: string;
 }) {
   const { components: C, hooks, api, utils } = runtime();
@@ -101,6 +103,14 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
     queryKey: ['plugin', 'onedrive', 'folders', String(projectId), workspaceId ?? '', browsing],
     queryFn: () => api(`/plugins/onedrive/api/folders?${query.toString()}`),
   });
+
+  // The whole project is the default, so it is SELECTED as soon as the picker knows where that would
+  // land - otherwise the first row reads "Selected" while the connect button stays dead, which is the
+  // picker telling two different stories about the same state.
+  const rootRemotePath = browsing === '' ? listing.data?.remotePath : undefined;
+  useEffect(() => {
+    if (!value && rootRemotePath !== undefined) onChange({ subpath: '', remotePath: rootRemotePath });
+  }, [value, rootRemotePath, onChange]);
 
   const crumbs = browsing ? browsing.split('/') : [];
   return (
@@ -125,14 +135,14 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
       <div className="max-h-52 overflow-y-auto rounded-md border border-border/70">
         {/* Selecting the folder you are standing in is the same act as selecting one you can see, so it
             is the first row of the same list rather than a separate control somewhere else. */}
-        <button type="button" aria-pressed={value === browsing}
+        <button type="button" aria-pressed={value?.subpath === browsing}
           disabled={!listing.data}
           onClick={() => listing.data && onChange({ subpath: browsing, remotePath: listing.data.remotePath })}
           className={`flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-surface-2 disabled:opacity-50 ${
-            value === browsing ? 'bg-accent/10 text-accent' : ''}`}>
+            value?.subpath === browsing ? 'bg-accent/10 text-accent' : ''}`}>
           <FolderOpen size={13} aria-hidden />
           <span className="truncate">{browsing === '' ? s.mirrorWholeProject : `${s.mirrorThisFolder}: ${browsing}`}</span>
-          {value === browsing ? <span className="ml-auto shrink-0 font-medium">{s.selected}</span> : null}
+          {value?.subpath === browsing ? <span className="ml-auto shrink-0 font-medium">{s.selected}</span> : null}
         </button>
         {listing.isError
           ? <div className="p-3"><C.ErrorState message={utils.apiErrorMessage(listing.error)} onRetry={() => listing.refetch()} /></div>
@@ -142,13 +152,13 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
               ? <p className="px-3 py-2 text-xs text-text-muted">{s.noSubfolders}</p>
               : (listing.data?.folders ?? []).map((folder) => (
                 <div key={folder.path} className="flex items-stretch border-b border-border/70 last:border-b-0">
-                  <button type="button" aria-pressed={value === folder.path}
+                  <button type="button" aria-pressed={value?.subpath === folder.path}
                     onClick={() => onChange({ subpath: folder.path, remotePath: folder.remotePath })}
                     className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-2 ${
-                      value === folder.path ? 'bg-accent/10 text-accent' : ''}`}>
+                      value?.subpath === folder.path ? 'bg-accent/10 text-accent' : ''}`}>
                     <Folder size={13} aria-hidden />
                     <span className="truncate" title={folder.path}>{folder.name}</span>
-                    {value === folder.path ? <span className="ml-auto shrink-0 font-medium">{s.selected}</span> : null}
+                    {value?.subpath === folder.path ? <span className="ml-auto shrink-0 font-medium">{s.selected}</span> : null}
                   </button>
                   <button type="button" onClick={() => setBrowsing(folder.path)} aria-label={`${s.openFolderLabel}: ${folder.name}`}
                     className="px-2 text-text-muted hover:bg-surface-2 hover:text-text">
@@ -206,7 +216,7 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
           a distinct action rather than a quieter Sync now, because the answer authorises deletion. */}
       {row.status === 'blocked' && (
         <C.Button variant="danger" disabled={busy} onClick={onConfirmSync}>
-          {s.confirmDeletions}
+          {s.confirmDeletions.replace('{count}', String(row.blockedDeletions))}
         </C.Button>
       )}
 
@@ -225,7 +235,11 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
             {s.openFolder}
           </C.Button>
         )}
-        <C.Button icon={RefreshCw} disabled={busy} onClick={onSync}>{s.syncNow}</C.Button>
+        {/* The cycle skips a disabled link, so this button would do nothing at all while paused.
+            Resume is the action that state has. */}
+        {row.enabled ? (
+          <C.Button icon={RefreshCw} disabled={busy} onClick={onSync}>{s.syncNow}</C.Button>
+        ) : null}
         <C.Button variant="ghost" onClick={onPause}>{row.enabled ? s.pause : s.resume}</C.Button>
         <C.Button variant="ghost-danger" onClick={onDisconnect}>{s.disconnect}</C.Button>
       </div>
@@ -248,7 +262,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
 
   const [connectFor, setConnectFor] = useState<{ workspaceId: string | null; label: string } | null>(null);
   // Reset with each drawer, so the previous choice never quietly applies to a different target.
-  const [choice, setChoice] = useState<{ subpath: string; remotePath: string } | null>(null);
+  const [choice, setChoice] = useState<FolderChoice | null>(null);
   const [conflictsFor, setConflictsFor] = useState<MirrorRow | null>(null);
   const [disconnecting, setDisconnecting] = useState<MirrorRow | null>(null);
 
@@ -403,7 +417,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
             <FolderPicker
               projectId={project.id}
               workspaceId={connectFor.workspaceId}
-              value={choice?.subpath ?? ''}
+              value={choice}
               onChange={setChoice}
               rootLabel={connectFor.label}
             />
