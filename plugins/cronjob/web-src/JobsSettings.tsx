@@ -455,8 +455,11 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
         : isLoading || !data ? <C.ControlSurfaceState><C.LoadingState variant="cards" /></C.ControlSurfaceState>
         : (
           <div className="flex min-w-0 flex-col gap-4">
-            <C.ControlSurfaceToolbar className="flex-col items-stretch">
-              <div className="flex min-w-0 flex-wrap items-center gap-2 py-3">
+            {/* w-full, not items-stretch: a plugin's utilities live in @layer utilities and lose to the
+                host's unlayered .control-surface-toolbar { align-items: center }, so the row kept its
+                max-content width and overflowed the surface at 320px instead of wrapping. */}
+            <C.ControlSurfaceToolbar>
+              <div className="flex w-full min-w-0 flex-wrap items-center gap-2 py-3">
                 <C.RegisterSearch value={query} onChange={setQuery} placeholder={s.searchPlaceholder} label={s.searchPlaceholder} />
                 <C.Segmented
                   value={filter}
