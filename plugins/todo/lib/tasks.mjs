@@ -406,6 +406,18 @@ function tasksForList(tasks) {
   }));
 }
 
+/** After a status change completes work, chain the model straight onto what can start next. The line
+ *  rides on a result that is being sent anyway, so it lands exactly mid-turn — the running-work reminder
+ *  only catches a stalled list at the NEXT turn boundary. Quiet when another task already runs (the model
+ *  is not idle) or when every open task still waits on an unresolved blocker. */
+function nextRunnableHint(tasks) {
+  if (tasks.some((task) => task.status === 'in_progress')) return null;
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const next = tasks.find((task) => task.status !== 'completed'
+    && task.blockedBy.every((id) => byId.get(id)?.status === 'completed'));
+  return next ? `Next unblocked: #${next.id} ${next.subject} — mark it in_progress when you start.` : null;
+}
+
 function syncCard(ctx, store, key) {
   const tasks = key ? store.list(key) : [];
   pushTaskCard(ctx, tasks);
@@ -590,7 +602,7 @@ export function registerTaskMode(ctx, db) {
   ctx.registerTool(defineTool({
     name: 'TaskUpdate',
     label: 'Update task',
-    description: 'Update one EXISTING task incrementally, identified by an ID that TaskCreate returned or TaskList reported. It never creates a task: an unknown ID fails with error "task not found", and the fix is to call TaskList and retry with a current ID (or TaskCreate if the work is genuinely new) — never to guess another ID or repeat the same call. Status is pending, in_progress, completed, or deleted. addBlockedBy adds prerequisites; addBlocks makes this task a prerequisite of other tasks. Dependency changes reject missing tasks, self-dependencies and cycles; repeated edges are idempotent.',
+    description: 'Update one EXISTING task incrementally, identified by an ID that TaskCreate returned or TaskList reported. It never creates a task: an unknown ID fails with error "task not found", and the fix is to call TaskList and retry with a current ID (or TaskCreate if the work is genuinely new) — never to guess another ID or repeat the same call. Status is pending, in_progress, completed, or deleted. Completing a task names the next unblocked one in the result, so chain straight onto it and mark it in_progress when you start. addBlockedBy adds prerequisites; addBlocks makes this task a prerequisite of other tasks. Dependency changes reject missing tasks, self-dependencies and cycles; repeated edges are idempotent.',
     parameters: Type.Object({
       taskId: Type.String({ description: 'ID of an existing task, exactly as returned by TaskCreate or TaskList. Never invent or guess an ID.' }),
       subject: Type.Optional(Type.String()),
@@ -608,8 +620,9 @@ export function registerTaskMode(ctx, db) {
       if (!key) return ok({ success: false, taskId, updatedFields: [], error: 'task list unavailable outside a conversation' });
       try {
         const result = store.update(key, taskId, params);
-        syncCard(ctx, store, key);
-        return ok(result);
+        const tasks = syncCard(ctx, store, key);
+        const hint = result.statusChange?.to === 'completed' ? nextRunnableHint(tasks) : null;
+        return ok({ ...result, ...(hint ? { hint } : {}) });
       } catch (error) {
         const message = safeError(ctx, error);
         // A missing ID is the one failure the model reliably retries blind — usually after the task was

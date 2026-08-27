@@ -179,6 +179,35 @@ test('TaskCreate starts the first implicit runnable task without disturbing expl
   assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 6').get('u7#brain-7-a').started_at, 200_000);
 });
 
+test('completing a task chains the model onto the next unblocked work in the result', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+
+  await create.execute('1', { tasks: [
+    { subject: 'First', description: 'runs now' },
+    { subject: 'Second', description: 'still blocked', blockedByIndex: [3] },
+    { subject: 'Third', description: 'next up' },
+  ] });
+
+  // Auto-start put #1 in_progress. Completing it names #3: #2 still waits on #3, so it is not startable.
+  assert.equal(
+    json(await update.execute('2', { taskId: '1', status: 'completed' })).hint,
+    'Next unblocked: #3 Third — mark it in_progress when you start.',
+  );
+
+  // #3 was marked in_progress first, so completing it chains onward to #2 instead of nagging mid-work.
+  await update.execute('3', { taskId: '3', status: 'in_progress' });
+  assert.equal(
+    json(await update.execute('4', { taskId: '3', status: 'completed' })).hint,
+    'Next unblocked: #2 Second — mark it in_progress when you start.',
+  );
+
+  // Finishing the last task leaves nothing to name, and repeating a completion stays quiet too.
+  assert.equal(json(await update.execute('5', { taskId: '2', status: 'completed' })).hint, undefined);
+  assert.equal(json(await update.execute('6', { taskId: '2', status: 'completed' })).hint, undefined);
+});
+
 test('in-progress tasks measure elapsed time from each status entry', async (t) => {
   const h = harness(t);
   const create = h.tool('TaskCreate');
