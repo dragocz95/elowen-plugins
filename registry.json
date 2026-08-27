@@ -189,6 +189,17 @@
       }
     },
     {
+      "name": "voice-bot",
+      "version": "0.1.0",
+      "description": "Outbound telephone calls: the agent dials a real phone number through a configurable voice API and briefs the voice agent that speaks on the call.",
+      "category": "automation",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "tools": 1
+      }
+    },
+    {
       "name": "web",
       "version": "0.3.0",
       "description": "Web research: WebSearch (Tavily) and WebFetch (fetch a page as readable text).",

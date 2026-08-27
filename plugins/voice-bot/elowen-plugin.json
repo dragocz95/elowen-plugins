@@ -1,0 +1,71 @@
+{
+  "name": "voice-bot",
+  "version": "0.1.0",
+  "apiVersion": "1",
+  "description": "Outbound telephone calls through a configurable voice API. VoiceCall dials a real phone number and hands the conversation to a voice agent briefed by the prompt sent with the call.",
+  "entry": "index.mjs",
+  "icon": "icon.svg",
+  "userGrantable": true,
+  "requires": {
+    "config": [
+      "apiUrl",
+      "apiToken"
+    ]
+  },
+  "capabilities": {
+    "reads": [
+      "db"
+    ],
+    "network": true
+  },
+  "provides": {
+    "tools": [
+      "VoiceCall"
+    ]
+  },
+  "configSchema": [
+    {
+      "key": "sec_connection",
+      "label": "Connection",
+      "type": "section"
+    },
+    {
+      "key": "apiUrl",
+      "label": "Call endpoint",
+      "type": "string",
+      "required": true,
+      "fullWidth": true,
+      "placeholder": "https://example.azurewebsites.net/calls",
+      "hint": "Full URL each call request is sent to. Without it and the token below, no call tool is offered to the agent at all."
+    },
+    {
+      "key": "apiToken",
+      "label": "API token",
+      "type": "secret",
+      "required": true,
+      "hint": "Sent as an Authorization: Bearer header. It is never written to a log line and never returned to the agent, not even in an error."
+    },
+    {
+      "key": "sec_limits",
+      "label": "Limits",
+      "type": "section"
+    },
+    {
+      "key": "maxCallsPerHour",
+      "label": "Maximum calls per hour",
+      "type": "number",
+      "default": 10,
+      "min": 1,
+      "max": 200,
+      "risk": "high",
+      "hint": "Calls started in any 60-minute window. This is the only brake on the feature: it exists to stop a repeating agent from dialling somebody over and over, and it survives a restart."
+    },
+    {
+      "key": "defaultInitMessage",
+      "label": "Default opening sentence",
+      "type": "string",
+      "fullWidth": true,
+      "hint": "Spoken first whenever a call does not carry its own opening sentence. Leave empty to let the voice service open the call by itself."
+    }
+  ]
+}

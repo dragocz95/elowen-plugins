@@ -1,0 +1,27 @@
+{
+  "description": "Odchádzajúce telefonáty cez nastaviteľné hlasové API. Nástroj VoiceCall vytočí skutočné telefónne číslo a odovzdá hovor hlasovému agentovi, ktorého inštruuje zadanie odoslané spolu s hovorom.",
+  "fields": {
+    "sec_connection": {
+      "label": "Pripojenie"
+    },
+    "apiUrl": {
+      "label": "Adresa služby",
+      "hint": "Úplná adresa, na ktorú sa odosiela požiadavka na hovor. Bez nej a bez tokenu nižšie sa agentovi žiadny nástroj na volanie vôbec neponúkne."
+    },
+    "apiToken": {
+      "label": "Token API",
+      "hint": "Odosiela sa v hlavičke Authorization: Bearer. Nikdy sa nezapisuje do protokolu ani nevracia agentovi, a to ani v chybovom hlásení."
+    },
+    "sec_limits": {
+      "label": "Limity"
+    },
+    "maxCallsPerHour": {
+      "label": "Najviac hovorov za hodinu",
+      "hint": "Počet hovorov začatých v ľubovoľnom šesťdesiatminútovom okne. Je to jediná poistka tejto funkcie: bráni tomu, aby opakujúci sa agent volal niekomu stále dokola, a prežije reštart."
+    },
+    "defaultInitMessage": {
+      "label": "Predvolená úvodná veta",
+      "hint": "Zaznie ako prvá vždy, keď hovor nenesie vlastnú úvodnú vetu. Nechajte prázdne, ak si má úvod riadiť hlasová služba sama."
+    }
+  }
+}
