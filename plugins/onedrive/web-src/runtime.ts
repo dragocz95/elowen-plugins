@@ -20,6 +20,8 @@ export interface MirrorRow {
   fileCount: number;
   byteCount: number;
   conflictCount: number;
+  /** How many deletions the mirror refused and is waiting to be asked about. */
+  blockedDeletions: number;
 }
 
 export interface WorkspaceRow {

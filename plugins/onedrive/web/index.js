@@ -226,7 +226,9 @@ var statusLabel = (row, s) => {
   if (row.status === "error") return s.statusError;
   if (row.status === "blocked") return s.statusBlocked;
   if (!row.enabled) return s.statusPaused;
-  return row.status === "syncing" ? s.statusSyncing : s.statusIdle;
+  if (row.status === "syncing") return s.statusSyncing;
+  if (row.conflictCount > 0) return s.statusConflict;
+  return row.lastSyncAt ? s.statusIdle : s.statusFirstRun;
 };
 function ConflictsRail({ row, onClose, onResolved }) {
   const { components: C, hooks, api, utils } = runtime();
@@ -235,18 +237,26 @@ function ConflictsRail({ row, onClose, onResolved }) {
     queryKey: ["plugin", "onedrive", "conflicts", String(row.id)],
     queryFn: () => api(`/plugins/onedrive/api/conflicts?id=${row.id}`)
   });
+  const [resolveError, setResolveError] = (0, import_react3.useState)(null);
   const resolve = hooks.useMutation({
     mutationFn: (vars) => api("/plugins/onedrive/api/conflicts/resolve", jsonBody({ id: row.id, ...vars })),
     onSuccess: () => {
+      setResolveError(null);
       conflicts.refetch();
       onResolved();
+    },
+    // A 409 is ordinary here - the OneDrive copy can change between opening this list and answering it.
+    // Without this the button simply did nothing and the row stayed put, which reads as a broken page.
+    onError: (error) => {
+      setResolveError(utils.apiErrorMessage(error));
+      conflicts.refetch();
     }
   });
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.WorkspaceDetailRail, { label: s.conflicts, closeLabel: s.close, onClose, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mb-3 text-xs text-text-muted", children: s.conflictsHint }),
-    conflicts.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) : conflicts.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(conflicts.error), onRetry: () => conflicts.refetch() }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.conflicts, columns: "minmax(0,1fr) auto", compactColumns: "minmax(0,1fr)", children: (conflicts.data?.conflicts ?? []).map((conflict) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
+    conflicts.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) : conflicts.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(conflicts.error), onRetry: () => conflicts.refetch() }) : (conflicts.data?.conflicts ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.conflictsEmpty }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.conflicts, columns: "minmax(0,1fr) auto", compactColumns: "minmax(0,1fr)", children: (conflicts.data?.conflicts ?? []).map((conflict) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate font-mono text-xs", title: conflict.rel, children: conflict.rel }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex justify-end gap-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap justify-end gap-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           C.Button,
           {
@@ -265,7 +275,8 @@ function ConflictsRail({ row, onClose, onResolved }) {
           }
         )
       ] }) })
-    ] }, conflict.rel)) })
+    ] }, conflict.rel)) }),
+    resolveError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: resolveError }) }) : null
   ] });
 }
 function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
@@ -297,7 +308,8 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
           {
             type: "button",
             onClick: () => setBrowsing(crumbs.slice(0, index + 1).join("/")),
-            className: `rounded px-1.5 py-0.5 hover:bg-surface-2 ${index === crumbs.length - 1 ? "text-text font-medium" : "text-text-muted"}`,
+            title: crumb,
+            className: `max-w-[10rem] truncate rounded px-1.5 py-0.5 hover:bg-surface-2 ${index === crumbs.length - 1 ? "text-text font-medium" : "text-text-muted"}`,
             children: crumb
           }
         )
@@ -308,11 +320,14 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
         "button",
         {
           type: "button",
-          onClick: () => onChange(browsing),
-          className: `flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-surface-2 ${value === browsing ? "bg-accent/10 text-accent" : ""}`,
+          "aria-pressed": value === browsing,
+          disabled: !listing.data,
+          onClick: () => listing.data && onChange({ subpath: browsing, remotePath: listing.data.remotePath }),
+          className: `flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-surface-2 disabled:opacity-50 ${value === browsing ? "bg-accent/10 text-accent" : ""}`,
           children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderOpen, { size: 13, "aria-hidden": true }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", children: browsing === "" ? s.mirrorWholeProject : `${s.mirrorThisFolder}: ${browsing}` })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", children: browsing === "" ? s.mirrorWholeProject : `${s.mirrorThisFolder}: ${browsing}` }),
+            value === browsing ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ml-auto shrink-0 font-medium", children: s.selected }) : null
           ]
         }
       ),
@@ -321,11 +336,13 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
           "button",
           {
             type: "button",
-            onClick: () => onChange(folder.path),
+            "aria-pressed": value === folder.path,
+            onClick: () => onChange({ subpath: folder.path, remotePath: folder.remotePath }),
             className: `flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-2 ${value === folder.path ? "bg-accent/10 text-accent" : ""}`,
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Folder, { size: 13, "aria-hidden": true }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", title: folder.path, children: folder.name })
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", title: folder.path, children: folder.name }),
+              value === folder.path ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ml-auto shrink-0 font-medium", children: s.selected }) : null
             ]
           }
         ),
@@ -366,16 +383,22 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
           humanBytes(row.byteCount)
         ] })
       ] }),
-      row.subpath ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { "aria-hidden": true, children: "\xB7" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-          s.mirroredFolder,
-          ": ",
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-text", title: row.subpath, children: row.subpath })
-        ] })
-      ] }) : null
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { "aria-hidden": true, children: "\xB7" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+        s.mirroredFolder,
+        ": ",
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-text", title: row.subpath || void 0, children: row.subpath || s.wholeProject })
+      ] })
     ] }),
-    row.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: row.error }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "break-all text-xs text-text-muted", children: [
+      s.destination,
+      ": ",
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-text", children: row.remotePath })
+    ] }),
+    row.status === "blocked" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-lg border border-warning/40 bg-warning/5 p-3", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-medium", children: s.blockedTitle.replace("{count}", String(row.blockedDeletions)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-text-muted", children: s.blockedBody.replace("{count}", String(row.blockedDeletions)) })
+    ] }) : row.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: row.error }) : null,
     row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "danger", disabled: busy, onClick: onConfirmSync, children: s.confirmDeletions }),
     row.conflictCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       "button",
@@ -410,7 +433,7 @@ function OneDriveProjectPanel({ project }) {
     refetchInterval: 15e3
   });
   const [connectFor, setConnectFor] = (0, import_react3.useState)(null);
-  const [subpath, setSubpath] = (0, import_react3.useState)("");
+  const [choice, setChoice] = (0, import_react3.useState)(null);
   const [conflictsFor, setConflictsFor] = (0, import_react3.useState)(null);
   const [disconnecting, setDisconnecting] = (0, import_react3.useState)(null);
   const refresh = () => {
@@ -462,7 +485,7 @@ function OneDriveProjectPanel({ project }) {
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-text-muted", children: s.connectHint })
         ] }),
         projectLink ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: () => {
-          setSubpath("");
+          setChoice(null);
           setConnectFor({ workspaceId: null, label: project.slug });
         }, children: s.connectCta })
       ] }),
@@ -494,18 +517,26 @@ function OneDriveProjectPanel({ project }) {
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: workspace.label }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: statusTone(row), children: statusLabel(row, s) }) : null }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-end gap-2", children: [
-            row?.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-danger text-right", children: row.error }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex justify-end gap-2", children: [
+            row?.status === "blocked" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-right text-xs text-warning", children: s.blockedTitle.replace("{count}", String(row.blockedDeletions)) }) : row?.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-danger text-right", children: row.error }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap justify-end gap-2", children: [
               row && row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                 C.Button,
                 {
                   variant: "danger",
                   disabled: syncNow.isPending,
                   onClick: () => syncNow.mutate({ id: row.id, confirmDeletions: true }),
-                  children: s.confirmDeletions
+                  children: s.confirmDeletions.replace("{count}", String(row.blockedDeletions))
                 }
               ),
               row && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                C.Button,
+                {
+                  disabled: pause.isPending,
+                  onClick: () => pause.mutate({ id: row.id, enabled: !row.enabled }),
+                  children: row.enabled ? s.pause : s.resume
+                }
+              ),
+              row && row.enabled && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                 C.Button,
                 {
                   disabled: syncNow.isPending,
@@ -523,7 +554,7 @@ function OneDriveProjectPanel({ project }) {
                 C.Button,
                 {
                   onClick: () => {
-                    setSubpath("");
+                    setChoice(null);
                     setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label });
                   },
                   children: s.connectCta
@@ -546,26 +577,31 @@ function OneDriveProjectPanel({ project }) {
           {
             projectId: project.id,
             workspaceId: connectFor.workspaceId,
-            value: subpath,
-            onChange: setSubpath,
+            value: choice?.subpath ?? "",
+            onChange: setChoice,
             rootLabel: connectFor.label
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.folder }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all font-mono text-xs", children: `${data.rootFolder}/${connectFor.workspaceId ? "workspaces" : "projects"}/${project.slug}${subpath ? `/${subpath}` : ""}` })
-      ] }),
+      choice ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.destination }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all font-mono text-xs", children: choice.remotePath })
+      ] }) : null,
+      data.identity?.upn ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.account }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all text-xs", children: data.identity.upn })
+      ] }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.mirrorScope }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs", children: s.mirrorScopeHint })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs", children: s.mirrorScopeHint }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-text-muted", children: s.safetyHint })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         C.Button,
         {
           variant: "accent",
-          onClick: () => connect.mutate({ workspaceId: connectFor.workspaceId, subpath }),
-          disabled: connect.isPending,
+          onClick: () => choice && connect.mutate({ workspaceId: connectFor.workspaceId, subpath: choice.subpath }),
+          disabled: connect.isPending || !choice,
           children: s.connectConfirm
         }
       )

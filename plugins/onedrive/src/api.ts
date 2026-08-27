@@ -93,6 +93,7 @@ export function registerApi(deps: ApiDeps): void {
           fileCount: link.fileCount,
           byteCount: link.byteCount,
           conflictCount: link.conflictCount,
+          blockedDeletions: link.blockedDeletions,
         })),
       });
     },
@@ -121,6 +122,19 @@ export function registerApi(deps: ApiDeps): void {
       const dir = deps.withinBase(base, rel);
       if (!dir) return bad('that folder cannot be mirrored', 400);
 
+      const project = ctx.host.stores().projects.get(projectId);
+      if (!project) return bad('not found', 404);
+      const workspaceLabel = workspaceId
+        ? deps.workspacesOf(gate.value, projectId).find((entry) => entry.workspaceId === workspaceId)?.label ?? null
+        : null;
+      // The UI must never do this arithmetic itself. A workspace mirror lands under
+      // `workspaces/<slug>/<label> (<id>)`, which a browser-side template got wrong, and telling somebody
+      // the wrong destination for their files is worse than telling them nothing.
+      const remoteFor = (candidate: string): string => remoteRootFor(
+        deps.settings().rootFolder, project.slug,
+        { workspaceId, workspaceLabel, subpath: candidate } as MirrorLink,
+      );
+
       const ignored = buildIgnore(deps.settings().extraIgnore);
       let entries;
       try {
@@ -135,9 +149,10 @@ export function registerApi(deps: ApiDeps): void {
         // choice would let someone mirror by name exactly what the scan exists to keep out.
         .filter((entry) => normalizeSubpath(entry.path) !== null && !ignored(entry.path))
         .sort((left, right) => left.name.localeCompare(right.name))
-        .slice(0, 500);
+        .slice(0, 500)
+        .map((entry) => ({ ...entry, remotePath: remoteFor(entry.path) }));
 
-      return json({ path: rel, parent: rel ? rel.split('/').slice(0, -1).join('/') : null, folders });
+      return json({ path: rel, remotePath: remoteFor(rel), folders });
     },
   });
 
@@ -239,7 +254,10 @@ export function registerApi(deps: ApiDeps): void {
       // it. Pressing Sync now after seeing that message is the confirmation - it is scoped to this one
       // mirror and this one run, so it cannot linger as a standing permission to delete.
       const confirm = body.confirmDeletions === true;
+      // Scoped to the mirror whose button was pressed. Syncing every mirror the account owns would make a
+      // per-row control quietly do something the row does not describe.
       await deps.engine.syncUser(found.value.userId, {
+        only: new Set([found.value.id]),
         confirmDeletions: confirm ? new Set([found.value.id]) : undefined,
       });
       return json({ ok: true });

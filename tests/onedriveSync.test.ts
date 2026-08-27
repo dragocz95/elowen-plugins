@@ -212,6 +212,33 @@ describe('onedrive remote layout', () => {
   });
 });
 
+describe('onedrive per-mirror sync', () => {
+  it('runs only the mirror that was asked for', async () => {
+    // The button lives on one row. Running every mirror the account owns made a per-row control do
+    // something its label does not describe, and dragged unrelated mirrors into an unexpected cycle.
+    const h = harness();
+    const first = h.store.createLink({
+      subpath: '',
+      userId: 7, projectId: 1, workspaceId: null, workspaceLabel: null,
+      remoteDriveId: 'd', remoteItemId: 'f1', remotePath: 'Elowen/projects/a', webUrl: null,
+    });
+    const second = h.store.createLink({
+      subpath: '',
+      userId: 7, projectId: 2, workspaceId: null, workspaceLabel: null,
+      remoteDriveId: 'd', remoteItemId: 'f2', remotePath: 'Elowen/projects/b', webUrl: null,
+    });
+    const seen: number[] = [];
+    (h.engine as unknown as { syncLink: unknown }).syncLink = async (link: { id: number }) => { seen.push(link.id); };
+
+    await h.engine.syncUser(7, { only: new Set([second.id]) });
+    expect(seen).toEqual([second.id]);
+
+    seen.length = 0;
+    await h.engine.syncUser(7);
+    expect(seen.sort()).toEqual([first.id, second.id].sort());
+  });
+});
+
 describe('onedrive subfolder selection', () => {
   it('accepts a plain folder and normalises the ways of writing it', () => {
     expect(normalizeSubpath(undefined)).toBe('');

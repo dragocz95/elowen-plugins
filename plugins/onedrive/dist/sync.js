@@ -106,7 +106,9 @@ export class SyncEngine {
             return;
         }
         const drive = await Drive.open(graph);
-        for (const link of this.deps.store.linksForUser(userId).filter((row) => row.enabled)) {
+        const requested = this.deps.store.linksForUser(userId)
+            .filter((row) => row.enabled && (!options.only || options.only.has(row.id)));
+        for (const link of requested) {
             try {
                 await this.syncLink(link, drive, options.confirmDeletions?.has(link.id) === true);
             }

@@ -16,7 +16,11 @@ const statusLabel = (row: MirrorRow, s: Record<string, string>): string => {
   if (row.status === 'error') return s.statusError;
   if (row.status === 'blocked') return s.statusBlocked;
   if (!row.enabled) return s.statusPaused;
-  return row.status === 'syncing' ? s.statusSyncing : s.statusIdle;
+  if (row.status === 'syncing') return s.statusSyncing;
+  // An unanswered conflict is not a working mirror. Calling it "in sync" tells somebody everything is
+  // fine while a file of theirs sits waiting for a decision only they can make.
+  if (row.conflictCount > 0) return s.statusConflict;
+  return row.lastSyncAt ? s.statusIdle : s.statusFirstRun;
 };
 
 /** Defined at module scope ON PURPOSE. A component declared inside another component's body is a NEW
@@ -30,10 +34,16 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: 
     queryKey: ['plugin', 'onedrive', 'conflicts', String(row.id)],
     queryFn: () => api(`/plugins/onedrive/api/conflicts?id=${row.id}`),
   });
+  // The host's mutation handle exposes only `mutate` and `isPending`, so a failure has to be held here
+  // to be shown at all.
+  const [resolveError, setResolveError] = useState<string | null>(null);
   const resolve = hooks.useMutation<unknown, unknown, { rel: string; keep: 'local' | 'remote' }>({
     mutationFn: (vars: { rel: string; keep: 'local' | 'remote' }) =>
       api('/plugins/onedrive/api/conflicts/resolve', jsonBody({ id: row.id, ...vars })),
-    onSuccess: () => { conflicts.refetch(); onResolved(); },
+    onSuccess: () => { setResolveError(null); conflicts.refetch(); onResolved(); },
+    // A 409 is ordinary here - the OneDrive copy can change between opening this list and answering it.
+    // Without this the button simply did nothing and the row stayed put, which reads as a broken page.
+    onError: (error: unknown) => { setResolveError(utils.apiErrorMessage(error)); conflicts.refetch(); },
   });
 
   return (
@@ -44,13 +54,15 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: 
           // A failed load must not look like "no conflicts": this is the screen someone uses to decide
           // which copy of their work survives.
           ? <C.ErrorState message={utils.apiErrorMessage(conflicts.error)} onRetry={() => conflicts.refetch()} />
-          : (
+          : (conflicts.data?.conflicts ?? []).length === 0
+            ? <C.EmptyState title={s.conflictsEmpty} />
+            : (
             <C.DataTable ariaLabel={s.conflicts} columns="minmax(0,1fr) auto" compactColumns="minmax(0,1fr)">
               {(conflicts.data?.conflicts ?? []).map((conflict) => (
                 <C.DataTableRow key={conflict.rel}>
                   <C.DataTableCell><span className="truncate font-mono text-xs" title={conflict.rel}>{conflict.rel}</span></C.DataTableCell>
                   <C.DataTableCell className="justify-end">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <C.Button disabled={resolve.isPending}
                         onClick={() => resolve.mutate({ rel: conflict.rel, keep: 'local' })}>{s.keepLocal}</C.Button>
                       <C.Button variant="ghost" disabled={resolve.isPending}
@@ -61,6 +73,7 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: 
               ))}
             </C.DataTable>
           )}
+      {resolveError ? <div className="mt-3"><C.ErrorState message={resolveError} /></div> : null}
     </C.WorkspaceDetailRail>
   );
 }
@@ -76,7 +89,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
   projectId: number;
   workspaceId: string | null;
   value: string;
-  onChange: (subpath: string) => void;
+  onChange: (choice: { subpath: string; remotePath: string }) => void;
   rootLabel: string;
 }) {
   const { components: C, hooks, api, utils } = runtime();
@@ -84,7 +97,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
   const [browsing, setBrowsing] = useState('');
   const query = new URLSearchParams({ projectId: String(projectId), path: browsing });
   if (workspaceId) query.set('workspaceId', workspaceId);
-  const listing = hooks.useQuery<{ path: string; parent: string | null; folders: { name: string; path: string }[] }>({
+  const listing = hooks.useQuery<{ path: string; remotePath: string; folders: { name: string; path: string; remotePath: string }[] }>({
     queryKey: ['plugin', 'onedrive', 'folders', String(projectId), workspaceId ?? '', browsing],
     queryFn: () => api(`/plugins/onedrive/api/folders?${query.toString()}`),
   });
@@ -101,7 +114,8 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
           <span key={crumbs.slice(0, index + 1).join('/')} className="flex items-center gap-1">
             <ChevronRight size={12} className="text-text-muted" aria-hidden />
             <button type="button" onClick={() => setBrowsing(crumbs.slice(0, index + 1).join('/'))}
-              className={`rounded px-1.5 py-0.5 hover:bg-surface-2 ${index === crumbs.length - 1 ? 'text-text font-medium' : 'text-text-muted'}`}>
+              title={crumb}
+              className={`max-w-[10rem] truncate rounded px-1.5 py-0.5 hover:bg-surface-2 ${index === crumbs.length - 1 ? 'text-text font-medium' : 'text-text-muted'}`}>
               {crumb}
             </button>
           </span>
@@ -111,11 +125,14 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
       <div className="max-h-52 overflow-y-auto rounded-md border border-border/70">
         {/* Selecting the folder you are standing in is the same act as selecting one you can see, so it
             is the first row of the same list rather than a separate control somewhere else. */}
-        <button type="button" onClick={() => onChange(browsing)}
-          className={`flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-surface-2 ${
+        <button type="button" aria-pressed={value === browsing}
+          disabled={!listing.data}
+          onClick={() => listing.data && onChange({ subpath: browsing, remotePath: listing.data.remotePath })}
+          className={`flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-surface-2 disabled:opacity-50 ${
             value === browsing ? 'bg-accent/10 text-accent' : ''}`}>
           <FolderOpen size={13} aria-hidden />
           <span className="truncate">{browsing === '' ? s.mirrorWholeProject : `${s.mirrorThisFolder}: ${browsing}`}</span>
+          {value === browsing ? <span className="ml-auto shrink-0 font-medium">{s.selected}</span> : null}
         </button>
         {listing.isError
           ? <div className="p-3"><C.ErrorState message={utils.apiErrorMessage(listing.error)} onRetry={() => listing.refetch()} /></div>
@@ -125,11 +142,13 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
               ? <p className="px-3 py-2 text-xs text-text-muted">{s.noSubfolders}</p>
               : (listing.data?.folders ?? []).map((folder) => (
                 <div key={folder.path} className="flex items-stretch border-b border-border/70 last:border-b-0">
-                  <button type="button" onClick={() => onChange(folder.path)}
+                  <button type="button" aria-pressed={value === folder.path}
+                    onClick={() => onChange({ subpath: folder.path, remotePath: folder.remotePath })}
                     className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-2 ${
                       value === folder.path ? 'bg-accent/10 text-accent' : ''}`}>
                     <Folder size={13} aria-hidden />
                     <span className="truncate" title={folder.path}>{folder.name}</span>
+                    {value === folder.path ? <span className="ml-auto shrink-0 font-medium">{s.selected}</span> : null}
                   </button>
                   <button type="button" onClick={() => setBrowsing(folder.path)} aria-label={`${s.openFolderLabel}: ${folder.name}`}
                     className="px-2 text-text-muted hover:bg-surface-2 hover:text-text">
@@ -166,15 +185,22 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
         <span>{s.lastSync}: <span className="text-text">{syncedAt}</span></span>
         <span aria-hidden>·</span>
         <span>{s.files}: <span className="text-text">{row.fileCount} · {humanBytes(row.byteCount)}</span></span>
-        {row.subpath ? (
-          <>
-            <span aria-hidden>·</span>
-            <span>{s.mirroredFolder}: <span className="font-mono text-text" title={row.subpath}>{row.subpath}</span></span>
-          </>
-        ) : null}
+        <span aria-hidden>·</span>
+        <span>{s.mirroredFolder}: <span className="font-mono text-text" title={row.subpath || undefined}>
+          {row.subpath || s.wholeProject}
+        </span></span>
       </div>
+      {/* Which OneDrive folder this is. Somebody who connected weeks ago has no other way to find out. */}
+      <p className="break-all text-xs text-text-muted">
+        {s.destination}: <span className="font-mono text-text">{row.remotePath}</span>
+      </p>
 
-      {row.error ? <C.ErrorState message={row.error} /> : null}
+      {row.status === 'blocked' ? (
+        <div className="rounded-lg border border-warning/40 bg-warning/5 p-3">
+          <p className="text-sm font-medium">{s.blockedTitle.replace('{count}', String(row.blockedDeletions))}</p>
+          <p className="mt-1 text-xs text-text-muted">{s.blockedBody.replace('{count}', String(row.blockedDeletions))}</p>
+        </div>
+      ) : row.error ? <C.ErrorState message={row.error} /> : null}
 
       {/* The refusal asked a question; this is the button that answers it. Confirmation is deliberately
           a distinct action rather than a quieter Sync now, because the answer authorises deletion. */}
@@ -222,7 +248,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
 
   const [connectFor, setConnectFor] = useState<{ workspaceId: string | null; label: string } | null>(null);
   // Reset with each drawer, so the previous choice never quietly applies to a different target.
-  const [subpath, setSubpath] = useState('');
+  const [choice, setChoice] = useState<{ subpath: string; remotePath: string } | null>(null);
   const [conflictsFor, setConflictsFor] = useState<MirrorRow | null>(null);
   const [disconnecting, setDisconnecting] = useState<MirrorRow | null>(null);
 
@@ -275,7 +301,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
             <p className="mt-1 text-xs text-text-muted">{s.connectHint}</p>
           </div>
           {projectLink ? null : (
-            <C.Button variant="accent" onClick={() => { setSubpath(''); setConnectFor({ workspaceId: null, label: project.slug }); }}>
+            <C.Button variant="accent" onClick={() => { setChoice(null); setConnectFor({ workspaceId: null, label: project.slug }); }}>
               {s.connectCta}
             </C.Button>
           )}
@@ -315,15 +341,27 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
                       {/* A workspace mirror can block on a bulk deletion or fail exactly like the project
                           one. Showing only a badge left those states with nothing to click, so the same
                           controls appear here rather than a reduced set. */}
-                      {row?.error ? <p className="text-xs text-danger text-right">{row.error}</p> : null}
-                      <div className="flex justify-end gap-2">
+                      {row?.status === 'blocked' ? (
+                        <p className="text-right text-xs text-warning">
+                          {s.blockedTitle.replace('{count}', String(row.blockedDeletions))}
+                        </p>
+                      ) : row?.error ? <p className="text-xs text-danger text-right">{row.error}</p> : null}
+                      <div className="flex flex-wrap justify-end gap-2">
                       {row && row.status === 'blocked' && (
                         <C.Button variant="danger" disabled={syncNow.isPending}
                           onClick={() => syncNow.mutate({ id: row.id, confirmDeletions: true })}>
-                          {s.confirmDeletions}
+                          {s.confirmDeletions.replace('{count}', String(row.blockedDeletions))}
                         </C.Button>
                       )}
+                      {/* A paused mirror is skipped by the cycle, so offering Sync now would be a button
+                          that does nothing. Resume is the action that state actually has. */}
                       {row && (
+                        <C.Button disabled={pause.isPending}
+                          onClick={() => pause.mutate({ id: row.id, enabled: !row.enabled })}>
+                          {row.enabled ? s.pause : s.resume}
+                        </C.Button>
+                      )}
+                      {row && row.enabled && (
                         <C.Button disabled={syncNow.isPending}
                           onClick={() => syncNow.mutate({ id: row.id })}>{s.syncNow}</C.Button>
                       )}
@@ -336,7 +374,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
                         <C.Button variant="ghost-danger" onClick={() => setDisconnecting(row)}>{s.disconnect}</C.Button>
                       ) : (
                         <C.Button
-                          onClick={() => { setSubpath(''); setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label }); }}>
+                          onClick={() => { setChoice(null); setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label }); }}>
                           {s.connectCta}
                         </C.Button>
                       )}
@@ -365,30 +403,39 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
             <FolderPicker
               projectId={project.id}
               workspaceId={connectFor.workspaceId}
-              value={subpath}
-              onChange={setSubpath}
+              value={choice?.subpath ?? ''}
+              onChange={setChoice}
               rootLabel={connectFor.label}
             />
           </div>
 
-          {/* Where it lands in OneDrive, recomputed as the choice changes - the person should not have to
-              connect first to find out where their files will appear. */}
-          <div>
-            <p className="text-text-muted text-xs uppercase tracking-wide">{s.folder}</p>
-            <p className="break-all font-mono text-xs">
-              {`${data.rootFolder}/${connectFor.workspaceId ? 'workspaces' : 'projects'}/${project.slug}${subpath ? `/${subpath}` : ''}`}
-            </p>
-          </div>
+          {/* Where it lands in OneDrive. The path is whatever the server said it would be for this exact
+              choice - a workspace mirror sits under `workspaces/<slug>/<label> (<id>)`, and a template
+              here got that wrong once already. */}
+          {choice ? (
+            <div>
+              <p className="text-text-muted text-xs uppercase tracking-wide">{s.destination}</p>
+              <p className="break-all font-mono text-xs">{choice.remotePath}</p>
+            </div>
+          ) : null}
+
+          {data.identity?.upn ? (
+            <div>
+              <p className="text-text-muted text-xs uppercase tracking-wide">{s.account}</p>
+              <p className="break-all text-xs">{data.identity.upn}</p>
+            </div>
+          ) : null}
 
           <div>
             <p className="text-text-muted text-xs uppercase tracking-wide">{s.mirrorScope}</p>
             <p className="text-xs">{s.mirrorScopeHint}</p>
+            <p className="mt-1 text-xs text-text-muted">{s.safetyHint}</p>
           </div>
 
           <C.Button
             variant="accent"
-            onClick={() => connect.mutate({ workspaceId: connectFor.workspaceId, subpath })}
-            disabled={connect.isPending}
+            onClick={() => choice && connect.mutate({ workspaceId: connectFor.workspaceId, subpath: choice.subpath })}
+            disabled={connect.isPending || !choice}
           >
             {s.connectConfirm}
           </C.Button>

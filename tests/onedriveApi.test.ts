@@ -111,6 +111,19 @@ function harness(drive?: ReturnType<typeof fakeGraph>, root = '/tmp/demo') {
   return { store, routes, engine, ctx };
 }
 
+describe('onedrive plugin manifest', () => {
+  it('declares every route it registers', () => {
+    // A route the manifest does not list is not reachable at all - the folder picker shipped dead
+    // because `folders` was added to api.ts and nowhere else, and nothing failed until somebody clicked.
+    const manifest = JSON.parse(readFileSync(new URL('../plugins/onedrive/elowen-plugin.json', import.meta.url), 'utf8'));
+    const declared = new Set<string>(manifest.provides.apiRoutes);
+    const source = readFileSync(new URL('../plugins/onedrive/src/api.ts', import.meta.url), 'utf8');
+    const registered = [...source.matchAll(/path: '([^']+)', method:/g)].map((match) => match[1]);
+    expect(registered.length).toBeGreaterThan(5);
+    expect(registered.filter((route) => !declared.has(route))).toEqual([]);
+  });
+});
+
 describe('onedrive api routes', () => {
   it('reads the JSON payload the daemon actually delivers', async () => {
     const { store, routes, engine } = harness();
@@ -125,7 +138,7 @@ describe('onedrive api routes', () => {
     // shipped, and what no unit test noticed because none of them called a route.
     const response = await routes.get('POST sync-now')!(request({ id: link.id }) as never);
     expect(response.status ?? 200).toBe(200);
-    expect(engine.syncUser).toHaveBeenCalledWith(7, { confirmDeletions: undefined });
+    expect(engine.syncUser).toHaveBeenCalledWith(7, { only: new Set([link.id]), confirmDeletions: undefined });
   });
 
   it('passes a bulk-deletion confirmation through for that one mirror only', async () => {

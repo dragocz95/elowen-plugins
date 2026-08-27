@@ -44,6 +44,8 @@ export interface SyncDeps {
 }
 
 export interface SyncOptions {
+  /** Run only these mirrors. Absent means every enabled mirror the account owns. */
+  only?: Set<number>;
   /** Mirror ids whose owner has SEEN the refused bulk deletion and asked for it anyway. */
   confirmDeletions?: ReadonlySet<number>;
 }
@@ -134,7 +136,9 @@ export class SyncEngine {
     }
 
     const drive = await Drive.open(graph);
-    for (const link of this.deps.store.linksForUser(userId).filter((row) => row.enabled)) {
+    const requested = this.deps.store.linksForUser(userId)
+      .filter((row) => row.enabled && (!options.only || options.only.has(row.id)));
+    for (const link of requested) {
       try {
         await this.syncLink(link, drive, options.confirmDeletions?.has(link.id) === true);
       } catch (error) {
