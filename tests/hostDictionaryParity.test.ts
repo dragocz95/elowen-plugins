@@ -128,8 +128,12 @@ describe('the copy of the daemon dictionary that the UI suites assert against', 
     expect(extracted.length).toBeGreaterThanOrEqual(2);
     expect(packaged).toBeDefined();
     expect(Object.keys(packaged!.en).length).toBeGreaterThanOrEqual(40);
-    expect(flatten(packaged!.en).size).toBeGreaterThanOrEqual(1_700);
-    expect(flatten(packaged!.cs).size).toBeGreaterThanOrEqual(1_700);
+    // A floor, not a count. Its job is to fail when the extraction stops finding anything, not to pin
+    // the dictionary's size: the daemon's catalog legitimately SHRINKS when a screen is retired, and
+    // 0.28.17 dropped ~130 keys with the settings redesign. Kept well below the real figure so a
+    // genuine truncation (which yields zero or a handful) still reddens this.
+    expect(flatten(packaged!.en).size).toBeGreaterThanOrEqual(1_500);
+    expect(flatten(packaged!.cs).size).toBeGreaterThanOrEqual(1_500);
   });
 
   it('recovered the same catalog from every bundle that carries one', () => {
@@ -141,10 +145,12 @@ describe('the copy of the daemon dictionary that the UI suites assert against', 
   });
 
   it('is large enough to be worth guarding', () => {
-    // 778 leaves per locale today. A copy that quietly shrank to a handful would otherwise satisfy
-    // every assertion below while covering almost none of the text the suites read.
-    expect(flatten(copiedEn as unknown as Dict).size).toBeGreaterThanOrEqual(700);
-    expect(flatten(copiedCs as unknown as Dict).size).toBeGreaterThanOrEqual(700);
+    // 495 leaves per locale today, down from 778: the daemon's catalog lost its `tasks` and `missions`
+    // sections when the work and agents plugins moved into this repository and took their own i18n with
+    // them, so the copy narrowed to match. A copy that quietly shrank to a handful would otherwise
+    // satisfy every assertion below while covering almost none of the text the suites read.
+    expect(flatten(copiedEn as unknown as Dict).size).toBeGreaterThanOrEqual(450);
+    expect(flatten(copiedCs as unknown as Dict).size).toBeGreaterThanOrEqual(450);
   });
 
   const locales: [string, Dict][] = [

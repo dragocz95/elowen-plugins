@@ -10,6 +10,8 @@ import type { TurnIdentity } from 'elowen/dist/plugins/policyContext.js';
 import type { Policy } from 'elowen/dist/plugins/policy.js';
 import { openDb } from 'elowen/dist/store/db.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
+// @ts-expect-error - plain .mjs plugin source, deliberately not typed
+import { COMPLETED_LIST_GRACE_TURNS } from '../plugins/todo/lib/tasks.mjs';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -107,6 +109,16 @@ describe('session task scoping', () => {
     await inSession(OLD_SESSION, () => createTask(create, '3', { subject: 'Owner two old', description: 'C' }), OTHER_OWNER);
     await resultJson(inSession(OLD_SESSION, () => update.execute('4', { taskId: '1', status: 'completed' })));
 
+    // A finished list is NOT dropped at the first boundary - it survives a short grace so a follow-up in
+    // the same conversation still sees what was just done. Driven off the constant rather than a literal,
+    // because the point being asserted here is WHOSE list gets cleared, not how long the grace is.
+    //
+    // The floor is what stops that from becoming a tautology: at zero the loop below would run no
+    // iterations and this test would quietly assert nothing about the grace at all.
+    expect(COMPLETED_LIST_GRACE_TURNS).toBeGreaterThanOrEqual(1);
+    for (let turn = 0; turn < COMPLETED_LIST_GRACE_TURNS; turn++) {
+      expect(inSession(OLD_SESSION, () => render())).toContain('Owner one old');
+    }
     expect(inSession(OLD_SESSION, () => render())).toBe('');
     expect(await resultJson(inSession(OLD_SESSION, () => list.execute('5', {})))).toEqual({ tasks: [] });
     expect((await resultJson(inSession(NEW_SESSION, () => list.execute('6', {})))).tasks.map((task: { subject: string }) => task.subject)).toEqual(['Owner one new']);

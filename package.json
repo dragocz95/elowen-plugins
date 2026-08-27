@@ -20,7 +20,7 @@
     "check:web-types": "tsc -p tsconfig.plugins-web.json"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.3",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/oxide": "^4.3.3",
@@ -34,9 +34,9 @@
     "better-sqlite3": "^11.0.0",
     "botframework-connector": "^4.23.3",
     "dompurify": "^3.4.13",
-    "elowen": "^0.28.11",
-    "elowen-plugin-shared": "^0.1.6",
-    "elowen-plugin-ui-kit": "^0.3.0",
+    "elowen": "^0.28.17",
+    "elowen-plugin-shared": "^0.1.7",
+    "elowen-plugin-ui-kit": "^0.5.0",
     "grammy": "^1.45.1",
     "jose": "^5.10.0",
     "jsdom": "^25.0.1",
