@@ -119,7 +119,7 @@ class TaskStore {
     this.setCompletedTurns = db.prepare('UPDATE p_todo_task_lists SET completed_turns = ? WHERE list_key = ?');
     this.selectTasks = db.prepare('SELECT id,subject,description,active_form,status,owner,metadata_json,started_at FROM p_todo_tasks WHERE list_key = ? ORDER BY id');
     this.selectBlockers = db.prepare('SELECT task_id,blocker_id FROM p_todo_task_blockers WHERE list_key = ? ORDER BY task_id,blocker_id');
-    this.insertTask = db.prepare('INSERT INTO p_todo_tasks(list_key,id,subject,description,active_form,status,owner,metadata_json,started_at) VALUES (?,?,?,?,?,?,?,?,NULL)');
+    this.insertTask = db.prepare('INSERT INTO p_todo_tasks(list_key,id,subject,description,active_form,status,owner,metadata_json,started_at) VALUES (?,?,?,?,?,?,?,?,?)');
     this.updateTask = db.prepare('UPDATE p_todo_tasks SET subject=?,description=?,active_form=?,status=?,owner=?,metadata_json=?,started_at=? WHERE list_key=? AND id=?');
     this.deleteTask = db.prepare('DELETE FROM p_todo_tasks WHERE list_key = ? AND id = ?');
     this.deleteTaskEdges = db.prepare('DELETE FROM p_todo_task_blockers WHERE list_key = ? AND (task_id = ? OR blocker_id = ?)');
@@ -219,7 +219,12 @@ class TaskStore {
       const created = inputs.map((input) => {
         const id = String(nextId);
         nextId += 1;
-        return { id, subject: String(input.subject) };
+        return {
+          id,
+          subject: String(input.subject),
+          status: input.status ?? 'pending',
+          explicitStatus: input.status !== undefined,
+        };
       });
 
       // Resolve and validate every dependency BEFORE the first write: a rejected batch has to leave the
@@ -241,16 +246,35 @@ class TaskStore {
       });
       const accepted = links.filter(([blockerId, blockedId]) => addDependency(edges, blockerId, blockedId));
 
+      const statusById = new Map([
+        ...current.map((task) => [task.id, task.status]),
+        ...created.map((task) => [task.id, task.status]),
+      ]);
+      if (![...statusById.values()].includes('in_progress')) {
+        const blockers = new Map();
+        for (const [blockerId, blockedId] of links) {
+          if (!blockers.has(blockedId)) blockers.set(blockedId, []);
+          blockers.get(blockedId).push(blockerId);
+        }
+        const firstRunnable = created.find((task) => (
+          !task.explicitStatus
+          && task.status === 'pending'
+          && (blockers.get(task.id) ?? []).every((blockerId) => statusById.get(blockerId) === 'completed')
+        ));
+        if (firstRunnable) firstRunnable.status = 'in_progress';
+      }
+
       inputs.forEach((input, index) => {
         this.insertTask.run(
           key, Number(created[index].id), String(input.subject), String(input.description),
           input.activeForm == null ? null : String(input.activeForm),
-          'pending', null, metadataToJson(parseObject(input.metadata)),
+          created[index].status, null, metadataToJson(parseObject(input.metadata)),
+          created[index].status === 'in_progress' ? Date.now() : null,
         );
       });
       this.bumpList.run(nextId, key);
       for (const [blockerId, blockedId] of accepted) this.insertEdge.run(key, Number(blockedId), Number(blockerId));
-      return created;
+      return created.map(({ id, subject }) => ({ id, subject }));
     });
   }
 
@@ -392,6 +416,7 @@ const SAFE_ERRORS = new Set([
   'a task list belongs to a conversation, and this turn has none',
   'tasks must be a non-empty array of tasks to create',
   'every task needs a non-empty subject and description',
+  'invalid task status',
   'task not found',
   'nothing to update',
   'a task cannot depend on itself',
@@ -498,13 +523,14 @@ export function registerTaskMode(ctx, db) {
   ctx.registerTool(defineTool({
     name: 'TaskCreate',
     label: 'Create tasks',
-    description: 'Create one or more NEW pending tasks in the current conversation task list and return the ID assigned to each. Send the whole plan as a SINGLE call with every task in the tasks array, in the order they should appear — do not call this once per task. Use it only to add work that is not on the list yet: to change work that already exists, call TaskUpdate with that task ID instead. Per task, use subject for the short user-visible outcome, description for private working context, activeForm for present-continuous progress text, and metadata for private structured context. Declare prerequisites right here instead of following up with TaskUpdate: blockedBy takes IDs of tasks that ALREADY exist, and blockedByIndex takes 1-based positions within this same call, so a task can depend on a sibling that has no ID yet. The whole batch is rejected together if a dependency is missing, self-referential or cyclic. Keep the returned IDs: they are the only valid handles for later TaskGet and TaskUpdate calls.',
+    description: 'Create one or more NEW tasks in the current conversation task list and return the ID assigned to each. Send the whole plan as a SINGLE call with every task in the tasks array, in the order they should appear — do not call this once per task. Use it only to add work that is not on the list yet: to change work that already exists, call TaskUpdate with that task ID instead. Per task, use subject for the short user-visible outcome, description for private working context, activeForm for present-continuous progress text, metadata for private structured context, and status only when you need to set it explicitly. If no task is already in_progress, the first new unblocked task without an explicit status starts automatically. Declare prerequisites right here instead of following up with TaskUpdate: blockedBy takes IDs of tasks that ALREADY exist, and blockedByIndex takes 1-based positions within this same call, so a task can depend on a sibling that has no ID yet. The whole batch is rejected together if a dependency is missing, self-referential or cyclic. Keep the returned IDs: they are the only valid handles for later TaskGet and TaskUpdate calls.',
     parameters: Type.Object({
       tasks: Type.Array(
         Type.Object({
           subject: Type.String({ description: 'Brief user-visible title for the task' }),
           description: Type.String({ description: 'Private detail describing what needs to be done' }),
           activeForm: Type.Optional(Type.String({ description: 'Present-continuous text shown while the task is in progress' })),
+          status: Type.Optional(TASK_STATUS_SCHEMA),
           metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'Private structured metadata' })),
           blockedBy: Type.Optional(Type.Array(Type.String(), { description: 'IDs of ALREADY EXISTING tasks that must finish before this one' })),
           // Type.Number, not Type.Integer: the typebox build the daemon loads plugins against does not
@@ -523,6 +549,9 @@ export function registerTaskMode(ctx, db) {
         const usable = (value) => typeof value === 'string' && value.trim() !== '';
         if (!inputs.every((input) => input && usable(input.subject) && usable(input.description))) {
           throw new Error('every task needs a non-empty subject and description');
+        }
+        if (!inputs.every((input) => input.status === undefined || TASK_STATUSES.includes(input.status))) {
+          throw new Error('invalid task status');
         }
         const tasks = store.create(key, inputs);
         syncCard(ctx, store, key);
@@ -634,7 +663,7 @@ export function registerTaskMode(ctx, db) {
   }, { placement: 'after-user' });
 
   ctx.registerSystemPromptFragment(
-    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskDelete`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, with prerequisites declared inline, instead of calling it once per task — and returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. `TaskDelete` permanently removes one existing task and its dependency edges. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update or delete reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
+    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskDelete`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. Mark work in_progress when it starts and completed immediately when it finishes. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, with prerequisites declared inline, instead of calling it once per task — and returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. `TaskDelete` permanently removes one existing task and its dependency edges. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update or delete reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
   );
 
   ctx.logger.info('session task tools registered (TaskCreate + TaskGet + TaskUpdate + TaskDelete + TaskList)');

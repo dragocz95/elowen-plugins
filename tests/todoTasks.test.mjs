@@ -67,6 +67,7 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   const h = harness(t);
   assert.deepEqual(h.tools.map((tool) => tool.name).sort(), ['TaskCreate', 'TaskDelete', 'TaskGet', 'TaskList', 'TaskUpdate']);
   assert.doesNotMatch(h.prompts.join('\n'), /TodoWrite|TodoRead/);
+  assert.match(h.prompts.join('\n'), /Mark work in_progress when it starts and completed immediately/);
 
   const create = h.tool('TaskCreate');
   const update = h.tool('TaskUpdate');
@@ -137,6 +138,47 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   assert.deepEqual(json(await list.execute('18', {})).tasks.map((task) => task.id), ['2', '3', '4']);
 });
 
+test('TaskCreate starts the first implicit runnable task without disturbing explicit or running state', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  const list = h.tool('TaskList');
+  const realNow = Date.now;
+  let now = 100_000;
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+
+  await create.execute('1', {
+    tasks: [{ subject: 'Current work', description: 'starts immediately', activeForm: 'Doing current work' }],
+  });
+  assert.deepEqual(json(await list.execute('2', {})).tasks.map((task) => task.status), ['in_progress']);
+  assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, 100_000);
+
+  await create.execute('3', {
+    tasks: [
+      { subject: 'Explicitly pending', description: 'caller chose pending', status: 'pending' },
+      { subject: 'Later work', description: 'must not start while another task runs' },
+    ],
+  });
+  assert.deepEqual(json(await list.execute('4', {})).tasks.map((task) => task.status), [
+    'in_progress', 'pending', 'pending',
+  ]);
+
+  await update.execute('5', { taskId: '1', status: 'completed' });
+  now = 200_000;
+  await create.execute('6', {
+    tasks: [
+      { subject: 'Keep pending', description: 'explicit state is authoritative', status: 'pending' },
+      { subject: 'Blocked work', description: 'waits for explicit pending task', blockedByIndex: [1] },
+      { subject: 'First runnable', description: 'starts because earlier candidates are unavailable' },
+    ],
+  });
+  assert.deepEqual(json(await list.execute('7', {})).tasks.map((task) => task.status), [
+    'completed', 'pending', 'pending', 'pending', 'pending', 'in_progress',
+  ]);
+  assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 6').get('u7#brain-7-a').started_at, 200_000);
+});
+
 test('in-progress tasks measure elapsed time from each status entry', async (t) => {
   const h = harness(t);
   const create = h.tool('TaskCreate');
@@ -148,7 +190,6 @@ test('in-progress tasks measure elapsed time from each status entry', async (t) 
   t.after(() => { Date.now = realNow; });
 
   await create.execute('1', { tasks: [{ subject: 'Timed work', description: 'measure it', activeForm: 'Timing work' }] });
-  await update.execute('2', { taskId: '1', status: 'in_progress' });
   assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, 100_000);
   assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Timing work', status: 'in_progress', startedAt: 100_000 });
   assert.match(h.turnContext(), /status="in_progress"[^>]*elapsed="under 1m"/);
@@ -167,7 +208,7 @@ test('in-progress tasks measure elapsed time from each status entry', async (t) 
   assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, 500_000);
 });
 
-test('running-work reminders stay quiet until work looks stale or multiple main tasks are active', async (t) => {
+test('running-work reminders stay quiet until work looks stale, duplicated or stalled', async (t) => {
   const h = harness(t);
   assert.deepEqual(h.turnContextOptions(), { placement: 'after-user' });
   const create = h.tool('TaskCreate');
@@ -180,16 +221,23 @@ test('running-work reminders stay quiet until work looks stale or multiple main 
   await create.execute('1', { tasks: [
     { subject: 'Main work', description: 'keep focused' },
     { subject: 'Second work', description: 'detect drift' },
+    { subject: 'Remaining work', description: 'detect a stalled list' },
   ] });
-  await update.execute('2', { taskId: '1', status: 'in_progress' });
   now += 19 * 60_000;
   assert.doesNotMatch(h.turnContext(), /running_work_reminder/);
   now += 60_000;
   assert.match(h.turnContext(), /Task #1 has been in_progress for 20m/);
-  assert.doesNotMatch(h.prompts.join('\n'), /running_work_reminder|has been in_progress/);
+  assert.doesNotMatch(h.prompts.join('\n'), /running_work_reminder|has been in_progress|none is in_progress/);
 
   await update.execute('3', { taskId: '2', status: 'in_progress' });
   assert.match(h.turnContext(), /Multiple main tasks are marked in_progress \(#1, #2\)/);
+
+  await update.execute('4', { taskId: '1', status: 'completed' });
+  await update.execute('5', { taskId: '2', status: 'completed' });
+  assert.match(h.turnContext(), /Unfinished tasks exist but none is in_progress/);
+
+  await update.execute('6', { taskId: '3', status: 'completed' });
+  assert.doesNotMatch(h.turnContext(), /running_work_reminder/);
 });
 
 test('TaskDelete and user API routes keep session tasks tenant-scoped and clear blocker edges', async (t) => {
@@ -288,10 +336,10 @@ test('a completed task survives the next TaskCreate, on the card and as a usable
   await update.execute('2', { taskId: first, status: 'completed' });
   await create.execute('3', { tasks: [{ subject: 'Task B', description: 'second' }] });
 
-  assert.deepEqual(h.cards.at(-1).items, [
-    { text: '#1 Task A', status: 'completed' },
-    { text: '#2 Task B', status: 'pending' },
-  ]);
+  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Task A', status: 'completed' });
+  assert.equal(h.cards.at(-1).items[1].text, '#2 Task B');
+  assert.equal(h.cards.at(-1).items[1].status, 'in_progress');
+  assert.equal(typeof h.cards.at(-1).items[1].startedAt, 'number');
   assert.deepEqual(json(await h.tool('TaskList').execute('4', {})).tasks.map((task) => task.id), ['1', '2']);
   assert.equal(json(await update.execute('5', { taskId: first, status: 'in_progress' })).success, true);
 });
@@ -364,7 +412,9 @@ test('new work after a later turn immediately replaces an aged finished list', a
     tasks: [{ subject: 'New work', description: 'unrelated topic' }],
   })).tasks, [{ id: '2', subject: 'New work' }]);
   assert.deepEqual(json(await h.tool('TaskList').execute('4', {})).tasks.map((task) => task.id), ['2']);
-  assert.deepEqual(h.cards.at(-1).items, [{ text: '#2 New work', status: 'pending' }]);
+  assert.equal(h.cards.at(-1).items[0].text, '#2 New work');
+  assert.equal(h.cards.at(-1).items[0].status, 'in_progress');
+  assert.equal(typeof h.cards.at(-1).items[0].startedAt, 'number');
 });
 
 test('turn boundaries never clear a list that still has open work', async (t) => {

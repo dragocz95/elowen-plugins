@@ -95,6 +95,9 @@ function renderRunningWorkReminder(tasks, now) {
   if (unowned.length > 1) {
     return `  <running_work_reminder>Multiple main tasks are marked in_progress (${unowned.map((task) => `#${task.id}`).join(', ')}). Keep only the work you are actively doing in_progress and update stale task state.</running_work_reminder>`;
   }
+  if (running.length === 0 && tasks.some((task) => task.status !== 'completed')) {
+    return '  <running_work_reminder>Unfinished tasks exist but none is in_progress. Mark the work you are doing in_progress or update stale task state.</running_work_reminder>';
+  }
   const longest = running
     .filter((task) => task.startedAt != null)
     .sort((a, b) => a.startedAt - b.startedAt)[0];
