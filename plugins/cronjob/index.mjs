@@ -462,22 +462,37 @@ class CronAdapter {
       if (this.stopped) break;
       // Cheap pre-filter on the snapshot — claiming re-reads the file, so only pay that for a due job.
       if (dueSlot(snapshot, now, tz, this.cronLookbackMs) === null) continue;
+      // WHOSE job this is. No owner = an instance job: admin powers, notification-channel delivery —
+      // exactly the behaviour every job had before ownership existed.
+      const owner = typeof snapshot.ownerUserId === 'number' ? snapshot.ownerUserId : null;
+      // An owned job exists only because its owner was allowed to schedule. Revoking that grant has to
+      // stop the schedule too — otherwise the one lever an operator would reach for leaves the jobs
+      // running (as that person, spending model budget) with nothing to show for it. Skipped, never
+      // deleted: re-granting brings the schedule back untouched.
+      //
+      // Asked BEFORE claiming, and that ordering is load-bearing rather than tidiness. Claiming a ONE-SHOT
+      // does not mark it, it DELETES it — the removal is what stops the next tick firing it again. A gate
+      // placed after the claim therefore destroys the very wake-up it means to merely skip, and the
+      // `lastResult` note it writes lands on a row that no longer exists, so it is silently dropped too.
+      // What the user sees then is the worst possible shape for a schedule somebody is waiting on: no job
+      // in CronList, no note, and no log line — a wake-up that vanishes is indistinguishable from one that
+      // was never created. Keeping every pre-run gate above the claim is what makes "skipped, never
+      // deleted" true for one-shots as well as for recurring jobs.
+      if (owner !== null && !this.ownerMaySchedule(owner)) {
+        this.store.patch(snapshot.id, { lastResult: '⏭️ skipped: the owner is no longer allowed to schedule jobs' });
+        this.log.warn(`cron job ${snapshot.id} (${snapshot.name}) skipped — its owner may no longer schedule jobs`);
+        continue;
+      }
       const job = this.claimDueJob(snapshot.id, now, tz);
       if (!job) continue;
       // Cheap guard gate: if the job has a `check` command, run it FIRST (no LLM). Only spend a brain
       // turn when the guard surfaces fresh work — an "every 5m" poll that finds nothing costs a shell
       // exec, not a model call. The guard's output is fed into the turn so the brain acts on real data.
-      // WHOSE job this is. No owner = an instance job: admin powers, notification-channel delivery —
-      // exactly the behaviour every job had before ownership existed.
-      const owner = typeof job.ownerUserId === 'number' ? job.ownerUserId : null;
-      // An owned job exists only because its owner was allowed to schedule. Revoking that grant has to
-      // stop the schedule too — otherwise the one lever an operator would reach for leaves the jobs
-      // running (as that person, spending model budget) with nothing to show for it. Skipped, never
-      // deleted: re-granting brings the schedule back untouched.
-      if (owner !== null && !this.ownerMaySchedule(owner)) {
-        this.store.patch(job.id, { lastResult: '⏭️ skipped: the owner is no longer allowed to schedule jobs' });
-        continue;
-      }
+      //
+      // This one stays BELOW the claim, and only because a `check` can exist solely on an instance job:
+      // those are never one-shots, so claiming patches them instead of deleting them and a skip here is
+      // genuinely recoverable. A guard on a one-shot would have to move above the claim like the gate
+      // above — see ownedJobError, which is what keeps `check` off owned jobs in the first place.
       let checkOutput = null;
       if (typeof job.check === 'string' && job.check.trim()) {
         // A shell guard runs on the daemon host with the daemon's rights, so only an admin's job may carry

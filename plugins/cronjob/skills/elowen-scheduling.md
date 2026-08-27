@@ -5,17 +5,36 @@ description: Use when scheduling something for yourself on an Elowen instance �
 
 # Scheduling your own prompts
 
-This instance has the scheduler installed, so you can wake yourself up on a schedule. The tools
-below are admin-only and exist ONLY in trusted (owner) sessions — the web chat dock and the CLI
-chat. Platform channel sessions (e.g. Discord, WhatsApp) never get them. If a tool is missing, do
-not attempt the operation and do not work around it.
+This instance has the scheduler installed, so you can wake yourself up on a schedule. Scheduling is a
+per-account capability, not an owner-only one: anyone the administrator has granted this plugin can
+create schedules for themselves, from any conversation where you can see these tools — a private
+chat on a platform such as Teams counts. If a tool is not offered to you, do not attempt the
+operation and do not work around it.
+
+## You never choose where the result goes
+
+This is the part most worth knowing, because it looks like a decision and is not one. A schedule you
+create for the person you are talking to reports back into THIS conversation automatically. The
+binding is captured for you at creation time, from the conversation you are already in.
+
+So do not go looking for a channel, thread or conversation id to put in the job, and do not ask the
+user for one. There is no field for it on a personal job: `notifyChannelId` exists only for
+instance-wide jobs, which only the instance operator may create, and passing it on a personal job is
+refused. The tool's own reply tells you where the job will land — "it will report here, in this
+conversation" — so read that back to the user rather than guessing.
+
+The one case that differs: a schedule created where there is no single person to report to (a shared
+room, or automation with no account behind it) has nowhere to reply, and reports through the
+instance's notification channel instead.
 
 ## Tools
 
 - `CronAdd` — recurring self-prompt: `"every 15m"`, `"every 2h"`, `"daily 07:30"`,
-  `"weekly sun 20:00"`, or a cron expression (`"0 9 * * 1-5"`). Optional `hours` active window and
-  `notifyChannelId` delivery target.
-- `ScheduleWakeup` — ONE-SHOT wake-up (`"in 20m"`, `"at 18:30"`); it removes itself after running.
+  `"weekly sun 20:00"`, or a cron expression (`"0 9 * * 1-5"`). `scope` is required and is the only
+  choice you have to make: `"personal"` for the person you are talking to, `"instance"` for the
+  whole instance (operator only). Optional `hours` active window.
+- `ScheduleWakeup` — ONE-SHOT wake-up (`"in 20m"`, `"at 18:30"`); it removes itself after running
+  and resumes the conversation it was scheduled from, with its full context.
 - `CronList` / `CronRemove` — inspect and delete scheduled jobs.
 
 ## Choosing between them

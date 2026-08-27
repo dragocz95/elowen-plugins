@@ -143,6 +143,40 @@ describe('cron tick — scheduling itself is re-authorised at every fire', () =>
     expect(turns).toBe(1);
   });
 
+  it('skips a due ONE-SHOT wake-up without destroying it', async () => {
+    // Claiming a one-shot does not mark it, it DELETES it — that removal is what stops the next tick
+    // firing it again. So a gate running after the claim silently destroys the wake-up it only meant to
+    // skip, AND its explanatory note lands on a row that no longer exists. What somebody waiting on that
+    // wake-up then sees is the worst possible shape: nothing in CronList, no note, no log line — a
+    // reminder indistinguishable from one that was never created.
+    const dataRoot = freshDataRoot();
+    const wakeup = {
+      id: 'w1', name: 'check-deploy', prompt: 'check it', ownerUserId: 4,
+      runAt: new Date(Date.now() - 60_000).toISOString(), createdAt: new Date().toISOString(),
+    };
+    writeJobs(dataRoot, [wakeup]);
+    let denied = [4];
+    const { adapter } = await loadCron(dataRoot, {
+      host: { stores: { usersRead: { isAdmin: () => false, mayUsePlugin: (id: number) => !denied.includes(id) } } } as unknown as PluginHostWiring,
+    });
+    let turns = 0;
+    adapter.listen(async () => { turns += 1; return 'done'; });
+
+    await adapter.tick();
+    expect(turns).toBe(0);
+    // Still there, and still able to say why it did not run.
+    expect(readJobs(dataRoot)).toHaveLength(1);
+    expect(String(readJobs(dataRoot)[0]!.lastResult)).toContain('no longer allowed');
+
+    // "Skipped, never deleted" has to hold for a wake-up too: restoring the grant fires the one that was
+    // waiting, without anybody having to schedule it a second time.
+    denied = [];
+    await adapter.tick();
+    expect(turns).toBe(1);
+    // ...and only now does it remove itself, because a one-shot fires exactly once.
+    expect(readJobs(dataRoot)).toHaveLength(0);
+  });
+
   it('keeps firing an INSTANCE job, which has no owner whose grant could be revoked', async () => {
     const dataRoot = freshDataRoot();
     writeJobs(dataRoot, [dueJob()]);
