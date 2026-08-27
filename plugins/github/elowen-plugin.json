@@ -1,6 +1,6 @@
 {
   "name": "github",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "apiVersion": "1",
   "requiresCore": "0.28.13",
   "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
@@ -45,24 +45,78 @@
     "GithubSubmitReview": "📝",
     "GithubMergePullRequest": "🔀"
   },
-  "showOutput": ["GithubConnectionStatus", "GithubRepositoryStatus", "GithubListPullRequests", "GithubGetPullRequest", "GithubPullRequestChecks", "GithubPublishBranch", "GithubCreatePullRequest", "GithubSubmitReview", "GithubMergePullRequest"],
-  "planSafe": ["GithubConnectionStatus", "GithubRepositoryStatus", "GithubListPullRequests", "GithubGetPullRequest", "GithubPullRequestChecks"],
-  "deferLoading": ["Github*"],
+  "showOutput": [
+    "GithubConnectionStatus",
+    "GithubRepositoryStatus",
+    "GithubListPullRequests",
+    "GithubGetPullRequest",
+    "GithubPullRequestChecks",
+    "GithubPublishBranch",
+    "GithubCreatePullRequest",
+    "GithubSubmitReview",
+    "GithubMergePullRequest"
+  ],
+  "planSafe": [
+    "GithubConnectionStatus",
+    "GithubRepositoryStatus",
+    "GithubListPullRequests",
+    "GithubGetPullRequest",
+    "GithubPullRequestChecks"
+  ],
+  "deferLoading": [
+    "Github*"
+  ],
   "capabilities": {
-    "reads": ["db", "stores", "git", "controls"],
+    "reads": [
+      "db",
+      "stores",
+      "git",
+      "controls"
+    ],
     "network": true
   },
   "userConfigSchema": [
-    { "key": "mergeMethod", "label": "Default merge method", "type": "enum", "default": "squash", "options": [
-      { "value": "squash", "label": "Squash" }, { "value": "merge", "label": "Merge commit" }, { "value": "rebase", "label": "Rebase" }
-    ], "hint": "Used when a merge action does not explicitly select a method." }
+    {
+      "key": "mergeMethod",
+      "label": "Default merge method",
+      "type": "enum",
+      "default": "squash",
+      "options": [
+        {
+          "value": "squash",
+          "label": "Squash"
+        },
+        {
+          "value": "merge",
+          "label": "Merge commit"
+        },
+        {
+          "value": "rebase",
+          "label": "Rebase"
+        }
+      ],
+      "hint": "Used when a merge action does not explicitly select a method."
+    }
   ],
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
     "requiresApiVersion": 7,
-    "account": [{ "id": "connection", "label": "GitHub", "icon": "Github", "placement": "linkedAccount" }],
-    "project": [{ "id": "repository", "label": "GitHub", "icon": "Github" }],
+    "account": [
+      {
+        "id": "connection",
+        "label": "GitHub",
+        "icon": "Github",
+        "placement": "linkedAccount"
+      }
+    ],
+    "project": [
+      {
+        "id": "repository",
+        "label": "GitHub",
+        "icon": "Github"
+      }
+    ],
     "strings": {
       "title": "GitHub",
       "accountTitle": "GitHub account",
