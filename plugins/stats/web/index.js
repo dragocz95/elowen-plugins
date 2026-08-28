@@ -779,36 +779,45 @@ function StatsView() {
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.tableTitle }),
-            filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptySearch, icon: Search }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTable, { ariaLabel: s.tableTitle, columns: "2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem", compactColumns: "2rem minmax(0,1fr) 7rem 1.25rem", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTableRow, { header: true, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, role: "presentation", "aria-hidden": true, children: null }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, children: s.columnModel }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnTokens }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, className: "text-right", children: s.columnCost }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnCache }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnSpeed }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, role: "presentation", "aria-hidden": true, children: null })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "rowgroup", children: pageRows.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
-                DataTableRow,
-                {
-                  "data-testid": "model-usage-row",
-                  selected: selectedExec === row.exec,
-                  onOpen: () => setSelectedExec(row.exec),
-                  openLabel: `${s.detailTitle}: ${row.exec}`,
-                  children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: "auto", className: "flex items-center gap-1.5 text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "font-mono text-xs text-text", children: row.exec }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.tokensLabel }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "text-right font-mono text-xs tabular-nums text-text", children: row.costLabel }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: percent(row.cacheHitPct) }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.speedLabel }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableChevronCell, {})
-                  ]
-                },
-                row.exec
-              )) })
-            ] }),
+            filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptySearch, icon: Search }) : (
+              /* The compact template keeps three tracks: the model name, the cost and the
+                 chevron. The provider glyph and the wide 7rem cost track are both dropped,
+                 because at 320px the row has ~194px to spend and the previous four-track
+                 compact template asked for 200px of fixed tracks and gaps — the `1fr` name
+                 column resolved to 0px and the row lost the value that identifies it. Cost
+                 keeps a narrower compact track and still truncates with the full value on
+                 `title`. */
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTable, { ariaLabel: s.tableTitle, columns: "2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem", compactColumns: "minmax(0,1fr) 4.5rem 1.25rem", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTableRow, { header: true, children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", role: "presentation", "aria-hidden": true, children: null }),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, children: s.columnModel }),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnTokens }),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, className: "text-right", children: s.columnCost }),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnCache }),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnSpeed }),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, role: "presentation", "aria-hidden": true, children: null })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "rowgroup", children: pageRows.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+                  DataTableRow,
+                  {
+                    "data-testid": "model-usage-row",
+                    selected: selectedExec === row.exec,
+                    onOpen: () => setSelectedExec(row.exec),
+                    openLabel: `${s.detailTitle}: ${row.exec}`,
+                    children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: "auto", priority: "wide", "aria-hidden": true, className: "flex items-center gap-1.5 text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "font-mono text-xs text-text", children: row.exec }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.tokensLabel }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "text-right font-mono text-xs tabular-nums text-text", children: row.costLabel }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: percent(row.cacheHitPct) }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.speedLabel }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableChevronCell, {})
+                    ]
+                  },
+                  row.exec
+                )) })
+              ] })
+            ),
             filtered.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Pager, { page: clampedPage, pageSize: PAGE_SIZE, total: filtered.length, onPageChange: setPage, ariaLabel: s.tableTitle }) : null
           ] })
         ] }) })

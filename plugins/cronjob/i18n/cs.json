@@ -89,6 +89,7 @@
       "metricActive": "Aktivní",
       "metricPaused": "Pozastavené",
       "colLastRun": "Poslední běh",
+      "colSaveState": "Stav uložení",
       "workspaceEyebrow": "Automatizace",
       "workspaceReady": "Plánovač běží",
       "searchPlaceholder": "Hledat úlohu…",

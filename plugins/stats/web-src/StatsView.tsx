@@ -257,9 +257,16 @@ export function StatsView() {
                         {filtered.length === 0 ? (
                           <EmptyState title={s.emptySearch} icon={Search} />
                         ) : (
-                          <DataTable ariaLabel={s.tableTitle} columns="2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem" compactColumns="2rem minmax(0,1fr) 7rem 1.25rem">
+                          /* The compact template keeps three tracks: the model name, the cost and the
+                             chevron. The provider glyph and the wide 7rem cost track are both dropped,
+                             because at 320px the row has ~194px to spend and the previous four-track
+                             compact template asked for 200px of fixed tracks and gaps — the `1fr` name
+                             column resolved to 0px and the row lost the value that identifies it. Cost
+                             keeps a narrower compact track and still truncates with the full value on
+                             `title`. */
+                          <DataTable ariaLabel={s.tableTitle} columns="2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem" compactColumns="minmax(0,1fr) 4.5rem 1.25rem">
                             <DataTableRow header>
-                              <DataTableCell header lines={1} role="presentation" aria-hidden>{null}</DataTableCell>
+                              <DataTableCell header lines={1} priority="wide" role="presentation" aria-hidden>{null}</DataTableCell>
                               <DataTableCell header lines={1}>{s.columnModel}</DataTableCell>
                               <DataTableCell header lines={1} priority="wide" className="text-right">{s.columnTokens}</DataTableCell>
                               <DataTableCell header lines={1} className="text-right">{s.columnCost}</DataTableCell>
@@ -276,7 +283,14 @@ export function StatsView() {
                                   onOpen={() => setSelectedExec(row.exec)}
                                   openLabel={`${s.detailTitle}: ${row.exec}`}
                                 >
-                                  <DataTableCell lines="auto" className="flex items-center gap-1.5 text-text-muted"><ModelIcon name={row.exec} size={12} /></DataTableCell>
+                                  {/* The provider glyph restates the model name in the very next cell, so
+                                      it is decoration — and its header is presentational for that reason.
+                                      Both halves have to be hidden together: an exposed body cell under a
+                                      presentational header left every row one column longer than the
+                                      header row, which is what makes a screen reader read the remaining
+                                      columns against the wrong names. Being decoration is also why it is
+                                      `wide`: at 320px its 2rem track was width the model name needed. */}
+                                  <DataTableCell lines="auto" priority="wide" aria-hidden className="flex items-center gap-1.5 text-text-muted"><ModelIcon name={row.exec} size={12} /></DataTableCell>
                                   <DataTableCell lines={1} className="font-mono text-xs text-text">{row.exec}</DataTableCell>
                                   <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{row.tokensLabel}</DataTableCell>
                                   <DataTableCell lines={1} className="text-right font-mono text-xs tabular-nums text-text">{row.costLabel}</DataTableCell>

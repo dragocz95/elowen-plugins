@@ -334,20 +334,17 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
         openLabel: s.openJob.replace("{name}", name),
         className: "group",
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableCell, { lines: "auto", className: "flex items-center justify-center", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              "span",
-              {
-                className: `h-2 w-2 rounded-full ${enabled ? "bg-success" : "bg-text-muted/50"}`,
-                title: enabled ? s.enabled : s.paused,
-                "aria-hidden": true
-              }
-            ),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sr-only", children: enabled ? s.enabled : s.paused })
-          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", "aria-hidden": true, className: "flex items-center justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "span",
+            {
+              className: `h-2 w-2 rounded-full ${enabled ? "bg-success" : "bg-text-muted/50"}`,
+              title: enabled ? s.enabled : s.paused
+            }
+          ) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableCell, { lines: "auto", title: name, className: "flex items-center gap-2", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm text-text", children: name }),
-            !enabled ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "muted", children: s.paused }) : null
+            !enabled ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "muted", children: s.paused }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sr-only", children: enabled ? s.enabled : s.paused })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", className: "whitespace-nowrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Badge, { tone: validSchedule ? "default" : "danger", children: [
             draft.runAt ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CalendarClock, { size: 10, className: "mr-1 inline-block align-[-1px]", "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Clock, { size: 10, className: "mr-1 inline-block align-[-1px]", "aria-hidden": true }),
@@ -505,16 +502,16 @@ function JobsSettings({ surface }) {
       {
         ariaLabel: s.title,
         columns: isAdmin ? "2rem minmax(0,1fr) 9.5rem 7rem minmax(0,12rem) 7rem 4.5rem 1.25rem" : "2rem minmax(0,1fr) 9.5rem 7rem 4.5rem 1.25rem",
-        compactColumns: "2rem minmax(0,1fr) 4.5rem 1.25rem",
+        compactColumns: "minmax(0,1fr) 4.5rem 1.25rem",
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { header: true, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, labelHidden: true, children: s.enabled }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", role: "presentation", "aria-hidden": true, children: null }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.name }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.schedule }),
             isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.ownerColumn }) : null,
             isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.channel }) : null,
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", className: "whitespace-nowrap", children: s.colLastRun }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, role: "presentation", "aria-hidden": true, children: null }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, labelHidden: true, children: s.colSaveState }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, "aria-hidden": true, children: null })
           ] }),
           pageItems.map((job) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(

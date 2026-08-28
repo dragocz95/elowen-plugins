@@ -175,19 +175,22 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
         openLabel={s.openJob.replace('{name}', name)}
         className="group"
       >
-        <C.DataTableCell lines="auto" className="flex items-center justify-center">
+        {/* The dot restates in colour what the name cell already carries as the paused badge and as the
+            screen-reader text below, so it is decoration — hidden from the accessibility tree together
+            with its header, and dropped from the compact layout where its track was width the job name
+            needed. */}
+        <C.DataTableCell lines="auto" priority="wide" aria-hidden className="flex items-center justify-center">
           <span
             className={`h-2 w-2 rounded-full ${enabled ? 'bg-success' : 'bg-text-muted/50'}`}
             title={enabled ? s.enabled : s.paused}
-            aria-hidden
           />
-          {/* The dot carries the state in colour alone. `title` is not reliably announced, so the state
-              also travels as text a screen reader reads out with the row. */}
-          <span className="sr-only">{enabled ? s.enabled : s.paused}</span>
         </C.DataTableCell>
         <C.DataTableCell lines="auto" title={name} className="flex items-center gap-2">
           <span className="truncate text-sm text-text">{name}</span>
           {!enabled ? <C.Badge tone="muted">{s.paused}</C.Badge> : null}
+          {/* The state as text, in the column that survives every width: colour alone does not carry it,
+              `title` is not reliably announced, and an active job has no badge to speak for it. */}
+          <span className="sr-only">{enabled ? s.enabled : s.paused}</span>
         </C.DataTableCell>
         <C.DataTableCell lines="auto" priority="wide" className="whitespace-nowrap">
           <C.Badge tone={validSchedule ? 'default' : 'danger'}>
@@ -411,20 +414,33 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
 
   const table = (
     <div className="flex min-w-0 flex-col gap-3">
+      {/* Three tracks compact: the job name, the save state and the chevron. The state dot is dropped
+          there because at 320px the row has ~194px to spend and its 2rem track plus the gap left the
+          `1fr` name column 34px — about three characters of the value that identifies the row. The state
+          itself is not lost: it travels as the paused badge and the screen-reader text inside the name
+          cell at every width. The save state stays, because the retry it offers after the editor was
+          closed exists nowhere else. */}
       <C.DataTable
         ariaLabel={s.title}
         columns={isAdmin ? '2rem minmax(0,1fr) 9.5rem 7rem minmax(0,12rem) 7rem 4.5rem 1.25rem' : '2rem minmax(0,1fr) 9.5rem 7rem 4.5rem 1.25rem'}
-        compactColumns="2rem minmax(0,1fr) 4.5rem 1.25rem"
+        compactColumns="minmax(0,1fr) 4.5rem 1.25rem"
       >
         <C.DataTableRow header>
-          {/* The dot column is an icon column: it needs the accessible name, not a second visible one. */}
-          <C.DataTableCell header lines={1} labelHidden>{s.enabled}</C.DataTableCell>
+          {/* Presentational, like the dot it heads: the state is announced with the job name instead.
+              Both halves are hidden together, or a body row would run one column longer than the header
+              and every remaining column would be read against the wrong name. */}
+          <C.DataTableCell header lines={1} priority="wide" role="presentation" aria-hidden>{null}</C.DataTableCell>
           <C.DataTableCell header lines={1}>{s.name}</C.DataTableCell>
           <C.DataTableCell header lines={1} priority="wide">{s.schedule}</C.DataTableCell>
           {isAdmin ? <C.DataTableCell header lines={1} priority="wide">{s.ownerColumn}</C.DataTableCell> : null}
           {isAdmin ? <C.DataTableCell header lines={1} priority="wide">{s.channel}</C.DataTableCell> : null}
           <C.DataTableCell header lines={1} priority="wide" className="whitespace-nowrap">{s.colLastRun}</C.DataTableCell>
-          <C.DataTableCell header lines={1} role="presentation" aria-hidden>{null}</C.DataTableCell>
+          {/* The save-state column holds an autosave indicator AND its Retry button, so its content is
+              both announced and operable — a presentational header left that content in a column with no
+              name and made the header row one column shorter than every body row. It carries no visible
+              label because the indicator speaks for itself on screen, which is what `labelHidden` is for.
+              (The chevron below is hidden on BOTH sides, so it stays symmetrical.) */}
+          <C.DataTableCell header lines={1} labelHidden>{s.colSaveState}</C.DataTableCell>
           <C.DataTableCell header lines={1} aria-hidden>{null}</C.DataTableCell>
         </C.DataTableRow>
         {pageItems.map((job) => (

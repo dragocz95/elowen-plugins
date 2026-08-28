@@ -200,6 +200,7 @@
       "metricActive": "Active",
       "metricPaused": "Paused",
       "colLastRun": "Last run",
+      "colSaveState": "Save state",
       "workspaceEyebrow": "Automation",
       "workspaceReady": "Scheduler running",
       "searchPlaceholder": "Search jobs…",
