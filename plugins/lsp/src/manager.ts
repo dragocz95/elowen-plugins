@@ -98,6 +98,9 @@ interface ManagedClient {
   /** Becomes true only after this server has returned a real publishDiagnostics verdict. Merely finding
    *  an already-created client does not mean its project index has finished its cold start. */
   warmed: boolean;
+  /** Files which already produced a real verdict on this client. A warm server can still need the full
+   *  startup window for the first semantic pass of a newly opened file. */
+  checkedPaths: Set<string>;
 }
 
 /** Owns the live language-server clients (one per server binary + project root, lazily spawned and reused) and turns a
@@ -108,6 +111,9 @@ export class LspManager {
    *  but remain alive until their already-running checks settle. */
   private clients = new Map<string, ManagedClient>();
   private retiredClients = new Set<ManagedClient>();
+  /** Diagnostics for one server+project share tsserver's project index. Queue them so a burst of agent
+   *  probes cannot make the cold server analyze several newly opened files at once. */
+  private diagnosticQueues = new Map<string, Promise<unknown>>();
   private enabled = true;
   private readonly spawnFn: (spec: LanguageServerSpec, cwd: string) => LspTransport | null;
   private readonly readFile: (path: string) => string;
@@ -168,37 +174,44 @@ export class LspManager {
     if (!language) return { path, diagnostics: [], skipped: 'not-a-known-language' };
     const spec = serverForLanguage(language);
     if (!spec) return { path, language, diagnostics: [], skipped: 'unsupported-language' };
-    let text: string;
-    try { text = this.readFile(path); }
-    catch { return { path, language, diagnostics: [], skipped: 'unreadable' }; }
     const root = projectRootForFile(path, boundary ?? this.root);
-    const entry = this.clientFor(spec, root);
-    if (!entry) return { path, language, server: spec.label, diagnostics: [], skipped: 'no-server-installed' };
-    entry.activeChecks++;
-    try {
-      // A fresh server gets the generous first-check window (it's loading the project); warm re-checks
-      // use the short one so a broken edit surfaces fast.
-      const timeoutMs = entry.warmed ? this.recheckTimeoutMs : this.firstCheckTimeoutMs;
-      const { diagnostics, published } = await entry.client.diagnose(path, text, language, timeoutMs, this.settleMs);
-      // No verdict within the window: say so instead of a false "no problems" — the worst possible
-      // answer for an agent probe is a wrong all-clear.
-      if (!published) {
-        // publishDiagnostics is often unversioned. After a timeout, a delayed verdict for text A could
-        // otherwise satisfy the next check for text B on the same URI. Quarantine the whole client;
-        // the next probe starts with a fresh server and cannot consume that stale publish.
+    const key = this.keyFor(spec, root);
+
+    return this.queueDiagnostic(key, async () => {
+      // A queued probe may outlive an /lsp disable; do not respawn after disposeAll().
+      if (!this.enabled) return { path, diagnostics: [], skipped: 'disabled' };
+      let text: string;
+      try { text = this.readFile(path); }
+      catch { return { path, language, diagnostics: [], skipped: 'unreadable' }; }
+      const entry = this.clientFor(spec, root);
+      if (!entry) return { path, language, server: spec.label, diagnostics: [], skipped: 'no-server-installed' };
+      entry.activeChecks++;
+      try {
+        // A file's first semantic pass can be slow even after another file warmed the project. Only an
+        // already-confirmed path gets the short re-check window used for the edit loop.
+        const timeoutMs = entry.warmed && entry.checkedPaths.has(path) ? this.recheckTimeoutMs : this.firstCheckTimeoutMs;
+        const { diagnostics, published } = await entry.client.diagnose(path, text, language, timeoutMs, this.settleMs);
+        // No verdict within the window: say so instead of a false "no problems" — the worst possible
+        // answer for an agent probe is a wrong all-clear.
+        if (!published) {
+          // publishDiagnostics is often unversioned. After a timeout, a delayed verdict for text A could
+          // otherwise satisfy the next check for text B on the same URI. Quarantine the whole client;
+          // the next probe starts with a fresh server and cannot consume that stale publish.
+          this.retire(entry);
+          return { path, language, server: spec.label, diagnostics: [], skipped: 'no-response' };
+        }
+        entry.warmed = true;
+        entry.checkedPaths.add(path);
+        return { path, language, server: spec.label, diagnostics };
+      } catch {
+        // The server crashed/timed out — drop the client so the next check re-spawns, and say so honestly
+        // (NOT "no server installed", which would send the agent chasing an install it already has).
         this.retire(entry);
-        return { path, language, server: spec.label, diagnostics: [], skipped: 'no-response' };
+        return { path, language, server: spec.label, diagnostics: [], skipped: 'server-error' };
+      } finally {
+        this.release(entry);
       }
-      entry.warmed = true;
-      return { path, language, server: spec.label, diagnostics };
-    } catch {
-      // The server crashed/timed out — drop the client so the next check re-spawns, and say so honestly
-      // (NOT "no server installed", which would send the agent chasing an install it already has).
-      this.retire(entry);
-      return { path, language, server: spec.label, diagnostics: [], skipped: 'server-error' };
-    } finally {
-      this.release(entry);
-    }
+    });
   }
 
   // ── Code-intelligence operations ─────────────────────────────────────────────────────────────────
@@ -296,6 +309,17 @@ export class LspManager {
 
   private keyFor(spec: LanguageServerSpec, root: string): string { return `${spec.command}\0${root}`; }
 
+  /** Run one diagnostics probe at a time for a server+project. Different projects and server binaries
+   *  remain independent, while a failure in one queued probe never poisons the next. */
+  private queueDiagnostic<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.diagnosticQueues.get(key) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(operation);
+    this.diagnosticQueues.set(key, current);
+    return current.finally(() => {
+      if (this.diagnosticQueues.get(key) === current) this.diagnosticQueues.delete(key);
+    });
+  }
+
   private hasRunningClient(spec: LanguageServerSpec): boolean {
     return this.allClients().some((entry) => entry.command === spec.command && !entry.client.isDisposed());
   }
@@ -318,7 +342,9 @@ export class LspManager {
     if (!transport) return null;
     this.makeRoomForClient();
     const client = new LspClient(transport, root);
-    const entry: ManagedClient = { key, command: spec.command, root, client, activeChecks: 0, retired: false, warmed: false };
+    const entry: ManagedClient = {
+      key, command: spec.command, root, client, activeChecks: 0, retired: false, warmed: false, checkedPaths: new Set(),
+    };
     this.clients.set(key, entry);
     return entry;
   }

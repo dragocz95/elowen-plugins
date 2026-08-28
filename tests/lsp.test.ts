@@ -671,9 +671,11 @@ describe('LspManager', () => {
     expect(spawns).toBe(1);
   });
 
-  it('gives every parallel cold-start check the startup timeout until the server proves warm', async () => {
+  it('serializes parallel checks per project and gives each new file the startup timeout', async () => {
     let onMsg: (message: JsonRpcMessage) => void = () => {};
     let spawns = 0;
+    let activeOpens = 0;
+    let maxActiveOpens = 0;
     const transport: LspTransport = {
       send: (framed) => {
         const msg = JSON.parse(framed.split('\r\n\r\n')[1]!) as JsonRpcMessage;
@@ -681,18 +683,19 @@ describe('LspManager', () => {
           queueMicrotask(() => onMsg({ jsonrpc: '2.0', id: msg.id, result: { capabilities: {} } }));
         } else if (msg.method === 'textDocument/didOpen') {
           const uri = (msg.params as { textDocument: { uri: string } }).textDocument.uri;
-          const delay = uri.endsWith('/a.ts') ? 10 : 80;
-          setTimeout(() => onMsg({
-            jsonrpc: '2.0', method: 'textDocument/publishDiagnostics',
-            params: { uri, diagnostics: [] },
-          }), delay);
+          activeOpens++;
+          maxActiveOpens = Math.max(maxActiveOpens, activeOpens);
+          setTimeout(() => {
+            activeOpens--;
+            onMsg({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics', params: { uri, diagnostics: [] } });
+          }, 40);
         }
       },
       onMessage: (callback) => { onMsg = callback; }, onExit: () => {}, dispose: () => {},
     };
     const mgr = new LspManager({
       root: '/proj', readFile: () => 'code', spawn: () => { spawns++; return transport; },
-      firstCheckTimeoutMs: 200, recheckTimeoutMs: 30, settleMs: 5,
+      firstCheckTimeoutMs: 100, recheckTimeoutMs: 10, settleMs: 5,
     });
 
     const results = await Promise.all([
@@ -702,6 +705,7 @@ describe('LspManager', () => {
     ]);
 
     expect(results.map((result) => result.skipped)).toEqual([undefined, undefined, undefined]);
+    expect(maxActiveOpens).toBe(1);
     expect(spawns).toBe(1);
   });
 
