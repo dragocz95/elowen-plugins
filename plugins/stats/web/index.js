@@ -781,13 +781,13 @@ function StatsView() {
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.tableTitle }),
             filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptySearch, icon: Search }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTable, { ariaLabel: s.tableTitle, columns: "2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem", compactColumns: "2rem minmax(0,1fr) 7rem 1.25rem", children: [
               /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTableRow, { header: true, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, children: s.columnModel }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, priority: "wide", className: "text-right", children: s.columnTokens }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, className: "text-right", children: s.columnCost }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, priority: "wide", className: "text-right", children: s.columnCache }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, priority: "wide", className: "text-right", children: s.columnSpeed }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null })
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, role: "presentation", "aria-hidden": true, children: null }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, children: s.columnModel }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnTokens }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, className: "text-right", children: s.columnCost }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnCache }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnSpeed }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, role: "presentation", "aria-hidden": true, children: null })
               ] }),
               /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "rowgroup", children: pageRows.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
                 DataTableRow,
@@ -798,11 +798,11 @@ function StatsView() {
                   openLabel: `${s.detailTitle}: ${row.exec}`,
                   children: [
                     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: "auto", className: "flex items-center gap-1.5 text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "font-mono text-xs text-text", children: row.exec }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.tokensLabel }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { className: "text-right font-mono text-xs tabular-nums text-text", children: row.costLabel }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: percent(row.cacheHitPct) }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.speedLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "font-mono text-xs text-text", children: row.exec }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.tokensLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "text-right font-mono text-xs tabular-nums text-text", children: row.costLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: percent(row.cacheHitPct) }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.speedLabel }),
                     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableChevronCell, {})
                   ]
                 },

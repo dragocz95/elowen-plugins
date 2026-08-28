@@ -452,9 +452,9 @@ function GitHubProjectPanel({ project }) {
           // one stretched button, one tab stop, native Enter/Space — no hand-rolled key handling.
           /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTable, { ariaLabel: s.tabPullRequests, columns: "minmax(0,1fr) minmax(8rem,.5fr) 1.25rem", compactColumns: "minmax(0,1fr) 1.25rem", children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTableRow, { header: true, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { header: true, children: s.columnPullRequest }),
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { header: true, priority: "wide", children: s.columnChecks }),
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { header: true, "aria-hidden": true })
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnPullRequest }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.columnChecks }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { header: true, lines: 1, "aria-hidden": true })
             ] }),
             (pulls.data?.pullRequests ?? []).map((pull) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTableRow, { height: "tall", onOpen: () => setSelectedPr(pull.number), openLabel: `${s.openPullRequest} #${pull.number}`, children: [
               /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTableCell, { lines: "auto", title: `#${pull.number} ${pull.title}`, children: [

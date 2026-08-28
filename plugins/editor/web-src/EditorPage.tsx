@@ -60,7 +60,12 @@ export function EditorPage() {
         {/* The editor is sized to the window rather than to a fixed 70dvh: on a tall screen that left a
             band of dead space under it, and on a short one it pushed the page past the fold and wrapped
             the whole app in a scrollbar — around an editor that already has one of its own. */}
-        <div ref={surfaceRef} className="workspace-content" style={fillHeight ? { height: fillHeight } : undefined}>
+        {/* The gap under the hero's closing hairline. `WorkspacePage` is the bare page frame — gutters and
+            a bottom rhythm, no top spacing — so unlike a `WorkspaceShell` page this surface has no
+            `.workspace-shell__content` above it to inherit one from, and borrowing that class instead
+            would drop its 2rem bottom padding INSIDE the fill height and reopen the dead band below the
+            editor that the height above exists to close. */}
+        <div ref={surfaceRef} className="pt-4" style={fillHeight ? { height: fillHeight } : undefined}>
           <ControlSurfaceDocument className="editor-control-surface">
             <MotionPresence mode="wait">
               {projectId == null

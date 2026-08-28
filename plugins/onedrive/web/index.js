@@ -255,7 +255,7 @@ function ConflictsRail({ row, onClose, onResolved }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.WorkspaceDetailRail, { label: s.conflicts, closeLabel: s.close, onClose, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mb-3 text-xs text-text-muted", children: s.conflictsHint }),
     conflicts.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) : conflicts.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(conflicts.error), onRetry: () => conflicts.refetch() }) : (conflicts.data?.conflicts ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.conflictsEmpty }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.conflicts, columns: "minmax(0,1fr) auto", compactColumns: "minmax(0,1fr)", children: (conflicts.data?.conflicts ?? []).map((conflict) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { className: "font-mono text-xs", children: conflict.rel }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, className: "font-mono text-xs", children: conflict.rel }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap justify-end gap-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           C.Button,
@@ -518,7 +518,7 @@ function OneDriveProjectPanel({ project }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.workspaces, columns: "minmax(0,1fr) 7rem auto", compactColumns: "minmax(0,1fr)", children: data.workspaces.map((workspace) => {
         const row = data.links.find((link) => link.workspaceId === workspace.workspaceId) ?? null;
         return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { children: workspace.label }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, children: workspace.label }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", children: row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: statusTone(row), children: statusLabel(row, s) }) : null }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-end gap-2", children: [
             row?.status === "blocked" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-right text-xs text-warning", children: s.blockedTitle.replace("{count}", String(row.blockedDeletions)) }) : row?.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-danger text-right", children: row.error }) : null,

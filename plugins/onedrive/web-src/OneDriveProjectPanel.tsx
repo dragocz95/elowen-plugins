@@ -60,7 +60,7 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: 
             <C.DataTable ariaLabel={s.conflicts} columns="minmax(0,1fr) auto" compactColumns="minmax(0,1fr)">
               {(conflicts.data?.conflicts ?? []).map((conflict) => (
                 <C.DataTableRow key={conflict.rel}>
-                  <C.DataTableCell className="font-mono text-xs">{conflict.rel}</C.DataTableCell>
+                  <C.DataTableCell lines={1} className="font-mono text-xs">{conflict.rel}</C.DataTableCell>
                   <C.DataTableCell lines="auto" className="justify-end">
                     <div className="flex flex-wrap justify-end gap-2">
                       <C.Button disabled={resolve.isPending}
@@ -346,7 +346,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
               const row = data.links.find((link) => link.workspaceId === workspace.workspaceId) ?? null;
               return (
                 <C.DataTableRow key={workspace.workspaceId}>
-                  <C.DataTableCell>{workspace.label}</C.DataTableCell>
+                  <C.DataTableCell lines={1}>{workspace.label}</C.DataTableCell>
                   <C.DataTableCell lines="auto">
                     {row ? <C.Badge tone={statusTone(row)}>{statusLabel(row, s)}</C.Badge> : null}
                   </C.DataTableCell>

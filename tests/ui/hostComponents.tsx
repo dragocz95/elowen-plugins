@@ -189,7 +189,11 @@ export function DataTableRow({ children, header = false, selected = false, inter
     </div>
   );
 }
-export function DataTableCell({ children, header = false, priority = 'always', lines = 1, labelHidden = false, reveal = false, title, className = '', ...rest }: {
+/** `lines` defaults to `auto` for the same reason the host's own cell does: the plugin API version is a
+ *  compatibility ceiling that cannot express a removal, so the host still loads a bundle built against an
+ *  earlier API that never passed `lines` at all — and a `1` default silently truncated every one of its
+ *  cells. Truncation is now opt-in with `lines={1}`. */
+export function DataTableCell({ children, header = false, priority = 'always', lines = 'auto', labelHidden = false, reveal = false, title, className = '', ...rest }: {
   children: ReactNode; header?: boolean; priority?: 'always' | 'wide';
   lines?: 1 | 'auto'; labelHidden?: boolean; reveal?: boolean;
 } & HTMLAttributes<HTMLDivElement>) {
@@ -1198,19 +1202,16 @@ export function MarkdownAssetEditor(props: any) {
                 })}
               </DataTable>
 
-              <div className="markdown-asset-editor__pager">
-                <span>
-                  {t.assetEditor.pageRange
-                    .replace('{from}', String(clampedPage * PAGE_SIZE + 1))
-                    .replace('{to}', String(clampedPage * PAGE_SIZE + pageItems.length))
-                    .replace('{total}', String(filtered.length))}
-                </span>
-                <div>
-                  <Button icon={ChevronLeft} disabled={clampedPage === 0} onClick={() => setPage(clampedPage - 1)}>{t.assetEditor.prevPage}</Button>
-                  <span>{t.assetEditor.pageLabel.replace('{page}', String(clampedPage + 1)).replace('{pages}', String(pageCount))}</span>
-                  <Button disabled={clampedPage >= pageCount - 1} onClick={() => setPage(clampedPage + 1)}>{t.assetEditor.nextPage}<ChevronRight size={15} aria-hidden /></Button>
-                </div>
-              </div>
+              {/* The shared Pager, exactly as the host's own MarkdownAssetEditor mounts it: it derives its
+                  range and page count itself and takes every label from the `pagination` namespace, so the
+                  editor's old per-namespace pagination keys have no reader left. */}
+              <Pager
+                page={clampedPage}
+                pageSize={PAGE_SIZE}
+                total={filtered.length}
+                onPageChange={setPage}
+                ariaLabel={t.assetEditor.colName}
+              />
             </div>
           )}
       </ControlSurfaceRegister>

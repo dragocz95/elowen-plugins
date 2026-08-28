@@ -369,6 +369,9 @@
   .py-2 {
     padding-block: calc(var(--spacing, 0.25rem) * 2);
   }
+  .pt-4 {
+    padding-top: calc(var(--spacing, 0.25rem) * 4);
+  }
   .text-center {
     text-align: center;
   }

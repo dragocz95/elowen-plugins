@@ -261,10 +261,6 @@ export const en = {
     filterBuiltin: 'Built-in',
     colName: 'Name',
     colDescription: 'Description',
-    pageRange: '{from}–{to} of {total}',
-    pageLabel: 'Page {page} of {pages}',
-    prevPage: 'Back',
-    nextPage: 'Next',
   },
   managePicker: {
     manage: 'Manage',
@@ -783,10 +779,6 @@ export const cs = {
     filterBuiltin: 'Vestavěné',
     colName: 'Název',
     colDescription: 'Popis',
-    pageRange: '{from}–{to} z {total}',
-    pageLabel: 'Strana {page} z {pages}',
-    prevPage: 'Zpět',
-    nextPage: 'Další',
   },
   managePicker: {
     manage: 'Spravovat',

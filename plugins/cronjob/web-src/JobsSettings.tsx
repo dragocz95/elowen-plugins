@@ -185,18 +185,18 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
               also travels as text a screen reader reads out with the row. */}
           <span className="sr-only">{enabled ? s.enabled : s.paused}</span>
         </C.DataTableCell>
-        <C.DataTableCell title={name} className="flex items-center gap-2">
+        <C.DataTableCell lines="auto" title={name} className="flex items-center gap-2">
           <span className="truncate text-sm text-text">{name}</span>
           {!enabled ? <C.Badge tone="muted">{s.paused}</C.Badge> : null}
         </C.DataTableCell>
-        <C.DataTableCell priority="wide" className="whitespace-nowrap">
+        <C.DataTableCell lines="auto" priority="wide" className="whitespace-nowrap">
           <C.Badge tone={validSchedule ? 'default' : 'danger'}>
             {draft.runAt ? <CalendarClock size={10} className="mr-1 inline-block align-[-1px]" aria-hidden /> : <Clock size={10} className="mr-1 inline-block align-[-1px]" aria-hidden />}
             {draft.schedule}
           </C.Badge>
         </C.DataTableCell>
         {ownerLabel !== null ? (
-          <C.DataTableCell priority="wide" className="text-xs text-text-muted">{ownerLabel}</C.DataTableCell>
+          <C.DataTableCell lines={1} priority="wide" className="text-xs text-text-muted">{ownerLabel}</C.DataTableCell>
         ) : null}
         {/* Destination: one line that truncates, full name on hover. A channel or thread title can be far
             longer than the column, and wrapping it pushed every other row out of alignment. Shown only to
@@ -204,7 +204,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             that, so the column would repeat one value down the whole page — and "default channel" would
             name a channel the job never writes to. */}
         {adminFields ? (
-          <C.DataTableCell priority="wide" title={dest ?? s.channelDefault} className="text-xs text-text-muted">
+          <C.DataTableCell lines={1} priority="wide" title={dest ?? s.channelDefault} className="text-xs text-text-muted">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="shrink-0">
                 {destination && destination.kind !== 'channel' ? <MessageSquare size={12} aria-hidden /> : <Hash size={12} aria-hidden />}
@@ -213,7 +213,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             </span>
           </C.DataTableCell>
         ) : null}
-        <C.DataTableCell priority="wide" title={lastRunMs != null ? new Date(lastRunMs).toLocaleString() : undefined} className="whitespace-nowrap text-xs text-text-muted">
+        <C.DataTableCell lines={1} priority="wide" title={lastRunMs != null ? new Date(lastRunMs).toLocaleString() : undefined} className="whitespace-nowrap text-xs text-text-muted">
           <span className="flex items-center gap-1.5">
             <Timer size={12} aria-hidden />
             <span className={lastRunMs == null ? 'text-text-muted/60' : undefined}>
@@ -418,14 +418,14 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
       >
         <C.DataTableRow header>
           {/* The dot column is an icon column: it needs the accessible name, not a second visible one. */}
-          <C.DataTableCell header labelHidden>{s.enabled}</C.DataTableCell>
-          <C.DataTableCell header>{s.name}</C.DataTableCell>
-          <C.DataTableCell header priority="wide">{s.schedule}</C.DataTableCell>
-          {isAdmin ? <C.DataTableCell header priority="wide">{s.ownerColumn}</C.DataTableCell> : null}
-          {isAdmin ? <C.DataTableCell header priority="wide">{s.channel}</C.DataTableCell> : null}
-          <C.DataTableCell header priority="wide" className="whitespace-nowrap">{s.colLastRun}</C.DataTableCell>
-          <C.DataTableCell header role="presentation" aria-hidden>{null}</C.DataTableCell>
-          <C.DataTableCell header aria-hidden>{null}</C.DataTableCell>
+          <C.DataTableCell header lines={1} labelHidden>{s.enabled}</C.DataTableCell>
+          <C.DataTableCell header lines={1}>{s.name}</C.DataTableCell>
+          <C.DataTableCell header lines={1} priority="wide">{s.schedule}</C.DataTableCell>
+          {isAdmin ? <C.DataTableCell header lines={1} priority="wide">{s.ownerColumn}</C.DataTableCell> : null}
+          {isAdmin ? <C.DataTableCell header lines={1} priority="wide">{s.channel}</C.DataTableCell> : null}
+          <C.DataTableCell header lines={1} priority="wide" className="whitespace-nowrap">{s.colLastRun}</C.DataTableCell>
+          <C.DataTableCell header lines={1} role="presentation" aria-hidden>{null}</C.DataTableCell>
+          <C.DataTableCell header lines={1} aria-hidden>{null}</C.DataTableCell>
         </C.DataTableRow>
         {pageItems.map((job) => (
           <CronJobRow

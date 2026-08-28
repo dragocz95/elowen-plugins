@@ -259,13 +259,13 @@ export function StatsView() {
                         ) : (
                           <DataTable ariaLabel={s.tableTitle} columns="2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem" compactColumns="2rem minmax(0,1fr) 7rem 1.25rem">
                             <DataTableRow header>
-                              <DataTableCell header role="presentation" aria-hidden>{null}</DataTableCell>
-                              <DataTableCell header>{s.columnModel}</DataTableCell>
-                              <DataTableCell header priority="wide" className="text-right">{s.columnTokens}</DataTableCell>
-                              <DataTableCell header className="text-right">{s.columnCost}</DataTableCell>
-                              <DataTableCell header priority="wide" className="text-right">{s.columnCache}</DataTableCell>
-                              <DataTableCell header priority="wide" className="text-right">{s.columnSpeed}</DataTableCell>
-                              <DataTableCell header role="presentation" aria-hidden>{null}</DataTableCell>
+                              <DataTableCell header lines={1} role="presentation" aria-hidden>{null}</DataTableCell>
+                              <DataTableCell header lines={1}>{s.columnModel}</DataTableCell>
+                              <DataTableCell header lines={1} priority="wide" className="text-right">{s.columnTokens}</DataTableCell>
+                              <DataTableCell header lines={1} className="text-right">{s.columnCost}</DataTableCell>
+                              <DataTableCell header lines={1} priority="wide" className="text-right">{s.columnCache}</DataTableCell>
+                              <DataTableCell header lines={1} priority="wide" className="text-right">{s.columnSpeed}</DataTableCell>
+                              <DataTableCell header lines={1} role="presentation" aria-hidden>{null}</DataTableCell>
                             </DataTableRow>
                             <div role="rowgroup">
                               {pageRows.map((row) => (
@@ -277,11 +277,11 @@ export function StatsView() {
                                   openLabel={`${s.detailTitle}: ${row.exec}`}
                                 >
                                   <DataTableCell lines="auto" className="flex items-center gap-1.5 text-text-muted"><ModelIcon name={row.exec} size={12} /></DataTableCell>
-                                  <DataTableCell className="font-mono text-xs text-text">{row.exec}</DataTableCell>
-                                  <DataTableCell priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{row.tokensLabel}</DataTableCell>
-                                  <DataTableCell className="text-right font-mono text-xs tabular-nums text-text">{row.costLabel}</DataTableCell>
-                                  <DataTableCell priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{percent(row.cacheHitPct)}</DataTableCell>
-                                  <DataTableCell priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{row.speedLabel}</DataTableCell>
+                                  <DataTableCell lines={1} className="font-mono text-xs text-text">{row.exec}</DataTableCell>
+                                  <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{row.tokensLabel}</DataTableCell>
+                                  <DataTableCell lines={1} className="text-right font-mono text-xs tabular-nums text-text">{row.costLabel}</DataTableCell>
+                                  <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{percent(row.cacheHitPct)}</DataTableCell>
+                                  <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{row.speedLabel}</DataTableCell>
                                   <DataTableChevronCell />
                                 </DataTableRow>
                               ))}

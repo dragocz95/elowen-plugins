@@ -122,9 +122,9 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
           // one stretched button, one tab stop, native Enter/Space — no hand-rolled key handling.
           <C.DataTable ariaLabel={s.tabPullRequests} columns="minmax(0,1fr) minmax(8rem,.5fr) 1.25rem" compactColumns="minmax(0,1fr) 1.25rem">
             <C.DataTableRow header>
-              <C.DataTableCell header>{s.columnPullRequest}</C.DataTableCell>
-              <C.DataTableCell header priority="wide">{s.columnChecks}</C.DataTableCell>
-              <C.DataTableCell header aria-hidden />
+              <C.DataTableCell header lines={1}>{s.columnPullRequest}</C.DataTableCell>
+              <C.DataTableCell header lines={1} priority="wide">{s.columnChecks}</C.DataTableCell>
+              <C.DataTableCell header lines={1} aria-hidden />
             </C.DataTableRow>
             {(pulls.data?.pullRequests ?? []).map((pull) => (
               <C.DataTableRow key={pull.number} height="tall" onOpen={() => setSelectedPr(pull.number)} openLabel={`${s.openPullRequest} #${pull.number}`}>

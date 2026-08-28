@@ -345,20 +345,20 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             ),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sr-only", children: enabled ? s.enabled : s.paused })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableCell, { title: name, className: "flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableCell, { lines: "auto", title: name, className: "flex items-center gap-2", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm text-text", children: name }),
             !enabled ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "muted", children: s.paused }) : null
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { priority: "wide", className: "whitespace-nowrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Badge, { tone: validSchedule ? "default" : "danger", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", className: "whitespace-nowrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Badge, { tone: validSchedule ? "default" : "danger", children: [
             draft.runAt ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CalendarClock, { size: 10, className: "mr-1 inline-block align-[-1px]", "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Clock, { size: 10, className: "mr-1 inline-block align-[-1px]", "aria-hidden": true }),
             draft.schedule
           ] }) }),
-          ownerLabel !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { priority: "wide", className: "text-xs text-text-muted", children: ownerLabel }) : null,
-          adminFields ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { priority: "wide", title: dest ?? s.channelDefault, className: "text-xs text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5", children: [
+          ownerLabel !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, priority: "wide", className: "text-xs text-text-muted", children: ownerLabel }) : null,
+          adminFields ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, priority: "wide", title: dest ?? s.channelDefault, className: "text-xs text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "shrink-0", children: destination && destination.kind !== "channel" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 12, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Hash, { size: 12, "aria-hidden": true }) }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `truncate ${dest ? "" : "italic text-text-muted/65"}`, children: dest ?? s.channelDefault })
           ] }) }) : null,
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { priority: "wide", title: lastRunMs != null ? new Date(lastRunMs).toLocaleString() : void 0, className: "whitespace-nowrap text-xs text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, priority: "wide", title: lastRunMs != null ? new Date(lastRunMs).toLocaleString() : void 0, className: "whitespace-nowrap text-xs text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-1.5", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Timer, { size: 12, "aria-hidden": true }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: lastRunMs == null ? "text-text-muted/60" : void 0, children: lastRunMs != null ? utils.compactElapsed(Date.now() - lastRunMs) : "\u2014" })
           ] }) }),
@@ -508,14 +508,14 @@ function JobsSettings({ surface }) {
         compactColumns: "2rem minmax(0,1fr) 4.5rem 1.25rem",
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { header: true, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, labelHidden: true, children: s.enabled }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, children: s.name }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, priority: "wide", children: s.schedule }),
-            isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, priority: "wide", children: s.ownerColumn }) : null,
-            isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, priority: "wide", children: s.channel }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, priority: "wide", className: "whitespace-nowrap", children: s.colLastRun }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, "aria-hidden": true, children: null })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, labelHidden: true, children: s.enabled }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.name }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.schedule }),
+            isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.ownerColumn }) : null,
+            isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.channel }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", className: "whitespace-nowrap", children: s.colLastRun }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, role: "presentation", "aria-hidden": true, children: null }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, "aria-hidden": true, children: null })
           ] }),
           pageItems.map((job) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             CronJobRow,
