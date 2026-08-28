@@ -8,7 +8,7 @@ import { resolveConfig, type SitesConfig } from './config.js';
 import { createSiteHandler } from './serve.js';
 import { createApiHandlers } from './api.js';
 import { registerTools } from './tools.js';
-import { SiteRuntimeSupervisor } from './runtime.js';
+import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
 import type { AccessDeps } from './access.js';
 
 const SECRET_KEY = 'sessionSigningKey';
@@ -121,9 +121,9 @@ export function register(published: PluginContext): void {
       config: () => {
         const resolved = config();
         return {
-          siteBaseUrl: resolved.siteBaseUrl,
+          siteHostBase: resolved.siteHostBase,
+          siteScheme: resolved.siteScheme,
           appBaseUrl: resolved.appBaseUrl,
-          dedicatedHost: resolved.dedicatedHost,
           sessionTtlHours: resolved.sessionTtlHours,
         };
       },
@@ -173,12 +173,15 @@ export function register(published: PluginContext): void {
   // parent by construction. Supervision of published runtimes is therefore this plugin's own job:
   // reconcile brings back everything that should be running, and the service stops them around a
   // reload so the next generation does not start a second copy onto the same socket.
-  ctx.registerService({
-    name: 'site-runtimes',
-    start: async () => { await supervisor.reconcile(); },
-    stop: async () => { await supervisor.stopAll(); },
-  });
-  ctx.registerBootReconcile(() => { void supervisor.reconcile(); });
+  if (isDaemonProcess()) {
+    // Only the service starts runtimes. Boot reconciliation would otherwise race it onto the same
+    // socket, and `reconcile` joins an in-flight sweep rather than starting a second one either way.
+    ctx.registerService({
+      name: 'site-runtimes',
+      start: async () => { await supervisor.reconcile(); },
+      stop: async () => { await supervisor.stopAll(); },
+    });
+  }
 
   ctx.registerUserRemoved(async (userId) => {
     // The account's own sites go with it; its guest rows elsewhere go too, so a deleted account cannot

@@ -7,6 +7,7 @@ import { VISIBILITIES } from './store.js';
 import { mayPublish } from './access.js';
 import { siteBasePath, siteUrl } from './config.js';
 import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } from './publish.js';
+import { isDaemonProcess } from './runtime.js';
 /** A command runtime is only offered where it can be run honestly: the operator has to have turned it
  *  on, and sites must be on their own hostname. On the shared origin a published page is served with
  *  no scripts at all, because it would otherwise be same-origin with the app and its session — which
@@ -15,7 +16,7 @@ function commandRuntimeRefusal(config) {
     if (!config.allowCommandRuntime) {
         return 'Site runtimes are turned off for this instance. An administrator can enable them in the plugin settings.';
     }
-    if (!config.dedicatedHost) {
+    if (config.siteHostBase === null) {
         return 'A site runtime needs sites to be served from their own hostname, because on the app\'s own origin a published page is not allowed to run scripts. Set a dedicated site hostname in the plugin settings first.';
     }
     return null;
@@ -208,7 +209,7 @@ export function registerTools(deps) {
     ctx.registerTool(defineTool({
         name: 'SitePublish',
         label: 'Publish a site',
-        description: 'Copy a finished build output into a new immutable release and make it the live one. Build the project yourself first; this publishes what is already on disk and runs nothing. Files are copied, so the site keeps working even if the workspace is later removed.',
+        description: 'Copy a finished build output into a new release and make it the live one. Build the project yourself first; this publishes what is already on disk and runs nothing. Files are copied, so the site keeps working even if the workspace is later removed.',
         parameters: Type.Object({
             siteId: Type.String({ description: 'Site id from SiteCreate or SiteList.' }),
             outputDir: Type.Optional(Type.String({ description: 'Build output directory, relative to the site folder (e.g. "dist"). Defaults to the site folder itself.' })),
@@ -277,10 +278,12 @@ export function registerTools(deps) {
                     // The new release is already the current one, so restarting picks it up. A failure leaves the
                     // site marked failed with the runtime's own output rather than a live address serving nothing.
                     try {
-                        await deps.runtime.stop(site.id);
-                        const started = store.siteById(site.id);
-                        if (started)
-                            await deps.runtime.start(started);
+                        if (isDaemonProcess()) {
+                            await deps.runtime.stop(site.id);
+                            const started = store.siteById(site.id);
+                            if (started)
+                                await deps.runtime.start(started);
+                        }
                     }
                     catch (error) {
                         const message = error instanceof Error ? error.message : String(error);
@@ -298,6 +301,9 @@ export function registerTools(deps) {
                     `Published "${site.title}" - ${snapshot.fileCount} files, ${(snapshot.sizeBytes / 1048576).toFixed(2)} MB.`,
                     `Live at ${siteUrl(config, site.slug)}`,
                     `Visible to: ${site.visibility}`,
+                    ...(site.runtime === 'command' && !isDaemonProcess()
+                        ? ['The daemon starts the runtime shortly; check SiteLogs if the address does not answer.']
+                        : []),
                     ...(warnings.length > 0 ? ['', 'Warnings:', ...warnings.map((line) => `  - ${line}`)] : []),
                 ].join('\n'));
             }
@@ -449,7 +455,8 @@ export function registerTools(deps) {
                 const site = requireOwned(deps, input.siteId, userId);
                 // Stop first: removing the release under a running process would leave it serving from a
                 // deleted directory at an address the store no longer knows about.
-                await deps.runtime.stop(site.id);
+                if (isDaemonProcess())
+                    await deps.runtime.stop(site.id);
                 rmSync(deps.siteDir(site.id), { recursive: true, force: true });
                 store.deleteSite(site.id);
                 return text(`Deleted "${site.title}". Its source folder ${site.sourceDir} was left in place.`);

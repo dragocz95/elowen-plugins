@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "apiVersion": "1",
   "requiresCore": "0.28.18",
-  "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is an immutable release you can roll back.",
+  "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is a separate release you can roll back to.",
   "entry": "dist/index.js",
   "provides": {
     "tools": [
@@ -54,9 +54,18 @@
       "type": "enum",
       "default": "private",
       "options": [
-        { "value": "private", "label": "Only the owner" },
-        { "value": "project", "label": "The Project's people" },
-        { "value": "authenticated", "label": "Any signed-in account" }
+        {
+          "value": "private",
+          "label": "Only the owner"
+        },
+        {
+          "value": "project",
+          "label": "The Project's people"
+        },
+        {
+          "value": "authenticated",
+          "label": "Any signed-in account"
+        }
       ],
       "hint": "What a newly created site is visible to before anyone changes it. A site never becomes public on its own; that is confirmed here in the app."
     },
@@ -69,13 +78,13 @@
     },
     {
       "key": "siteHostOverride",
-      "label": "Dedicated site hostname",
+      "label": "Base hostname for sites",
       "type": "string",
       "default": "",
       "advanced": true,
       "placeholder": "https://sites.example.com",
-      "hint": "Serve published sites from their own hostname instead of this instance's. Recommended: a page on a separate origin cannot reach the app's session, so sites served there may run their own scripts. Without it, pages are served next to the app and their scripts stay disabled.",
-      "help": "Point the hostname at this machine and forward it to the daemon with the request path unchanged. The hostname needs its own certificate."
+      "hint": "Serve each published site on its own subdomain of this hostname, so every site is a separate origin: one site cannot read another, and none of them can reach the app's session. Without it, sites are served next to the app and their scripts stay disabled.",
+      "help": "Point a wildcard record (*.example.com) at this machine, give it a wildcard certificate, and forward it to the daemon with the request path unchanged. A site is then addressed at <slug>.<this hostname>."
     },
     {
       "key": "publishers",
@@ -83,8 +92,14 @@
       "type": "enum",
       "default": "everyone",
       "options": [
-        { "value": "everyone", "label": "Every account" },
-        { "value": "admins", "label": "Administrators only" }
+        {
+          "value": "everyone",
+          "label": "Every account"
+        },
+        {
+          "value": "admins",
+          "label": "Administrators only"
+        }
       ],
       "hint": "Whether an ordinary account's agent may create and publish sites. Opening a site somebody shared is unaffected."
     },
@@ -99,8 +114,8 @@
       "type": "boolean",
       "default": false,
       "risk": "high",
-      "hint": "Let a site be a running server - Node, Bun, Python, PHP - instead of files on disk. The process is confined to its own namespace and its own directory, but it runs under the daemon's account and answers requests from outside. Requires a dedicated site hostname.",
-      "help": "A published server is code the agent wrote, reachable from the network. Confinement here is a namespace, not a separate machine account: the process cannot see other projects, but it is not isolated from the machine the way a separate host would be. Requests reach it buffered, so it cannot stream, use server-sent events or accept websockets, and a request body is capped at 1 MB."
+      "hint": "Let a site be a running server - Node, Bun, Python, PHP - instead of files on disk. The process is confined to its own namespace and sees only its own release directory, but it runs under the daemon's account, keeps that account's sandbox home and shares the machine's network. Requires a dedicated site hostname.",
+      "help": "A published server is code the agent wrote, reachable from the network. Confinement here is a namespace, not a separate machine account: the process cannot see other projects, but it can reach the network as this machine, it holds the owner's sandbox home directory, and it can write inside its own release. There is no CPU or memory limit. Requests reach it buffered, so it cannot stream, use server-sent events or accept websockets, and a request body is capped at 1 MB."
     },
     {
       "key": "startTimeoutSeconds",
@@ -120,7 +135,7 @@
       "min": 1,
       "max": 120,
       "advanced": true,
-      "hint": "How long one request to a runtime may take before the visitor gets an error."
+      "hint": "How long one exchange with a runtime may take in total before the visitor gets an error."
     },
     {
       "key": "maxResponseMb",

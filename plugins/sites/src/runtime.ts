@@ -9,6 +9,12 @@ const LOG_CAP_BYTES = 256 * 1024;
 const STOP_GRACE_MS = 5_000;
 const HEARTBEAT_MS = 5_000;
 
+/** A forked sub-agent runner loads plugin tools but starts no plugin services, so a process spawned
+ *  there would be supervised by nobody, invisible to the daemon that answers requests, and unstoppable
+ *  from the UI. Runtime lifecycle belongs to the daemon; a runner records the desired state and lets
+ *  the daemon's own reconciliation act on it. */
+export const isDaemonProcess = (): boolean => typeof process.send !== 'function';
+
 interface RuntimeConfig {
   startTimeoutSeconds: number;
   portRangeStart: number;
@@ -37,8 +43,19 @@ interface Running {
 
 export class SiteRuntimeSupervisor {
   private readonly running = new Map<string, Running>();
+  /** One queue per site. Start, stop and reconcile all mutate the same process slot, so letting two of
+   *  them interleave is how a site ends up with two processes racing for one socket, or with a lease
+   *  released while its replacement is still starting. */
+  private readonly queues = new Map<string, Promise<unknown>>();
 
   constructor(private readonly deps: RuntimeDeps) {}
+
+  private serialize<T>(siteId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.queues.get(siteId) ?? Promise.resolve();
+    const next = previous.then(operation, operation);
+    this.queues.set(siteId, next.then(() => undefined, () => undefined));
+    return next;
+  }
 
   endpointFor(siteId: string): Endpoint | null {
     return this.running.get(siteId)?.endpoint ?? null;
@@ -49,14 +66,20 @@ export class SiteRuntimeSupervisor {
     return entry !== undefined && entry.child.exitCode === null && !entry.stopping;
   }
 
+  /** The only directory a site's process may write outside its release: it holds the socket. */
   private runDir(siteId: string): string {
     const dir = join(this.deps.siteDir(siteId), 'run');
     mkdirSync(dir, { recursive: true });
     return dir;
   }
 
+  /** Logs live OUTSIDE every directory bound into the process's namespace. A log file the runtime can
+   *  reach is a log file it can replace with a symlink, and the daemon appending to it would then write
+   *  wherever that link points. */
   private logFile(siteId: string): string {
-    return join(this.runDir(siteId), 'run.log');
+    const dir = join(this.deps.siteDir(siteId), 'logs');
+    mkdirSync(dir, { recursive: true });
+    return join(dir, 'run.log');
   }
 
   /** Append to the site's log, keeping it bounded. Runtime output is attacker-influenced text — it is
@@ -107,11 +130,15 @@ export class SiteRuntimeSupervisor {
    *  Returns only once the endpoint accepts a connection, so "live" in the UI means the server is up
    *  rather than that a process was spawned. A start that never answers is stopped again and reported
    *  with its own log tail, because a half-started runtime holding a port is worse than none. */
-  async start(site: Site): Promise<void> {
+  start(site: Site): Promise<void> {
+    return this.serialize(site.id, () => this.startNow(site));
+  }
+
+  private async startNow(site: Site): Promise<void> {
     if (site.runtime !== 'command') return;
     if (!site.currentReleaseId) throw new Error('the site has no published release to run');
     if (this.isRunning(site.id)) return;
-    await this.stop(site.id);
+    await this.stopNow(site.id);
 
     const cwd = this.deps.releaseDir(site.id, site.currentReleaseId);
     if (!existsSync(cwd)) throw new Error('the published release is missing from disk');
@@ -169,7 +196,7 @@ export class SiteRuntimeSupervisor {
 
     const ready = await this.waitForEndpoint(endpoint, this.deps.config().startTimeoutSeconds * 1000, child);
     if (!ready) {
-      await this.stop(site.id);
+      await this.stopNow(site.id);
       throw new Error(`the runtime did not answer within ${this.deps.config().startTimeoutSeconds}s. Last output:\n${this.logTail(site.id, 2000)}`);
     }
   }
@@ -199,7 +226,11 @@ export class SiteRuntimeSupervisor {
    *  real server would otherwise die alone and leave the server holding the endpoint. SIGKILL follows
    *  when the group does not go quietly, and the lease is released only after the process is confirmed
    *  gone, so a stale lease can never look like a live one. */
-  async stop(siteId: string): Promise<void> {
+  stop(siteId: string): Promise<void> {
+    return this.serialize(siteId, () => this.stopNow(siteId));
+  }
+
+  private async stopNow(siteId: string): Promise<void> {
     const entry = this.running.get(siteId);
     if (!entry) return;
     entry.stopping = true;
@@ -239,9 +270,20 @@ export class SiteRuntimeSupervisor {
     await Promise.all([...this.running.keys()].map((siteId) => this.stop(siteId)));
   }
 
+  /** True while a reconcile is in flight, so a second caller joins it rather than starting a parallel
+   *  sweep over the same sites. */
+  private reconciling: Promise<void> | null = null;
+
   /** Bring every site that should be running back up. Runs on boot and after a plugin reload, and is
    *  idempotent: a site already running is left alone rather than started twice onto the same endpoint. */
-  async reconcile(): Promise<void> {
+  reconcile(): Promise<void> {
+    if (this.reconciling) return this.reconciling;
+    const run = this.reconcileNow().finally(() => { this.reconciling = null; });
+    this.reconciling = run;
+    return run;
+  }
+
+  private async reconcileNow(): Promise<void> {
     for (const site of this.deps.store.liveCommandSites()) {
       if (this.isRunning(site.id)) continue;
       try {

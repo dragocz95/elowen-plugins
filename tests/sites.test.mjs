@@ -12,7 +12,7 @@ import {
 import { SitesStore } from '../plugins/sites/dist/store.js';
 import { snapshotRelease, resolveWithin, pruneReleases, relativeAssetWarning } from '../plugins/sites/dist/publish.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
-import { resolveConfig } from '../plugins/sites/dist/config.js';
+import { resolveConfig, siteUrl, requestOnSiteHost } from '../plugins/sites/dist/config.js';
 import { proxyToRuntime, ProxyError } from '../plugins/sites/dist/proxy.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────────────────────────
@@ -318,9 +318,9 @@ const serveHarness = (t, overrides = {}) => {
     access: deps({ projects: { 2: [7] } }),
     secret: () => 'serve-secret',
     config: () => ({
-      siteBaseUrl: 'https://elowen.example',
+      siteHostBase: overrides.siteHostBase ?? null,
+      siteScheme: 'https:',
       appBaseUrl: 'https://elowen.example',
-      dedicatedHost: false,
       sessionTtlHours: 12,
     }),
     releaseDir: () => release,
@@ -343,12 +343,45 @@ const request = (path, extra = {}) => ({
 });
 
 test('an unknown slug and a slug you may not see answer identically', async (t) => {
+  // Same method, same headers: anything that differs here is a directory of what exists on the
+  // instance, which is exactly what a private site must not publish.
   const { handler } = serveHarness(t, { visibility: 'private' });
   const unknown = await handler(request('never-taken-000000/'));
-  const forbidden = await handler(request('demo-abc123/', { headers: { accept: 'application/json' } }));
-  assert.equal(unknown.status, 404);
-  assert.equal(forbidden.status, 404);
-  assert.equal(unknown.body, forbidden.body);
+  const forbidden = await handler(request('demo-abc123/'));
+  assert.equal(unknown.status, forbidden.status);
+  assert.equal(unknown.headers.location, forbidden.headers.location?.replace('demo-abc123', 'never-taken-000000'));
+
+  const unknownFetch = await handler(request('never-taken-000000/', { headers: { accept: 'application/json' } }));
+  const forbiddenFetch = await handler(request('demo-abc123/', { headers: { accept: 'application/json' } }));
+  assert.equal(unknownFetch.status, 404);
+  assert.equal(forbiddenFetch.status, 404);
+  assert.equal(unknownFetch.body, forbiddenFetch.body);
+});
+
+test('scripts stay disabled when a site is reached on the app hostname', async (t) => {
+  // The decision follows the REQUEST. `/hooks/` is proxied to the daemon on the app hostname too, so a
+  // page served with scripts merely because a site hostname exists would still be same-origin with the
+  // app and its session cookie.
+  const { handler } = serveHarness(t, { visibility: 'public', siteHostBase: 'sites.example.com' });
+
+  const viaApp = await handler(request('demo-abc123/', { headers: { accept: 'text/html', host: 'elowen.example' } }));
+  assert.match(viaApp.headers['content-security-policy'], /^sandbox;/);
+
+  const viaOwnHost = await handler(request('demo-abc123/', { headers: { accept: 'text/html', host: 'demo-abc123.sites.example.com' } }));
+  assert.ok(!viaOwnHost.headers['content-security-policy'].startsWith('sandbox'));
+  assert.match(viaOwnHost.headers['content-security-policy'], /script-src 'self'/);
+
+  // Another site's hostname is not this site's origin either.
+  const viaNeighbour = await handler(request('demo-abc123/', { headers: { accept: 'text/html', host: 'other.sites.example.com' } }));
+  assert.match(viaNeighbour.headers['content-security-policy'], /^sandbox;/);
+});
+
+test('an application refuses to answer on the app hostname rather than render broken', async (t) => {
+  const { handler } = serveHarness(t, {
+    visibility: 'public', runtime: 'command', startCommand: 'node server.js', siteHostBase: 'sites.example.com',
+  });
+  const response = await handler(request('demo-abc123/', { headers: { accept: 'text/html', host: 'elowen.example' } }));
+  assert.equal(response.status, 421);
 });
 
 test('a browser without a session is sent to the app to sign in', async (t) => {
@@ -458,6 +491,7 @@ const runtimeServer = async (t, handler) => {
 };
 
 const proxyLimits = { maxResponseBytes: 1048576, requestTimeoutSeconds: 5 };
+const SITE_ROOT = 'https://demo.sites.example.com/hooks/sites/s/demo/';
 
 test('the app session never reaches a published runtime', async (t) => {
   // The browser sends elowen_session to this path too, because it is scoped to the whole origin and its
@@ -473,7 +507,7 @@ test('the app session never reaches a published runtime', async (t) => {
       'x-elowen-user-id': '999',
       'x-forwarded-for': '10.0.0.1',
     },
-  }), 'page', { userId: 4, name: 'amy' }, proxyLimits);
+  }), 'page', { userId: 4, name: 'amy' }, proxyLimits, SITE_ROOT);
 
   assert.equal(seen.cookie, undefined);
   assert.equal(seen.authorization, undefined);
@@ -492,7 +526,7 @@ test('a runtime cannot set a cookie or open itself up with CORS', async (t) => {
     res.end('body');
   });
 
-  const response = await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits);
+  const response = await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
   assert.equal(response.headers['set-cookie'], undefined);
   assert.equal(response.headers['access-control-allow-origin'], undefined);
   assert.equal(response.headers['content-type'], 'text/plain');
@@ -502,21 +536,51 @@ test('a runtime cannot set a cookie or open itself up with CORS', async (t) => {
 test('an anonymous visitor is forwarded as anonymous', async (t) => {
   let seen = null;
   const endpoint = await runtimeServer(t, (req, res) => { seen = req.headers; res.end('ok'); });
-  await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits);
+  await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
   assert.equal(seen['x-elowen-user-id'], undefined);
+});
+
+test('a runtime cannot bounce a visitor off the site', async (t) => {
+  const redirectTo = async (location) => {
+    const endpoint = await runtimeServer(t, (_req, res) => { res.statusCode = 302; res.setHeader('location', location); res.end(); });
+    const response = await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
+    return response.headers.location;
+  };
+  assert.equal(await redirectTo('page.html'), 'page.html', 'a relative target stays as written');
+  assert.equal(await redirectTo(`${SITE_ROOT}deep/page.html`), `${SITE_ROOT}deep/page.html`);
+  assert.equal(await redirectTo('https://evil.example/'), SITE_ROOT);
+  assert.equal(await redirectTo('//evil.example/'), SITE_ROOT);
+  assert.equal(await redirectTo('/etc/passwd'), SITE_ROOT, 'an absolute path leaves the site prefix');
+});
+
+test('the body length sent on is the body actually sent', async (t) => {
+  let seen = null;
+  const endpoint = await runtimeServer(t, (req, res) => {
+    seen = { length: req.headers['content-length'], encoding: req.headers['accept-encoding'] };
+    res.end('ok');
+  });
+  await proxyToRuntime(endpoint, request('', {
+    method: 'POST',
+    headers: { 'content-length': '9999', 'accept-encoding': 'gzip' },
+    body: async () => Buffer.from('hello'),
+  }), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
+  assert.equal(seen.length, '5', 'the client-declared length was replaced by the real one');
+  assert.equal(seen.encoding, 'identity', 'a compressed answer would arrive without the header explaining it');
 });
 
 test('a runtime answering with more than the limit is refused, not truncated', async (t) => {
   const endpoint = await runtimeServer(t, (_req, res) => { res.end('x'.repeat(4096)); });
   await assert.rejects(
-    () => proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, { maxResponseBytes: 1024, requestTimeoutSeconds: 5 }),
+    () => proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, { maxResponseBytes: 1024, requestTimeoutSeconds: 5 }, SITE_ROOT),
     ProxyError,
   );
 });
 
 test('a command site that is not running says so instead of serving its files', async (t) => {
-  const { handler } = serveHarness(t, { visibility: 'public', runtime: 'command', startCommand: 'node server.js' });
-  const response = await handler(request('demo-abc123/'));
+  const { handler } = serveHarness(t, {
+    visibility: 'public', runtime: 'command', startCommand: 'node server.js', siteHostBase: 'sites.example.com',
+  });
+  const response = await handler(request('demo-abc123/', { headers: { accept: 'text/html', host: 'demo-abc123.sites.example.com' } }));
   assert.equal(response.status, 503);
   assert.match(String(response.body), /not running/i);
 });
@@ -541,17 +605,20 @@ test('configuration is re-validated, because the settings API validates nothing'
   assert.equal(config.publishers, 'everyone');
 });
 
-test('a dedicated hostname changes the origin and lets a site run scripts', () => {
+test('every site gets its own origin under the configured base hostname', () => {
   const shared = resolveConfig({}, 'https://elowen.example');
-  assert.equal(shared.dedicatedHost, false);
-  assert.equal(shared.siteBaseUrl, 'https://elowen.example');
+  assert.equal(shared.siteHostBase, null);
+  assert.equal(siteUrl(shared, 'demo'), 'https://elowen.example/hooks/sites/s/demo/');
 
-  const dedicated = resolveConfig({ siteHostOverride: 'https://sites.example.com/ignored/path' }, 'https://elowen.example');
-  assert.equal(dedicated.dedicatedHost, true);
-  assert.equal(dedicated.siteBaseUrl, 'https://sites.example.com');
-  assert.equal(dedicated.appBaseUrl, 'https://elowen.example');
+  const dedicated = resolveConfig({ siteHostOverride: 'sites.example.com' }, 'https://elowen.example');
+  assert.equal(dedicated.siteHostBase, 'sites.example.com');
+  assert.equal(siteUrl(dedicated, 'demo'), 'https://demo.sites.example.com/hooks/sites/s/demo/');
+  assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.example.com:443'), true);
+  assert.equal(requestOnSiteHost(dedicated, 'demo', 'elowen.example'), false);
+  assert.equal(requestOnSiteHost(dedicated, 'demo', 'other.sites.example.com'), false);
 
-  // A hostname that is not an absolute origin cannot be turned into a link and must not silently become one.
-  assert.equal(resolveConfig({ siteHostOverride: 'sites.example.com' }, 'https://elowen.example').dedicatedHost, false);
-  assert.equal(resolveConfig({ siteHostOverride: 'javascript:alert(1)' }, 'https://elowen.example').dedicatedHost, false);
+  // Plain HTTP would put a session cookie on the wire in clear, and a bare word is not a hostname.
+  assert.equal(resolveConfig({ siteHostOverride: 'http://sites.example.com' }, 'https://elowen.example').siteHostBase, null);
+  assert.equal(resolveConfig({ siteHostOverride: 'javascript:alert(1)' }, 'https://elowen.example').siteHostBase, null);
+  assert.equal(resolveConfig({ siteHostOverride: 'localhost' }, 'https://elowen.example').siteHostBase, null);
 });

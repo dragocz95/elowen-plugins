@@ -18,12 +18,14 @@ export interface SitesConfig {
   maxResponseBytes: number;
   portRangeStart: number;
   portRangeEnd: number;
-  /** Origin published sites are addressed from, without a trailing slash. */
-  siteBaseUrl: string;
+  /** Base hostname sites get their own subdomain under, or null when they share the app's origin.
+   *  A site is addressed at `<slug>.<siteHostBase>`, so every site is its OWN origin: one published
+   *  page cannot read another's, and none of them is same-origin with the app. */
+  siteHostBase: string | null;
+  /** Scheme for site URLs, following the app's own. */
+  siteScheme: string;
   /** Origin the Elowen app itself is on, without a trailing slash. */
   appBaseUrl: string;
-  /** Whether sites live on their own hostname. Decides whether a published page may run scripts. */
-  dedicatedHost: boolean;
 }
 
 const bounded = (value: unknown, fallback: number, min: number, max: number): number => {
@@ -49,13 +51,34 @@ const asOrigin = (value: unknown): string | null => {
   }
 };
 
+/** The bare hostname sites get a subdomain under.
+ *
+ *  Plain HTTP is refused unless it is loopback: a site session cookie travelling in clear is a session
+ *  anyone on the path can take, and an operator who typed `http://` almost certainly did not mean that. */
+const asHostBase = (value: unknown, appScheme: string): string | null => {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  const raw = value.trim();
+  const withScheme = /^https?:\/\//.test(raw) ? raw : `${appScheme}//${raw}`;
+  try {
+    const url = new URL(withScheme);
+    const host = url.hostname.toLowerCase();
+    if (!/^[a-z0-9.-]+$/.test(host) || host.startsWith('.') || !host.includes('.')) return null;
+    const loopback = host === 'localhost' || host === '127.0.0.1';
+    if (url.protocol === 'http:' && !loopback) return null;
+    return host;
+  } catch {
+    return null;
+  }
+};
+
 /** Read the plugin's settings into the shape the rest of the plugin uses.
  *
  *  Every value is re-validated here because the daemon stores whatever the settings form sent: it
  *  enforces neither `required` nor the `min`/`max` the schema declares. */
 export function resolveConfig(raw: Record<string, unknown>, publicWebUrl: string | null): SitesConfig {
   const appOrigin = asOrigin(publicWebUrl) ?? '';
-  const siteOrigin = asOrigin(raw.siteHostOverride);
+  const appScheme = appOrigin.startsWith('http://') ? 'http:' : 'https:';
+  const siteHostBase = asHostBase(raw.siteHostOverride, appScheme);
   const defaultVisibility = typeof raw.defaultVisibility === 'string' && VISIBILITY_DEFAULTS.has(raw.defaultVisibility)
     ? raw.defaultVisibility as Visibility
     : 'private';
@@ -74,14 +97,38 @@ export function resolveConfig(raw: Record<string, unknown>, publicWebUrl: string
     maxResponseBytes: bounded(raw.maxResponseMb, 8, 1, 64) * 1048576,
     portRangeStart: bounded(raw.portRangeStart, 43000, 1024, 65000),
     portRangeEnd: bounded(raw.portRangeEnd, 43099, 1024, 65535),
-    siteBaseUrl: siteOrigin ?? appOrigin,
+    siteHostBase,
+    siteScheme: appScheme,
     appBaseUrl: appOrigin,
-    dedicatedHost: siteOrigin !== null && siteOrigin !== appOrigin,
   };
 }
 
-export const siteUrl = (config: SitesConfig, slug: string): string =>
-  `${config.siteBaseUrl}/hooks/sites/s/${slug}/`;
+/** Just the addressing part of the configuration, so the serving path can answer host questions
+ *  without being handed every unrelated setting. */
+export type SiteAddressing = Pick<SitesConfig, 'siteHostBase' | 'siteScheme' | 'appBaseUrl'>;
+
+/** The hostname one site is served from, or null when sites share the app's origin. */
+const siteHost = (config: SiteAddressing, slug: string): string | null =>
+  config.siteHostBase === null ? null : `${slug}.${config.siteHostBase}`;
+
+export const siteUrl = (config: SiteAddressing, slug: string): string => {
+  const host = siteHost(config, slug);
+  const origin = host === null ? config.appBaseUrl : `${config.siteScheme}//${host}`;
+  return `${origin}/hooks/sites/s/${slug}/`;
+};
+
+/** Whether THIS request arrived on the site's own hostname.
+ *
+ *  Decided from the request, never from configuration alone. Configuring a site hostname does not stop
+ *  the app's own hostname from reaching the same handler — `/hooks/` is proxied to the daemon there too
+ *  — so a page served with script-enabled headers merely because an override exists would still be
+ *  same-origin with the app, which is the whole hazard the separate origin was for. */
+export const requestOnSiteHost = (config: SiteAddressing, slug: string, hostHeader: string | undefined): boolean => {
+  const expected = siteHost(config, slug);
+  if (expected === null || !hostHeader) return false;
+  const host = hostHeader.split(':')[0]?.trim().toLowerCase() ?? '';
+  return host === expected;
+};
 
 /** The absolute prefix a build must be configured with. Relative asset paths cannot work: the serving
  *  layer is not told whether the visitor's URL ended in a slash, so it cannot canonicalise one. */

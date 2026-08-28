@@ -1,5 +1,5 @@
 {
-  "description": "Zverejnite stránku, ktorú agent vytvoril – prehľad, report, prezentačný web – na skutočnej adrese tejto inštancie a rozhodnite, kto ju smie otvoriť: len vy, ľudia z projektu, ktorýkoľvek prihlásený účet, menovite pozvaní hostia, alebo úplne všetci. Agent stavia vlastnými nástrojmi a odovzdáva hotový výstup; každé zverejnenie je nemenná verzia, ku ktorej sa dá vrátiť.",
+  "description": "Zverejnite stránku, ktorú agent vytvoril – prehľad, report, prezentačný web – na skutočnej adrese tejto inštancie a rozhodnite, kto ju smie otvoriť: len vy, ľudia z projektu, ktorýkoľvek prihlásený účet, menovite pozvaní hostia, alebo úplne všetci. Agent stavia vlastnými nástrojmi a odovzdáva hotový výstup; každé zverejnenie je samostatná verzia, ku ktorej sa dá vrátiť.",
   "fields": {
     "publishing": {
       "label": "Zverejňovanie"
@@ -18,8 +18,8 @@
       "hint": "Keď je vypnuté, každá stránka vyžaduje prihlásenie a možnosť zverejnenia zmizne z nastavenia prístupu pri všetkých stránkach."
     },
     "siteHostOverride": {
-      "label": "Vlastný názov hostiteľa pre stránky",
-      "hint": "Servírovať zverejnené stránky z vlastného názvu hostiteľa namiesto adresy tejto inštancie. Odporúčané: stránka na oddelenom pôvode sa nedostane k relácii aplikácie, takže tam smie spúšťať vlastné skripty. Bez toho sa stránky servírujú vedľa aplikácie a ich skripty zostávajú vypnuté."
+      "label": "Základný názov hostiteľa pre stránky",
+      "hint": "Servírovať každú zverejnenú stránku na vlastnej subdoméne tohto názvu, takže každá stránka je samostatný pôvod: jedna stránka neprečíta druhú a žiadna z nich nedosiahne na reláciu aplikácie. Bez toho sa stránky servírujú vedľa aplikácie a ich skripty zostávajú vypnuté."
     },
     "publishers": {
       "label": "Kto smie zverejňovať",
@@ -60,7 +60,7 @@
     },
     "allowCommandRuntime": {
       "label": "Povoliť behové prostredia",
-      "hint": "Umožní, aby stránka bola bežiaci server – Node, Bun, Python, PHP – namiesto súborov na disku. Proces je uzavretý vo vlastnom mennom priestore a vlastnom adresári, ale beží pod účtom démona a odpovedá na požiadavky zvonka. Vyžaduje vlastný názov hostiteľa pre stránky."
+      "hint": "Umožní, aby stránka bola bežiaci server – Node, Bun, Python, PHP – namiesto súborov na disku. Proces je uzavretý vo vlastnom mennom priestore a vidí len svoj vlastný adresár verzie, ale beží pod účtom démona, drží si domovský adresár sandboxu daného účtu a zdieľa sieť stroja. Vyžaduje vlastný názov hostiteľa pre stránky."
     },
     "startTimeoutSeconds": {
       "label": "Časový limit štartu",
@@ -68,7 +68,7 @@
     },
     "requestTimeoutSeconds": {
       "label": "Časový limit požiadavky",
-      "hint": "Ako dlho smie trvať jedna požiadavka na behové prostredie, kým návštevník dostane chybu."
+      "hint": "Ako dlho smie celkovo trvať jedna výmena s behovým prostredím, kým návštevník dostane chybu."
     },
     "maxResponseMb": {
       "label": "Najväčšia odpoveď behového prostredia",

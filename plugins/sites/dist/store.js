@@ -115,6 +115,17 @@ export class SitesStore {
           `);
                 },
             },
+            {
+                version: 3,
+                // Two sites must never be handed the same loopback port: readiness would then connect to the
+                // neighbour's listener and report a site healthy that never started.
+                up: (handle) => {
+                    handle.exec(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_p_sites_sites_port
+              ON p_sites_sites (port) WHERE port IS NOT NULL;
+          `);
+                },
+            },
         ]);
     }
     transaction(fn) {

@@ -108,7 +108,7 @@ export function createApiHandlers(deps: ApiDeps) {
       mine: mine.map((site) => toView(site, deps, req.auth)),
       shared: shared.map((site) => toView(site, deps, req.auth)),
       allowPublicSites: config.allowPublicSites,
-      dedicatedHost: config.dedicatedHost,
+      dedicatedHost: config.siteHostBase !== null,
     });
   };
 

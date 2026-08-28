@@ -69,7 +69,7 @@ export function createApiHandlers(deps) {
             mine: mine.map((site) => toView(site, deps, req.auth)),
             shared: shared.map((site) => toView(site, deps, req.auth)),
             allowPublicSites: config.allowPublicSites,
-            dedicatedHost: config.dedicatedHost,
+            dedicatedHost: config.siteHostBase !== null,
         });
     };
     /** GET|PATCH|DELETE /plugins/sites/api/site/<id>[/…] */

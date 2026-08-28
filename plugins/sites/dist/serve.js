@@ -2,6 +2,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { RESERVED_PREFIX, cookieName, hashToken, mayOpen, normalizeReturnPath, readCookies, signSession, verifySession, } from './access.js';
 import { CONTENT_TYPES, HTML_TYPE, extensionOf, resolveWithin } from './publish.js';
+import { requestOnSiteHost } from './config.js';
 import { ProxyError, proxyToRuntime } from './proxy.js';
 /** Security headers applied to EVERY published response.
  *
@@ -28,6 +29,21 @@ const notFound = (dedicated) => ({
     body: '<!doctype html><meta charset="utf-8"><title>Not found</title><p>This address does not lead anywhere.</p>',
 });
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/;
+/** The one answer for "you may not see this" AND for "this was never taken".
+ *
+ *  A browser asking for a page is sent to the app to sign in either way, so a stranger cannot tell an
+ *  existing private site from a free slug. Anything that is not a page navigation gets a flat 404,
+ *  because a fetch has no sign-in step to follow. */
+function bounceOrNotFound(req, slug, rest, config, onSiteHost) {
+    const accepts = req.headers.accept ?? '';
+    if (req.method !== 'GET' || !accepts.includes('text/html'))
+        return notFound(onSiteHost);
+    const target = new URL(`${config.appBaseUrl}/p/sites/enter`);
+    target.searchParams.set('site', slug);
+    if (rest)
+        target.searchParams.set('r', rest);
+    return { status: 302, headers: { location: target.toString(), 'cache-control': 'no-store' }, body: '' };
+}
 const splitRemainder = (path) => {
     const clean = path.replace(/^\/+/, '');
     const slash = clean.indexOf('/');
@@ -106,16 +122,26 @@ export function createSiteHandler(deps) {
         const config = deps.config();
         const { slug, rest } = splitRemainder(req.path);
         if (!SLUG_PATTERN.test(slug))
-            return notFound(config.dedicatedHost);
+            return notFound(false);
+        // Whether this REQUEST arrived on the site's own hostname, not whether one is configured. On the
+        // app's hostname a published page is same-origin with the app, so it is served passive whatever the
+        // settings say.
+        const onSiteHost = requestOnSiteHost(config, slug, req.headers.host);
+        const siteRoot = onSiteHost
+            ? `${config.siteScheme}//${slug}.${config.siteHostBase}/hooks/sites/s/${slug}/`
+            : `${config.appBaseUrl}/hooks/sites/s/${slug}/`;
         const site = deps.store.siteBySlug(slug);
-        if (!site || site.status !== 'live' || !site.currentReleaseId)
-            return notFound(config.dedicatedHost);
-        const siteRoot = `${config.siteBaseUrl}/hooks/sites/s/${site.slug}/`;
+        // A site nobody shared with this visitor must be indistinguishable from a slug that was never
+        // taken, so an unknown slug takes the SAME sign-in path a forbidden one takes. Answering 404 here
+        // and 302 there is a working directory of everything published on the instance.
+        if (!site || site.status !== 'live' || !site.currentReleaseId) {
+            return bounceOrNotFound(req, slug, rest, config, onSiteHost);
+        }
         if (rest === `${RESERVED_PREFIX}/session`) {
-            return redeemTicket(req, site, siteRoot, deps, config);
+            return redeemTicket(req, site, siteRoot, deps, config, onSiteHost);
         }
         if (rest.split('/')[0] === RESERVED_PREFIX)
-            return notFound(config.dedicatedHost);
+            return notFound(onSiteHost);
         // A static site answers reads only. A command site is an application, so it takes the verbs an
         // application takes — its own request body is still capped at 1 MiB by the hook transport.
         if (site.runtime === 'static' && req.method !== 'GET' && req.method !== 'HEAD') {
@@ -123,34 +149,34 @@ export function createSiteHandler(deps) {
         }
         const viewer = viewerFor(req, site, deps);
         if (!mayOpen(site, viewer, deps.store, deps.access)) {
-            if (site.visibility === 'public')
-                return notFound(config.dedicatedHost);
-            const accepts = req.headers.accept ?? '';
-            if (!accepts.includes('text/html'))
-                return notFound(config.dedicatedHost);
-            const target = new URL(`${config.appBaseUrl}/p/sites/enter`);
-            target.searchParams.set('site', site.slug);
-            if (rest)
-                target.searchParams.set('r', rest);
-            return { status: 302, headers: { location: target.toString(), 'cache-control': 'no-store' }, body: '' };
+            return bounceOrNotFound(req, site.slug, rest, config, onSiteHost);
         }
         deps.countHit(site.id);
         if (site.runtime === 'command') {
+            // An application reached on the app's own hostname would be served with scripts disabled, which
+            // is not a degraded experience but a broken one. It answers only on its own origin.
+            if (!onSiteHost) {
+                return {
+                    status: 421,
+                    headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(false, false) },
+                    body: '<!doctype html><meta charset="utf-8"><title>Wrong address</title><p>This site is served from its own address.</p>',
+                };
+            }
             const endpoint = deps.endpointFor(site.id);
             if (!endpoint) {
                 return {
                     status: 503,
-                    headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(config.dedicatedHost, false) },
+                    headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(onSiteHost, false) },
                     body: '<!doctype html><meta charset="utf-8"><title>Not running</title><p>This site is not running right now.</p>',
                 };
             }
             try {
-                const proxied = await proxyToRuntime(endpoint, req, rest, { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) }, deps.proxyLimits());
+                const proxied = await proxyToRuntime(endpoint, req, rest, { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) }, deps.proxyLimits(), siteRoot);
                 return {
                     ...proxied,
                     headers: {
                         ...proxied.headers,
-                        ...securityHeaders(config.dedicatedHost, site.visibility === 'public'),
+                        ...securityHeaders(onSiteHost, site.visibility === 'public'),
                         'cache-control': site.visibility === 'public' ? 'public, max-age=0' : 'private, no-store',
                     },
                 };
@@ -160,12 +186,12 @@ export function createSiteHandler(deps) {
                     throw error;
                 return {
                     status: 502,
-                    headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(config.dedicatedHost, false) },
+                    headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(onSiteHost, false) },
                     body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This site did not answer.</p>',
                 };
             }
         }
-        const response = serveFile(site, deps.releaseDir(site.id, site.currentReleaseId), rest, config.dedicatedHost);
+        const response = serveFile(site, deps.releaseDir(site.id, site.currentReleaseId), rest, onSiteHost);
         // A HEAD answer must carry the same headers and status as the GET, and no body.
         return req.method === 'HEAD' ? { ...response, body: '' } : response;
     };
@@ -182,21 +208,21 @@ function viewerFor(req, site, deps) {
  *  The ticket arrives as a form POST from the app's sign-in page rather than in a query string: a token
  *  in a URL survives in history, logs and the Referer header. Consumption is atomic in the store, so two
  *  browsers racing the same ticket cannot both be admitted. */
-async function redeemTicket(req, site, siteRoot, deps, config) {
+async function redeemTicket(req, site, siteRoot, deps, config, onSiteHost) {
     if (req.method !== 'POST') {
         return { status: 405, headers: { allow: 'POST', 'cache-control': 'no-store' }, body: '' };
     }
     const form = parseForm(await req.body());
     const token = form.t;
     if (!token)
-        return notFound(config.dedicatedHost);
+        return notFound(onSiteHost);
     const ticket = deps.store.takeTicket(hashToken(token), Date.now());
     if (!ticket || ticket.siteId !== site.id)
-        return notFound(config.dedicatedHost);
+        return notFound(onSiteHost);
     // The ticket proves who asked, not that they still may: the answer is re-derived here so a permission
     // withdrawn between minting and redemption is honoured.
     if (!mayOpen(site, { userId: ticket.userId, admin: false }, deps.store, deps.access)) {
-        return notFound(config.dedicatedHost);
+        return notFound(onSiteHost);
     }
     const expires = Date.now() + config.sessionTtlHours * 3600_000;
     const value = signSession(deps.secret(), { u: ticket.userId, g: site.accessGeneration, e: expires });
@@ -204,7 +230,7 @@ async function redeemTicket(req, site, siteRoot, deps, config) {
     // SameSite: on a dedicated hostname the site is its own origin and Lax is both correct and stricter.
     // On the shared origin the document is sandboxed into an opaque origin, whose subresource requests
     // count as cross-site, so Lax would withhold the cookie from the page's own stylesheets and images.
-    const sameSite = config.dedicatedHost ? 'Lax' : 'None';
+    const sameSite = onSiteHost ? 'Lax' : 'None';
     const cookie = [
         `${cookieName(site.id)}=${value}`,
         `Path=/hooks/sites/s/${site.slug}/`,

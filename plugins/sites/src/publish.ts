@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import type { SitesStore } from './store.js';
 
@@ -71,6 +71,20 @@ const MAX_FILES_COMMAND = 60_000;
 
 export class PublishError extends Error {}
 
+/** Size of a directory entry without following it, or null when it vanished mid-walk. */
+function statOf(path: string): { size: number } | null {
+  try {
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      return { size: fstatSync(fd).size };
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
 /** Copy a built output directory into an immutable release.
  *
  *  The copier runs with the daemon's own filesystem reach, which is wider than the account's, so
@@ -112,7 +126,8 @@ export function snapshotRelease(sourceRoot: string, releaseDir: string, limits: 
         warnings.push(`skipped ${rel} (.${ext || 'no extension'} is not a publishable file type)`);
         continue;
       }
-      const stat = lstatSync(from);
+      const stat = statOf(from);
+      if (!stat) { warnings.push(`skipped ${rel} (it disappeared while publishing)`); continue; }
       if (stat.size > limits.maxAssetBytes) {
         throw new PublishError(`${rel} is ${Math.ceil(stat.size / 1048576)} MB, above the per-file limit. Reduce it or raise "Largest file" in the plugin settings.`);
       }
@@ -123,9 +138,35 @@ export function snapshotRelease(sourceRoot: string, releaseDir: string, limits: 
       if (fileCount >= fileCeiling) {
         throw new PublishError(`the output has more than ${fileCeiling} files.`);
       }
-      copyFileSync(from, to);
-      fileCount += 1;
-      sizeBytes += stat.size;
+      // Opened with O_NOFOLLOW and copied from the descriptor: checking the directory entry and then
+      // copying by path leaves a window in which the entry can be swapped for a symlink, and this
+      // copier runs with the daemon's reach rather than the account's.
+      let fd: number;
+      try {
+        fd = openSync(from, constants.O_RDONLY | constants.O_NOFOLLOW);
+      } catch {
+        warnings.push(`skipped ${rel} (it changed while publishing)`);
+        continue;
+      }
+      try {
+        const opened = fstatSync(fd);
+        if (!opened.isFile()) {
+          warnings.push(`skipped ${rel} (it changed while publishing)`);
+          continue;
+        }
+        const buffer = Buffer.allocUnsafe(opened.size);
+        let read = 0;
+        while (read < opened.size) {
+          const chunk = readSync(fd, buffer, read, opened.size - read, read);
+          if (chunk === 0) break;
+          read += chunk;
+        }
+        writeFileSync(to, buffer.subarray(0, read));
+        fileCount += 1;
+        sizeBytes += read;
+      } finally {
+        closeSync(fd);
+      }
     }
   };
 

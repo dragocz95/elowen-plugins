@@ -1,5 +1,5 @@
 {
-  "description": "Zveřejněte stránku, kterou agent vytvořil – přehled, report, prezentační web – na skutečné adrese této instance a rozhodněte, kdo ji smí otevřít: jen vy, lidé z projektu, kterýkoli přihlášený účet, jmenovitě pozvaní hosté, nebo úplně všichni. Agent staví vlastními nástroji a předává hotový výstup; každé zveřejnění je neměnná verze, ke které se dá vrátit.",
+  "description": "Zveřejněte stránku, kterou agent vytvořil – přehled, report, prezentační web – na skutečné adrese této instance a rozhodněte, kdo ji smí otevřít: jen vy, lidé z projektu, kterýkoli přihlášený účet, jmenovitě pozvaní hosté, nebo úplně všichni. Agent staví vlastními nástroji a předává hotový výstup; každé zveřejnění je samostatná verze, ke které se dá vrátit.",
   "fields": {
     "publishing": {
       "label": "Zveřejňování"
@@ -18,8 +18,8 @@
       "hint": "Když je vypnuto, každá stránka vyžaduje přihlášení a možnost zveřejnění zmizí z nastavení přístupu u všech stránek."
     },
     "siteHostOverride": {
-      "label": "Vlastní název hostitele pro stránky",
-      "hint": "Servírovat zveřejněné stránky z vlastního názvu hostitele místo z adresy této instance. Doporučeno: stránka na odděleném původu se nedostane k relaci aplikace, takže tam smí spouštět vlastní skripty. Bez toho se stránky servírují vedle aplikace a jejich skripty zůstávají vypnuté."
+      "label": "Základní název hostitele pro stránky",
+      "hint": "Servírovat každou zveřejněnou stránku na vlastní subdoméně tohoto názvu, takže každá stránka je samostatný původ: jedna stránka nepřečte druhou a žádná z nich nedosáhne na relaci aplikace. Bez toho se stránky servírují vedle aplikace a jejich skripty zůstávají vypnuté."
     },
     "publishers": {
       "label": "Kdo smí zveřejňovat",
@@ -60,7 +60,7 @@
     },
     "allowCommandRuntime": {
       "label": "Povolit běhová prostředí",
-      "hint": "Umožní, aby stránka byla běžící server – Node, Bun, Python, PHP – místo souborů na disku. Proces je uzavřen ve vlastním jmenném prostoru a vlastním adresáři, ale běží pod účtem démona a odpovídá na požadavky zvenčí. Vyžaduje vlastní název hostitele pro stránky."
+      "hint": "Umožní, aby stránka byla běžící server – Node, Bun, Python, PHP – místo souborů na disku. Proces je uzavřen ve vlastním jmenném prostoru a vidí jen svůj vlastní adresář verze, ale běží pod účtem démona, drží si domovský adresář sandboxu daného účtu a sdílí síť stroje. Vyžaduje vlastní název hostitele pro stránky."
     },
     "startTimeoutSeconds": {
       "label": "Časový limit startu",
@@ -68,7 +68,7 @@
     },
     "requestTimeoutSeconds": {
       "label": "Časový limit požadavku",
-      "hint": "Jak dlouho smí trvat jeden požadavek na běhové prostředí, než návštěvník dostane chybu."
+      "hint": "Jak dlouho smí celkem trvat jedna výměna s běhovým prostředím, než návštěvník dostane chybu."
     },
     "maxResponseMb": {
       "label": "Největší odpověď běhového prostředí",
