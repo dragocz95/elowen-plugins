@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:http';
 
 import {
   mayOpen, mayPublish, normalizeReturnPath, signSession, verifySession, cookieName, readCookies, mintTicket, hashToken,
@@ -12,6 +13,7 @@ import { SitesStore } from '../plugins/sites/dist/store.js';
 import { snapshotRelease, resolveWithin, pruneReleases, relativeAssetWarning } from '../plugins/sites/dist/publish.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
 import { resolveConfig } from '../plugins/sites/dist/config.js';
+import { proxyToRuntime, ProxyError } from '../plugins/sites/dist/proxy.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -40,6 +42,10 @@ const site = (overrides = {}) => ({
   accessGeneration: 1,
   sourceDir: '/tmp/source',
   spa: false,
+  runtime: 'static',
+  startCommand: '',
+  bind: 'socket',
+  port: null,
   status: 'live',
   currentReleaseId: 'rel-1',
   createdAt: new Date().toISOString(),
@@ -319,6 +325,9 @@ const serveHarness = (t, overrides = {}) => {
     }),
     releaseDir: () => release,
     countHit: () => {},
+    endpointFor: () => null,
+    proxyLimits: () => ({ maxResponseBytes: 1048576, requestTimeoutSeconds: 5 }),
+    usernameOf: () => 'amy',
   });
   return { handler, store, release };
 };
@@ -434,6 +443,82 @@ test('a ticket for another site cannot be redeemed here', async (t) => {
     body: async () => Buffer.from(`t=${encodeURIComponent(token)}`),
   }));
   assert.equal(response.status, 404);
+});
+
+// ── runtime proxy ────────────────────────────────────────────────────────────────────────────────
+
+/** A real HTTP server on a unix socket, so the proxy is exercised over the transport it actually uses. */
+const runtimeServer = async (t, handler) => {
+  const dir = tempDir('sock');
+  const path = join(dir, 'app.sock');
+  const server = createServer(handler);
+  await new Promise((resolve) => server.listen(path, resolve));
+  t.after(() => { server.close(); rmSync(dir, { recursive: true, force: true }); });
+  return { kind: 'socket', path };
+};
+
+const proxyLimits = { maxResponseBytes: 1048576, requestTimeoutSeconds: 5 };
+
+test('the app session never reaches a published runtime', async (t) => {
+  // The browser sends elowen_session to this path too, because it is scoped to the whole origin and its
+  // value IS a daemon bearer token. A runtime that received it could act as whoever is looking at it.
+  let seen = null;
+  const endpoint = await runtimeServer(t, (req, res) => { seen = req.headers; res.end('ok'); });
+
+  await proxyToRuntime(endpoint, request('', {
+    headers: {
+      accept: 'text/html',
+      cookie: 'elowen_session=REAL-BEARER-TOKEN',
+      authorization: 'Bearer REAL-BEARER-TOKEN',
+      'x-elowen-user-id': '999',
+      'x-forwarded-for': '10.0.0.1',
+    },
+  }), 'page', { userId: 4, name: 'amy' }, proxyLimits);
+
+  assert.equal(seen.cookie, undefined);
+  assert.equal(seen.authorization, undefined);
+  assert.equal(seen['x-forwarded-for'], undefined);
+  assert.equal(seen['x-elowen-user-id'], '4', 'the spoofed value was replaced by the verified one');
+  assert.equal(seen['x-elowen-user-name'], 'amy');
+});
+
+test('a runtime cannot set a cookie or open itself up with CORS', async (t) => {
+  // Hook responses pass headers through unchanged, so an unfiltered Set-Cookie would let a published
+  // site write a cookie at any path on this origin — including over the app's own session.
+  const endpoint = await runtimeServer(t, (_req, res) => {
+    res.setHeader('set-cookie', 'elowen_session=stolen; Path=/');
+    res.setHeader('access-control-allow-origin', '*');
+    res.setHeader('content-type', 'text/plain');
+    res.end('body');
+  });
+
+  const response = await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits);
+  assert.equal(response.headers['set-cookie'], undefined);
+  assert.equal(response.headers['access-control-allow-origin'], undefined);
+  assert.equal(response.headers['content-type'], 'text/plain');
+  assert.equal(Buffer.from(response.body).toString(), 'body');
+});
+
+test('an anonymous visitor is forwarded as anonymous', async (t) => {
+  let seen = null;
+  const endpoint = await runtimeServer(t, (req, res) => { seen = req.headers; res.end('ok'); });
+  await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits);
+  assert.equal(seen['x-elowen-user-id'], undefined);
+});
+
+test('a runtime answering with more than the limit is refused, not truncated', async (t) => {
+  const endpoint = await runtimeServer(t, (_req, res) => { res.end('x'.repeat(4096)); });
+  await assert.rejects(
+    () => proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, { maxResponseBytes: 1024, requestTimeoutSeconds: 5 }),
+    ProxyError,
+  );
+});
+
+test('a command site that is not running says so instead of serving its files', async (t) => {
+  const { handler } = serveHarness(t, { visibility: 'public', runtime: 'command', startCommand: 'node server.js' });
+  const response = await handler(request('demo-abc123/'));
+  assert.equal(response.status, 503);
+  assert.match(String(response.body), /not running/i);
 });
 
 // ── configuration ────────────────────────────────────────────────────────────────────────────────

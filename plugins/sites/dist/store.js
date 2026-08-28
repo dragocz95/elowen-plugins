@@ -12,6 +12,10 @@ const toSite = (row) => ({
     accessGeneration: row.access_generation,
     sourceDir: row.source_dir,
     spa: row.spa === 1,
+    runtime: row.runtime === 'command' ? 'command' : 'static',
+    startCommand: row.start_command ?? '',
+    bind: row.bind === 'port' ? 'port' : 'socket',
+    port: row.port,
     status: asStatus(row.status),
     currentReleaseId: row.current_release_id,
     createdAt: row.created_at,
@@ -98,6 +102,19 @@ export class SitesStore {
           `);
                 },
             },
+            {
+                version: 2,
+                // A site can now answer from a process instead of from files. Existing rows are static, which
+                // is what the defaults say, so nothing has to be rewritten.
+                up: (handle) => {
+                    handle.exec(`
+            ALTER TABLE p_sites_sites ADD COLUMN runtime TEXT NOT NULL DEFAULT 'static';
+            ALTER TABLE p_sites_sites ADD COLUMN start_command TEXT NOT NULL DEFAULT '';
+            ALTER TABLE p_sites_sites ADD COLUMN bind TEXT NOT NULL DEFAULT 'socket';
+            ALTER TABLE p_sites_sites ADD COLUMN port INTEGER;
+          `);
+                },
+            },
         ]);
     }
     transaction(fn) {
@@ -107,10 +124,10 @@ export class SitesStore {
         this.db.prepare(`
       INSERT INTO p_sites_sites (
         id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
-        source_dir, spa, status, current_release_id, created_at, updated_at, created_model,
-        last_publish_at, last_publish_model, last_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0, site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError);
+        source_dir, spa, runtime, start_command, bind, port, status, current_release_id,
+        created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0, site.runtime, site.startCommand, site.bind, site.port, site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError);
     }
     siteById(id) {
         const row = this.db.prepare('SELECT * FROM p_sites_sites WHERE id = ?').get(id);
@@ -146,6 +163,18 @@ export class SitesStore {
       WHERE m.user_id = ? ORDER BY s.created_at DESC
     `).all(userId).map(toSite);
     }
+    /** Every command site that should be running. What boot reconciliation restarts, because nothing in
+     *  the daemon supervises a process across a restart. */
+    liveCommandSites() {
+        return this.db.prepare(`
+      SELECT * FROM p_sites_sites
+      WHERE runtime = 'command' AND status = 'live' AND current_release_id IS NOT NULL
+    `).all().map(toSite);
+    }
+    portsInUse() {
+        return this.db.prepare('SELECT port FROM p_sites_sites WHERE port IS NOT NULL')
+            .all().map((row) => row.port);
+    }
     allSites() {
         return this.db.prepare('SELECT * FROM p_sites_sites ORDER BY created_at DESC').all().map(toSite);
     }
@@ -155,6 +184,8 @@ export class SitesStore {
             summary: 'summary',
             visibility: 'visibility',
             spa: 'spa',
+            port: 'port',
+            startCommand: 'start_command',
             status: 'status',
             currentReleaseId: 'current_release_id',
             lastPublishAt: 'last_publish_at',

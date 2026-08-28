@@ -54,6 +54,33 @@
     "sessionTtlHours": {
       "label": "Platnosť prihlásenia",
       "hint": "Ako dlho zostane návštevník k stránke prihlásený, kým ho prehliadač pošle znova cez prihlásenie. Strata prístupu sa prejaví okamžite bez ohľadu na túto hodnotu, pretože oprávnenie sa overuje pri každej požiadavke."
+    },
+    "runtimes": {
+      "label": "Behové prostredia stránok"
+    },
+    "allowCommandRuntime": {
+      "label": "Povoliť behové prostredia",
+      "hint": "Umožní, aby stránka bola bežiaci server – Node, Bun, Python, PHP – namiesto súborov na disku. Proces je uzavretý vo vlastnom mennom priestore a vlastnom adresári, ale beží pod účtom démona a odpovedá na požiadavky zvonka. Vyžaduje vlastný názov hostiteľa pre stránky."
+    },
+    "startTimeoutSeconds": {
+      "label": "Časový limit štartu",
+      "hint": "Ako dlho má behové prostredie po spustení na to, aby odpovedalo, kým sa zverejnenie považuje za neúspešné."
+    },
+    "requestTimeoutSeconds": {
+      "label": "Časový limit požiadavky",
+      "hint": "Ako dlho smie trvať jedna požiadavka na behové prostredie, kým návštevník dostane chybu."
+    },
+    "maxResponseMb": {
+      "label": "Najväčšia odpoveď behového prostredia",
+      "hint": "Odpoveď sa pred odoslaním načíta celá do pamäte, takže ide o skutočný strop."
+    },
+    "portRangeStart": {
+      "label": "Prvý port na slučke",
+      "hint": "Iba pre behové prostredie, ktoré nevie počúvať na unixovom sockete. Na port na slučke dosiahne každý proces na tomto stroji, čo obchádza pravidlá prístupu k stránke."
+    },
+    "portRangeEnd": {
+      "label": "Posledný port na slučke",
+      "hint": "Koniec rozsahu vyššie."
     }
   },
   "web": {
@@ -107,7 +134,15 @@
       "delete": "Zmazať stránku",
       "deleted": "Stránka zmazaná",
       "saved": "Uložené",
-      "close": "Zavrieť"
+      "close": "Zavrieť",
+      "tabRuntime": "Beh",
+      "runtimeRunning": "Beží",
+      "runtimeStopped": "Nebeží",
+      "runtimeCommand": "Spúšťací príkaz",
+      "runtimeLog": "Posledný výstup",
+      "runtimeEmptyLog": "Zatiaľ nič zaznamenané.",
+      "restart": "Reštartovať",
+      "restarted": "Reštartuje sa"
     }
   }
 }

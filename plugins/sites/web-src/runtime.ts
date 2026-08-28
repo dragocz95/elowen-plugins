@@ -47,6 +47,12 @@ export interface SiteDetailResponse {
   releases: ReleaseView[];
   hits: { day: string; count: number }[];
   sourceDir: string | null;
+  runtime: {
+    running: boolean;
+    startCommand: string | null;
+    logTail: string | null;
+    lastError: string | null;
+  } | null;
 }
 
 export interface DirectoryResponse {

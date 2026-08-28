@@ -3,6 +3,16 @@ import type { PluginDb } from 'elowen/plugin-api';
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
 type SiteStatus = 'draft' | 'live' | 'failed';
 
+/** How a published site answers a request: from files on disk, or from a process this plugin keeps
+ *  running behind a loopback socket. */
+type SiteRuntime = 'static' | 'command';
+
+/** Where a command runtime listens. A unix socket lives inside the plugin's own data directory, which
+ *  no confined shell can reach, so only the daemon can talk to it. A loopback port is reachable by any
+ *  process on the machine — including a confined one, because the sandbox does not unshare the network
+ *  — so it bypasses the site's access rules entirely and is only for runtimes that cannot do better. */
+type SiteBind = 'socket' | 'port';
+
 export const VISIBILITIES: readonly Visibility[] = ['private', 'project', 'authenticated', 'public'];
 
 export interface Site {
@@ -19,6 +29,12 @@ export interface Site {
   accessGeneration: number;
   sourceDir: string;
   spa: boolean;
+  runtime: SiteRuntime;
+  /** Shell command that starts the server, run inside the release directory. Empty for a static site. */
+  startCommand: string;
+  bind: SiteBind;
+  /** Loopback port for a port-bound runtime; null for a socket-bound one. */
+  port: number | null;
   status: SiteStatus;
   currentReleaseId: string | null;
   createdAt: string;
@@ -57,6 +73,10 @@ interface SiteDbRow {
   access_generation: number;
   source_dir: string;
   spa: number;
+  runtime: string | null;
+  start_command: string | null;
+  bind: string | null;
+  port: number | null;
   status: string;
   current_release_id: string | null;
   created_at: string;
@@ -94,6 +114,10 @@ const toSite = (row: SiteDbRow): Site => ({
   accessGeneration: row.access_generation,
   sourceDir: row.source_dir,
   spa: row.spa === 1,
+  runtime: row.runtime === 'command' ? 'command' : 'static',
+  startCommand: row.start_command ?? '',
+  bind: row.bind === 'port' ? 'port' : 'socket',
+  port: row.port,
   status: asStatus(row.status),
   currentReleaseId: row.current_release_id,
   createdAt: row.created_at,
@@ -180,6 +204,19 @@ export class SitesStore {
           `);
         },
       },
+      {
+        version: 2,
+        // A site can now answer from a process instead of from files. Existing rows are static, which
+        // is what the defaults say, so nothing has to be rewritten.
+        up: (handle) => {
+          handle.exec(`
+            ALTER TABLE p_sites_sites ADD COLUMN runtime TEXT NOT NULL DEFAULT 'static';
+            ALTER TABLE p_sites_sites ADD COLUMN start_command TEXT NOT NULL DEFAULT '';
+            ALTER TABLE p_sites_sites ADD COLUMN bind TEXT NOT NULL DEFAULT 'socket';
+            ALTER TABLE p_sites_sites ADD COLUMN port INTEGER;
+          `);
+        },
+      },
     ]);
   }
 
@@ -191,12 +228,13 @@ export class SitesStore {
     this.db.prepare(`
       INSERT INTO p_sites_sites (
         id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
-        source_dir, spa, status, current_release_id, created_at, updated_at, created_model,
-        last_publish_at, last_publish_model, last_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        source_dir, spa, runtime, start_command, bind, port, status, current_release_id,
+        created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId,
-      site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0, site.status,
+      site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0,
+      site.runtime, site.startCommand, site.bind, site.port, site.status,
       site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel,
       site.lastPublishAt, site.lastPublishModel, site.lastError,
     );
@@ -242,18 +280,34 @@ export class SitesStore {
     `).all(userId) as SiteDbRow[]).map(toSite);
   }
 
+  /** Every command site that should be running. What boot reconciliation restarts, because nothing in
+   *  the daemon supervises a process across a restart. */
+  liveCommandSites(): Site[] {
+    return (this.db.prepare(`
+      SELECT * FROM p_sites_sites
+      WHERE runtime = 'command' AND status = 'live' AND current_release_id IS NOT NULL
+    `).all() as SiteDbRow[]).map(toSite);
+  }
+
+  portsInUse(): number[] {
+    return (this.db.prepare('SELECT port FROM p_sites_sites WHERE port IS NOT NULL')
+      .all() as { port: number }[]).map((row) => row.port);
+  }
+
   allSites(): Site[] {
     return (this.db.prepare('SELECT * FROM p_sites_sites ORDER BY created_at DESC').all() as SiteDbRow[]).map(toSite);
   }
 
   updateSite(id: string, patch: Partial<Pick<Site,
-    'title' | 'summary' | 'visibility' | 'spa' | 'status' | 'currentReleaseId' |
-    'lastPublishAt' | 'lastPublishModel' | 'lastError'>>): void {
+    'title' | 'summary' | 'visibility' | 'spa' | 'status' | 'currentReleaseId' | 'port' |
+    'startCommand' | 'lastPublishAt' | 'lastPublishModel' | 'lastError'>>): void {
     const columns: Record<string, string> = {
       title: 'title',
       summary: 'summary',
       visibility: 'visibility',
       spa: 'spa',
+      port: 'port',
+      startCommand: 'start_command',
       status: 'status',
       currentReleaseId: 'current_release_id',
       lastPublishAt: 'last_publish_at',

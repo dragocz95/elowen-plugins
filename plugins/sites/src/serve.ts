@@ -7,6 +7,8 @@ import {
   type AccessDeps, type Viewer,
 } from './access.js';
 import { CONTENT_TYPES, HTML_TYPE, extensionOf, resolveWithin } from './publish.js';
+import { ProxyError, proxyToRuntime, type ProxyLimits } from './proxy.js';
+import type { Endpoint } from './runtime.js';
 
 export interface ServeConfig {
   /** Where published sites are addressed from. Equal to the app's own URL unless a dedicated hostname
@@ -27,6 +29,10 @@ export interface ServeDeps {
   config(): ServeConfig;
   releaseDir(siteId: string, releaseId: string): string;
   countHit(siteId: string): void;
+  /** Where a command site's process is listening, or null when it is not running. */
+  endpointFor(siteId: string): Endpoint | null;
+  proxyLimits(): ProxyLimits;
+  usernameOf(userId: number): string | null;
 }
 
 /** Security headers applied to EVERY published response.
@@ -145,7 +151,9 @@ export function createSiteHandler(deps: ServeDeps) {
     }
     if (rest.split('/')[0] === RESERVED_PREFIX) return notFound(config.dedicatedHost);
 
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
+    // A static site answers reads only. A command site is an application, so it takes the verbs an
+    // application takes — its own request body is still capped at 1 MiB by the hook transport.
+    if (site.runtime === 'static' && req.method !== 'GET' && req.method !== 'HEAD') {
       return { status: 405, headers: { allow: 'GET, HEAD', 'cache-control': 'no-store' }, body: '' };
     }
 
@@ -161,6 +169,42 @@ export function createSiteHandler(deps: ServeDeps) {
     }
 
     deps.countHit(site.id);
+
+    if (site.runtime === 'command') {
+      const endpoint = deps.endpointFor(site.id);
+      if (!endpoint) {
+        return {
+          status: 503,
+          headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(config.dedicatedHost, false) },
+          body: '<!doctype html><meta charset="utf-8"><title>Not running</title><p>This site is not running right now.</p>',
+        };
+      }
+      try {
+        const proxied = await proxyToRuntime(
+          endpoint,
+          req,
+          rest,
+          { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) },
+          deps.proxyLimits(),
+        );
+        return {
+          ...proxied,
+          headers: {
+            ...proxied.headers,
+            ...securityHeaders(config.dedicatedHost, site.visibility === 'public'),
+            'cache-control': site.visibility === 'public' ? 'public, max-age=0' : 'private, no-store',
+          },
+        };
+      } catch (error) {
+        if (!(error instanceof ProxyError)) throw error;
+        return {
+          status: 502,
+          headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(config.dedicatedHost, false) },
+          body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This site did not answer.</p>',
+        };
+      }
+    }
+
     const response = serveFile(site, deps.releaseDir(site.id, site.currentReleaseId), rest, config.dedicatedHost);
     // A HEAD answer must carry the same headers and status as the GET, and no body.
     return req.method === 'HEAD' ? { ...response, body: '' } : response;

@@ -1,0 +1,41 @@
+import type { PluginContext, SandboxExecutionCommand, SandboxPreparedExecution } from 'elowen/plugin-api';
+
+/** ⚠️ WHY THIS SHAPE IS WRITTEN OUT HERE INSTEAD OF IMPORTED.
+ *
+ *  This registry compiles against the PUBLISHED `elowen` package, which is currently older than the
+ *  daemon this plugin targets: `prepareExecution` gained a second argument, and the `sites` lease kind,
+ *  in the release named by `requiresCore`. Casting `ctx` to `any` would compile just as well and would
+ *  hide a real mismatch, so the shape is stated once, here, and used everywhere else.
+ *
+ *  The guard that actually protects a running instance is `requiresCore` in the manifest: the loader
+ *  refuses to load this plugin on a daemon older than the release that carries the seam, so the
+ *  declaration below can never be wrong at runtime in the way an unchecked cast could be. When the
+ *  package catches up, delete this file and import the types directly. */
+
+interface SandboxWorkspaceView {
+  workspaceId: string;
+  projectId: number;
+  path: string;
+  label: string;
+  branch: string;
+  baseRef: string;
+}
+
+interface SitesSandboxControl {
+  activeWorkspace(input: { sessionId: string; projectId: number }): SandboxWorkspaceView | null;
+  /** The explicit form, for a caller with no ambient turn to read. A background service has neither an
+   *  identity nor a set of allowed roots, so it names both. It cannot ask for unconfined execution:
+   *  an explicit request always runs under bubblewrap. */
+  prepareExecution(
+    input: { command: SandboxExecutionCommand; cwd: string; leaseKind: 'terminal' | 'github' | 'sites' },
+    options?: { accountUserId: number | null; roots: readonly string[] },
+  ): SandboxPreparedExecution | Promise<SandboxPreparedExecution>;
+}
+
+/** The plugin context as this plugin actually uses it. */
+export type SitesContext = Omit<PluginContext, 'control'> & {
+  control(name: 'sandbox'): SitesSandboxControl | undefined;
+};
+
+/** The single place the published context is read as the one the daemon actually provides. */
+export const asSitesContext = (ctx: PluginContext): SitesContext => ctx as unknown as SitesContext;

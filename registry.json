@@ -155,14 +155,14 @@
     },
     {
       "name": "sites",
-      "version": "0.1.0",
-      "requiresCore": "0.28.17",
+      "version": "0.2.0",
+      "requiresCore": "0.28.18",
       "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is an immutable release you can roll back.",
       "category": "productivity",
       "author": "Elowen",
       "apiVersion": "1",
       "provides": {
-        "tools": 7,
+        "tools": 8,
         "httpRoutes": 1,
         "apiRoutes": 4
       }

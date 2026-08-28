@@ -45,6 +45,8 @@ export const extensionOf = (name) => {
  *  not accidentally publish its dependencies or its git history. */
 const SKIPPED_DIRECTORIES = new Set(['.git', 'node_modules', '.next', '.cache', '.DS_Store']);
 const MAX_FILES = 5000;
+/** An application tree carries its dependencies, and a modest one runs to tens of thousands of files. */
+const MAX_FILES_COMMAND = 60_000;
 export class PublishError extends Error {
 }
 /** Copy a built output directory into an immutable release.
@@ -55,6 +57,7 @@ export class PublishError extends Error {
  *  a file the publisher was never allowed to read. */
 export function snapshotRelease(sourceRoot, releaseDir, limits) {
     const realSource = realpathSync(sourceRoot);
+    const command = limits.mode === 'command';
     const warnings = [];
     let fileCount = 0;
     let sizeBytes = 0;
@@ -68,7 +71,9 @@ export function snapshotRelease(sourceRoot, releaseDir, limits) {
                 continue;
             }
             if (entry.isDirectory()) {
-                if (SKIPPED_DIRECTORIES.has(entry.name))
+                // A command release keeps its dependencies: without node_modules the server it publishes
+                // cannot start, and the release exists precisely so the site survives losing its workspace.
+                if (command ? entry.name === '.git' : SKIPPED_DIRECTORIES.has(entry.name))
                     continue;
                 mkdirSync(to, { recursive: true });
                 walk(from, to);
@@ -80,7 +85,7 @@ export function snapshotRelease(sourceRoot, releaseDir, limits) {
             }
             const rel = relative(realSource, from);
             const ext = extensionOf(entry.name);
-            if (!(ext in CONTENT_TYPES)) {
+            if (!command && !(ext in CONTENT_TYPES)) {
                 warnings.push(`skipped ${rel} (.${ext || 'no extension'} is not a publishable file type)`);
                 continue;
             }
@@ -91,8 +96,9 @@ export function snapshotRelease(sourceRoot, releaseDir, limits) {
             if (sizeBytes + stat.size > limits.maxTotalBytes) {
                 throw new PublishError(`the build output is larger than the per-site limit. Reduce it or raise "Largest site" in the plugin settings.`);
             }
-            if (fileCount >= MAX_FILES) {
-                throw new PublishError(`the build output has more than ${MAX_FILES} files.`);
+            const fileCeiling = command ? MAX_FILES_COMMAND : MAX_FILES;
+            if (fileCount >= fileCeiling) {
+                throw new PublishError(`the output has more than ${fileCeiling} files.`);
             }
             copyFileSync(from, to);
             fileCount += 1;
@@ -102,7 +108,7 @@ export function snapshotRelease(sourceRoot, releaseDir, limits) {
     walk(realSource, releaseDir);
     if (fileCount === 0)
         throw new PublishError('the build output contains no publishable files.');
-    if (!existsSync(join(releaseDir, 'index.html'))) {
+    if (!command && !existsSync(join(releaseDir, 'index.html'))) {
         warnings.push('there is no index.html at the top of the output, so the site root will not render.');
     }
     return { fileCount, sizeBytes, warnings };

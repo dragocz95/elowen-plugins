@@ -113,8 +113,10 @@ const EXPECTED_CAPABILITIES = {
   // because a site session proves identity and never permission; `db` holds the sites and their guest
   // lists; `controls` finds the account's active Sandbox workspace so a new site lands in a real Git
   // worktree. No `network` and no `mutates`: this release publishes files that are already on disk and
-  // runs nothing of its own. Adding `network` here would mean it had started proxying to something.
-  sites: { reads: ['controls', 'db', 'stores'] },
+  // runs nothing of its own beyond a runtime an administrator turned on. `network` is that runtime:
+  // requests are forwarded to a process on a loopback socket, which is network activity even though it
+  // never leaves the machine.
+  sites: { reads: ['controls', 'db', 'stores'], network: true },
   skills: { reads: ['stores'] },
   todo: { reads: ['db'] },
   // `network` is the whole point — it dials a telephone through an HTTP service — and `db` is what makes

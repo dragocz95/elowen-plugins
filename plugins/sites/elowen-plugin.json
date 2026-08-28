@@ -1,8 +1,8 @@
 {
   "name": "sites",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": "1",
-  "requiresCore": "0.28.17",
+  "requiresCore": "0.28.18",
   "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is an immutable release you can roll back.",
   "entry": "dist/index.js",
   "provides": {
@@ -13,6 +13,7 @@
       "SiteList",
       "SiteUpdate",
       "SiteRollback",
+      "SiteLogs",
       "SiteDelete"
     ],
     "httpRoutes": [
@@ -27,7 +28,8 @@
   },
   "planSafe": [
     "SiteList",
-    "SiteGet"
+    "SiteGet",
+    "SiteLogs"
   ],
   "icons": {
     "Site*": "🌐"
@@ -37,7 +39,8 @@
       "db",
       "stores",
       "controls"
-    ]
+    ],
+    "network": true
   },
   "configSchema": [
     {
@@ -84,6 +87,70 @@
         { "value": "admins", "label": "Administrators only" }
       ],
       "hint": "Whether an ordinary account's agent may create and publish sites. Opening a site somebody shared is unaffected."
+    },
+    {
+      "key": "runtimes",
+      "label": "Site runtimes",
+      "type": "section"
+    },
+    {
+      "key": "allowCommandRuntime",
+      "label": "Allow site runtimes",
+      "type": "boolean",
+      "default": false,
+      "risk": "high",
+      "hint": "Let a site be a running server - Node, Bun, Python, PHP - instead of files on disk. The process is confined to its own namespace and its own directory, but it runs under the daemon's account and answers requests from outside. Requires a dedicated site hostname.",
+      "help": "A published server is code the agent wrote, reachable from the network. Confinement here is a namespace, not a separate machine account: the process cannot see other projects, but it is not isolated from the machine the way a separate host would be. Requests reach it buffered, so it cannot stream, use server-sent events or accept websockets, and a request body is capped at 1 MB."
+    },
+    {
+      "key": "startTimeoutSeconds",
+      "label": "Start timeout",
+      "type": "number",
+      "default": 30,
+      "min": 5,
+      "max": 300,
+      "advanced": true,
+      "hint": "How long a runtime has to answer after it is started before the publish is treated as failed."
+    },
+    {
+      "key": "requestTimeoutSeconds",
+      "label": "Request timeout",
+      "type": "number",
+      "default": 15,
+      "min": 1,
+      "max": 120,
+      "advanced": true,
+      "hint": "How long one request to a runtime may take before the visitor gets an error."
+    },
+    {
+      "key": "maxResponseMb",
+      "label": "Largest runtime response",
+      "type": "number",
+      "default": 8,
+      "min": 1,
+      "max": 64,
+      "advanced": true,
+      "hint": "A runtime answer is buffered whole before it is sent on, so this is a real ceiling."
+    },
+    {
+      "key": "portRangeStart",
+      "label": "First loopback port",
+      "type": "number",
+      "default": 43000,
+      "min": 1024,
+      "max": 65000,
+      "advanced": true,
+      "hint": "Only for a runtime that cannot listen on a unix socket. A loopback port is reachable by every process on this machine, which bypasses the site's access rules."
+    },
+    {
+      "key": "portRangeEnd",
+      "label": "Last loopback port",
+      "type": "number",
+      "default": 43099,
+      "min": 1024,
+      "max": 65535,
+      "advanced": true,
+      "hint": "End of the range above."
     },
     {
       "key": "limits",
@@ -182,7 +249,15 @@
       "visibilityPublic": "Public",
       "tabOverview": "Overview",
       "tabAccess": "Access",
+      "tabRuntime": "Runtime",
       "tabDanger": "Delete",
+      "runtimeRunning": "Running",
+      "runtimeStopped": "Not running",
+      "runtimeCommand": "Start command",
+      "runtimeLog": "Recent output",
+      "runtimeEmptyLog": "Nothing recorded yet.",
+      "restart": "Restart",
+      "restarted": "Restarting",
       "address": "Address",
       "lastPublish": "Last publish",
       "releases": "Releases",

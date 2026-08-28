@@ -9,6 +9,15 @@ export interface SitesConfig {
   maxSitesPerAccount: number;
   releasesKept: number;
   sessionTtlHours: number;
+  /** Whether a site may be a process this plugin keeps running, rather than files on disk. Off by
+   *  default: it puts agent-authored code on the network, and the confinement around it is a namespace,
+   *  not a separate machine account. */
+  allowCommandRuntime: boolean;
+  startTimeoutSeconds: number;
+  requestTimeoutSeconds: number;
+  maxResponseBytes: number;
+  portRangeStart: number;
+  portRangeEnd: number;
   /** Origin published sites are addressed from, without a trailing slash. */
   siteBaseUrl: string;
   /** Origin the Elowen app itself is on, without a trailing slash. */
@@ -59,6 +68,12 @@ export function resolveConfig(raw: Record<string, unknown>, publicWebUrl: string
     maxSitesPerAccount: bounded(raw.maxSitesPerAccount, 20, 1, 500),
     releasesKept: bounded(raw.releasesKept, 5, 1, 50),
     sessionTtlHours: bounded(raw.sessionTtlHours, 12, 1, 720),
+    allowCommandRuntime: raw.allowCommandRuntime === true,
+    startTimeoutSeconds: bounded(raw.startTimeoutSeconds, 30, 5, 300),
+    requestTimeoutSeconds: bounded(raw.requestTimeoutSeconds, 15, 1, 120),
+    maxResponseBytes: bounded(raw.maxResponseMb, 8, 1, 64) * 1048576,
+    portRangeStart: bounded(raw.portRangeStart, 43000, 1024, 65000),
+    portRangeEnd: bounded(raw.portRangeEnd, 43099, 1024, 65535),
     siteBaseUrl: siteOrigin ?? appOrigin,
     appBaseUrl: appOrigin,
     dedicatedHost: siteOrigin !== null && siteOrigin !== appOrigin,

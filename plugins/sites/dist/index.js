@@ -1,14 +1,17 @@
 import { randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { asSitesContext } from './coreSeams.js';
 import { SitesStore } from './store.js';
 import { resolveConfig } from './config.js';
 import { createSiteHandler } from './serve.js';
 import { createApiHandlers } from './api.js';
 import { registerTools } from './tools.js';
+import { SiteRuntimeSupervisor } from './runtime.js';
 const SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
-export function register(ctx) {
+export function register(published) {
+    const ctx = asSitesContext(published);
     const store = new SitesStore(ctx.db());
     const dataDir = ctx.dataDir();
     const siteDir = (siteId) => join(dataDir, 'sites', siteId);
@@ -67,8 +70,39 @@ export function register(ctx) {
             ctx.logger.warn(`could not record visits: ${error instanceof Error ? error.message : String(error)}`);
         }
     };
+    const supervisor = new SiteRuntimeSupervisor({
+        ctx,
+        store,
+        config: () => {
+            const resolved = config();
+            return {
+                startTimeoutSeconds: resolved.startTimeoutSeconds,
+                portRangeStart: resolved.portRangeStart,
+                portRangeEnd: resolved.portRangeEnd,
+            };
+        },
+        siteDir,
+        releaseDir,
+    });
     const activateRelease = (site, releaseId) => {
         store.updateSite(site.id, { currentReleaseId: releaseId, status: 'live', lastError: null });
+        if (site.runtime !== 'command')
+            return;
+        // A rollback changes what the process is running, so the process has to be replaced. Failing that,
+        // the site says so rather than continuing to serve the release the person just rolled away from.
+        void (async () => {
+            try {
+                await supervisor.stop(site.id);
+                const next = store.siteById(site.id);
+                if (next)
+                    await supervisor.start(next);
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                store.updateSite(site.id, { status: 'failed', lastError: message });
+                ctx.logger.warn(`site ${site.slug} did not restart: ${message}`);
+            }
+        })();
     };
     ctx.registerHttpRoute({
         path: 's',
@@ -87,6 +121,15 @@ export function register(ctx) {
             },
             releaseDir,
             countHit: (siteId) => pendingHits.set(siteId, (pendingHits.get(siteId) ?? 0) + 1),
+            endpointFor: (siteId) => supervisor.endpointFor(siteId),
+            proxyLimits: () => {
+                const resolved = config();
+                return {
+                    maxResponseBytes: resolved.maxResponseBytes,
+                    requestTimeoutSeconds: resolved.requestTimeoutSeconds,
+                };
+            },
+            usernameOf: (userId) => usernames().get(userId) ?? null,
         }),
     });
     const handlers = createApiHandlers({
@@ -95,28 +138,52 @@ export function register(ctx) {
         config,
         usernames,
         projectSlug,
-        deleteSiteFiles: (siteId) => rmSync(siteDir(siteId), { recursive: true, force: true }),
+        deleteSiteFiles: async (siteId) => {
+            await supervisor.stop(siteId);
+            rmSync(siteDir(siteId), { recursive: true, force: true });
+        },
         activateRelease,
+        runtimeState: (siteId) => ({ running: supervisor.isRunning(siteId), logTail: supervisor.logTail(siteId) }),
+        restartRuntime: async (site) => {
+            await supervisor.stop(site.id);
+            const next = store.siteById(site.id);
+            if (!next)
+                return;
+            await supervisor.start(next);
+            store.updateSite(site.id, { status: 'live', lastError: null });
+        },
     });
     ctx.registerApiRoute({ path: 'sites', method: 'GET', access: 'user', handler: handlers.list });
     ctx.registerApiRoute({ path: 'site', access: 'user', handler: handlers.site });
     ctx.registerApiRoute({ path: 'ticket', method: 'POST', access: 'user', handler: handlers.ticket });
     ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
-    registerTools({ ctx, store, access, config, siteDir, releaseDir });
-    ctx.registerUserRemoved((userId) => {
+    registerTools({ ctx, store, access, config, siteDir, releaseDir, runtime: supervisor });
+    // Nothing in the daemon keeps a process alive across a restart, and a confined child dies with its
+    // parent by construction. Supervision of published runtimes is therefore this plugin's own job:
+    // reconcile brings back everything that should be running, and the service stops them around a
+    // reload so the next generation does not start a second copy onto the same socket.
+    ctx.registerService({
+        name: 'site-runtimes',
+        start: async () => { await supervisor.reconcile(); },
+        stop: async () => { await supervisor.stopAll(); },
+    });
+    ctx.registerBootReconcile(() => { void supervisor.reconcile(); });
+    ctx.registerUserRemoved(async (userId) => {
         // The account's own sites go with it; its guest rows elsewhere go too, so a deleted account cannot
         // keep opening somebody else's site and does not linger as a blank avatar in their access list.
         for (const siteId of store.siteIdsOwnedBy(userId)) {
+            await supervisor.stop(siteId);
             rmSync(siteDir(siteId), { recursive: true, force: true });
             store.deleteSite(siteId);
         }
         for (const siteId of store.forgetMemberEverywhere(userId))
             store.bumpAccessGeneration(siteId);
     });
-    ctx.registerProjectRemoved((projectId) => {
+    ctx.registerProjectRemoved(async (projectId) => {
         // A site's Project is where its access rule points. Without it there is nothing left to decide
         // "the Project's people" against, so the site stops being served rather than falling open.
         for (const siteId of store.siteIdsInProject(projectId)) {
+            await supervisor.stop(siteId);
             rmSync(siteDir(siteId), { recursive: true, force: true });
             store.deleteSite(siteId);
         }

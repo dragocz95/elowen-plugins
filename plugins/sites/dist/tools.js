@@ -7,6 +7,19 @@ import { VISIBILITIES } from './store.js';
 import { mayPublish } from './access.js';
 import { siteBasePath, siteUrl } from './config.js';
 import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } from './publish.js';
+/** A command runtime is only offered where it can be run honestly: the operator has to have turned it
+ *  on, and sites must be on their own hostname. On the shared origin a published page is served with
+ *  no scripts at all, because it would otherwise be same-origin with the app and its session — which
+ *  makes "an application" a contradiction there rather than a limitation to warn about. */
+function commandRuntimeRefusal(config) {
+    if (!config.allowCommandRuntime) {
+        return 'Site runtimes are turned off for this instance. An administrator can enable them in the plugin settings.';
+    }
+    if (!config.dedicatedHost) {
+        return 'A site runtime needs sites to be served from their own hostname, because on the app\'s own origin a published page is not allowed to run scripts. Set a dedicated site hostname in the plugin settings first.';
+    }
+    return null;
+}
 const text = (body) => ({ content: [{ type: 'text', text: body }], details: {} });
 class ToolError extends Error {
 }
@@ -102,6 +115,12 @@ export function registerTools(deps) {
             summary: Type.Optional(Type.String({ maxLength: 400, description: 'One line describing what the page is for.' })),
             visibility: Type.Optional(Type.Union([Type.Literal('private'), Type.Literal('project'), Type.Literal('authenticated')], { description: 'Who may open it. Defaults to the instance setting. A site is never made public here; that is confirmed by a person in the Sites screen.' })),
             spa: Type.Optional(Type.Boolean({ description: 'Serve index.html for unknown paths, for a client-side router. Default false.' })),
+            runtime: Type.Optional(Type.Union([Type.Literal('static'), Type.Literal('command')], { description: 'How the site answers. "static" serves the built files (the default, and the right choice for anything that can be prerendered). "command" keeps a server process running - Node, Bun, Python, PHP - and forwards requests to it. A runtime must be enabled by an administrator and needs a dedicated site hostname.' })),
+            startCommand: Type.Optional(Type.String({
+                maxLength: 500,
+                description: 'For runtime "command": the shell command that starts the server, run inside the published release. It must listen on the unix socket given in SOCKET_PATH, or on 127.0.0.1:$PORT when the site is port-bound.',
+            })),
+            bind: Type.Optional(Type.Union([Type.Literal('socket'), Type.Literal('port')], { description: 'For runtime "command": "socket" (default) listens on a unix socket only this daemon can reach. "port" listens on a loopback port, which any process on the machine can reach directly, bypassing this site\'s access rules - use it only for a server that cannot take a socket, such as PHP\'s built-in one.' })),
         }),
         execute: async (_id, input) => {
             try {
@@ -110,6 +129,15 @@ export function registerTools(deps) {
                 const config = deps.config();
                 if (store.countOwnedBy(userId) >= config.maxSitesPerAccount) {
                     throw new ToolError(`This account already has ${config.maxSitesPerAccount} sites, which is the configured limit.`);
+                }
+                const runtime = input.runtime ?? 'static';
+                const bind = input.bind ?? 'socket';
+                if (runtime === 'command') {
+                    const refusal = commandRuntimeRefusal(config);
+                    if (refusal)
+                        throw new ToolError(refusal);
+                    if (!input.startCommand?.trim())
+                        throw new ToolError('A site runtime needs startCommand.');
                 }
                 let slug = slugify(input.title);
                 while (store.slugTaken(slug))
@@ -137,6 +165,10 @@ export function registerTools(deps) {
                     accessGeneration: 1,
                     sourceDir: allowed,
                     spa: input.spa === true,
+                    runtime,
+                    startCommand: (input.startCommand ?? '').trim(),
+                    bind,
+                    port: runtime === 'command' && bind === 'port' ? deps.runtime.allocatePort() : null,
                     status: 'draft',
                     currentReleaseId: null,
                     createdAt: now,
@@ -155,7 +187,17 @@ export function registerTools(deps) {
                     `It will be published at: ${siteUrl(config, slug)}`,
                     '',
                     'Asset URLs must be absolute under that base path. A relative reference (./assets/...) breaks, because the published address is a path prefix.',
-                    'When the build output is ready, call SitePublish with the output directory.',
+                    ...(runtime === 'command'
+                        ? [
+                            '',
+                            bind === 'socket'
+                                ? 'The server must listen on the unix socket path in SOCKET_PATH, not on a port.'
+                                : 'The server must listen on 127.0.0.1 and the port in PORT.',
+                            'Install dependencies in the site folder before publishing: the release is a copy, and nothing is built or installed for you.',
+                            'Requests are forwarded buffered - no streaming, no server-sent events, no websockets - and a request body is capped at 1 MB.',
+                        ]
+                        : []),
+                    'When the output is ready, call SitePublish with the output directory.',
                 ].join('\n'));
             }
             catch (error) {
@@ -197,6 +239,7 @@ export function registerTools(deps) {
                     snapshot = snapshotRelease(source, target, {
                         maxAssetBytes: config.maxAssetBytes,
                         maxTotalBytes: config.maxSiteBytes,
+                        mode: site.runtime,
                     });
                 }
                 catch (error) {
@@ -224,11 +267,33 @@ export function registerTools(deps) {
                         lastError: null,
                     });
                 });
-                pruneReleases(store, site.id, deps.siteDir(site.id), config.releasesKept, releaseId);
                 const warnings = [...snapshot.warnings];
-                const relativeWarning = relativeAssetWarning(target, siteBasePath(site.slug));
-                if (relativeWarning)
-                    warnings.push(relativeWarning);
+                if (site.runtime === 'command') {
+                    const refusal = commandRuntimeRefusal(config);
+                    if (refusal) {
+                        store.updateSite(site.id, { status: 'failed', lastError: refusal });
+                        throw new ToolError(refusal);
+                    }
+                    // The new release is already the current one, so restarting picks it up. A failure leaves the
+                    // site marked failed with the runtime's own output rather than a live address serving nothing.
+                    try {
+                        await deps.runtime.stop(site.id);
+                        const started = store.siteById(site.id);
+                        if (started)
+                            await deps.runtime.start(started);
+                    }
+                    catch (error) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        store.updateSite(site.id, { status: 'failed', lastError: message });
+                        throw new ToolError(`Published, but the runtime did not start: ${message}`);
+                    }
+                }
+                pruneReleases(store, site.id, deps.siteDir(site.id), config.releasesKept, releaseId);
+                if (site.runtime === 'static') {
+                    const relativeWarning = relativeAssetWarning(target, siteBasePath(site.slug));
+                    if (relativeWarning)
+                        warnings.push(relativeWarning);
+                }
                 return text([
                     `Published "${site.title}" - ${snapshot.fileCount} files, ${(snapshot.sizeBytes / 1048576).toFixed(2)} MB.`,
                     `Live at ${siteUrl(config, site.slug)}`,
@@ -349,6 +414,31 @@ export function registerTools(deps) {
         },
     }));
     ctx.registerTool(defineTool({
+        name: 'SiteLogs',
+        label: 'Read a site runtime log',
+        description: 'The recent output of a site runtime, which is where a server that refuses to start says why. Static sites have no runtime and no log.',
+        parameters: Type.Object({ siteId: Type.String() }),
+        execute: async (_id, input) => {
+            try {
+                const userId = ownerOf(ctx);
+                const site = requireOwned(deps, input.siteId, userId);
+                if (site.runtime !== 'command')
+                    return text('This is a static site, so it has no runtime log.');
+                const tail = deps.runtime.logTail(site.id);
+                const state = deps.runtime.isRunning(site.id) ? 'running' : 'not running';
+                return text([
+                    `"${site.title}" is ${state}.`,
+                    site.lastError ? `Last error: ${site.lastError}` : '',
+                    '',
+                    tail || '(no output recorded)',
+                ].join('\n'));
+            }
+            catch (error) {
+                return text(error instanceof ToolError ? error.message : String(error));
+            }
+        },
+    }));
+    ctx.registerTool(defineTool({
         name: 'SiteDelete',
         label: 'Delete a site',
         description: 'Remove a site: the address stops working and every release is deleted. The source folder in the Project is left untouched.',
@@ -357,6 +447,9 @@ export function registerTools(deps) {
             try {
                 const userId = ownerOf(ctx);
                 const site = requireOwned(deps, input.siteId, userId);
+                // Stop first: removing the release under a running process would leave it serving from a
+                // deleted directory at an address the store no longer knows about.
+                await deps.runtime.stop(site.id);
                 rmSync(deps.siteDir(site.id), { recursive: true, force: true });
                 store.deleteSite(site.id);
                 return text(`Deleted "${site.title}". Its source folder ${site.sourceDir} was left in place.`);

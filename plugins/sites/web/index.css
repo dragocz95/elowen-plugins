@@ -17,6 +17,9 @@
   .h-2 {
     height: calc(var(--spacing, 0.25rem) * 2);
   }
+  .max-h-64 {
+    max-height: calc(var(--spacing, 0.25rem) * 64);
+  }
   .w-2 {
     width: calc(var(--spacing, 0.25rem) * 2);
   }
@@ -64,6 +67,9 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .overflow-auto {
+    overflow: auto;
+  }
   .rounded-full {
     border-radius: calc(infinity * 1px);
   }
@@ -91,6 +97,9 @@
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-text-muted, #9d948e) 50%, transparent);
     }
+  }
+  .p-3 {
+    padding: calc(var(--spacing, 0.25rem) * 3);
   }
   .p-4 {
     padding: calc(var(--spacing, 0.25rem) * 4);
@@ -122,6 +131,15 @@
   .tracking-wide {
     --tw-tracking: var(--tracking-wide, 0.025em);
     letter-spacing: var(--tracking-wide, 0.025em);
+  }
+  .break-all {
+    word-break: break-all;
+  }
+  .whitespace-pre-wrap {
+    white-space: pre-wrap;
+  }
+  .text-danger {
+    color: var(--color-danger, #e94d42);
   }
   .text-text {
     color: var(--color-text, #f7f3f0);

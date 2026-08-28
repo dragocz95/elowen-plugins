@@ -93,6 +93,14 @@ export function createApiHandlers(deps) {
                 releases: deps.store.releases(target.id),
                 hits: deps.store.hits(target.id, since),
                 sourceDir: canManage(target, req.auth) ? target.sourceDir : null,
+                // The command and the log are operational detail about a process, so they go only to somebody
+                // who can act on them; a guest sees whether the site is up and nothing else.
+                runtime: target.runtime !== 'command' ? null : {
+                    running: deps.runtimeState(target.id).running,
+                    startCommand: canManage(target, req.auth) ? target.startCommand : null,
+                    logTail: canManage(target, req.auth) ? deps.runtimeState(target.id).logTail : null,
+                    lastError: canManage(target, req.auth) ? target.lastError : null,
+                },
             });
         }
         if (!canManage(target, req.auth))
@@ -100,7 +108,7 @@ export function createApiHandlers(deps) {
         if (req.method === 'PATCH' && action === '')
             return patchSite(req, target);
         if (req.method === 'DELETE' && action === '') {
-            deps.deleteSiteFiles(target.id);
+            await deps.deleteSiteFiles(target.id);
             deps.store.deleteSite(target.id);
             return json(200, { ok: true });
         }
@@ -112,6 +120,17 @@ export function createApiHandlers(deps) {
                 return json(400, { error: 'invalid account' });
             deps.store.removeMember(target.id, userId);
             deps.store.bumpAccessGeneration(target.id);
+            return json(200, { ok: true });
+        }
+        if (req.method === 'POST' && action === 'restart') {
+            if (target.runtime !== 'command')
+                return json(400, { error: 'this site has no runtime' });
+            try {
+                await deps.restartRuntime(target);
+            }
+            catch (error) {
+                return json(502, { error: error instanceof Error ? error.message : 'the runtime did not start' });
+            }
             return json(200, { ok: true });
         }
         if (req.method === 'POST' && action === 'rollback') {

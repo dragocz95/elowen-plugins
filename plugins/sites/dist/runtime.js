@@ -1,0 +1,226 @@
+import { spawn } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { connect } from 'node:net';
+import { join } from 'node:path';
+const LOG_CAP_BYTES = 256 * 1024;
+const STOP_GRACE_MS = 5_000;
+const HEARTBEAT_MS = 5_000;
+export class SiteRuntimeSupervisor {
+    deps;
+    running = new Map();
+    constructor(deps) {
+        this.deps = deps;
+    }
+    endpointFor(siteId) {
+        return this.running.get(siteId)?.endpoint ?? null;
+    }
+    isRunning(siteId) {
+        const entry = this.running.get(siteId);
+        return entry !== undefined && entry.child.exitCode === null && !entry.stopping;
+    }
+    runDir(siteId) {
+        const dir = join(this.deps.siteDir(siteId), 'run');
+        mkdirSync(dir, { recursive: true });
+        return dir;
+    }
+    logFile(siteId) {
+        return join(this.runDir(siteId), 'run.log');
+    }
+    /** Append to the site's log, keeping it bounded. Runtime output is attacker-influenced text — it is
+     *  written verbatim to a file the UI renders as plain text and is never interpolated anywhere else. */
+    appendLog(siteId, chunk) {
+        const file = this.logFile(siteId);
+        try {
+            appendFileSync(file, chunk);
+            if (statSync(file).size > LOG_CAP_BYTES * 2) {
+                const kept = readFileSync(file, 'utf8').slice(-LOG_CAP_BYTES);
+                rmSync(file, { force: true });
+                appendFileSync(file, kept);
+            }
+        }
+        catch {
+            // A site that cannot write its log still serves; losing the tail is not worth failing a request.
+        }
+    }
+    logTail(siteId, bytes = 8192) {
+        try {
+            return readFileSync(this.logFile(siteId), 'utf8').slice(-bytes);
+        }
+        catch {
+            return '';
+        }
+    }
+    /** Pick a free loopback port inside the configured range. Only for a runtime that cannot take a
+     *  socket; the caller is expected to have said so deliberately. */
+    allocatePort() {
+        const { portRangeStart, portRangeEnd } = this.deps.config();
+        const taken = new Set(this.deps.store.portsInUse());
+        for (let port = portRangeStart; port <= portRangeEnd; port += 1) {
+            if (!taken.has(port))
+                return port;
+        }
+        throw new Error('no free port is left in the configured range');
+    }
+    endpointOf(site) {
+        if (site.bind === 'port') {
+            if (site.port === null)
+                throw new Error('the site has no port assigned');
+            return { kind: 'port', port: site.port };
+        }
+        return { kind: 'socket', path: join(this.runDir(site.id), 'app.sock') };
+    }
+    /** Start a site's process and wait until it actually answers.
+     *
+     *  Returns only once the endpoint accepts a connection, so "live" in the UI means the server is up
+     *  rather than that a process was spawned. A start that never answers is stopped again and reported
+     *  with its own log tail, because a half-started runtime holding a port is worse than none. */
+    async start(site) {
+        if (site.runtime !== 'command')
+            return;
+        if (!site.currentReleaseId)
+            throw new Error('the site has no published release to run');
+        if (this.isRunning(site.id))
+            return;
+        await this.stop(site.id);
+        const cwd = this.deps.releaseDir(site.id, site.currentReleaseId);
+        if (!existsSync(cwd))
+            throw new Error('the published release is missing from disk');
+        const endpoint = this.endpointOf(site);
+        if (endpoint.kind === 'socket')
+            rmSync(endpoint.path, { force: true });
+        const sandbox = this.deps.ctx.control('sandbox');
+        if (!sandbox)
+            throw new Error('the Sandbox plugin is disabled, so a site runtime cannot be confined');
+        const prepared = await sandbox.prepareExecution({ command: { type: 'shell', command: site.startCommand }, cwd, leaseKind: 'sites' }, { accountUserId: site.ownerUserId, roots: [cwd, this.runDir(site.id)] });
+        // The environment is built here rather than taken from the preparation: it is the contract the
+        // published app reads, and nothing of the daemon's own environment belongs in a process that
+        // answers requests from the internet.
+        const env = {
+            ...prepared.launch.env,
+            NODE_ENV: 'production',
+            ELOWEN_SITE_SLUG: site.slug,
+            ELOWEN_SITE_BASE_PATH: `/hooks/sites/s/${site.slug}/`,
+            ...(endpoint.kind === 'socket'
+                ? { SOCKET_PATH: endpoint.path, PORT: endpoint.path }
+                : { PORT: String(endpoint.port), HOST: '127.0.0.1' }),
+        };
+        const child = prepared.launch.type === 'argv'
+            ? spawn(prepared.launch.file, prepared.launch.args, { cwd: prepared.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+            : spawn(prepared.launch.command, { cwd: prepared.cwd, env, shell: true, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+        child.stdout?.on('data', (chunk) => this.appendLog(site.id, chunk.toString()));
+        child.stderr?.on('data', (chunk) => this.appendLog(site.id, chunk.toString()));
+        const heartbeat = setInterval(() => { void prepared.lease.heartbeat(); }, HEARTBEAT_MS);
+        heartbeat.unref?.();
+        const entry = {
+            siteId: site.id,
+            child,
+            endpoint,
+            heartbeat,
+            release: () => prepared.lease.release(),
+            stopping: false,
+        };
+        this.running.set(site.id, entry);
+        child.once('exit', (code, signal) => {
+            this.appendLog(site.id, `\n[elowen] process exited (code ${code ?? '-'}, signal ${signal ?? '-'})\n`);
+            clearInterval(heartbeat);
+            void entry.release();
+            if (this.running.get(site.id) === entry)
+                this.running.delete(site.id);
+        });
+        const ready = await this.waitForEndpoint(endpoint, this.deps.config().startTimeoutSeconds * 1000, child);
+        if (!ready) {
+            await this.stop(site.id);
+            throw new Error(`the runtime did not answer within ${this.deps.config().startTimeoutSeconds}s. Last output:\n${this.logTail(site.id, 2000)}`);
+        }
+    }
+    waitForEndpoint(endpoint, timeoutMs, child) {
+        const deadline = Date.now() + timeoutMs;
+        return new Promise((resolve) => {
+            const attempt = () => {
+                if (child.exitCode !== null) {
+                    resolve(false);
+                    return;
+                }
+                if (Date.now() > deadline) {
+                    resolve(false);
+                    return;
+                }
+                const socket = endpoint.kind === 'socket'
+                    ? connect({ path: endpoint.path })
+                    : connect({ host: '127.0.0.1', port: endpoint.port });
+                socket.setTimeout(1000);
+                const retry = () => { socket.destroy(); setTimeout(attempt, 200); };
+                socket.once('connect', () => { socket.destroy(); resolve(true); });
+                socket.once('error', retry);
+                socket.once('timeout', retry);
+            };
+            attempt();
+        });
+    }
+    /** Stop a site's process and prove it is gone.
+     *
+     *  The child is a detached process group, so the signal goes to the group: a shell that spawned the
+     *  real server would otherwise die alone and leave the server holding the endpoint. SIGKILL follows
+     *  when the group does not go quietly, and the lease is released only after the process is confirmed
+     *  gone, so a stale lease can never look like a live one. */
+    async stop(siteId) {
+        const entry = this.running.get(siteId);
+        if (!entry)
+            return;
+        entry.stopping = true;
+        const { child } = entry;
+        if (child.exitCode === null && child.pid !== undefined) {
+            const exited = new Promise((resolve) => {
+                if (child.exitCode !== null) {
+                    resolve();
+                    return;
+                }
+                child.once('exit', () => resolve());
+            });
+            this.signalGroup(child.pid, 'SIGTERM');
+            const killed = await Promise.race([
+                exited.then(() => true),
+                new Promise((resolve) => { const timer = setTimeout(() => resolve(false), STOP_GRACE_MS); timer.unref?.(); }),
+            ]);
+            if (!killed) {
+                this.signalGroup(child.pid, 'SIGKILL');
+                await exited;
+            }
+        }
+        clearInterval(entry.heartbeat);
+        await entry.release();
+        this.running.delete(siteId);
+        if (entry.endpoint.kind === 'socket')
+            rmSync(entry.endpoint.path, { force: true });
+    }
+    signalGroup(pid, signal) {
+        try {
+            process.kill(-pid, signal);
+        }
+        catch {
+            try {
+                process.kill(pid, signal);
+            }
+            catch { /* already gone */ }
+        }
+    }
+    async stopAll() {
+        await Promise.all([...this.running.keys()].map((siteId) => this.stop(siteId)));
+    }
+    /** Bring every site that should be running back up. Runs on boot and after a plugin reload, and is
+     *  idempotent: a site already running is left alone rather than started twice onto the same endpoint. */
+    async reconcile() {
+        for (const site of this.deps.store.liveCommandSites()) {
+            if (this.isRunning(site.id))
+                continue;
+            try {
+                await this.start(site);
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
+                this.deps.ctx.logger.warn(`site ${site.slug} did not start: ${message}`);
+            }
+        }
+    }
+}

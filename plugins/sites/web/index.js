@@ -231,6 +231,7 @@ function SiteDetail({ siteId, strings, allowPublicSites, dedicatedHost, onClose 
               options: [
                 { value: "overview", label: strings.tabOverview ?? "Overview" },
                 { value: "access", label: strings.tabAccess ?? "Access" },
+                ...detail.data?.runtime ? [{ value: "runtime", label: strings.tabRuntime ?? "Runtime" }] : [],
                 ...site.canManage ? [{ value: "danger", label: strings.tabDanger ?? "Delete" }] : []
               ]
             }
@@ -350,6 +351,33 @@ function SiteDetail({ siteId, strings, allowPublicSites, dedicatedHost, onClose 
                 )) })
               ] }) : null
             ] })
+          ] }) : null,
+          tab === "runtime" && detail.data?.runtime ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-4", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center justify-between gap-3", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: detail.data.runtime.running ? "success" : "danger", children: detail.data.runtime.running ? strings.runtimeRunning ?? "Running" : strings.runtimeStopped ?? "Not running" }),
+              site.canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                Button,
+                {
+                  variant: "ghost",
+                  disabled: call.isPending,
+                  onClick: () => call.mutate({
+                    path: `/plugins/sites/api/site/${siteId}/restart`,
+                    init: { method: "POST" },
+                    done: strings.restarted
+                  }),
+                  children: strings.restart ?? "Restart"
+                }
+              ) : null
+            ] }),
+            detail.data.runtime.startCommand ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs uppercase tracking-wide text-text-muted", children: strings.runtimeCommand ?? "Start command" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "break-all font-mono text-[11px] text-text", children: detail.data.runtime.startCommand })
+            ] }) : null,
+            detail.data.runtime.lastError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-danger", children: detail.data.runtime.lastError }) : null,
+            detail.data.runtime.logTail !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs uppercase tracking-wide text-text-muted", children: strings.runtimeLog ?? "Recent output" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "max-h-64 overflow-auto whitespace-pre-wrap break-all border border-border bg-elevated/40 p-3 font-mono text-[11px] text-text-muted", children: detail.data.runtime.logTail || strings.runtimeEmptyLog })
+            ] }) : null
           ] }) : null,
           tab === "danger" && site.canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-2", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs uppercase tracking-wide text-text-muted", children: strings.deleteTitle ?? "Delete this site" }),

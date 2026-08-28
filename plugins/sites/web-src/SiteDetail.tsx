@@ -5,7 +5,7 @@ import {
   type DirectoryResponse, type SiteDetailResponse, type Visibility,
 } from './runtime.js';
 
-type Tab = 'overview' | 'access' | 'danger';
+type Tab = 'overview' | 'access' | 'runtime' | 'danger';
 
 const VISIBILITY_ORDER: Visibility[] = ['private', 'project', 'authenticated', 'public'];
 const VISIBILITY_STRING: Record<Visibility, string> = {
@@ -90,6 +90,7 @@ export function SiteDetail({ siteId, strings, allowPublicSites, dedicatedHost, o
               options={[
                 { value: 'overview', label: strings.tabOverview ?? 'Overview' },
                 { value: 'access', label: strings.tabAccess ?? 'Access' },
+                ...(detail.data?.runtime ? [{ value: 'runtime', label: strings.tabRuntime ?? 'Runtime' }] : []),
                 ...(site.canManage ? [{ value: 'danger', label: strings.tabDanger ?? 'Delete' }] : []),
               ]}
             />
@@ -223,6 +224,49 @@ export function SiteDetail({ siteId, strings, allowPublicSites, dedicatedHost, o
                     </div>
                   ) : null}
                 </div>
+              </div>
+            ) : null}
+
+            {tab === 'runtime' && detail.data?.runtime ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-3">
+                  <Badge tone={detail.data.runtime.running ? 'success' : 'danger'}>
+                    {detail.data.runtime.running ? strings.runtimeRunning ?? 'Running' : strings.runtimeStopped ?? 'Not running'}
+                  </Badge>
+                  {site.canManage ? (
+                    <Button
+                      variant="ghost"
+                      disabled={call.isPending}
+                      onClick={() => call.mutate({
+                        path: `/plugins/sites/api/site/${siteId}/restart`,
+                        init: { method: 'POST' },
+                        done: strings.restarted,
+                      })}
+                    >
+                      {strings.restart ?? 'Restart'}
+                    </Button>
+                  ) : null}
+                </div>
+
+                {detail.data.runtime.startCommand ? (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs uppercase tracking-wide text-text-muted">{strings.runtimeCommand ?? 'Start command'}</span>
+                    <code className="break-all font-mono text-[11px] text-text">{detail.data.runtime.startCommand}</code>
+                  </div>
+                ) : null}
+
+                {detail.data.runtime.lastError ? (
+                  <p className="text-[11px] text-danger">{detail.data.runtime.lastError}</p>
+                ) : null}
+
+                {detail.data.runtime.logTail !== null ? (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs uppercase tracking-wide text-text-muted">{strings.runtimeLog ?? 'Recent output'}</span>
+                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all border border-border bg-elevated/40 p-3 font-mono text-[11px] text-text-muted">
+                      {detail.data.runtime.logTail || strings.runtimeEmptyLog}
+                    </pre>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

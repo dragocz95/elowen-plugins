@@ -54,6 +54,33 @@
     "sessionTtlHours": {
       "label": "Platnost přihlášení",
       "hint": "Jak dlouho zůstane návštěvník ke stránce přihlášen, než ho prohlížeč pošle znovu přes přihlášení. Ztráta přístupu se projeví okamžitě bez ohledu na tuto hodnotu, protože oprávnění se ověřuje při každém požadavku."
+    },
+    "runtimes": {
+      "label": "Běhová prostředí stránek"
+    },
+    "allowCommandRuntime": {
+      "label": "Povolit běhová prostředí",
+      "hint": "Umožní, aby stránka byla běžící server – Node, Bun, Python, PHP – místo souborů na disku. Proces je uzavřen ve vlastním jmenném prostoru a vlastním adresáři, ale běží pod účtem démona a odpovídá na požadavky zvenčí. Vyžaduje vlastní název hostitele pro stránky."
+    },
+    "startTimeoutSeconds": {
+      "label": "Časový limit startu",
+      "hint": "Jak dlouho má běhové prostředí po spuštění na to, aby odpovědělo, než se zveřejnění považuje za neúspěšné."
+    },
+    "requestTimeoutSeconds": {
+      "label": "Časový limit požadavku",
+      "hint": "Jak dlouho smí trvat jeden požadavek na běhové prostředí, než návštěvník dostane chybu."
+    },
+    "maxResponseMb": {
+      "label": "Největší odpověď běhového prostředí",
+      "hint": "Odpověď se před odesláním načte celá do paměti, takže jde o skutečný strop."
+    },
+    "portRangeStart": {
+      "label": "První port na smyčce",
+      "hint": "Pouze pro běhové prostředí, které neumí naslouchat na unixovém socketu. Na port na smyčce dosáhne každý proces na tomto stroji, což obchází pravidla přístupu ke stránce."
+    },
+    "portRangeEnd": {
+      "label": "Poslední port na smyčce",
+      "hint": "Konec rozsahu výše."
     }
   },
   "web": {
@@ -107,7 +134,15 @@
       "delete": "Smazat stránku",
       "deleted": "Stránka smazána",
       "saved": "Uloženo",
-      "close": "Zavřít"
+      "close": "Zavřít",
+      "tabRuntime": "Běh",
+      "runtimeRunning": "Běží",
+      "runtimeStopped": "Neběží",
+      "runtimeCommand": "Spouštěcí příkaz",
+      "runtimeLog": "Poslední výstup",
+      "runtimeEmptyLog": "Zatím nic zaznamenáno.",
+      "restart": "Restartovat",
+      "restarted": "Restartuje se"
     }
   }
 }
