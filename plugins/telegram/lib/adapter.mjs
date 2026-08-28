@@ -537,6 +537,7 @@ export class TelegramAdapter {
     if (controlCommandsFrom(this.chatCommands()).has(cmd)) {
       const handled = await runControlCommand(cmd, {
         msg: this.msg, reply: (t) => this.tgSend(chatId, t), isAdmin: admin, arg,
+        senderPlatformId: String(from.id),
         state: this.state, stateId: String(chatId), ctl: this.ctl, ref: this.channelRef(chatId),
         activeModel: async () => this.modelForChannel(chatId, await this.listModels().catch(() => [])),
       });
@@ -637,12 +638,7 @@ export class TelegramAdapter {
       const picker = this.pendingPickers.get(String(chatId));
       const stale = !picker || picker.kind !== 'model' || Date.now() - picker.createdAt > this.askTtlMs();
       const mo = stale ? null : picker.models[Number(data.slice(2))];
-      if (mo) {
-        const models = await this.listModels().catch(() => []);
-        const selected = models.find((e) => e.provider === mo.provider && e.model === mo.model);
-        // Fast is a provider capability, not a portable chat preference — clear it when leaving OAuth.
-        this.state.patch(String(chatId), { model: { provider: mo.provider, model: mo.model }, ...(!selected?.fastAvailable ? { fast: false } : {}) });
-      }
+      if (mo) this.state.patch(String(chatId), { model: { provider: mo.provider, model: mo.model } });
       this.pendingPickers.delete(String(chatId));
       await ctx.answerCallbackQuery().catch(() => {});
       await this.tgEdit(chatId, messageId, mo ? this.msg.modelSet(mo.model) : this.msg.noModels, { reply_markup: { inline_keyboard: [] } }).catch(() => {});

@@ -94,7 +94,11 @@ type AdapterModule = {
     onCardAction: (m: unknown) => Promise<void>;
     postAsk: (convId: string, replyToId: string, askerId: string, id: string, questions: unknown[]) => Promise<void>;
     listen: (h: (src: Record<string, unknown>, text: string, onEvent?: (e: Record<string, unknown>) => void) => Promise<string | undefined>) => void;
-    control: (api: { relay: (src: Record<string, unknown>, text: string) => Promise<string | undefined> }) => void;
+    control: (api: {
+      relay?: (src: Record<string, unknown>, text: string) => Promise<string | undefined>;
+      fastStatus?: (ref: unknown, sender: string) => { fast: boolean; fastAvailable: boolean } | null;
+      setAccountFast?: (ref: unknown, sender: string, on?: boolean) => { fast: boolean; fastAvailable: boolean } | null;
+    }) => void;
     stripMention: (t: string) => string;
     isForMe: (m: unknown) => boolean;
     accessFor: (ids: string[], convId: string) => { access?: Record<string, unknown> };
@@ -134,6 +138,7 @@ class MemoryState {
  *  published, and the adapter states its own. */
 const MSTEAMS_CHAT_COMMANDS = [
   { name: 'new', description: 'Start a fresh conversation', kind: 'action', execution: 'session-control' },
+  { name: 'fast', description: 'Set Fast mode', kind: 'action', execution: 'session-control' },
   { name: 'stats', description: 'Session info — model, context and usage', kind: 'info', execution: 'session-control' },
   { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', execution: 'session-control' },
   { name: 'model', description: 'Switch the AI model', kind: 'picker', execution: 'surface-local' },
@@ -637,6 +642,27 @@ describe('msteams identity + role mapping', () => {
     expect(seen[0]).toMatchObject({ userId: '29:enc', accountIds: ['aad-1', '29:enc'] });
   });
 
+  it('uses the linked 29: Teams id for /fast when AAD is not the bound identity', async () => {
+    const accountLinking = {
+      authenticate: vi.fn(async () => ({ status: 'authorized', user: { id: 7 } })),
+      signInActivity: vi.fn(async () => ({})),
+      linkedAccountFor: vi.fn((platformUserId: string) => platformUserId === '29:enc' ? { id: 7 } : null),
+      runWithActivity: vi.fn(async (_incoming: unknown, fn: () => Promise<string | undefined>) => fn()),
+    };
+    const { adapter } = await makeAdapter(
+      { accountLinking: true, rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] },
+      { accountLinking, models: [{ provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.6-sol', fastAvailable: true }] },
+    );
+    const setAccountFast = vi.fn(() => ({ fast: true, fastAvailable: true }));
+    adapter.control({ setAccountFast });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({
+      text: '/fast on',
+      conversation: { id: '19:channel', conversationType: 'channel', tenantId: 'tenant-guid' },
+    }));
+    expect(setAccountFast).toHaveBeenCalledWith({ platform: 'msteams', channelId: '19:channel#0' }, '29:enc', true);
+  });
+
   it('sends an OAuth card in personal chat and never starts the brain before sign-in', async () => {
     const accountLinking = {
       authenticate: async () => ({ status: 'sign_in_required' }),
@@ -1007,6 +1033,41 @@ describe('msteams live trace + cards + commands', () => {
     expect(texts.some((t) => t.includes('Fresh conversation'))).toBe(true);
     expect(texts.some((t) => t.includes('No active conversation'))).toBe(true);
     expect(texts.some((t) => t.includes('Microsoft Teams'))).toBe(true);
+  });
+
+  it('/fast uses the Entra object id for two senders, never the conversation or Bot Framework id', async () => {
+    const { adapter, state, calls } = await makeAdapter({
+      rolePolicies: [{ roleId: 'aad-1', projectIds: [] }, { roleId: 'aad-2', projectIds: [] }],
+    }, { models: [{ provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.6-sol', fastAvailable: true }] });
+    const setAccountFast = vi.fn((_ref: unknown, sender: string, on?: boolean) => ({ fast: on ?? sender === 'aad-1', fastAvailable: true }));
+    const fastStatus = vi.fn((_ref: unknown, sender: string) => ({ fast: sender === 'aad-1', fastAvailable: true }));
+    adapter.control({ setAccountFast, fastStatus });
+    adapter.listen(async () => 'unused');
+
+    await adapter.onActivity(activity({ text: '/fast on' }));
+    await adapter.onActivity(activity({ id: 'in-2', text: '/fast off', from: { id: '29:other', aadObjectId: 'aad-2', name: 'Bo' } }));
+    await adapter.onActivity(activity({ id: 'in-3', text: '/fast status' }));
+    await adapter.onActivity(activity({ id: 'in-4', text: '/fast', from: { id: '29:other', aadObjectId: 'aad-2', name: 'Bo' } }));
+
+    const ref = { platform: 'msteams', channelId: 'a:conv1#0' };
+    expect(setAccountFast).toHaveBeenNthCalledWith(1, ref, 'aad-1', true);
+    expect(setAccountFast).toHaveBeenNthCalledWith(2, ref, 'aad-2', false);
+    expect(setAccountFast).toHaveBeenNthCalledWith(3, ref, 'aad-2', undefined);
+    expect(fastStatus).toHaveBeenCalledWith(ref, 'aad-1');
+    expect(setAccountFast.mock.calls.flat()).not.toContain('a:conv1');
+    expect(setAccountFast.mock.calls.flat()).not.toContain('29:enc');
+    expect((state.get('a:conv1') as { fast?: boolean }).fast).toBeUndefined();
+    expect(calls.some((c) => c.kind === 'reply')).toBe(true);
+  });
+
+  it('/fast fails closed for an unlinked Teams identity', async () => {
+    const { adapter, state, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] });
+    adapter.control({ setAccountFast: () => null, fastStatus: () => null });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({ text: '/fast on' }));
+    const texts = calls.filter((c) => c.kind === 'reply').map((c) => (c.args[3] as { text?: string })?.text ?? '');
+    expect(texts.some((t) => t.includes('Link this platform identity'))).toBe(true);
+    expect((state.get('a:conv1') as { fast?: boolean }).fast).toBeUndefined();
   });
 
   it('posts the /model picker for an admin and applies the picked model', async () => {
@@ -1711,7 +1772,7 @@ describe('msteams per-chat overrides', () => {
     expect((state.get('a:conv1') as { display?: Record<string, string> }).display).toEqual({});
   });
 
-  it('clears fast when the picked model does not offer it', async () => {
+  it('keeps model selection independent from a legacy plugin Fast flag', async () => {
     const models = [
       { provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.5', fastAvailable: true, default: true },
       { provider: 'anthropic', providerLabel: 'Anthropic', model: 'claude-opus-4-8' },
@@ -1721,8 +1782,7 @@ describe('msteams per-chat overrides', () => {
     state.patch('a:conv1', { fast: true });
     await adapter.onActivity(activity({ text: '/model' }));
     await adapter.onCardAction(activity({ value: { ep: 'model', v: 'anthropic claude-opus-4-8' } }));
-    // Fast is a provider capability, not a portable preference: it must not survive the move.
-    expect(state.get('a:conv1')).toMatchObject({ model: { provider: 'anthropic', model: 'claude-opus-4-8' }, fast: false });
+    expect(state.get('a:conv1')).toMatchObject({ model: { provider: 'anthropic', model: 'claude-opus-4-8' }, fast: true });
   });
 
   it('says so when a proactive push has nowhere to go', async () => {

@@ -495,11 +495,7 @@ export class WhatsAppAdapter {
       const [, provider] = id.split(':');
       const [prov, mod] = [provider, id.slice(`model:${provider}:`.length)];
       if (prov && mod) {
-        const models = await this.listModels().catch(() => []);
-        const selected = models.find((model) => model.provider === prov && model.model === mod);
-        // Fast is a provider capability, not a portable chat preference. Clear it when leaving the
-        // OpenAI OAuth descriptor so the next turn cannot send priority service_tier to another API.
-        this.state.patch(chatJid, { model: { provider: prov, model: mod }, ...(!selected?.fastAvailable ? { fast: false } : {}) });
+        this.state.patch(chatJid, { model: { provider: prov, model: mod } });
         await this.sendText(chatJid, this.msg.modelSet(mod), m);
       }
       this.pendingMenus.delete(chatJid);
@@ -682,6 +678,7 @@ export class WhatsAppAdapter {
     if (controlCommandsFrom(this.chatCommands()).has(command)) {
       const handled = await runControlCommand(command, {
         msg: this.msg, reply: (t) => this.sendText(chatJid, t), isAdmin: admin, arg,
+        senderPlatformId: senderJid,
         state: this.state, stateId: chatJid, ctl: this.ctl, ref: this.chatRef(chatJid),
         activeModel: async () => (await this.modelForChat(chatJid)).active,
       });

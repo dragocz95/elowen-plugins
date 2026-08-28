@@ -710,9 +710,9 @@ describe('discord /fast capability gate', () => {
       const models = [{ provider: 'oauth', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true, reasoningLevels: ['low'] }];
       for (const name of ['fast', 'model', 'context', 'reasoning', 'help', 'voice', 'display']) {
         const { adapter, replies } = await makeAdapter(models, { model: { provider: 'oauth', model: 'gpt-5.4' } });
-        adapter.control({ status: () => null, setFast: () => ({ fast: true, fastAvailable: true }), listContext: () => ({ items: [{ id: 's', title: 'T', model: 'm' }], total: 1, hasMore: false }) });
+        adapter.control({ status: () => null, setAccountFast: () => ({ fast: true, fastAvailable: true }), listContext: () => ({ items: [{ id: 's', title: 'T', model: 'm' }], total: 1, hasMore: false }) });
         await adapter.onInteraction({
-          type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name },
+          type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { name },
         });
         expect(replies.length, `/${name}`).toBeGreaterThan(0);
       }
@@ -729,89 +729,54 @@ describe('discord /fast capability gate', () => {
     });
   });
 
-  it('does not let a stale OAuth live session enable fast for a selected non-OAuth model', async () => {
-    const models = [{ provider: 'plain', providerLabel: 'Plain', model: 'chat-only' }];
-    const { adapter, channels, replies } = await makeAdapter(models, {
-      model: { provider: 'plain', model: 'chat-only' }, fast: false,
-    });
-    const setFast = vi.fn(() => ({ fast: true, fastAvailable: true }));
-    adapter.control({
-      status: () => ({ provider: 'oauth', model: 'gpt-5.4', streaming: false, usage: {}, fast: false, fastAvailable: true }),
-      setFast,
+  it('passes each authentic Discord user id, never the channel id, without an admin gate', async () => {
+    const models = [{ provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.6-sol', fastAvailable: true }];
+    const { adapter, channels } = await makeAdapter(models);
+    const setAccountFast = vi.fn((_ref: unknown, sender: string, on?: boolean) => ({ fast: on ?? sender === 'U1', fastAvailable: true }));
+    const fastStatus = vi.fn((_ref: unknown, sender: string) => ({ fast: sender === 'U1', fastAvailable: true }));
+    adapter.control({ setAccountFast, fastStatus });
+    const invoke = (id: string, sender: string, state?: string) => adapter.onInteraction({
+      type: 2, id, token: id, channel_id: 'C', guild_id: 'G', member: { roles: [], user: { id: sender } },
+      data: { name: 'fast', ...(state ? { options: [{ name: 'state', value: state }] } : {}) },
     });
 
-    await adapter.onInteraction({
-      type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] }, data: { name: 'fast' },
-    });
-    expect(setFast).not.toHaveBeenCalled();
-    expect(channels.C?.fast).toBe(false);
-    expect(JSON.stringify(replies[0])).toContain('available only with an OpenAI OAuth model');
+    await invoke('I1', 'U1', 'on');
+    await invoke('I2', 'U2', 'off');
+    await invoke('I3', 'U1', 'status');
+    await invoke('I4', 'U2');
+
+    const ref = { platform: 'discord', channelId: 'C#0' };
+    expect(setAccountFast).toHaveBeenNthCalledWith(1, ref, 'U1', true);
+    expect(setAccountFast).toHaveBeenNthCalledWith(2, ref, 'U2', false);
+    expect(setAccountFast).toHaveBeenNthCalledWith(3, ref, 'U2', undefined);
+    expect(fastStatus).toHaveBeenCalledWith(ref, 'U1');
+    expect(setAccountFast.mock.calls.flat()).not.toContain('C');
+    expect(channels.C?.fast).toBeUndefined();
   });
 
-  it('persists Fast for a newly selected OAuth model without asking the stale non-OAuth live session', async () => {
-    const models = [{ provider: 'oauth', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true }];
-    const { adapter, channels } = await makeAdapter(models, { model: { provider: 'oauth', model: 'gpt-5.4' }, fast: false });
-    const setFast = vi.fn(() => ({ fast: false, fastAvailable: false }));
-    adapter.control({
-      status: () => ({ provider: 'plain', model: 'chat-only', streaming: false, usage: {}, fast: false, fastAvailable: false }),
-      setFast,
-    });
-
+  it('fails closed for an unlinked Discord identity', async () => {
+    const models = [{ provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.6-sol', fastAvailable: true }];
+    const { adapter, channels, replies } = await makeAdapter(models);
+    adapter.control({ setAccountFast: () => null, fastStatus: () => null });
     await adapter.onInteraction({
-      type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
+      type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: [], user: { id: 'UNLINKED' } },
       data: { name: 'fast', options: [{ name: 'state', value: 'on' }] },
     });
-
-    expect(setFast).not.toHaveBeenCalled();
-    expect(channels.C?.fast).toBe(true);
+    expect(JSON.stringify(replies.at(-1))).toContain('Link this platform identity');
+    expect(channels.C?.fast).toBeUndefined();
   });
 
-  it('toggles fast for an OAuth model and allows stale state to be disabled elsewhere', async () => {
+  it('keeps model selection independent from account Fast state', async () => {
     const models = [
-      { provider: 'oauth', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true },
+      { provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.6-sol', fastAvailable: true },
       { provider: 'plain', providerLabel: 'Plain', model: 'chat-only' },
     ];
-    const { adapter, channels, replies } = await makeAdapter(models, {
-      model: { provider: 'oauth', model: 'gpt-5.4' }, fast: false,
-    });
-    const setFast = vi.fn((_ref: unknown, on?: boolean) => ({ fast: on === true, fastAvailable: true }));
-    adapter.control({
-      status: () => ({ provider: 'oauth', model: 'gpt-5.4', streaming: false, usage: {}, fast: false, fastAvailable: true }),
-      setFast,
-    });
-
+    const { adapter, channels } = await makeAdapter(models);
     await adapter.onInteraction({
-      type: 2, id: 'I1', token: 'T1', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
-      data: { name: 'fast', options: [{ name: 'state', value: 'on' }] },
-    });
-    expect(setFast).toHaveBeenCalledWith({ platform: 'discord', channelId: 'C#0' }, true);
-    expect(channels.C?.fast).toBe(true);
-    expect(JSON.stringify(replies.at(-1))).toContain('Fast mode **on**');
-
-    channels.C = { model: { provider: 'plain', model: 'chat-only' }, fast: true };
-    setFast.mockClear();
-    await adapter.onInteraction({
-      type: 2, id: 'I2', token: 'T2', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
-      data: { name: 'fast', options: [{ name: 'state', value: 'off' }] },
-    });
-    expect(setFast).not.toHaveBeenCalled();
-    expect(channels.C?.fast).toBe(false);
-    expect(JSON.stringify(replies.at(-1))).toContain('Fast mode **off**');
-  });
-
-  it('clears fast when the model picker moves the channel away from OpenAI OAuth', async () => {
-    const models = [
-      { provider: 'oauth', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true },
-      { provider: 'plain', providerLabel: 'Plain', model: 'chat-only' },
-    ];
-    const { adapter, channels } = await makeAdapter(models, {
-      model: { provider: 'oauth', model: 'gpt-5.4' }, fast: true,
-    });
-    await adapter.onInteraction({
-      type: 3, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'] },
+      type: 3, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'], user: { id: 'U1' } },
       data: { custom_id: 'pick_model', values: ['plain::chat-only'] },
     });
-    expect(channels.C).toMatchObject({ model: { provider: 'plain', model: 'chat-only' }, fast: false });
+    expect(channels.C).toEqual({ model: { provider: 'plain', model: 'chat-only' } });
   });
 });
 
@@ -1539,7 +1504,7 @@ describe('discord onMessage context pipeline', () => {
     expect((seen!.src.attachments as unknown[]) ?? []).toHaveLength(1);
   });
 
-  it('clears Fast only on a temporary non-OAuth vision fallback without changing channel state', async () => {
+  it('keeps Fast out of plugin vision state and leaves a legacy saved flag inert', async () => {
     const reg = await loadPlugins({
       dirs: [join(repoRoot, 'plugins')], enabled: ['discord'], logger: log,
       config: { discord: {
@@ -1573,7 +1538,8 @@ describe('discord onMessage context pipeline', () => {
       });
     } finally { global.fetch = oldFetch; }
 
-    expect(turnAccess).toMatchObject({ model: { provider: 'vision', model: 'image-model' }, fast: false });
+    expect(turnAccess).toMatchObject({ model: { provider: 'vision', model: 'image-model' } });
+    expect(turnAccess).not.toHaveProperty('fast');
     expect(adapter.state.get('100')).toMatchObject({ model: { provider: 'oauth', model: 'normal' }, fast: true });
   });
 

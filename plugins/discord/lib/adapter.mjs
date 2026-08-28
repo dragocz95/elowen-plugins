@@ -274,8 +274,8 @@ export class DiscordAdapter {
     // every daemon command name already is.
     const DISCORD_OPTIONS = {
       fast: [
-        { name: 'state', description: 'on or off (omit to toggle)', type: 3, required: false, choices: [
-          { name: 'on', value: 'on' }, { name: 'off', value: 'off' },
+        { name: 'state', description: 'on, off, or status (omit to toggle)', type: 3, required: false, choices: [
+          { name: 'on', value: 'on' }, { name: 'off', value: 'off' }, { name: 'status', value: 'status' },
         ] },
       ],
     };
@@ -624,6 +624,7 @@ export class DiscordAdapter {
           : (content) => this.respond(i, 4, { content, flags: 64 });
         const handled = await runControlCommand(name, {
           msg: this.msg, reply, isAdmin: () => this.isAdminMember(i.member),
+          senderPlatformId: i.member.user.id,
           arg: name === 'fast' ? (i.data?.options ?? []).find((o) => o.name === 'state')?.value : undefined,
           state: this.state, stateId: i.channel_id, ctl: this.ctl, ref: this.channelRef(i.channel_id),
           activeModel: async () => this.modelForChannel(i.channel_id, await this.listModels().catch(() => [])),
@@ -779,13 +780,7 @@ export class DiscordAdapter {
       // Re-check on submit: the select menu was admin-gated, but the component round-trips independently.
       if (!this.isAdminMember(i.member)) return this.respond(i, 7, { content: this.msg.modelForbidden, components: [] });
       const [provider, model] = String(i.data.values?.[0] ?? '').split('::');
-      if (provider && model) {
-        const models = await this.listModels().catch(() => []);
-        const selected = models.find((entry) => entry.provider === provider && entry.model === model);
-        // Fast is a provider capability, not a portable channel preference. Clear it when leaving the
-        // OpenAI OAuth descriptor so the next turn cannot send priority service_tier to another API.
-        this.state.patch(i.channel_id, { model: { provider, model }, ...(!selected?.fastAvailable ? { fast: false } : {}) });
-      }
+      if (provider && model) this.state.patch(i.channel_id, { model: { provider, model } });
       return this.respond(i, 7, { content: this.msg.modelSet(provider && model ? `${provider}/${model}` : model), components: [] });
     }
   }

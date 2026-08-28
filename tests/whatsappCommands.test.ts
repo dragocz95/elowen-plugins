@@ -20,7 +20,8 @@ interface TestAdapter {
   pendingMenus: Map<string, unknown>;
   control(api: {
     status?: (ref: unknown) => { provider?: string; model: string } | null;
-    setFast?: (ref: unknown, on?: boolean) => { fast: boolean; fastAvailable: boolean } | null;
+    fastStatus?: (ref: unknown, sender: string) => { fast: boolean; fastAvailable: boolean } | null;
+    setAccountFast?: (ref: unknown, sender: string, on?: boolean) => { fast: boolean; fastAvailable: boolean } | null;
     listContext?: (ref: unknown, sender: string, opts: unknown) => { items: { id: string; title: string; model: string }[]; total: number; hasMore: boolean } | null;
     bindContext?: (ref: unknown, sender: string, sessionId: string) => Promise<{ title: string }>;
   }): void;
@@ -142,65 +143,49 @@ describe('whatsapp reasoning command capabilities', () => {
   });
 });
 
-describe('whatsapp /fast capability gate', () => {
-  it('does not let a stale OAuth live session enable fast for a selected non-OAuth model', async () => {
-    const models = [{ provider: 'plain', providerLabel: 'Plain', model: 'chat-only' }];
-    const { adapter, chats, sent } = await makeAdapter(models, { model: { provider: 'plain', model: 'chat-only' }, fast: false });
-    const setFast = vi.fn(() => ({ fast: true, fastAvailable: true }));
-    adapter.control({
-      status: () => ({ provider: 'openai', model: 'gpt-5.4' }),
-      setFast,
-    });
+describe('whatsapp /fast account control', () => {
+  const GROUP = '120363000000000000@g.us';
+  const ALICE = '420111111111@s.whatsapp.net';
+  const BOB = '420222222222@s.whatsapp.net';
+  const models: ModelOption[] = [{ provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.6-sol', fastAvailable: true }];
 
-    expect(await adapter.handleCommand(CHAT, CHAT, '/fast')).toBe(true);
-    expect(setFast).not.toHaveBeenCalled();
-    expect(chats[CHAT]?.fast).toBe(false);
-    expect(sent.at(-1)).toContain('available only with an OpenAI OAuth model');
+  it('passes each authentic sender JID, never the group chat id, for on/off/status and bare toggle', async () => {
+    const { adapter, chats } = await makeAdapter(models);
+    const setAccountFast = vi.fn((_ref: unknown, sender: string, on?: boolean) => ({ fast: on ?? sender === ALICE, fastAvailable: true }));
+    const fastStatus = vi.fn((_ref: unknown, sender: string) => ({ fast: sender === ALICE, fastAvailable: true }));
+    adapter.control({ setAccountFast, fastStatus });
+
+    await adapter.handleCommand(GROUP, ALICE, '/fast on');
+    await adapter.handleCommand(GROUP, BOB, '/fast off');
+    await adapter.handleCommand(GROUP, ALICE, '/fast status');
+    await adapter.handleCommand(GROUP, BOB, '/fast');
+
+    const ref = { platform: 'whatsapp', channelId: `${GROUP}#0` };
+    expect(setAccountFast).toHaveBeenNthCalledWith(1, ref, ALICE, true);
+    expect(setAccountFast).toHaveBeenNthCalledWith(2, ref, BOB, false);
+    expect(setAccountFast).toHaveBeenNthCalledWith(3, ref, BOB, undefined);
+    expect(fastStatus).toHaveBeenCalledWith(ref, ALICE);
+    expect(setAccountFast.mock.calls.flat()).not.toContain(GROUP);
+    expect(chats[GROUP]?.fast).toBeUndefined();
   });
 
-  it('persists Fast for a newly selected OAuth model without consulting a stale non-OAuth live session', async () => {
-    const models: ModelOption[] = [{ provider: 'openai', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true }];
-    const { adapter, chats } = await makeAdapter(models, { model: { provider: 'openai', model: 'gpt-5.4' }, fast: false });
-    const setFast = vi.fn(() => ({ fast: false, fastAvailable: false }));
-    adapter.control({ status: () => ({ provider: 'plain', model: 'chat-only' }), setFast });
-
-    await adapter.handleCommand(CHAT, CHAT, '/fast on');
-
-    expect(setFast).not.toHaveBeenCalled();
-    expect(chats[CHAT]?.fast).toBe(true);
+  it('fails closed for an unlinked sender without creating plugin-owned Fast state', async () => {
+    const { adapter, chats, sent } = await makeAdapter(models);
+    adapter.control({ setAccountFast: () => null, fastStatus: () => null });
+    expect(await adapter.handleCommand(GROUP, ALICE, '/fast on')).toBe(true);
+    expect(sent.at(-1)).toContain('Link this platform identity');
+    expect(chats[GROUP]?.fast).toBeUndefined();
   });
 
-  it('toggles fast for a capability-advertised OAuth model and allows clearing stale state elsewhere', async () => {
-    const models: ModelOption[] = [
-      { provider: 'openai', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true },
+  it('keeps model selection independent from the account Fast preference', async () => {
+    const choices: ModelOption[] = [
+      { provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.6-sol', fastAvailable: true },
       { provider: 'plain', providerLabel: 'Plain', model: 'chat-only' },
     ];
-    const { adapter, chats, sent } = await makeAdapter(models, { model: { provider: 'openai', model: 'gpt-5.4' }, fast: false });
-    const setFast = vi.fn((_ref: unknown, on?: boolean) => ({ fast: on === true, fastAvailable: true }));
-    adapter.control({ status: () => ({ provider: 'openai', model: 'gpt-5.4' }), setFast });
-
-    await adapter.handleCommand(CHAT, CHAT, '/fast on');
-    expect(setFast).toHaveBeenCalledWith({ platform: 'whatsapp', channelId: `${CHAT}#0` }, true);
-    expect(chats[CHAT]?.fast).toBe(true);
-    expect(sent.at(-1)).toContain('Fast mode is *on*');
-
-    chats[CHAT] = { model: { provider: 'plain', model: 'chat-only' }, fast: true };
-    setFast.mockClear();
-    await adapter.handleCommand(CHAT, CHAT, '/fast off');
-    expect(setFast).not.toHaveBeenCalled();
-    expect(chats[CHAT]?.fast).toBe(false);
-    expect(sent.at(-1)).toContain('Fast mode is *off*');
-  });
-
-  it('clears fast when the model picker moves the chat away from OpenAI OAuth', async () => {
-    const models: ModelOption[] = [
-      { provider: 'openai', providerLabel: 'OpenAI OAuth', model: 'gpt-5.4', fastAvailable: true },
-      { provider: 'plain', providerLabel: 'Plain', model: 'chat-only' },
-    ];
-    const { adapter, chats } = await makeAdapter(models, { model: { provider: 'openai', model: 'gpt-5.4' }, fast: true });
+    const { adapter, chats } = await makeAdapter(choices, { model: { provider: 'openai', model: 'gpt-5.6-sol' } });
     await adapter.handleCommand(CHAT, CHAT, '/model');
     expect(await adapter.handleTextReply(CHAT, CHAT, '2', {})).toBe(true);
-    expect(chats[CHAT]).toMatchObject({ model: { provider: 'plain', model: 'chat-only' }, fast: false });
+    expect(chats[CHAT]).toEqual({ model: { provider: 'plain', model: 'chat-only' } });
   });
 
   it('does not claim /fast when the shared WhatsApp command catalog omits it', async () => {

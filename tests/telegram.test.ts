@@ -196,6 +196,7 @@ const LOCAL_CATALOG = [
   { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', execution: 'session-control' },
   { name: 'help', description: 'Show the available commands', kind: 'info', execution: 'surface-local' },
 ];
+const FAST_CATALOG = [...LOCAL_CATALOG, { name: 'fast', description: 'Set Fast mode', kind: 'action', execution: 'session-control' }];
 
 describe('telegram paged pickers + /context', () => {
   const makeAdapter = async (models: unknown[], initial: Record<string, unknown> = {}, commands: unknown[] = LOCAL_CATALOG) => {
@@ -273,6 +274,36 @@ describe('telegram paged pickers + /context', () => {
     await adapter.handleCommand(5, { id: 999 }, ['999'], '/context');
     expect(listContext).not.toHaveBeenCalled();
     expect(sent.at(-1)!.text).toContain('Only the operator');
+  });
+
+  it('/fast passes the authentic Telegram user id for two senders, not the chat id', async () => {
+    const models = [{ provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.6-sol', fastAvailable: true }];
+    const { adapter, chats } = await makeAdapter(models, {}, FAST_CATALOG);
+    const setAccountFast = vi.fn((_ref: unknown, sender: string, on?: boolean) => ({ fast: on ?? sender === '42', fastAvailable: true }));
+    const fastStatus = vi.fn((_ref: unknown, sender: string) => ({ fast: sender === '42', fastAvailable: true }));
+    adapter.control({ setAccountFast, fastStatus });
+
+    await adapter.handleCommand(5, { id: 42 }, ['42'], '/fast on');
+    await adapter.handleCommand(5, { id: 43 }, ['43'], '/fast off');
+    await adapter.handleCommand(5, { id: 42 }, ['42'], '/fast status');
+    await adapter.handleCommand(5, { id: 43 }, ['43'], '/fast');
+
+    const ref = { platform: 'telegram', channelId: '5#0' };
+    expect(setAccountFast).toHaveBeenNthCalledWith(1, ref, '42', true);
+    expect(setAccountFast).toHaveBeenNthCalledWith(2, ref, '43', false);
+    expect(setAccountFast).toHaveBeenNthCalledWith(3, ref, '43', undefined);
+    expect(fastStatus).toHaveBeenCalledWith(ref, '42');
+    expect(setAccountFast.mock.calls.flat()).not.toContain('5');
+    expect(chats['5']?.fast).toBeUndefined();
+  });
+
+  it('/fast fails closed for an unlinked Telegram user', async () => {
+    const models = [{ provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.6-sol', fastAvailable: true }];
+    const { adapter, sent, chats } = await makeAdapter(models, {}, FAST_CATALOG);
+    adapter.control({ setAccountFast: () => null, fastStatus: () => null });
+    await adapter.handleCommand(5, { id: 99 }, ['99'], '/fast on');
+    expect(sent.at(-1)!.text).toContain('Link this platform identity');
+    expect(chats['5']?.fast).toBeUndefined();
   });
 
   /** The catalog decides for the LOCAL half too, not just for the names routed to the shared control core.

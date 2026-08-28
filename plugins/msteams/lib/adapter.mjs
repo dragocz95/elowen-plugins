@@ -764,7 +764,7 @@ export class MsTeamsAdapter {
     let text = said;
 
     // A slash command targets the bot's controls, not the brain.
-    if (text.startsWith('/') && await this.handleCommand(m, conv, from, ids, text)) return;
+    if (text.startsWith('/') && await this.handleCommand(m, conv, from, ids, text, linkedPlatformUserId)) return;
     // A recognized plugin prompt-command falls through handleCommand: capture its RAW `/name args` so it
     // reaches the brain starting with the slash (PI expands the macro), bypassing the speaker prefix.
     const promptSlash = this.isPromptCommand(text) ? text : null;
@@ -1499,7 +1499,7 @@ export class MsTeamsAdapter {
   }
 
   /** Handle a `/command`. Returns true when the text was a (recognized) command. */
-  async handleCommand(m, conv, from, ids, text) {
+  async handleCommand(m, conv, from, ids, text, linkedPlatformUserId) {
     const [cmdRaw, ...argParts] = text.slice(1).trim().split(/\s+/);
     const cmd = String(cmdRaw ?? '').toLowerCase();
     const arg = argParts.join(' ').trim().toLowerCase();
@@ -1515,6 +1515,7 @@ export class MsTeamsAdapter {
     if (controlCommandsFrom(this.chatCommands()).has(cmd)) {
       const handled = await runControlCommand(cmd, {
         msg: this.msg, reply, isAdmin: admin, arg,
+        senderPlatformId: String(linkedPlatformUserId || from.aadObjectId || from.id),
         state: this.state, stateId: String(conv.id), ctl: this.ctl, ref: this.channelRef(conv.id),
         activeModel: async () => this.modelForChannel(conv.id, await this.listModels().catch(() => [])),
       });
@@ -1610,12 +1611,7 @@ export class MsTeamsAdapter {
         const provider = picked.slice(0, sep);
         const model = picked.slice(sep + 1);
         if (!model) return;
-        // Re-read the catalog on submit: the card round-trips independently of the turn that built it,
-        // and `fast` is a provider capability rather than a portable per-chat preference — leaving it
-        // set while moving to a model without it would send a priority service_tier to another API.
-        const catalog = await this.listModels().catch(() => []);
-        const selected = catalog.find((entry) => entry.provider === provider && entry.model === model);
-        this.state.patch(String(conv.id), { model: { provider, model }, ...(selected?.fastAvailable ? {} : { fast: false }) });
+        this.state.patch(String(conv.id), { model: { provider, model } });
         this.pendingPickers.delete(String(conv.id));
         await this.tmEdit(conv.id, pend.activityId, '', settledCard(this.msg.modelSet(model)));
         return;

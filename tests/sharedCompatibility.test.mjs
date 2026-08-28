@@ -11,7 +11,7 @@ test.afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function fixture({ requiresSharedApi = 2, daemonVersion = '0.1.7', omitSharedApi = false } = {}) {
+function fixture({ requiresSharedApi = 3, daemonVersion = '0.1.7', omitSharedApi = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'elowen-shared-check-'));
   roots.push(root);
   const daemon = join(root, 'daemon');
@@ -23,7 +23,7 @@ function fixture({ requiresSharedApi = 2, daemonVersion = '0.1.7', omitSharedApi
   writeFileSync(join(root, 'package.json'), JSON.stringify({ devDependencies: { 'elowen-plugin-shared': '^0.1.7' } }));
   writeFileSync(join(daemon, 'package.json'), JSON.stringify({ version: '0.28.17', dependencies: { 'elowen-plugin-shared': daemonVersion } }));
   writeFileSync(join(shared, 'package.json'), JSON.stringify({ name: 'elowen-plugin-shared', version: '0.1.7', type: 'module' }));
-  writeFileSync(join(shared, 'index.mjs'), 'export const PLUGIN_SHARED_API_VERSION = 2;\n');
+  writeFileSync(join(shared, 'index.mjs'), 'export const PLUGIN_SHARED_API_VERSION = 3;\n');
   writeFileSync(join(plugin, 'index.mjs'), "import 'elowen-plugin-shared/format';\n");
   const manifest = { name: 'demo', entry: 'index.mjs', requiresSharedApi };
   if (omitSharedApi) delete manifest.requiresSharedApi;
@@ -61,5 +61,5 @@ test('accepts an exact shared API and compatible package versions', () => {
   const fx = fixture();
   const result = run(fx);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /shared 0\.1\.7 \/ API 2/);
+  assert.match(result.stdout, /shared 0\.1\.7 \/ API 3/);
 });
