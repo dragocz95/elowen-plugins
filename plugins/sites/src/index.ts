@@ -2,11 +2,11 @@ import { randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PluginContext } from 'elowen/plugin-api';
-import { asSitesContext } from './coreSeams.js';
+import { asSitesContext, asUserViews } from './coreSeams.js';
 import { SitesStore, type Site } from './store.js';
 import { resolveConfig, type SitesConfig } from './config.js';
 import { createSiteHandler } from './serve.js';
-import { createApiHandlers } from './api.js';
+import { createApiHandlers, type Person } from './api.js';
 import { registerTools } from './tools.js';
 import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
 import type { AccessDeps } from './access.js';
@@ -56,8 +56,13 @@ export function register(published: PluginContext): void {
     canAccessProject: (userId, projectId) => ctx.host.stores().userProjects.canAccess(userId, projectId),
   };
 
-  const usernames = (): Map<number, string> =>
-    new Map(ctx.host.stores().usersRead.list().map((user) => [user.id, user.username]));
+  // Whole accounts, not just names: a plugin page draws people with the host Avatar, which needs the
+  // display name and whether a photo was uploaded. `avatar` is a presence flag — the component mints its
+  // own signed link from the id and never builds a URL from this string.
+  const people = (): Map<number, Person> =>
+    new Map(asUserViews(ctx.host.stores().usersRead.list()).map((user) => [user.id, {
+      id: user.id, username: user.username, name: user.name || user.username, avatar: user.avatar,
+    }]));
 
   const projectSlug = (projectId: number): string | null =>
     ctx.host.stores().projects.get(projectId)?.slug ?? null;
@@ -137,7 +142,7 @@ export function register(published: PluginContext): void {
           requestTimeoutSeconds: resolved.requestTimeoutSeconds,
         };
       },
-      usernameOf: (userId) => usernames().get(userId) ?? null,
+      usernameOf: (userId) => people().get(userId)?.username ?? null,
     }),
   });
 
@@ -145,7 +150,7 @@ export function register(published: PluginContext): void {
     store,
     access,
     config,
-    usernames,
+    people,
     projectSlug,
     deleteSiteFiles: async (siteId) => {
       await supervisor.stop(siteId);

@@ -17,7 +17,7 @@ const isVisibilityFilter = (raw: string): boolean => raw === 'all' || (VISIBILIT
 const isStatusFilter = (raw: string): boolean => raw === 'all' || (STATUS_ORDER as readonly string[]).includes(raw);
 
 const matches = (site: SiteView, needle: string): boolean =>
-  needle === '' || `${site.title} ${site.slug} ${site.summary} ${site.ownerName}`.toLowerCase().includes(needle);
+  needle === '' || `${site.title} ${site.slug} ${site.summary} ${site.owner.name}`.toLowerCase().includes(needle);
 
 /** The register of sites: the same table on the Sites page and inside a Project panel, so a site reads
  *  identically wherever it is listed. One row opens the shared detail drawer. */
@@ -118,10 +118,10 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
           <span className="max-w-full truncate font-mono text-[11px] text-text-muted">{site.url}</span>
         </button>
       </DataTableCell>
-      <DataTableCell priority="wide" title={site.ownerName}>
+      <DataTableCell priority="wide" title={site.owner.name}>
         <span className="flex min-w-0 items-center gap-2">
-          <Avatar size={22} name={site.ownerName} user={avatarUser({ id: site.ownerUserId, name: site.ownerName })} />
-          <span className="truncate text-xs text-text-muted">{site.ownerName}</span>
+          <Avatar size={22} name={site.owner.name} user={avatarUser(site.owner)} />
+          <span className="truncate text-xs text-text-muted">{site.owner.name}</span>
         </span>
       </DataTableCell>
       <DataTableCell priority="wide">

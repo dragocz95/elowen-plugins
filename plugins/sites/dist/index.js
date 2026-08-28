@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { asSitesContext } from './coreSeams.js';
+import { asSitesContext, asUserViews } from './coreSeams.js';
 import { SitesStore } from './store.js';
 import { resolveConfig } from './config.js';
 import { createSiteHandler } from './serve.js';
@@ -49,7 +49,12 @@ export function register(published) {
         isAdmin: (userId) => ctx.host.stores().usersRead.isAdmin(userId),
         canAccessProject: (userId, projectId) => ctx.host.stores().userProjects.canAccess(userId, projectId),
     };
-    const usernames = () => new Map(ctx.host.stores().usersRead.list().map((user) => [user.id, user.username]));
+    // Whole accounts, not just names: a plugin page draws people with the host Avatar, which needs the
+    // display name and whether a photo was uploaded. `avatar` is a presence flag — the component mints its
+    // own signed link from the id and never builds a URL from this string.
+    const people = () => new Map(asUserViews(ctx.host.stores().usersRead.list()).map((user) => [user.id, {
+            id: user.id, username: user.username, name: user.name || user.username, avatar: user.avatar,
+        }]));
     const projectSlug = (projectId) => ctx.host.stores().projects.get(projectId)?.slug ?? null;
     // Visits are counted in memory and flushed on a timer: a published page must not pay for a database
     // write on every asset it serves.
@@ -129,14 +134,14 @@ export function register(published) {
                     requestTimeoutSeconds: resolved.requestTimeoutSeconds,
                 };
             },
-            usernameOf: (userId) => usernames().get(userId) ?? null,
+            usernameOf: (userId) => people().get(userId)?.username ?? null,
         }),
     });
     const handlers = createApiHandlers({
         store,
         access,
         config,
-        usernames,
+        people,
         projectSlug,
         deleteSiteFiles: async (siteId) => {
             await supervisor.stop(siteId);

@@ -132,10 +132,10 @@ export function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted 
       </div>
 
       <div className="flex items-center gap-2">
-        <Avatar size="sm" name={site.ownerName} user={avatarUser({ id: site.ownerUserId, name: site.ownerName })} />
+        <Avatar size="sm" name={site.owner.name} user={avatarUser(site.owner)} />
         <span className="flex min-w-0 flex-col">
           <span className="text-[10px] uppercase tracking-wide text-text-muted">{strings.columnOwner}</span>
-          <span className="truncate text-xs text-text">{site.ownerName}</span>
+          <span className="truncate text-xs text-text">{site.owner.name}</span>
         </span>
       </div>
 

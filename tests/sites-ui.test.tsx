@@ -19,9 +19,11 @@ ensurePluginUiRuntime();
 // assertions in lockstep with what a user sees.
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
 
-const OWNER = { id: 7, name: 'Filip Džudža' };
-const GUEST = { id: 9, name: 'Patricie Nováková' };
-const OUTSIDER = { id: 11, name: 'Lucie Marková' };
+// A person carries the picture too, so the register and the drawer draw the same face the rest of the
+// application does. OWNER has one uploaded; the other two do not and fall back to the monogram.
+const OWNER = { id: 7, username: 'filip', name: 'Filip Džudža', avatar: '7.png' };
+const GUEST = { id: 9, username: 'patricie', name: 'Patricie Nováková', avatar: '' };
+const OUTSIDER = { id: 11, username: 'lucie', name: 'Lucie Marková', avatar: '' };
 
 const site = {
   id: 'site-1',
@@ -35,7 +37,7 @@ const site = {
   projectId: 3,
   projectSlug: 'kolin',
   ownerUserId: OWNER.id,
-  ownerName: OWNER.name,
+  owner: OWNER,
   createdAt: '2026-08-01T10:00:00.000Z',
   createdModel: 'anthropic/claude',
   lastPublishAt: '2026-08-20T10:00:00.000Z',

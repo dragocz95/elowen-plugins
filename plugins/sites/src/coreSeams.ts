@@ -32,10 +32,24 @@ interface SitesSandboxControl {
   ): SandboxPreparedExecution | Promise<SandboxPreparedExecution>;
 }
 
+/** An account as the host hands it over. The published package still describes it without the display
+ *  name and the avatar, which arrived in the release named by `requiresCore`. */
+export interface SitesUserView {
+  id: number;
+  username: string;
+  name: string;
+  avatar: string;
+  isAdmin: boolean;
+}
+
 /** The plugin context as this plugin actually uses it. */
 export type SitesContext = Omit<PluginContext, 'control'> & {
   control(name: 'sandbox'): SitesSandboxControl | undefined;
 };
+
+/** The account list as the daemon actually returns it, for the one call site that needs the picture. */
+export const asUserViews = (users: readonly { id: number; username: string; isAdmin: boolean }[]): SitesUserView[] =>
+  users as unknown as SitesUserView[];
 
 /** The single place the published context is read as the one the daemon actually provides. */
 export const asSitesContext = (ctx: PluginContext): SitesContext => ctx as unknown as SitesContext;

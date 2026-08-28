@@ -66,7 +66,7 @@ var jsonBody = (method, value) => ({
 });
 var SITES_LIST_KEY = ["sites", "list"];
 var siteDetailKey = (siteId) => ["sites", "detail", siteId];
-var avatarUser = (person) => ({ id: person.id, username: person.name, name: person.name });
+var avatarUser = (person) => person;
 function relativeTime(iso) {
   if (!iso) return "";
   const then = Date.parse(iso);
@@ -501,10 +501,10 @@ function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted }) {
       site.summary ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm leading-relaxed text-text-muted", children: site.summary }) : null
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-2", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Avatar, { size: "sm", name: site.ownerName, user: avatarUser({ id: site.ownerUserId, name: site.ownerName }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Avatar, { size: "sm", name: site.owner.name, user: avatarUser(site.owner) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-text-muted", children: strings.columnOwner }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-xs text-text", children: site.ownerName })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-xs text-text", children: site.owner.name })
       ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DetailBlock, { icon: Link2, title: strings.address, children: [
@@ -679,7 +679,7 @@ var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var SECTIONS = ["mine", "shared"];
 var isVisibilityFilter = (raw) => raw === "all" || VISIBILITY_ORDER.includes(raw);
 var isStatusFilter = (raw) => raw === "all" || STATUS_ORDER.includes(raw);
-var matches = (site, needle) => needle === "" || `${site.title} ${site.slug} ${site.summary} ${site.ownerName}`.toLowerCase().includes(needle);
+var matches = (site, needle) => needle === "" || `${site.title} ${site.slug} ${site.summary} ${site.owner.name}`.toLowerCase().includes(needle);
 function SitesRegister({ sites, selectedId, onSelect }) {
   const { components, hooks } = runtime();
   const { DataTable, DataTableRow, DataTableCell, MotionPresence, MotionLayoutItem } = components;
@@ -756,9 +756,9 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }) {
         ]
       }
     ) }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { priority: "wide", title: site.ownerName, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Avatar, { size: 22, name: site.ownerName, user: avatarUser({ id: site.ownerUserId, name: site.ownerName }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-xs text-text-muted", children: site.ownerName })
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { priority: "wide", title: site.owner.name, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Avatar, { size: 22, name: site.owner.name, user: avatarUser(site.owner) }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-xs text-text-muted", children: site.owner.name })
     ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { priority: "wide", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Badge, { tone: VISIBILITY_TONE[site.visibility], children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(VisibilityIcon, { size: 10, "aria-hidden": true, className: "mr-1" }),

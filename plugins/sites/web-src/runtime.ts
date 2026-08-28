@@ -16,7 +16,7 @@ export interface SiteView {
   projectId: number;
   projectSlug: string | null;
   ownerUserId: number;
-  ownerName: string;
+  owner: Person;
   createdAt: string;
   createdModel: string;
   lastPublishAt: string | null;
@@ -43,11 +43,14 @@ interface ReleaseView {
 }
 
 /** One person as the API hands them over: the account id and the display name, nothing else. Core's
- *  plugin-facing account view carries no uploaded avatar, so every face on this page is the host
- *  Avatar's monogram — the same one core draws for an account that never uploaded a picture. */
+/** A person, in the exact shape the host Avatar takes. Mirrors `Person` in src/api.ts. */
 export interface Person {
   id: number;
+  username: string;
   name: string;
+  /** Stored filename of an uploaded picture, empty when there is none. The Avatar treats it as a
+   *  presence flag and fetches a short-lived signed link itself. */
+  avatar: string;
 }
 
 export interface SiteDetailResponse {
@@ -269,10 +272,9 @@ export const jsonBody = (method: string, value: unknown): RequestInit => ({
 export const SITES_LIST_KEY = ['sites', 'list'];
 export const siteDetailKey = (siteId: string): unknown[] => ['sites', 'detail', siteId];
 
-/** The host account shape the Avatar resolves a monogram from. The directory gives a display name and
- *  nothing else, so the name doubles as the username — which is what the monogram is derived from. */
-export const avatarUser = (person: Person): { id: number; username: string; name: string } =>
-  ({ id: person.id, username: person.name, name: person.name });
+/** The Avatar takes exactly this shape already, so this is an identity — kept as a named function so
+ *  every call site goes through one place if the host contract ever widens. */
+export const avatarUser = (person: Person): Person => person;
 
 /** Relative time in the shape the register uses: short, and never a bare timestamp nobody reads. */
 export function relativeTime(iso: string | null): string {

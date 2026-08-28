@@ -23,7 +23,8 @@ const toView = (site, deps, auth) => {
         projectId: site.projectId,
         projectSlug: deps.projectSlug(site.projectId),
         ownerUserId: site.ownerUserId,
-        ownerName: deps.usernames().get(site.ownerUserId) ?? `#${site.ownerUserId}`,
+        owner: deps.people().get(site.ownerUserId)
+            ?? { id: site.ownerUserId, username: `#${site.ownerUserId}`, name: `#${site.ownerUserId}`, avatar: '' },
         createdAt: site.createdAt,
         createdModel: site.createdModel,
         lastPublishAt: site.lastPublishAt,
@@ -85,11 +86,12 @@ export function createApiHandlers(deps) {
             return json(404, { error: 'not found' });
         }
         if (req.method === 'GET' && action === '') {
-            const usernames = deps.usernames();
+            const people = deps.people();
             const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
             return json(200, {
                 site: toView(target, deps, req.auth),
-                members: deps.store.memberIds(target.id).map((id) => ({ id, name: usernames.get(id) ?? `#${id}` })),
+                members: deps.store.memberIds(target.id).map((id) => people.get(id)
+                    ?? { id, username: `#${id}`, name: `#${id}`, avatar: '' }),
                 releases: deps.store.releases(target.id),
                 hits: deps.store.hits(target.id, since),
                 sourceDir: canManage(target, req.auth) ? target.sourceDir : null,
@@ -218,17 +220,15 @@ export function createApiHandlers(deps) {
     /** GET /plugins/sites/api/directory — accounts that can be added as guests.
      *
      *  Core keeps its own account directory admin-only, so this returns the narrowest thing that makes the
-     *  guest picker work — id and username, nothing else — and only to someone who actually owns a site to
-     *  share. It is not a general account listing for every signed-in user. */
+     *  guest picker work — who someone is and what they look like, nothing else — and only to someone who
+     *  actually owns a site to share. It is not a general account listing for every signed-in user. */
     const directory = async (req) => {
         const userId = req.auth.userId;
         if (userId === null)
             return json(403, { error: 'forbidden' });
         if (!req.auth.admin && deps.store.countOwnedBy(userId) === 0)
             return json(403, { error: 'forbidden' });
-        const accounts = [...deps.usernames().entries()]
-            .map(([id, name]) => ({ id, name }))
-            .sort((a, b) => a.name.localeCompare(b.name));
+        const accounts = [...deps.people().values()].sort((a, b) => a.name.localeCompare(b.name));
         return json(200, { accounts });
     };
     return { list, site, ticket, directory };
