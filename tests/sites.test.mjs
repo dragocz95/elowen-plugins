@@ -310,7 +310,7 @@ const serveHarness = (t, overrides = {}) => {
   const handler = createSiteHandler({
     store,
     access: deps({ projects: { 2: [7] } }),
-    secret: 'serve-secret',
+    secret: () => 'serve-secret',
     config: () => ({
       siteBaseUrl: 'https://elowen.example',
       appBaseUrl: 'https://elowen.example',

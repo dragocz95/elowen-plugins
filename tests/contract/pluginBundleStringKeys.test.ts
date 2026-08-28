@@ -28,6 +28,19 @@ const PLUGINS = join(registryRoot, 'plugins');
  *  that disappears fails as a stale entry, and a new computed read fails until it is declared. */
 const COMPUTED_READS: { file: string; keys: string[] }[] = [
   // KanbanBoard renders one column per entry of its COLUMNS table and reads `s[col.labelKey]`.
+  // A site card labels its visibility and status through lookup tables, so both sets are listed here
+  // rather than dropping out of the check: a renamed string would otherwise render as a raw enum value.
+  {
+    file: 'sites/web-src/SitesPage.tsx',
+    keys: [
+      'visibilityPrivate', 'visibilityProject', 'visibilityAuthenticated', 'visibilityPublic',
+      'statusLive', 'statusDraft', 'statusFailed',
+    ],
+  },
+  {
+    file: 'sites/web-src/SiteDetail.tsx',
+    keys: ['visibilityPrivate', 'visibilityProject', 'visibilityAuthenticated', 'visibilityPublic'],
+  },
 ];
 
 interface Manifest { web?: { strings?: Record<string, string> } }

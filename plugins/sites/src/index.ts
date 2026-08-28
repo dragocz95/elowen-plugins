@@ -21,8 +21,16 @@ export function register(ctx: PluginContext): void {
 
   /** The key that signs site sessions. Kept in the encrypted bag rather than in settings: it is a
    *  credential, and rotating it simply invalidates every outstanding site session, which is a safe
-   *  failure. Generated once, on first use. */
+   *  failure. Minted on first use and held for the life of this plugin generation — reading the vault
+   *  during registration would stop the plugin loading anywhere the vault is absent. */
+  let cachedSecret: string | null = null;
   const sessionSecret = (): string => {
+    if (cachedSecret !== null) return cachedSecret;
+    cachedSecret = mintSessionSecret();
+    return cachedSecret;
+  };
+
+  const mintSessionSecret = (): string => {
     const existing = ctx.instanceSecrets().get(SECRET_KEY);
     if (existing) return existing.value;
     const minted = randomBytes(32).toString('base64url');
@@ -77,7 +85,7 @@ export function register(ctx: PluginContext): void {
     handler: createSiteHandler({
       store,
       access,
-      secret: sessionSecret(),
+      secret: sessionSecret,
       config: () => {
         const resolved = config();
         return {

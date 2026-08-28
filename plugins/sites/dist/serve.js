@@ -139,7 +139,7 @@ export function createSiteHandler(deps) {
 }
 function viewerFor(req, site, deps) {
     const cookies = readCookies(req.headers.cookie);
-    const session = verifySession(deps.secret, cookies[cookieName(site.id)], Date.now());
+    const session = verifySession(deps.secret(), cookies[cookieName(site.id)], Date.now());
     if (!session || session.g !== site.accessGeneration)
         return { userId: null, admin: false };
     return { userId: session.u, admin: false };
@@ -166,7 +166,7 @@ async function redeemTicket(req, site, siteRoot, deps, config) {
         return notFound(config.dedicatedHost);
     }
     const expires = Date.now() + config.sessionTtlHours * 3600_000;
-    const value = signSession(deps.secret, { u: ticket.userId, g: site.accessGeneration, e: expires });
+    const value = signSession(deps.secret(), { u: ticket.userId, g: site.accessGeneration, e: expires });
     const secure = siteRoot.startsWith('https://');
     // SameSite: on a dedicated hostname the site is its own origin and Lax is both correct and stricter.
     // On the shared origin the document is sandboxed into an opaque origin, whose subresource requests
