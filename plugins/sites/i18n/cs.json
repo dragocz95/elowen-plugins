@@ -1,0 +1,113 @@
+{
+  "description": "Zveřejněte stránku, kterou agent vytvořil – přehled, report, prezentační web – na skutečné adrese této instance a rozhodněte, kdo ji smí otevřít: jen vy, lidé z projektu, kterýkoli přihlášený účet, jmenovitě pozvaní hosté, nebo úplně všichni. Agent staví vlastními nástroji a předává hotový výstup; každé zveřejnění je neměnná verze, ke které se dá vrátit.",
+  "fields": {
+    "publishing": {
+      "label": "Zveřejňování"
+    },
+    "defaultVisibility": {
+      "label": "Výchozí viditelnost",
+      "hint": "Komu je nově založená stránka viditelná, dokud to někdo nezmění. Veřejnou se stránka nikdy nestane sama; potvrzuje se to zde v aplikaci.",
+      "options": {
+        "private": "Jen vlastníkovi",
+        "project": "Lidem z projektu",
+        "authenticated": "Každému přihlášenému účtu"
+      }
+    },
+    "allowPublicSites": {
+      "label": "Povolit veřejné stránky",
+      "hint": "Když je vypnuto, každá stránka vyžaduje přihlášení a možnost zveřejnění zmizí z nastavení přístupu u všech stránek."
+    },
+    "siteHostOverride": {
+      "label": "Vlastní název hostitele pro stránky",
+      "hint": "Servírovat zveřejněné stránky z vlastního názvu hostitele místo z adresy této instance. Doporučeno: stránka na odděleném původu se nedostane k relaci aplikace, takže tam smí spouštět vlastní skripty. Bez toho se stránky servírují vedle aplikace a jejich skripty zůstávají vypnuté."
+    },
+    "publishers": {
+      "label": "Kdo smí zveřejňovat",
+      "hint": "Zda smí agent běžného účtu zakládat a zveřejňovat stránky. Otevření stránky, kterou někdo nasdílel, to neovlivňuje.",
+      "options": {
+        "everyone": "Každý účet",
+        "admins": "Pouze správci"
+      }
+    },
+    "limits": {
+      "label": "Limity"
+    },
+    "maxAssetMb": {
+      "label": "Největší soubor",
+      "hint": "Soubory nad tuto velikost se při zveřejnění odmítnou. Zveřejněný soubor se při servírování drží v paměti, takže jde o skutečný strop, ne o preferenci."
+    },
+    "maxSiteMb": {
+      "label": "Největší stránka",
+      "hint": "Celková velikost jedné zveřejněné verze."
+    },
+    "maxSitesPerAccount": {
+      "label": "Počet stránek na účet",
+      "hint": "Kolik stránek smí jeden účet mít současně."
+    },
+    "releasesKept": {
+      "label": "Kolik verzí uchovat",
+      "hint": "Starší verze nad tento počet se odstraní. Verze, kterou stránka právě servíruje, se neodstraní nikdy, ať je zde nastaveno cokoli."
+    },
+    "access": {
+      "label": "Přístup"
+    },
+    "sessionTtlHours": {
+      "label": "Platnost přihlášení",
+      "hint": "Jak dlouho zůstane návštěvník ke stránce přihlášen, než ho prohlížeč pošle znovu přes přihlášení. Ztráta přístupu se projeví okamžitě bez ohledu na tuto hodnotu, protože oprávnění se ověřuje při každém požadavku."
+    }
+  },
+  "web": {
+    "label": "Stránky",
+    "nav": {
+      "": "Stránky"
+    },
+    "project": {
+      "sites": "Stránky"
+    },
+    "strings": {
+      "title": "Stránky",
+      "subtitle": "Stránky, které zveřejnil váš agent, a kdo je může otevřít.",
+      "mine": "Moje stránky",
+      "shared": "Nasdílené mně",
+      "empty": "Zatím žádné stránky. Požádejte agenta, ať nějakou postaví a zveřejní.",
+      "emptyShared": "Nikdo vám zatím stránku nenasdílel.",
+      "openSite": "Otevřít",
+      "copyLink": "Kopírovat adresu",
+      "copied": "Adresa zkopírována",
+      "builtBy": "Postavil model {model}",
+      "neverPublished": "Zatím nezveřejněno",
+      "statusLive": "Živá",
+      "statusDraft": "Rozpracovaná",
+      "statusFailed": "Vyžaduje pozornost",
+      "visibilityPrivate": "Jen já",
+      "visibilityProject": "Projekt",
+      "visibilityAuthenticated": "Přihlášení",
+      "visibilityPublic": "Veřejná",
+      "tabOverview": "Přehled",
+      "tabAccess": "Přístup",
+      "tabDanger": "Smazání",
+      "address": "Adresa",
+      "lastPublish": "Poslední zveřejnění",
+      "releases": "Verze",
+      "rollback": "Obnovit tuto verzi",
+      "rollbackDone": "Verze obnovena",
+      "visits": "Návštěvy",
+      "whoCanOpen": "Kdo stránku může otevřít",
+      "guests": "Jmenovaní hosté",
+      "guestsHint": "Tyto účty stránku otevřou bez ohledu na nastavení výše.",
+      "addGuest": "Přidat člověka",
+      "removeGuest": "Odebrat",
+      "publicWarning": "Stránku bude moci otevřít kdokoli, kdo zná adresu, a to bez přihlášení.",
+      "publicConfirm": "Zveřejnit",
+      "publicDisabled": "Veřejné stránky jsou na této instanci vypnuté.",
+      "passiveNotice": "Na této adrese jsou skripty vypnuté. Pro jejich spuštění nastavte v nastavení pluginu vlastní název hostitele.",
+      "sourceNotice": "Zdrojová složka leží v projektu, takže si ji přečte každý, kdo má k projektu přístup. Toto nastavení řídí zveřejněnou stránku.",
+      "deleteTitle": "Smazat tuto stránku",
+      "deleteHint": "Adresa přestane fungovat a všechny verze se odstraní. Zdrojová složka v projektu zůstane nedotčená.",
+      "delete": "Smazat stránku",
+      "deleted": "Stránka smazána",
+      "saved": "Uloženo",
+      "close": "Zavřít"
+    }
+  }
+}

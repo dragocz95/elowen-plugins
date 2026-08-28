@@ -1,0 +1,210 @@
+{
+  "name": "sites",
+  "version": "0.1.0",
+  "apiVersion": "1",
+  "requiresCore": "0.28.17",
+  "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is an immutable release you can roll back.",
+  "entry": "dist/index.js",
+  "provides": {
+    "tools": [
+      "SiteCreate",
+      "SitePublish",
+      "SiteGet",
+      "SiteList",
+      "SiteUpdate",
+      "SiteRollback",
+      "SiteDelete"
+    ],
+    "httpRoutes": [
+      "s"
+    ],
+    "apiRoutes": [
+      "sites",
+      "site",
+      "ticket",
+      "directory"
+    ]
+  },
+  "planSafe": [
+    "SiteList",
+    "SiteGet"
+  ],
+  "icons": {
+    "Site*": "🌐"
+  },
+  "capabilities": {
+    "reads": [
+      "db",
+      "stores",
+      "controls"
+    ]
+  },
+  "configSchema": [
+    {
+      "key": "publishing",
+      "label": "Publishing",
+      "type": "section"
+    },
+    {
+      "key": "defaultVisibility",
+      "label": "Default visibility",
+      "type": "enum",
+      "default": "private",
+      "options": [
+        { "value": "private", "label": "Only the owner" },
+        { "value": "project", "label": "The Project's people" },
+        { "value": "authenticated", "label": "Any signed-in account" }
+      ],
+      "hint": "What a newly created site is visible to before anyone changes it. A site never becomes public on its own; that is confirmed here in the app."
+    },
+    {
+      "key": "allowPublicSites",
+      "label": "Allow public sites",
+      "type": "boolean",
+      "default": true,
+      "hint": "When off, every site requires signing in and the public option disappears from each site's access settings."
+    },
+    {
+      "key": "siteHostOverride",
+      "label": "Dedicated site hostname",
+      "type": "string",
+      "default": "",
+      "advanced": true,
+      "placeholder": "https://sites.example.com",
+      "hint": "Serve published sites from their own hostname instead of this instance's. Recommended: a page on a separate origin cannot reach the app's session, so sites served there may run their own scripts. Without it, pages are served next to the app and their scripts stay disabled.",
+      "help": "Point the hostname at this machine and forward it to the daemon with the request path unchanged. The hostname needs its own certificate."
+    },
+    {
+      "key": "publishers",
+      "label": "Who may publish",
+      "type": "enum",
+      "default": "everyone",
+      "options": [
+        { "value": "everyone", "label": "Every account" },
+        { "value": "admins", "label": "Administrators only" }
+      ],
+      "hint": "Whether an ordinary account's agent may create and publish sites. Opening a site somebody shared is unaffected."
+    },
+    {
+      "key": "limits",
+      "label": "Limits",
+      "type": "section"
+    },
+    {
+      "key": "maxAssetMb",
+      "label": "Largest file",
+      "type": "number",
+      "default": 8,
+      "min": 1,
+      "max": 64,
+      "hint": "Files larger than this are refused when publishing. A published file is held in memory while it is served, so this is a real ceiling rather than a preference."
+    },
+    {
+      "key": "maxSiteMb",
+      "label": "Largest site",
+      "type": "number",
+      "default": 200,
+      "min": 1,
+      "max": 4096,
+      "hint": "Total size of one published release."
+    },
+    {
+      "key": "maxSitesPerAccount",
+      "label": "Sites per account",
+      "type": "number",
+      "default": 20,
+      "min": 1,
+      "max": 500,
+      "hint": "How many sites one account may keep at once."
+    },
+    {
+      "key": "releasesKept",
+      "label": "Releases kept",
+      "type": "number",
+      "default": 5,
+      "min": 1,
+      "max": 50,
+      "advanced": true,
+      "hint": "Older releases beyond this count are removed. The release a site currently serves is never removed, whatever this is set to."
+    },
+    {
+      "key": "access",
+      "label": "Access",
+      "type": "section"
+    },
+    {
+      "key": "sessionTtlHours",
+      "label": "Sign-in validity",
+      "type": "number",
+      "default": 12,
+      "min": 1,
+      "max": 720,
+      "hint": "How long a visitor stays signed in to a site before the browser is sent back through the sign-in step. Losing access takes effect immediately regardless of this, because permission is checked on every request."
+    }
+  ],
+  "web": {
+    "entry": "web/index.js",
+    "css": "web/index.css",
+    "requiresApiVersion": 7,
+    "label": "Sites",
+    "navKind": "domain",
+    "nav": [
+      {
+        "label": "Sites",
+        "icon": "Globe"
+      }
+    ],
+    "project": [
+      {
+        "id": "sites",
+        "label": "Sites",
+        "icon": "Globe"
+      }
+    ],
+    "strings": {
+      "title": "Sites",
+      "subtitle": "Pages your agent published, and who can open them.",
+      "mine": "My sites",
+      "shared": "Shared with me",
+      "empty": "No sites yet. Ask the agent to build one and publish it.",
+      "emptyShared": "Nobody has shared a site with you.",
+      "openSite": "Open",
+      "copyLink": "Copy address",
+      "copied": "Address copied",
+      "builtBy": "Built by {model}",
+      "neverPublished": "Not published yet",
+      "statusLive": "Live",
+      "statusDraft": "Draft",
+      "statusFailed": "Needs attention",
+      "visibilityPrivate": "Only me",
+      "visibilityProject": "Project",
+      "visibilityAuthenticated": "Signed in",
+      "visibilityPublic": "Public",
+      "tabOverview": "Overview",
+      "tabAccess": "Access",
+      "tabDanger": "Delete",
+      "address": "Address",
+      "lastPublish": "Last publish",
+      "releases": "Releases",
+      "rollback": "Restore this release",
+      "rollbackDone": "Release restored",
+      "visits": "Visits",
+      "whoCanOpen": "Who can open this",
+      "guests": "Named guests",
+      "guestsHint": "These accounts can open the site whatever the setting above says.",
+      "addGuest": "Add someone",
+      "removeGuest": "Remove",
+      "publicWarning": "Anyone who knows the address will be able to open this site without signing in.",
+      "publicConfirm": "Make public",
+      "publicDisabled": "Public sites are turned off for this instance.",
+      "passiveNotice": "Scripts are disabled at this address. Set a dedicated site hostname in the plugin settings to run them.",
+      "sourceNotice": "The source folder lives in the Project, so everyone with access to the Project can read it. This setting governs the published site.",
+      "deleteTitle": "Delete this site",
+      "deleteHint": "The address stops working and every release is removed. The source folder in the Project is left alone.",
+      "delete": "Delete site",
+      "deleted": "Site deleted",
+      "saved": "Saved",
+      "close": "Close"
+    }
+  }
+}

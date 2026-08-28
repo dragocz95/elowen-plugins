@@ -108,6 +108,13 @@ const EXPECTED_CAPABILITIES = {
   // mirror baseline. No `mutates`: the files it writes are the ones a person asked it to mirror, and it
   // never reaches into another plugin's domain.
   onedrive: { reads: ['controls', 'db', 'project-files', 'stores'], network: true },
+  // Reads only, and each one decides who may open a published page: `stores` answers "does this account
+  // still exist, is it an administrator, may it still see this Project" on EVERY request to a site,
+  // because a site session proves identity and never permission; `db` holds the sites and their guest
+  // lists; `controls` finds the account's active Sandbox workspace so a new site lands in a real Git
+  // worktree. No `network` and no `mutates`: this release publishes files that are already on disk and
+  // runs nothing of its own. Adding `network` here would mean it had started proxying to something.
+  sites: { reads: ['controls', 'db', 'stores'] },
   skills: { reads: ['stores'] },
   todo: { reads: ['db'] },
   // `network` is the whole point — it dials a telephone through an HTTP service — and `db` is what makes
