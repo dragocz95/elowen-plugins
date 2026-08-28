@@ -163,7 +163,8 @@
       "delete": "Zmazať stránku",
       "deleted": "Stránka zmazaná",
       "saved": "Uložené",
-      "close": "Zavrieť"
+      "close": "Zavrieť",
+      "releaseLive": "Živá"
     }
   }
 }

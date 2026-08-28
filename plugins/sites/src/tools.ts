@@ -16,6 +16,7 @@ export interface ToolDeps {
   store: SitesStore;
   access: AccessDeps;
   config(): SitesConfig;
+  people(): Map<number, { id: number; username: string; name: string; avatar: string }>;
   siteDir(siteId: string): string;
   releaseDir(siteId: string, releaseId: string): string;
   runtime: SiteRuntimeSupervisor;
@@ -35,8 +36,12 @@ function commandRuntimeRefusal(config: SitesConfig): string | null {
   return null;
 }
 
-const text = (body: string) => ({ content: [{ type: 'text' as const, text: body }], details: {} });
+const text = (body: string, details: Record<string, unknown> = {}) =>
+  ({ content: [{ type: 'text' as const, text: body }], details });
 
+/** Thrown, never returned. A tool that hands a refusal back as ordinary text is recorded as a
+ *  SUCCESSFUL call, so the model reads "No site of yours has the id X" as an answer rather than a
+ *  failure and tries another guess. The host turns a throw into an error result. */
 class ToolError extends Error {}
 
 const modelLabel = (ctx: SitesContext): string => {
@@ -80,10 +85,19 @@ function resolveSourceRoot(ctx: SitesContext, slug: string): { dir: string; proj
   const real = (() => {
     try { return realpathSync(workDir); } catch { return workDir; }
   })();
-  const project = ctx.host.stores().projects.list().find((entry) => {
-    try { return realpathSync(entry.path) === real; } catch { return entry.path === workDir; }
-  });
-  if (!project) throw new ToolError('The current working directory does not belong to a registered Project.');
+  // The DEEPEST Project containing the working directory, not one whose root happens to equal it.
+  // Agents work from subdirectories constantly, and exact equality refused every one of them with a
+  // message that read as "you are nowhere" while standing well inside a registered Project.
+  const within = (root: string): boolean => {
+    const base = (() => { try { return realpathSync(root); } catch { return root; } })();
+    return real === base || real.startsWith(base.endsWith(sep) ? base : base + sep);
+  };
+  const project = ctx.host.stores().projects.list()
+    .filter((entry) => within(entry.path))
+    .sort((a, b) => b.path.length - a.path.length)[0];
+  if (!project) {
+    throw new ToolError(`${real} is not inside any registered Project, so there is nowhere to put the site's source. Open a Project first.`);
+  }
 
   const sessionId = ctx.currentSessionId();
   const workspace = sessionId
@@ -93,14 +107,43 @@ function resolveSourceRoot(ctx: SitesContext, slug: string): { dir: string; proj
   return { dir: join(base, 'sites', slug), projectId: project.id };
 }
 
-const requireOwned = (deps: ToolDeps, siteId: string, userId: number): Site => {
-  const site = deps.store.siteById(siteId);
-  if (!site || site.ownerUserId !== userId) throw new ToolError(`No site of yours has the id ${siteId}.`);
+/** Resolve whichever identifier the caller had to hand.
+ *
+ *  The slug is the only identifier that appears in the address and in every listing, so it is the one an
+ *  agent naturally reaches for; accepting the internal id alone made the id a secret the tools never
+ *  disclosed, and publishing was unreachable because of it. Both are unique, so accepting both is
+ *  unambiguous rather than lenient. */
+const requireOwned = (deps: ToolDeps, ref: string, userId: number): Site => {
+  const wanted = ref.trim();
+  const site = deps.store.siteById(wanted) ?? deps.store.siteBySlug(wanted);
+  if (!site || site.ownerUserId !== userId) {
+    const owned = deps.store.sitesOwnedBy(userId);
+    const known = owned.length === 0
+      ? 'This account has no sites yet - create one with SiteCreate.'
+      : `This account's sites are: ${owned.map((entry) => `${entry.slug} (id ${entry.id})`).join(', ')}.`;
+    throw new ToolError(`No site of yours matches "${wanted}". Give either the slug or the id. ${known}`);
+  }
   return site;
 };
 
+/** Resolve a person by account name or numeric id, for the sharing tools. */
+const requirePerson = (deps: ToolDeps, ref: string): { id: number; name: string } => {
+  const wanted = ref.trim();
+  const people = [...deps.people().values()];
+  const numeric = Number(wanted);
+  const match = people.find((person) => person.id === numeric)
+    ?? people.find((person) => person.username.toLowerCase() === wanted.toLowerCase())
+    ?? people.find((person) => person.name.toLowerCase() === wanted.toLowerCase());
+  if (!match) {
+    throw new ToolError(`No account matches "${wanted}". Known accounts: ${people.map((person) => person.username).join(', ')}.`);
+  }
+  return { id: match.id, name: match.name || match.username };
+};
+
 const describe = (site: Site, config: SitesConfig): string => [
-  `${site.title} (${site.slug})`,
+  `${site.title}`,
+  `  id         ${site.id}`,
+  `  slug       ${site.slug}   (either identifier works wherever a site is named)`,
   `  address    ${siteUrl(config, site.slug)}`,
   `  visibility ${site.visibility}`,
   `  status     ${site.status}`,
@@ -201,6 +244,9 @@ export function registerTools(deps: ToolDeps): void {
 
         return text([
           `Created "${site.title}".`,
+          `  id   ${site.id}`,
+          `  slug ${site.slug}`,
+          'Name the site by either of those in SitePublish, SiteShare and the rest.',
           '',
           `Write the project here: ${allowed}`,
           `Configure the build with base path: ${siteBasePath(slug)}`,
@@ -218,9 +264,12 @@ export function registerTools(deps: ToolDeps): void {
             ]
             : []),
           'When the output is ready, call SitePublish with the output directory.',
-        ].join('\n'));
+        ].join('\n'), {
+          siteId: site.id, slug: site.slug, sourceDir: allowed,
+          basePath: siteBasePath(slug), url: siteUrl(config, slug), visibility: site.visibility,
+        });
       } catch (error) {
-        return text(error instanceof ToolError ? error.message : `Could not create the site: ${String(error)}`);
+        throw error instanceof ToolError ? error : new Error(`Could not create the site: ${String(error)}`);
       }
     },
   }));
@@ -230,7 +279,7 @@ export function registerTools(deps: ToolDeps): void {
     label: 'Publish a site',
     description: 'Copy a finished build output into a new release and make it the live one. Build the project yourself first; this publishes what is already on disk and runs nothing. Files are copied, so the site keeps working even if the workspace is later removed.',
     parameters: Type.Object({
-      siteId: Type.String({ description: 'Site id from SiteCreate or SiteList.' }),
+      site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
       outputDir: Type.Optional(Type.String({ description: 'Build output directory, relative to the site folder (e.g. "dist"). Defaults to the site folder itself.' })),
       note: Type.Optional(Type.String({ maxLength: 200, description: 'Short note about what changed in this release.' })),
     }),
@@ -238,7 +287,7 @@ export function registerTools(deps: ToolDeps): void {
       try {
         const userId = ownerOf(ctx);
         guardPublisher(userId);
-        const site = requireOwned(deps, input.siteId, userId);
+        const site = requireOwned(deps, input.site, userId);
         const config = deps.config();
 
         const relative = (input.outputDir ?? '').replace(/^\/+/, '');
@@ -326,9 +375,12 @@ export function registerTools(deps: ToolDeps): void {
             ? ['The daemon starts the runtime shortly; check SiteLogs if the address does not answer.']
             : []),
           ...(warnings.length > 0 ? ['', 'Warnings:', ...warnings.map((line) => `  - ${line}`)] : []),
-        ].join('\n'));
+        ].join('\n'), {
+          siteId: site.id, slug: site.slug, releaseId, url: siteUrl(config, site.slug),
+          visibility: site.visibility, fileCount: snapshot.fileCount, sizeBytes: snapshot.sizeBytes, warnings,
+        });
       } catch (error) {
-        return text(error instanceof ToolError ? error.message : `Could not publish: ${String(error)}`);
+        throw error instanceof ToolError ? error : new Error(`Could not publish: ${String(error)}`);
       }
     },
   }));
@@ -346,7 +398,7 @@ export function registerTools(deps: ToolDeps): void {
         if (sites.length === 0) return text('This account has no sites yet.');
         return text(sites.map((site) => describe(site, config)).join('\n\n'));
       } catch (error) {
-        return text(error instanceof ToolError ? error.message : String(error));
+        throw error instanceof ToolError ? error : new Error(String(error));
       }
     },
   }));
@@ -355,26 +407,33 @@ export function registerTools(deps: ToolDeps): void {
     name: 'SiteGet',
     label: 'Read a site',
     description: 'Full detail of one site: address, base path for the build, source folder, visibility, guests and release history.',
-    parameters: Type.Object({ siteId: Type.String() }),
+    parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }) }),
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
-        const site = requireOwned(deps, input.siteId, userId);
+        const site = requireOwned(deps, input.site, userId);
         const config = deps.config();
         const releases = store.releases(site.id);
-        const guests = store.memberIds(site.id);
+        const people = deps.people();
+        const guests = store.memberIds(site.id)
+          .map((id) => ({ id, name: people.get(id)?.name || people.get(id)?.username || `#${id}` }));
         return text([
           describe(site, config),
           `  base path  ${siteBasePath(site.slug)}`,
-          `  guests     ${guests.length === 0 ? 'none' : guests.map((id) => `#${id}`).join(', ')}`,
+          `  guests     ${guests.length === 0 ? 'none' : guests.map((guest) => guest.name).join(', ')}`,
           '',
           releases.length === 0
             ? 'No releases yet.'
             : ['Releases:', ...releases.map((release) => `  ${release.id}  ${release.createdAt}  ${release.fileCount} files  ${(release.sizeBytes / 1048576).toFixed(2)} MB${release.note ? `  ${release.note}` : ''}`)].join('\n'),
           site.lastError ? `\nLast error: ${site.lastError}` : '',
-        ].join('\n'));
+        ].join('\n'), {
+          siteId: site.id, slug: site.slug, url: siteUrl(config, site.slug), visibility: site.visibility,
+          status: site.status, sourceDir: site.sourceDir, basePath: siteBasePath(site.slug),
+          guests, currentReleaseId: site.currentReleaseId,
+          releases: releases.map((release) => ({ id: release.id, createdAt: release.createdAt, note: release.note })),
+        });
       } catch (error) {
-        return text(error instanceof ToolError ? error.message : String(error));
+        throw error instanceof ToolError ? error : new Error(String(error));
       }
     },
   }));
@@ -384,7 +443,7 @@ export function registerTools(deps: ToolDeps): void {
     label: 'Update a site',
     description: 'Change a site\'s title, summary, router behaviour or visibility. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
     parameters: Type.Object({
-      siteId: Type.String(),
+      site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
       title: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
       summary: Type.Optional(Type.String({ maxLength: 400 })),
       spa: Type.Optional(Type.Boolean()),
@@ -395,7 +454,7 @@ export function registerTools(deps: ToolDeps): void {
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
-        const site = requireOwned(deps, input.siteId, userId);
+        const site = requireOwned(deps, input.site, userId);
         const patch: Parameters<SitesStore['updateSite']>[1] = {};
         if (input.title !== undefined) patch.title = input.title.trim();
         if (input.summary !== undefined) patch.summary = input.summary.trim();
@@ -411,7 +470,7 @@ export function registerTools(deps: ToolDeps): void {
         const updated = store.siteById(site.id);
         return text(updated ? `Updated.\n\n${describe(updated, deps.config())}` : 'Updated.');
       } catch (error) {
-        return text(error instanceof ToolError ? error.message : String(error));
+        throw error instanceof ToolError ? error : new Error(String(error));
       }
     },
   }));
@@ -420,17 +479,17 @@ export function registerTools(deps: ToolDeps): void {
     name: 'SiteRollback',
     label: 'Roll back a site',
     description: 'Make an earlier release the live one again. The release must still be retained.',
-    parameters: Type.Object({ siteId: Type.String(), releaseId: Type.String() }),
+    parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }), releaseId: Type.String({ description: 'Release id from SiteGet.' }) }),
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
-        const site = requireOwned(deps, input.siteId, userId);
+        const site = requireOwned(deps, input.site, userId);
         const release = store.release(site.id, input.releaseId);
         if (!release) throw new ToolError('That release is not retained for this site.');
         store.updateSite(site.id, { currentReleaseId: release.id, status: 'live', lastError: null });
         return text(`"${site.title}" now serves the release from ${release.createdAt}.`);
       } catch (error) {
-        return text(error instanceof ToolError ? error.message : String(error));
+        throw error instanceof ToolError ? error : new Error(String(error));
       }
     },
   }));
@@ -439,11 +498,11 @@ export function registerTools(deps: ToolDeps): void {
     name: 'SiteLogs',
     label: 'Read a site runtime log',
     description: 'The recent output of a site runtime, which is where a server that refuses to start says why. Static sites have no runtime and no log.',
-    parameters: Type.Object({ siteId: Type.String() }),
+    parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }) }),
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
-        const site = requireOwned(deps, input.siteId, userId);
+        const site = requireOwned(deps, input.site, userId);
         if (site.runtime !== 'command') return text('This is a static site, so it has no runtime log.');
         const tail = deps.runtime.logTail(site.id);
         const state = deps.runtime.isRunning(site.id) ? 'running' : 'not running';
@@ -454,8 +513,56 @@ export function registerTools(deps: ToolDeps): void {
           tail || '(no output recorded)',
         ].join('\n'));
       } catch (error) {
-        return text(error instanceof ToolError ? error.message : String(error));
+        throw error instanceof ToolError ? error : new Error(String(error));
       }
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'SiteShare',
+    label: 'Share a site with someone',
+    description: 'Give one named account access to a site, whatever the site\'s visibility is. This is how a private site reaches a specific colleague: they keep access until it is taken away, and they see the site in their own Sites screen. Making a site readable by ANYONE is a separate decision a person confirms in the Sites screen; this tool never does that.',
+    parameters: Type.Object({
+      site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
+      person: Type.String({ description: 'Who to share with: their account name, their display name, or their numeric id.' }),
+    }),
+    execute: async (_id, input) => {
+      const userId = ownerOf(ctx);
+      const site = requireOwned(deps, input.site, userId);
+      const person = requirePerson(deps, input.person);
+      if (person.id === site.ownerUserId) throw new ToolError(`${person.name} already owns this site.`);
+      if (store.memberIds(site.id).includes(person.id)) {
+        return text(`${person.name} could already open "${site.title}".`, { siteId: site.id, userId: person.id, changed: false });
+      }
+      store.addMember(site.id, person.id);
+      return text([
+        `${person.name} can now open "${site.title}".`,
+        `They will find it at ${siteUrl(deps.config(), site.slug)} and in their own Sites screen.`,
+        site.status === 'live' ? '' : 'The site has not been published yet, so there is nothing to see there until SitePublish runs.',
+      ].filter(Boolean).join('\n'), { siteId: site.id, slug: site.slug, userId: person.id, changed: true });
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'SiteUnshare',
+    label: 'Stop sharing a site',
+    description: 'Take one named account\'s access to a site away again. It applies immediately: their existing session stops working on the next request rather than lasting until it expires.',
+    parameters: Type.Object({
+      site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
+      person: Type.String({ description: 'Whose access to remove: account name, display name, or numeric id.' }),
+    }),
+    execute: async (_id, input) => {
+      const userId = ownerOf(ctx);
+      const site = requireOwned(deps, input.site, userId);
+      const person = requirePerson(deps, input.person);
+      if (!store.memberIds(site.id).includes(person.id)) {
+        return text(`${person.name} was not on this site's guest list.`, { siteId: site.id, userId: person.id, changed: false });
+      }
+      store.removeMember(site.id, person.id);
+      // The generation is what makes the revocation immediate: a session minted earlier no longer
+      // matches, so the next request re-decides access from live state instead of trusting the cookie.
+      store.bumpAccessGeneration(site.id);
+      return text(`${person.name} can no longer open "${site.title}".`, { siteId: site.id, userId: person.id, changed: true });
     },
   }));
 
@@ -463,11 +570,11 @@ export function registerTools(deps: ToolDeps): void {
     name: 'SiteDelete',
     label: 'Delete a site',
     description: 'Remove a site: the address stops working and every release is deleted. The source folder in the Project is left untouched.',
-    parameters: Type.Object({ siteId: Type.String() }),
+    parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }) }),
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
-        const site = requireOwned(deps, input.siteId, userId);
+        const site = requireOwned(deps, input.site, userId);
         // Stop first: removing the release under a running process would leave it serving from a
         // deleted directory at an address the store no longer knows about.
         if (isDaemonProcess()) await deps.runtime.stop(site.id);
@@ -475,7 +582,7 @@ export function registerTools(deps: ToolDeps): void {
         store.deleteSite(site.id);
         return text(`Deleted "${site.title}". Its source folder ${site.sourceDir} was left in place.`);
       } catch (error) {
-        return text(error instanceof ToolError ? error.message : String(error));
+        throw error instanceof ToolError ? error : new Error(String(error));
       }
     },
   }));

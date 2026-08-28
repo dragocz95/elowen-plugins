@@ -208,17 +208,20 @@ export function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted 
           <p className="text-[11px] text-text-muted">{strings.noReleases}</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
-            {releases.map((release) => (
-              <li key={release.id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-elevated/40 px-3 py-2">
+            {releases.map((release) => {
+              const live = release.id === site.currentReleaseId;
+              return (
+              <li key={release.id} className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? 'border-accent/40 bg-accent/5' : 'border-border bg-elevated/40'}`}>
                 <span className="flex min-w-0 flex-col">
-                  <span className="text-xs text-text">
+                  <span className="flex items-center gap-2 text-xs text-text">
                     {relativeTime(release.createdAt)} · {strings.releaseSummary
                       .replace('{files}', String(release.fileCount))
                       .replace('{size}', formatBytes(release.sizeBytes))}
+                    {live ? <Badge tone="success">{strings.releaseLive}</Badge> : null}
                   </span>
                   <span className="truncate text-[11px] text-text-muted">{release.note || release.model}</span>
                 </span>
-                {canManage ? (
+                {canManage && !live ? (
                   <IconButton
                     icon={RotateCcw}
                     label={strings.rollback}
@@ -231,7 +234,8 @@ export function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted 
                   />
                 ) : null}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </DetailBlock>

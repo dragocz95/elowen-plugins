@@ -129,9 +129,10 @@ function serveFile(site: Site, releaseDir: string, rest: string, dedicated: bool
       headers: {
         ...headers,
         'content-type': type,
-        'cache-control': isPublic
-          ? (ext === 'html' || ext === 'htm' ? 'public, max-age=300' : 'public, max-age=86400')
-          : 'private, no-store',
+        // `no-cache` still lets a cache STORE the bytes; it just has to revalidate before reusing them.
+        // A plain max-age would keep serving a page after its visibility was narrowed back to private,
+        // because nothing on that path consults the daemon again until the age expires.
+        'cache-control': isPublic ? 'public, no-cache' : 'private, no-store',
       },
       body: new Uint8Array(readFileSync(resolved)),
     };
@@ -142,7 +143,7 @@ function serveFile(site: Site, releaseDir: string, rest: string, dedicated: bool
     if (fallback) {
       return {
         status: 200,
-        headers: { ...headers, 'content-type': HTML_TYPE, 'cache-control': isPublic ? 'public, max-age=300' : 'private, no-store' },
+        headers: { ...headers, 'content-type': HTML_TYPE, 'cache-control': isPublic ? 'public, no-cache' : 'private, no-store' },
         body: new Uint8Array(readFileSync(fallback)),
       };
     }

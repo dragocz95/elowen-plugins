@@ -172,7 +172,7 @@ export function register(published: PluginContext): void {
   ctx.registerApiRoute({ path: 'ticket', method: 'POST', access: 'user', handler: handlers.ticket });
   ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
 
-  registerTools({ ctx, store, access, config, siteDir, releaseDir, runtime: supervisor });
+  registerTools({ ctx, store, access, config, siteDir, releaseDir, runtime: supervisor, people });
 
   // Nothing in the daemon keeps a process alive across a restart, and a confined child dies with its
   // parent by construction. Supervision of published runtimes is therefore this plugin's own job:

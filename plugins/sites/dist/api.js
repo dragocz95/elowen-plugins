@@ -23,6 +23,7 @@ const toView = (site, deps, auth) => {
         projectId: site.projectId,
         projectSlug: deps.projectSlug(site.projectId),
         ownerUserId: site.ownerUserId,
+        currentReleaseId: site.currentReleaseId,
         owner: deps.people().get(site.ownerUserId)
             ?? { id: site.ownerUserId, username: `#${site.ownerUserId}`, name: `#${site.ownerUserId}`, avatar: '' },
         createdAt: site.createdAt,
@@ -90,7 +91,9 @@ export function createApiHandlers(deps) {
             const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
             return json(200, {
                 site: toView(target, deps, req.auth),
-                members: deps.store.memberIds(target.id).map((id) => people.get(id)
+                // Only somebody who can EDIT the guest list may read it. A guest seeing the whole list learns
+                // who else the owner shared with, which is the owner's business and not part of opening a page.
+                members: !canManage(target, req.auth) ? [] : deps.store.memberIds(target.id).map((id) => people.get(id)
                     ?? { id, username: `#${id}`, name: `#${id}`, avatar: '' }),
                 releases: deps.store.releases(target.id),
                 hits: deps.store.hits(target.id, since),

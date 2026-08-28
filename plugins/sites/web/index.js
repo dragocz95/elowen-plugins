@@ -558,29 +558,33 @@ function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted }) {
       ] }, member.id)) }),
       canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", icon: Users, onClick: () => setGuestPicker(true), children: strings.manageGuests }) }) : null
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DetailBlock, { icon: History, title: strings.releases, children: releases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-text-muted", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: releases.map((release) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "flex items-center justify-between gap-3 rounded-md border border-border bg-elevated/40 px-3 py-2", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "text-xs text-text", children: [
-          relativeTime(release.createdAt),
-          " \xB7 ",
-          strings.releaseSummary.replace("{files}", String(release.fileCount)).replace("{size}", formatBytes(release.sizeBytes))
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DetailBlock, { icon: History, title: strings.releases, children: releases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-text-muted", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: releases.map((release) => {
+      const live = release.id === site.currentReleaseId;
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: `flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? "border-accent/40 bg-accent/5" : "border-border bg-elevated/40"}`, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-2 text-xs text-text", children: [
+            relativeTime(release.createdAt),
+            " \xB7 ",
+            strings.releaseSummary.replace("{files}", String(release.fileCount)).replace("{size}", formatBytes(release.sizeBytes)),
+            live ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: "success", children: strings.releaseLive }) : null
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-[11px] text-text-muted", children: release.note || release.model })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-[11px] text-text-muted", children: release.note || release.model })
-      ] }),
-      canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        IconButton,
-        {
-          icon: RotateCcw,
-          label: strings.rollback,
-          disabled: call.isPending,
-          onClick: () => call.mutate({
-            path: `${basePath(siteId)}/rollback`,
-            init: jsonBody("POST", { releaseId: release.id }),
-            done: strings.rollbackDone
-          })
-        }
-      ) : null
-    ] }, release.id)) }) }),
+        canManage && !live ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          IconButton,
+          {
+            icon: RotateCcw,
+            label: strings.rollback,
+            disabled: call.isPending,
+            onClick: () => call.mutate({
+              path: `${basePath(siteId)}/rollback`,
+              init: jsonBody("POST", { releaseId: release.id }),
+              done: strings.rollbackDone
+            })
+          }
+        ) : null
+      ] }, release.id);
+    }) }) }),
     runtimeState ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DetailBlock, { icon: Terminal, title: strings.runtime, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center justify-between gap-3", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: runtimeState.running ? "success" : "danger", children: runtimeState.running ? strings.runtimeRunning : strings.runtimeStopped }),
@@ -729,7 +733,7 @@ function SitesRegister({ sites, selectedId, onSelect }) {
 }
 function SiteRow({ site, strings, active, onSelect, onNavigate }) {
   const { components } = runtime();
-  const { DataTableRow, DataTableCell, Badge, Avatar } = components;
+  const { DataTableRow, DataTableCell, Badge, Avatar, IconButton } = components;
   const StatusIcon = STATUS_ICON[site.status];
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const published = site.lastPublishAt ? relativeTime(site.lastPublishAt) : "\u2014";
@@ -766,6 +770,14 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }) {
     ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { priority: "wide", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: STATUS_TONE[site.status], children: strings[STATUS_STRING[site.status]] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { priority: "wide", className: "whitespace-nowrap text-xs text-text-muted", children: published }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { children: site.status === "live" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      IconButton,
+      {
+        icon: ExternalLink,
+        label: strings.openSite,
+        onClick: () => window.open(site.url, "_blank", "noopener,noreferrer")
+      }
+    ) : null }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { "aria-hidden": true, className: "text-text-muted/50 transition-colors group-hover:text-text", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ChevronRight, { size: 15 }) })
   ] });
 }

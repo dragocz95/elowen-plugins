@@ -14,6 +14,7 @@ import { snapshotRelease, resolveWithin, pruneReleases, relativeAssetWarning } f
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
 import { resolveConfig, siteUrl, requestOnSiteHost } from '../plugins/sites/dist/config.js';
 import { proxyToRuntime, ProxyError } from '../plugins/sites/dist/proxy.js';
+import { registerTools } from '../plugins/sites/dist/tools.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -621,4 +622,106 @@ test('every site gets its own origin under the configured base hostname', () => 
   assert.equal(resolveConfig({ siteHostOverride: 'http://sites.example.com' }, 'https://elowen.example').siteHostBase, null);
   assert.equal(resolveConfig({ siteHostOverride: 'javascript:alert(1)' }, 'https://elowen.example').siteHostBase, null);
   assert.equal(resolveConfig({ siteHostOverride: 'localhost' }, 'https://elowen.example').siteHostBase, null);
+});
+
+// ── the tool surface ─────────────────────────────────────────────────────────────────────────────
+//
+// This layer had NO coverage, which is why 42 green tests coexisted with a feature that could not be
+// driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
+// successful result, so the agent read "no" as an answer and kept guessing.
+
+const toolHarness = (t, { projects, people: roster } = {}) => {
+  const db = makeDb();
+  const store = new SitesStore(db);
+  const registered = new Map();
+  const dir = mkdtempSync(join(tmpdir(), 'sites-tools-'));
+  // Three levels down from the Project root on purpose: an agent is almost never standing exactly on it.
+  mkdirSync(join(dir, 'project', 'deep', 'nested'), { recursive: true });
+  const roots = projects ?? [{ id: 7, slug: 'demo', path: join(dir, 'project') }];
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const accounts = roster ?? [
+    { id: 1, username: 'filip', name: 'Filip Džudža', avatar: '1.png' },
+    { id: 3, username: 'josef.kvitek', name: 'Josef Kvítek', avatar: '' },
+  ];
+  const ctx = {
+    registerTool: (tool) => registered.set(tool.name, tool),
+    currentModel: () => ({ provider: 'anthropic', model: 'claude' }),
+    currentContributionUserId: () => 1,
+    currentIdentity: () => ({ elowenUserId: 1 }),
+    currentSessionId: () => 'session-1',
+    workDir: () => join(dir, 'project', 'deep', 'nested'),
+    assertPathAllowed: (path) => path,
+    control: () => undefined,
+    host: { stores: () => ({ projects: { list: () => roots } }) },
+  };
+  registerTools({
+    ctx,
+    store,
+    access: { isAdmin: () => false, canAccessProject: () => true, accountExists: () => true },
+    config: () => resolveConfig({}, 'https://elowen.example'),
+    people: () => new Map(accounts.map((person) => [person.id, person])),
+    siteDir: (id) => join(dir, 'sites', id),
+    releaseDir: (id, releaseId) => join(dir, 'sites', id, releaseId),
+    runtime: { allocatePort: () => 43000, stop: async () => {}, start: async () => {}, logTail: () => '', isRunning: () => false },
+  });
+  return { store, dir, call: (name, input) => registered.get(name).execute('call-1', input ?? {}) };
+};
+
+test('a created site tells the agent the identifier the other tools demand', async (t) => {
+  // The whole failure in one assertion: an agent can only publish what SiteCreate named.
+  const harness = toolHarness(t);
+  const created = await harness.call('SiteCreate', { title: 'Provozní přehled' });
+  const body = created.content[0].text;
+  assert.ok(created.details.siteId, 'the id must be a structured field, not something to parse out of prose');
+  assert.match(body, new RegExp(created.details.siteId), 'and it must be visible in the text too');
+  assert.equal(created.details.slug, created.details.slug.toLowerCase());
+});
+
+test('a site answers to its slug as readily as to its id', async (t) => {
+  const { store, call } = toolHarness(t);
+  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, status: 'live' }));
+
+  for (const reference of ['id-1', 'report-a1b2c3']) {
+    const seen = await call('SiteGet', { site: reference });
+    assert.equal(seen.details.siteId, 'id-1', `${reference} should resolve`);
+  }
+});
+
+test('naming a site that does not exist FAILS, and says what would work', async (t) => {
+  // Returned as text this read as a successful call, so the model treated the refusal as information
+  // and guessed again — five times, in the conversation that prompted this.
+  const { store, call } = toolHarness(t);
+  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1 }));
+
+  await assert.rejects(() => call('SiteGet', { site: 'report' }), (error) => {
+    assert.match(error.message, /report-a1b2c3/, 'the message must name the identifiers that do work');
+    assert.match(error.message, /id-1/);
+    return true;
+  });
+});
+
+test('an agent can share a site with a person by name, and take it back', async (t) => {
+  const { store, call } = toolHarness(t);
+  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, status: 'live' }));
+
+  const shared = await call('SiteShare', { site: 'report-a1b2c3', person: 'josef.kvitek' });
+  assert.equal(shared.details.changed, true);
+  assert.deepEqual(store.memberIds('id-1'), [3]);
+
+  const again = await call('SiteShare', { site: 'report-a1b2c3', person: 'Josef Kvítek' });
+  assert.equal(again.details.changed, false, 'sharing twice is not an error, it is already true');
+
+  const before = store.siteById('id-1').accessGeneration;
+  await call('SiteUnshare', { site: 'report-a1b2c3', person: '3' });
+  assert.deepEqual(store.memberIds('id-1'), []);
+  // Without the bump the guest's existing cookie keeps matching until it expires, so revocation would
+  // be a promise rather than an effect.
+  assert.ok(store.siteById('id-1').accessGeneration > before, 'revoking must invalidate sessions minted before it');
+});
+
+test('sharing with somebody who does not exist fails with the roster', async (t) => {
+  const { store, call } = toolHarness(t);
+  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1 }));
+  await assert.rejects(() => call('SiteShare', { site: 'report-a1b2c3', person: 'nobody' }), /josef\.kvitek/);
 });

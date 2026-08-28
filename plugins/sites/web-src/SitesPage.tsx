@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ChevronRight, Globe, Layers, Search, Users } from 'lucide-react';
+import { CheckCircle2, ChevronRight, ExternalLink, Globe, Layers, Search, Users } from 'lucide-react';
 import {
   runtime, avatarUser, relativeTime, SITES_LIST_KEY,
   type SiteView, type SitesListResponse,
@@ -88,7 +88,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
   onNavigate(direction: 'next' | 'previous' | 'home' | 'end'): void;
 }) {
   const { components } = runtime();
-  const { DataTableRow, DataTableCell, Badge, Avatar } = components;
+  const { DataTableRow, DataTableCell, Badge, Avatar, IconButton } = components;
   const StatusIcon = STATUS_ICON[site.status];
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const published = site.lastPublishAt ? relativeTime(site.lastPublishAt) : '—';
@@ -134,6 +134,15 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
         <Badge tone={STATUS_TONE[site.status]}>{strings[STATUS_STRING[site.status]]}</Badge>
       </DataTableCell>
       <DataTableCell priority="wide" className="whitespace-nowrap text-xs text-text-muted">{published}</DataTableCell>
+      <DataTableCell>
+        {site.status === 'live' ? (
+          <IconButton
+            icon={ExternalLink}
+            label={strings.openSite}
+            onClick={() => window.open(site.url, '_blank', 'noopener,noreferrer')}
+          />
+        ) : null}
+      </DataTableCell>
       <DataTableCell aria-hidden className="text-text-muted/50 transition-colors group-hover:text-text">
         <ChevronRight size={15} />
       </DataTableCell>

@@ -17,6 +17,7 @@ export interface SiteView {
   projectSlug: string | null;
   ownerUserId: number;
   owner: Person;
+  currentReleaseId: string | null;
   createdAt: string;
   createdModel: string;
   lastPublishAt: string | null;
