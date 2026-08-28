@@ -172,18 +172,20 @@ export function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted 
         {!allowPublicSites ? <p className="text-[11px] text-text-muted">{strings.publicDisabled}</p> : null}
       </DetailBlock>
 
-      <DetailBlock icon={Users} title={strings.guests} hint={strings.guestsHint}>
-        {members.length === 0 ? (
-          <p className="text-[11px] text-text-muted">{strings.noGuests}</p>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {members.map((member) => (
-              <li key={member.id} className="flex items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-2">
-                  <Avatar size="sm" name={member.name} user={avatarUser(member)} />
-                  <span className="truncate text-sm text-text">{member.name}</span>
-                </span>
-                {canManage ? (
+      {/* Owner only. A guest is deliberately not sent the member list, so this block would tell them
+          "nobody has been named yet" while they are themselves one of the named guests. */}
+      {canManage ? (
+        <DetailBlock icon={Users} title={strings.guests} hint={strings.guestsHint}>
+          {members.length === 0 ? (
+            <p className="text-[11px] text-text-muted">{strings.noGuests}</p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {members.map((member) => (
+                <li key={member.id} className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Avatar size="sm" name={member.name} user={avatarUser(member)} />
+                    <span className="truncate text-sm text-text">{member.name}</span>
+                  </span>
                   <IconButton
                     icon={UserMinus}
                     label={strings.removeGuest}
@@ -191,17 +193,15 @@ export function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted 
                     disabled={call.isPending || saveGuests.isPending}
                     onClick={() => call.mutate({ path: `${basePath(siteId)}/members/${member.id}`, init: { method: 'DELETE' } })}
                   />
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-        {canManage ? (
+                </li>
+              ))}
+            </ul>
+          )}
           <div>
             <Button variant="ghost" icon={Users} onClick={() => setGuestPicker(true)}>{strings.manageGuests}</Button>
           </div>
-        ) : null}
-      </DetailBlock>
+        </DetailBlock>
+      ) : null}
 
       <DetailBlock icon={History} title={strings.releases}>
         {releases.length === 0 ? (

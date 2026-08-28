@@ -33,8 +33,8 @@ export function SitesRegister({ sites, selectedId, onSelect }: {
   return (
     <DataTable
       ariaLabel={strings.title}
-      columns="minmax(0,1fr) 11rem 8rem 7rem 6.5rem 1.25rem"
-      compactColumns="minmax(0,1fr) 1.25rem"
+      columns="minmax(0,1fr) 11rem 8rem 7rem 6.5rem 1.75rem 1.25rem"
+      compactColumns="minmax(0,1fr) 1.75rem 1.25rem"
     >
       <DataTableRow header>
         <DataTableCell header>{strings.columnSite}</DataTableCell>
@@ -42,6 +42,7 @@ export function SitesRegister({ sites, selectedId, onSelect }: {
         <DataTableCell header priority="wide">{strings.columnVisibility}</DataTableCell>
         <DataTableCell header priority="wide">{strings.columnStatus}</DataTableCell>
         <DataTableCell header priority="wide">{strings.columnPublished}</DataTableCell>
+        <DataTableCell header role="presentation" aria-hidden>{null}</DataTableCell>
         <DataTableCell header role="presentation" aria-hidden>{null}</DataTableCell>
       </DataTableRow>
 

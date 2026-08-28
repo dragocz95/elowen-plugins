@@ -539,13 +539,13 @@ function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted }) {
       ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-text", children: strings[VISIBILITY_STRING[site.visibility]] }),
       !allowPublicSites ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-text-muted", children: strings.publicDisabled }) : null
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DetailBlock, { icon: Users, title: strings.guests, hint: strings.guestsHint, children: [
+    canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DetailBlock, { icon: Users, title: strings.guests, hint: strings.guestsHint, children: [
       members.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-text-muted", children: strings.noGuests }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: members.map((member) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "flex items-center justify-between gap-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Avatar, { size: "sm", name: member.name, user: avatarUser(member) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm text-text", children: member.name })
         ] }),
-        canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           IconButton,
           {
             icon: UserMinus,
@@ -554,10 +554,10 @@ function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted }) {
             disabled: call.isPending || saveGuests.isPending,
             onClick: () => call.mutate({ path: `${basePath(siteId)}/members/${member.id}`, init: { method: "DELETE" } })
           }
-        ) : null
+        )
       ] }, member.id)) }),
-      canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", icon: Users, onClick: () => setGuestPicker(true), children: strings.manageGuests }) }) : null
-    ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", icon: Users, onClick: () => setGuestPicker(true), children: strings.manageGuests }) })
+    ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DetailBlock, { icon: History, title: strings.releases, children: releases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-text-muted", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: releases.map((release) => {
       const live = release.id === site.currentReleaseId;
       return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: `flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? "border-accent/40 bg-accent/5" : "border-border bg-elevated/40"}`, children: [
@@ -692,8 +692,8 @@ function SitesRegister({ sites, selectedId, onSelect }) {
     DataTable,
     {
       ariaLabel: strings.title,
-      columns: "minmax(0,1fr) 11rem 8rem 7rem 6.5rem 1.25rem",
-      compactColumns: "minmax(0,1fr) 1.25rem",
+      columns: "minmax(0,1fr) 11rem 8rem 7rem 6.5rem 1.75rem 1.25rem",
+      compactColumns: "minmax(0,1fr) 1.75rem 1.25rem",
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DataTableRow, { header: true, children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { header: true, children: strings.columnSite }),
@@ -701,6 +701,7 @@ function SitesRegister({ sites, selectedId, onSelect }) {
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { header: true, priority: "wide", children: strings.columnVisibility }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { header: true, priority: "wide", children: strings.columnStatus }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { header: true, priority: "wide", children: strings.columnPublished }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { role: "rowgroup", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(MotionPresence, { children: sites.map((site) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
