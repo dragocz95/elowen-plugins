@@ -39,7 +39,10 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
   },
   {
     file: 'sites/web-src/SiteDetail.tsx',
-    keys: ['visibilityPrivate', 'visibilityProject', 'visibilityAuthenticated', 'visibilityPublic'],
+    keys: [
+      'visibilityPrivate', 'visibilityProject', 'visibilityAuthenticated', 'visibilityPublic',
+      'statusLive', 'statusDraft', 'statusFailed',
+    ],
   },
 ];
 

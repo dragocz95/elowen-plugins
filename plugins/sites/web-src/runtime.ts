@@ -2,6 +2,7 @@ import type { ComponentType, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
+export type SiteStatus = 'draft' | 'live' | 'failed';
 
 export interface SiteView {
   id: string;
@@ -9,7 +10,7 @@ export interface SiteView {
   title: string;
   summary: string;
   visibility: Visibility;
-  status: 'draft' | 'live' | 'failed';
+  status: SiteStatus;
   url: string;
   basePath: string;
   projectId: number;
@@ -41,9 +42,17 @@ interface ReleaseView {
   note: string;
 }
 
+/** One person as the API hands them over: the account id and the display name, nothing else. Core's
+ *  plugin-facing account view carries no uploaded avatar, so every face on this page is the host
+ *  Avatar's monogram — the same one core draws for an account that never uploaded a picture. */
+export interface Person {
+  id: number;
+  name: string;
+}
+
 export interface SiteDetailResponse {
   site: SiteView;
-  members: { id: number; name: string }[];
+  members: Person[];
   releases: ReleaseView[];
   hits: { day: string; count: number }[];
   sourceDir: string | null;
@@ -56,7 +65,7 @@ export interface SiteDetailResponse {
 }
 
 export interface DirectoryResponse {
-  accounts: { id: number; name: string }[];
+  accounts: Person[];
 }
 
 export interface TicketResponse {
@@ -76,7 +85,7 @@ interface QueryClient { invalidateQueries(input: { queryKey: unknown[] }): Promi
 interface RuntimeHooks {
   usePluginStrings(plugin: string): Record<string, string>;
   useToast(): { toast(message: string, tone?: 'ok' | 'error'): void };
-  useMe(): QueryResult<{ user?: { id: number; username: string; is_admin: boolean } }>;
+  usePersistentState<T extends string>(key: string, initial: T, allowed: readonly T[] | ((raw: string) => boolean)): [T, (value: T) => void];
   useQuery<T>(options: Record<string, unknown>): QueryResult<T>;
   useMutation<TData, _TError, TVars>(options: Record<string, unknown>): MutationResult<TVars, TData>;
   useQueryClient(): QueryClient;
@@ -96,6 +105,13 @@ interface RuntimeComponents {
     title?: string;
     children?: ReactNode;
   }>;
+  IconButton: ComponentType<{
+    icon: LucideIcon;
+    label: string;
+    onClick?: () => void;
+    variant?: 'default' | 'danger';
+    disabled?: boolean;
+  }>;
   Input: ComponentType<{
     value: string;
     onChange(event: { target: { value: string } }): void;
@@ -110,48 +126,104 @@ interface RuntimeComponents {
     user?: { id: number; username: string; name?: string; avatar?: string };
     size?: number | 'sm' | 'md' | 'lg';
   }>;
-  Segmented: ComponentType<{
-    options: { value: string; label: string; disabled?: boolean }[];
+  HelpTip: ComponentType<{ align?: 'left' | 'right'; children: ReactNode }>;
+  /** Single-choice dropdown. It has no disabled state on purpose, so a view that may not change the
+   *  value has to render the value instead of a control that ignores the click. */
+  SelectMenu: ComponentType<{
     value: string;
     onChange(value: string): void;
-    size?: 'sm' | 'md';
+    options: { value: string; label: string; icon?: ReactNode }[];
+    label: string;
     variant?: 'default' | 'line';
     className?: string;
-    nowrap?: boolean;
   }>;
-  Modal: ComponentType<{
-    title: string;
-    onClose(): void;
-    size?: 'sm' | 'md' | 'lg';
-    icon?: LucideIcon;
-    description?: string;
-    headerActions?: ReactNode;
-    children: ReactNode;
-  }>;
-  ModalBody: ComponentType<{ gap?: 4 | 5 | 6; children: ReactNode }>;
   ConfirmDialog: ComponentType<{
     open: boolean;
     title: string;
-    description?: ReactNode;
+    description?: string;
     confirmLabel?: string;
     onConfirm(): void;
     onClose(): void;
   }>;
+  /** The host's people picker: search, grouped rows and a local selection that is handed over whole on
+   *  save. Each row carries an `icon`, which is where the Avatar goes — so a person is a face and a
+   *  name here exactly as in the drawer behind it. */
+  ManageSelectionModal: ComponentType<{
+    open: boolean;
+    title: string;
+    subtitle?: string;
+    onClose(): void;
+    items: {
+      id: string;
+      label: string;
+      group: string;
+      groupLabel?: string;
+      icon?: ReactNode;
+      disabled?: boolean;
+      disabledHint?: string;
+    }[];
+    countLabel?(n: number): string;
+    selected: Set<string>;
+    onSave(next: Set<string>): void | Promise<void>;
+    saving?: boolean;
+    emptySelectionHint?: string;
+  }>;
   WorkspacePage: ComponentType<{ className?: string; children: ReactNode }>;
   PluginPageHeader: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
-  EntityList: ComponentType<{ className?: string; children: ReactNode }>;
-  EntityRow: ComponentType<{
-    selected?: boolean;
-    busy?: boolean;
-    interactive?: boolean;
+  SpatialWorkspaceLayout: ComponentType<{
+    hero: {
+      eyebrow?: string;
+      title: string;
+      count?: number;
+      description?: string;
+      status?: ReactNode;
+      action?: ReactNode;
+      mascotState?: 'idle' | 'saving' | 'success' | 'error';
+      metrics: ReactNode;
+    };
+    navigation?: {
+      sections: { id: string; label: string; icon: LucideIcon; description?: string; count?: number }[];
+      value: string;
+      onChange(id: string): void;
+      ariaLabel: string;
+    };
     className?: string;
-    onClick?: () => void;
     children: ReactNode;
   }>;
-  LoadingState: ComponentType<{ label?: string }>;
-  ErrorState: ComponentType<{ title?: string; description?: string }>;
+  WorkspaceMetric: ComponentType<{ label: string; value: ReactNode; icon?: LucideIcon }>;
+  /** The app's one detail drawer. Its width is fixed by the host stylesheet, so every drawer on every
+   *  surface is the same size — this bundle must never wrap it in anything that resizes it. */
+  WorkspaceDetailRail: ComponentType<{ label: string; closeLabel: string; onClose(): void; children: ReactNode }>;
+  ControlSurfaceDocument: ComponentType<{ className?: string; children: ReactNode }>;
+  ControlSurfaceToolbar: ComponentType<{ className?: string; children: ReactNode }>;
+  ControlSurfaceRegister: ComponentType<{ className?: string; children: ReactNode }>;
+  ControlSurfaceState: ComponentType<{ tone?: 'default' | 'danger'; className?: string; children: ReactNode }>;
+  DataTable: ComponentType<{ ariaLabel: string; columns: string; compactColumns?: string; className?: string; children: ReactNode }>;
+  DataTableRow: ComponentType<{
+    header?: boolean;
+    selected?: boolean;
+    interactive?: boolean;
+    className?: string;
+    role?: string;
+    'aria-selected'?: boolean;
+    children: ReactNode;
+  }>;
+  DataTableCell: ComponentType<{
+    header?: boolean;
+    priority?: 'always' | 'wide';
+    className?: string;
+    title?: string;
+    role?: string;
+    'aria-hidden'?: boolean;
+    children: ReactNode;
+  }>;
+  DetailBlock: ComponentType<{ icon: LucideIcon; title: string; hint?: string; children: ReactNode }>;
+  MotionPresence: ComponentType<{ mode?: 'sync' | 'wait' | 'popLayout'; children: ReactNode }>;
+  MotionLayoutItem: ComponentType<{ layoutId?: string; role?: string; className?: string; children: ReactNode }>;
+  LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'kanban' | 'block'; height?: string }>;
+  LoadingLine: ComponentType<{ label?: string; layout?: 'inline' | 'block' | 'page'; spinner?: boolean }>;
+  ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
   EmptyState: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
-  HelpTip: ComponentType<{ text: string }>;
 }
 
 interface SitesRuntime {
@@ -194,7 +266,15 @@ export const jsonBody = (method: string, value: unknown): RequestInit => ({
   body: JSON.stringify(value),
 });
 
-/** Relative time in the shape the cards use: short, and never a bare timestamp nobody reads. */
+export const SITES_LIST_KEY = ['sites', 'list'];
+export const siteDetailKey = (siteId: string): unknown[] => ['sites', 'detail', siteId];
+
+/** The host account shape the Avatar resolves a monogram from. The directory gives a display name and
+ *  nothing else, so the name doubles as the username — which is what the monogram is derived from. */
+export const avatarUser = (person: Person): { id: number; username: string; name: string } =>
+  ({ id: person.id, username: person.name, name: person.name });
+
+/** Relative time in the shape the register uses: short, and never a bare timestamp nobody reads. */
 export function relativeTime(iso: string | null): string {
   if (!iso) return '';
   const then = Date.parse(iso);

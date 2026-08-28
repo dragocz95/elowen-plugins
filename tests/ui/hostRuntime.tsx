@@ -57,6 +57,8 @@ export function ensurePluginUiRuntime(): void {
       // App chrome shared with the surfaces that stay in core, which is why it lives on the runtime
       // rather than inside a bundle.
       ActionMenu: C.ActionMenu,
+      // A person as the app draws one, and the caption a detail drawer hangs each of its sections from.
+      Avatar: C.Avatar, DetailBlock: C.DetailBlock,
       ContextMenu: C.ContextMenu, DateRangeFilter: C.DateRangeFilter, EntityList: C.EntityList, EntityRow: C.EntityRow,
       ExecutorPicker: C.ExecutorPicker, IconButton: C.IconButton, LiveTail: C.LiveTail, ModuleHeader: C.ModuleHeader,
       MotionLayout: C.MotionLayout, MotionLayoutItem: C.MotionLayoutItem, MotionPresence: C.MotionPresence,

@@ -1,42 +1,44 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Globe } from 'lucide-react';
-import { runtime, type SiteView, type SitesListResponse } from './runtime.js';
-import { SiteCard } from './SitesPage.js';
+import { runtime, SITES_LIST_KEY, type SitesListResponse } from './runtime.js';
+import { SitesRegister } from './SitesPage.js';
 import { SiteDetail } from './SiteDetail.js';
 
-/** The same cards, filtered to one Project, so sites show up where the team already looks. */
+/** The same register and the same drawer, narrowed to one Project, so sites read identically wherever
+ *  the team looks at them. */
 export function SitesProjectPanel({ project }: { project: { id: number } }) {
   const { components, hooks } = runtime();
-  const { EntityList, LoadingState, EmptyState } = components;
+  const { WorkspaceDetailRail, LoadingState, ErrorState, EmptyState } = components;
   const strings = hooks.usePluginStrings('sites');
-  const [openSite, setOpenSite] = useState<SiteView | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const list = hooks.useQuery<SitesListResponse>({
-    queryKey: ['sites', 'list'],
+    queryKey: SITES_LIST_KEY,
     queryFn: () => runtime().api('/plugins/sites/api/sites'),
   });
 
-  if (list.isLoading) return <LoadingState />;
-  const sites = [...(list.data?.mine ?? []), ...(list.data?.shared ?? [])]
-    .filter((site) => site.projectId === project.id);
+  const sites = useMemo(
+    () => [...(list.data?.mine ?? []), ...(list.data?.shared ?? [])].filter((site) => site.projectId === project.id),
+    [list.data, project.id],
+  );
+  const selected = sites.find((site) => site.id === selectedId) ?? null;
 
-  if (sites.length === 0) return <EmptyState title={strings.empty ?? 'No sites yet.'} icon={Globe} />;
+  if (list.isLoading) return <LoadingState variant="list" />;
+  if (list.isError) return <ErrorState message={strings.loadFailed} onRetry={() => list.refetch()} />;
+  if (sites.length === 0) return <EmptyState title={strings.empty} icon={Globe} />;
 
   return (
-    <div className="flex flex-col gap-2">
-      <EntityList className="flex flex-col gap-2">
-        {sites.map((site) => (
-          <SiteCard key={site.id} site={site} strings={strings} onOpen={setOpenSite} />
-        ))}
-      </EntityList>
-      {openSite ? (
-        <SiteDetail
-          siteId={openSite.id}
-          strings={strings}
-          allowPublicSites={list.data?.allowPublicSites ?? false}
-          dedicatedHost={list.data?.dedicatedHost ?? false}
-          onClose={() => setOpenSite(null)}
-        />
+    <div className="workspace-master-detail" data-detail={selected != null}>
+      <SitesRegister sites={sites} selectedId={selectedId} onSelect={setSelectedId} />
+      {selected ? (
+        <WorkspaceDetailRail label={strings.detailTitle} closeLabel={strings.close} onClose={() => setSelectedId(null)}>
+          <SiteDetail
+            siteId={selected.id}
+            allowPublicSites={list.data?.allowPublicSites ?? false}
+            dedicatedHost={list.data?.dedicatedHost ?? false}
+            onDeleted={() => setSelectedId(null)}
+          />
+        </WorkspaceDetailRail>
       ) : null}
     </div>
   );

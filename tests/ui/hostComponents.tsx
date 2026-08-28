@@ -1285,6 +1285,43 @@ export function IconButton({ icon: Icon, label, onClick, disabled = false }: { i
   );
 }
 
+/** Ported from the host's PluginAvatar adapter: a plugin-owned image wins, then the linked account's
+ *  own avatar, then a monogram. The person's NAME is the accessible name in every branch, because a
+ *  monogram that only renders two letters is otherwise unassertable — and "who is this" is the whole
+ *  reason a page shows a face rather than an account id. */
+export function Avatar({ name, src, user, size = 'md' }: {
+  name?: string;
+  src?: string;
+  user?: { id: number; username: string; name?: string; avatar?: string };
+  size?: number | 'sm' | 'md' | 'lg';
+}) {
+  const pixels = typeof size === 'number' ? size : size === 'sm' ? 28 : size === 'lg' ? 44 : 36;
+  const label = name?.trim() || user?.name?.trim() || user?.username || '?';
+  if (src) return <img src={src} alt={label} width={pixels} height={pixels} />;
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  const initials = (words.length > 1 ? words.slice(0, 2).map((word) => word[0] ?? '') : [...label].slice(0, 2)).join('').toUpperCase();
+  return <span data-avatar aria-label={label} style={{ width: pixels, height: pixels }}>{initials || '?'}</span>;
+}
+
+/** Ported from web/components/ui/DetailBlock.tsx — the caption-plus-hint wrapper a detail drawer puts
+ *  above each of its sections. */
+export function DetailBlock({ icon: Icon, title, hint, children }: {
+  icon: LucideIcon;
+  title: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section>
+      <span>
+        <Icon size={13} aria-hidden />{title}
+        {hint ? <HelpTip>{hint}</HelpTip> : null}
+      </span>
+      {children}
+    </section>
+  );
+}
+
 export function EntityList({ children, className = '', ...rest }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
   return <div role="list" className={className} {...rest}>{children}</div>;
 }
