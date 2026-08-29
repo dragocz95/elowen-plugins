@@ -582,6 +582,66 @@ test('bundled skills plugin', async (t) => {
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'dup-skill' })), /Body of dup-skill/);
   });
 
+  await t.test('an owner folder that IS a link to another account is refused by every personal surface', async () => {
+    // The scan skips a linked `users/<id>` on its own, because a Dirent reports a symlink as neither a
+    // file nor a directory. Every OTHER surface addresses the folder by account id instead — and
+    // canonicalising a root that is itself a link quietly adopts account 8's folder as account 7's own
+    // boundary, at which point every containment check below confirms account 8's files as "inside".
+    const dataRoot = tmpDir('skills');
+    const skillsDir = join(dataRoot, 'skills');
+    const eightDir = join(skillsDir, 'users', '8');
+    mkdirSync(eightDir, { recursive: true });
+    const victim = join(eightDir, 'private-eight.md');
+    writeFileSync(victim, skillMd('private-eight', 'account eight only'));
+    symlinkSync(eightDir, join(skillsDir, 'users', '7'), 'dir');
+    const reg = loadPlugin({ dataRoot });
+
+    assert.doesNotMatch(await refusalOf(runScopedTool(reg, 'SkillLoad', 7, { name: 'private-eight' })), /Body of/);
+    const listed = asText(await asTurn(reg, turnFor(7), () => runTool(reg, 'ListSkills', {})));
+    assert.doesNotMatch(listed, /private-eight/, `ListSkills leaked account 8's set through a linked owner folder: ${listed}`);
+    const deleted = asText(await asTurn(reg, turnFor(7), () => runTool(reg, 'DeleteSkill', { name: 'private-eight' })));
+    assert.match(deleted, /^Error/, `DeleteSkill reached account 8's file: ${deleted}`);
+    assert.equal(existsSync(victim), true);
+    const created = asText(await asTurn(reg, turnFor(7), () => runTool(reg, 'CreateSkill', { name: 'planted', scope: 'personal', description: 'when planting', content: 'planted body' })));
+    assert.match(created, /^Error/, `CreateSkill wrote into account 8's folder: ${created}`);
+    assert.equal(existsSync(join(eightDir, 'planted.md')), false);
+  });
+
+  await t.test('CreateSkill does not write through a link planted at the name', async () => {
+    const dataRoot = tmpDir('skills');
+    const skillsDir = join(dataRoot, 'skills');
+    const eightDir = join(skillsDir, 'users', '8');
+    const sevenDir = join(skillsDir, 'users', '7');
+    mkdirSync(eightDir, { recursive: true });
+    mkdirSync(sevenDir, { recursive: true });
+    const victim = join(eightDir, 'victim.md');
+    const before = skillMd('victim', 'account eight only');
+    writeFileSync(victim, before);
+    symlinkSync(victim, join(sevenDir, 'victim.md'));
+    const reg = loadPlugin({ dataRoot });
+
+    const out = asText(await asTurn(reg, turnFor(7), () => runTool(reg, 'CreateSkill', { name: 'victim', scope: 'personal', description: 'mine now', content: 'overwritten' })));
+    assert.match(out, /^Error/, `CreateSkill overwrote account 8's skill: ${out}`);
+    assert.equal(readFileSync(victim, 'utf-8'), before);
+  });
+
+  await t.test('a link OUT of a personal folder is not promoted into the instance set', async () => {
+    // The other direction of the same hole. The canonical target is outside `users/` altogether, so
+    // judging the file by where it LANDS reads it as an ordinary instance skill — one account's file
+    // placed in front of every session on the instance.
+    const dataRoot = tmpDir('skills');
+    const skillsDir = join(dataRoot, 'skills');
+    const outside = join(dataRoot, 'outside');
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(join(skillsDir, 'users', '7'), { recursive: true });
+    writeFileSync(join(outside, 'SKILL.md'), skillMd('smuggled', 'planted by account seven'));
+    symlinkSync(outside, join(skillsDir, 'users', '7', 'smuggled'), 'dir');
+    const reg = loadPlugin({ dataRoot });
+
+    assert.deepEqual(reg.skills.filter((s) => s.name === 'smuggled' && s.ownerUserId === null), []);
+    assert.doesNotMatch(await refusalOf(runScopedTool(reg, 'SkillLoad', null, { name: 'smuggled' })), /Body of/);
+  });
+
   await t.test('CreateSkill writes the skill AND asks the host to apply it live (no restart)', async () => {
     // Regression: before the fix, CreateSkill wrote the file but never triggered a reload, so a freshly
     // created skill only reached the model after a daemon restart / plugins toggle. It must now request a
@@ -983,6 +1043,34 @@ test('skills routes', async (t) => {
     assert.equal(existsSync(join(skillsDir, 'victim.md')), false);
     // Bea's own routes are untouched by any of it.
     assertContains(await listSkills(app, adminTok), { name: 'victim', owner: bea.id });
+  });
+
+  await t.test('refuses every route for an account whose folder IS a link to another account\'s', async () => {
+    const { app, dataRoot, users, amy, amyTok, adminTok } = setup();
+    users.setGrantedPlugins(amy.id, ['skills']);
+    const bea = users.create('bea');
+    const skillsDir = join(dataRoot, 'skills');
+    const beaDir = join(skillsDir, 'users', String(bea.id));
+    mkdirSync(beaDir, { recursive: true });
+    const victim = join(beaDir, 'victim.md');
+    const before = skillMd('victim', 'account bea only');
+    writeFileSync(victim, before);
+    // Amy's whole folder IS Bea's. Canonicalising a root that is itself a link would make Bea's
+    // directory the boundary Amy's requests are measured against, so the scope is refused outright.
+    symlinkSync(beaDir, join(skillsDir, 'users', String(amy.id)), 'dir');
+
+    assert.ok(!(await listSkills(app, amyTok)).some((row) => row.name === 'victim'), 'the listing leaked Bea\'s skill through a linked owner folder');
+    assert.equal((await app.request('/plugins/skills?owner=me', post(amyTok, skill({ name: 'planted' })))).status, 403);
+    assert.equal((await app.request('/plugins/skills/victim?owner=me', patch(amyTok, { content: 'overwritten' }))).status, 403);
+    assert.equal((await app.request('/plugins/skills/victim?owner=me', del(amyTok))).status, 403);
+    // The DESTINATION of a transfer never reaches the per-file check: a rename replaces the name rather
+    // than following it, so an admin moving a skill "to Amy" would drop it straight into Bea's folder.
+    assert.equal((await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ name: 'movable' })))).status, 201);
+    assert.equal((await app.request(`/plugins/skills/movable/owner?owner=instance`, post(adminTok, { owner: amy.id }))).status, 403);
+    assert.equal(existsSync(join(beaDir, 'movable.md')), false);
+    assert.equal(existsSync(join(skillsDir, 'movable.md')), true);
+    assert.equal(readFileSync(victim, 'utf-8'), before);
+    assert.equal(existsSync(join(beaDir, 'planted.md')), false);
   });
 
   await t.test('sends an admin\'s unspecified write to the shared set, and only an explicit "me" to his own', async () => {

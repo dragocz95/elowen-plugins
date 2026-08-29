@@ -167,7 +167,8 @@ function buildSkillLoadTool(ctx, instanceSkills, personalSkills, personalScopeRo
       // was actually verified, instead of from whatever the link chain resolves to a second time.
       let file = skill.filePath;
       if (owner != null && personal.get(owner)?.byName.get(wanted) === skill) {
-        file = canonicalWithin(personalScopeRoot(owner), skill.filePath);
+        const root = personalScopeRoot(owner);
+        file = root === null ? null : canonicalWithin(root, skill.filePath);
         if (file === null) {
           logger.warn(`skill '${wanted}' no longer resolves inside account ${owner}'s skills directory — refused`);
           throw new SkillLoadError(`The skill "${wanted}" is announced but its file is missing or unreadable, so it cannot be loaded. Continue without it and tell the user.`);
@@ -212,12 +213,14 @@ export function register(ctx) {
   const canonicalPath = (path) => {
     try { return realpathSync(path); } catch { return resolve(path); }
   };
-  const isPersonalPath = (file) => {
-    if (!usersRootIsPersonalStore()) return false;
-    const abs = canonicalPath(file);
-    const root = canonicalPath(usersRoot);
-    return abs === root || abs.startsWith(root + sep);
-  };
+  const under = (path, root) => path === root || path.startsWith(root + sep);
+  // Personal by where it RESOLVES or by where it is WRITTEN, because the two escape in opposite
+  // directions. A link in the instance dir pointing into `users/` is caught by the canonical target; a
+  // link under `users/7/` pointing somewhere outside `users/` altogether resolves to neither account's
+  // folder, and judging it by the target alone would read it as an ordinary instance skill — which puts
+  // one account's file in front of every session on the instance.
+  const isPersonalPath = (file) => usersRootIsPersonalStore()
+    && (under(canonicalPath(file), canonicalPath(usersRoot)) || under(resolve(file), resolve(usersRoot)));
   // Both catalog surfaces (list/delete) go through PI's loader, not a raw `*.md` readdir, so they see
   // EVERY skill PI actually loads — including the `<name>/SKILL.md` directory form (PI treats a dir with a
   // SKILL.md as a skill root). A flat readdir would silently miss those.
@@ -230,6 +233,26 @@ export function register(ctx) {
         .filter((e) => e.isDirectory() && /^[0-9]+$/.test(e.name))
         .map((e) => Number(e.name))
     : []);
+  /** Account `ownerUserId`'s own scope directory, canonicalized — or null when `users/<id>` is not that
+   *  account's own real folder, which covers both "not there yet" and "it is a link somewhere else".
+   *
+   *  Verified to BE the literal `<id>` child of the canonical users root, rather than simply realpathed:
+   *  containment below canonicalizes the root it compares against, so a linked `users/7` would become the
+   *  boundary itself and every check would then confirm account 8's files as inside account 7's scope.
+   *  The scan never enumerates a linked owner folder (a Dirent reports a symlink as neither a file nor a
+   *  directory), but ListSkills, the creator tools and the HTTP routes all address it by account id. */
+  const ownerScopeRoot = (ownerUserId) => {
+    try {
+      const base = realpathSync(userSkillsDir(ownerUserId));
+      return base === join(realpathSync(usersRoot), String(ownerUserId)) ? base : null;
+    } catch { return null; }
+  };
+  /** The same question for a WRITE, which must still be allowed to create the folder: something is there
+   *  and it is not this account's own folder. Nothing there at all is not an alias. */
+  const scopeRootAliased = (ownerUserId) => {
+    try { lstatSync(userSkillsDir(ownerUserId)); } catch { return false; }
+    return ownerScopeRoot(ownerUserId) === null;
+  };
   /** One account's personal skills, with everything that does not actually live in that account's own
    *  folder dropped. The loader follows symlinks, so a link under `users/7/` pointing into `users/8/`
    *  otherwise loads as account 7's skill: announced in account 7's prompt and served in full by
@@ -238,8 +261,16 @@ export function register(ctx) {
    *  through here, because a skill dropped from the load but still listed is the same leak with an extra
    *  step. */
   const personalSkillsOf = (ownerUserId) => {
-    const root = userSkillsDir(ownerUserId);
-    return loadSkills(root, 'elowen-user:skills').filter((skill) => {
+    const root = ownerScopeRoot(ownerUserId);
+    if (root === null) {
+      // Say it out loud. An account whose folder is not its own loses every personal skill at once, and
+      // an empty set with no explanation reads as "the skills never saved" rather than as a refusal.
+      if (scopeRootAliased(ownerUserId)) {
+        ctx.logger.warn(`${userSkillsDir(ownerUserId)} is not account ${ownerUserId}'s own folder (it resolves elsewhere) — its personal skills are ignored; a personal skills dir may not be a symlink`);
+      }
+      return [];
+    }
+    return loadSkills(userSkillsDir(ownerUserId), 'elowen-user:skills').filter((skill) => {
       if (canonicalWithin(root, skill.filePath) !== null) return true;
       ctx.logger.warn(`skill '${skill.name}' at ${skill.filePath} resolves outside account ${ownerUserId}'s skills directory — ignored`);
       return false;
@@ -274,7 +305,7 @@ export function register(ctx) {
   // decides per turn (see buildSkillLoadTool). Being an ordinary instance tool also puts it squarely under
   // the writer's own tool grant: an account an admin never granted SkillLoad cannot reach their personal
   // skills through it, which is exactly what the grant is for.
-  const skillLoader = buildSkillLoadTool(ctx, instanceSkills, personalSkills, userSkillsDir);
+  const skillLoader = buildSkillLoadTool(ctx, instanceSkills, personalSkills, ownerScopeRoot);
   if (skillLoader) ctx.registerTool(skillLoader);
   if (skillLoader) {
     ctx.registerSystemPromptFragment([
@@ -322,6 +353,7 @@ export function register(ctx) {
    *  scopes are shared by definition, so an operator who links a file into them keeps getting it. */
   const escapesOwnScope = (target, path) => {
     if (target.owner === null) return false;
+    if (scopeRootAliased(target.owner)) return true; // the folder itself is somebody else's
     try { lstatSync(path); } catch { return false; }
     return canonicalWithin(target.dir, path) === null;
   };
@@ -423,10 +455,14 @@ export function register(ctx) {
   // HTTP compatibility for clients that omit `?owner=`: preserve the route's historical auth-based target.
   // An API admin writes the instance set; anyone else writes their own set. The CreateSkill tool does NOT
   // use this fallback — its explicit `scope` is gated independently on instance-owner identity.
+  /** A personal scope as a request target, refused outright when `users/<id>` is not that account's own
+   *  folder. Resolved HERE so every route gets it from one place — the DESTINATION of a transfer never
+   *  reaches the per-file containment check, since a rename replaces the name rather than following it. */
+  const personalTarget = (id) => (scopeRootAliased(id) ? { ok: false } : { ok: true, owner: id, dir: userSkillsDir(id) });
   const legacyTarget = (isAdmin, me) => {
     if (isAdmin) return { ok: true, owner: null, dir: instanceDir };
     if (me === null) return { ok: false };
-    return { ok: true, owner: me, dir: userSkillsDir(me) };
+    return personalTarget(me);
   };
 
   // WHICH skills dir a request targets. `owner` is the literal 'me' for the caller's own personal set,
@@ -443,7 +479,7 @@ export function register(ctx) {
       return auth.admin ? { ok: true, owner: null, dir: instanceDir } : { ok: false };
     }
     if (raw === 'me') {
-      return me === null ? { ok: false } : { ok: true, owner: me, dir: userSkillsDir(me) };
+      return me === null ? { ok: false } : personalTarget(me);
     }
     if (raw !== '') {
       if (!/^[0-9]+$/.test(raw)) return { ok: false, invalid: true };
@@ -453,7 +489,7 @@ export function register(ctx) {
       // exist, and every later load enumerates it as somebody's skill set. Refused exactly like another
       // account's set, so a probe cannot tell a missing account from one it may not touch.
       if (id !== me && !accountExists(id)) return { ok: false };
-      return { ok: true, owner: id, dir: userSkillsDir(id) };
+      return personalTarget(id);
     }
     return null;
   };
@@ -510,7 +546,7 @@ export function register(ctx) {
       const owners = req.auth.admin ? skillOwnerIds() : (req.auth.userId === null ? [] : [req.auth.userId]);
       for (const ownerUserId of owners) {
         const dir = userSkillsDir(ownerUserId);
-        if (!existsSync(dir)) continue;
+        if (!existsSync(dir) || scopeRootAliased(ownerUserId)) continue;
         for (const { name, file } of enumerateSkills(dir)) {
           // The listing carries each user skill's full body, so a link out of this account's folder would
           // hand another account's skill to the caller before any load ever happened.
@@ -698,9 +734,13 @@ export function register(ctx) {
         // and the two would fight over the same slot in the prompt.
         const collision = nameCollision(p.name, target.owner);
         if (collision) return ok(`Error: ${collision}.`);
+        // Overwriting your own skill is the documented way to edit one, but a link planted at that name
+        // would send the write wherever it points — the same guard the HTTP create route applies.
+        const file = join(dir, `${p.name}.md`);
+        if (escapesOwnScope(target, file)) return ok(`Error: "${p.name}" resolves outside your own skills directory.`);
         const body = `---\nname: ${p.name}\ndescription: ${p.description.replaceAll('\n', ' ')}\n---\n\n${p.content}\n`;
         mkdirSync(dir, { recursive: true });
-        writeFileSync(join(dir, `${p.name}.md`), body, 'utf-8');
+        writeFileSync(file, body, 'utf-8');
         // Apply live: the host reloads plugins once the current turn settles (respawning the session), so
         // the new skill is in the available-skills block from the next message — no restart needed.
         ctx.requestReload?.();
