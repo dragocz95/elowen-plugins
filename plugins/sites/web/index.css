@@ -37,11 +37,11 @@
   .mt-2 {
     margin-top: calc(var(--spacing, 0.25rem) * 2);
   }
+  .mt-3 {
+    margin-top: calc(var(--spacing, 0.25rem) * 3);
+  }
   .mr-1 {
     margin-right: var(--spacing, 0.25rem);
-  }
-  .mb-1\.5 {
-    margin-bottom: calc(var(--spacing, 0.25rem) * 1.5);
   }
   .flex {
     display: flex;
@@ -160,6 +160,9 @@
   .overflow-auto {
     overflow: auto;
   }
+  .overflow-x-auto {
+    overflow-x: auto;
+  }
   .rounded-lg {
     border-radius: var(--radius-lg, 0.75rem);
   }
@@ -176,10 +179,6 @@
   .border-y {
     border-block-style: var(--tw-border-style);
     border-block-width: 1px;
-  }
-  .border-t {
-    border-top-style: var(--tw-border-style);
-    border-top-width: 1px;
   }
   .border-b {
     border-bottom-style: var(--tw-border-style);
@@ -251,9 +250,6 @@
   .py-3 {
     padding-block: calc(var(--spacing, 0.25rem) * 3);
   }
-  .pt-4 {
-    padding-top: calc(var(--spacing, 0.25rem) * 4);
-  }
   .pl-9 {
     padding-left: calc(var(--spacing, 0.25rem) * 9);
   }
@@ -297,10 +293,6 @@
     --tw-font-weight: var(--font-weight-semibold, 600);
     font-weight: var(--font-weight-semibold, 600);
   }
-  .tracking-\[0\.12em\] {
-    --tw-tracking: 0.12em;
-    letter-spacing: 0.12em;
-  }
   .tracking-wide {
     --tw-tracking: var(--tracking-wide, 0.025em);
     letter-spacing: var(--tracking-wide, 0.025em);
@@ -335,9 +327,6 @@
       color: color-mix(in oklab, var(--color-text-muted, #9d948e) 50%, transparent);
     }
   }
-  .text-warning {
-    color: var(--color-warning, #edae49);
-  }
   .uppercase {
     text-transform: uppercase;
   }
@@ -358,11 +347,6 @@
   @media (width >= 40rem) {
     .sm\:p-5 {
       padding: calc(var(--spacing, 0.25rem) * 5);
-    }
-  }
-  @media (width >= 48rem) {
-    .md\:grid-cols-2 {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 }

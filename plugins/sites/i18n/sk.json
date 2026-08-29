@@ -51,6 +51,10 @@
       "label": "Platnosť prihlásenia",
       "hint": "Ako dlho zostane návštevník k stránke prihlásený, kým ho prehliadač pošle znova cez prihlásenie. Strata prístupu sa prejaví okamžite bez ohľadu na túto hodnotu, pretože oprávnenie sa overuje pri každej požiadavke."
     },
+    "contactEmail": {
+      "label": "Kontaktný e-mail pre certifikáty",
+      "hint": "Certifikačná autorita vyžaduje kontaktnú adresu na vydanie certifikátov a upozornenia na ich vypršanie. Odosiela sa autorite a nikde inde sa neukladá."
+    },
     "runtimes": {
       "label": "Behové prostredia stránok"
     },
@@ -144,7 +148,6 @@
       "publicWarning": "Stránku bude môcť otvoriť ktokoľvek, kto pozná adresu, a to bez prihlásenia.",
       "publicConfirm": "Zverejniť",
       "publicDisabled": "Verejné stránky sú na tejto inštancii vypnuté.",
-      "passiveNotice": "Na záložnej adrese sú skripty vypnuté. V sekcii Hosting aktivujte wildcard DNS a TLS; všetky stránky sa potom automaticky prepnú na vlastné izolované adresy.",
       "sourceNotice": "Zdrojový priečinok leží v projekte, takže si ho prečíta každý, kto má k projektu prístup. Toto nastavenie riadi zverejnenú stránku.",
       "deleteTitle": "Zmazať túto stránku",
       "deleteHint": "Adresa prestane fungovať a všetky verzie sa odstránia. Zdrojový priečinok v projekte zostane nedotknutý.",
@@ -156,25 +159,11 @@
       "gatewayTitle": "Izolovaný hosting stránok",
       "gatewayActive": "Aktívny",
       "gatewayInactive": "Vyžaduje nastavenie",
-      "gatewayActiveHint": "Wildcard DNS, TLS a nginx sú pripravené. Nové aj existujúce stránky automaticky používajú vlastný izolovaný origin.",
-      "gatewayNotReady": "Hosting zatiaľ nie je pripravený.",
-      "gatewayApiUser": "Používateľ Namecheap API",
-      "gatewayUsername": "Používateľské meno Namecheap",
-      "gatewayApiKey": "Kľúč Namecheap API",
-      "gatewayClientIp": "Povolená verejná IPv4 servera",
-      "gatewayEmail": "Kontaktný e-mail pre ACME",
-      "gatewayStored": "Bezpečne uložené — prázdne zachová hodnotu",
-      "gatewayRequired": "Povinné",
-      "gatewaySecretTitle": "Šifrované prihlasovacie údaje",
-      "gatewaySecretHint": "Kľúč Namecheap je zašifrovaný v trezore tajomstiev inštancie. Nikdy sa nevracia do prehliadača, nezapisuje do nginxu, nevkladá do príkazového riadka ani do logov.",
-      "gatewaySave": "Uložiť a pripraviť",
-      "gatewaySaving": "Pripravujem…",
-      "gatewaySaved": "Hosting je aktívny",
-      "gatewayRemove": "Odobrať údaje hostingu",
-      "gatewayRemoveTitle": "Vypnúť izolovaný hosting?",
-      "gatewayRemoveDescription": "Wildcard gateway sa prepne na odmietaciu konfiguráciu. Existujúce adresy stránok prestanú odpovedať; údaje a verzie stránok zostanú zachované.",
-      "gatewayRemoved": "Hosting vypnutý",
-      "releaseLive": "Živá"
+      "gatewayActiveHint": "Každý web sa servíruje na vlastnej adrese pod týmto zástupným záznamom a má vlastný certifikát. Nič ďalšie nie je potrebné nastavovať.",
+      "gatewayNotReady": "Weby zatiaľ nie je možné servírovať.",
+      "releaseLive": "Živá",
+      "gatewayRecordTitle": "Potrebný DNS záznam",
+      "gatewayRecordHint": "Vytvorte tento záznam u registrátora, ktorý spravuje doménu. Je to jediný ručný krok; hneď ako sa záznam prepíše, certifikáty sa vydávajú a obnovujú automaticky."
     }
   }
 }

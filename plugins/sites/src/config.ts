@@ -18,9 +18,13 @@ export interface SitesConfig {
   maxResponseBytes: number;
   portRangeStart: number;
   portRangeEnd: number;
-  /** Base hostname sites get their own subdomain under, or null when they share the app's origin.
+  /** Base hostname sites get their own subdomain under, or null when the gateway is not provisioned.
    *  A site is addressed at `<slug>.<siteHostBase>`, so every site is its OWN origin: one published
-   *  page cannot read another's, and none of them is same-origin with the app. */
+   *  page cannot read another's, and none of them is same-origin with the app.
+   *
+   *  Null is not a second serving mode. It means this instance cannot serve published sites at all,
+   *  and every path that would need an address refuses instead of falling back to the app's origin —
+   *  a page there would be same-origin with the app's session cookie. */
   siteHostBase: string | null;
   /** Scheme for site URLs, following the app's own. */
   siteScheme: string;
@@ -100,23 +104,23 @@ export function resolveConfig(
  *  without being handed every unrelated setting. */
 export type SiteAddressing = Pick<SitesConfig, 'siteHostBase' | 'siteScheme' | 'appBaseUrl'>;
 
-/** The hostname one site is served from, or null when sites share the app's origin. */
+/** The hostname one site is served from, or null while the gateway is unprovisioned. */
 const siteHost = (config: SiteAddressing, slug: string): string | null =>
   config.siteHostBase === null ? null : `${slug}.${config.siteHostBase}`;
 
-export const siteUrl = (config: SiteAddressing, slug: string): string => {
+/** Where a site lives, or null when this instance has no site hostname to put it on. Callers render the
+ *  null as "not addressable yet" rather than inventing a URL on the app's own origin. */
+export const siteUrl = (config: SiteAddressing, slug: string): string | null => {
   const host = siteHost(config, slug);
-  return host === null
-    ? `${config.appBaseUrl}/hooks/sites/s/${slug}/`
-    : `${config.siteScheme}//${host}/`;
+  return host === null ? null : `${config.siteScheme}//${host}/`;
 };
 
 /** Whether THIS request arrived on the site's own hostname.
  *
  *  Decided from the request, never from configuration alone. Configuring a site hostname does not stop
  *  the app's own hostname from reaching the same handler — `/hooks/` is proxied to the daemon there too
- *  — so a page served with script-enabled headers merely because an override exists would still be
- *  same-origin with the app, which is the whole hazard the separate origin was for. */
+ *  — so a page served merely because a hostname exists in settings would still be same-origin with the
+ *  app, which is the whole hazard the separate origin was for. */
 export const requestOnSiteHost = (config: SiteAddressing, slug: string, hostHeader: string | undefined): boolean => {
   const expected = siteHost(config, slug);
   if (expected === null || !hostHeader) return false;
@@ -124,7 +128,6 @@ export const requestOnSiteHost = (config: SiteAddressing, slug: string, hostHead
   return host === expected;
 };
 
-/** The absolute prefix a build must be configured with. A dedicated hostname owns its root; the passive
- * same-origin fallback retains the namespaced hook prefix. */
-export const siteBasePath = (config: SiteAddressing, slug: string): string =>
-  config.siteHostBase === null ? `/hooks/sites/s/${slug}/` : '/';
+/** The absolute prefix a build must be configured with. A site owns the root of its own hostname, so
+ *  this is a constant — it is stated here because a publisher has to configure their bundler with it. */
+export const SITE_BASE_PATH = '/';

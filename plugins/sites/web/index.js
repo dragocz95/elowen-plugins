@@ -84,7 +84,7 @@ function relativeTime(iso) {
 var formatBytes = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} kB`;
 
 // plugins/sites/web-src/SitesPage.tsx
-var import_react5 = __toESM(require_react(), 1);
+var import_react4 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
@@ -244,18 +244,6 @@ var History = createLucideIcon("History", [
   ["path", { d: "M12 7v5l4 2", key: "1fdv2h" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/key-round.js
-var KeyRound = createLucideIcon("KeyRound", [
-  [
-    "path",
-    {
-      d: "M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z",
-      key: "1s6t7t"
-    }
-  ],
-  ["circle", { cx: "16.5", cy: "7.5", r: ".5", fill: "currentColor", key: "w0ekpg" }]
-]);
-
 // node_modules/lucide-react/dist/esm/icons/layers.js
 var Layers = createLucideIcon("Layers", [
   [
@@ -402,114 +390,58 @@ var STATUS_TONE = {
   failed: "danger"
 };
 
-// plugins/sites/web-src/GatewaySettings.tsx
-var import_react3 = __toESM(require_react(), 1);
+// plugins/sites/web-src/HostingStatus.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
-var EMPTY = { apiUser: "", apiKey: "", username: "", clientIp: "", email: "" };
-function GatewaySettings({ gateway }) {
+function HostingStatus({ gateway }) {
   const { components, hooks, utils } = runtime();
-  const { Badge, Button, ConfirmDialog, Input } = components;
+  const { Badge, IconButton } = components;
   const strings = hooks.usePluginStrings("sites");
-  const queryClient = hooks.useQueryClient();
   const { toast } = hooks.useToast();
-  const [values, setValues] = (0, import_react3.useState)(EMPTY);
-  const [confirmRemove, setConfirmRemove] = (0, import_react3.useState)(false);
-  const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: SITES_LIST_KEY });
-  };
-  const save = hooks.useMutation({
-    mutationFn: async (next) => runtime().api("/plugins/sites/api/gateway", jsonBody("PUT", next)),
-    onSuccess: async (next) => {
-      setValues(EMPTY);
-      await refresh();
-      toast(next.status.active ? strings.gatewaySaved : next.status.detail || strings.gatewayNotReady, next.status.active ? "ok" : "error");
-    },
-    onError: (error) => toast(utils.apiErrorMessage(error), "error")
-  });
-  const remove = hooks.useMutation({
-    mutationFn: async () => runtime().api("/plugins/sites/api/gateway", { method: "DELETE" }),
-    onSuccess: async () => {
-      setConfirmRemove(false);
-      await refresh();
-      toast(strings.gatewayRemoved, "ok");
-    },
-    onError: (error) => toast(utils.apiErrorMessage(error), "error")
-  });
-  const field = (key, label, type = "text") => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex flex-col gap-1.5", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] font-medium uppercase tracking-[0.12em] text-text-muted", children: label }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-      Input,
-      {
-        type,
-        autoComplete: "off",
-        value: values[key],
-        onChange: (event) => setValues((current) => ({ ...current, [key]: event.target.value })),
-        placeholder: gateway.configured[key] ? strings.gatewayStored : strings.gatewayRequired,
-        disabled: save.isPending || remove.isPending
-      }
-    )
-  ] });
+  const { status, requiredRecord } = gateway;
+  const record = requiredRecord ? `${requiredRecord.name}  ${requiredRecord.type}  ${requiredRecord.value}` : null;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5 p-4 sm:p-5", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-surface/40 p-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-w-0 items-start gap-3", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-accent", children: gateway.status.active ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldCheck, { size: 18 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Server, { size: 18 }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-accent", children: status.active ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldCheck, { size: 18 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Server, { size: 18 }) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { className: "text-sm font-medium text-text", children: strings.gatewayTitle }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 max-w-2xl text-xs leading-relaxed text-text-muted", children: gateway.status.active ? strings.gatewayActiveHint : gateway.status.detail || strings.gatewayNotReady }),
-          gateway.status.hostnameBase ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "mt-2 truncate font-mono text-[11px] text-text-muted", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 max-w-2xl text-xs leading-relaxed text-text-muted", children: status.active ? strings.gatewayActiveHint : status.detail || strings.gatewayNotReady }),
+          status.hostnameBase ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "mt-2 truncate font-mono text-[11px] text-text-muted", children: [
             "*.",
-            gateway.status.hostnameBase
+            status.hostnameBase
           ] }) : null
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: gateway.status.active ? "success" : "warning", children: gateway.status.active ? strings.gatewayActive : strings.gatewayInactive })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: status.active ? "success" : "warning", children: status.active ? strings.gatewayActive : strings.gatewayInactive })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid gap-4 md:grid-cols-2", children: [
-      field("apiUser", strings.gatewayApiUser),
-      field("username", strings.gatewayUsername),
-      field("apiKey", strings.gatewayApiKey, "password"),
-      field("clientIp", strings.gatewayClientIp),
-      field("email", strings.gatewayEmail, "email")
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-xl border border-border/80 bg-surface/25 p-4 text-xs leading-relaxed text-text-muted", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mb-1.5 flex items-center gap-2 font-medium text-text", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(KeyRound, { size: 14 }),
-        strings.gatewaySecretTitle
+    record ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-xl border border-border/80 bg-surface/25 p-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-start justify-between gap-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { className: "text-xs font-medium text-text", children: strings.gatewayRecordTitle }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 max-w-2xl text-xs leading-relaxed text-text-muted", children: strings.gatewayRecordHint })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          IconButton,
+          {
+            icon: Copy,
+            label: strings.copyLink,
+            onClick: () => {
+              utils.copyText(record);
+              toast(strings.copied);
+            }
+          }
+        )
       ] }),
-      strings.gatewaySecretHint
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost-danger", icon: Trash2, onClick: () => setConfirmRemove(true), disabled: remove.isPending, children: strings.gatewayRemove }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        Button,
-        {
-          variant: "accent",
-          icon: ShieldCheck,
-          onClick: () => save.mutate(values),
-          disabled: save.isPending || remove.isPending || !Object.values(values).some((value) => value.trim() !== ""),
-          children: save.isPending ? strings.gatewaySaving : strings.gatewaySave
-        }
-      )
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-      ConfirmDialog,
-      {
-        open: confirmRemove,
-        title: strings.gatewayRemoveTitle,
-        description: strings.gatewayRemoveDescription,
-        confirmLabel: strings.gatewayRemove,
-        onConfirm: () => remove.mutate(void 0),
-        onClose: () => setConfirmRemove(false)
-      }
-    )
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "mt-3 overflow-x-auto rounded-lg border border-border bg-surface px-3 py-2 font-mono text-[11px] leading-relaxed text-text", children: record })
+    ] }) : null
   ] });
 }
 
 // plugins/sites/web-src/SiteDetail.tsx
-var import_react4 = __toESM(require_react(), 1);
+var import_react3 = __toESM(require_react(), 1);
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var basePath = (siteId) => `/plugins/sites/api/site/${siteId}`;
-function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted }) {
+function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
   const { components, hooks, utils } = runtime();
   const {
     Avatar,
@@ -526,9 +458,9 @@ function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted }) {
   const strings = hooks.usePluginStrings("sites");
   const { toast } = hooks.useToast();
   const queryClient = hooks.useQueryClient();
-  const [pendingPublic, setPendingPublic] = (0, import_react4.useState)(false);
-  const [confirmDelete, setConfirmDelete] = (0, import_react4.useState)(false);
-  const [guestPicker, setGuestPicker] = (0, import_react4.useState)(false);
+  const [pendingPublic, setPendingPublic] = (0, import_react3.useState)(false);
+  const [confirmDelete, setConfirmDelete] = (0, import_react3.useState)(false);
+  const [guestPicker, setGuestPicker] = (0, import_react3.useState)(false);
   const detail = hooks.useQuery({
     queryKey: siteDetailKey(siteId),
     queryFn: () => runtime().api(basePath(siteId))
@@ -585,8 +517,10 @@ function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted }) {
   const visibleOptions = VISIBILITY_ORDER.filter((value) => value !== "public" || allowPublicSites);
   const candidates = (directory.data?.accounts ?? []).filter((account) => account.id !== site.ownerUserId);
   const copyAddress = () => {
-    utils.copyText(site.url);
-    toast(strings.copied);
+    if (site.url) {
+      utils.copyText(site.url);
+      toast(strings.copied);
+    }
   };
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex flex-col gap-5", children: [
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-start justify-between gap-3", children: [
@@ -599,14 +533,16 @@ function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted }) {
         site.projectSlug ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "muted", children: site.projectSlug }) : null
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex shrink-0 items-center gap-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: Copy, label: strings.copyLink, onClick: copyAddress }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: Copy, label: strings.copyLink, disabled: site.url === null, onClick: copyAddress }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           IconButton,
           {
             icon: ExternalLink,
             label: strings.openSite,
-            disabled: site.status !== "live",
-            onClick: () => window.open(site.url, "_blank", "noopener,noreferrer")
+            disabled: site.status !== "live" || site.url === null,
+            onClick: () => {
+              if (site.url) window.open(site.url, "_blank", "noopener,noreferrer");
+            }
           }
         )
       ] })
@@ -622,10 +558,7 @@ function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted }) {
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-xs text-text", children: site.owner.name })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DetailBlock, { icon: Link2, title: strings.address, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "break-all font-mono text-xs text-text", children: site.url }),
-      !dedicatedHost ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-[11px] text-warning", children: strings.passiveNotice }) : null
-    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DetailBlock, { icon: Link2, title: strings.address, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "break-all font-mono text-xs text-text", children: site.url }) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "grid grid-cols-3 divide-x divide-border/70 border-y border-border/70", children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
         Metric,
@@ -886,7 +819,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }) {
     ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { priority: "wide", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: STATUS_TONE[site.status], children: strings[STATUS_STRING[site.status]] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { priority: "wide", className: "whitespace-nowrap text-xs text-text-muted", children: published }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { children: site.status === "live" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { children: site.status === "live" && site.url !== null ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       IconButton,
       {
         icon: ExternalLink,
@@ -921,30 +854,30 @@ function SitesPage() {
   const [section, setSection] = hooks.usePersistentState("elowen.sites.section", "mine", SECTIONS);
   const [visibility, setVisibility] = hooks.usePersistentState("elowen.sites.visibility", "all", isVisibilityFilter);
   const [status, setStatus] = hooks.usePersistentState("elowen.sites.status", "all", isStatusFilter);
-  const [query, setQuery] = (0, import_react5.useState)("");
-  const [selectedId, setSelectedId] = (0, import_react5.useState)(null);
-  const mine = (0, import_react5.useMemo)(() => list.data?.mine ?? [], [list.data]);
-  const shared = (0, import_react5.useMemo)(() => list.data?.shared ?? [], [list.data]);
+  const [query, setQuery] = (0, import_react4.useState)("");
+  const [selectedId, setSelectedId] = (0, import_react4.useState)(null);
+  const mine = (0, import_react4.useMemo)(() => list.data?.mine ?? [], [list.data]);
+  const shared = (0, import_react4.useMemo)(() => list.data?.shared ?? [], [list.data]);
   const gateway = list.data?.gateway ?? null;
-  const sectionSites = (0, import_react5.useMemo)(
+  const sectionSites = (0, import_react4.useMemo)(
     () => section === "mine" ? mine : section === "shared" ? shared : [],
     [section, mine, shared]
   );
-  const filtered = (0, import_react5.useMemo)(() => {
+  const filtered = (0, import_react4.useMemo)(() => {
     const needle = query.trim().toLowerCase();
     return sectionSites.filter((site) => visibility === "all" || site.visibility === visibility).filter((site) => status === "all" || site.status === status).filter((site) => matches(site, needle));
   }, [sectionSites, visibility, status, query]);
-  const selected = (0, import_react5.useMemo)(
+  const selected = (0, import_react4.useMemo)(
     () => [...mine, ...shared].find((site) => site.id === selectedId) ?? null,
     [mine, shared, selectedId]
   );
-  (0, import_react5.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (selectedId !== null && list.data && selected === null) setSelectedId(null);
   }, [selectedId, list.data, selected]);
-  (0, import_react5.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (section === "hosting" && list.data && gateway === null) setSection("mine");
   }, [section, list.data, gateway, setSection]);
-  const summary = (0, import_react5.useMemo)(() => {
+  const summary = (0, import_react4.useMemo)(() => {
     const all = [...mine, ...shared];
     return {
       total: all.length,
@@ -1000,7 +933,7 @@ function SitesPage() {
         onChange: (value) => setSection(value),
         ariaLabel: strings.title
       },
-      children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceDocument, { children: list.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LoadingState, { variant: "cards" }) }) : list.isError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ErrorState, { message: strings.loadFailed, onRetry: () => list.refetch() }) }) : section === "hosting" && gateway ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(GatewaySettings, { gateway }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
+      children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceDocument, { children: list.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LoadingState, { variant: "cards" }) }) : list.isError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ErrorState, { message: strings.loadFailed, onRetry: () => list.refetch() }) }) : section === "hosting" && gateway ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(HostingStatus, { gateway }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex w-full min-w-0 flex-wrap items-center gap-2 py-3", children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "register-search relative min-w-[14rem] flex-1", children: [
@@ -1046,7 +979,6 @@ function SitesPage() {
           {
             siteId: selected.id,
             allowPublicSites: list.data?.allowPublicSites ?? false,
-            dedicatedHost: list.data?.dedicatedHost ?? false,
             onDeleted: () => setSelectedId(null)
           }
         ) }) : null
@@ -1056,17 +988,17 @@ function SitesPage() {
 }
 
 // plugins/sites/web-src/EnterPage.tsx
-var import_react6 = __toESM(require_react(), 1);
+var import_react5 = __toESM(require_react(), 1);
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
 function EnterPage() {
   const { components, hooks } = runtime();
   const { WorkspacePage, PluginPageHeader, LoadingState, EmptyState } = components;
   const strings = hooks.usePluginStrings("sites");
-  const [phase, setPhase] = (0, import_react6.useState)("working");
-  const formRef = (0, import_react6.useRef)(null);
-  const [handoff, setHandoff] = (0, import_react6.useState)(null);
-  const started = (0, import_react6.useRef)(false);
-  (0, import_react6.useEffect)(() => {
+  const [phase, setPhase] = (0, import_react5.useState)("working");
+  const formRef = (0, import_react5.useRef)(null);
+  const [handoff, setHandoff] = (0, import_react5.useState)(null);
+  const started = (0, import_react5.useRef)(false);
+  (0, import_react5.useEffect)(() => {
     if (started.current) return;
     started.current = true;
     const params = new URLSearchParams(window.location.search);
@@ -1085,7 +1017,7 @@ function EnterPage() {
       setHandoff({ action: ticket.action, token: ticket.token });
     }).catch(() => setPhase("denied"));
   }, []);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     if (handoff) formRef.current?.submit();
   }, [handoff]);
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(WorkspacePage, { children: [
@@ -1103,18 +1035,18 @@ function EnterPage() {
 }
 
 // plugins/sites/web-src/SitesProjectPanel.tsx
-var import_react7 = __toESM(require_react(), 1);
+var import_react6 = __toESM(require_react(), 1);
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 function SitesProjectPanel({ project }) {
   const { components, hooks } = runtime();
   const { WorkspaceDetailRail, LoadingState, ErrorState, EmptyState } = components;
   const strings = hooks.usePluginStrings("sites");
-  const [selectedId, setSelectedId] = (0, import_react7.useState)(null);
+  const [selectedId, setSelectedId] = (0, import_react6.useState)(null);
   const list = hooks.useQuery({
     queryKey: SITES_LIST_KEY,
     queryFn: () => runtime().api("/plugins/sites/api/sites")
   });
-  const sites = (0, import_react7.useMemo)(
+  const sites = (0, import_react6.useMemo)(
     () => [...list.data?.mine ?? [], ...list.data?.shared ?? []].filter((site) => site.projectId === project.id),
     [list.data, project.id]
   );
@@ -1129,7 +1061,6 @@ function SitesProjectPanel({ project }) {
       {
         siteId: selected.id,
         allowPublicSites: list.data?.allowPublicSites ?? false,
-        dedicatedHost: list.data?.dedicatedHost ?? false,
         onDeleted: () => setSelectedId(null)
       }
     ) }) : null

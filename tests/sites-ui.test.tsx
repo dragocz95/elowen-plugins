@@ -25,8 +25,8 @@ const OWNER = { id: 7, username: 'filip', name: 'Filip Džudža', avatar: '7.png
 const GUEST = { id: 9, username: 'patricie', name: 'Patricie Nováková', avatar: '' };
 const OUTSIDER = { id: 11, username: 'lucie', name: 'Lucie Marková', avatar: '' };
 const GATEWAY = {
-  status: { available: true, active: false, hostnameBase: 'sites.example.com', detail: 'Namecheap credentials are missing' },
-  configured: { apiUser: false, apiKey: false, username: false, clientIp: false, email: false },
+  status: { available: false, active: false, hostnameBase: 'sites.example.com', detail: '*.sites.example.com does not resolve' },
+  requiredRecord: { name: '*.sites.example.com', type: 'CNAME' as const, value: 'elowen.example.com.' },
 };
 
 const site = {
@@ -64,7 +64,7 @@ setDefaults(
     { name: 'sites', url: '/plugins/sites/web/index.js', apiVersion: 7, nav: [], settings: [], strings },
   ])),
   http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
-    mine: [site], shared: [], allowPublicSites: true, dedicatedHost: true, gateway: GATEWAY,
+    mine: [site], shared: [], allowPublicSites: true, gateway: GATEWAY,
   })),
   http.get('/api/plugins/sites/api/site/:id', () => HttpResponse.json(detail)),
   http.get('/api/plugins/sites/api/directory', () => HttpResponse.json({ accounts: [OWNER, GUEST, OUTSIDER] })),
@@ -105,29 +105,19 @@ describe('the Sites workspace', () => {
     }
   });
 
-  it('keeps Namecheap credentials write-only while provisioning from the Hosting section', async () => {
-    const saved: unknown[] = [];
-    use(http.put('/api/plugins/sites/api/gateway', async ({ request }) => {
-      saved.push(await request.json());
-      return HttpResponse.json({
-        status: { available: true, active: true, hostnameBase: 'sites.example.com' },
-        configured: { apiUser: true, apiKey: true, username: true, clientIp: true, email: true },
-      });
-    }));
+  it('tells an administrator the exact DNS record the hosting depends on', async () => {
     mount();
     fireEvent.click(await screen.findByRole('radio', { name: strings.gatewayNav }));
 
-    fireEvent.change(screen.getByRole('textbox', { name: strings.gatewayApiUser }), { target: { value: 'operator' } });
-    fireEvent.change(screen.getByRole('textbox', { name: strings.gatewayUsername }), { target: { value: 'operator' } });
-    fireEvent.change(screen.getByLabelText(strings.gatewayApiKey), { target: { value: 'secret-api-key-value' } });
-    fireEvent.change(screen.getByRole('textbox', { name: strings.gatewayClientIp }), { target: { value: '203.0.113.7' } });
-    fireEvent.change(screen.getByRole('textbox', { name: strings.gatewayEmail }), { target: { value: 'ops@example.com' } });
-    fireEvent.click(screen.getByRole('button', { name: strings.gatewaySave }));
+    // The whole failure mode this screen exists for: hosting is off, and the one thing a person has to
+    // do about it must be readable and copyable rather than described in prose somewhere else.
+    expect(await screen.findByText(strings.gatewayInactive)).toBeInTheDocument();
+    expect(screen.getByText(GATEWAY.status.detail)).toBeInTheDocument();
+    expect(screen.getByText(/\*\.sites\.example\.com\s+CNAME\s+elowen\.example\.com\./)).toBeInTheDocument();
 
-    await waitFor(() => expect(saved).toEqual([{
-      apiUser: 'operator', apiKey: 'secret-api-key-value', username: 'operator', clientIp: '203.0.113.7', email: 'ops@example.com',
-    }]));
-    expect(document.body.textContent).not.toContain('secret-api-key-value');
+    // Nothing here writes: a registrar record is not a setting this screen could save.
+    expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 
   it('shows each site\'s owner as an avatar and a name, never as an account id', async () => {

@@ -13,7 +13,9 @@ interface GatewayStatus {
 
 export interface GatewayView {
   status: GatewayStatus;
-  configured: Record<'apiUser' | 'apiKey' | 'username' | 'clientIp' | 'email', boolean>;
+  /** The one DNS record this whole feature stands on, or null when the instance has no domain to add
+   *  it to. Read-only: there is nothing to configure here, only something to create at a registrar. */
+  requiredRecord: { name: string; type: 'CNAME'; value: string } | null;
 }
 
 export interface SiteView {
@@ -23,7 +25,8 @@ export interface SiteView {
   summary: string;
   visibility: Visibility;
   status: SiteStatus;
-  url: string;
+  /** Null when the gateway is not provisioned: the site has no address to open. */
+  url: string | null;
   basePath: string;
   projectId: number;
   projectSlug: string | null;
@@ -42,7 +45,6 @@ export interface SitesListResponse {
   mine: SiteView[];
   shared: SiteView[];
   allowPublicSites: boolean;
-  dedicatedHost: boolean;
   gateway: GatewayView | null;
 }
 

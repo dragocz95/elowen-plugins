@@ -1,8 +1,8 @@
 {
   "name": "sites",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "apiVersion": "1",
-  "requiresCore": "0.28.20",
+  "requiresCore": "0.28.21",
   "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is a separate release you can roll back to.",
   "entry": "dist/index.js",
   "provides": {
@@ -195,6 +195,12 @@
       "min": 1,
       "max": 720,
       "hint": "How long a visitor stays signed in to a site before the browser is sent back through the sign-in step. Losing access takes effect immediately regardless of this, because permission is checked on every request."
+    },
+    {
+      "key": "contactEmail",
+      "type": "string",
+      "label": "Contact email for certificates",
+      "hint": "A certificate authority requires a contact address to issue certificates and to warn about expiry. It is sent to the authority and stored nowhere else."
     }
   ],
   "web": {
@@ -281,7 +287,6 @@
       "publicWarning": "Anyone who knows the address will be able to open this site without signing in.",
       "publicConfirm": "Make public",
       "publicDisabled": "Public sites are turned off for this instance.",
-      "passiveNotice": "Scripts are disabled on the fallback address. Activate wildcard DNS and TLS in Hosting; every site then switches to its own isolated address automatically.",
       "sourceNotice": "The source folder lives in the Project, so everyone with access to the Project can read it. This setting governs the published site.",
       "deleteTitle": "Delete this site",
       "deleteHint": "The address stops working and every release is removed. The source folder in the Project is left alone.",
@@ -293,25 +298,11 @@
       "gatewayTitle": "Isolated site hosting",
       "gatewayActive": "Active",
       "gatewayInactive": "Needs setup",
-      "gatewayActiveHint": "Wildcard DNS, TLS and nginx are ready. New and existing sites use their own isolated origin automatically.",
-      "gatewayNotReady": "Hosting is not ready yet.",
-      "gatewayApiUser": "Namecheap API user",
-      "gatewayUsername": "Namecheap username",
-      "gatewayApiKey": "Namecheap API key",
-      "gatewayClientIp": "Whitelisted server IPv4",
-      "gatewayEmail": "ACME contact email",
-      "gatewayStored": "Stored securely — leave empty to keep",
-      "gatewayRequired": "Required",
-      "gatewaySecretTitle": "Encrypted credentials",
-      "gatewaySecretHint": "The Namecheap key is encrypted in the instance secret vault. It is never returned to the browser, written to nginx, placed on a command line or included in logs.",
-      "gatewaySave": "Save and provision",
-      "gatewaySaving": "Provisioning…",
-      "gatewaySaved": "Hosting is active",
-      "gatewayRemove": "Remove hosting credentials",
-      "gatewayRemoveTitle": "Disable isolated hosting?",
-      "gatewayRemoveDescription": "The wildcard gateway changes to a deny-only tombstone. Existing site addresses stop answering; site data and releases remain intact.",
-      "gatewayRemoved": "Hosting disabled",
-      "releaseLive": "Live"
+      "gatewayActiveHint": "Every site is served from its own address under this wildcard, with its own certificate. Nothing else has to be configured.",
+      "gatewayNotReady": "Sites cannot be served yet.",
+      "releaseLive": "Live",
+      "gatewayRecordTitle": "Required DNS record",
+      "gatewayRecordHint": "Create this record at the registrar that hosts the domain. It is the only manual step, and certificates are issued and renewed automatically once it resolves."
     }
   }
 }

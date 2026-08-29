@@ -35,7 +35,6 @@ export function SitesProjectPanel({ project }: { project: { id: number } }) {
           <SiteDetail
             siteId={selected.id}
             allowPublicSites={list.data?.allowPublicSites ?? false}
-            dedicatedHost={list.data?.dedicatedHost ?? false}
             onDeleted={() => setSelectedId(null)}
           />
         </WorkspaceDetailRail>

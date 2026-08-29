@@ -334,7 +334,7 @@ const serveHarness = (t, overrides = {}) => {
     access: deps({ projects: { 2: [7] } }),
     secret: () => 'serve-secret',
     config: () => ({
-      siteHostBase: overrides.siteHostBase ?? null,
+      siteHostBase: overrides.siteHostBase ?? 'sites.example.com',
       siteScheme: 'https:',
       appBaseUrl: 'https://elowen.example',
       sessionTtlHours: 12,
@@ -349,15 +349,26 @@ const serveHarness = (t, overrides = {}) => {
   return { handler, store, release };
 };
 
-const request = (path, extra = {}) => ({
-  method: 'GET',
-  path,
-  query: {},
-  headers: { accept: 'text/html' },
-  body: async () => Buffer.alloc(0),
-  json: async () => ({}),
-  ...extra,
-});
+/** A request as the site gateway delivers it: on the site's OWN hostname and carrying the marker nginx
+ *  overwrites. Both are required to be served at all, so they are the default here and a test that cares
+ *  about one of them overrides it explicitly. */
+const request = (path, extra = {}) => {
+  const slug = path.replace(/^\/+/, '').split('/')[0];
+  return {
+    method: 'GET',
+    path,
+    query: {},
+    body: async () => Buffer.alloc(0),
+    json: async () => ({}),
+    ...extra,
+    headers: {
+      accept: 'text/html',
+      host: `${slug}.sites.example.com`,
+      'x-elowen-site-gateway': GATEWAY_TOKEN,
+      ...extra.headers,
+    },
+  };
+};
 
 test('an unknown slug and a slug you may not see answer identically', async (t) => {
   // Same method, same headers: anything that differs here is a directory of what exists on the
@@ -383,29 +394,27 @@ test('a site marked for deletion is a flat tombstone, not a sign-in bounce', asy
   assert.equal(response.headers.location, undefined);
 });
 
-test('scripts stay disabled when a site is reached on the app hostname', async (t) => {
-  // The decision follows the REQUEST. `/hooks/` is proxied to the daemon on the app hostname too, so a
-  // page served with scripts merely because a site hostname exists would still be same-origin with the
-  // app and its session cookie.
-  const { handler } = serveHarness(t, { visibility: 'public', siteHostBase: 'sites.example.com' });
+test('the app hostname does not serve published pages at all', async (t) => {
+  // The decision follows the REQUEST, and there is no second serving mode to fall into. `/hooks/` is
+  // proxied to the daemon on the app hostname too, so answering there would put an agent-authored page
+  // same-origin with the app session cookie.
+  const { handler } = serveHarness(t, { visibility: 'public' });
 
-  const viaApp = await handler(request('demo-abc123/', { headers: { accept: 'text/html', host: 'elowen.example' } }));
-  assert.match(viaApp.headers['content-security-policy'], /^sandbox;/);
+  const viaApp = await handler(request('demo-abc123/', { headers: { host: 'elowen.example' } }));
+  assert.equal(viaApp.status, 421);
+  assert.ok(!viaApp.headers['content-security-policy'].includes('allow-same-origin'));
 
-  const directBypass = await handler(request('demo-abc123/', {
-    headers: { accept: 'text/html', host: 'demo-abc123.sites.example.com' },
-  }));
-  assert.equal(directBypass.status, 404, 'the dedicated host is active only behind the root-owned nginx marker');
+  // A neighbouring site's hostname is not this site's origin either.
+  const viaNeighbour = await handler(request('demo-abc123/', { headers: { host: 'other.sites.example.com' } }));
+  assert.equal(viaNeighbour.status, 421);
 
-  const viaOwnHost = await handler(request('demo-abc123/', {
-    headers: { accept: 'text/html', host: 'demo-abc123.sites.example.com', 'x-elowen-site-gateway': GATEWAY_TOKEN },
-  }));
-  assert.ok(!viaOwnHost.headers['content-security-policy'].startsWith('sandbox'));
-  assert.match(viaOwnHost.headers['content-security-policy'], /script-src 'self'/);
+  // The Host header alone proves nothing: it is the caller who writes it. Without the marker nginx
+  // overwrites, a loopback request claiming the site hostname gets the same answer as a free slug.
+  const directBypass = await handler(request('demo-abc123/', { headers: { 'x-elowen-site-gateway': undefined } }));
+  assert.equal(directBypass.status, 404, 'the site host answers only behind the root-owned nginx marker');
 
-  // Another site's hostname is not this site's origin either.
-  const viaNeighbour = await handler(request('demo-abc123/', { headers: { accept: 'text/html', host: 'other.sites.example.com' } }));
-  assert.match(viaNeighbour.headers['content-security-policy'], /^sandbox;/);
+  const wrongMarker = await handler(request('demo-abc123/', { headers: { 'x-elowen-site-gateway': 'x'.repeat(43) } }));
+  assert.equal(wrongMarker.status, 404);
 });
 
 test('an application refuses to answer on the app hostname rather than render broken', async (t) => {
@@ -444,13 +453,21 @@ test('a non-public response is never shared-cacheable and is not indexed', async
   assert.match(response.headers['x-robots-tag'], /noindex/);
 });
 
-test('a page on the shared origin may not run scripts', async (t) => {
+test('a site is a real origin: scripts run, and nothing outside the site is reachable', async (t) => {
   const { handler } = serveHarness(t, { visibility: 'public' });
   const response = await handler(request('demo-abc123/'));
   const csp = response.headers['content-security-policy'];
-  assert.match(csp, /^sandbox;/, 'an opaque origin keeps the page away from the app session');
-  assert.ok(!csp.includes('allow-scripts'));
+
+  assert.ok(!csp.startsWith('sandbox'), 'the hostname IS the isolation; sandboxing it again would break its own storage');
+  assert.match(csp, /script-src 'self'/);
+  assert.match(csp, /default-src 'self'/);
+  assert.match(csp, /frame-ancestors 'none'/);
   assert.equal(response.headers['x-content-type-options'], 'nosniff');
+  assert.equal(response.headers['x-robots-tag'], undefined, 'a public site may be indexed');
+
+  const missing = await handler(request('demo-abc123/missing.html'));
+  assert.equal(missing.status, 404);
+  assert.match(missing.headers['content-security-policy'], /default-src 'self'/);
 });
 
 test('a stale session generation stops working the moment access changes', async (t) => {
@@ -491,10 +508,11 @@ test('redeeming a ticket sets a path-scoped cookie and lands on the requested pa
   }));
 
   assert.equal(response.status, 302);
-  assert.equal(response.headers.location, 'https://elowen.example/hooks/sites/s/demo-abc123/app.css');
+  assert.equal(response.headers.location, 'https://demo-abc123.sites.example.com/app.css');
   const cookie = response.headers['set-cookie'];
   assert.match(cookie, new RegExp(`^${cookieName(target.id)}=`));
-  assert.match(cookie, /Path=\/hooks\/sites\/s\/demo-abc123\//);
+  assert.match(cookie, /Path=\//);
+  assert.match(cookie, /SameSite=Lax/);
   assert.match(cookie, /HttpOnly/);
   assert.match(cookie, /Secure/);
 });
@@ -643,9 +661,12 @@ test('configuration is re-validated, because the settings API validates nothing'
 });
 
 test('every site gets the root of the gateway hostname derived by core', () => {
-  const shared = resolveConfig({}, 'https://elowen.example');
-  assert.equal(shared.siteHostBase, null);
-  assert.equal(siteUrl(shared, 'demo'), 'https://elowen.example/hooks/sites/s/demo/');
+  // No broker hostname is not a second addressing mode: there is simply no address, and every caller
+  // has to say so rather than invent one on the app's own origin.
+  const unprovisioned = resolveConfig({}, 'https://elowen.example');
+  assert.equal(unprovisioned.siteHostBase, null);
+  assert.equal(siteUrl(unprovisioned, 'demo'), null);
+  assert.equal(requestOnSiteHost(unprovisioned, 'demo', 'demo.sites.elowen.example'), false);
 
   const dedicated = resolveConfig({}, 'https://elowen.example', 'sites.elowen.example');
   assert.equal(dedicated.siteHostBase, 'sites.elowen.example');
@@ -695,7 +716,7 @@ const toolHarness = (t, { projects, people: roster } = {}) => {
     ctx,
     store,
     access: { isAdmin: () => false, canAccessProject: () => true, accountExists: () => true },
-    config: () => resolveConfig({}, 'https://elowen.example'),
+    config: () => resolveConfig({}, 'https://elowen.example', 'sites.elowen.example'),
     people: () => new Map(accounts.map((person) => [person.id, person])),
     siteDir: (id) => join(dir, 'sites', id),
     releaseDir: (id, releaseId) => join(dir, 'sites', id, releaseId),

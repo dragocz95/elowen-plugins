@@ -44,13 +44,14 @@ export interface SitesGatewayStatus {
   active: boolean;
   hostnameBase: string | null;
   detail?: string;
+  slugs?: string[];
 }
 
 interface SitesGatewayControl {
   hostnameBase(): string | null;
-  provisionNamecheap(input: {
-    apiUser: string; apiKey: string; username: string; clientIp: string; email: string; gatewayToken: string;
-  }): Promise<SitesGatewayStatus>;
+  syncSites(input: { gatewayToken: string }): Promise<SitesGatewayStatus>;
+  ensureSite(input: { slug: string; email: string; gatewayToken: string }): Promise<SitesGatewayStatus>;
+  removeSite(input: { slug: string; gatewayToken: string }): Promise<SitesGatewayStatus>;
   deny(): Promise<SitesGatewayStatus>;
   status(): Promise<SitesGatewayStatus>;
   prepareRuntimeSocket(siteId: string): Promise<{ path: string }>;

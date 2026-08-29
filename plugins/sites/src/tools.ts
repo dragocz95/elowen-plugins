@@ -7,7 +7,7 @@ import type { SitesContext } from './coreSeams.js';
 import type { Site, SitesStore, Visibility } from './store.js';
 import { VISIBILITIES } from './store.js';
 import { mayPublish, type AccessDeps } from './access.js';
-import { siteBasePath, siteUrl, type SitesConfig } from './config.js';
+import { SITE_BASE_PATH, siteUrl, type SitesConfig } from './config.js';
 import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } from './publish.js';
 import { isDaemonProcess, type SiteRuntimeSupervisor } from './runtime.js';
 
@@ -23,16 +23,10 @@ export interface ToolDeps {
   runtime: SiteRuntimeSupervisor;
 }
 
-/** A command runtime is only offered where it can be run honestly: the operator has to have turned it
- *  on, and sites must be on their own hostname. On the shared origin a published page is served with
- *  no scripts at all, because it would otherwise be same-origin with the app and its session — which
- *  makes "an application" a contradiction there rather than a limitation to warn about. */
+/** A command runtime is only offered where the operator has turned it on. */
 function commandRuntimeRefusal(config: SitesConfig): string | null {
   if (!config.allowCommandRuntime) {
     return 'Site runtimes are turned off for this instance. An administrator can enable them in the plugin settings.';
-  }
-  if (config.siteHostBase === null) {
-    return 'A site runtime needs sites to be served from their own hostname, because on the app\'s own origin a published page is not allowed to run scripts. Set a dedicated site hostname in the plugin settings first.';
   }
   return null;
 }
@@ -141,11 +135,23 @@ const requirePerson = (deps: ToolDeps, ref: string): { id: number; name: string 
   return { id: match.id, name: match.name || match.username };
 };
 
+/** The site's public address, or a refusal.
+ *
+ *  A null base means this instance has no HTTPS domain of its own, and published sites have no second
+ *  place to live: a page on the app's own origin would be same-origin with the app's session cookie. */
+const addressOf = (config: SitesConfig, slug: string): string => {
+  const url = siteUrl(config, slug);
+  if (url === null) {
+    throw new ToolError('Published sites need this Elowen instance to be installed on its own HTTPS domain, because every site is served from its own hostname under that domain. There is no address to publish to here.');
+  }
+  return url;
+};
+
 const describe = (site: Site, config: SitesConfig): string => [
   `${site.title}`,
   `  id         ${site.id}`,
   `  slug       ${site.slug}   (either identifier works wherever a site is named)`,
-  `  address    ${siteUrl(config, site.slug)}`,
+  `  address    ${addressOf(config, site.slug)}`,
   `  visibility ${site.visibility}`,
   `  status     ${site.status}`,
   site.lastPublishAt ? `  published  ${site.lastPublishAt}${site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}` : '  published  never',
@@ -250,8 +256,8 @@ export function registerTools(deps: ToolDeps): void {
           'Name the site by either of those in SitePublish, SiteShare and the rest.',
           '',
           `Write the project here: ${allowed}`,
-          `Configure the build with base path: ${siteBasePath(config, slug)}`,
-          `It will be published at: ${siteUrl(config, slug)}`,
+          `Configure the build with base path: ${SITE_BASE_PATH}`,
+          `It will be published at: ${addressOf(config, slug)}`,
           '',
           'Asset URLs must be absolute under that base path. A relative reference (./assets/...) breaks, because the published address is a path prefix.',
           ...(runtime === 'command'
@@ -270,7 +276,7 @@ export function registerTools(deps: ToolDeps): void {
           'When the output is ready, call SitePublish with the output directory.',
         ].join('\n'), {
           siteId: site.id, slug: site.slug, sourceDir: allowed,
-          basePath: siteBasePath(config, slug), url: siteUrl(config, slug), visibility: site.visibility,
+          basePath: SITE_BASE_PATH, url: addressOf(config, slug), visibility: site.visibility,
         });
       } catch (error) {
         throw error instanceof ToolError ? error : new Error(`Could not create the site: ${String(error)}`);
@@ -367,20 +373,20 @@ export function registerTools(deps: ToolDeps): void {
         pruneReleases(store, site.id, deps.siteDir(site.id), config.releasesKept, releaseId);
 
         if (site.runtime === 'static') {
-          const relativeWarning = relativeAssetWarning(target, siteBasePath(config, site.slug));
+          const relativeWarning = relativeAssetWarning(target, SITE_BASE_PATH);
           if (relativeWarning) warnings.push(relativeWarning);
         }
 
         return text([
           `Published "${site.title}" - ${snapshot.fileCount} files, ${(snapshot.sizeBytes / 1048576).toFixed(2)} MB.`,
-          `Live at ${siteUrl(config, site.slug)}`,
+          `Live at ${addressOf(config, site.slug)}`,
           `Visible to: ${site.visibility}`,
           ...(site.runtime === 'command' && !isDaemonProcess()
             ? ['The daemon starts the runtime shortly; check SiteLogs if the address does not answer.']
             : []),
           ...(warnings.length > 0 ? ['', 'Warnings:', ...warnings.map((line) => `  - ${line}`)] : []),
         ].join('\n'), {
-          siteId: site.id, slug: site.slug, releaseId, url: siteUrl(config, site.slug),
+          siteId: site.id, slug: site.slug, releaseId, url: addressOf(config, site.slug),
           visibility: site.visibility, fileCount: snapshot.fileCount, sizeBytes: snapshot.sizeBytes, warnings,
         });
       } catch (error) {
@@ -423,7 +429,7 @@ export function registerTools(deps: ToolDeps): void {
           .map((id) => ({ id, name: people.get(id)?.name || people.get(id)?.username || `#${id}` }));
         return text([
           describe(site, config),
-          `  base path  ${siteBasePath(config, site.slug)}`,
+          `  base path  ${SITE_BASE_PATH}`,
           `  guests     ${guests.length === 0 ? 'none' : guests.map((guest) => guest.name).join(', ')}`,
           '',
           releases.length === 0
@@ -431,8 +437,8 @@ export function registerTools(deps: ToolDeps): void {
             : ['Releases:', ...releases.map((release) => `  ${release.id}  ${release.createdAt}  ${release.fileCount} files  ${(release.sizeBytes / 1048576).toFixed(2)} MB${release.note ? `  ${release.note}` : ''}`)].join('\n'),
           site.lastError ? `\nLast error: ${site.lastError}` : '',
         ].join('\n'), {
-          siteId: site.id, slug: site.slug, url: siteUrl(config, site.slug), visibility: site.visibility,
-          status: site.status, sourceDir: site.sourceDir, basePath: siteBasePath(config, site.slug),
+          siteId: site.id, slug: site.slug, url: addressOf(config, site.slug), visibility: site.visibility,
+          status: site.status, sourceDir: site.sourceDir, basePath: SITE_BASE_PATH,
           guests, currentReleaseId: site.currentReleaseId,
           releases: releases.map((release) => ({ id: release.id, createdAt: release.createdAt, note: release.note })),
         });
@@ -541,7 +547,7 @@ export function registerTools(deps: ToolDeps): void {
       store.addMember(site.id, person.id);
       return text([
         `${person.name} can now open "${site.title}".`,
-        `They will find it at ${siteUrl(deps.config(), site.slug)} and in their own Sites screen.`,
+        `They will find it at ${addressOf(deps.config(), site.slug)} and in their own Sites screen.`,
         site.status === 'live' ? '' : 'The site has not been published yet, so there is nothing to see there until SitePublish runs.',
       ].filter(Boolean).join('\n'), { siteId: site.id, slug: site.slug, userId: person.id, changed: true });
     },

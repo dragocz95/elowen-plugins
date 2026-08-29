@@ -16,10 +16,9 @@ const basePath = (siteId: string): string => `/plugins/sites/api/site/${siteId}`
  *  Deliberately NOT tabbed: the drawer is one fixed size on every surface, and a tab strip inside it
  *  would make the same drawer feel like four differently shaped panels. Every choice here is a
  *  dropdown, a picker or a confirmed action — there is no field to type an id or a name into. */
-export function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted }: {
+export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
   siteId: string;
   allowPublicSites: boolean;
-  dedicatedHost: boolean;
   onDeleted(): void;
 }) {
   const { components, hooks, utils } = runtime();
@@ -101,7 +100,9 @@ export function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted 
   const visibleOptions = VISIBILITY_ORDER.filter((value) => value !== 'public' || allowPublicSites);
   // Guests are picked from every account except the owner, who already holds the site.
   const candidates = (directory.data?.accounts ?? []).filter((account) => account.id !== site.ownerUserId);
-  const copyAddress = () => { utils.copyText(site.url); toast(strings.copied); };
+  // No address means the hosting gateway is not provisioned. Both actions are about an address, so both
+  // are simply unavailable rather than silently copying or opening nothing.
+  const copyAddress = () => { if (site.url) { utils.copyText(site.url); toast(strings.copied); } };
 
   return (
     <div className="flex flex-col gap-5">
@@ -116,12 +117,12 @@ export function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted 
           {site.projectSlug ? <Badge tone="muted">{site.projectSlug}</Badge> : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <IconButton icon={Copy} label={strings.copyLink} onClick={copyAddress} />
+          <IconButton icon={Copy} label={strings.copyLink} disabled={site.url === null} onClick={copyAddress} />
           <IconButton
             icon={ExternalLink}
             label={strings.openSite}
-            disabled={site.status !== 'live'}
-            onClick={() => window.open(site.url, '_blank', 'noopener,noreferrer')}
+            disabled={site.status !== 'live' || site.url === null}
+            onClick={() => { if (site.url) window.open(site.url, '_blank', 'noopener,noreferrer'); }}
           />
         </div>
       </div>
@@ -141,7 +142,6 @@ export function SiteDetail({ siteId, allowPublicSites, dedicatedHost, onDeleted 
 
       <DetailBlock icon={Link2} title={strings.address}>
         <code className="break-all font-mono text-xs text-text">{site.url}</code>
-        {!dedicatedHost ? <p className="text-[11px] text-warning">{strings.passiveNotice}</p> : null}
       </DetailBlock>
 
       <div className="grid grid-cols-3 divide-x divide-border/70 border-y border-border/70">

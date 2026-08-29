@@ -62,20 +62,20 @@ export function resolveConfig(raw, publicWebUrl, gatewayHostBase = null) {
         appBaseUrl: appOrigin,
     };
 }
-/** The hostname one site is served from, or null when sites share the app's origin. */
+/** The hostname one site is served from, or null while the gateway is unprovisioned. */
 const siteHost = (config, slug) => config.siteHostBase === null ? null : `${slug}.${config.siteHostBase}`;
+/** Where a site lives, or null when this instance has no site hostname to put it on. Callers render the
+ *  null as "not addressable yet" rather than inventing a URL on the app's own origin. */
 export const siteUrl = (config, slug) => {
     const host = siteHost(config, slug);
-    return host === null
-        ? `${config.appBaseUrl}/hooks/sites/s/${slug}/`
-        : `${config.siteScheme}//${host}/`;
+    return host === null ? null : `${config.siteScheme}//${host}/`;
 };
 /** Whether THIS request arrived on the site's own hostname.
  *
  *  Decided from the request, never from configuration alone. Configuring a site hostname does not stop
  *  the app's own hostname from reaching the same handler — `/hooks/` is proxied to the daemon there too
- *  — so a page served with script-enabled headers merely because an override exists would still be
- *  same-origin with the app, which is the whole hazard the separate origin was for. */
+ *  — so a page served merely because a hostname exists in settings would still be same-origin with the
+ *  app, which is the whole hazard the separate origin was for. */
 export const requestOnSiteHost = (config, slug, hostHeader) => {
     const expected = siteHost(config, slug);
     if (expected === null || !hostHeader)
@@ -83,6 +83,6 @@ export const requestOnSiteHost = (config, slug, hostHeader) => {
     const host = hostHeader.split(':')[0]?.trim().toLowerCase() ?? '';
     return host === expected;
 };
-/** The absolute prefix a build must be configured with. A dedicated hostname owns its root; the passive
- * same-origin fallback retains the namespaced hook prefix. */
-export const siteBasePath = (config, slug) => config.siteHostBase === null ? `/hooks/sites/s/${slug}/` : '/';
+/** The absolute prefix a build must be configured with. A site owns the root of its own hostname, so
+ *  this is a constant — it is stated here because a publisher has to configure their bundler with it. */
+export const SITE_BASE_PATH = '/';

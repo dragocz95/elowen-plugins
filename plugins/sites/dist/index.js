@@ -104,6 +104,9 @@ export function register(published) {
             await supervisor.stop(siteId);
             rmSync(siteDir(siteId), { recursive: true, force: true });
             store.deleteSite(siteId);
+            // Last, and never fatal: the hostname and its certificate are the gateway's copy of a site that no
+            // longer exists here. A certbot that will not let go must not resurrect the deletion.
+            await gateway.removeSite(site.slug);
             deletingSiteIds.delete(siteId);
         }
         catch (error) {
@@ -224,19 +227,41 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'site', access: 'user', handler: handlers.site });
     ctx.registerApiRoute({ path: 'ticket', method: 'POST', access: 'user', handler: handlers.ticket });
     ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
+    // Read-only: there is nothing left to configure here. The gateway either has its DNS record or it
+    // does not, and that is a fact about the domain rather than a setting this screen could change.
     ctx.registerApiRoute({ path: 'gateway', method: 'GET', access: 'admin', handler: (req) => gateway.handle(req) });
-    ctx.registerApiRoute({ path: 'gateway', method: 'PUT', access: 'admin', handler: (req) => gateway.handle(req) });
-    ctx.registerApiRoute({ path: 'gateway', method: 'DELETE', access: 'admin', handler: (req) => gateway.handle(req) });
     registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, people });
     ctx.registerReadinessCheck(() => gateway.readiness());
     // Nothing in the daemon keeps a process alive across a restart, and a confined child dies with its
     // parent by construction. Supervision of published runtimes is therefore this plugin's own job:
     // reconcile brings back everything that should be running, and the service stops them around a
     // reload so the next generation does not start a second copy onto the same socket.
+    /** Converge the gateway on the sites that exist. `reconcile` publishes the vhost and reports which
+     *  sites already hold a certificate; only the ones missing from that list pay for a certbot run.
+     *  Passing `all` asks for every live site instead, which is how renewal happens — certbot decides for
+     *  itself whether a certificate is actually due. */
+    const syncGateway = async (all = false) => {
+        const status = await gateway.reconcile();
+        if (!status.active)
+            return;
+        const issued = new Set(gateway.issuedSlugs());
+        for (const site of store.allSites()) {
+            if (site.status === 'deleting')
+                continue;
+            if (!all && issued.has(site.slug))
+                continue;
+            try {
+                await gateway.ensureSite(site.slug);
+            }
+            catch (error) {
+                ctx.logger.warn(`site ${site.slug} has no certificate yet: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+    };
     if (isDaemonProcess()) {
         ctx.registerService({
             name: 'site-gateway',
-            start: async () => { await gateway.reconcile(); },
+            start: async () => { await syncGateway(); },
             // A normal plugin reload must not flap nginx. Core replaces it with the deny tombstone only when
             // this plugin is absent from the next registry generation.
             stop: () => { },
@@ -278,7 +303,7 @@ export function register(published) {
         await supervisor.reconcile();
     }, 2_000);
     ctx.registerInterval('renew-site-gateway', async () => {
-        await gateway.reconcile();
+        await syncGateway(true);
     }, GATEWAY_RECONCILE_MS);
     ctx.registerInterval('flush-visits', () => {
         flushHits();

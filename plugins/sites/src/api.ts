@@ -2,7 +2,7 @@ import type { PluginApiRequest, PluginHttpResponse } from 'elowen/plugin-api';
 import type { Site, SitesStore, Visibility } from './store.js';
 import { VISIBILITIES } from './store.js';
 import { mayOpen, mintTicket, normalizeReturnPath, type AccessDeps } from './access.js';
-import { siteBasePath, siteUrl, type SitesConfig } from './config.js';
+import { SITE_BASE_PATH, siteUrl, type SitesConfig } from './config.js';
 
 /** A person as this plugin's surfaces show them. Mirrored in web-src/runtime.ts, which cannot import
  *  from here: the browser bundle is a separate compile unit. */
@@ -47,7 +47,8 @@ interface SiteView {
   summary: string;
   visibility: Visibility;
   status: string;
-  url: string;
+  /** Null when this instance has no site hostname, so there is nowhere for the site to live. */
+  url: string | null;
   basePath: string;
   projectId: number;
   projectSlug: string | null;
@@ -73,7 +74,7 @@ const toView = (site: Site, deps: ApiDeps, auth: PluginApiRequest['auth']): Site
     visibility: site.visibility,
     status: site.status,
     url: siteUrl(config, site.slug),
-    basePath: siteBasePath(config, site.slug),
+    basePath: SITE_BASE_PATH,
     projectId: site.projectId,
     projectSlug: deps.projectSlug(site.projectId),
     ownerUserId: site.ownerUserId,
@@ -124,7 +125,6 @@ export function createApiHandlers(deps: ApiDeps) {
       mine: mine.map((site) => toView(site, deps, req.auth)),
       shared: shared.map((site) => toView(site, deps, req.auth)),
       allowPublicSites: config.allowPublicSites,
-      dedicatedHost: config.siteHostBase !== null,
       gateway: req.auth.admin ? deps.gatewayView() : null,
     });
   };
@@ -255,7 +255,11 @@ export function createApiHandlers(deps: ApiDeps) {
     }
     if (req.auth.userId === null) return json(403, { error: 'no access' });
 
-    const config = deps.config();
+    const address = siteUrl(deps.config(), target.slug);
+    // No address means no gateway, and a ticket is only useful as a form post TO that address. Minting
+    // one anyway would burn a single-use token against a form the page could not submit.
+    if (address === null) return json(503, { error: 'published sites are not available on this instance' });
+
     const minted = mintTicket();
     deps.store.putTicket(minted.tokenHash, {
       siteId: target.id,
@@ -265,7 +269,7 @@ export function createApiHandlers(deps: ApiDeps) {
     });
     return json(200, {
       token: minted.token,
-      action: `${siteUrl(config, target.slug)}__elowen/session`,
+      action: `${address}__elowen/session`,
       title: target.title,
     });
   };

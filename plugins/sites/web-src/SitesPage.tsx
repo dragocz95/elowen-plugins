@@ -8,7 +8,7 @@ import {
   STATUS_ICON, STATUS_ORDER, STATUS_STRING, STATUS_TONE,
   VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE,
 } from './meta.js';
-import { GatewaySettings } from './GatewaySettings.js';
+import { HostingStatus } from './HostingStatus.js';
 import { SiteDetail } from './SiteDetail.js';
 
 type Section = 'mine' | 'shared' | 'hosting';
@@ -137,11 +137,11 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
       </DataTableCell>
       <DataTableCell priority="wide" className="whitespace-nowrap text-xs text-text-muted">{published}</DataTableCell>
       <DataTableCell>
-        {site.status === 'live' ? (
+        {site.status === 'live' && site.url !== null ? (
           <IconButton
             icon={ExternalLink}
             label={strings.openSite}
-            onClick={() => window.open(site.url, '_blank', 'noopener,noreferrer')}
+            onClick={() => window.open(site.url as string, '_blank', 'noopener,noreferrer')}
           />
         ) : null}
       </DataTableCell>
@@ -267,7 +267,7 @@ export function SitesPage() {
               <ErrorState message={strings.loadFailed} onRetry={() => list.refetch()} />
             </ControlSurfaceState>
           ) : section === 'hosting' && gateway ? (
-            <GatewaySettings gateway={gateway} />
+            <HostingStatus gateway={gateway} />
           ) : (
             <div className="workspace-master-detail" data-detail={selected != null}>
               <div className="flex min-w-0 flex-col gap-4">
@@ -310,7 +310,6 @@ export function SitesPage() {
                   <SiteDetail
                     siteId={selected.id}
                     allowPublicSites={list.data?.allowPublicSites ?? false}
-                    dedicatedHost={list.data?.dedicatedHost ?? false}
                     onDeleted={() => setSelectedId(null)}
                   />
                 </WorkspaceDetailRail>
