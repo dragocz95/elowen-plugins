@@ -154,13 +154,28 @@ test('the gateway token is minted once, reused, and shaped like the marker nginx
   assert.equal(reloaded.manager.gatewayToken(), first);
 });
 
-test('the certificate sweep actually consults the backoff it maintains', () => {
-  // SOURCE CHECK, because the bug this pins was invisible at runtime: `mayAttempt` existed, the backoff
-  // map was maintained correctly, and NOTHING called it — so every plugin reload re-attempted each
-  // failing site and spent the certificate authority's per-hostname failure budget. A behavioural test
-  // cannot see the difference until the budget is already gone, which is far too late.
-  const sweep = readFileSync(new URL('../plugins/sites/dist/index.js', import.meta.url), 'utf8');
+test('the certificate sweep consults the backoff, skips drafts, and runs often enough to matter', () => {
+  // SOURCE CHECK, because all three failures are invisible at runtime until it is far too late: the
+  // rate-limit budget is already spent, a draft slug is already in a public Certificate Transparency
+  // log, or a freshly published page has already been unreachable for hours.
+  const source = readFileSync(new URL('../plugins/sites/dist/index.js', import.meta.url), 'utf8');
+  // Scoped to the sweep's OWN body: both guards appear elsewhere in this file, so matching the whole
+  // module would keep passing after either one is deleted from the loop that has to enforce it.
+  const start = source.indexOf('const syncGateway =');
+  const end = source.indexOf('if (isDaemonProcess())', start);
+  assert.ok(start > -1 && end > start, 'syncGateway must still be recognisable in the build');
+  const sweep = source.slice(start, end);
+
+  // `mayAttempt` existed and the backoff map was maintained correctly — and NOTHING called it, so every
+  // plugin reload re-attempted each failing site against the authority's per-hostname failure budget.
   assert.match(sweep, /mayAttempt\(/, 'syncGateway must skip slugs that are still backed off');
+
+  // A draft has no release to serve, so issuing for it only publishes its slug before anybody chose to.
+  assert.match(sweep, /status !== 'live'/, 'only a live site earns a certificate');
+
+  // A publish arrives from a forked runner that never reconciles. Without a sweep between the 12-hour
+  // renewals, the site is live in the store while nginx has no server block for it.
+  assert.match(source, /issue-site-certificates/, 'new sites must converge sooner than the renewal sweep');
 });
 
 test('the site address comes from the broker, so a forked tool runner reports the same one', () => {

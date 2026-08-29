@@ -60,7 +60,7 @@
     },
     "allowCommandRuntime": {
       "label": "Povolit běhová prostředí",
-      "hint": "Umožní, aby stránka byla běžící server – Node, Bun, Python, PHP – místo souborů na disku. Proces je uzavřen ve vlastním jmenném prostoru a vidí jen svůj vlastní adresář verze, ale běží pod účtem démona, drží si domovský adresář sandboxu daného účtu a sdílí síť stroje. Vyžaduje vlastní název hostitele pro stránky."
+      "hint": "Umožní, aby stránka byla běžící server – Node, Bun, Python nebo TypeScript – za privátním unixovým socketem, případně aby spouštěla PHP přes PHP-CGI. Každý požadavek běží v izolovaném síťovém jmenném prostoru a vyžaduje izolovaný hosting stránek."
     },
     "startTimeoutSeconds": {
       "label": "Časový limit startu",

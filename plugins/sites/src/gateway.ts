@@ -170,6 +170,10 @@ export class SiteGatewayManager {
    *  store by the time this runs, and a stuck certificate must not block the deletion that removed it. */
   async removeSite(slug: string): Promise<void> {
     const gateway = this.ctx.control('publishedSitesGateway');
+    // Whatever becomes of the certificate, this slug is gone. Keeping its backoff would hand the delay
+    // to whoever is issued that slug next, and would grow both maps for the life of the process.
+    this.nextAttempt.delete(slug);
+    this.backoffMs.delete(slug);
     if (!gateway) return;
     try {
       const result = await gateway.removeSite({ slug, gatewayToken: this.gatewayToken() });

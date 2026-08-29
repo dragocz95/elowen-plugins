@@ -16,8 +16,6 @@ export interface SitesConfig {
   startTimeoutSeconds: number;
   requestTimeoutSeconds: number;
   maxResponseBytes: number;
-  portRangeStart: number;
-  portRangeEnd: number;
   /** Base hostname sites get their own subdomain under, or null when the gateway is not provisioned.
    *  A site is addressed at `<slug>.<siteHostBase>`, so every site is its OWN origin: one published
    *  page cannot read another's, and none of them is same-origin with the app.
@@ -92,8 +90,6 @@ export function resolveConfig(
     startTimeoutSeconds: bounded(raw.startTimeoutSeconds, 30, 5, 300),
     requestTimeoutSeconds: bounded(raw.requestTimeoutSeconds, 15, 1, 120),
     maxResponseBytes: bounded(raw.maxResponseMb, 8, 1, 64) * 1048576,
-    portRangeStart: bounded(raw.portRangeStart, 43000, 1024, 65000),
-    portRangeEnd: bounded(raw.portRangeEnd, 43099, 1024, 65535),
     siteHostBase,
     siteScheme: appScheme,
     appBaseUrl: appOrigin,
@@ -124,8 +120,11 @@ export const siteUrl = (config: SiteAddressing, slug: string): string | null => 
 export const requestOnSiteHost = (config: SiteAddressing, slug: string, hostHeader: string | undefined): boolean => {
   const expected = siteHost(config, slug);
   if (expected === null || !hostHeader) return false;
-  const host = hostHeader.split(':')[0]?.trim().toLowerCase() ?? '';
-  return host === expected;
+  // A Host is one hostname followed by at most one numeric port. Splitting on the first colon alone
+  // would also accept `site.example.com:not-a-port` and `site.example.com:443:junk` as this site's own
+  // address, which is a decision about identity made on a string nobody validated.
+  const parsed = /^([^:]+)(?::(\d{1,5}))?$/.exec(hostHeader.trim());
+  return parsed?.[1]?.toLowerCase() === expected;
 };
 
 /** The absolute prefix a build must be configured with. A site owns the root of its own hostname, so

@@ -13,6 +13,7 @@ import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
 const GATEWAY_RECONCILE_MS = 12 * 3600_000;
+const ISSUE_SWEEP_MS = 30_000;
 export function register(published) {
     const ctx = asSitesContext(published);
     const store = new SitesStore(ctx.db());
@@ -242,7 +243,10 @@ export function register(published) {
             return;
         const issued = new Set(gateway.issuedSlugs());
         for (const site of store.allSites()) {
-            if (site.status === 'deleting')
+            // Only a site that is actually being served earns a certificate. A draft has no release behind it,
+            // and issuing for one would publish its slug in a public Certificate Transparency log before
+            // anybody decided to publish the page at all.
+            if (site.status !== 'live')
                 continue;
             if (!all && issued.has(site.slug))
                 continue;
@@ -303,6 +307,18 @@ export function register(published) {
     ctx.registerInterval('reconcile-site-runtimes', async () => {
         await supervisor.reconcile();
     }, 2_000);
+    // A publish almost always arrives from a forked tool runner, which has no gateway of its own and never
+    // reconciles, so the daemon has to notice the new site itself. Without this the page is `live` in the
+    // store while nginx has no server block for it, and stays unreachable until the 12-hour renewal sweep.
+    // The guard is what keeps it cheap: a settled instance finds nothing pending and never probes DNS.
+    ctx.registerInterval('issue-site-certificates', async () => {
+        if (!gateway.isActive())
+            return;
+        const issued = new Set(gateway.issuedSlugs());
+        const pending = store.allSites().some((site) => site.status === 'live' && !issued.has(site.slug) && gateway.mayAttempt(site.slug));
+        if (pending)
+            await syncGateway();
+    }, ISSUE_SWEEP_MS);
     ctx.registerInterval('renew-site-gateway', async () => {
         await syncGateway(true);
     }, GATEWAY_RECONCILE_MS);

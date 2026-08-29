@@ -180,16 +180,17 @@ export function snapshotRelease(sourceRoot: string, releaseDir: string, limits: 
 
 /** Warn when the built HTML asks for its assets relatively.
  *
- *  A site is served under a path prefix and the serving layer cannot tell `/site` from `/site/`, so a
- *  relative reference resolves differently depending on the trailing slash the visitor happened to use.
- *  The build has to be told the base path. This warns; it never edits the agent's output, because a
- *  publisher that silently rewrites what it was given cannot be trusted with the rest. */
+ *  A relative reference resolves against the address the visitor actually opened, not against the page
+ *  that served them. At the root that happens to work; on any deeper address — a nested page, or an SPA
+ *  route answered by the same index.html — `./assets/app.js` becomes `/deep/assets/app.js` and 404s.
+ *  This warns; it never edits the agent's output, because a publisher that silently rewrites what it
+ *  was given cannot be trusted with the rest. */
 export function relativeAssetWarning(releaseDir: string, basePath: string): string | null {
   const indexFile = join(releaseDir, 'index.html');
   if (!existsSync(indexFile)) return null;
   const html = readFileSync(indexFile, 'utf8');
   if (!/(?:src|href)\s*=\s*["']\.{1,2}\//.test(html)) return null;
-  return `index.html references assets relatively (./…). Build with the base path ${basePath} so they resolve at the published address.`;
+  return `index.html references assets relatively (./…). Build with the absolute base path ${basePath} so they resolve from every route, not only the root.`;
 }
 
 /** Remove releases beyond the retention count. The release the site currently serves is never a

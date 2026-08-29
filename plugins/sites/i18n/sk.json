@@ -60,7 +60,7 @@
     },
     "allowCommandRuntime": {
       "label": "Povoliť behové prostredia",
-      "hint": "Umožní, aby stránka bola bežiaci server – Node, Bun, Python, PHP – namiesto súborov na disku. Proces je uzavretý vo vlastnom mennom priestore a vidí len svoj vlastný adresár verzie, ale beží pod účtom démona, drží si domovský adresár sandboxu daného účtu a zdieľa sieť stroja. Vyžaduje vlastný názov hostiteľa pre stránky."
+      "hint": "Umožní, aby stránka bola bežiaci server – Node, Bun, Python alebo TypeScript – za privátnym unixovým socketom, prípadne aby spúšťala PHP cez PHP-CGI. Každá požiadavka beží v izolovanom sieťovom mennom priestore a vyžaduje izolovaný hosting stránok."
     },
     "startTimeoutSeconds": {
       "label": "Časový limit štartu",

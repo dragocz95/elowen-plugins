@@ -12,7 +12,7 @@ import {
 import { SitesStore } from '../plugins/sites/dist/store.js';
 import { snapshotRelease, resolveWithin, pruneReleases, relativeAssetWarning } from '../plugins/sites/dist/publish.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
-import { resolveConfig, siteUrl, requestOnSiteHost } from '../plugins/sites/dist/config.js';
+import { resolveConfig, siteUrl, requestOnSiteHost, SITE_BASE_PATH } from '../plugins/sites/dist/config.js';
 import { proxyToRuntime, ProxyError } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
 
@@ -285,7 +285,10 @@ test('relative asset references are reported rather than rewritten', (t) => {
   t.after(() => rmSync(release, { recursive: true, force: true }));
   const html = '<!doctype html><script src="./assets/app.js"></script>';
   writeFileSync(join(release, 'index.html'), html);
-  assert.match(relativeAssetWarning(release, '/hooks/sites/s/demo/'), /base path/);
+  // A site owns the root of its own hostname, so the base path handed to a build is always '/'. The
+  // warning still matters: a relative reference resolves against the address the visitor opened, so it
+  // survives the root and 404s on every deeper route.
+  assert.match(relativeAssetWarning(release, SITE_BASE_PATH), /base path \//);
   assert.equal(readFileSync(join(release, 'index.html'), 'utf8'), html, 'the output is left exactly as built');
 });
 
@@ -674,6 +677,13 @@ test('every site gets the root of the gateway hostname derived by core', () => {
   assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.elowen.example:443'), true);
   assert.equal(requestOnSiteHost(dedicated, 'demo', 'elowen.example'), false);
   assert.equal(requestOnSiteHost(dedicated, 'demo', 'other.sites.elowen.example'), false);
+
+  // A Host is one hostname and at most one numeric port. Reading only up to the first colon would call
+  // each of these the site's own address, which is an identity decision made on an unvalidated string.
+  assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.elowen.example:not-a-port'), false);
+  assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.elowen.example:443:junk'), false);
+  assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.elowen.example.'), false, 'a trailing dot is a different name');
+  assert.equal(requestOnSiteHost(dedicated, 'demo', 'DEMO.Sites.Elowen.Example:8443'), true, 'a hostname is case-insensitive');
 
   // A broker hostname is only accepted beside the trusted HTTPS app deployment.
   assert.equal(resolveConfig({}, 'http://elowen.example', 'sites.elowen.example').siteHostBase, null);

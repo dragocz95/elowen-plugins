@@ -259,7 +259,7 @@ export function registerTools(deps: ToolDeps): void {
           `Configure the build with base path: ${SITE_BASE_PATH}`,
           `It will be published at: ${addressOf(config, slug)}`,
           '',
-          'Asset URLs must be absolute under that base path. A relative reference (./assets/...) breaks, because the published address is a path prefix.',
+          'Asset URLs must be absolute. A relative reference (./assets/...) resolves against whatever address the visitor opened, so it works at the root and breaks on every deeper route.',
           ...(runtime === 'command'
             ? [
               '',
