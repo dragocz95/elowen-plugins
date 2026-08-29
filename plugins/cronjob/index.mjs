@@ -331,6 +331,39 @@ export function parseSchedule(spec) {
   return parseCron(spec);
 }
 
+// ── The per-job brain model, in ONE place ───────────────────────────────────
+// A brain model is a PAIR, never half of one. Core resolves the PROVIDER first and only then the model
+// id, and model ids are not globally unique — two configured providers may both expose `gpt-5`. So a
+// half-filled selection does not mean "close enough": with no model id core runs that provider's DEFAULT
+// model, and with no provider it runs the FIRST configured provider's credentials
+// (resolveBrainModelRoute). Both look like an ordinary run, bill like one, and report the model they
+// actually used — which is how a job pinned to one model quietly ran on another. Every boundary here
+// therefore asks these two readers and nothing else: a selection is either a complete pair or it is
+// refused, and nothing in between is ever stored, forwarded or run.
+
+/** Both halves, trimmed, or null — the one place that decides whether a selection is complete. */
+const modelPair = (provider, model) => {
+  const p = typeof provider === 'string' ? provider.trim() : '';
+  const m = typeof model === 'string' ? model.trim() : '';
+  return p && m ? { provider: p, model: m } : null;
+};
+
+/** The pair a STORED job names, or null when its `model` field does not name a complete one. The stored
+ *  shape is the object `{provider, model}` — the wire shape the settings page saves and the only one the
+ *  scheduler runs. A string is not "nearly right" here: it would round-trip through jobs.json as a shape
+ *  no reader understands, so it is refused like any other partial. */
+export function storedModel(job) {
+  const m = job?.model;
+  return typeof m === 'object' && m !== null ? modelPair(m.provider, m.model) : null;
+}
+
+/** The pair a tool argument names as "provider/model", or null when the string does not name both. */
+export function parseModelSpec(spec) {
+  if (typeof spec !== 'string') return null;
+  const slash = spec.indexOf('/');
+  return slash > 0 ? modelPair(spec.slice(0, slash), spec.slice(slash + 1)) : null;
+}
+
 /** Whether a job reply means "nothing to say". Older prompts answer `[SILENT]`, ours say
  *  `NOTHING_TO_REPORT` — and models love wrapping either in backticks/bold, so match leniently. */
 export function isQuietReply(reply) {
@@ -483,6 +516,19 @@ class CronAdapter {
         this.log.warn(`cron job ${snapshot.id} (${snapshot.name}) skipped — its owner may no longer schedule jobs`);
         continue;
       }
+      // A job that NAMES a model must run on THAT model. Both write paths refuse a half-written pair, so
+      // one can only reach here from a hand-edited jobs.json or a record older than that validation — and
+      // running it anyway is the worst of the options: core would resolve the missing half to the
+      // provider's default model (or to the first configured provider's credentials), spend a real turn
+      // there and report the substitute in the run's footer, which is exactly the "it ran on the wrong
+      // model" this gate exists to stop. Skipped, never deleted: correcting the model in the settings page
+      // runs the job on its next slot. Above the claim like the gate before it — claiming a one-shot
+      // DELETES it, so a gate below would consume the very wake-up it means to merely postpone.
+      if (snapshot.model !== undefined && storedModel(snapshot) === null) {
+        this.store.patch(snapshot.id, { lastResult: '⏭️ skipped: the job names an incomplete model — set both a provider and a model' });
+        this.log.warn(`cron job ${snapshot.id} (${snapshot.name}) skipped — its model selection names no complete provider/model pair`);
+        continue;
+      }
       const job = this.claimDueJob(snapshot.id, now, tz);
       if (!job) continue;
       // Cheap guard gate: if the job has a `check` command, run it FIRST (no LLM). Only spend a brain
@@ -560,7 +606,9 @@ class CronAdapter {
           // Just identifies THIS job — the `scheduled` prompt carries how to run and report it.
           prompt: `This scheduled ${job.runAt ? 'wake-up' : 'job'} is "${job.name}". Do its task now.`,
           // Optional per-job model — the channel session respawns on it (else the server default runs).
-          model: job.model?.provider && job.model?.model ? { provider: job.model.provider, model: job.model.model } : undefined,
+          // Gated above, so this forwards the job's EXACT pair or nothing at all: core never receives a
+          // partial it would silently complete with a different provider's or model's identity.
+          model: storedModel(job) ?? undefined,
           // Per-job idle rollover, forwarded ONLY when configured: unset → key omitted, so the host applies
           // its shared default (like Discord) and cross-run context is preserved; a shorter value rotates a
           // frequent job past the cache window; Infinity (config 0) disables rollover for this job entirely.
@@ -925,11 +973,8 @@ export function register(ctx) {
       return 'notifyChannelId must be omitted or a non-empty string';
     }
     if (j.plain !== undefined && typeof j.plain !== 'boolean') return 'plain must be omitted or a boolean';
-    if (j.model !== undefined) {
-      const m = j.model;
-      if (typeof m !== 'object' || m === null || typeof m.provider !== 'string' || typeof m.model !== 'string' || !m.provider.trim() || !m.model.trim()) {
-        return 'model must be omitted or an object with non-empty provider and model';
-      }
+    if (j.model !== undefined && storedModel(j) === null) {
+      return 'model must be omitted or an object with non-empty provider and model';
     }
     if (j.ownerUserId !== undefined && j.ownerUserId !== null && !Number.isInteger(j.ownerUserId)) {
       return 'ownerUserId must be omitted, null or an account id';
@@ -1110,7 +1155,7 @@ export function register(ctx) {
       hours: Type.Optional(Type.String({ description: 'Active-hours window "H-H" (e.g. "5-21") — outside it the job stays quiet' })),
       notifyChannelId: Type.Optional(Type.String({ description: 'Deliver results to this channel/thread instead of the default notification channel. Instance-owner scope only — personal jobs always report in their own conversation.' })),
       plain: Type.Optional(Type.Boolean({ description: 'true = deliver the reply as-is, without the "⏰ job name" header line — for persona messages in a dedicated channel' })),
-      model: Type.Optional(Type.String({ description: 'Run this job on a specific brain model, as "provider/model" (e.g. "anthropic/claude-sonnet-5"). Empty = the server default.' })),
+      model: Type.Optional(Type.String({ description: 'Run this job on a specific brain model, as "provider/model" (e.g. "anthropic/claude-sonnet-5"). BOTH halves are required — a bare model id is rejected, because the same id can exist on several providers. Empty = the server default.' })),
       enabled: Type.Optional(Type.Boolean({ description: 'false = create the job paused' })),
     }),
     execute: async (_id, p) => {
@@ -1119,9 +1164,14 @@ export function register(ctx) {
         if (!parseSchedule(p.schedule)) return ok('Error: invalid schedule — use "every 15m", "every 2h", "daily 07:30", "weekly sun 20:00", or a 5-field cron expression like "0 9 * * 1-5".');
         const jobs = store.all();
         const id = newId();
-        // "provider/model" → {provider, model}; a bare or malformed value is ignored (server default runs).
-        const slash = typeof p.model === 'string' ? p.model.indexOf('/') : -1;
-        const model = slash > 0 ? { provider: p.model.slice(0, slash), model: p.model.slice(slash + 1) } : undefined;
+        // "provider/model" → the stored pair. An empty value means "no preference" and runs the server
+        // default; a value that NAMES a model but not its provider (or the other way round) is refused
+        // rather than dropped. Dropping it was the quiet failure: the caller asked for one model, the tool
+        // reported the job as scheduled, and every run then went to whatever the server default happened
+        // to be — visible only as a footer nobody cross-checks against the job.
+        const wanted = typeof p.model === 'string' ? p.model.trim() : '';
+        const model = wanted ? parseModelSpec(wanted) : undefined;
+        if (wanted && !model) return ok(`Error: model "${wanted}" must name a provider AND a model as "provider/model" (e.g. "anthropic/claude-sonnet-5"). Leave it empty to run on the server default.`);
         // A personal job remembers the conversation it was created in, exactly as ScheduleWakeup does, so
         // "tell me here every morning" reports where it was promised instead of in the owner's default web
         // chat. Only where one person reads: a shared room would put the answer in front of everyone else.
@@ -1195,9 +1245,13 @@ export function register(ctx) {
       try {
         const jobs = visibleJobs(store.all());
         if (jobs.length === 0) return ok('No scheduled jobs.');
-        return ok(jobs.map((j) =>
-          `- ${j.id} "${j.name}" ${j.schedule}${j.runAt ? ` (one-shot @ ${j.runAt})` : ''}\n  last run: ${j.lastRun ?? 'never'}\n  last result: ${j.lastResult ?? '—'}`
-        ).join('\n'));
+        return ok(jobs.map((j) => {
+          // Name the pinned model when there is one. A run reports the model it actually used, so without
+          // the job's own selection beside it there is nothing to compare that against — and "pinned to
+          // Opus but every footer says Sonnet" is unanswerable from a listing that never mentions models.
+          const sel = storedModel(j);
+          return `- ${j.id} "${j.name}" ${j.schedule}${j.runAt ? ` (one-shot @ ${j.runAt})` : ''}${sel ? `\n  model: ${sel.provider}/${sel.model}` : ''}\n  last run: ${j.lastRun ?? 'never'}\n  last result: ${j.lastResult ?? '—'}`;
+        }).join('\n'));
       } catch (e) { return fail(e); }
     },
   }));
