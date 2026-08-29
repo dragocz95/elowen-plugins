@@ -281,7 +281,7 @@
       "publicWarning": "Anyone who knows the address will be able to open this site without signing in.",
       "publicConfirm": "Make public",
       "publicDisabled": "Public sites are turned off for this instance.",
-      "passiveNotice": "Scripts are disabled on the app hostname. Configure Hosting to give every site its own isolated address.",
+      "passiveNotice": "Scripts are disabled on the fallback address. Activate wildcard DNS and TLS in Hosting; every site then switches to its own isolated address automatically.",
       "sourceNotice": "The source folder lives in the Project, so everyone with access to the Project can read it. This setting governs the published site.",
       "deleteTitle": "Delete this site",
       "deleteHint": "The address stops working and every release is removed. The source folder in the Project is left alone.",

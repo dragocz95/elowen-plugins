@@ -144,7 +144,7 @@
       "publicWarning": "Stránku bude moci otevřít kdokoli, kdo zná adresu, a to bez přihlášení.",
       "publicConfirm": "Zveřejnit",
       "publicDisabled": "Veřejné stránky jsou na této instanci vypnuté.",
-      "passiveNotice": "Na hostiteli aplikace jsou skripty vypnuté. V sekci Hosting nastavte každé stránce vlastní izolovanou adresu.",
+      "passiveNotice": "Na záložní adrese jsou skripty vypnuté. V sekci Hosting aktivujte wildcard DNS a TLS; všechny stránky se pak automaticky přepnou na vlastní izolované adresy.",
       "sourceNotice": "Zdrojová složka leží v projektu, takže si ji přečte každý, kdo má k projektu přístup. Toto nastavení řídí zveřejněnou stránku.",
       "deleteTitle": "Smazat tuto stránku",
       "deleteHint": "Adresa přestane fungovat a všechny verze se odstraní. Zdrojová složka v projektu zůstane nedotčená.",
