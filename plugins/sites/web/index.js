@@ -907,7 +907,7 @@ function SitesPage() {
     ControlSurfaceToolbar,
     ControlSurfaceRegister,
     ControlSurfaceState,
-    RegisterSearch,
+    Input,
     SelectMenu,
     LoadingState,
     ErrorState,
@@ -1003,15 +1003,21 @@ function SitesPage() {
       children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceDocument, { children: list.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LoadingState, { variant: "cards" }) }) : list.isError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ErrorState, { message: strings.loadFailed, onRetry: () => list.refetch() }) }) : section === "hosting" && gateway ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(GatewaySettings, { gateway }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex w-full min-w-0 flex-wrap items-center gap-2 py-3", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              RegisterSearch,
-              {
-                value: query,
-                onChange: setQuery,
-                placeholder: strings.searchPlaceholder,
-                label: strings.searchPlaceholder
-              }
-            ),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "register-search relative min-w-[14rem] flex-1", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sr-only", children: strings.searchPlaceholder }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Search, { size: 14, "aria-hidden": true, className: "pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-text-muted" }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                Input,
+                {
+                  type: "search",
+                  value: query,
+                  onChange: (event) => setQuery(event.target.value),
+                  placeholder: strings.searchPlaceholder,
+                  "aria-label": strings.searchPlaceholder,
+                  className: "pl-9"
+                }
+              )
+            ] }),
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
               SelectMenu,
               {

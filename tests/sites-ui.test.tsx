@@ -90,12 +90,19 @@ const openSite = async () => {
 };
 
 describe('the Sites workspace', () => {
-  it('uses the host register search as the leftmost toolbar control', async () => {
-    mount();
-    const search = await screen.findByRole('searchbox', { name: strings.searchPlaceholder });
-    const registerSearch = search.closest('.register-search');
-    expect(registerSearch).not.toBeNull();
-    expect(registerSearch?.parentElement?.firstElementChild).toBe(registerSearch);
+  it('builds the leftmost search from API-7 primitives without a newer RegisterSearch component', async () => {
+    const components = (window.ElowenUiRuntime as unknown as { components: Record<string, unknown> }).components;
+    const aheadOfRelease = components.RegisterSearch;
+    delete components.RegisterSearch;
+    try {
+      mount();
+      const search = await screen.findByRole('searchbox', { name: strings.searchPlaceholder });
+      const searchControl = search.closest('.register-search');
+      expect(searchControl).not.toBeNull();
+      expect(searchControl?.parentElement?.firstElementChild).toBe(searchControl);
+    } finally {
+      components.RegisterSearch = aheadOfRelease;
+    }
   });
 
   it('keeps Namecheap credentials write-only while provisioning from the Hosting section', async () => {

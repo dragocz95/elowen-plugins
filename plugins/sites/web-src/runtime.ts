@@ -135,19 +135,9 @@ interface RuntimeComponents {
     placeholder?: string;
     className?: string;
     disabled?: boolean;
-    type?: 'text' | 'password' | 'email';
+    type?: 'text' | 'password' | 'email' | 'search';
     autoComplete?: string;
-  }>;
-  RegisterSearch: ComponentType<{
-    value: string;
-    onChange(value: string): void;
-    placeholder?: string;
-    label?: string;
-    onClear?: () => void;
-    clearLabel?: string;
-    count?: number;
-    countLabel?: string;
-    className?: string;
+    'aria-label'?: string;
   }>;
   Badge: ComponentType<{ tone?: 'default' | 'accent' | 'muted' | 'danger' | 'success' | 'warning'; children: ReactNode }>;
   Avatar: ComponentType<{

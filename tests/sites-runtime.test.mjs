@@ -8,14 +8,6 @@ import { SiteRuntimeSupervisor } from '../plugins/sites/dist/runtime.js';
 
 const SITE_ID = '123e4567-e89b-12d3-a456-426614174000';
 
-const waitFor = async (predicate, timeoutMs = 5_000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() > deadline) throw new Error('timed out waiting for runtime state');
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-};
-
 const site = (releaseId) => ({
   id: SITE_ID,
   slug: 'runtime-demo',
