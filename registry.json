@@ -143,7 +143,7 @@
     },
     {
       "name": "skills",
-      "version": "0.2.4",
+      "version": "0.3.0",
       "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
       "category": "automation",
       "author": "Elowen",

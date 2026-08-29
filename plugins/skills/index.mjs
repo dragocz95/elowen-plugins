@@ -17,20 +17,57 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 // hygiene). Core matched routes first, so a skill with one of these names could never be edited.
 const RESERVED_NAMES = new Set(['config', 'icon', 'logs', 'contributions', 'hook-executions', 'data', 'restore', 'api', 'list', 'users']);
 
-/** Index the visible (model-invocable) skills of one set by name. A duplicate is dropped with a warning:
- *  two files claiming the same name are a catalog problem, and silently picking one is how the wrong body
- *  gets loaded. */
+/** Index the visible (model-invocable) skills of one set by name, alongside the names the set deliberately
+ *  withholds. A duplicate is dropped with a warning: two files claiming the same name are a catalog
+ *  problem, and silently picking one is how the wrong body gets loaded.
+ *
+ *  `manualOnly` is carried rather than discarded because the host announces those skills too. A model that
+ *  reads one out of the available-skills list and calls SkillLoad for it deserves to be told it is
+ *  manual-only, not that it does not exist — the second answer invites a retry that can never succeed. */
 function indexVisible(skills, logger) {
   const byName = new Map();
+  const manualOnly = new Set();
   for (const skill of skills) {
-    if (skill.disableModelInvocation) continue;
+    if (skill.disableModelInvocation) { manualOnly.add(skill.name); continue; }
     if (byName.has(skill.name)) {
       logger.warn(`duplicate visible skill name '${skill.name}' ignored by SkillLoad (${skill.filePath})`);
       continue;
     }
     byName.set(skill.name, skill);
   }
-  return byName;
+  return { byName, manualOnly };
+}
+
+/** Thrown, never returned. A tool that hands a refusal back as ordinary text is recorded as a SUCCESSFUL
+ *  call, so the model reads "that skill is not available" as an answer rather than a failure and moves on
+ *  with nothing loaded. The host turns a throw into an error result. Same reasoning as the sites plugin's
+ *  ToolError, which is where this shape comes from. */
+class SkillLoadError extends Error {}
+
+/** How many names a refusal may list before it stops being an aid and starts being a wall of text. */
+const REFUSAL_NAME_CAP = 60;
+
+const nameList = (names) => {
+  const sorted = [...names].sort();
+  if (sorted.length <= REFUSAL_NAME_CAP) return sorted.join(', ');
+  return `${sorted.slice(0, REFUSAL_NAME_CAP).join(', ')} (+${sorted.length - REFUSAL_NAME_CAP} more)`;
+};
+
+/** The refusal for a name SkillLoad cannot load. It always ends by saying what WOULD have worked: a
+ *  rejection that only reports the rejection is what makes a model guess again. */
+function refuseSkill(wanted, loadable, manualOnly) {
+  if (manualOnly.has(wanted)) {
+    return `The skill "${wanted}" is manual-only: it is announced, but only the user can invoke it, with `
+      + `/skill:${wanted}. SkillLoad cannot open it. Loadable skills are: ${nameList(loadable.keys())}.`;
+  }
+  if (loadable.size === 0) {
+    return `No skill named "${wanted}" is loadable in this session, and SkillLoad currently manages none at `
+      + 'all. Any skill in the available-skills list belongs to another plugin — open it with Read at the '
+      + 'path shown there.';
+  }
+  return `No skill named "${wanted}" is available in this session. SkillLoad can load exactly these: `
+    + `${nameList(loadable.keys())}. A skill in the available-skills list that is absent from that set is `
+    + 'contributed by another plugin — open it with Read at the path shown there.';
 }
 
 /** ONE instance-wide loader over every set this plugin owns, resolving WHOSE personal skills the call may
@@ -49,31 +86,42 @@ function indexVisible(skills, logger) {
  *  it answers null and only the instance set is reachable. */
 function buildSkillLoadTool(ctx, instanceSkills, personalSkills) {
   const logger = ctx.logger;
-  const instanceByName = indexVisible(instanceSkills, logger);
-  const personalByName = new Map();
-  for (const [ownerUserId, owned] of personalSkills) personalByName.set(ownerUserId, indexVisible(owned, logger));
-  const anyPersonal = [...personalByName.values()].some((byName) => byName.size > 0);
-  if (instanceByName.size === 0 && !anyPersonal) return null;
+  const instance = indexVisible(instanceSkills, logger);
+  const personal = new Map();
+  for (const [ownerUserId, owned] of personalSkills) personal.set(ownerUserId, indexVisible(owned, logger));
+  const anyPersonal = [...personal.values()].some((set) => set.byName.size > 0);
+  if (instance.byName.size === 0 && !anyPersonal) return null;
 
   /** A personal definition shadows an instance one of the same name, inside that account's turns only —
    *  the precedence PluginRegistry.toolsFor() applied when this was still one tool per owner. */
   const visibleTo = (ownerUserId) => {
-    const owned = ownerUserId == null ? undefined : personalByName.get(ownerUserId);
-    return owned && owned.size ? new Map([...instanceByName, ...owned]) : instanceByName;
+    const owned = ownerUserId == null ? undefined : personal.get(ownerUserId);
+    return owned && owned.byName.size ? new Map([...instance.byName, ...owned.byName]) : instance.byName;
+  };
+  const manualOnlyTo = (ownerUserId) => {
+    const owned = ownerUserId == null ? undefined : personal.get(ownerUserId);
+    return owned && owned.manualOnly.size ? new Set([...instance.manualOnly, ...owned.manualOnly]) : instance.manualOnly;
   };
 
-  const description = 'Exact skill name from the available-skills list.';
-  const instanceLiterals = [...instanceByName.keys()].map((skillName) => Type.Literal(skillName));
-  // The schema enumerates the names only while EVERY session sees the same ones. The moment any account
-  // owns a personal set, an enum could only be built from one of two wrong lists: the instance names alone
-  // would reject a name the model was correctly told it may load, and the union of everybody's names would
-  // publish one person's private skill names into every other person's prompt. A free string with the
-  // available-skills list as its stated source is the honest third answer, and execute() is the gate.
-  const name = !anyPersonal && instanceLiterals.length > 0
-    ? (instanceLiterals.length === 1
-        ? Type.Literal([...instanceByName.keys()][0], { description })
-        : Type.Union(instanceLiterals, { description }))
-    : Type.String({ description });
+  // A free-form string, always — deliberately NOT an enum of the installed names.
+  //
+  // An enum was only ever buildable from the instance set, and only while no account owned a personal
+  // skill: the instance names alone would reject a name the model was correctly told it may load, and the
+  // union of everybody's names would publish one person's private skill names into every other person's
+  // prompt. So the schema's SHAPE used to flip — enum or string — on unrelated state, which is exactly the
+  // kind of divergence that bites silently.
+  //
+  // It also could not be made correct. The host announces skills contributed by OTHER plugins, and
+  // manual-only skills, neither of which this tool can load; no enum built here can mirror that list. And
+  // an enum failure is unrecoverable in the worst way: the call is rejected by schema validation before
+  // execute() runs, so the model never reads the message that would have told it what to call instead. It
+  // just sees "must be equal to constant" — which does not even name the constant — and guesses again.
+  // Seven recorded SkillLoad failures were exactly that.
+  //
+  // The reference tool suite the models are trained on takes a free-form string and resolves it at
+  // runtime, so this is also the shape they already expect. execute() is the single gate, and its refusal
+  // enumerates (see refuseSkill).
+  const name = Type.String({ description: 'Exact skill name from the available-skills list.' });
 
   return defineTool({
     name: 'SkillLoad', label: 'Load skill',
@@ -85,14 +133,17 @@ function buildSkillLoadTool(ctx, instanceSkills, personalSkills) {
     ].join(' '),
     parameters: Type.Object({ name }),
     execute: async (_id, params) => {
-      const skill = visibleTo(ctx.currentContributionUserId()).get(params.name);
-      if (!skill) return ok('Error: that skill is not available in this session. Use an exact name from the available-skills list.');
+      const owner = ctx.currentContributionUserId();
+      const loadable = visibleTo(owner);
+      const wanted = String(params.name ?? '').trim();
+      const skill = loadable.get(wanted);
+      if (!skill) throw new SkillLoadError(refuseSkill(wanted, loadable, manualOnlyTo(owner)));
       try {
         const content = readFileSync(skill.filePath, 'utf-8');
         return ok(`Skill: ${skill.name}\nSkill directory: ${skill.baseDir}\n\n${content}`);
       } catch (error) {
         logger.warn(`could not load skill '${skill.name}' from '${skill.filePath}': ${error instanceof Error ? error.message : error}`);
-        return ok(`Error: skill "${skill.name}" could not be loaded because its file is missing or unreadable.`);
+        throw new SkillLoadError(`The skill "${skill.name}" is announced but its file is missing or unreadable, so it cannot be loaded. Continue without it and tell the user.`);
       }
     },
   });
@@ -178,8 +229,9 @@ export function register(ctx) {
   if (skillLoader) {
     ctx.registerSystemPromptFragment([
       '<skill_loading>',
-      'Prefer SkillLoad when its schema offers the matching skill name.',
+      'Prefer SkillLoad for any skill it manages, passing the name exactly as the available-skills list spells it.',
       'Some available skills are contributed by other plugins and are not offered by SkillLoad; load those with Read at the location shown in the available-skills list.',
+      'If SkillLoad refuses a name, its error lists every skill it can load — take the name from that list rather than guessing another spelling.',
       'SkillLoad returns the skill directory; resolve every relative reference in the instructions against that directory.',
       '</skill_loading>',
     ].join('\n'));

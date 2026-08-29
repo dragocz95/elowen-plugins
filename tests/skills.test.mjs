@@ -100,6 +100,24 @@ const runScopedTool = async (plugin, name, ownerUserId, params) => {
   try { return await tool.execute('t', params); } finally { plugin.session.contributionUserId = null; }
 };
 
+/** The message a tool REFUSED with. SkillLoad throws its refusals rather than returning them as text:
+ *  a refusal handed back as a normal result is recorded as a successful call, and the model reads it as
+ *  an answer instead of a failure. Asserting on the throw is therefore asserting on the real contract. */
+const refusalOf = async (promise) => {
+  // The assert.fail below sits OUTSIDE the catch on purpose: inside it, its own AssertionError would be
+  // caught by this very handler and returned as if it were the tool's refusal, so a tool that RETURNED
+  // its error instead of throwing would still pass. That is the exact regression this helper exists to
+  // catch, and a helper that cannot fail is worse than no helper at all.
+  let result;
+  try {
+    result = await promise;
+  } catch (error) {
+    assert.ok(error instanceof Error, 'a refusal must be a thrown Error');
+    return error.message;
+  }
+  assert.fail(`expected a thrown refusal, got a successful result: ${asText(result)}`);
+};
+
 // ── the HTTP harness ─────────────────────────────────────────────────────────────────────────────────
 // The daemon serves this plugin's grandfathered `/plugins/skills/*` surface through the ROOT-mounted
 // plugin API dispatcher (src/api/routes/pluginApi.ts + PluginRegistry.rootApiRoute). There is no daemon
@@ -363,14 +381,29 @@ test('bundled skills plugin', async (t) => {
     const reg = loadPlugin({ dataRoot });
     const instanceTool = reg.tools.find((tool) => tool.name === 'SkillLoad' && tool.ownerUserId === null);
     assert.ok(instanceTool);
+
+    // The schema is a free-form string and enumerates NOTHING — not even the instance names. An enum was
+    // rejected by schema validation before execute() ran, so the model never reached the message telling it
+    // what to call instead; it only saw "must be equal to constant". Seven recorded failures were that.
     const schema = JSON.stringify(instanceTool.parameters);
-    assert.match(schema, /auto-skill/);
+    assert.doesNotMatch(schema, /auto-skill/);
     assert.doesNotMatch(schema, /manual-skill/);
-    const unavailable = 'Error: that skill is not available in this session. Use an exact name from the available-skills list.';
-    assert.equal(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'manual-skill' })), unavailable);
-    assert.equal(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'does-not-exist' })), unavailable);
+    assert.doesNotMatch(schema, /"const"|"enum"|"anyOf"/);
+
+    // Every refusal names what WOULD have worked.
+    const missing = await refusalOf(runScopedTool(reg, 'SkillLoad', null, { name: 'does-not-exist' }));
+    assert.match(missing, /does-not-exist/);
+    assert.match(missing, /auto-skill/, 'the refusal must list the skills that can be loaded');
+
+    // A manual-only skill is announced to the model, so "it does not exist" would be a lie that invites a
+    // retry which can never succeed. It is refused for the actual reason, with the invocation that works.
+    const manual = await refusalOf(runScopedTool(reg, 'SkillLoad', null, { name: 'manual-skill' }));
+    assert.match(manual, /manual-only/);
+    assert.match(manual, /\/skill:manual-skill/);
+    assert.doesNotMatch(manual, /secret manual body/);
+
     rmSync(autoFile);
-    assert.match(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'auto-skill' })), /missing or unreadable/);
+    assert.match(await refusalOf(runScopedTool(reg, 'SkillLoad', null, { name: 'auto-skill' })), /missing or unreadable/);
   });
 
   await t.test('SkillLoad opens the personal set of the turn\'s contribution owner, and nobody else\'s', async () => {
@@ -382,19 +415,38 @@ test('bundled skills plugin', async (t) => {
     writeFileSync(join(skillsDir, 'users', '7', 'private-seven.md'), skillMd('private-seven', 'account seven only'));
     writeFileSync(join(skillsDir, 'users', '8', 'private-eight.md'), skillMd('private-eight', 'account eight only'));
     const reg = loadPlugin({ dataRoot });
-    const unavailable = 'Error: that skill is not available in this session. Use an exact name from the available-skills list.';
 
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'shared-skill' })), /Body of shared-skill/);
     // The turn's IDENTITY is deliberately not what widens the set. The host resolves the contribution owner
     // once per turn and announces the very same set to the model; a tool second-guessing that from identity
     // would answer differently for a delegated child, whose identity names no account at all.
     await asTurn(reg, turnFor(7), async () => {
-      assert.equal(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'private-seven' })), unavailable);
+      await refusalOf(runScopedTool(reg, 'SkillLoad', null, { name: 'private-seven' }));
     });
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'shared-skill' })), /Body of shared-skill/);
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-seven' })), /Body of private-seven/);
-    assert.equal(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-eight' })), unavailable);
-    assert.equal(asText(await runScopedTool(reg, 'SkillLoad', 8, { name: 'private-seven' })), unavailable);
+
+    // The refusal enumerates, so it must enumerate only what the ASKING turn may see. A refusal that
+    // helpfully listed every name would leak one account's private skill names to another — the same leak
+    // an enumerated schema would have caused, moved into the error text. The wanted name is quoted back in
+    // the sentence either way, so the assertion is on the LIST, not on the whole message.
+    const listed = (refusal) => {
+      const [, tail] = refusal.split('exactly these: ');
+      assert.ok(tail, `refusal must enumerate the loadable skills: ${refusal}`);
+      return tail.split('.')[0].split(', ').map((entry) => entry.trim());
+    };
+
+    // Asserted by membership rather than exact equality: the plugin's own bundled skills are in the
+    // instance set too, and pinning the whole list would break every time one is added.
+    const eightAsksSeven = listed(await refusalOf(runScopedTool(reg, 'SkillLoad', 8, { name: 'private-seven' })));
+    assert.ok(eightAsksSeven.includes('shared-skill'));
+    assert.ok(eightAsksSeven.includes('private-eight'));
+    assert.ok(!eightAsksSeven.includes('private-seven'), `leaked account 7's skill names: ${eightAsksSeven}`);
+
+    const sevenAsksEight = listed(await refusalOf(runScopedTool(reg, 'SkillLoad', 7, { name: 'private-eight' })));
+    assert.ok(sevenAsksEight.includes('shared-skill'));
+    assert.ok(sevenAsksEight.includes('private-seven'));
+    assert.ok(!sevenAsksEight.includes('private-eight'), `leaked account 8's skill names: ${sevenAsksEight}`);
   });
 
   await t.test('the schema never publishes one account\'s private skill names to another', async () => {
@@ -406,13 +458,14 @@ test('bundled skills plugin', async (t) => {
     const reg = loadPlugin({ dataRoot });
     const tool = reg.tools.find((t) => t.name === 'SkillLoad' && t.ownerUserId === null);
 
-    // The parameter schema rides every session's prompt, so it can name only what EVERY session may load.
-    // Enumerating the union would publish one person's private skill names to everyone else in the room;
-    // enumerating the instance names alone would reject a name the model was correctly told it may load.
-    // Neither is honest once personal sets exist, so the schema takes the available-skills list as its
-    // stated source and execute() is the gate.
+    // The parameter schema rides every session's prompt, so it can name only what EVERY session may load —
+    // which, once personal sets exist, is nothing it could enumerate honestly. Enumerating the union would
+    // publish one person's private skill names to everyone else in the room; enumerating the instance names
+    // alone would reject a name the model was correctly told it may load. The schema therefore names
+    // nothing at all, takes the available-skills list as its stated source, and execute() is the gate.
     const schema = JSON.stringify(tool.parameters);
     assert.doesNotMatch(schema, /private-seven/);
+    assert.doesNotMatch(schema, /shared-skill/);
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-seven' })), /Body of private-seven/);
   });
 
@@ -424,9 +477,8 @@ test('bundled skills plugin', async (t) => {
     writeFileSync(join(privateDir, 'SKILL.md'), skillMd('private-linked', 'account seven only'));
     symlinkSync(privateDir, join(skillsDir, 'linked-from-instance'), 'dir');
     const reg = loadPlugin({ dataRoot });
-    const unavailable = 'Error: that skill is not available in this session. Use an exact name from the available-skills list.';
 
-    assert.equal(asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'private-linked' })), unavailable);
+    await refusalOf(runScopedTool(reg, 'SkillLoad', null, { name: 'private-linked' }));
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-linked' })), /Body of private-linked/);
   });
 
