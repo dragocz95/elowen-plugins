@@ -440,6 +440,26 @@ const NOT_FOUND_HINT = 'This task ID does not exist — it was never created, or
   + 'Call TaskList for the current IDs and retry with one of them, or TaskCreate if this work is not on the list yet. '
   + 'Do not retry this ID and do not guess another one.';
 
+/** The fields TaskUpdate can actually change — the same set store.update() checks for, named here so a
+ *  refusal can list them. Kept beside the hint that prints it rather than inside the store, because the
+ *  store sees a validated patch while the tool still holds the keys the model really sent. */
+const UPDATABLE_FIELDS = ['subject', 'description', 'activeForm', 'status', 'owner', 'metadata', 'addBlocks', 'addBlockedBy'];
+
+/** Why a TaskUpdate that named a real task still changed nothing.
+ *
+ *  The schemas are OPEN — an unrecognised key is not rejected, it is ignored — so a call that spells a
+ *  field wrong reaches the store looking exactly like a call that asked for nothing at all, and the bare
+ *  "nothing to update" reads as "the call was fine but pointless". The model then repeats it. Naming the
+ *  keys it actually sent, and the ones it could have sent, is the difference between a dead end and a
+ *  correctable mistake. */
+function nothingToUpdateHint(params) {
+  const unknown = Object.keys(params).filter((key) => key !== 'taskId' && !UPDATABLE_FIELDS.includes(key));
+  const fields = `Send at least one field to change: ${UPDATABLE_FIELDS.join(', ')}.`;
+  if (unknown.length === 0) return `This call named a task but no field to change. ${fields}`;
+  return `${unknown.map((key) => `"${key}"`).join(', ')} ${unknown.length === 1 ? 'is not a field' : 'are not fields'} `
+    + `TaskUpdate can change, so this call changed nothing. ${fields}`;
+}
+
 function safeError(ctx, error) {
   const message = error instanceof Error ? error.message : String(error);
   if (SAFE_ERRORS.has(message)) return message;
@@ -535,7 +555,7 @@ export function registerTaskMode(ctx, db) {
   ctx.registerTool(defineTool({
     name: 'TaskCreate',
     label: 'Create tasks',
-    description: 'Create one or more NEW tasks in the current conversation task list and return the ID assigned to each. Send the whole plan as a SINGLE call with every task in the tasks array, in the order they should appear — do not call this once per task. Use it only to add work that is not on the list yet: to change work that already exists, call TaskUpdate with that task ID instead. Per task, use subject for the short user-visible outcome, description for private working context, activeForm for present-continuous progress text, metadata for private structured context, and status only when you need to set it explicitly. If no task is already in_progress, the first new unblocked task without an explicit status starts automatically. Declare prerequisites right here instead of following up with TaskUpdate: blockedBy takes IDs of tasks that ALREADY exist, and blockedByIndex takes 1-based positions within this same call, so a task can depend on a sibling that has no ID yet. The whole batch is rejected together if a dependency is missing, self-referential or cyclic. Keep the returned IDs: they are the only valid handles for later TaskGet and TaskUpdate calls.',
+    description: 'Create one or more NEW tasks in the current conversation task list and return the ID assigned to each. Send the whole plan as a SINGLE call with every task in the tasks array, in the order they should appear — do not call this once per task. Use it only to add work that is not on the list yet: to change work that already exists, call TaskUpdate with that task ID instead. EVERY item in the tasks array REQUIRES both a non-empty subject and a non-empty description; an item missing either one rejects the whole call. Per task, use subject for the short user-visible outcome, description for private working context, activeForm for present-continuous progress text, metadata for private structured context, and status only when you need to set it explicitly. If no task is already in_progress, the first new unblocked task without an explicit status starts automatically. Declare prerequisites right here instead of following up with TaskUpdate: blockedBy takes IDs of tasks that ALREADY exist, and blockedByIndex takes 1-based positions within this same call, so a task can depend on a sibling that has no ID yet. The whole batch is rejected together if a dependency is missing, self-referential or cyclic. Keep the returned IDs: they are the only valid handles for later TaskGet and TaskUpdate calls.',
     parameters: Type.Object({
       tasks: Type.Array(
         Type.Object({
@@ -602,7 +622,7 @@ export function registerTaskMode(ctx, db) {
   ctx.registerTool(defineTool({
     name: 'TaskUpdate',
     label: 'Update task',
-    description: 'Update one EXISTING task incrementally, identified by an ID that TaskCreate returned or TaskList reported. It never creates a task: an unknown ID fails with error "task not found", and the fix is to call TaskList and retry with a current ID (or TaskCreate if the work is genuinely new) — never to guess another ID or repeat the same call. Status is pending, in_progress, completed, or deleted. Completing a task names the next unblocked one in the result, so chain straight onto it and mark it in_progress when you start. addBlockedBy adds prerequisites; addBlocks makes this task a prerequisite of other tasks. Dependency changes reject missing tasks, self-dependencies and cycles; repeated edges are idempotent.',
+    description: 'Update ONE existing task per call, identified by `taskId` — an ID that TaskCreate returned or TaskList reported. The ID parameter is named `taskId`, never `id`, `ids`, `task` or `updates`, and this tool has no batch form: to change several tasks, call it once per task. Unlike TaskCreate it does not take a `tasks` array. Everything except `taskId` is optional, but a call that changes nothing is refused, so send at least one of: subject, description, activeForm, status, owner, metadata, addBlocks, addBlockedBy. It never creates a task: an unknown ID fails with error "task not found", and the fix is to call TaskList and retry with a current ID (or TaskCreate if the work is genuinely new) — never to guess another ID or repeat the same call. Status is pending, in_progress, completed, or deleted. Completing a task names the next unblocked one in the result, so chain straight onto it and mark it in_progress when you start. addBlockedBy adds prerequisites; addBlocks makes this task a prerequisite of other tasks. Dependency changes reject missing tasks, self-dependencies and cycles; repeated edges are idempotent.',
     parameters: Type.Object({
       taskId: Type.String({ description: 'ID of an existing task, exactly as returned by TaskCreate or TaskList. Never invent or guess an ID.' }),
       subject: Type.Optional(Type.String()),
@@ -628,9 +648,12 @@ export function registerTaskMode(ctx, db) {
         // A missing ID is the one failure the model reliably retries blind — usually after the task was
         // deleted, so the turn context no longer lists it either. Say what recovers it instead of leaving
         // the model to guess another ID. The tool still refuses to create anything.
+        const hint = message === 'task not found' ? NOT_FOUND_HINT
+          : message === 'nothing to update' ? nothingToUpdateHint(params)
+          : null;
         return ok({
           success: false, taskId, updatedFields: [], error: message,
-          ...(message === 'task not found' ? { hint: NOT_FOUND_HINT } : {}),
+          ...(hint ? { hint } : {}),
         });
       }
     },
@@ -676,7 +699,7 @@ export function registerTaskMode(ctx, db) {
   }, { placement: 'after-user' });
 
   ctx.registerSystemPromptFragment(
-    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskDelete`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. Mark work in_progress when it starts and completed immediately when it finishes. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, with prerequisites declared inline, instead of calling it once per task — and returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. `TaskDelete` permanently removes one existing task and its dependency edges. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update or delete reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
+    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskDelete`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. Mark work in_progress when it starts and completed immediately when it finishes. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, each with at least a `subject` and a `description` and with prerequisites declared inline, instead of calling it once per task — and returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. `TaskGet`, `TaskUpdate` and `TaskDelete` each act on ONE task per call and take its ID in a parameter named `taskId` (not `id`, `ids`, `task` or `updates`); only `TaskCreate` takes a batch. `TaskDelete` permanently removes one existing task and its dependency edges. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update or delete reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
   );
 
   ctx.logger.info('session task tools registered (TaskCreate + TaskGet + TaskUpdate + TaskDelete + TaskList)');

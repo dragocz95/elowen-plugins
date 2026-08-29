@@ -127,9 +127,13 @@ export function renderTaskContext(tasks) {
     ...(reminder ? [reminder] : []),
     '  <task_instructions>',
     '    Use TaskCreate, TaskGet, TaskUpdate and TaskList to maintain this session task list incrementally.',
+    // The `id` attribute above is the value these tools want, but the PARAMETER carrying it is `taskId`.
+    // Nothing else in this block can say `id` that many times and leave the model to bridge the two names
+    // on its own: `id` and `ids` were the most frequent wrong keys in recorded TaskUpdate failures.
+    '    Pass an id in the parameter named taskId, one task per call — TaskUpdate({"taskId": "3", "status": "completed"}). The parameter is never called id, ids, task or updates, and TaskGet, TaskUpdate and TaskDelete have no batch form: to change several tasks, call the tool once per task.',
     '    Never guess an id: use one listed above, or the id TaskCreate just returned. Everything listed here exists, and so does every task counted in earlier_completed — TaskList reports the authoritative set of ids.',
     '    A finished task is listed by subject alone; TaskGet still returns its full description and metadata on the rare occasion you need to look back at one.',
-    '    TaskCreate adds new work — send the whole plan as one call with every task in its tasks array — and returns the new ids; TaskUpdate only changes work that already exists and never creates it.',
+    '    TaskCreate is the one batch tool: it adds NEW work, taking the whole plan as one call with every task in its tasks array, each task carrying at least a subject and a description, and it returns the new ids. TaskUpdate only changes work that already exists and never creates it.',
     '    If TaskUpdate or TaskGet reports that an id was not found, the list has changed: call TaskList and act on the current ids instead of retrying that id or trying nearby ones.',
     '    Mark work in_progress when it starts and completed immediately when it is genuinely finished.',
     '    Respect blockedBy dependencies; a completed blocker no longer blocks its dependants.',

@@ -138,6 +138,69 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   assert.deepEqual(json(await list.execute('18', {})).tasks.map((task) => task.id), ['2', '3', '4']);
 });
 
+// TaskUpdate was the single most frequent schema-validation failure on record (10 of 38), even though its
+// `taskId` parameter is already spelled the way the reference task tools spell it. The cause is not the
+// name in isolation, it is that every surrounding text called it something else: the per-turn task context
+// renders `<task id="3">` and `ids="1-5"`, and its instructions said "id" throughout, while the neighbouring
+// TaskCreate takes a `tasks` ARRAY. The model was reading `id`, `ids` and `tasks` on every single turn and
+// sending exactly those. So the prose has to name the parameter, and the batch asymmetry has to be stated.
+test('the task context and tool descriptions name taskId and rule out a batch update', async (t) => {
+  const h = harness(t);
+  await h.tool('TaskCreate').execute('1', { tasks: [{ subject: 'Work', description: 'Do it' }] });
+  const context = h.turnContext();
+
+  // The context still renders the id as an `id` attribute — that is the data — so it must bridge the two
+  // names itself rather than leave the model to guess the parameter from the attribute.
+  assert.match(context, /<task id="1"/);
+  assert.match(context, /parameter named taskId/);
+  assert.match(context, /"taskId": "3"/, 'a worked example beats a description of one');
+  assert.match(context, /never called id, ids, task or updates/);
+  assert.match(context, /no batch form/);
+
+  const updateDescription = h.tool('TaskUpdate').description;
+  assert.match(updateDescription, /never `id`, `ids`, `task` or `updates`/);
+  assert.match(updateDescription, /does not take a `tasks` array/);
+  assert.match(updateDescription, /subject, description, activeForm, status, owner, metadata, addBlocks, addBlockedBy/);
+
+  // TaskCreate's 6 recorded failures were items missing subject/description, so requiredness is stated
+  // rather than left to the schema.
+  assert.match(h.tool('TaskCreate').description, /REQUIRES both a non-empty subject and a non-empty description/);
+
+  assert.match(h.prompts.join('\n'), /take its ID in a parameter named `taskId`/);
+  assert.match(h.prompts.join('\n'), /only `TaskCreate` takes a batch/);
+});
+
+// The schemas are OPEN: an unrecognised key is ignored, not rejected. So a TaskUpdate that names a real
+// task but misspells the field it wants to change reaches the store looking identical to one that asked
+// for nothing, and the bare "nothing to update" reads as "fine but pointless" rather than "you used the
+// wrong key". Reproduced live while writing this change: TaskUpdate({taskId, state: 'completed'}).
+test('a TaskUpdate that changes nothing names the offending key and the fields that exist', async (t) => {
+  const h = harness(t);
+  await h.tool('TaskCreate').execute('1', { tasks: [{ subject: 'Work', description: 'Do it' }] });
+  const update = h.tool('TaskUpdate');
+
+  const wrongKey = json(await update.execute('2', { taskId: '1', state: 'completed' }));
+  assert.equal(wrongKey.success, false);
+  assert.equal(wrongKey.error, 'nothing to update');
+  assert.match(wrongKey.hint, /"state" is not a field/);
+  assert.match(wrongKey.hint, /subject, description, activeForm, status, owner, metadata, addBlocks, addBlockedBy/);
+
+  const several = json(await update.execute('3', { taskId: '1', state: 'x', done: true }));
+  assert.match(several.hint, /"state", "done" are not fields/);
+
+  const noFields = json(await update.execute('4', { taskId: '1' }));
+  assert.match(noFields.hint, /named a task but no field to change/);
+  assert.match(noFields.hint, /subject, description, activeForm/);
+
+  // The hint is for a call that named a REAL task; a missing id keeps its own recovery hint.
+  const missing = json(await update.execute('5', { taskId: '999', status: 'completed' }));
+  assert.equal(missing.error, 'task not found');
+  assert.match(missing.hint, /Call TaskList for the current IDs/);
+
+  // And a correctly spelled field still works — the hint must not have replaced the happy path.
+  assert.equal(json(await update.execute('6', { taskId: '1', status: 'completed' })).success, true);
+});
+
 test('TaskCreate starts the first implicit runnable task without disturbing explicit or running state', async (t) => {
   const h = harness(t);
   const create = h.tool('TaskCreate');
