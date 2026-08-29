@@ -482,6 +482,106 @@ test('bundled skills plugin', async (t) => {
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-linked' })), /Body of private-linked/);
   });
 
+  await t.test('a symlink out of one account\'s skills folder never reaches another account\'s skill', async () => {
+    // The instance-scope guard above only ever asked "is this file under users/?", so a link from one
+    // PERSONAL folder into another passed it untouched: the loader follows the link, the skill is
+    // announced as the linking account's own, and SkillLoad hands back the other account's full body.
+    const dataRoot = tmpDir('skills');
+    const skillsDir = join(dataRoot, 'skills');
+    const eightDir = join(skillsDir, 'users', '8');
+    const sevenDir = join(skillsDir, 'users', '7');
+    mkdirSync(join(eightDir, 'deep'), { recursive: true });
+    mkdirSync(join(sevenDir, 'nested'), { recursive: true });
+    writeFileSync(join(eightDir, 'deep', 'SKILL.md'), skillMd('secret-eight', 'account eight only'));
+    writeFileSync(join(eightDir, 'flat-eight.md'), skillMd('flat-eight', 'account eight only'));
+    // Four shapes of one escape, because a containment check that only inspects the leaf catches two of
+    // them: a directory link, a link on an INTERMEDIATE path component, an absolute file link and a
+    // relative one. Canonicalising the whole path is what sees through all four.
+    symlinkSync(join(eightDir, 'deep'), join(sevenDir, 'link-dir'), 'dir');
+    symlinkSync(eightDir, join(sevenDir, 'nested', 'link-mid'), 'dir');
+    symlinkSync(join(eightDir, 'flat-eight.md'), join(sevenDir, 'abs-link.md'));
+    symlinkSync(join('..', '8', 'flat-eight.md'), join(sevenDir, 'rel-link.md'));
+    // Account 78's folder shares every character of account 7's, so a plain string-prefix containment
+    // test reads it as "inside account 7" and hands account 78's skills straight over.
+    mkdirSync(join(skillsDir, 'users', '78'), { recursive: true });
+    writeFileSync(join(skillsDir, 'users', '78', 'neighbour.md'), skillMd('neighbour', 'account seventy-eight only'));
+    symlinkSync(join(skillsDir, 'users', '78', 'neighbour.md'), join(sevenDir, 'prefix-link.md'));
+    const reg = loadPlugin({ dataRoot });
+
+    // Account 8 still owns its own skills…
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', 8, { name: 'secret-eight' })), /Body of secret-eight/);
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', 8, { name: 'flat-eight' })), /Body of flat-eight/);
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', 78, { name: 'neighbour' })), /Body of neighbour/);
+    // …and account 7 can neither open them nor be told they exist.
+    for (const name of ['secret-eight', 'flat-eight', 'neighbour']) {
+      const refusal = await refusalOf(runScopedTool(reg, 'SkillLoad', 7, { name }));
+      assert.doesNotMatch(refusal, /Body of/, `SkillLoad served account 8's body to account 7 for '${name}'`);
+    }
+    // ANNOUNCING is a separate path from loading: a skill advertised as account 7's leaks its name and
+    // description into account 7's prompt even when the load itself is refused.
+    const announced = reg.skills.filter((s) => s.ownerUserId === 7).map((s) => s.name);
+    assert.deepEqual(announced, [], `account 8's skills were announced as account 7's: ${announced}`);
+    // …and so is ListSkills, which reads the personal dir a third time.
+    const listed = asText(await asTurn(reg, turnFor(7), () => runTool(reg, 'ListSkills', {})));
+    assert.doesNotMatch(listed, /secret-eight|flat-eight|neighbour/, `ListSkills leaked another account's skills to account 7: ${listed}`);
+  });
+
+  await t.test('a link re-pointed AFTER the scan is caught when the skill is opened, not served', async () => {
+    // The scan proves where a file was when the plugin loaded, which can be hours before the call. The
+    // announced path is therefore re-canonicalized at read time, and the resolved path — not the announced
+    // one — is what gets read, so the bytes come from the location that was actually checked.
+    const dataRoot = tmpDir('skills');
+    const skillsDir = join(dataRoot, 'skills');
+    const sevenDir = join(skillsDir, 'users', '7');
+    const eightDir = join(skillsDir, 'users', '8');
+    mkdirSync(join(sevenDir, 'store'), { recursive: true });
+    mkdirSync(eightDir, { recursive: true });
+    writeFileSync(join(sevenDir, 'store', 'mine.md'), skillMd('swapped', 'account seven only'));
+    writeFileSync(join(eightDir, 'secret-eight.md'), skillMd('secret-eight', 'account eight only'));
+    const link = join(sevenDir, 'swapped.md');
+    symlinkSync(join('store', 'mine.md'), link);
+
+    const reg = loadPlugin({ dataRoot });
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'swapped' })), /Body of swapped/);
+
+    rmSync(link);
+    symlinkSync(join(eightDir, 'secret-eight.md'), link);
+    const refusal = await refusalOf(runScopedTool(reg, 'SkillLoad', 7, { name: 'swapped' }));
+    assert.doesNotMatch(refusal, /Body of secret-eight/, 'a re-pointed link served account 8\'s body');
+  });
+
+  await t.test('a personal folder that is ITSELF a link to another account\'s is not an owner at all', async () => {
+    const dataRoot = tmpDir('skills');
+    const usersDir = join(dataRoot, 'skills', 'users');
+    mkdirSync(join(usersDir, '8'), { recursive: true });
+    writeFileSync(join(usersDir, '8', 'private-eight.md'), skillMd('private-eight', 'account eight only'));
+    symlinkSync(join(usersDir, '8'), join(usersDir, '7'), 'dir');
+    const reg = loadPlugin({ dataRoot });
+
+    assert.deepEqual(reg.skills.filter((s) => s.ownerUserId === 7).map((s) => s.name), []);
+    assert.doesNotMatch(await refusalOf(runScopedTool(reg, 'SkillLoad', 7, { name: 'private-eight' })), /Body of/);
+  });
+
+  await t.test('a symlink INSIDE an account\'s own tree keeps working, duplicates included', async () => {
+    const dataRoot = tmpDir('skills');
+    const sevenDir = join(dataRoot, 'skills', 'users', '7');
+    mkdirSync(join(sevenDir, 'store'), { recursive: true });
+    mkdirSync(join(sevenDir, 'dup'), { recursive: true });
+    // The loader reads flat *.md at the TOP level only, so `store/versioned.md` is reachable through the
+    // link and nowhere else — this asserts the link is followed, not merely that the target exists.
+    writeFileSync(join(sevenDir, 'store', 'versioned.md'), skillMd('own-linked', 'account seven only'));
+    symlinkSync(join('store', 'versioned.md'), join(sevenDir, 'own-linked.md'));
+    // A `<name>/SKILL.md` skill reached BOTH directly and through a link registers twice under one name;
+    // the first one wins in SkillLoad's index and the duplicate is dropped with a warning, not an error.
+    writeFileSync(join(sevenDir, 'dup', 'SKILL.md'), skillMd('dup-skill', 'account seven only'));
+    symlinkSync(join(sevenDir, 'dup'), join(sevenDir, 'dup-link'), 'dir');
+    const reg = loadPlugin({ dataRoot });
+
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'own-linked' })), /Body of own-linked/);
+    assert.equal(reg.skills.filter((s) => s.name === 'dup-skill' && s.ownerUserId === 7).length, 2);
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'dup-skill' })), /Body of dup-skill/);
+  });
+
   await t.test('CreateSkill writes the skill AND asks the host to apply it live (no restart)', async () => {
     // Regression: before the fix, CreateSkill wrote the file but never triggered a reload, so a freshly
     // created skill only reached the model after a daemon restart / plugins toggle. It must now request a
@@ -847,6 +947,42 @@ test('skills routes', async (t) => {
     assert.equal((await app.request(`/plugins/skills?owner=${amy.id + 99}`, post(amyTok, skill({ name: 'sneaky' })))).status, 403);
     assert.equal((await app.request('/plugins/skills?owner=abc', post(amyTok, skill({ name: 'sneaky' })))).status, 400);
     assert.equal(existsSync(join(dataRoot, 'skills', 'sneaky.md')), false);
+  });
+
+  await t.test('does not let a link in one account\'s folder read, edit, delete or promote another\'s skill', async () => {
+    const { app, dataRoot, users, amy, amyTok, adminTok } = setup();
+    users.setGrantedPlugins(amy.id, ['skills']);
+    const bea = users.create('bea');
+    const skillsDir = join(dataRoot, 'skills');
+    const beaDir = join(skillsDir, 'users', String(bea.id));
+    const amyDir = join(skillsDir, 'users', String(amy.id));
+    mkdirSync(beaDir, { recursive: true });
+    mkdirSync(amyDir, { recursive: true });
+    const victim = join(beaDir, 'victim.md');
+    writeFileSync(victim, skillMd('victim', 'account bea only'));
+    const before = readFileSync(victim, 'utf-8');
+    symlinkSync(victim, join(amyDir, 'victim.md'));
+    // The directory form as well as the flat one. A `readdirSync` Dirent reports a symlink as neither a
+    // file nor a directory, so a linked `victim.md` or a linked folder is skipped by enumeration on its
+    // own — but a REAL folder holding a linked SKILL.md is enumerated, read and served in full.
+    mkdirSync(join(amyDir, 'borrowed'), { recursive: true });
+    symlinkSync(victim, join(amyDir, 'borrowed', 'SKILL.md'));
+
+    // Reading: the listing carries every user skill's full body, so it leaks before any load happens.
+    const list = await listSkills(app, amyTok);
+    assert.ok(!list.some((row) => row.name === 'victim'), `the listing leaked Bea's skill to Amy: ${JSON.stringify(list)}`);
+    assert.ok(!list.some((row) => row.name === 'borrowed'), `the listing leaked Bea's skill to Amy: ${JSON.stringify(list)}`);
+
+    // Writing, deleting and moving each resolve that name independently, so each has to refuse it — an
+    // overwrite, an unlink and a rename all follow the link to Bea's file otherwise.
+    assert.equal((await app.request('/plugins/skills/victim?owner=me', patch(amyTok, { content: 'overwritten' }))).status, 404);
+    assert.equal((await app.request('/plugins/skills?owner=me', post(amyTok, skill({ name: 'victim' })))).status, 409);
+    assert.equal((await app.request(`/plugins/skills/victim/owner?owner=${amy.id}`, post(adminTok, { owner: 'instance' }))).status, 404);
+    assert.equal((await app.request('/plugins/skills/victim?owner=me', del(amyTok))).status, 404);
+    assert.equal(readFileSync(victim, 'utf-8'), before);
+    assert.equal(existsSync(join(skillsDir, 'victim.md')), false);
+    // Bea's own routes are untouched by any of it.
+    assertContains(await listSkills(app, adminTok), { name: 'victim', owner: bea.id });
   });
 
   await t.test('sends an admin\'s unspecified write to the shared set, and only an explicit "me" to his own', async () => {

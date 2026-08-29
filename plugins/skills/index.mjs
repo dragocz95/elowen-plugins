@@ -7,7 +7,7 @@ import { Type } from 'typebox';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, basename, resolve, sep } from 'node:path';
-import { writeFileSync, unlinkSync, rmSync, rmdirSync, existsSync, statSync, readFileSync, readdirSync, mkdirSync, realpathSync, renameSync } from 'node:fs';
+import { writeFileSync, unlinkSync, rmSync, rmdirSync, existsSync, statSync, lstatSync, readFileSync, readdirSync, mkdirSync, realpathSync, renameSync } from 'node:fs';
 
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -16,6 +16,28 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 // /plugins/:name/config would eat PATCH /plugins/skills/config, and the rest are reserved for URL
 // hygiene). Core matched routes first, so a skill with one of these names could never be edited.
 const RESERVED_NAMES = new Set(['config', 'icon', 'logs', 'contributions', 'hook-executions', 'data', 'restore', 'api', 'list', 'users']);
+
+/** The canonical location of `path` when it really lives inside `root`, or null when it does not.
+ *
+ *  Both sides go through realpath because the skill loader FOLLOWS symlinks — a link, a link on an
+ *  intermediate path component, and a relative link all look like an ordinary child of `root` until the
+ *  whole chain is resolved. That is the difference between "the loader found this file under account 7's
+ *  folder" and "this file belongs to account 7", and personal skill sets are an isolation boundary.
+ *
+ *  The boundary test is a path SEPARATOR comparison, never a bare string prefix: `<root>-extra` shares
+ *  every character of `<root>` and is a different directory. A path that cannot be canonicalized — it is
+ *  gone, it is a dangling link, it is unreadable — answers null, because an uncheckable path is not a
+ *  contained one and a containment check must never fail open. */
+function canonicalWithin(root, path) {
+  let base;
+  let abs;
+  try {
+    base = realpathSync(root);
+    abs = realpathSync(path);
+  } catch { return null; }
+  if (abs === base) return abs;
+  return abs.startsWith(base + sep) ? abs : null;
+}
 
 /** Index the visible (model-invocable) skills of one set by name, alongside the names the set deliberately
  *  withholds. A duplicate is dropped with a warning: two files claiming the same name are a catalog
@@ -84,7 +106,7 @@ function refuseSkill(wanted, loadable, manualOnly) {
  *  legitimately inherits the skills of the turn that spawned it, and reading identity there would announce
  *  a skill and then refuse to open it. Outside a turn, or for an unlinked sender / accountless automation,
  *  it answers null and only the instance set is reachable. */
-function buildSkillLoadTool(ctx, instanceSkills, personalSkills) {
+function buildSkillLoadTool(ctx, instanceSkills, personalSkills, personalScopeRoot) {
   const logger = ctx.logger;
   const instance = indexVisible(instanceSkills, logger);
   const personal = new Map();
@@ -138,8 +160,21 @@ function buildSkillLoadTool(ctx, instanceSkills, personalSkills) {
       const wanted = String(params.name ?? '').trim();
       const skill = loadable.get(wanted);
       if (!skill) throw new SkillLoadError(refuseSkill(wanted, loadable, manualOnlyTo(owner)));
+      // A personal skill is re-checked HERE, and the canonical path is what gets read. The scan that
+      // registered it proved where the file was at load time, which is not the same as where the name
+      // points now — a plugin load can be hours old. Reading the already-resolved path rather than
+      // handing the announced one back to readFileSync also means the bytes come from the location that
+      // was actually verified, instead of from whatever the link chain resolves to a second time.
+      let file = skill.filePath;
+      if (owner != null && personal.get(owner)?.byName.get(wanted) === skill) {
+        file = canonicalWithin(personalScopeRoot(owner), skill.filePath);
+        if (file === null) {
+          logger.warn(`skill '${wanted}' no longer resolves inside account ${owner}'s skills directory — refused`);
+          throw new SkillLoadError(`The skill "${wanted}" is announced but its file is missing or unreadable, so it cannot be loaded. Continue without it and tell the user.`);
+        }
+      }
       try {
-        const content = readFileSync(skill.filePath, 'utf-8');
+        const content = readFileSync(file, 'utf-8');
         return ok(`Skill: ${skill.name}\nSkill directory: ${skill.baseDir}\n\n${content}`);
       } catch (error) {
         logger.warn(`could not load skill '${skill.name}' from '${skill.filePath}': ${error instanceof Error ? error.message : error}`);
@@ -195,6 +230,21 @@ export function register(ctx) {
         .filter((e) => e.isDirectory() && /^[0-9]+$/.test(e.name))
         .map((e) => Number(e.name))
     : []);
+  /** One account's personal skills, with everything that does not actually live in that account's own
+   *  folder dropped. The loader follows symlinks, so a link under `users/7/` pointing into `users/8/`
+   *  otherwise loads as account 7's skill: announced in account 7's prompt and served in full by
+   *  SkillLoad. The instance-scope guard above never caught it — it only ever asked whether a file sits
+   *  under `users/` at all, which is true of both accounts. Every surface that reads a personal set goes
+   *  through here, because a skill dropped from the load but still listed is the same leak with an extra
+   *  step. */
+  const personalSkillsOf = (ownerUserId) => {
+    const root = userSkillsDir(ownerUserId);
+    return loadSkills(root, 'elowen-user:skills').filter((skill) => {
+      if (canonicalWithin(root, skill.filePath) !== null) return true;
+      ctx.logger.warn(`skill '${skill.name}' at ${skill.filePath} resolves outside account ${ownerUserId}'s skills directory — ignored`);
+      return false;
+    });
+  };
 
   const instanceSkills = [];
   const personalSkills = new Map();
@@ -211,7 +261,7 @@ export function register(ctx) {
     }
   }
   for (const ownerUserId of skillOwnerIds()) {
-    const owned = loadSkills(userSkillsDir(ownerUserId), 'elowen-user:skills');
+    const owned = personalSkillsOf(ownerUserId);
     personalSkills.set(ownerUserId, owned);
     for (const skill of owned) {
       ctx.registerSkill(skill, { ownerUserId });
@@ -224,7 +274,7 @@ export function register(ctx) {
   // decides per turn (see buildSkillLoadTool). Being an ordinary instance tool also puts it squarely under
   // the writer's own tool grant: an account an admin never granted SkillLoad cannot reach their personal
   // skills through it, which is exactly what the grant is for.
-  const skillLoader = buildSkillLoadTool(ctx, instanceSkills, personalSkills);
+  const skillLoader = buildSkillLoadTool(ctx, instanceSkills, personalSkills, userSkillsDir);
   if (skillLoader) ctx.registerTool(skillLoader);
   if (skillLoader) {
     ctx.registerSystemPromptFragment([
@@ -263,6 +313,22 @@ export function register(ctx) {
     if (existsSync(flat)) return flat;
     const nested = join(dir, name, 'SKILL.md');
     return existsSync(nested) ? nested : null;
+  };
+  /** Whether `path` under a PERSONAL target would take the request out of that account's own folder.
+   *  `existsSync`, `readFileSync`, `writeFileSync` and `unlinkSync` all follow symlinks, so without this a
+   *  link planted in one account's skills folder turns that account's own routes into a read, an
+   *  overwrite or a delete of somebody else's skill. A path that is not there at all is fine — that is an
+   *  ordinary create — but anything that IS there must canonicalize back inside. Instance and bundled
+   *  scopes are shared by definition, so an operator who links a file into them keeps getting it. */
+  const escapesOwnScope = (target, path) => {
+    if (target.owner === null) return false;
+    try { lstatSync(path); } catch { return false; }
+    return canonicalWithin(target.dir, path) === null;
+  };
+  /** `skillFileIn` for a resolved request target: a personal scope never yields a file it does not own. */
+  const targetFileIn = (target, name) => {
+    const file = skillFileIn(target.dir, name);
+    return file !== null && escapesOwnScope(target, file) ? null : file;
   };
   /** Why this name may not be written into `target`, or null when it may. A name must be unique across
    *  the sets a single session sees, in BOTH directions: a personal skill may not shadow an instance one,
@@ -446,6 +512,9 @@ export function register(ctx) {
         const dir = userSkillsDir(ownerUserId);
         if (!existsSync(dir)) continue;
         for (const { name, file } of enumerateSkills(dir)) {
+          // The listing carries each user skill's full body, so a link out of this account's folder would
+          // hand another account's skill to the caller before any load ever happened.
+          if (canonicalWithin(dir, file) === null) continue;
           out.push(describeSkill(name, file, 'user', ownerUserId, req.auth.admin || ownerUserId === req.auth.userId));
         }
       }
@@ -473,8 +542,12 @@ export function register(ctx) {
       if (description === '' || content.trim() === '') return jsonRes({ error: 'description and content must be non-empty' }, 400);
       const collision = nameCollision(name, target.owner);
       if (collision) return jsonRes({ error: collision }, 400);
+      // An overwrite is a legitimate part of this route, but only of the caller's OWN file: writing
+      // through a link planted at that name would edit whatever it points at instead.
+      const file = join(target.dir, `${name}.md`);
+      if (escapesOwnScope(target, file)) return jsonRes({ error: `"${name}" resolves outside that skills directory` }, 409);
       mkdirSync(target.dir, { recursive: true });
-      writeFileSync(join(target.dir, `${name}.md`), buildSkillBody(applyManagedFields({}, name, description, disableModelInvocation), content), 'utf-8');
+      writeFileSync(file, buildSkillBody(applyManagedFields({}, name, description, disableModelInvocation), content), 'utf-8');
       ctx.requestReload?.(); // skills feed the brain's system prompt — apply live
       return jsonRes({ ok: true }, 201);
     },
@@ -492,7 +565,7 @@ export function register(ctx) {
       if (skillFileIn(bundledDir, name)) return jsonRes({ error: 'bundled skills cannot be edited' }, 400);
       const target = resolveTarget(req);
       if (!target.ok) return jsonRes({ error: target.invalid ? 'invalid owner' : 'forbidden' }, target.invalid ? 400 : 403);
-      const file = skillFileIn(target.dir, name);
+      const file = targetFileIn(target, name);
       if (!file) return jsonRes({ error: 'unknown skill' }, 404);
       let b;
       try { b = await req.json(); } catch { b = null; }
@@ -520,7 +593,7 @@ export function register(ctx) {
       if (skillFileIn(bundledDir, name)) return jsonRes({ error: 'bundled skills cannot be deleted' }, 400);
       const target = resolveTarget(req);
       if (!target.ok) return jsonRes({ error: target.invalid ? 'invalid owner' : 'forbidden' }, target.invalid ? 400 : 403);
-      const file = skillFileIn(target.dir, name);
+      const file = targetFileIn(target, name);
       if (!file) return jsonRes({ error: 'unknown skill' }, 404);
       unlinkSync(file);
       // A directory-form skill leaves its folder behind; drop it if now empty, but keep it (with any
@@ -546,7 +619,7 @@ export function register(ctx) {
       if (skillFileIn(bundledDir, name)) return jsonRes({ error: 'bundled skills cannot be moved' }, 400);
       const source = resolveTarget(req);
       if (!source.ok) return jsonRes({ error: source.invalid ? 'invalid owner' : 'forbidden' }, source.invalid ? 400 : 403);
-      const file = skillFileIn(source.dir, name);
+      const file = targetFileIn(source, name);
       if (!file) return jsonRes({ error: 'unknown skill' }, 404);
       let b;
       try { b = await req.json(); } catch { b = null; }
@@ -658,7 +731,7 @@ export function register(ctx) {
         add(loadSkills(instanceDir, 'elowen-user:skills').filter((sk) => !isPersonalPath(sk.filePath)), 'instance');
         // Only the caller's own personal skills — this tool has no admin gate, so it must not become a
         // way to enumerate what other people keep.
-        if (me !== null) add(loadSkills(userSkillsDir(me), 'elowen-user:skills'), 'personal');
+        if (me !== null) add(personalSkillsOf(me), 'personal');
         return ok(rows.length ? rows.join('\n') : 'No skills found.');
       } catch (e) { return fail(e); }
     },
@@ -683,7 +756,7 @@ export function register(ctx) {
         // searched first, not which of two copies is hit.
         const personalDir = me === null ? null : userSkillsDir(me);
         let dir = null;
-        let skill = personalDir ? loadSkills(personalDir, 'elowen-user:skills').find((sk) => sk.name === p.name) : undefined;
+        let skill = me === null ? undefined : personalSkillsOf(me).find((sk) => sk.name === p.name);
         if (skill) dir = personalDir;
         else {
           skill = loadSkills(instanceDir, 'elowen-user:skills')
