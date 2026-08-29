@@ -13,6 +13,9 @@ import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
 const GATEWAY_RECONCILE_MS = 12 * 3600_000;
+/** How often to retry a gateway that is DOWN. Deliberately far shorter than the renewal sweep: see the
+ *  `recover-site-gateway` interval for why an inactive gateway is the one state worth polling. */
+const GATEWAY_RECOVERY_MS = 60_000;
 const ISSUE_SWEEP_MS = 30_000;
 export function register(published) {
     const ctx = asSitesContext(published);
@@ -322,6 +325,17 @@ export function register(published) {
     ctx.registerInterval('renew-site-gateway', async () => {
         await syncGateway(true);
     }, GATEWAY_RECONCILE_MS);
+    // An inactive gateway is almost always one whose DNS record the operator is creating RIGHT NOW: the
+    // readiness check hands them the exact record to add, and the wildcard then starts resolving at a
+    // moment nothing in here is watching for. Recovering only on the twelve-hour renewal sweep means the
+    // record lands and the sites stay dark for up to half a day, with no signal that it was accepted —
+    // which reads as "the record did not work" and invites a second, wrong change at the registrar.
+    // A live gateway returns on the first line, so this costs one DNS query a minute only while broken.
+    ctx.registerInterval('recover-site-gateway', async () => {
+        if (gateway.isActive())
+            return;
+        await syncGateway();
+    }, GATEWAY_RECOVERY_MS);
     ctx.registerInterval('flush-visits', () => {
         flushHits();
         store.pruneTickets(Date.now());

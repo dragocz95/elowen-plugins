@@ -176,6 +176,15 @@ test('the certificate sweep consults the backoff, skips drafts, and runs often e
   // A publish arrives from a forked runner that never reconciles. Without a sweep between the 12-hour
   // renewals, the site is live in the store while nginx has no server block for it.
   assert.match(source, /issue-site-certificates/, 'new sites must converge sooner than the renewal sweep');
+
+  // The certificate sweep gives up immediately on an inactive gateway, so it can never be what brings
+  // one back. Recovery therefore needs its own interval: the operator adds the DNS record the readiness
+  // check asked for, and without this nothing notices until the twelve-hour renewal — a wildcard that
+  // started resolving at 09:00 leaves every site dark until 21:00, with no signal it was accepted.
+  const registration = source.indexOf("registerInterval('recover-site-gateway'");
+  assert.ok(registration > -1, 'a gateway that is down must retry sooner than the renewal sweep');
+  assert.match(source.slice(registration, registration + 300), /isActive\(\)/,
+    'recovery must skip the probe while the gateway is up');
 });
 
 test('the site address comes from the broker, so a forked tool runner reports the same one', () => {
