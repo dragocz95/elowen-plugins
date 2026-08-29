@@ -158,7 +158,7 @@ export function SitesPage() {
   const {
     SpatialWorkspaceLayout, WorkspaceMetric, WorkspaceDetailRail,
     ControlSurfaceDocument, ControlSurfaceToolbar, ControlSurfaceRegister, ControlSurfaceState,
-    Input, SelectMenu, LoadingState, ErrorState, EmptyState,
+    RegisterSearch, SelectMenu, LoadingState, ErrorState, EmptyState,
   } = components;
   const strings = hooks.usePluginStrings('sites');
 
@@ -262,17 +262,14 @@ export function SitesPage() {
           ) : (
             <div className="workspace-master-detail" data-detail={selected != null}>
               <div className="flex min-w-0 flex-col gap-4">
-                <ControlSurfaceToolbar className="flex-col items-stretch">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 py-3">
-                    <div className="relative min-w-[15rem] flex-1">
-                      <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-                      <Input
-                        value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                        placeholder={strings.searchPlaceholder}
-                        className="pl-9"
-                      />
-                    </div>
+                <ControlSurfaceToolbar>
+                  <div className="flex w-full min-w-0 flex-wrap items-center gap-2 py-3">
+                    <RegisterSearch
+                      value={query}
+                      onChange={setQuery}
+                      placeholder={strings.searchPlaceholder}
+                      label={strings.searchPlaceholder}
+                    />
                     <SelectMenu
                       value={visibility}
                       onChange={setVisibility}

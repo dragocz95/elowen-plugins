@@ -123,6 +123,17 @@ interface RuntimeComponents {
     className?: string;
     disabled?: boolean;
   }>;
+  RegisterSearch: ComponentType<{
+    value: string;
+    onChange(value: string): void;
+    placeholder?: string;
+    label?: string;
+    onClear?: () => void;
+    clearLabel?: string;
+    count?: number;
+    countLabel?: string;
+    className?: string;
+  }>;
   Badge: ComponentType<{ tone?: 'default' | 'accent' | 'muted' | 'danger' | 'success' | 'warning'; children: ReactNode }>;
   Avatar: ComponentType<{
     name?: string;

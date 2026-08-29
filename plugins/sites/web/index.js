@@ -792,7 +792,7 @@ function SitesPage() {
     ControlSurfaceToolbar,
     ControlSurfaceRegister,
     ControlSurfaceState,
-    Input,
+    RegisterSearch,
     SelectMenu,
     LoadingState,
     ErrorState,
@@ -879,19 +879,16 @@ function SitesPage() {
       },
       children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceDocument, { children: list.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(LoadingState, { variant: "cards" }) }) : list.isError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ErrorState, { message: strings.loadFailed, onRetry: () => list.refetch() }) }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceToolbar, { className: "flex-col items-stretch", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-2 py-3", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "relative min-w-[15rem] flex-1", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Search, { size: 14, "aria-hidden": true, className: "pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-                Input,
-                {
-                  value: query,
-                  onChange: (event) => setQuery(event.target.value),
-                  placeholder: strings.searchPlaceholder,
-                  className: "pl-9"
-                }
-              )
-            ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex w-full min-w-0 flex-wrap items-center gap-2 py-3", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              RegisterSearch,
+              {
+                value: query,
+                onChange: setQuery,
+                placeholder: strings.searchPlaceholder,
+                label: strings.searchPlaceholder
+              }
+            ),
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
               SelectMenu,
               {

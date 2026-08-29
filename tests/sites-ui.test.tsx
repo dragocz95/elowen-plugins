@@ -86,6 +86,14 @@ const openSite = async () => {
 };
 
 describe('the Sites workspace', () => {
+  it('uses the host register search as the leftmost toolbar control', async () => {
+    mount();
+    const search = await screen.findByRole('searchbox', { name: strings.searchPlaceholder });
+    const registerSearch = search.closest('.register-search');
+    expect(registerSearch).not.toBeNull();
+    expect(registerSearch?.parentElement?.firstElementChild).toBe(registerSearch);
+  });
+
   it('shows each site\'s owner as an avatar and a name, never as an account id', async () => {
     mount();
     expect(await screen.findByText(site.title)).toBeInTheDocument();
