@@ -8,7 +8,7 @@ export interface SnapshotLimits {
   /** A static release may only contain files a browser is served directly, so anything else is a
    *  mistake worth reporting. A command release is an application tree — its dependencies and server
    *  code are not web content and must be copied verbatim. */
-  mode?: 'static' | 'command';
+  mode?: 'static' | 'command' | 'php';
 }
 
 export interface SnapshotResult {
@@ -93,7 +93,7 @@ function statOf(path: string): { size: number } | null {
  *  a file the publisher was never allowed to read. */
 export function snapshotRelease(sourceRoot: string, releaseDir: string, limits: SnapshotLimits): SnapshotResult {
   const realSource = realpathSync(sourceRoot);
-  const command = limits.mode === 'command';
+  const command = limits.mode === 'command' || limits.mode === 'php';
   const warnings: string[] = [];
   let fileCount = 0;
   let sizeBytes = 0;

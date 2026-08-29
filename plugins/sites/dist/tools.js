@@ -154,12 +154,11 @@ export function registerTools(deps) {
             summary: Type.Optional(Type.String({ maxLength: 400, description: 'One line describing what the page is for.' })),
             visibility: Type.Optional(Type.Union([Type.Literal('private'), Type.Literal('project'), Type.Literal('authenticated')], { description: 'Who may open it. Defaults to the instance setting. A site is never made public here; that is confirmed by a person in the Sites screen.' })),
             spa: Type.Optional(Type.Boolean({ description: 'Serve index.html for unknown paths, for a client-side router. Default false.' })),
-            runtime: Type.Optional(Type.Union([Type.Literal('static'), Type.Literal('command')], { description: 'How the site answers. "static" serves the built files (the default, and the right choice for anything that can be prerendered). "command" keeps a server process running - Node, Bun, Python, PHP - and forwards requests to it. A runtime must be enabled by an administrator and needs a dedicated site hostname.' })),
+            runtime: Type.Optional(Type.Union([Type.Literal('static'), Type.Literal('command'), Type.Literal('php')], { description: 'How the site answers. "static" serves built files (the default). "command" keeps a Node, Bun, Python or TypeScript HTTP process on the unix socket in SOCKET_PATH. "php" executes .php files through PHP-CGI per request. Active runtimes require administrator enablement and isolated site hosting.' })),
             startCommand: Type.Optional(Type.String({
                 maxLength: 500,
-                description: 'For runtime "command": the shell command that starts the server, run inside the published release. It must listen on the unix socket given in SOCKET_PATH, or on 127.0.0.1:$PORT when the site is port-bound.',
+                description: 'For runtime "command": the shell command that starts the server inside the published release. Bind the HTTP server directly to the pathname in SOCKET_PATH; never open a TCP port. PHP sites do not take a start command.',
             })),
-            bind: Type.Optional(Type.Union([Type.Literal('socket'), Type.Literal('port')], { description: 'For runtime "command": "socket" (default) listens on a unix socket only this daemon can reach. "port" listens on a loopback port, which any process on the machine can reach directly, bypassing this site\'s access rules - use it only for a server that cannot take a socket, such as PHP\'s built-in one.' })),
         }),
         execute: async (_id, input) => {
             try {
@@ -170,13 +169,16 @@ export function registerTools(deps) {
                     throw new ToolError(`This account already has ${config.maxSitesPerAccount} sites, which is the configured limit.`);
                 }
                 const runtime = input.runtime ?? 'static';
-                const bind = input.bind ?? 'socket';
-                if (runtime === 'command') {
+                if (runtime !== 'static') {
                     const refusal = commandRuntimeRefusal(config);
                     if (refusal)
                         throw new ToolError(refusal);
-                    if (!input.startCommand?.trim())
-                        throw new ToolError('A site runtime needs startCommand.');
+                }
+                if (runtime === 'command' && !input.startCommand?.trim()) {
+                    throw new ToolError('A command site runtime needs startCommand.');
+                }
+                if (runtime === 'php' && input.startCommand?.trim()) {
+                    throw new ToolError('A PHP site runs through PHP-CGI and does not take startCommand.');
                 }
                 let slug = slugify(input.title);
                 while (store.slugTaken(slug))
@@ -206,8 +208,8 @@ export function registerTools(deps) {
                     spa: input.spa === true,
                     runtime,
                     startCommand: (input.startCommand ?? '').trim(),
-                    bind,
-                    port: runtime === 'command' && bind === 'port' ? deps.runtime.allocatePort() : null,
+                    bind: 'socket',
+                    port: null,
                     status: 'draft',
                     currentReleaseId: null,
                     createdAt: now,
@@ -225,24 +227,27 @@ export function registerTools(deps) {
                     'Name the site by either of those in SitePublish, SiteShare and the rest.',
                     '',
                     `Write the project here: ${allowed}`,
-                    `Configure the build with base path: ${siteBasePath(slug)}`,
+                    `Configure the build with base path: ${siteBasePath(config, slug)}`,
                     `It will be published at: ${siteUrl(config, slug)}`,
                     '',
                     'Asset URLs must be absolute under that base path. A relative reference (./assets/...) breaks, because the published address is a path prefix.',
                     ...(runtime === 'command'
                         ? [
                             '',
-                            bind === 'socket'
-                                ? 'The server must listen on the unix socket path in SOCKET_PATH, not on a port.'
-                                : 'The server must listen on 127.0.0.1 and the port in PORT.',
+                            'Bind the HTTP server directly to the pathname in SOCKET_PATH; the root broker seals that directory before the daemon connects. Never open a TCP port.',
                             'Install dependencies in the site folder before publishing: the release is a copy, and nothing is built or installed for you.',
-                            'Requests are forwarded buffered - no streaming, no server-sent events, no websockets - and a request body is capped at 1 MB.',
+                            'The runtime has an isolated network namespace. Requests are buffered - no streaming, server-sent events or websockets - and a request body is capped at 1 MB.',
                         ]
-                        : []),
+                        : runtime === 'php'
+                            ? [
+                                '',
+                                'Put index.php (and any routed PHP scripts) in the published output. PHP-CGI runs one confined process per request; there is no long-running PHP server or loopback port.',
+                            ]
+                            : []),
                     'When the output is ready, call SitePublish with the output directory.',
                 ].join('\n'), {
                     siteId: site.id, slug: site.slug, sourceDir: allowed,
-                    basePath: siteBasePath(slug), url: siteUrl(config, slug), visibility: site.visibility,
+                    basePath: siteBasePath(config, slug), url: siteUrl(config, slug), visibility: site.visibility,
                 });
             }
             catch (error) {
@@ -337,7 +342,7 @@ export function registerTools(deps) {
                 }
                 pruneReleases(store, site.id, deps.siteDir(site.id), config.releasesKept, releaseId);
                 if (site.runtime === 'static') {
-                    const relativeWarning = relativeAssetWarning(target, siteBasePath(site.slug));
+                    const relativeWarning = relativeAssetWarning(target, siteBasePath(config, site.slug));
                     if (relativeWarning)
                         warnings.push(relativeWarning);
                 }
@@ -394,7 +399,7 @@ export function registerTools(deps) {
                     .map((id) => ({ id, name: people.get(id)?.name || people.get(id)?.username || `#${id}` }));
                 return text([
                     describe(site, config),
-                    `  base path  ${siteBasePath(site.slug)}`,
+                    `  base path  ${siteBasePath(config, site.slug)}`,
                     `  guests     ${guests.length === 0 ? 'none' : guests.map((guest) => guest.name).join(', ')}`,
                     '',
                     releases.length === 0
@@ -403,7 +408,7 @@ export function registerTools(deps) {
                     site.lastError ? `\nLast error: ${site.lastError}` : '',
                 ].join('\n'), {
                     siteId: site.id, slug: site.slug, url: siteUrl(config, site.slug), visibility: site.visibility,
-                    status: site.status, sourceDir: site.sourceDir, basePath: siteBasePath(site.slug),
+                    status: site.status, sourceDir: site.sourceDir, basePath: siteBasePath(config, site.slug),
                     guests, currentReleaseId: site.currentReleaseId,
                     releases: releases.map((release) => ({ id: release.id, createdAt: release.createdAt, note: release.note })),
                 });
@@ -554,12 +559,7 @@ export function registerTools(deps) {
             try {
                 const userId = ownerOf(ctx);
                 const site = requireOwned(deps, input.site, userId);
-                // Stop first: removing the release under a running process would leave it serving from a
-                // deleted directory at an address the store no longer knows about.
-                if (isDaemonProcess())
-                    await deps.runtime.stop(site.id);
-                rmSync(deps.siteDir(site.id), { recursive: true, force: true });
-                store.deleteSite(site.id);
+                await deps.deleteSite(site.id);
                 return text(`Deleted "${site.title}". Its source folder ${site.sourceDir} was left in place.`);
             }
             catch (error) {

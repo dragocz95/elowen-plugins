@@ -1,23 +1,23 @@
 import { request as httpRequest } from 'node:http';
-/** Request headers a published runtime may see.
+/** Request headers a dedicated-origin runtime may see.
  *
- *  An allow-list, not a deny-list, and that is the whole point. The browser sends the APP's session
- *  cookie to this path too, because that cookie is scoped to the whole origin and its value IS a daemon
- *  bearer token — forwarding it would hand an agent-authored server the visitor's account. `cookie`,
- *  `authorization` and every `x-elowen-*` header are therefore not merely stripped: they can never be
- *  named here in the first place. */
+ *  The app's authority is a `__Host-` cookie on the exact app hostname, so it never reaches a site
+ *  subdomain. Site-local cookies and Authorization are legitimate application inputs and may pass. Host
+ *  and every `x-elowen-*` header still come only from this gateway: the runtime cannot forge the verified
+ *  viewer identity or convince itself it was reached through another address. */
 const FORWARDED_REQUEST_HEADERS = new Set([
-    'accept', 'accept-language', 'content-type',
+    'accept', 'accept-language', 'content-type', 'authorization', 'cookie', 'origin',
+    'access-control-request-method', 'access-control-request-headers',
     'user-agent', 'referer', 'if-none-match', 'if-modified-since',
 ]);
-/** Response headers the runtime is allowed to decide.
- *
- *  `set-cookie` is absent deliberately: hook responses pass headers through unchanged, so a runtime
- *  that answered with one could set a cookie at any path on this origin — including over the app's own
- *  session. CORS headers are absent for the same reason: what may read this site is decided by the
- *  access rules, not by the site. */
+/** Response headers the runtime is allowed to decide. A site owns its dedicated origin, so its own
+ * session cookies and CORS policy are application behavior rather than authority over Elowen. The app's
+ * `__Host-` cookies cannot be set from here, even with a parent Domain attribute. Hop-by-hop and proxy
+ * security headers remain host-owned and never enter this allow-list. */
 const FORWARDED_RESPONSE_HEADERS = new Set([
-    'content-type', 'content-language', 'etag', 'last-modified', 'content-disposition',
+    'content-type', 'content-language', 'etag', 'last-modified', 'content-disposition', 'set-cookie',
+    'access-control-allow-origin', 'access-control-allow-credentials',
+    'access-control-allow-methods', 'access-control-allow-headers', 'access-control-expose-headers',
 ]);
 /** Keep a redirect inside the site.
  *
@@ -42,6 +42,28 @@ function safeLocation(value, siteRoot) {
         }
     }
     return trimmed;
+}
+function hostOnlyCookie(value) {
+    return value.split(';').filter((part) => !/^\s*domain\s*=/i.test(part)).join(';');
+}
+export function runtimeResponseHeaders(headers, siteRoot) {
+    const out = {};
+    for (const [name, value] of Object.entries(headers)) {
+        if (!FORWARDED_RESPONSE_HEADERS.has(name.toLowerCase()) || value === undefined)
+            continue;
+        const lower = name.toLowerCase();
+        if (lower === 'set-cookie') {
+            const cookies = (Array.isArray(value) ? value : [value]).map((cookie) => hostOnlyCookie(String(cookie)));
+            if (cookies.length > 0)
+                out[lower] = cookies;
+            continue;
+        }
+        out[lower] = Array.isArray(value) ? value.join(', ') : String(value);
+    }
+    const location = headers.location;
+    if (typeof location === 'string')
+        out.location = safeLocation(location, siteRoot);
+    return out;
 }
 export class ProxyError extends Error {
 }
@@ -87,7 +109,7 @@ export async function proxyToRuntime(endpoint, req, path, viewer, limits, siteRo
         const settle = done(resolve);
         const fail = done(reject);
         const outbound = httpRequest({
-            ...(endpoint.kind === 'socket' ? { socketPath: endpoint.path } : { host: '127.0.0.1', port: endpoint.port }),
+            socketPath: endpoint.path,
             method: req.method,
             path: target,
             headers,
@@ -109,15 +131,7 @@ export async function proxyToRuntime(endpoint, req, path, viewer, limits, siteRo
             response.on('end', () => {
                 if (aborted)
                     return;
-                const out = {};
-                for (const [name, value] of Object.entries(response.headers)) {
-                    if (!FORWARDED_RESPONSE_HEADERS.has(name) || value === undefined)
-                        continue;
-                    out[name] = Array.isArray(value) ? value.join(', ') : String(value);
-                }
-                const location = response.headers.location;
-                if (typeof location === 'string')
-                    out.location = safeLocation(location, siteRoot);
+                const out = runtimeResponseHeaders(response.headers, siteRoot);
                 settle({ status: response.statusCode ?? 502, headers: out, body: new Uint8Array(Buffer.concat(chunks)) });
             });
             response.on('error', (error) => fail(new ProxyError(error.message)));

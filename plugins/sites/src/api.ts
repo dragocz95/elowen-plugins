@@ -21,10 +21,11 @@ export interface ApiDeps {
   config(): SitesConfig;
   people(): Map<number, Person>;
   projectSlug(projectId: number): string | null;
-  deleteSiteFiles(siteId: string): Promise<void> | void;
+  deleteSite(siteId: string): Promise<void> | void;
   activateRelease(site: Site, releaseId: string): void;
   runtimeState(siteId: string): { running: boolean; logTail: string };
   restartRuntime(site: Site): Promise<void>;
+  gatewayView(): unknown;
 }
 
 const json = (status: number, body: unknown): PluginHttpResponse => ({
@@ -72,7 +73,7 @@ const toView = (site: Site, deps: ApiDeps, auth: PluginApiRequest['auth']): Site
     visibility: site.visibility,
     status: site.status,
     url: siteUrl(config, site.slug),
-    basePath: siteBasePath(site.slug),
+    basePath: siteBasePath(config, site.slug),
     projectId: site.projectId,
     projectSlug: deps.projectSlug(site.projectId),
     ownerUserId: site.ownerUserId,
@@ -124,6 +125,7 @@ export function createApiHandlers(deps: ApiDeps) {
       shared: shared.map((site) => toView(site, deps, req.auth)),
       allowPublicSites: config.allowPublicSites,
       dedicatedHost: config.siteHostBase !== null,
+      gateway: req.auth.admin ? deps.gatewayView() : null,
     });
   };
 
@@ -167,8 +169,7 @@ export function createApiHandlers(deps: ApiDeps) {
 
     if (req.method === 'PATCH' && action === '') return patchSite(req, target);
     if (req.method === 'DELETE' && action === '') {
-      await deps.deleteSiteFiles(target.id);
-      deps.store.deleteSite(target.id);
+      await deps.deleteSite(target.id);
       return json(200, { ok: true });
     }
     if (req.method === 'POST' && action === 'members') return addMember(req, target);

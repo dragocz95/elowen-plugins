@@ -1,11 +1,11 @@
 import type { PluginDb } from 'elowen/plugin-api';
 
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
-type SiteStatus = 'draft' | 'live' | 'failed';
+type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
 
 /** How a published site answers a request: from files on disk, or from a process this plugin keeps
  *  running behind a loopback socket. */
-type SiteRuntime = 'static' | 'command';
+type SiteRuntime = 'static' | 'command' | 'php';
 
 /** Where a command runtime listens. A unix socket lives inside the plugin's own data directory, which
  *  no confined shell can reach, so only the daemon can talk to it. A loopback port is reachable by any
@@ -101,7 +101,7 @@ const asVisibility = (value: string): Visibility =>
   (VISIBILITIES as readonly string[]).includes(value) ? value as Visibility : 'private';
 
 const asStatus = (value: string): SiteStatus =>
-  value === 'live' || value === 'failed' ? value : 'draft';
+  value === 'live' || value === 'failed' || value === 'deleting' ? value : 'draft';
 
 const toSite = (row: SiteDbRow): Site => ({
   id: row.id,
@@ -114,7 +114,7 @@ const toSite = (row: SiteDbRow): Site => ({
   accessGeneration: row.access_generation,
   sourceDir: row.source_dir,
   spa: row.spa === 1,
-  runtime: row.runtime === 'command' ? 'command' : 'static',
+  runtime: row.runtime === 'command' ? 'command' : row.runtime === 'php' ? 'php' : 'static',
   startCommand: row.start_command ?? '',
   bind: row.bind === 'port' ? 'port' : 'socket',
   port: row.port,
@@ -228,6 +228,19 @@ export class SitesStore {
           `);
         },
       },
+      {
+        version: 4,
+        // Loopback ports share the host network and therefore cannot enforce the site's access boundary.
+        // Stop legacy rows from restarting until their owner republishes onto the isolated socket transport.
+        up: (handle) => {
+          handle.exec(`
+            UPDATE p_sites_sites
+              SET bind = 'socket', port = NULL, status = 'failed',
+                  last_error = 'Republish this runtime for the isolated socket transport'
+              WHERE bind = 'port' OR port IS NOT NULL;
+          `);
+        },
+      },
     ]);
   }
 
@@ -266,12 +279,12 @@ export class SitesStore {
   }
 
   sitesOwnedBy(userId: number): Site[] {
-    return (this.db.prepare('SELECT * FROM p_sites_sites WHERE owner_user_id = ? ORDER BY created_at DESC')
+    return (this.db.prepare("SELECT * FROM p_sites_sites WHERE owner_user_id = ? AND status <> 'deleting' ORDER BY created_at DESC")
       .all(userId) as SiteDbRow[]).map(toSite);
   }
 
   countOwnedBy(userId: number): number {
-    const row = this.db.prepare('SELECT COUNT(*) AS n FROM p_sites_sites WHERE owner_user_id = ?')
+    const row = this.db.prepare("SELECT COUNT(*) AS n FROM p_sites_sites WHERE owner_user_id = ? AND status <> 'deleting'")
       .get(userId) as { n: number } | undefined;
     return row?.n ?? 0;
   }
@@ -279,7 +292,7 @@ export class SitesStore {
   sitesInProjects(projectIds: readonly number[]): Site[] {
     if (projectIds.length === 0) return [];
     const marks = projectIds.map(() => '?').join(', ');
-    return (this.db.prepare(`SELECT * FROM p_sites_sites WHERE project_id IN (${marks}) ORDER BY created_at DESC`)
+    return (this.db.prepare(`SELECT * FROM p_sites_sites WHERE project_id IN (${marks}) AND status <> 'deleting' ORDER BY created_at DESC`)
       .all(...projectIds) as SiteDbRow[]).map(toSite);
   }
 
@@ -287,7 +300,7 @@ export class SitesStore {
     return (this.db.prepare(`
       SELECT s.* FROM p_sites_sites s
       JOIN p_sites_members m ON m.site_id = s.id
-      WHERE m.user_id = ? ORDER BY s.created_at DESC
+      WHERE m.user_id = ? AND s.status <> 'deleting' ORDER BY s.created_at DESC
     `).all(userId) as SiteDbRow[]).map(toSite);
   }
 
@@ -306,7 +319,11 @@ export class SitesStore {
   }
 
   allSites(): Site[] {
-    return (this.db.prepare('SELECT * FROM p_sites_sites ORDER BY created_at DESC').all() as SiteDbRow[]).map(toSite);
+    return (this.db.prepare("SELECT * FROM p_sites_sites WHERE status <> 'deleting' ORDER BY created_at DESC").all() as SiteDbRow[]).map(toSite);
+  }
+
+  deletingSites(): Site[] {
+    return (this.db.prepare("SELECT * FROM p_sites_sites WHERE status = 'deleting' ORDER BY updated_at").all() as SiteDbRow[]).map(toSite);
   }
 
   updateSite(id: string, patch: Partial<Pick<Site,
@@ -345,6 +362,22 @@ export class SitesStore {
       .run(new Date().toISOString(), id);
   }
 
+  /** Make deletion durable BEFORE touching a process or filesystem. The site disappears from every list,
+   * stops authorising immediately, and a crash leaves a row boot reconciliation can finish. Idempotent. */
+  beginDelete(id: string): void {
+    this.db.transaction(() => {
+      this.db.prepare(`
+        UPDATE p_sites_sites
+        SET status = 'deleting', current_release_id = NULL,
+            access_generation = access_generation + 1, updated_at = ?
+        WHERE id = ?
+      `).run(new Date().toISOString(), id);
+      this.db.prepare('DELETE FROM p_sites_members WHERE site_id = ?').run(id);
+      this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id = ?').run(id);
+      this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
+    });
+  }
+
   deleteSite(id: string): void {
     this.db.transaction(() => {
       this.db.prepare('DELETE FROM p_sites_members WHERE site_id = ?').run(id);
@@ -353,6 +386,11 @@ export class SitesStore {
       this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_sites WHERE id = ?').run(id);
     });
+  }
+
+  memberUserIds(): number[] {
+    return (this.db.prepare('SELECT DISTINCT user_id FROM p_sites_members ORDER BY user_id').all() as { user_id: number }[])
+      .map((row) => row.user_id);
   }
 
   memberIds(siteId: string): number[] {

@@ -24,6 +24,10 @@ const strings = (manifest as { web: { strings: Record<string, string> } }).web.s
 const OWNER = { id: 7, username: 'filip', name: 'Filip Džudža', avatar: '7.png' };
 const GUEST = { id: 9, username: 'patricie', name: 'Patricie Nováková', avatar: '' };
 const OUTSIDER = { id: 11, username: 'lucie', name: 'Lucie Marková', avatar: '' };
+const GATEWAY = {
+  status: { available: true, active: false, hostnameBase: 'sites.example.com', detail: 'Namecheap credentials are missing' },
+  configured: { apiUser: false, apiKey: false, username: false, clientIp: false, email: false },
+};
 
 const site = {
   id: 'site-1',
@@ -33,7 +37,7 @@ const site = {
   visibility: 'private',
   status: 'live',
   url: 'https://dashboard-abc123.sites.example.com/',
-  basePath: '/hooks/sites/s/dashboard-abc123/',
+  basePath: '/',
   projectId: 3,
   projectSlug: 'kolin',
   ownerUserId: OWNER.id,
@@ -60,14 +64,14 @@ setDefaults(
     { name: 'sites', url: '/plugins/sites/web/index.js', apiVersion: 7, nav: [], settings: [], strings },
   ])),
   http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
-    mine: [site], shared: [], allowPublicSites: true, dedicatedHost: true,
+    mine: [site], shared: [], allowPublicSites: true, dedicatedHost: true, gateway: GATEWAY,
   })),
   http.get('/api/plugins/sites/api/site/:id', () => HttpResponse.json(detail)),
   http.get('/api/plugins/sites/api/directory', () => HttpResponse.json({ accounts: [OWNER, GUEST, OUTSIDER] })),
 );
 
 beforeAll(() => listen());
-afterEach(() => { cleanup(); resetHandlers(); });
+afterEach(() => { cleanup(); resetHandlers(); localStorage.clear(); });
 afterAll(() => close());
 
 const mount = () => {
@@ -92,6 +96,31 @@ describe('the Sites workspace', () => {
     const registerSearch = search.closest('.register-search');
     expect(registerSearch).not.toBeNull();
     expect(registerSearch?.parentElement?.firstElementChild).toBe(registerSearch);
+  });
+
+  it('keeps Namecheap credentials write-only while provisioning from the Hosting section', async () => {
+    const saved: unknown[] = [];
+    use(http.put('/api/plugins/sites/api/gateway', async ({ request }) => {
+      saved.push(await request.json());
+      return HttpResponse.json({
+        status: { available: true, active: true, hostnameBase: 'sites.example.com' },
+        configured: { apiUser: true, apiKey: true, username: true, clientIp: true, email: true },
+      });
+    }));
+    mount();
+    fireEvent.click(await screen.findByRole('radio', { name: strings.gatewayNav }));
+
+    fireEvent.change(screen.getByRole('textbox', { name: strings.gatewayApiUser }), { target: { value: 'operator' } });
+    fireEvent.change(screen.getByRole('textbox', { name: strings.gatewayUsername }), { target: { value: 'operator' } });
+    fireEvent.change(screen.getByLabelText(strings.gatewayApiKey), { target: { value: 'secret-api-key-value' } });
+    fireEvent.change(screen.getByRole('textbox', { name: strings.gatewayClientIp }), { target: { value: '203.0.113.7' } });
+    fireEvent.change(screen.getByRole('textbox', { name: strings.gatewayEmail }), { target: { value: 'ops@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: strings.gatewaySave }));
+
+    await waitFor(() => expect(saved).toEqual([{
+      apiUser: 'operator', apiKey: 'secret-api-key-value', username: 'operator', clientIp: '203.0.113.7', email: 'ops@example.com',
+    }]));
+    expect(document.body.textContent).not.toContain('secret-api-key-value');
   });
 
   it('shows each site\'s owner as an avatar and a name, never as an account id', async () => {

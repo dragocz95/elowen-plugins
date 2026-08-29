@@ -1,6 +1,8 @@
+import { timingSafeEqual } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { PluginHttpRequest, PluginHttpResponse } from 'elowen/plugin-api';
+import type { PluginHttpRequest } from 'elowen/plugin-api';
+import type { SitesHttpResponse } from './coreSeams.js';
 import type { Site, SitesStore } from './store.js';
 import {
   RESERVED_PREFIX, cookieName, hashToken, mayOpen, normalizeReturnPath, readCookies, signSession, verifySession,
@@ -17,6 +19,9 @@ export interface ServeConfig {
   siteScheme: string;
   appBaseUrl: string;
   sessionTtlHours: number;
+  /** Secret marker nginx overwrites on the wildcard path. A process that reaches the public hook on
+   * loopback without passing through that vhost must not activate script-enabled serving. */
+  gatewayToken: string;
 }
 
 export interface ServeDeps {
@@ -33,6 +38,14 @@ export interface ServeDeps {
   endpointFor(siteId: string): Endpoint | null;
   proxyLimits(): ProxyLimits;
   usernameOf(userId: number): string | null;
+  executePhp(
+    site: Site,
+    releaseDir: string,
+    req: PluginHttpRequest,
+    rest: string,
+    viewer: Viewer,
+    siteRoot: string,
+  ): Promise<SitesHttpResponse>;
 }
 
 /** Security headers applied to EVERY published response.
@@ -55,13 +68,20 @@ const securityHeaders = (dedicated: boolean, isPublic: boolean): Record<string, 
  *
  *  A site nobody shared with you must be indistinguishable from a slug that was never taken, or the
  *  404 itself becomes a way to enumerate what other people have published. */
-const notFound = (dedicated: boolean): PluginHttpResponse => ({
+const notFound = (dedicated: boolean): SitesHttpResponse => ({
   status: 404,
   headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...securityHeaders(dedicated, false) },
   body: '<!doctype html><meta charset="utf-8"><title>Not found</title><p>This address does not lead anywhere.</p>',
 });
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/;
+
+function gatewayMarkerMatches(expected: string, actual: string | undefined): boolean {
+  if (!actual) return false;
+  const left = Buffer.from(expected);
+  const right = Buffer.from(actual);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
 
 /** The one answer for "you may not see this" AND for "this was never taken".
  *
@@ -74,7 +94,7 @@ function bounceOrNotFound(
   rest: string,
   config: ServeConfig,
   onSiteHost: boolean,
-): PluginHttpResponse {
+): SitesHttpResponse {
   const accepts = req.headers.accept ?? '';
   if (req.method !== 'GET' || !accepts.includes('text/html')) return notFound(onSiteHost);
   const target = new URL(`${config.appBaseUrl}/p/sites/enter`);
@@ -104,7 +124,7 @@ const parseForm = (raw: Buffer): Record<string, string> => {
 };
 
 /** Serve one file out of a release. */
-function serveFile(site: Site, releaseDir: string, rest: string, dedicated: boolean): PluginHttpResponse {
+function serveFile(site: Site, releaseDir: string, rest: string, dedicated: boolean): SitesHttpResponse {
   const isPublic = site.visibility === 'public';
   const headers = securityHeaders(dedicated, isPublic);
   const candidates = rest === '' || rest.endsWith('/')
@@ -157,7 +177,7 @@ function serveFile(site: Site, releaseDir: string, rest: string, dedicated: bool
  *  trusts an inbound header for identity and never forwards one: the browser sends the app's own session
  *  cookie here too, because that cookie is scoped to the whole origin. */
 export function createSiteHandler(deps: ServeDeps) {
-  return async (req: PluginHttpRequest): Promise<PluginHttpResponse> => {
+  return async (req: PluginHttpRequest): Promise<SitesHttpResponse> => {
     const config = deps.config();
     const { slug, rest } = splitRemainder(req.path);
     if (!SLUG_PATTERN.test(slug)) return notFound(false);
@@ -166,11 +186,16 @@ export function createSiteHandler(deps: ServeDeps) {
     // app's hostname a published page is same-origin with the app, so it is served passive whatever the
     // settings say.
     const onSiteHost = requestOnSiteHost(config, slug, req.headers.host);
+    if (onSiteHost && !gatewayMarkerMatches(config.gatewayToken, req.headers['x-elowen-site-gateway'])) {
+      return notFound(false);
+    }
     const siteRoot = onSiteHost
-      ? `${config.siteScheme}//${slug}.${config.siteHostBase}/hooks/sites/s/${slug}/`
+      ? `${config.siteScheme}//${slug}.${config.siteHostBase}/`
       : `${config.appBaseUrl}/hooks/sites/s/${slug}/`;
 
     const site = deps.store.siteBySlug(slug);
+    // A durable delete marker must disappear immediately and stay a flat tombstone while cleanup retries.
+    if (site?.status === 'deleting') return notFound(onSiteHost);
     // A site nobody shared with this visitor must be indistinguishable from a slug that was never
     // taken, so an unknown slug takes the SAME sign-in path a forbidden one takes. Answering 404 here
     // and 302 there is a working directory of everything published on the instance.
@@ -196,16 +221,40 @@ export function createSiteHandler(deps: ServeDeps) {
 
     deps.countHit(site.id);
 
-    if (site.runtime === 'command') {
-      // An application reached on the app's own hostname would be served with scripts disabled, which
-      // is not a degraded experience but a broken one. It answers only on its own origin.
-      if (!onSiteHost) {
+    // An application reached on the app hostname would be served under the passive-content policy. That
+    // is not a degraded runtime but a broken one, so every active runtime answers only on its own origin.
+    if (site.runtime !== 'static' && !onSiteHost) {
+      return {
+        status: 421,
+        headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(false, false) },
+        body: '<!doctype html><meta charset="utf-8"><title>Wrong address</title><p>This site is served from its own address.</p>',
+      };
+    }
+
+    if (site.runtime === 'php') {
+      const release = deps.releaseDir(site.id, site.currentReleaseId);
+      const staticResponse = serveFile(site, release, rest, onSiteHost);
+      if (staticResponse.status === 200) return req.method === 'HEAD' ? { ...staticResponse, body: '' } : staticResponse;
+      try {
+        const response = await deps.executePhp(site, release, req, rest, viewer, siteRoot);
         return {
-          status: 421,
-          headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(false, false) },
-          body: '<!doctype html><meta charset="utf-8"><title>Wrong address</title><p>This site is served from its own address.</p>',
+          ...response,
+          headers: {
+            ...response.headers,
+            ...securityHeaders(true, site.visibility === 'public'),
+            'cache-control': site.visibility === 'public' ? 'public, max-age=0' : 'private, no-store',
+          },
+        };
+      } catch {
+        return {
+          status: 502,
+          headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(true, false) },
+          body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This PHP site did not answer.</p>',
         };
       }
+    }
+
+    if (site.runtime === 'command') {
       const endpoint = deps.endpointFor(site.id);
       if (!endpoint) {
         return {
@@ -266,7 +315,7 @@ async function redeemTicket(
   deps: ServeDeps,
   config: ServeConfig,
   onSiteHost: boolean,
-): Promise<PluginHttpResponse> {
+): Promise<SitesHttpResponse> {
   if (req.method !== 'POST') {
     return { status: 405, headers: { allow: 'POST', 'cache-control': 'no-store' }, body: '' };
   }
@@ -292,7 +341,7 @@ async function redeemTicket(
   const sameSite = onSiteHost ? 'Lax' : 'None';
   const cookie = [
     `${cookieName(site.id)}=${value}`,
-    `Path=/hooks/sites/s/${site.slug}/`,
+    `Path=${onSiteHost ? '/' : `/hooks/sites/s/${site.slug}/`}`,
     'HttpOnly',
     `SameSite=${sameSite}`,
     `Max-Age=${Math.floor(config.sessionTtlHours * 3600)}`,

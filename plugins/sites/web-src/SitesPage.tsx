@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ChevronRight, ExternalLink, Globe, Layers, Search, Users } from 'lucide-react';
+import { CheckCircle2, ChevronRight, ExternalLink, Globe, Layers, Search, Server, Users } from 'lucide-react';
 import {
   runtime, avatarUser, relativeTime, SITES_LIST_KEY,
   type SiteView, type SitesListResponse,
@@ -8,11 +8,12 @@ import {
   STATUS_ICON, STATUS_ORDER, STATUS_STRING, STATUS_TONE,
   VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE,
 } from './meta.js';
+import { GatewaySettings } from './GatewaySettings.js';
 import { SiteDetail } from './SiteDetail.js';
 
-type Section = 'mine' | 'shared';
+type Section = 'mine' | 'shared' | 'hosting';
 
-const SECTIONS: readonly Section[] = ['mine', 'shared'];
+const SECTIONS: readonly Section[] = ['mine', 'shared', 'hosting'];
 const isVisibilityFilter = (raw: string): boolean => raw === 'all' || (VISIBILITY_ORDER as readonly string[]).includes(raw);
 const isStatusFilter = (raw: string): boolean => raw === 'all' || (STATUS_ORDER as readonly string[]).includes(raw);
 
@@ -177,7 +178,11 @@ export function SitesPage() {
 
   const mine = useMemo(() => list.data?.mine ?? [], [list.data]);
   const shared = useMemo(() => list.data?.shared ?? [], [list.data]);
-  const sectionSites = section === 'mine' ? mine : shared;
+  const gateway = list.data?.gateway ?? null;
+  const sectionSites = useMemo(
+    () => section === 'mine' ? mine : section === 'shared' ? shared : [],
+    [section, mine, shared],
+  );
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -194,6 +199,7 @@ export function SitesPage() {
     [mine, shared, selectedId],
   );
   useEffect(() => { if (selectedId !== null && list.data && selected === null) setSelectedId(null); }, [selectedId, list.data, selected]);
+  useEffect(() => { if (section === 'hosting' && list.data && gateway === null) setSection('mine'); }, [section, list.data, gateway, setSection]);
 
   const summary = useMemo(() => {
     const all = [...mine, ...shared];
@@ -247,6 +253,7 @@ export function SitesPage() {
         sections: [
           { id: 'mine', label: strings.mine, icon: Globe, count: mine.length },
           { id: 'shared', label: strings.shared, icon: Users, count: shared.length },
+          ...(gateway ? [{ id: 'hosting', label: strings.gatewayNav, icon: Server }] : []),
         ],
         value: section,
         onChange: (value) => setSection(value as Section),
@@ -259,6 +266,8 @@ export function SitesPage() {
             <ControlSurfaceState tone="danger">
               <ErrorState message={strings.loadFailed} onRetry={() => list.refetch()} />
             </ControlSurfaceState>
+          ) : section === 'hosting' && gateway ? (
+            <GatewaySettings gateway={gateway} />
           ) : (
             <div className="workspace-master-detail" data-detail={selected != null}>
               <div className="flex min-w-0 flex-col gap-4">

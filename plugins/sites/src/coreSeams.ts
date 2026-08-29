@@ -1,4 +1,6 @@
-import type { PluginContext, SandboxExecutionCommand, SandboxPreparedExecution } from 'elowen/plugin-api';
+import type {
+  PluginContext, PluginHttpRequest, PluginHttpResponse, SandboxExecutionCommand, SandboxPreparedExecution,
+} from 'elowen/plugin-api';
 
 /** ⚠️ WHY THIS SHAPE IS WRITTEN OUT HERE INSTEAD OF IMPORTED.
  *
@@ -27,9 +29,33 @@ interface SitesSandboxControl {
    *  identity nor a set of allowed roots, so it names both. It cannot ask for unconfined execution:
    *  an explicit request always runs under bubblewrap. */
   prepareExecution(
-    input: { command: SandboxExecutionCommand; cwd: string; leaseKind: 'terminal' | 'github' | 'sites' },
+    input: {
+      command: SandboxExecutionCommand;
+      cwd: string;
+      leaseKind: 'terminal' | 'github' | 'sites';
+      network?: 'shared' | 'isolated';
+    },
     options?: { accountUserId: number | null; roots: readonly string[] },
   ): SandboxPreparedExecution | Promise<SandboxPreparedExecution>;
+}
+
+export interface SitesGatewayStatus {
+  available: boolean;
+  active: boolean;
+  hostnameBase: string | null;
+  detail?: string;
+}
+
+interface SitesGatewayControl {
+  hostnameBase(): string | null;
+  provisionNamecheap(input: {
+    apiUser: string; apiKey: string; username: string; clientIp: string; email: string; gatewayToken: string;
+  }): Promise<SitesGatewayStatus>;
+  deny(): Promise<SitesGatewayStatus>;
+  status(): Promise<SitesGatewayStatus>;
+  prepareRuntimeSocket(siteId: string): Promise<{ path: string }>;
+  sealRuntimeSocket(siteId: string): Promise<void>;
+  removeRuntimeSocket(siteId: string): Promise<void>;
 }
 
 /** An account as the host hands it over. The published package still describes it without the display
@@ -42,9 +68,24 @@ export interface SitesUserView {
   isAdmin: boolean;
 }
 
+export type SitesHttpResponse = Omit<PluginHttpResponse, 'headers'> & {
+  headers?: Record<string, string | string[]>;
+};
+
 /** The plugin context as this plugin actually uses it. */
-export type SitesContext = Omit<PluginContext, 'control'> & {
+export type SitesContext = Omit<PluginContext, 'control' | 'registerHttpRoute' | 'registerService'> & {
   control(name: 'sandbox'): SitesSandboxControl | undefined;
+  control(name: 'publishedSitesGateway'): SitesGatewayControl | undefined;
+  registerHttpRoute(route: {
+    path: string;
+    handler(req: PluginHttpRequest): SitesHttpResponse | Promise<SitesHttpResponse>;
+  }): void;
+  registerService(service: {
+    name: string;
+    criticalStop?: boolean;
+    start(): void | Promise<void>;
+    stop(): void | Promise<void>;
+  }): void;
 };
 
 /** The account list as the daemon actually returns it, for the one call site that needs the picture. */

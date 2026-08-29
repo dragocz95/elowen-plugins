@@ -4,6 +4,18 @@ import type { LucideIcon } from 'lucide-react';
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
 export type SiteStatus = 'draft' | 'live' | 'failed';
 
+interface GatewayStatus {
+  available: boolean;
+  active: boolean;
+  hostnameBase: string | null;
+  detail?: string;
+}
+
+export interface GatewayView {
+  status: GatewayStatus;
+  configured: Record<'apiUser' | 'apiKey' | 'username' | 'clientIp' | 'email', boolean>;
+}
+
 export interface SiteView {
   id: string;
   slug: string;
@@ -31,6 +43,7 @@ export interface SitesListResponse {
   shared: SiteView[];
   allowPublicSites: boolean;
   dedicatedHost: boolean;
+  gateway: GatewayView | null;
 }
 
 interface ReleaseView {
@@ -122,6 +135,8 @@ interface RuntimeComponents {
     placeholder?: string;
     className?: string;
     disabled?: boolean;
+    type?: 'text' | 'password' | 'email';
+    autoComplete?: string;
   }>;
   RegisterSearch: ComponentType<{
     value: string;

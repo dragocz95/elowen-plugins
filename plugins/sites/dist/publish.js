@@ -72,7 +72,7 @@ function statOf(path) {
  *  a file the publisher was never allowed to read. */
 export function snapshotRelease(sourceRoot, releaseDir, limits) {
     const realSource = realpathSync(sourceRoot);
-    const command = limits.mode === 'command';
+    const command = limits.mode === 'command' || limits.mode === 'php';
     const warnings = [];
     let fileCount = 0;
     let sizeBytes = 0;

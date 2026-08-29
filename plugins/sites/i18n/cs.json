@@ -17,10 +17,6 @@
       "label": "Povolit veřejné stránky",
       "hint": "Když je vypnuto, každá stránka vyžaduje přihlášení a možnost zveřejnění zmizí z nastavení přístupu u všech stránek."
     },
-    "siteHostOverride": {
-      "label": "Základní název hostitele pro stránky",
-      "hint": "Servírovat každou zveřejněnou stránku na vlastní subdoméně tohoto názvu, takže každá stránka je samostatný původ: jedna stránka nepřečte druhou a žádná z nich nedosáhne na relaci aplikace. Bez toho se stránky servírují vedle aplikace a jejich skripty zůstávají vypnuté."
-    },
     "publishers": {
       "label": "Kdo smí zveřejňovat",
       "hint": "Zda smí agent běžného účtu zakládat a zveřejňovat stránky. Otevření stránky, kterou někdo nasdílel, to neovlivňuje.",
@@ -73,14 +69,6 @@
     "maxResponseMb": {
       "label": "Největší odpověď běhového prostředí",
       "hint": "Odpověď se před odesláním načte celá do paměti, takže jde o skutečný strop."
-    },
-    "portRangeStart": {
-      "label": "První port na smyčce",
-      "hint": "Pouze pro běhové prostředí, které neumí naslouchat na unixovém socketu. Na port na smyčce dosáhne každý proces na tomto stroji, což obchází pravidla přístupu ke stránce."
-    },
-    "portRangeEnd": {
-      "label": "Poslední port na smyčce",
-      "hint": "Konec rozsahu výše."
     }
   },
   "web": {
@@ -156,7 +144,7 @@
       "publicWarning": "Stránku bude moci otevřít kdokoli, kdo zná adresu, a to bez přihlášení.",
       "publicConfirm": "Zveřejnit",
       "publicDisabled": "Veřejné stránky jsou na této instanci vypnuté.",
-      "passiveNotice": "Na této adrese jsou skripty vypnuté. Pro jejich spuštění nastavte v nastavení pluginu vlastní název hostitele.",
+      "passiveNotice": "Na hostiteli aplikace jsou skripty vypnuté. V sekci Hosting nastavte každé stránce vlastní izolovanou adresu.",
       "sourceNotice": "Zdrojová složka leží v projektu, takže si ji přečte každý, kdo má k projektu přístup. Toto nastavení řídí zveřejněnou stránku.",
       "deleteTitle": "Smazat tuto stránku",
       "deleteHint": "Adresa přestane fungovat a všechny verze se odstraní. Zdrojová složka v projektu zůstane nedotčená.",
@@ -164,6 +152,28 @@
       "deleted": "Stránka smazána",
       "saved": "Uloženo",
       "close": "Zavřít",
+      "gatewayNav": "Hosting",
+      "gatewayTitle": "Izolovaný hosting stránek",
+      "gatewayActive": "Aktivní",
+      "gatewayInactive": "Vyžaduje nastavení",
+      "gatewayActiveHint": "Wildcard DNS, TLS a nginx jsou připravené. Nové i stávající stránky automaticky používají vlastní izolovaný origin.",
+      "gatewayNotReady": "Hosting zatím není připravený.",
+      "gatewayApiUser": "Uživatel Namecheap API",
+      "gatewayUsername": "Uživatelské jméno Namecheap",
+      "gatewayApiKey": "Klíč Namecheap API",
+      "gatewayClientIp": "Povolená veřejná IPv4 serveru",
+      "gatewayEmail": "Kontaktní e-mail pro ACME",
+      "gatewayStored": "Bezpečně uloženo — prázdné zachová hodnotu",
+      "gatewayRequired": "Povinné",
+      "gatewaySecretTitle": "Šifrované přihlašovací údaje",
+      "gatewaySecretHint": "Klíč Namecheap je zašifrovaný v trezoru tajností instance. Nikdy se nevrací do prohlížeče, nezapisuje do nginxu, nevkládá do příkazové řádky ani do logů.",
+      "gatewaySave": "Uložit a připravit",
+      "gatewaySaving": "Připravuji…",
+      "gatewaySaved": "Hosting je aktivní",
+      "gatewayRemove": "Odebrat údaje hostingu",
+      "gatewayRemoveTitle": "Vypnout izolovaný hosting?",
+      "gatewayRemoveDescription": "Wildcard gateway se přepne na odmítací konfiguraci. Stávající adresy stránek přestanou odpovídat; data a verze stránek zůstanou zachované.",
+      "gatewayRemoved": "Hosting vypnut",
       "releaseLive": "Živá"
     }
   }

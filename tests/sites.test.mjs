@@ -208,7 +208,7 @@ test('changing who may open a site invalidates the sessions already issued', () 
   assert.equal(store.siteById('site-1').accessGeneration, 3);
 });
 
-test('deleting a site removes its guests, releases, tickets and visits', () => {
+test('deletion is durable, immediately invisible and safe to finish after a crash', () => {
   const store = new SitesStore(makeDb());
   store.insertSite(site());
   store.addMember('site-1', 2);
@@ -216,12 +216,25 @@ test('deleting a site removes its guests, releases, tickets and visits', () => {
   store.putTicket('hash', { siteId: 'site-1', userId: 2, returnPath: '', expiresAt: Date.now() + 1000 });
   store.recordHits('site-1', '2026-01-01', 3);
 
-  store.deleteSite('site-1');
-  assert.equal(store.siteById('site-1'), null);
+  store.beginDelete('site-1');
+  assert.equal(store.siteById('site-1').status, 'deleting');
+  assert.deepEqual(store.sitesOwnedBy(1), [], 'the owner list loses it before filesystem cleanup');
+  assert.deepEqual(store.deletingSites().map((entry) => entry.id), ['site-1']);
   assert.deepEqual(store.memberIds('site-1'), []);
-  assert.deepEqual(store.releases('site-1'), []);
   assert.equal(store.takeTicket('hash', Date.now()), null);
   assert.deepEqual(store.hits('site-1', '2000-01-01'), []);
+  assert.equal(store.slugTaken('demo-abc123'), true, 'a retry cannot reuse the hostname while cleanup is pending');
+  assert.equal(store.releases('site-1').length, 1, 'release metadata stays until its files were removed');
+
+  // What boot reconciliation does after a crash between the marker and filesystem cleanup.
+  store.deleteSite('site-1');
+  assert.equal(store.siteById('site-1'), null);
+  assert.deepEqual(store.releases('site-1'), []);
+  assert.equal(store.slugTaken('demo-abc123'), false);
+
+  // Create → delete → create may reuse the friendly stem safely because the old row is truly gone.
+  store.insertSite(site({ id: 'site-2', slug: 'demo-abc123' }));
+  assert.equal(store.siteBySlug('demo-abc123').id, 'site-2');
 });
 
 test('forgetting a removed account reports every site whose access changed', () => {
@@ -305,6 +318,8 @@ test('a request path cannot escape the release directory', (t) => {
 
 // ── serving ──────────────────────────────────────────────────────────────────────────────────────
 
+const GATEWAY_TOKEN = 'g'.repeat(43);
+
 const serveHarness = (t, overrides = {}) => {
   const release = tempDir('serve');
   t.after(() => rmSync(release, { recursive: true, force: true }));
@@ -323,6 +338,7 @@ const serveHarness = (t, overrides = {}) => {
       siteScheme: 'https:',
       appBaseUrl: 'https://elowen.example',
       sessionTtlHours: 12,
+      gatewayToken: GATEWAY_TOKEN,
     }),
     releaseDir: () => release,
     countHit: () => {},
@@ -359,6 +375,14 @@ test('an unknown slug and a slug you may not see answer identically', async (t) 
   assert.equal(unknownFetch.body, forbiddenFetch.body);
 });
 
+test('a site marked for deletion is a flat tombstone, not a sign-in bounce', async (t) => {
+  const { handler, store } = serveHarness(t, { visibility: 'project' });
+  store.beginDelete('site-1');
+  const response = await handler(request('demo-abc123/', { headers: { accept: 'text/html' } }));
+  assert.equal(response.status, 404);
+  assert.equal(response.headers.location, undefined);
+});
+
 test('scripts stay disabled when a site is reached on the app hostname', async (t) => {
   // The decision follows the REQUEST. `/hooks/` is proxied to the daemon on the app hostname too, so a
   // page served with scripts merely because a site hostname exists would still be same-origin with the
@@ -368,7 +392,14 @@ test('scripts stay disabled when a site is reached on the app hostname', async (
   const viaApp = await handler(request('demo-abc123/', { headers: { accept: 'text/html', host: 'elowen.example' } }));
   assert.match(viaApp.headers['content-security-policy'], /^sandbox;/);
 
-  const viaOwnHost = await handler(request('demo-abc123/', { headers: { accept: 'text/html', host: 'demo-abc123.sites.example.com' } }));
+  const directBypass = await handler(request('demo-abc123/', {
+    headers: { accept: 'text/html', host: 'demo-abc123.sites.example.com' },
+  }));
+  assert.equal(directBypass.status, 404, 'the dedicated host is active only behind the root-owned nginx marker');
+
+  const viaOwnHost = await handler(request('demo-abc123/', {
+    headers: { accept: 'text/html', host: 'demo-abc123.sites.example.com', 'x-elowen-site-gateway': GATEWAY_TOKEN },
+  }));
   assert.ok(!viaOwnHost.headers['content-security-policy'].startsWith('sandbox'));
   assert.match(viaOwnHost.headers['content-security-policy'], /script-src 'self'/);
 
@@ -492,44 +523,47 @@ const runtimeServer = async (t, handler) => {
 };
 
 const proxyLimits = { maxResponseBytes: 1048576, requestTimeoutSeconds: 5 };
-const SITE_ROOT = 'https://demo.sites.example.com/hooks/sites/s/demo/';
+const SITE_ROOT = 'https://demo.sites.example.com/';
 
-test('the app session never reaches a published runtime', async (t) => {
-  // The browser sends elowen_session to this path too, because it is scoped to the whole origin and its
-  // value IS a daemon bearer token. A runtime that received it could act as whoever is looking at it.
+test('a dedicated runtime receives its own application auth but not forged gateway identity', async (t) => {
   let seen = null;
   const endpoint = await runtimeServer(t, (req, res) => { seen = req.headers; res.end('ok'); });
 
   await proxyToRuntime(endpoint, request('', {
     headers: {
       accept: 'text/html',
-      cookie: 'elowen_session=REAL-BEARER-TOKEN',
-      authorization: 'Bearer REAL-BEARER-TOKEN',
+      cookie: 'site_session=abc',
+      authorization: 'Bearer site-api-token',
       'x-elowen-user-id': '999',
       'x-forwarded-for': '10.0.0.1',
     },
   }), 'page', { userId: 4, name: 'amy' }, proxyLimits, SITE_ROOT);
 
-  assert.equal(seen.cookie, undefined);
-  assert.equal(seen.authorization, undefined);
+  assert.equal(seen.cookie, 'site_session=abc');
+  assert.equal(seen.authorization, 'Bearer site-api-token');
   assert.equal(seen['x-forwarded-for'], undefined);
   assert.equal(seen['x-elowen-user-id'], '4', 'the spoofed value was replaced by the verified one');
   assert.equal(seen['x-elowen-user-name'], 'amy');
 });
 
-test('a runtime cannot set a cookie or open itself up with CORS', async (t) => {
-  // Hook responses pass headers through unchanged, so an unfiltered Set-Cookie would let a published
-  // site write a cookie at any path on this origin — including over the app's own session.
+test('a runtime owns cookies and CORS on its isolated origin', async (t) => {
   const endpoint = await runtimeServer(t, (_req, res) => {
-    res.setHeader('set-cookie', 'elowen_session=stolen; Path=/');
-    res.setHeader('access-control-allow-origin', '*');
+    res.setHeader('set-cookie', [
+      'site_session=xyz; Domain=.sites.example.com; Path=/; HttpOnly',
+      'second_cookie=ignored; Path=/',
+    ]);
+    res.setHeader('access-control-allow-origin', 'https://client.example');
     res.setHeader('content-type', 'text/plain');
     res.end('body');
   });
 
   const response = await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
-  assert.equal(response.headers['set-cookie'], undefined);
-  assert.equal(response.headers['access-control-allow-origin'], undefined);
+  assert.deepEqual(response.headers['set-cookie'], [
+    'site_session=xyz; Path=/; HttpOnly',
+    'second_cookie=ignored; Path=/',
+  ]);
+  assert.equal(response.headers['set-cookie'][0].includes('Domain='), false, 'one site cannot plant a parent-domain cookie for its neighbours');
+  assert.equal(response.headers['access-control-allow-origin'], 'https://client.example');
   assert.equal(response.headers['content-type'], 'text/plain');
   assert.equal(Buffer.from(response.body).toString(), 'body');
 });
@@ -541,7 +575,7 @@ test('an anonymous visitor is forwarded as anonymous', async (t) => {
   assert.equal(seen['x-elowen-user-id'], undefined);
 });
 
-test('a runtime cannot bounce a visitor off the site', async (t) => {
+test('a runtime cannot bounce a visitor off its origin', async (t) => {
   const redirectTo = async (location) => {
     const endpoint = await runtimeServer(t, (_req, res) => { res.statusCode = 302; res.setHeader('location', location); res.end(); });
     const response = await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
@@ -551,7 +585,7 @@ test('a runtime cannot bounce a visitor off the site', async (t) => {
   assert.equal(await redirectTo(`${SITE_ROOT}deep/page.html`), `${SITE_ROOT}deep/page.html`);
   assert.equal(await redirectTo('https://evil.example/'), SITE_ROOT);
   assert.equal(await redirectTo('//evil.example/'), SITE_ROOT);
-  assert.equal(await redirectTo('/etc/passwd'), SITE_ROOT, 'an absolute path leaves the site prefix');
+  assert.equal(await redirectTo('/etc/passwd'), `${SITE_ROOT}etc/passwd`, 'an absolute path stays on this site origin');
 });
 
 test('the body length sent on is the body actually sent', async (t) => {
@@ -581,7 +615,9 @@ test('a command site that is not running says so instead of serving its files', 
   const { handler } = serveHarness(t, {
     visibility: 'public', runtime: 'command', startCommand: 'node server.js', siteHostBase: 'sites.example.com',
   });
-  const response = await handler(request('demo-abc123/', { headers: { accept: 'text/html', host: 'demo-abc123.sites.example.com' } }));
+  const response = await handler(request('demo-abc123/', {
+    headers: { accept: 'text/html', host: 'demo-abc123.sites.example.com', 'x-elowen-site-gateway': GATEWAY_TOKEN },
+  }));
   assert.equal(response.status, 503);
   assert.match(String(response.body), /not running/i);
 });
@@ -606,22 +642,22 @@ test('configuration is re-validated, because the settings API validates nothing'
   assert.equal(config.publishers, 'everyone');
 });
 
-test('every site gets its own origin under the configured base hostname', () => {
+test('every site gets the root of the gateway hostname derived by core', () => {
   const shared = resolveConfig({}, 'https://elowen.example');
   assert.equal(shared.siteHostBase, null);
   assert.equal(siteUrl(shared, 'demo'), 'https://elowen.example/hooks/sites/s/demo/');
 
-  const dedicated = resolveConfig({ siteHostOverride: 'sites.example.com' }, 'https://elowen.example');
-  assert.equal(dedicated.siteHostBase, 'sites.example.com');
-  assert.equal(siteUrl(dedicated, 'demo'), 'https://demo.sites.example.com/hooks/sites/s/demo/');
-  assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.example.com:443'), true);
+  const dedicated = resolveConfig({}, 'https://elowen.example', 'sites.elowen.example');
+  assert.equal(dedicated.siteHostBase, 'sites.elowen.example');
+  assert.equal(siteUrl(dedicated, 'demo'), 'https://demo.sites.elowen.example/');
+  assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.elowen.example:443'), true);
   assert.equal(requestOnSiteHost(dedicated, 'demo', 'elowen.example'), false);
-  assert.equal(requestOnSiteHost(dedicated, 'demo', 'other.sites.example.com'), false);
+  assert.equal(requestOnSiteHost(dedicated, 'demo', 'other.sites.elowen.example'), false);
 
-  // Plain HTTP would put a session cookie on the wire in clear, and a bare word is not a hostname.
-  assert.equal(resolveConfig({ siteHostOverride: 'http://sites.example.com' }, 'https://elowen.example').siteHostBase, null);
-  assert.equal(resolveConfig({ siteHostOverride: 'javascript:alert(1)' }, 'https://elowen.example').siteHostBase, null);
-  assert.equal(resolveConfig({ siteHostOverride: 'localhost' }, 'https://elowen.example').siteHostBase, null);
+  // A broker hostname is only accepted beside the trusted HTTPS app deployment.
+  assert.equal(resolveConfig({}, 'http://elowen.example', 'sites.elowen.example').siteHostBase, null);
+  assert.equal(resolveConfig({}, 'https://elowen.example', 'javascript:alert(1)').siteHostBase, null);
+  assert.equal(resolveConfig({}, 'https://elowen.example', 'localhost').siteHostBase, null);
 });
 
 // ── the tool surface ─────────────────────────────────────────────────────────────────────────────
@@ -663,6 +699,7 @@ const toolHarness = (t, { projects, people: roster } = {}) => {
     people: () => new Map(accounts.map((person) => [person.id, person])),
     siteDir: (id) => join(dir, 'sites', id),
     releaseDir: (id, releaseId) => join(dir, 'sites', id, releaseId),
+    deleteSite: async (id) => { store.beginDelete(id); store.deleteSite(id); },
     runtime: { allocatePort: () => 43000, stop: async () => {}, start: async () => {}, logTail: () => '', isRunning: () => false },
   });
   return { store, dir, call: (name, input) => registered.get(name).execute('call-1', input ?? {}) };
@@ -724,4 +761,18 @@ test('sharing with somebody who does not exist fails with the roster', async (t)
   const { store, call } = toolHarness(t);
   store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1 }));
   await assert.rejects(() => call('SiteShare', { site: 'report-a1b2c3', person: 'nobody' }), /josef\.kvitek/);
+});
+
+test('SiteDelete uses the shared cascading cleanup and leaves the Project source alone', async (t) => {
+  const { store, dir, call } = toolHarness(t);
+  const sourceDir = join(dir, 'project', 'report-source');
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(join(sourceDir, 'source.txt'), 'keep me');
+  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, sourceDir }));
+  store.addMember('id-1', 3);
+  store.insertRelease({ id: 'rel-1', siteId: 'id-1', createdAt: new Date().toISOString(), model: 'm', fileCount: 1, sizeBytes: 1, note: '' });
+
+  await call('SiteDelete', { site: 'report-a1b2c3' });
+  assert.equal(store.siteById('id-1'), null);
+  assert.equal(readFileSync(join(sourceDir, 'source.txt'), 'utf8'), 'keep me');
 });

@@ -19,7 +19,7 @@ const toView = (site, deps, auth) => {
         visibility: site.visibility,
         status: site.status,
         url: siteUrl(config, site.slug),
-        basePath: siteBasePath(site.slug),
+        basePath: siteBasePath(config, site.slug),
         projectId: site.projectId,
         projectSlug: deps.projectSlug(site.projectId),
         ownerUserId: site.ownerUserId,
@@ -72,6 +72,7 @@ export function createApiHandlers(deps) {
             shared: shared.map((site) => toView(site, deps, req.auth)),
             allowPublicSites: config.allowPublicSites,
             dedicatedHost: config.siteHostBase !== null,
+            gateway: req.auth.admin ? deps.gatewayView() : null,
         });
     };
     /** GET|PATCH|DELETE /plugins/sites/api/site/<id>[/…] */
@@ -113,8 +114,7 @@ export function createApiHandlers(deps) {
         if (req.method === 'PATCH' && action === '')
             return patchSite(req, target);
         if (req.method === 'DELETE' && action === '') {
-            await deps.deleteSiteFiles(target.id);
-            deps.store.deleteSite(target.id);
+            await deps.deleteSite(target.id);
             return json(200, { ok: true });
         }
         if (req.method === 'POST' && action === 'members')

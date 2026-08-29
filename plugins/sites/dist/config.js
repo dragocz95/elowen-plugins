@@ -22,37 +22,23 @@ const asOrigin = (value) => {
         return null;
     }
 };
-/** The bare hostname sites get a subdomain under.
- *
- *  Plain HTTP is refused unless it is loopback: a site session cookie travelling in clear is a session
- *  anyone on the path can take, and an operator who typed `http://` almost certainly did not mean that. */
-const asHostBase = (value, appScheme) => {
-    if (typeof value !== 'string' || value.trim() === '')
+/** The broker derives this from trusted install metadata. The plugin accepts only that already-bare
+ * hostname and only beside an HTTPS app: a config form or request header never gets to choose where
+ * another person's site links point. */
+const asGatewayHost = (value, appScheme) => {
+    if (appScheme !== 'https:' || !value)
         return null;
-    const raw = value.trim();
-    const withScheme = /^https?:\/\//.test(raw) ? raw : `${appScheme}//${raw}`;
-    try {
-        const url = new URL(withScheme);
-        const host = url.hostname.toLowerCase();
-        if (!/^[a-z0-9.-]+$/.test(host) || host.startsWith('.') || !host.includes('.'))
-            return null;
-        const loopback = host === 'localhost' || host === '127.0.0.1';
-        if (url.protocol === 'http:' && !loopback)
-            return null;
-        return host;
-    }
-    catch {
-        return null;
-    }
+    const host = value.trim().toLowerCase();
+    return /^[a-z0-9][a-z0-9.-]+$/.test(host) && host.includes('.') ? host : null;
 };
 /** Read the plugin's settings into the shape the rest of the plugin uses.
  *
  *  Every value is re-validated here because the daemon stores whatever the settings form sent: it
  *  enforces neither `required` nor the `min`/`max` the schema declares. */
-export function resolveConfig(raw, publicWebUrl) {
+export function resolveConfig(raw, publicWebUrl, gatewayHostBase = null) {
     const appOrigin = asOrigin(publicWebUrl) ?? '';
     const appScheme = appOrigin.startsWith('http://') ? 'http:' : 'https:';
-    const siteHostBase = asHostBase(raw.siteHostOverride, appScheme);
+    const siteHostBase = asGatewayHost(gatewayHostBase, appScheme);
     const defaultVisibility = typeof raw.defaultVisibility === 'string' && VISIBILITY_DEFAULTS.has(raw.defaultVisibility)
         ? raw.defaultVisibility
         : 'private';
@@ -80,8 +66,9 @@ export function resolveConfig(raw, publicWebUrl) {
 const siteHost = (config, slug) => config.siteHostBase === null ? null : `${slug}.${config.siteHostBase}`;
 export const siteUrl = (config, slug) => {
     const host = siteHost(config, slug);
-    const origin = host === null ? config.appBaseUrl : `${config.siteScheme}//${host}`;
-    return `${origin}/hooks/sites/s/${slug}/`;
+    return host === null
+        ? `${config.appBaseUrl}/hooks/sites/s/${slug}/`
+        : `${config.siteScheme}//${host}/`;
 };
 /** Whether THIS request arrived on the site's own hostname.
  *
@@ -96,6 +83,6 @@ export const requestOnSiteHost = (config, slug, hostHeader) => {
     const host = hostHeader.split(':')[0]?.trim().toLowerCase() ?? '';
     return host === expected;
 };
-/** The absolute prefix a build must be configured with. Relative asset paths cannot work: the serving
- *  layer is not told whether the visitor's URL ended in a slash, so it cannot canonicalise one. */
-export const siteBasePath = (slug) => `/hooks/sites/s/${slug}/`;
+/** The absolute prefix a build must be configured with. A dedicated hostname owns its root; the passive
+ * same-origin fallback retains the namespaced hook prefix. */
+export const siteBasePath = (config, slug) => config.siteHostBase === null ? `/hooks/sites/s/${slug}/` : '/';

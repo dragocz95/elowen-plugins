@@ -1,8 +1,8 @@
 {
   "name": "sites",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "apiVersion": "1",
-  "requiresCore": "0.28.19",
+  "requiresCore": "0.28.20",
   "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is a separate release you can roll back to.",
   "entry": "dist/index.js",
   "provides": {
@@ -25,7 +25,8 @@
       "sites",
       "site",
       "ticket",
-      "directory"
+      "directory",
+      "gateway"
     ]
   },
   "planSafe": [
@@ -79,16 +80,6 @@
       "hint": "When off, every site requires signing in and the public option disappears from each site's access settings."
     },
     {
-      "key": "siteHostOverride",
-      "label": "Base hostname for sites",
-      "type": "string",
-      "default": "",
-      "advanced": true,
-      "placeholder": "https://sites.example.com",
-      "hint": "Serve each published site on its own subdomain of this hostname, so every site is a separate origin: one site cannot read another, and none of them can reach the app's session. Without it, sites are served next to the app and their scripts stay disabled.",
-      "help": "Point a wildcard record (*.example.com) at this machine, give it a wildcard certificate, and forward it to the daemon with the request path unchanged. A site is then addressed at <slug>.<this hostname>."
-    },
-    {
       "key": "publishers",
       "label": "Who may publish",
       "type": "enum",
@@ -116,8 +107,8 @@
       "type": "boolean",
       "default": false,
       "risk": "high",
-      "hint": "Let a site be a running server - Node, Bun, Python, PHP - instead of files on disk. The process is confined to its own namespace and sees only its own release directory, but it runs under the daemon's account, keeps that account's sandbox home and shares the machine's network. Requires a dedicated site hostname.",
-      "help": "A published server is code the agent wrote, reachable from the network. Confinement here is a namespace, not a separate machine account: the process cannot see other projects, but it can reach the network as this machine, it holds the owner's sandbox home directory, and it can write inside its own release. There is no CPU or memory limit. Requests reach it buffered, so it cannot stream, use server-sent events or accept websockets, and a request body is capped at 1 MB."
+      "hint": "Let a site run Node, Bun, Python or TypeScript behind a private unix socket, or execute PHP through PHP-CGI. Every request runs in an isolated network namespace and requires isolated site hosting.",
+      "help": "A published runtime is code the agent wrote. It sees only its own release, runtime directory and the owner's sandbox HOME; it cannot reach the host loopback or another site's listener. It still runs under a user namespace rather than a separate VM and has no CPU or memory limit. Requests and responses are buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
     },
     {
       "key": "startTimeoutSeconds",
@@ -148,26 +139,6 @@
       "max": 64,
       "advanced": true,
       "hint": "A runtime answer is buffered whole before it is sent on, so this is a real ceiling."
-    },
-    {
-      "key": "portRangeStart",
-      "label": "First loopback port",
-      "type": "number",
-      "default": 43000,
-      "min": 1024,
-      "max": 65000,
-      "advanced": true,
-      "hint": "Only for a runtime that cannot listen on a unix socket. A loopback port is reachable by every process on this machine, which bypasses the site's access rules."
-    },
-    {
-      "key": "portRangeEnd",
-      "label": "Last loopback port",
-      "type": "number",
-      "default": 43099,
-      "min": 1024,
-      "max": 65535,
-      "advanced": true,
-      "hint": "End of the range above."
     },
     {
       "key": "limits",
@@ -310,7 +281,7 @@
       "publicWarning": "Anyone who knows the address will be able to open this site without signing in.",
       "publicConfirm": "Make public",
       "publicDisabled": "Public sites are turned off for this instance.",
-      "passiveNotice": "Scripts are disabled at this address. Set a dedicated site hostname in the plugin settings to run them.",
+      "passiveNotice": "Scripts are disabled on the app hostname. Configure Hosting to give every site its own isolated address.",
       "sourceNotice": "The source folder lives in the Project, so everyone with access to the Project can read it. This setting governs the published site.",
       "deleteTitle": "Delete this site",
       "deleteHint": "The address stops working and every release is removed. The source folder in the Project is left alone.",
@@ -318,6 +289,28 @@
       "deleted": "Site deleted",
       "saved": "Saved",
       "close": "Close",
+      "gatewayNav": "Hosting",
+      "gatewayTitle": "Isolated site hosting",
+      "gatewayActive": "Active",
+      "gatewayInactive": "Needs setup",
+      "gatewayActiveHint": "Wildcard DNS, TLS and nginx are ready. New and existing sites use their own isolated origin automatically.",
+      "gatewayNotReady": "Hosting is not ready yet.",
+      "gatewayApiUser": "Namecheap API user",
+      "gatewayUsername": "Namecheap username",
+      "gatewayApiKey": "Namecheap API key",
+      "gatewayClientIp": "Whitelisted server IPv4",
+      "gatewayEmail": "ACME contact email",
+      "gatewayStored": "Stored securely — leave empty to keep",
+      "gatewayRequired": "Required",
+      "gatewaySecretTitle": "Encrypted credentials",
+      "gatewaySecretHint": "The Namecheap key is encrypted in the instance secret vault. It is never returned to the browser, written to nginx, placed on a command line or included in logs.",
+      "gatewaySave": "Save and provision",
+      "gatewaySaving": "Provisioning…",
+      "gatewaySaved": "Hosting is active",
+      "gatewayRemove": "Remove hosting credentials",
+      "gatewayRemoveTitle": "Disable isolated hosting?",
+      "gatewayRemoveDescription": "The wildcard gateway changes to a deny-only tombstone. Existing site addresses stop answering; site data and releases remain intact.",
+      "gatewayRemoved": "Hosting disabled",
       "releaseLive": "Live"
     }
   }

@@ -1,6 +1,6 @@
 export const VISIBILITIES = ['private', 'project', 'authenticated', 'public'];
 const asVisibility = (value) => VISIBILITIES.includes(value) ? value : 'private';
-const asStatus = (value) => value === 'live' || value === 'failed' ? value : 'draft';
+const asStatus = (value) => value === 'live' || value === 'failed' || value === 'deleting' ? value : 'draft';
 const toSite = (row) => ({
     id: row.id,
     slug: row.slug,
@@ -12,7 +12,7 @@ const toSite = (row) => ({
     accessGeneration: row.access_generation,
     sourceDir: row.source_dir,
     spa: row.spa === 1,
-    runtime: row.runtime === 'command' ? 'command' : 'static',
+    runtime: row.runtime === 'command' ? 'command' : row.runtime === 'php' ? 'php' : 'static',
     startCommand: row.start_command ?? '',
     bind: row.bind === 'port' ? 'port' : 'socket',
     port: row.port,
@@ -126,6 +126,19 @@ export class SitesStore {
           `);
                 },
             },
+            {
+                version: 4,
+                // Loopback ports share the host network and therefore cannot enforce the site's access boundary.
+                // Stop legacy rows from restarting until their owner republishes onto the isolated socket transport.
+                up: (handle) => {
+                    handle.exec(`
+            UPDATE p_sites_sites
+              SET bind = 'socket', port = NULL, status = 'failed',
+                  last_error = 'Republish this runtime for the isolated socket transport'
+              WHERE bind = 'port' OR port IS NOT NULL;
+          `);
+                },
+            },
         ]);
     }
     transaction(fn) {
@@ -152,11 +165,11 @@ export class SitesStore {
         return this.db.prepare('SELECT 1 FROM p_sites_sites WHERE slug = ?').get(slug) !== undefined;
     }
     sitesOwnedBy(userId) {
-        return this.db.prepare('SELECT * FROM p_sites_sites WHERE owner_user_id = ? ORDER BY created_at DESC')
+        return this.db.prepare("SELECT * FROM p_sites_sites WHERE owner_user_id = ? AND status <> 'deleting' ORDER BY created_at DESC")
             .all(userId).map(toSite);
     }
     countOwnedBy(userId) {
-        const row = this.db.prepare('SELECT COUNT(*) AS n FROM p_sites_sites WHERE owner_user_id = ?')
+        const row = this.db.prepare("SELECT COUNT(*) AS n FROM p_sites_sites WHERE owner_user_id = ? AND status <> 'deleting'")
             .get(userId);
         return row?.n ?? 0;
     }
@@ -164,14 +177,14 @@ export class SitesStore {
         if (projectIds.length === 0)
             return [];
         const marks = projectIds.map(() => '?').join(', ');
-        return this.db.prepare(`SELECT * FROM p_sites_sites WHERE project_id IN (${marks}) ORDER BY created_at DESC`)
+        return this.db.prepare(`SELECT * FROM p_sites_sites WHERE project_id IN (${marks}) AND status <> 'deleting' ORDER BY created_at DESC`)
             .all(...projectIds).map(toSite);
     }
     sitesSharedWith(userId) {
         return this.db.prepare(`
       SELECT s.* FROM p_sites_sites s
       JOIN p_sites_members m ON m.site_id = s.id
-      WHERE m.user_id = ? ORDER BY s.created_at DESC
+      WHERE m.user_id = ? AND s.status <> 'deleting' ORDER BY s.created_at DESC
     `).all(userId).map(toSite);
     }
     /** Every command site that should be running. What boot reconciliation restarts, because nothing in
@@ -187,7 +200,10 @@ export class SitesStore {
             .all().map((row) => row.port);
     }
     allSites() {
-        return this.db.prepare('SELECT * FROM p_sites_sites ORDER BY created_at DESC').all().map(toSite);
+        return this.db.prepare("SELECT * FROM p_sites_sites WHERE status <> 'deleting' ORDER BY created_at DESC").all().map(toSite);
+    }
+    deletingSites() {
+        return this.db.prepare("SELECT * FROM p_sites_sites WHERE status = 'deleting' ORDER BY updated_at").all().map(toSite);
     }
     updateSite(id, patch) {
         const columns = {
@@ -223,6 +239,21 @@ export class SitesStore {
         this.db.prepare('UPDATE p_sites_sites SET access_generation = access_generation + 1, updated_at = ? WHERE id = ?')
             .run(new Date().toISOString(), id);
     }
+    /** Make deletion durable BEFORE touching a process or filesystem. The site disappears from every list,
+     * stops authorising immediately, and a crash leaves a row boot reconciliation can finish. Idempotent. */
+    beginDelete(id) {
+        this.db.transaction(() => {
+            this.db.prepare(`
+        UPDATE p_sites_sites
+        SET status = 'deleting', current_release_id = NULL,
+            access_generation = access_generation + 1, updated_at = ?
+        WHERE id = ?
+      `).run(new Date().toISOString(), id);
+            this.db.prepare('DELETE FROM p_sites_members WHERE site_id = ?').run(id);
+            this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id = ?').run(id);
+            this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
+        });
+    }
     deleteSite(id) {
         this.db.transaction(() => {
             this.db.prepare('DELETE FROM p_sites_members WHERE site_id = ?').run(id);
@@ -231,6 +262,10 @@ export class SitesStore {
             this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
             this.db.prepare('DELETE FROM p_sites_sites WHERE id = ?').run(id);
         });
+    }
+    memberUserIds() {
+        return this.db.prepare('SELECT DISTINCT user_id FROM p_sites_members ORDER BY user_id').all()
+            .map((row) => row.user_id);
     }
     memberIds(siteId) {
         return this.db.prepare('SELECT user_id FROM p_sites_members WHERE site_id = ? ORDER BY added_at')

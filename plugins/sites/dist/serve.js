@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { RESERVED_PREFIX, cookieName, hashToken, mayOpen, normalizeReturnPath, readCookies, signSession, verifySession, } from './access.js';
@@ -29,6 +30,13 @@ const notFound = (dedicated) => ({
     body: '<!doctype html><meta charset="utf-8"><title>Not found</title><p>This address does not lead anywhere.</p>',
 });
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/;
+function gatewayMarkerMatches(expected, actual) {
+    if (!actual)
+        return false;
+    const left = Buffer.from(expected);
+    const right = Buffer.from(actual);
+    return left.length === right.length && timingSafeEqual(left, right);
+}
 /** The one answer for "you may not see this" AND for "this was never taken".
  *
  *  A browser asking for a page is sent to the app to sign in either way, so a stranger cannot tell an
@@ -128,10 +136,16 @@ export function createSiteHandler(deps) {
         // app's hostname a published page is same-origin with the app, so it is served passive whatever the
         // settings say.
         const onSiteHost = requestOnSiteHost(config, slug, req.headers.host);
+        if (onSiteHost && !gatewayMarkerMatches(config.gatewayToken, req.headers['x-elowen-site-gateway'])) {
+            return notFound(false);
+        }
         const siteRoot = onSiteHost
-            ? `${config.siteScheme}//${slug}.${config.siteHostBase}/hooks/sites/s/${slug}/`
+            ? `${config.siteScheme}//${slug}.${config.siteHostBase}/`
             : `${config.appBaseUrl}/hooks/sites/s/${slug}/`;
         const site = deps.store.siteBySlug(slug);
+        // A durable delete marker must disappear immediately and stay a flat tombstone while cleanup retries.
+        if (site?.status === 'deleting')
+            return notFound(onSiteHost);
         // A site nobody shared with this visitor must be indistinguishable from a slug that was never
         // taken, so an unknown slug takes the SAME sign-in path a forbidden one takes. Answering 404 here
         // and 302 there is a working directory of everything published on the instance.
@@ -153,16 +167,40 @@ export function createSiteHandler(deps) {
             return bounceOrNotFound(req, site.slug, rest, config, onSiteHost);
         }
         deps.countHit(site.id);
-        if (site.runtime === 'command') {
-            // An application reached on the app's own hostname would be served with scripts disabled, which
-            // is not a degraded experience but a broken one. It answers only on its own origin.
-            if (!onSiteHost) {
+        // An application reached on the app hostname would be served under the passive-content policy. That
+        // is not a degraded runtime but a broken one, so every active runtime answers only on its own origin.
+        if (site.runtime !== 'static' && !onSiteHost) {
+            return {
+                status: 421,
+                headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(false, false) },
+                body: '<!doctype html><meta charset="utf-8"><title>Wrong address</title><p>This site is served from its own address.</p>',
+            };
+        }
+        if (site.runtime === 'php') {
+            const release = deps.releaseDir(site.id, site.currentReleaseId);
+            const staticResponse = serveFile(site, release, rest, onSiteHost);
+            if (staticResponse.status === 200)
+                return req.method === 'HEAD' ? { ...staticResponse, body: '' } : staticResponse;
+            try {
+                const response = await deps.executePhp(site, release, req, rest, viewer, siteRoot);
                 return {
-                    status: 421,
-                    headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(false, false) },
-                    body: '<!doctype html><meta charset="utf-8"><title>Wrong address</title><p>This site is served from its own address.</p>',
+                    ...response,
+                    headers: {
+                        ...response.headers,
+                        ...securityHeaders(true, site.visibility === 'public'),
+                        'cache-control': site.visibility === 'public' ? 'public, max-age=0' : 'private, no-store',
+                    },
                 };
             }
+            catch {
+                return {
+                    status: 502,
+                    headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(true, false) },
+                    body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This PHP site did not answer.</p>',
+                };
+            }
+        }
+        if (site.runtime === 'command') {
             const endpoint = deps.endpointFor(site.id);
             if (!endpoint) {
                 return {
@@ -234,7 +272,7 @@ async function redeemTicket(req, site, siteRoot, deps, config, onSiteHost) {
     const sameSite = onSiteHost ? 'Lax' : 'None';
     const cookie = [
         `${cookieName(site.id)}=${value}`,
-        `Path=/hooks/sites/s/${site.slug}/`,
+        `Path=${onSiteHost ? '/' : `/hooks/sites/s/${site.slug}/`}`,
         'HttpOnly',
         `SameSite=${sameSite}`,
         `Max-Age=${Math.floor(config.sessionTtlHours * 3600)}`,
