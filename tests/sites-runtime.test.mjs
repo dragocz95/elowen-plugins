@@ -105,10 +105,14 @@ test('unexpected exit cleanup cannot delete a replacement runtime socket', async
   ]);
   for (const [releaseId, release] of releases) {
     mkdirSync(release, { recursive: true });
+    // The first release dies only AFTER the supervisor has accepted it. Exiting on a fixed timer instead
+    // would race the readiness poll and turn this into a failed start — a different code path, whose
+    // cleanup runs inside `start` and would deadlock against the block this test installs below.
     writeFileSync(join(release, 'server.mjs'), `
       import http from 'node:http';
-      http.createServer((_req, res) => res.end('${releaseId}')).listen(process.env.SOCKET_PATH);
-      ${releaseId === 'release-1' ? 'setTimeout(() => process.exit(0), 100);' : ''}
+      const server = http.createServer((_req, res) => res.end('${releaseId}'));
+      server.listen(process.env.SOCKET_PATH);
+      ${releaseId === 'release-1' ? "server.once('connection', () => setTimeout(() => process.exit(0), 400));" : ''}
     `);
   }
   t.after(() => rmSync(root, { recursive: true, force: true }));
