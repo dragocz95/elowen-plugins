@@ -155,15 +155,7 @@
       "deleted": "Stránka smazána",
       "saved": "Uloženo",
       "close": "Zavřít",
-      "gatewayNav": "Hosting",
-      "gatewayTitle": "Izolovaný hosting stránek",
-      "gatewayActive": "Aktivní",
-      "gatewayInactive": "Vyžaduje nastavení",
-      "gatewayActiveHint": "Každý web se servíruje na vlastní adrese pod tímto zástupným záznamem a má vlastní certifikát. Nic dalšího není potřeba nastavovat.",
-      "gatewayNotReady": "Weby zatím není možné servírovat.",
-      "releaseLive": "Živá",
-      "gatewayRecordTitle": "Potřebný DNS záznam",
-      "gatewayRecordHint": "Vytvořte tento záznam u registrátora, který spravuje doménu. Je to jediný ruční krok; jakmile se záznam propíše, certifikáty se vydávají a obnovují automaticky."
+      "releaseLive": "Živá"
     }
   }
 }

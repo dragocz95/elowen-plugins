@@ -4,20 +4,6 @@ import type { LucideIcon } from 'lucide-react';
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
 export type SiteStatus = 'draft' | 'live' | 'failed';
 
-interface GatewayStatus {
-  available: boolean;
-  active: boolean;
-  hostnameBase: string | null;
-  detail?: string;
-}
-
-export interface GatewayView {
-  status: GatewayStatus;
-  /** The one DNS record this whole feature stands on, or null when the instance has no domain to add
-   *  it to. Read-only: there is nothing to configure here, only something to create at a registrar. */
-  requiredRecord: { name: string; type: 'CNAME'; value: string } | null;
-}
-
 export interface SiteView {
   id: string;
   slug: string;
@@ -45,7 +31,6 @@ export interface SitesListResponse {
   mine: SiteView[];
   shared: SiteView[];
   allowPublicSites: boolean;
-  gateway: GatewayView | null;
 }
 
 interface ReleaseView {

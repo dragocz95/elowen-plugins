@@ -25,7 +25,6 @@ export interface ApiDeps {
   activateRelease(site: Site, releaseId: string): void;
   runtimeState(siteId: string): { running: boolean; logTail: string };
   restartRuntime(site: Site): Promise<void>;
-  gatewayView(): unknown;
 }
 
 const json = (status: number, body: unknown): PluginHttpResponse => ({
@@ -125,7 +124,6 @@ export function createApiHandlers(deps: ApiDeps) {
       mine: mine.map((site) => toView(site, deps, req.auth)),
       shared: shared.map((site) => toView(site, deps, req.auth)),
       allowPublicSites: config.allowPublicSites,
-      gateway: req.auth.admin ? deps.gatewayView() : null,
     });
   };
 

@@ -231,16 +231,12 @@ export function register(published: PluginContext): void {
       await supervisor.start(next);
       store.updateSite(site.id, { status: 'live', lastError: null });
     },
-    gatewayView: () => gateway.payload(),
   });
 
   ctx.registerApiRoute({ path: 'sites', method: 'GET', access: 'user', handler: handlers.list });
   ctx.registerApiRoute({ path: 'site', access: 'user', handler: handlers.site });
   ctx.registerApiRoute({ path: 'ticket', method: 'POST', access: 'user', handler: handlers.ticket });
   ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
-  // Read-only: there is nothing left to configure here. The gateway either has its DNS record or it
-  // does not, and that is a fact about the domain rather than a setting this screen could change.
-  ctx.registerApiRoute({ path: 'gateway', method: 'GET', access: 'admin', handler: (req) => gateway.handle(req) });
 
   registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, people });
 
@@ -261,6 +257,10 @@ export function register(published: PluginContext): void {
     for (const site of store.allSites()) {
       if (site.status === 'deleting') continue;
       if (!all && issued.has(site.slug)) continue;
+      // A plugin reload runs this again from the top, and a certificate authority counts FAILED
+      // validations per hostname per hour. Without this the third reload in a row spends the budget the
+      // working sites need on the one site whose DNS is simply wrong.
+      if (!gateway.mayAttempt(site.slug)) continue;
       try { await gateway.ensureSite(site.slug); }
       catch (error) {
         ctx.logger.warn(`site ${site.slug} has no certificate yet: ${error instanceof Error ? error.message : String(error)}`);

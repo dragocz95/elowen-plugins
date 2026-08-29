@@ -4,11 +4,6 @@ const GATEWAY_TOKEN_KEY = 'gatewayToken';
 const DNS_TIMEOUT_MS = 5_000;
 const MIN_BACKOFF_MS = 60_000;
 const MAX_BACKOFF_MS = 3600_000;
-const json = (status, body) => ({
-    status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-    body: body,
-});
 /** Owns the one conversation with the root broker: the shared marker token, per-site certificates, and
  *  the check that the wildcard DNS record this whole feature stands on actually exists.
  *
@@ -74,9 +69,6 @@ export class SiteGatewayManager {
         // zone. A CNAME rather than an A record: it follows the app's own name, so it survives the address
         // changing underneath, and chaining to another CNAME is well-defined.
         return { name: `*.${base}`, type: 'CNAME', value: `${appHost}.` };
-    }
-    payload() {
-        return { status: this.current, requiredRecord: this.requiredRecord() };
     }
     brokerHostnameBase() {
         return this.ctx.control('publishedSitesGateway')?.hostnameBase() ?? null;
@@ -199,12 +191,9 @@ export class SiteGatewayManager {
         }
         return configured.trim();
     }
-    async handle(req) {
-        if (req.method !== 'GET')
-            return json(405, { error: 'method not allowed' });
-        await this.reconcile();
-        return json(200, this.payload());
-    }
+    /** The gateway's health as the Settings screen reports it. This readiness check is the ONE place the
+     *  required DNS record is surfaced to a person: there is no configuration form, because the record
+     *  lives at a registrar and is not something this instance could write. */
     async readiness() {
         await this.reconcile();
         const record = this.requiredRecord();

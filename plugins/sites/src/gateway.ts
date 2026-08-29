@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
 import { Resolver } from 'node:dns/promises';
-import type { PluginApiRequest, PluginHttpResponse } from 'elowen/plugin-api';
 import type { SitesContext, SitesGatewayStatus } from './coreSeams.js';
 
 const GATEWAY_TOKEN_KEY = 'gatewayToken';
@@ -8,17 +7,8 @@ const DNS_TIMEOUT_MS = 5_000;
 const MIN_BACKOFF_MS = 60_000;
 const MAX_BACKOFF_MS = 3600_000;
 
-export interface GatewayPayload {
-  status: SitesGatewayStatus;
-  /** The exact record an operator has to create, so the failure is actionable without documentation. */
-  requiredRecord: { name: string; type: 'CNAME'; value: string } | null;
-}
-
-const json = (status: number, body: unknown): PluginHttpResponse => ({
-  status,
-  headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-  body: body as object,
-});
+/** The exact record an operator has to create, so the failure is actionable without documentation. */
+type RequiredRecord = { name: string; type: 'CNAME'; value: string };
 
 /** Owns the one conversation with the root broker: the shared marker token, per-site certificates, and
  *  the check that the wildcard DNS record this whole feature stands on actually exists.
@@ -70,7 +60,7 @@ export class SiteGatewayManager {
 
   /** The record an operator must create for this instance, derived from the hostname the broker owns.
    *  Null only when the daemon has no site hostname at all, in which case there is nothing to point at. */
-  requiredRecord(): GatewayPayload['requiredRecord'] {
+  requiredRecord(): RequiredRecord | null {
     const base = this.brokerHostnameBase();
     const appHost = this.appHost();
     if (!base || !appHost) return null;
@@ -78,10 +68,6 @@ export class SiteGatewayManager {
     // zone. A CNAME rather than an A record: it follows the app's own name, so it survives the address
     // changing underneath, and chaining to another CNAME is well-defined.
     return { name: `*.${base}`, type: 'CNAME', value: `${appHost}.` };
-  }
-
-  payload(): GatewayPayload {
-    return { status: this.current, requiredRecord: this.requiredRecord() };
   }
 
   private brokerHostnameBase(): string | null {
@@ -201,12 +187,9 @@ export class SiteGatewayManager {
     return configured.trim();
   }
 
-  async handle(req: PluginApiRequest): Promise<PluginHttpResponse> {
-    if (req.method !== 'GET') return json(405, { error: 'method not allowed' });
-    await this.reconcile();
-    return json(200, this.payload());
-  }
-
+  /** The gateway's health as the Settings screen reports it. This readiness check is the ONE place the
+   *  required DNS record is surfaced to a person: there is no configuration form, because the record
+   *  lives at a registrar and is not something this instance could write. */
   async readiness() {
     await this.reconcile();
     const record = this.requiredRecord();

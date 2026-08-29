@@ -71,7 +71,6 @@ export function createApiHandlers(deps) {
             mine: mine.map((site) => toView(site, deps, req.auth)),
             shared: shared.map((site) => toView(site, deps, req.auth)),
             allowPublicSites: config.allowPublicSites,
-            gateway: req.auth.admin ? deps.gatewayView() : null,
         });
     };
     /** GET|PATCH|DELETE /plugins/sites/api/site/<id>[/…] */
