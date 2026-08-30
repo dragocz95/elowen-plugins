@@ -1,5 +1,9 @@
 # Changelog
 
+## skills 0.3.2 - 2026-08-30
+
+- Use semantic host text tokens in settings.
+
 ## cronjob 0.2.6 - 2026-08-30
 
 - Use semantic host tokens across scheduler forms and tables.
