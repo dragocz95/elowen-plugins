@@ -117,7 +117,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1 text-xs">
         <button type="button" onClick={() => setBrowsing('')}
-          className={`rounded px-1.5 py-0.5 hover:bg-accent ${browsing === '' ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+          className={`rounded px-1.5 py-0.5 hover:bg-accent hover:text-accent-foreground ${browsing === '' ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
           {rootLabel}
         </button>
         {crumbs.map((crumb, index) => (
@@ -125,7 +125,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
             <ChevronRight size={12} className="text-subtle-foreground" aria-hidden />
             <button type="button" onClick={() => setBrowsing(crumbs.slice(0, index + 1).join('/'))}
               title={crumb}
-              className={`max-w-[10rem] truncate rounded px-1.5 py-0.5 hover:bg-accent ${index === crumbs.length - 1 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+              className={`max-w-[10rem] truncate rounded px-1.5 py-0.5 hover:bg-accent hover:text-accent-foreground ${index === crumbs.length - 1 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
               {crumb}
             </button>
           </span>
@@ -138,7 +138,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
         <button type="button" aria-pressed={value?.subpath === browsing}
           disabled={!listing.data}
           onClick={() => listing.data && onChange({ subpath: browsing, remotePath: listing.data.remotePath })}
-          className={`flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-accent disabled:opacity-50 ${
+          className={`flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-50 ${
             value?.subpath === browsing ? 'bg-accent text-accent-foreground' : ''}`}>
           <FolderOpen size={13} aria-hidden />
           <span className="truncate">{browsing === '' ? s.mirrorWholeProject : `${s.mirrorThisFolder}: ${browsing}`}</span>
@@ -154,14 +154,14 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
                 <div key={folder.path} className="flex items-stretch border-b border-border/70 last:border-b-0">
                   <button type="button" aria-pressed={value?.subpath === folder.path}
                     onClick={() => onChange({ subpath: folder.path, remotePath: folder.remotePath })}
-                    className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-accent ${
+                    className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-accent hover:text-accent-foreground ${
                       value?.subpath === folder.path ? 'bg-accent text-accent-foreground' : ''}`}>
                     <Folder size={13} aria-hidden />
                     <span className="truncate" title={folder.path}>{folder.name}</span>
                     {value?.subpath === folder.path ? <span className="ml-auto shrink-0 font-medium">{s.selected}</span> : null}
                   </button>
                   <button type="button" onClick={() => setBrowsing(folder.path)} aria-label={`${s.openFolderLabel}: ${folder.name}`}
-                    className="px-2 text-muted-foreground hover:bg-accent hover:text-foreground">
+                    className="px-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
                     <ChevronRight size={14} aria-hidden />
                   </button>
                 </div>
@@ -222,7 +222,7 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
 
       {row.conflictCount > 0 && (
         <button type="button" onClick={onConflicts}
-          className="flex w-full items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-left text-sm hover:bg-accent">
+          className="flex w-full items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground">
           <TriangleAlert size={15} className="text-warning" aria-hidden />
           <span>{s.conflicts}</span>
           <C.Badge tone="warning">{row.conflictCount}</C.Badge>

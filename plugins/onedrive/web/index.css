@@ -246,8 +246,8 @@
         background-color: var(--color-accent, color-mix(in srgb, var(--color-foreground) 10%, transparent));
       }
     }
-    .hover\:text-foreground:hover {
-      color: var(--color-foreground, #f7f3f0);
+    .hover\:text-accent-foreground:hover {
+      color: var(--color-accent-foreground, var(--color-foreground));
     }
   }
   .disabled\:opacity-50:disabled {

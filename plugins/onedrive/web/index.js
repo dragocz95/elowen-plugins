@@ -301,7 +301,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
         {
           type: "button",
           onClick: () => setBrowsing(""),
-          className: `rounded px-1.5 py-0.5 hover:bg-accent ${browsing === "" ? "text-foreground font-medium" : "text-muted-foreground"}`,
+          className: `rounded px-1.5 py-0.5 hover:bg-accent hover:text-accent-foreground ${browsing === "" ? "text-foreground font-medium" : "text-muted-foreground"}`,
           children: rootLabel
         }
       ),
@@ -313,7 +313,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
             type: "button",
             onClick: () => setBrowsing(crumbs.slice(0, index + 1).join("/")),
             title: crumb,
-            className: `max-w-[10rem] truncate rounded px-1.5 py-0.5 hover:bg-accent ${index === crumbs.length - 1 ? "text-foreground font-medium" : "text-muted-foreground"}`,
+            className: `max-w-[10rem] truncate rounded px-1.5 py-0.5 hover:bg-accent hover:text-accent-foreground ${index === crumbs.length - 1 ? "text-foreground font-medium" : "text-muted-foreground"}`,
             children: crumb
           }
         )
@@ -327,7 +327,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
           "aria-pressed": value?.subpath === browsing,
           disabled: !listing.data,
           onClick: () => listing.data && onChange({ subpath: browsing, remotePath: listing.data.remotePath }),
-          className: `flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-accent disabled:opacity-50 ${value?.subpath === browsing ? "bg-accent text-accent-foreground" : ""}`,
+          className: `flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-50 ${value?.subpath === browsing ? "bg-accent text-accent-foreground" : ""}`,
           children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderOpen, { size: 13, "aria-hidden": true }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", children: browsing === "" ? s.mirrorWholeProject : `${s.mirrorThisFolder}: ${browsing}` }),
@@ -342,7 +342,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
             type: "button",
             "aria-pressed": value?.subpath === folder.path,
             onClick: () => onChange({ subpath: folder.path, remotePath: folder.remotePath }),
-            className: `flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-accent ${value?.subpath === folder.path ? "bg-accent text-accent-foreground" : ""}`,
+            className: `flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-accent hover:text-accent-foreground ${value?.subpath === folder.path ? "bg-accent text-accent-foreground" : ""}`,
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Folder, { size: 13, "aria-hidden": true }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", title: folder.path, children: folder.name }),
@@ -356,7 +356,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
             type: "button",
             onClick: () => setBrowsing(folder.path),
             "aria-label": `${s.openFolderLabel}: ${folder.name}`,
-            className: "px-2 text-muted-foreground hover:bg-accent hover:text-foreground",
+            className: "px-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
             children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronRight, { size: 14, "aria-hidden": true })
           }
         )
@@ -409,7 +409,7 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
       {
         type: "button",
         onClick: onConflicts,
-        className: "flex w-full items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-left text-sm hover:bg-accent",
+        className: "flex w-full items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TriangleAlert, { size: 15, className: "text-warning", "aria-hidden": true }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: s.conflicts }),
