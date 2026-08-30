@@ -1,5 +1,9 @@
 # Changelog
 
+## whatsapp 0.2.15 - 2026-08-30
+
+- Use semantic host tokens in pairing settings.
+
 ## msteams 0.5.31 - 2026-08-30
 
 - Use semantic host tokens across Teams identity and mapping views.
