@@ -113,16 +113,16 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
           className="flex w-full min-w-0 flex-col items-start gap-0.5 text-left"
         >
           <span className="flex min-w-0 max-w-full items-center gap-2">
-            <StatusIcon size={12} aria-hidden className={site.status === 'live' ? 'shrink-0 text-success' : site.status === 'failed' ? 'shrink-0 text-danger' : 'shrink-0 text-text-muted'} />
-            <span className="truncate text-sm text-text">{site.title}</span>
+            <StatusIcon size={12} aria-hidden className={site.status === 'live' ? 'shrink-0 text-success' : site.status === 'failed' ? 'shrink-0 text-destructive' : 'shrink-0 text-muted-foreground'} />
+            <span className="truncate text-sm text-foreground">{site.title}</span>
           </span>
-          <span className="max-w-full truncate font-mono text-[11px] text-text-muted">{site.url}</span>
+          <span className="max-w-full truncate font-mono text-[11px] text-muted-foreground">{site.url}</span>
         </button>
       </DataTableCell>
       <DataTableCell priority="wide" title={site.owner.name}>
         <span className="flex min-w-0 items-center gap-2">
           <Avatar size={22} name={site.owner.name} user={avatarUser(site.owner)} />
-          <span className="truncate text-xs text-text-muted">{site.owner.name}</span>
+          <span className="truncate text-xs text-muted-foreground">{site.owner.name}</span>
         </span>
       </DataTableCell>
       <DataTableCell priority="wide">
@@ -134,7 +134,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
       <DataTableCell priority="wide">
         <Badge tone={STATUS_TONE[site.status]}>{strings[STATUS_STRING[site.status]]}</Badge>
       </DataTableCell>
-      <DataTableCell priority="wide" className="whitespace-nowrap text-xs text-text-muted">{published}</DataTableCell>
+      <DataTableCell priority="wide" className="whitespace-nowrap text-xs text-muted-foreground">{published}</DataTableCell>
       <DataTableCell>
         {site.status === 'live' && site.url !== null ? (
           <IconButton
@@ -144,7 +144,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
           />
         ) : null}
       </DataTableCell>
-      <DataTableCell aria-hidden className="text-text-muted/50 transition-colors group-hover:text-text">
+      <DataTableCell aria-hidden className="text-muted-foreground/50 transition-colors group-hover:text-foreground">
         <ChevronRight size={15} />
       </DataTableCell>
     </DataTableRow>
@@ -269,7 +269,7 @@ export function SitesPage() {
                   <div className="flex w-full min-w-0 flex-wrap items-center gap-2 py-3">
                     <label className="register-search relative min-w-[14rem] flex-1">
                       <span className="sr-only">{strings.searchPlaceholder}</span>
-                      <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-text-muted" />
+                      <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         type="search"
                         value={query}
