@@ -22,8 +22,8 @@ export function ImagePreview({ projectId, path }: { projectId: number; path: str
   }, [projectId, path]);
 
   return (
-    <div className="flex h-full items-center justify-center overflow-auto bg-bg p-6">
-      {failed ? <p className="text-sm text-text-muted">{path}</p>
+    <div className="flex h-full items-center justify-center overflow-auto bg-background p-6">
+      {failed ? <p className="text-sm text-muted-foreground">{path}</p>
         : url ? (
           <img src={url} alt={path} className="max-h-full max-w-full object-contain" />
         ) : null}

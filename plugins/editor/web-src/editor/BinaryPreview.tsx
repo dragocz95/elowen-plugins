@@ -35,14 +35,14 @@ export function BinaryPreview({ projectId, path, size, message, downloadLabel, s
   };
 
   return (
-    <div className="flex h-full items-center justify-center overflow-auto bg-bg p-6">
-      <div className="w-full max-w-md rounded-xl border border-border bg-document p-6 text-center shadow-sm">
-        <FileIcon size={36} className="mx-auto text-text-muted" aria-hidden />
-        <p className="mt-3 break-all font-mono text-sm font-semibold text-text">{baseName(path)}</p>
-        <p className="mt-2 text-sm text-text-muted">{message}</p>
+    <div className="flex h-full items-center justify-center overflow-auto bg-background p-6">
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 text-center shadow-sm">
+        <FileIcon size={36} className="mx-auto text-muted-foreground" aria-hidden />
+        <p className="mt-3 break-all font-mono text-sm font-semibold text-foreground">{baseName(path)}</p>
+        <p className="mt-2 text-sm text-muted-foreground">{message}</p>
         <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-left text-xs">
-          <dt className="text-text-muted">{sizeLabel}</dt><dd className="text-right text-text">{formatBytes(size)}</dd>
-          <dt className="text-text-muted">{typeLabel}</dt><dd className="break-all text-right font-mono text-text">{mimeTypeOf(path)}</dd>
+          <dt className="text-muted-foreground">{sizeLabel}</dt><dd className="text-right text-foreground">{formatBytes(size)}</dd>
+          <dt className="text-muted-foreground">{typeLabel}</dt><dd className="break-all text-right font-mono text-foreground">{mimeTypeOf(path)}</dd>
         </dl>
         {!downloadAvailable ? <p className="mt-4 text-xs text-warning">{downloadUnavailableLabel}</p> : null}
         <div className="mt-5 flex justify-center"><Button variant="accent" icon={Download} disabled={!downloadAvailable} onClick={download}>{downloadLabel}</Button></div>

@@ -362,8 +362,8 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const dialogInitial = dialog?.kind === 'rename' ? baseName(dialog.target)
     : dialog?.kind === 'duplicate' ? baseName(copyName(dialog.target)) : '';
 
-  // The view mode and Save. In fullscreen they ride in the takeover's own header row — the one strip
-  // that is always on screen — and in the inline card they sit at the end of the editor's toolbar.
+  // The view mode and Save stay with File / View / Settings in the editor-owned wrapping toolbar.
+  // The takeover header has one job: identify the workbench and provide its single exit.
   const viewControls = editable ? (
     <>
       <ViewSwitch
@@ -382,9 +382,9 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
 
   const surface = (
     <>
-      {/* Toolbar. It wraps rather than clips: at 320px the menu bar and the commit label do not fit on
-          one line, and a row that overflows hides whichever of them lands last. */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+      {/* Toolbar. Both the row and its trailing controls wrap: at phone width File / View / Settings,
+          the view switch and Save remain reachable without widening the takeover page. */}
+      <div role="toolbar" aria-label={s.editorTitle} className="flex max-w-full flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         {/* On mobile (fullscreen + tree hidden) a toggle surfaces the file tree as an overlay. */}
         {mobile && fullscreen && (
           <button
@@ -393,7 +393,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
             aria-pressed={showTree}
             aria-label={s.toggleTree}
             title={s.toggleTree}
-            className={`overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md transition-colors ${showTree ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-elevated hover:text-text'}`}
+            className={`overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md transition-colors ${showTree ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}`}
           >
             <PanelLeft size={15} />
           </button>
@@ -402,12 +402,12 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
             "Code editor" label would be the same title twice. */}
         {!fullscreen && (
           <>
-            <Code2 size={15} className="shrink-0 text-accent" aria-hidden />
-            <span className="text-sm font-semibold text-text">{s.editorTitle}</span>
+            <Code2 size={15} className="shrink-0 text-primary" aria-hidden />
+            <span className="text-sm font-semibold text-foreground">{s.editorTitle}</span>
           </>
         )}
         {working ? <span className="truncate font-mono text-xs text-warning"><GitCompare size={11} className="mr-1 inline" aria-hidden />{s.workingChanges}</span>
-          : commit ? <button type="button" onClick={() => setSelected(null)} disabled={!selected} title={selected ? s.viewCommit : undefined} className="overlay-menu-item flex min-w-0 items-center truncate font-mono text-xs text-accent transition-colors enabled:hover:text-text disabled:cursor-default"><GitCompare size={11} className="mr-1 inline shrink-0" aria-hidden /><span className="truncate">{s.commitLabel} {commit.slice(0, 8)}{selected ? ` · ${selected}` : ''}</span></button>
+          : commit ? <button type="button" onClick={() => setSelected(null)} disabled={!selected} title={selected ? s.viewCommit : undefined} className="overlay-menu-item flex min-w-0 items-center truncate font-mono text-xs text-primary transition-colors enabled:hover:text-primary-hot disabled:cursor-default"><GitCompare size={11} className="mr-1 inline shrink-0" aria-hidden /><span className="truncate">{s.commitLabel} {commit.slice(0, 8)}{selected ? ` · ${selected}` : ''}</span></button>
           : null}
         {/* The menu bar owns the file actions, so they stop competing with the view mode and Save for
             the same strip of toolbar. Hidden in the read-only commit and working-diff views, where
@@ -416,13 +416,11 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
             right-click either; the takeover header now carries the title and the exit, so the row has
             the space for it. */}
         {!commit && !working ? <MenuBar menus={menus} openId={openMenu} onOpen={openTopMenu} /> : null}
-        {uploading ? <span className="text-xs text-text-muted">{s.uploading}</span> : null}
-        {!fullscreen ? (
-          <div className="ml-auto flex items-center gap-2">
-            {viewControls}
-            {onClose ? <button type="button" aria-label={t.common.close} onClick={onClose} className="overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text"><X size={15} /></button> : null}
-          </div>
-        ) : null}
+        {uploading ? <span className="text-xs text-muted-foreground">{s.uploading}</span> : null}
+        <div className="ml-auto flex max-w-full flex-wrap items-center gap-2">
+          {viewControls}
+          {!fullscreen && onClose ? <button type="button" aria-label={t.common.close} onClick={onClose} className="overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"><X size={15} /></button> : null}
+        </div>
       </div>
 
       {/* `relative` scopes the mobile tree overlay (absolute) to this row — without it the overlay
@@ -448,10 +446,10 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
             // user as ~11.5rem on a 1024px screen; rendering natively it took a quarter of the width
             // away from the editor. The clamp lands on the old apparent size at 1024px and grows back
             // to the full 16rem on the wide screen it was drawn for.
-            className={`relative flex shrink-0 flex-col border-r border-border ${(mobile && fullscreen) ? 'absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-surface shadow-[var(--shadow-raised)]' : 'w-[clamp(11rem,18vw,16rem)] bg-bg/40'} ${dropping ? 'ring-2 ring-inset ring-accent' : ''}`}
+            className={`relative flex shrink-0 flex-col border-r border-border ${(mobile && fullscreen) ? 'absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-card shadow-[var(--shadow-raised)]' : 'w-[clamp(11rem,18vw,16rem)] bg-background'} ${dropping ? 'ring-2 ring-inset ring-primary' : ''}`}
           >
             {dropping ? (
-              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-accent/10 px-3 text-center text-xs font-medium text-accent">
+              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-primary/10 px-3 text-center text-xs font-medium text-primary">
                 {s.dropHere.replace('{dir}', uploadDir || '/')}
               </div>
             ) : null}
@@ -467,7 +465,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
                   type="button"
                   onClick={() => setFullscreen(true)}
                   title={s.fullscreen}
-                  className="overlay-menu-item flex w-full items-center justify-center gap-2 rounded-md border border-border bg-elevated px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-border-strong hover:text-text"
+                  className="overlay-menu-item flex w-full items-center justify-center gap-2 rounded-md border border-border bg-secondary px-2 py-1.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-border-strong hover:bg-accent hover:text-accent-foreground"
                 >
                   <Maximize2 size={13} aria-hidden />
                   {s.fullscreen}
@@ -492,7 +490,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
               : fileKind === 'binary' || fileKind === 'image' || fileKind === 'pdf' || fileKind === 'office' || fileKind === 'video' || fileKind === 'audio'
                 ? <BinaryPreview projectId={projectId} path={selected} size={fileSize} message={fileKind === 'binary' ? s.binaryFile : s.previewTooLarge} downloadLabel={s.download} sizeLabel={s.fileSize} typeLabel={s.fileType} downloadAvailable={fileSize <= MAX_BUFFERED_BYTES} downloadUnavailableLabel={s.downloadUnavailable} />
               : fileData.isLoading ? <LoadingState />
-              : fileData.data?.truncated ? <p className="p-4 text-center text-sm text-text-muted">{s.fileTooBig}</p>
+              : fileData.data?.truncated ? <p className="p-4 text-center text-sm text-muted-foreground">{s.fileTooBig}</p>
               : effTab === 'diff' ? (headData.isLoading ? <LoadingState /> : <DiffEditorPane path={selected} original={headData.data?.content ?? ''} modified={value} prefs={prefs} />)
               : effTab === 'preview' && fileKind === 'csv' ? <CsvPreview source={value} invalidLabel={s.csvInvalid} limitedLabel={s.csvLimited} />
               : effTab === 'preview' ? <MarkdownPreview source={value} />
@@ -526,9 +524,9 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
           onPointerMove={(e) => { if (dragY.current === null) return; const dy = e.clientY - dragY.current; dragY.current = e.clientY; setEditorH((h) => clampEditorH(h + dy)); }}
           onPointerUp={(e) => { if (dragY.current === null) return; dragY.current = null; e.currentTarget.releasePointerCapture?.(e.pointerId); }}
           onLostPointerCapture={() => { dragY.current = null; }}
-          className="group flex h-3.5 shrink-0 cursor-row-resize items-center justify-center border-t border-border bg-bg/40 transition-colors hover:bg-elevated"
+          className="group flex h-3.5 shrink-0 cursor-row-resize items-center justify-center border-t border-border bg-muted transition-colors hover:bg-accent"
         >
-          <span className="h-1 w-10 rounded-full bg-border transition-all duration-200 group-hover:w-16 group-hover:bg-text-muted" />
+          <span className="h-1 w-10 rounded-full bg-border transition-all duration-200 group-hover:w-16 group-hover:bg-muted-foreground" />
         </div>
       ) : null}
 
@@ -563,15 +561,16 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         title={s.editorTitle}
         onBack={leaveFullscreen}
         backLabel={mobile && onClose ? t.common.back : s.exitFullscreen}
-        toolbar={viewControls}
       >
-        {surface}
+        <section aria-label={s.editorTitle} className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+          {surface}
+        </section>
       </WorkspaceTakeover>
     );
   }
   return (
-    <div className="flex flex-col overflow-hidden border-y border-border bg-document" style={{ height: fill ? '100%' : editorH }}>
+    <section aria-label={s.editorTitle} className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card" style={{ height: fill ? '100%' : editorH }}>
       {surface}
-    </div>
+    </section>
   );
 }

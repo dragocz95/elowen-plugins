@@ -48,7 +48,7 @@ export function ConfirmDialog({ title, message, confirmLabel, danger, icon, onCo
   return (
     <Modal title={title} onClose={onCancel} size="sm" icon={icon}>
       <ModalBody gap={4}>
-        <p className="text-sm text-text-muted">{message}</p>
+        <p className="text-sm text-muted-foreground">{message}</p>
       </ModalBody>
       <ModalFooter>
         <Button variant="ghost" onClick={onCancel}>{t.common.cancel}</Button>

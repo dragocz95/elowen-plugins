@@ -18,7 +18,7 @@ export function ViewSwitch<T extends string>({ options, value, onChange, label }
 }) {
   if (options.length < 2) return null;
   return (
-    <div role="tablist" aria-label={label} className="flex items-center gap-0.5 rounded-lg border border-border bg-bg/60 p-0.5">
+    <div role="tablist" aria-label={label} className="flex items-center gap-0.5 rounded-lg border border-border bg-muted p-0.5">
       {options.map((option) => {
         const Icon = option.icon;
         const active = option.id === value;
@@ -30,7 +30,7 @@ export function ViewSwitch<T extends string>({ options, value, onChange, label }
             aria-selected={active}
             onClick={() => onChange(option.id)}
             className={`overlay-menu-item flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-              active ? 'bg-elevated text-text shadow-sm' : 'text-text-muted hover:text-text'
+              active ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             }`}
           >
             {Icon ? <Icon size={13} className="shrink-0" /> : null}

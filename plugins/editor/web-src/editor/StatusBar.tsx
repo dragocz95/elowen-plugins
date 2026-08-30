@@ -26,7 +26,7 @@ export function StatusBar({ path, cursor, language, tabSize, size, dirty, labels
   labels: { line: string; column: string; selected: string; spaces: string; unsaved: string };
 }) {
   return (
-    <div className="flex h-6 shrink-0 items-center gap-3 border-t border-border bg-bg/60 px-3 text-[11px] text-text-muted">
+    <div className="flex h-6 shrink-0 items-center gap-3 border-t border-border bg-background px-3 text-[11px] text-muted-foreground">
       <span className="flex min-w-0 items-center gap-1.5">
         {dirty ? <Circle size={7} className="shrink-0 fill-warning text-warning" aria-label={labels.unsaved} /> : null}
         <span className="truncate font-mono" title={path}>{path}</span>
@@ -35,12 +35,12 @@ export function StatusBar({ path, cursor, language, tabSize, size, dirty, labels
         {cursor ? (
           <span>
             {labels.line} {cursor.line}, {labels.column} {cursor.column}
-            {cursor.selected > 0 ? <span className="text-accent"> ({cursor.selected} {labels.selected})</span> : null}
+            {cursor.selected > 0 ? <span className="text-primary"> ({cursor.selected} {labels.selected})</span> : null}
           </span>
         ) : null}
         <span>{labels.spaces}: {tabSize}</span>
         <span>{formatBytes(size)}</span>
-        <span className="font-medium uppercase text-text">{language}</span>
+        <span className="font-medium uppercase text-foreground">{language}</span>
       </span>
     </div>
   );
