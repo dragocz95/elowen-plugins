@@ -1,6 +1,6 @@
 {
   "name": "onedrive",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "apiVersion": "1",
   "requiresCore": "0.28.17",
   "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",

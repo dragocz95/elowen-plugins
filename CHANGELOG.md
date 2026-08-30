@@ -1,5 +1,9 @@
 # Changelog
 
+## onedrive 0.2.2 - 2026-08-30
+
+- Use semantic host tokens across OneDrive project panels.
+
 ## github 0.1.10 - 2026-08-30
 
 - Use semantic host tokens across connection and project views.
