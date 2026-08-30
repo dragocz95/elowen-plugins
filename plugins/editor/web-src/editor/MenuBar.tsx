@@ -30,7 +30,7 @@ export function MenuBar({ menus, openId, onOpen }: {
           // drawn 24px tall, and on a touch device the menu bar is the only reachable trigger for the
           // file actions — there is no right-click there to fall back to.
           className={`overlay-menu-item rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-            openId === menu.id ? 'bg-elevated text-text' : 'text-text-muted hover:bg-elevated hover:text-text'
+            openId === menu.id ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
           }`}
         >
           {menu.label}

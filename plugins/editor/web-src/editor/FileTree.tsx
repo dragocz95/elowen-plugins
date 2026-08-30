@@ -19,22 +19,23 @@ function TreeRow({ node, depth, expanded, onToggle, selected, onSelect, changed,
     const FolderIcon = isOpen ? FolderOpen : Folder;
     return (
       <li role="treeitem" aria-expanded={isOpen} aria-label={node.name}>
-        <button type="button" onClick={() => onToggle(node.path)} onContextMenu={ctx} className="overlay-menu-item flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-xs text-text-muted transition-colors hover:bg-elevated" style={{ paddingLeft: depth * 12 + 6 }}>
+        <button type="button" onClick={() => onToggle(node.path)} onContextMenu={ctx} className="overlay-menu-item flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground" style={{ paddingLeft: depth * 12 + 6 }}>
           <ChevronRight size={11} className={`shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} aria-hidden />
-          <FolderIcon size={13} className={`shrink-0 ${hasChange ? 'text-accent' : 'text-text-muted'}`} aria-hidden />
-          <span className={`truncate ${hasChange ? 'text-text' : ''}`}>{node.name}</span>
+          <FolderIcon size={13} className={`shrink-0 ${hasChange ? 'text-primary' : 'text-muted-foreground'}`} aria-hidden />
+          <span className={`truncate ${hasChange ? 'text-foreground' : ''}`}>{node.name}</span>
         </button>
         {isOpen ? <ul role="group" className="m-0 list-none p-0">{node.children.map((c) => <TreeRow key={c.path} node={c} depth={depth + 1} expanded={expanded} onToggle={onToggle} selected={selected} onSelect={onSelect} changed={changed} onContextMenu={onContextMenu} />)}</ul> : null}
       </li>
     );
   }
   const isChanged = changed.has(node.path);
+  const isSelected = selected === node.path;
   return (
-    <li role="treeitem" aria-selected={selected === node.path}>
-      <button type="button" onClick={() => onSelect(node.path)} onContextMenu={ctx} className={`overlay-menu-item flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-xs transition-colors hover:bg-elevated ${selected === node.path ? 'bg-accent/15 text-accent' : isChanged ? 'font-medium text-accent' : 'text-text'}`} style={{ paddingLeft: depth * 12 + 16 }} title={node.path}>
-      <FileIcon size={12} className={`shrink-0 ${isChanged ? 'text-accent' : 'text-text-muted'}`} aria-hidden />
+    <li role="treeitem" aria-selected={isSelected}>
+      <button type="button" onClick={() => onSelect(node.path)} onContextMenu={ctx} className={`overlay-menu-item flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-xs transition-colors ${isSelected ? 'bg-accent text-accent-foreground' : isChanged ? 'font-medium text-primary hover:bg-accent hover:text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'}`} style={{ paddingLeft: depth * 12 + 16 }} title={node.path}>
+      <FileIcon size={12} className={`shrink-0 ${isChanged ? 'text-primary' : 'text-muted-foreground'}`} aria-hidden />
       <span className="min-w-0 flex-1 truncate">{node.name}</span>
-      {isChanged ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden /> : null}
+      {isChanged ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden /> : null}
       </button>
     </li>
   );
@@ -53,7 +54,7 @@ export function FileTree({ tree, expanded, onToggle, selected, onSelect, changed
   return (
     <div className="h-full" onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, null); }}>
       {tree.length === 0
-        ? <p className="p-3 text-center text-xs text-text-muted">{emptyLabel}</p>
+        ? <p className="p-3 text-center text-xs text-muted-foreground">{emptyLabel}</p>
         : <ul role="tree" aria-label={treeLabel} className="m-0 list-none p-0">{tree.map((n) => <TreeRow key={n.path} node={n} depth={0} expanded={expanded} onToggle={onToggle} selected={selected} onSelect={onSelect} changed={changed} onContextMenu={onContextMenu} />)}</ul>}
     </div>
   );

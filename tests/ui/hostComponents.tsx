@@ -302,7 +302,7 @@ export function WorkspaceTakeover({ title, onBack, backLabel, toolbar, children 
   const back = backLabel ?? t.common.back;
   if (!mounted) return null;
   return createPortal(
-    <div className="overlay-layer-modal">
+    <div className="overlay-layer-modal fixed inset-0">
       <div
         role="dialog"
         aria-modal="true"
@@ -310,14 +310,14 @@ export function WorkspaceTakeover({ title, onBack, backLabel, toolbar, children 
         tabIndex={-1}
         data-elowen-takeover
         data-presentation="fullscreen"
-        className="overlay-surface workspace-takeover"
+        className="overlay-surface workspace-takeover min-h-0 w-full"
       >
-        <div className="workspace-takeover__header">
-          <button type="button" aria-label={back} title={back} onClick={onBack}><ChevronLeft size={18} aria-hidden /></button>
-          <h2 id={titleId}>{title}</h2>
-          {toolbar ? <div>{toolbar}</div> : null}
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+          <button type="button" aria-label={back} title={back} onClick={onBack} className="overlay-touch-target flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"><ChevronLeft size={18} aria-hidden /></button>
+          <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-foreground">{title}</h2>
+          {toolbar ? <div className="ml-auto flex min-w-0 items-center gap-2">{toolbar}</div> : null}
         </div>
-        <div className="workspace-takeover__body">{children}</div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
       </div>
     </div>,
     document.body,

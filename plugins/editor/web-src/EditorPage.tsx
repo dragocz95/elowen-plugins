@@ -6,7 +6,7 @@ import { ProjectEditor } from './editor/ProjectEditor';
 const { useProjects, usePluginStrings, useProjectFilter, useFillHeight, useMobile } = runtime().hooks;
 const {
   ModuleHeader, EmptyState, WorkspacePage, WorkspaceHero, ProjectFilterPills,
-  ControlSurfaceDocument, MotionPresence, MotionLayoutItem,
+  MotionPresence, MotionLayoutItem,
 } = runtime().components;
 const { navigate } = runtime();
 
@@ -65,14 +65,12 @@ export function EditorPage() {
             `.workspace-shell__content` above it to inherit one from, and borrowing that class instead
             would drop its 2rem bottom padding INSIDE the fill height and reopen the dead band below the
             editor that the height above exists to close. */}
-        <div ref={surfaceRef} className="pt-4" style={fillHeight ? { height: fillHeight } : undefined}>
-          <ControlSurfaceDocument className="editor-control-surface">
-            <MotionPresence mode="wait">
-              {projectId == null
-                ? <MotionLayoutItem key="empty" className="h-full"><EmptyState title={s.noProjects} description={s.noProjectsDescription} icon={Code2} /></MotionLayoutItem>
-                : <MotionLayoutItem key={`${projectId}:${link.commit ?? ''}:${link.working}`} className="h-full"><ProjectEditor projectId={projectId} initialCommit={link.commit} initialWorking={link.working} onClose={onClose} fill /></MotionLayoutItem>}
-            </MotionPresence>
-          </ControlSurfaceDocument>
+        <div ref={surfaceRef} className="min-h-0 overflow-hidden pt-4" style={fillHeight ? { height: fillHeight } : undefined}>
+          <MotionPresence mode="wait">
+            {projectId == null
+              ? <MotionLayoutItem key="empty" className="h-full"><EmptyState title={s.noProjects} description={s.noProjectsDescription} icon={Code2} /></MotionLayoutItem>
+              : <MotionLayoutItem key={`${projectId}:${link.commit ?? ''}:${link.working}`} className="h-full"><ProjectEditor projectId={projectId} initialCommit={link.commit} initialWorking={link.working} onClose={onClose} fill /></MotionLayoutItem>}
+          </MotionPresence>
         </div>
       </WorkspacePage>
     </>

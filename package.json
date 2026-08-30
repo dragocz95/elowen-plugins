@@ -46,7 +46,7 @@
     "dompurify": "^3.4.13",
     "elowen": "^0.28.17",
     "elowen-plugin-shared": "^0.1.7",
-    "elowen-plugin-ui-kit": "^0.5.0",
+    "elowen-plugin-ui-kit": "^0.6.0",
     "eslint": "^10.9.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-unused-imports": "^4.4.1",

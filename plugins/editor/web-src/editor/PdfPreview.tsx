@@ -21,9 +21,9 @@ export function PdfPreview({ projectId, path, failedLabel, office = false }: { p
   }, [projectId, path, office]);
 
   return (
-    <div className="h-full overflow-hidden bg-bg p-3">
-      {failed ? <p className="p-4 text-center text-sm text-danger">{failedLabel.replace('{path}', path)}</p>
-        : url ? <iframe src={url} title={path} className="h-full w-full rounded-md border border-border bg-white" />
+    <div className="h-full overflow-hidden bg-background p-3">
+      {failed ? <p className="p-4 text-center text-sm text-destructive">{failedLabel.replace('{path}', path)}</p>
+        : url ? <iframe src={url} title={path} className="h-full w-full rounded-md border border-border bg-background" />
         : null}
     </div>
   );
