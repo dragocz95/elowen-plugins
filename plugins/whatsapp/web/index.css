@@ -40,8 +40,8 @@
   }
   :where(.space-y-3 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
-    margin-block-start: calc(var(--space-3, 0.75rem) * var(--tw-space-y-reverse));
-    margin-block-end: calc(var(--space-3, 0.75rem) * calc(1 - var(--tw-space-y-reverse)));
+    margin-block-start: calc(calc(var(--spacing, 0.25rem) * 3) * var(--tw-space-y-reverse));
+    margin-block-end: calc(calc(var(--spacing, 0.25rem) * 3) * calc(1 - var(--tw-space-y-reverse)));
   }
   .rounded-md {
     border-radius: var(--radius-md, 0.625rem);
@@ -93,17 +93,17 @@
     --tw-tracking: var(--tracking-widest, 0.1em);
     letter-spacing: var(--tracking-widest, 0.1em);
   }
-  .text-danger {
-    color: var(--color-danger, #e94d42);
+  .text-destructive {
+    color: var(--color-destructive, #e94d42);
+  }
+  .text-foreground {
+    color: var(--color-foreground, #f7f3f0);
+  }
+  .text-muted-foreground {
+    color: var(--color-muted-foreground, #9d948e);
   }
   .text-success {
     color: var(--color-success, #32c986);
-  }
-  .text-text {
-    color: var(--color-text, #f7f3f0);
-  }
-  .text-text-muted {
-    color: var(--color-text-muted, #9d948e);
   }
 }
 @property --tw-rotate-x {

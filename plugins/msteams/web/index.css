@@ -100,8 +100,8 @@
   }
   :where(.space-y-2 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
-    margin-block-start: calc(var(--space-2, 0.5rem) * var(--tw-space-y-reverse));
-    margin-block-end: calc(var(--space-2, 0.5rem) * calc(1 - var(--tw-space-y-reverse)));
+    margin-block-start: calc(calc(var(--spacing, 0.25rem) * 2) * var(--tw-space-y-reverse));
+    margin-block-end: calc(calc(var(--spacing, 0.25rem) * 2) * calc(1 - var(--tw-space-y-reverse)));
   }
   .gap-x-5 {
     column-gap: calc(var(--spacing, 0.25rem) * 5);
@@ -132,35 +132,35 @@
     --tw-border-style: dashed;
     border-style: dashed;
   }
-  .border-accent\/60 {
-    border-color: color-mix(in srgb, #ff5236 60%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      border-color: color-mix(in oklab, var(--color-accent, #ff5236) 60%, transparent);
-    }
-  }
   .border-border {
     border-color: var(--color-border, #242424);
   }
-  .bg-accent\/10 {
-    background-color: color-mix(in srgb, #ff5236 10%, transparent);
+  .border-primary\/60 {
+    border-color: color-mix(in srgb, #ff5236 60%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix(in oklab, var(--color-accent, #ff5236) 10%, transparent);
+      border-color: color-mix(in oklab, var(--color-primary, #ff5236) 60%, transparent);
     }
   }
-  .bg-elevated\/30 {
+  .bg-accent {
+    background-color: var(--color-accent, color-mix(in srgb, #f7f3f0 10%, transparent));
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: var(--color-accent, color-mix(in srgb, var(--color-foreground) 10%, transparent));
+    }
+  }
+  .bg-card {
+    background-color: var(--color-card, #070707);
+  }
+  .bg-muted\/30 {
     background-color: color-mix(in srgb, #0d0d0d 30%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix(in oklab, var(--color-elevated, #0d0d0d) 30%, transparent);
+      background-color: color-mix(in oklab, var(--color-muted, #0d0d0d) 30%, transparent);
     }
   }
-  .bg-elevated\/40 {
+  .bg-muted\/40 {
     background-color: color-mix(in srgb, #0d0d0d 40%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix(in oklab, var(--color-elevated, #0d0d0d) 40%, transparent);
+      background-color: color-mix(in oklab, var(--color-muted, #0d0d0d) 40%, transparent);
     }
-  }
-  .bg-surface {
-    background-color: var(--color-surface, #070707);
   }
   .p-3 {
     padding: calc(var(--spacing, 0.25rem) * 3);
@@ -226,17 +226,17 @@
   .break-all {
     word-break: break-all;
   }
-  .text-danger {
-    color: var(--color-danger, #e94d42);
+  .text-destructive {
+    color: var(--color-destructive, #e94d42);
   }
-  .text-text {
-    color: var(--color-text, #f7f3f0);
+  .text-foreground {
+    color: var(--color-foreground, #f7f3f0);
   }
-  .text-text-muted {
-    color: var(--color-text-muted, #9d948e);
+  .text-muted-foreground {
+    color: var(--color-muted-foreground, #9d948e);
   }
-  .text-text-subtle {
-    color: var(--color-text-subtle, #6e6661);
+  .text-subtle-foreground {
+    color: var(--color-subtle-foreground, #827974);
   }
   .uppercase {
     text-transform: uppercase;
@@ -254,17 +254,17 @@
     .hover\:border-border-strong:hover {
       border-color: var(--color-border-strong, #363636);
     }
-    .hover\:bg-elevated\/50:hover {
-      background-color: color-mix(in srgb, #0d0d0d 50%, transparent);
+    .hover\:bg-accent:hover {
+      background-color: var(--color-accent, color-mix(in srgb, #f7f3f0 10%, transparent));
     }
     @supports (color: color-mix(in lab, red, red)) {
-      .hover\:bg-elevated\/50:hover {
-        background-color: color-mix(in oklab, var(--color-elevated, #0d0d0d) 50%, transparent);
+      .hover\:bg-accent:hover {
+        background-color: var(--color-accent, color-mix(in srgb, var(--color-foreground) 10%, transparent));
       }
     }
   }
-  .focus\:border-accent:focus {
-    border-color: var(--color-accent, #ff5236);
+  .focus\:border-primary:focus {
+    border-color: var(--color-primary, #ff5236);
   }
   @media (width >= 40rem) {
     .sm\:grid-cols-2 {

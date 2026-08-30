@@ -359,43 +359,43 @@ function IdentityCard({ person, users, onDetail }) {
   }));
   const statusLabel = identity.linked ? identity.signedIn ? s.identityConnected : s.identityNeedsSignIn : s.identityNotLinked;
   const profile = detail?.profile;
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "rounded-xl border border-border bg-surface p-4", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "rounded-xl border border-border bg-card p-4", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-start justify-between gap-3", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs font-medium uppercase tracking-wide text-text-muted", children: s.identityTitle }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs font-medium uppercase tracking-wide text-muted-foreground", children: s.identityTitle }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-2 flex items-center gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: identity.signedIn ? "success" : identity.linked ? "warning" : void 0, children: statusLabel }),
-          loading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs text-text-muted", children: s.identityLoading }) : null
+          loading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs text-muted-foreground", children: s.identityLoading }) : null
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", icon: RefreshCw, disabled: pending || !person.aadObjectId, onClick: () => void signOut(), children: s.identityForceSignIn })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-4 grid gap-4 sm:grid-cols-2", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs font-semibold text-text", children: s.identityMicrosoftProfile }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-text", children: profile?.displayName || person.name || s.personFallback }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all text-xs text-text-muted", children: profile?.userPrincipalName || person.upn || "\u2014" }),
-        profile?.mail && profile.mail !== profile.userPrincipalName ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all text-xs text-text-muted", children: profile.mail }) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all font-mono text-[11px] text-text-subtle", children: profile?.id || person.aadObjectId || "\u2014" }),
-        profile ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "text-xs text-text-muted", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs font-semibold text-foreground", children: s.identityMicrosoftProfile }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-foreground", children: profile?.displayName || person.name || s.personFallback }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all text-xs text-muted-foreground", children: profile?.userPrincipalName || person.upn || "\u2014" }),
+        profile?.mail && profile.mail !== profile.userPrincipalName ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all text-xs text-muted-foreground", children: profile.mail }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all font-mono text-[11px] text-subtle-foreground", children: profile?.id || person.aadObjectId || "\u2014" }),
+        profile ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "text-xs text-muted-foreground", children: [
           profile.userType,
           " \xB7 ",
           profile.accountEnabled ? s.identityAccountEnabled : s.identityAccountDisabled
         ] }) : null
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs font-semibold text-text", children: s.identityElowenAccount }),
-        identity.user ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-3 rounded-lg border border-border bg-elevated/40 p-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs font-semibold text-foreground", children: s.identityElowenAccount }),
+        identity.user ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-3 rounded-lg border border-border bg-muted/40 p-3", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: linkedHostUser?.name || identity.user.username, user: linkedHostUser, size: "md" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0 flex-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "truncate text-sm font-medium text-text", children: linkedHostUser?.name || `@${identity.user.username}` }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "truncate text-xs text-text-muted", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "truncate text-sm font-medium text-foreground", children: linkedHostUser?.name || `@${identity.user.username}` }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "truncate text-xs text-muted-foreground", children: [
               "@",
               identity.user.username
             ] })
           ] }),
           identity.user.isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "accent", children: s.identityAdmin }) : null
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-text-muted", children: s.identityNoElowenAccount }),
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.identityNoElowenAccount }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: identity.user ? s.identityChangeAccount : s.identityLinkAccount, hint: s.identityLinkAccountHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           C.SelectMenu,
           {
@@ -413,15 +413,15 @@ function IdentityCard({ person, users, onDetail }) {
         ) })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-3 text-xs text-text-muted", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-3 text-xs text-muted-foreground", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: person.hasPersonalChat ? s.identityPersonalChatOpen : s.identityPersonalChatMissing }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: s.identityLastSeen.replace("{value}", formatTimestamp(person.lastSeenAt)) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: identity.signedIn ? s.identitySessionActive : s.identitySessionSignedOut }),
       identity.linkedAt ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: s.identityLinkedAt.replace("{value}", formatTimestamp(identity.linkedAt)) }) : null,
       detail?.verifiedAt ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: s.identityVerifiedAt.replace("{value}", formatTimestamp(detail.verifiedAt)) }) : null
     ] }),
-    pending ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-xs text-text-muted", "aria-live": "polite", children: s.identitySaving }) : null,
-    error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-xs text-danger", role: "alert", children: error }) : null,
+    pending ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-xs text-muted-foreground", "aria-live": "polite", children: s.identitySaving }) : null,
+    error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-xs text-destructive", role: "alert", children: error }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
       C.ConfirmDialog,
       {
@@ -512,16 +512,16 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
           {
             type: "button",
             onClick: () => setSelectedKey(person.key),
-            className: `flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? "border-accent/60 bg-accent/10" : "border-border bg-surface hover:border-border-strong hover:bg-elevated/50"}`,
+            className: `flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? "border-primary/60 bg-accent" : "border-border bg-card hover:border-border-strong hover:bg-accent"}`,
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: person.name || person.upn || s.personFallback, src: person.teamsAvatarUrl, user: linkedUser, size: "md" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "min-w-0 flex-1", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-sm font-semibold text-text", children: person.name || s.personFallback }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-xs text-text-muted", children: person.upn || person.aadObjectId })
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-sm font-semibold text-foreground", children: person.name || s.personFallback }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-xs text-muted-foreground", children: person.upn || person.aadObjectId })
               ] }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex shrink-0 flex-col items-end gap-1", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: mapped ? "accent" : void 0, children: mapped ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped }),
-                person.hasPersonalChat ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "inline-flex items-center gap-1 text-[11px] text-text-muted", children: [
+                person.hasPersonalChat ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "inline-flex items-center gap-1 text-[11px] text-muted-foreground", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageCircle, { size: 11, "aria-hidden": true }),
                   s.chatOpen
                 ] }) : null
@@ -531,30 +531,30 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
           person.key
         );
       }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "min-w-0 rounded-xl border border-border bg-elevated/30 p-5", children: selected === null ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "min-w-0 rounded-xl border border-border bg-muted/30 p-5", children: selected === null ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-start gap-3", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: selected.name || selected.upn || s.personFallback, src: selected.teamsAvatarUrl, user: selectedUser, size: "lg" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0 flex-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "truncate text-base font-semibold text-text", children: selected.name || s.personFallback }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "truncate text-sm text-text-muted", children: selected.upn || selected.aadObjectId }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 font-mono text-[11px] text-text-subtle", children: selected.aadObjectId || selected.teamsId })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "truncate text-base font-semibold text-foreground", children: selected.name || s.personFallback }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "truncate text-sm text-muted-foreground", children: selected.upn || selected.aadObjectId }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 font-mono text-[11px] text-subtle-foreground", children: selected.aadObjectId || selected.teamsId })
           ] }),
           policy ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: removePolicy, children: s.removeAccess }) : null
         ] }),
         accountLinking ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(IdentityCard, { person: selected, users, onDetail: onIdentityDetail }, selected.key) : null,
         policy === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 text-center", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserCheck, { size: 28, className: "text-text-muted", "aria-hidden": true }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserCheck, { size: 28, className: "text-muted-foreground", "aria-hidden": true }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-semibold text-text", children: inherited ? s.inheritedTitle : s.unmappedTitle }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 max-w-md text-xs leading-relaxed text-text-muted", children: inherited ? s.inheritedDescription : s.unmappedDescription })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-semibold text-foreground", children: inherited ? s.inheritedTitle : s.unmappedTitle }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 max-w-md text-xs leading-relaxed text-muted-foreground", children: inherited ? s.inheritedDescription : s.unmappedDescription })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: KeyRound, onClick: createPolicy, children: s.configureAccess })
         ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface p-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: policy.admin === true, onChange: (value) => patchPolicy({ admin: value }), label: s.adminLabel }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block text-sm font-medium text-text", children: s.adminLabel }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block text-xs leading-relaxed text-text-muted", children: s.adminHint })
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block text-sm font-medium text-foreground", children: s.adminLabel }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block text-xs leading-relaxed text-muted-foreground", children: s.adminHint })
             ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.promptLabel, hint: s.promptHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -563,7 +563,7 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
               value: policy.prompt ?? "",
               onChange: (event) => patchPolicy({ prompt: event.target.value }),
               rows: 5,
-              className: "w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none transition focus:border-accent",
+              className: "w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary",
               placeholder: s.promptPlaceholder
             }
           ) })
