@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PluginDb } from 'elowen/plugin-api';
 import { OneDriveStore } from '../plugins/onedrive/src/store.js';
-import { SyncEngine, conflictName, remoteRootFor, safeSegment } from '../plugins/onedrive/src/sync.js';
+import {
+  SyncEngine, conflictName, remoteRootFor, safeSegment, type SyncSettingsInput,
+} from '../plugins/onedrive/src/sync.js';
 import type { MirrorLink } from '../plugins/onedrive/src/store.js';
 import { execFileSync } from 'node:child_process';
 import { TRASH_DIR, gitIgnoredAmong, hashFile, normalizeSubpath, scanLocal } from '../plugins/onedrive/src/scan.js';
@@ -177,7 +179,9 @@ function fakeDrive() {
   };
 }
 
-let settings = { rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: '', applyRemoteDeletions: true };
+let settings: SyncSettingsInput = {
+  rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: [], applyRemoteDeletions: true,
+};
 
 function harness(options: { applyRemoteDeletions?: boolean; lease?: { ms: number; renewAfterMs: number } } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'onedrive-sync-'));
@@ -186,7 +190,7 @@ function harness(options: { applyRemoteDeletions?: boolean; lease?: { ms: number
   const drive = fakeDrive();
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   settings = {
-    rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: '',
+    rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: [],
     applyRemoteDeletions: options.applyRemoteDeletions !== false,
   };
   const engine = new SyncEngine({
@@ -753,7 +757,10 @@ describe('onedrive sync cycle', () => {
     expect(store.linkById(link.id)?.status).toBe('idle');
   });
 
-  it('keeps a file that became ignored instead of deleting its OneDrive copy', async () => {
+  it.each([
+    ['legacy string', '*.{env,secret}, build/**'],
+    ['token array', ['*.{env,secret}', 'build/**']],
+  ] as const)('keeps a file that became ignored by a %s setting instead of deleting its OneDrive copy', async (_kind, extraIgnore) => {
     const { root, store, drive, engine, link } = harness();
     settled(join(root, 'notes.md'), 'notes\n');
     settled(join(root, 'secret.env'), 'k=v\n');
@@ -762,7 +769,7 @@ describe('onedrive sync cycle', () => {
 
     // Newly ignored is not deleted: the file is still on disk, just out of scope. Treating the two alike
     // would delete a file from OneDrive the moment somebody widened their ignore list.
-    settings.extraIgnore = '*.env';
+    settings.extraIgnore = extraIgnore;
     await engine.syncUser(7);
 
     expect(existsSync(join(root, 'secret.env'))).toBe(true);

@@ -7,6 +7,9 @@ import { JobsSettings } from '../plugins/cronjob/web-src/JobsSettings';
 import manifest from '../plugins/cronjob/elowen-plugin.json' with { type: 'json' };
 import { ToastProvider, createWrapper } from './ui/hostHooks';
 import type { BrainModelOption, CronJob, NotificationDestinationOption } from '../plugins/cronjob/web-src/runtime';
+import {
+  parseActiveHours, parseBuilderSchedule, renderActiveHours, renderBuilderSchedule,
+} from '../plugins/cronjob/web-src/scheduleBuilder';
 
 // The moved editor resolves everything through window.ElowenUiRuntime — install the REAL runtime,
 // so this exercises the production contract the bundle runs against.
@@ -77,6 +80,27 @@ async function mountWith(jobs: CronJob[]) {
   // Open the job's drawer so the channel/model fields render.
   await openRow('digest');
 }
+
+describe('cronjob schedule builder', () => {
+  it.each(['every 15m', 'every 2h', 'daily 07:30', 'weekly sun 20:00'])(
+    'parses and renders %s through the scheduler grammar',
+    (schedule) => {
+      const parsed = parseBuilderSchedule(schedule);
+      expect(parsed).not.toBeNull();
+      expect(renderBuilderSchedule(parsed!)).toBe(schedule);
+    },
+  );
+
+  it('accepts only whole-hour active windows within 0-23', () => {
+    expect(parseActiveHours('0-23')).toEqual({ start: 0, end: 23 });
+    expect(parseActiveHours('22-5')).toEqual({ start: 22, end: 5 });
+    expect(parseActiveHours('24-5')).toBeNull();
+    expect(parseActiveHours('5:30-21')).toBeNull();
+    expect(renderActiveHours(0, 23)).toBe('0-23');
+    expect(renderActiveHours(-1, 23)).toBeNull();
+    expect(renderActiveHours(0, 24)).toBeNull();
+  });
+});
 
 describe('cronjob JobsSettings — error state', () => {
   // An admin is the one person who sees more than his own jobs, so he gets the owner column and the scope
@@ -274,6 +298,40 @@ describe('cronjob JobsSettings writes', () => {
     await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
     expect(writes[0]?.id).toBe('j1');
     expect(writes[0]?.body).toMatchObject({ id: 'j1', name: 'renamed' });
+  });
+
+  it('changes builder modes with standard segmented keyboard semantics', async () => {
+    const writes: { id: string; body: unknown }[] = [];
+    mount([job({ schedule: 'daily 06:00' })], writes, []);
+    await openRow('digest');
+    const dialog = screen.getByRole('dialog', { name: 'digest' });
+    const modes = within(dialog).getByRole('radiogroup', { name: strings.scheduleMode });
+    const daily = within(modes).getByRole('radio', { name: strings.scheduleDaily });
+    const weekly = within(modes).getByRole('radio', { name: strings.scheduleWeekly });
+
+    daily.focus();
+    fireEvent.keyDown(daily, { key: 'ArrowRight' });
+
+    expect(weekly).toHaveFocus();
+    expect(weekly).toHaveAttribute('aria-checked', 'true');
+    expect(within(dialog).getByText('weekly mon 06:00')).toBeInTheDocument();
+    await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
+    expect(writes[0]?.body).toMatchObject({ schedule: 'weekly mon 06:00' });
+  });
+
+  it('preserves a raw cron schedule while another field is edited', async () => {
+    const writes: { id: string; body: unknown }[] = [];
+    const raw = '0 9 * * 1-5';
+    mount([job({ schedule: raw })], writes, []);
+    await openRow('digest');
+    const dialog = screen.getByRole('dialog', { name: 'digest' });
+    const modes = within(dialog).getByRole('radiogroup', { name: strings.scheduleMode });
+    expect(within(modes).getByRole('radio', { name: strings.scheduleAdvanced })).toHaveAttribute('aria-checked', 'true');
+    expect(within(dialog).getByRole('textbox', { name: strings.scheduleAdvancedValue })).toHaveValue(raw);
+
+    fireEvent.change(screen.getByPlaceholderText('morning-digest'), { target: { value: 'renamed' } });
+    await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
+    expect(writes[0]?.body).toMatchObject({ name: 'renamed', schedule: raw });
   });
 
   it('deletes a job by id and asks for nothing else', async () => {

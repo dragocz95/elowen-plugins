@@ -6,8 +6,8 @@ import type { MicrosoftIdentityControl } from './coreSeams.js';
 import { Drive, RemoteItemAppearedError, StaleLocalError } from './drive.js';
 import { decide, type Baseline, type LocalFile, type RemoteFile } from './merge.js';
 import {
-  buildIgnore, containedIn, containedInEventually, gitIgnoredAmong, hashFile, scanLocal, TRASH_DIR,
-  openMirrorFile,
+  buildIgnore, containedIn, containedInEventually, gitIgnoredAmong, hashFile, normalizeIgnorePatterns,
+  scanLocal, TRASH_DIR, openMirrorFile,
 } from './scan.js';
 import type { MirrorItem, MirrorLink, OneDriveStore } from './store.js';
 
@@ -28,8 +28,16 @@ const DELETION_ABSOLUTE = 50;
 export interface SyncSettings {
   rootFolder: string;
   maxFileMb: number;
-  extraIgnore: string;
+  extraIgnore: readonly string[];
   applyRemoteDeletions: boolean;
+}
+
+export interface SyncSettingsInput extends Omit<SyncSettings, 'extraIgnore'> {
+  extraIgnore: string | readonly string[];
+}
+
+function normalizeSyncSettings(settings: SyncSettingsInput): SyncSettings {
+  return { ...settings, extraIgnore: normalizeIgnorePatterns(settings.extraIgnore) };
 }
 
 export interface SyncDeps {
@@ -43,7 +51,7 @@ export interface SyncDeps {
   /** The project or worktree directory the link starts from, BEFORE its chosen subfolder narrows it.
    *  Two mirrors of overlapping scopes share this, and that is what serialises them. */
   baseFor: (link: MirrorLink) => string | null;
-  settings: () => SyncSettings;
+  settings: () => SyncSettingsInput;
   log: { info(m: string): void; warn(m: string): void; error(m: string): void };
 }
 
@@ -213,7 +221,7 @@ export class SyncEngine {
     link: MirrorLink, drive: Drive, confirmDeletions: boolean, root: string,
     lease: { ms: number; renewAfterMs: number },
   ): Promise<void> {
-    const settings = this.deps.settings();
+    const settings = normalizeSyncSettings(this.deps.settings());
     {
       const maxBytes = Math.max(1, settings.maxFileMb) * 1024 * 1024;
       const baseline = this.deps.store.items(link.id);

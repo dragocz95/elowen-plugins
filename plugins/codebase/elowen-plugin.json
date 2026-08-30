@@ -1,6 +1,6 @@
 {
   "name": "codebase",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "apiVersion": "1",
   "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings → Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",
   "entry": "index.mjs",
@@ -35,15 +35,15 @@
     {
       "key": "includeGlobs",
       "label": "Include globs",
-      "type": "textarea",
-      "hint": "One glob per line (or comma-separated). Only files matching one of these are indexed. Empty = a built-in set of common code + markdown extensions."
+      "type": "tokenList",
+      "hint": "Files matching at least one glob are indexed. Empty = a built-in set of common code and markdown extensions."
     },
     {
       "key": "excludeGlobs",
       "label": "Exclude globs / dirs",
-      "type": "textarea",
+      "type": "tokenList",
       "placeholder": "node_modules, dist, web-dist, .next, .git, .turbo",
-      "hint": "Directories or globs to skip. A bare name (no slash/star) is treated as a directory name to prune anywhere in the tree."
+      "hint": "Directories or globs to skip. A bare name (no slash or star) is treated as a directory name to prune anywhere in the tree."
     },
     {
       "key": "maxFileBytes",
@@ -153,9 +153,10 @@
     {
       "key": "reindexRepos",
       "label": "Repository paths",
-      "type": "textarea",
+      "type": "tokenList",
+      "browse": "directory",
       "placeholder": "/srv/projects/my-app",
-      "hint": "One absolute repository path per line (or comma-separated). A path that is not a readable directory is skipped and logged.",
+      "hint": "Add absolute repository paths. A path that is not a readable directory is skipped and logged.",
       "visibleWhen": { "key": "reindexScope", "equals": "listed" }
     },
     {

@@ -168,9 +168,26 @@ export function planIncremental(disk, dbFiles, opts = {}) {
 
 // ── config + glob matching ───────────────────────────────────────────────────────────────────────────
 
-function splitList(v) {
-  if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
-  return String(v ?? '').split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+/** Normalise a token-list config value. New array writes are already tokenised and must stay intact;
+ *  legacy strings still accept commas/newlines, except commas inside brace globs such as `*.{ts,tsx}`. */
+export function splitList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  const items = [];
+  let token = '';
+  let braceDepth = 0;
+  const push = () => {
+    const trimmed = token.trim();
+    if (trimmed) items.push(trimmed);
+    token = '';
+  };
+  for (const char of String(value ?? '')) {
+    if (char === '{') braceDepth += 1;
+    else if (char === '}' && braceDepth > 0) braceDepth -= 1;
+    if (char === '\n' || char === '\r' || (char === ',' && braceDepth === 0)) push();
+    else token += char;
+  }
+  push();
+  return items;
 }
 
 /** Compile a glob (`**`, `*`, `?`) to a RegExp anchored on the full repo-relative POSIX path. */

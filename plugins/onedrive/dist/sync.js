@@ -4,7 +4,7 @@ import { mkdir, realpath, rename, stat } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import { Drive, RemoteItemAppearedError, StaleLocalError } from './drive.js';
 import { decide } from './merge.js';
-import { buildIgnore, containedIn, containedInEventually, gitIgnoredAmong, hashFile, scanLocal, TRASH_DIR, openMirrorFile, } from './scan.js';
+import { buildIgnore, containedIn, containedInEventually, gitIgnoredAmong, hashFile, normalizeIgnorePatterns, scanLocal, TRASH_DIR, openMirrorFile, } from './scan.js';
 const LEASE_MS = 5 * 60 * 1000;
 /** Renew on ELAPSED TIME, not on a count of files. One large upload can outlast the lease on its own,
  *  and a counter cannot see that happening. */
@@ -18,6 +18,9 @@ const DELETION_FLOOR = 1;
 /** Beyond this many at once, the share stops mattering: losing fifty files is a lot of files however
  *  large the mirror is, and a big project is exactly where a ratio hides a disaster. */
 const DELETION_ABSOLUTE = 50;
+function normalizeSyncSettings(settings) {
+    return { ...settings, extraIgnore: normalizeIgnorePatterns(settings.extraIgnore) };
+}
 /** Where a link's files live inside the person's OneDrive, relative to the drive root.
  *
  *  Projects and workspaces are SIBLINGS, never nested: putting workspaces under the project mirror would
@@ -176,7 +179,7 @@ export class SyncEngine {
         }
     }
     async applyCycle(link, drive, confirmDeletions, root, lease) {
-        const settings = this.deps.settings();
+        const settings = normalizeSyncSettings(this.deps.settings());
         {
             const maxBytes = Math.max(1, settings.maxFileMb) * 1024 * 1024;
             const baseline = this.deps.store.items(link.id);

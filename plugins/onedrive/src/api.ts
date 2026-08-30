@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { readdir, rename, stat } from 'node:fs/promises';
 import type { MirrorLink, OneDriveStore } from './store.js';
-import { remoteRootFor, trashFile, type SyncEngine, type SyncSettings } from './sync.js';
+import { remoteRootFor, trashFile, type SyncEngine, type SyncSettingsInput } from './sync.js';
 
 type Gate<T> = { ok: true; value: T } | { ok: false; response: PluginHttpResponse };
 
@@ -14,7 +14,7 @@ export interface ApiDeps {
   ctx: OneDriveContext;
   store: OneDriveStore;
   engine: SyncEngine;
-  settings: () => SyncSettings;
+  settings: () => SyncSettingsInput;
   rootFor: (link: MirrorLink) => string | null;
   /** The project or worktree directory a link starts from, BEFORE its chosen subfolder is applied. */
   baseFor: (link: MirrorLink) => string | null;

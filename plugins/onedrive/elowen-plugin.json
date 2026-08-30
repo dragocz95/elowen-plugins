@@ -1,6 +1,6 @@
 {
   "name": "onedrive",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "apiVersion": "1",
   "requiresCore": "0.28.17",
   "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
@@ -52,9 +52,9 @@
     {
       "key": "extraIgnore",
       "label": "Additional ignored paths",
-      "type": "string",
-      "default": "",
-      "hint": "Comma-separated glob patterns excluded on top of the project's own .gitignore. Version control internals, dependencies and credentials are always excluded and cannot be re-enabled here."
+      "type": "tokenList",
+      "default": [],
+      "hint": "Glob patterns excluded on top of the project's own .gitignore. Version control internals, dependencies and credentials are always excluded and cannot be re-enabled here."
     },
     {
       "key": "applyRemoteDeletions",

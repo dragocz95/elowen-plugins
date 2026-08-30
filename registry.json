@@ -3,7 +3,7 @@
   "plugins": [
     {
       "name": "codebase",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings → Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",
       "category": "tools",
       "author": "Elowen",
@@ -14,7 +14,7 @@
     },
     {
       "name": "cronjob",
-      "version": "0.2.4",
+      "version": "0.2.5",
       "description": "Scheduler: recurring prompts, one-shot wake-ups and shell collectors that wake the agent on a schedule, with a jobs screen in Settings.",
       "category": "automation",
       "author": "Elowen",
@@ -128,7 +128,7 @@
     },
     {
       "name": "onedrive",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "requiresCore": "0.28.17",
       "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
       "category": "productivity",

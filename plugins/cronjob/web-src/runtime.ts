@@ -72,7 +72,7 @@ interface CronComponents {
   Badge: AnyComponent; Button: AnyComponent; Input: AnyComponent; Field: AnyComponent; Toggle: AnyComponent;
   ConfirmDialog: AnyComponent; AutoSaveStatus: AnyComponent; LoadingState: AnyComponent; ErrorState: AnyComponent;
   ManageSelectionModal: AnyComponent; SelectionSummary: AnyComponent; BrainModelField: AnyComponent;
-  EmptyState: AnyComponent; Segmented: AnyComponent; Pager: AnyComponent; RegisterSearch: AnyComponent;
+  EmptyState: AnyComponent; Segmented: AnyComponent; ChoiceField: AnyComponent; Pager: AnyComponent; RegisterSearch: AnyComponent;
   DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent; DataTableChevronCell: AnyComponent;
   ControlSurfaceDocument: AnyComponent; ControlSurfaceToolbar: AnyComponent;
   ControlSurfaceRegister: AnyComponent; ControlSurfaceState: AnyComponent;

@@ -4,7 +4,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, utimesSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decide, type Baseline, type LocalFile, type RemoteFile } from '../plugins/onedrive/src/merge.js';
-import { buildIgnore, containedIn, isFloorIgnored, scanLocal, IGNORE_FLOOR } from '../plugins/onedrive/src/scan.js';
+import {
+  buildIgnore, containedIn, isFloorIgnored, normalizeIgnorePatterns, scanLocal, IGNORE_FLOOR,
+} from '../plugins/onedrive/src/scan.js';
 
 const localAt = (sha: string): LocalFile => ({ present: true, size: 10, mtimeMs: 1, sha256: sha });
 const remoteAt = (etag: string): RemoteFile => ({ present: true, itemId: 'i', etag, size: 10 });
@@ -79,6 +81,17 @@ describe('onedrive ignore floor', () => {
     // A malformed pattern must not throw and must not open anything.
     expect(buildIgnore(',,   ,')('.env')).toBe(true);
     expect(IGNORE_FLOOR.length).toBeGreaterThan(0);
+  });
+
+  it('normalises legacy and array ignore lists without losing commas inside globs', () => {
+    expect(normalizeIgnorePatterns('*.{log,tmp}, build/**\ncache/**')).toEqual([
+      '*.{log,tmp}', 'build/**', 'cache/**',
+    ]);
+    expect(normalizeIgnorePatterns(['*.{log,tmp}', 'reports/a,b/**', ' build/** '])).toEqual([
+      '*.{log,tmp}', 'reports/a,b/**', 'build/**',
+    ]);
+    expect(buildIgnore('*.{log,tmp}')('debug.log')).toBe(true);
+    expect(buildIgnore(['*.{log,tmp}'])('debug.tmp')).toBe(true);
   });
 });
 

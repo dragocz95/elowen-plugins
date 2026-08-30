@@ -10,6 +10,7 @@ import {
   packVector,
   planIncremental,
   register,
+  splitList,
   unpackVector,
 } from '../plugins/codebase/index.mjs';
 
@@ -196,6 +197,17 @@ describe('codebase plugin — pure helpers', () => {
     assert.ok(Math.abs(cosine(Float32Array.from([1, 2, 3]), Float32Array.from([1, 2, 3])) - 1) < 5e-7);
     assert.equal(cosine(Float32Array.from([1, 0]), Float32Array.from([0, 1])), 0);
     assert.equal(cosine(Float32Array.from([1, 0]), Float32Array.from([1, 0, 0])), 0);
+  });
+
+  it('splitList accepts legacy strings without splitting brace-glob commas and preserves array tokens', () => {
+    assert.deepEqual(
+      splitList('src/**/*.{ts,tsx}, docs/**\nREADME.md'),
+      ['src/**/*.{ts,tsx}', 'docs/**', 'README.md'],
+    );
+    assert.deepEqual(
+      splitList(['src/**/*.{ts,tsx}', 'fixtures/a,b/**', '  docs/**  ']),
+      ['src/**/*.{ts,tsx}', 'fixtures/a,b/**', 'docs/**'],
+    );
   });
 });
 

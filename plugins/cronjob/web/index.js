@@ -214,6 +214,54 @@ var X = createLucideIcon("X", [
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ]);
 
+// plugins/cronjob/web-src/scheduleBuilder.ts
+var WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+var timeValue = (hour, minute) => `${String(Number(hour)).padStart(2, "0")}:${minute}`;
+function parseBuilderSchedule(value) {
+  const text = String(value ?? "").trim();
+  let match = /^every\s+(\d+)\s*(m|h)$/i.exec(text);
+  if (match) {
+    const amount = Number(match[1]);
+    if (Number.isSafeInteger(amount) && amount >= 1) {
+      return { mode: "every", amount, unit: match[2].toLowerCase() };
+    }
+    return null;
+  }
+  match = /^daily\s+([01]?\d|2[0-3]):([0-5]\d)$/i.exec(text);
+  if (match) return { mode: "daily", time: timeValue(match[1], match[2]) };
+  match = /^weekly\s+(sun|mon|tue|wed|thu|fri|sat)\s+([01]?\d|2[0-3]):([0-5]\d)$/i.exec(text);
+  if (match) {
+    return {
+      mode: "weekly",
+      day: match[1].toLowerCase(),
+      time: timeValue(match[2], match[3])
+    };
+  }
+  return null;
+}
+function renderBuilderSchedule(builder) {
+  if (builder.mode === "every") return `every ${builder.amount}${builder.unit}`;
+  if (builder.mode === "daily") return `daily ${builder.time}`;
+  return `weekly ${builder.day} ${builder.time}`;
+}
+function builderForMode(mode, current) {
+  if (current?.mode === mode) return current;
+  if (mode === "every") return { mode, amount: 1, unit: "h" };
+  const time = current && current.mode !== "every" ? current.time : "06:00";
+  if (mode === "daily") return { mode, time };
+  return { mode, day: current?.mode === "weekly" ? current.day : "mon", time };
+}
+function parseActiveHours(value) {
+  if (!value) return null;
+  const match = /^([01]?\d|2[0-3])\s*-\s*([01]?\d|2[0-3])$/.exec(value.trim());
+  return match ? { start: Number(match[1]), end: Number(match[2]) } : null;
+}
+function renderActiveHours(start, end) {
+  if (!Number.isInteger(start) || !Number.isInteger(end)) return null;
+  if (start < 0 || start > 23 || end < 0 || end > 23) return null;
+  return `${start}-${end}`;
+}
+
 // plugins/cronjob/web-src/JobsSettings.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var PAGE_SIZE = 20;
@@ -261,6 +309,183 @@ function DestinationField({ value, onChange, destinations }) {
         onSave: (next) => onChange([...next][0] ?? "")
       }
     )
+  ] });
+}
+function ScheduleField({ schedule, valid, onChange }) {
+  const { components: C, hooks } = runtime();
+  const s = hooks.usePluginStrings("cronjob");
+  const parsed = parseBuilderSchedule(schedule);
+  const [mode, setMode] = (0, import_react3.useState)(parsed?.mode ?? "advanced");
+  const emitted = (0, import_react3.useRef)(null);
+  (0, import_react3.useEffect)(() => {
+    if (emitted.current === schedule) {
+      emitted.current = null;
+      return;
+    }
+    setMode(parseBuilderSchedule(schedule)?.mode ?? "advanced");
+  }, [schedule]);
+  const emit = (value) => {
+    emitted.current = value;
+    onChange(value);
+  };
+  const selectMode = (next) => {
+    setMode(next);
+    if (next === "advanced") return;
+    const value = renderBuilderSchedule(builderForMode(next, parsed));
+    if (value !== schedule) emit(value);
+  };
+  const updateBuilder = (builder2) => emit(renderBuilderSchedule(builder2));
+  const builder = mode === "advanced" ? null : builderForMode(mode, parsed);
+  const weekdayLabels = WEEKDAYS.map((day) => ({
+    value: day,
+    label: s[`weekday${day[0].toUpperCase()}${day.slice(1)}`]
+  }));
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-3", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      C.Segmented,
+      {
+        value: mode,
+        onChange: selectMode,
+        options: [
+          { value: "every", label: s.scheduleEvery },
+          { value: "daily", label: s.scheduleDaily },
+          { value: "weekly", label: s.scheduleWeekly },
+          { value: "advanced", label: s.scheduleAdvanced }
+        ],
+        "aria-label": s.scheduleMode
+      }
+    ),
+    builder?.mode === "every" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.scheduleInterval, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Input,
+        {
+          type: "number",
+          min: 1,
+          step: 1,
+          value: builder.amount,
+          onChange: (event) => {
+            const amount = Number(event.target.value);
+            if (Number.isSafeInteger(amount) && amount >= 1) updateBuilder({ ...builder, amount });
+          }
+        }
+      ) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.scheduleUnit, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Segmented,
+        {
+          value: builder.unit,
+          onChange: (unit) => updateBuilder({ ...builder, unit }),
+          options: [
+            { value: "m", label: s.scheduleMinutes },
+            { value: "h", label: s.scheduleHours }
+          ],
+          "aria-label": s.scheduleUnit
+        }
+      ) })
+    ] }) : null,
+    builder?.mode === "daily" || builder?.mode === "weekly" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2", children: [
+      builder.mode === "weekly" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.scheduleWeekday, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.ChoiceField,
+        {
+          title: s.scheduleWeekday,
+          options: weekdayLabels,
+          value: builder.day,
+          onChange: (day) => updateBuilder({ ...builder, day }),
+          manageAriaLabel: s.scheduleWeekday
+        }
+      ) }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.scheduleTime, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Input,
+        {
+          type: "time",
+          step: 60,
+          value: builder.time,
+          onChange: (event) => {
+            if (/^([01]\d|2[0-3]):[0-5]\d$/.test(event.target.value)) {
+              updateBuilder({ ...builder, time: event.target.value });
+            }
+          }
+        }
+      ) })
+    ] }) : null,
+    builder ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "flex flex-wrap items-center gap-2 text-xs text-text-muted", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: s.scheduleGenerated }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "rounded border border-border bg-bg px-2 py-1 text-text", children: renderBuilderSchedule(builder) })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "relative", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          C.Input,
+          {
+            value: schedule,
+            onChange: (event) => emit(event.target.value),
+            className: "pr-8 font-mono",
+            placeholder: "0 9 * * 1-5",
+            "aria-label": s.scheduleAdvancedValue
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "absolute right-2.5 top-1/2 -translate-y-1/2", title: valid ? s.scheduleValid : s.scheduleInvalid, children: valid ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, className: "text-success", "aria-label": s.scheduleValid }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 14, className: "text-danger", "aria-label": s.scheduleInvalid }) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-text-muted", children: s.scheduleAdvancedHint })
+    ] })
+  ] });
+}
+function ActiveHoursField({ value, onChange }) {
+  const { components: C, hooks } = runtime();
+  const s = hooks.usePluginStrings("cronjob");
+  const parsed = parseActiveHours(value);
+  const legacy = Boolean(value && !parsed);
+  const mode = legacy ? "legacy" : parsed ? "window" : "off";
+  const options = [
+    { value: "off", label: s.hoursOff },
+    { value: "window", label: s.hoursWindow },
+    ...legacy ? [{ value: "legacy", label: s.hoursLegacy }] : []
+  ];
+  const setHour = (part, raw) => {
+    if (!parsed || raw === "") return;
+    const hour = Number(raw);
+    const next = renderActiveHours(part === "start" ? hour : parsed.start, part === "end" ? hour : parsed.end);
+    if (next) onChange(next);
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-3", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      C.Segmented,
+      {
+        value: mode,
+        onChange: (next) => {
+          if (next === "off") onChange(void 0);
+          else if (next === "window" && !parsed) onChange("8-17");
+        },
+        options,
+        "aria-label": s.hoursMode
+      }
+    ),
+    parsed ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-2 gap-3", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.hoursStart, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Input,
+        {
+          type: "number",
+          min: 0,
+          max: 23,
+          step: 1,
+          value: parsed.start,
+          onChange: (event) => setHour("start", event.target.value)
+        }
+      ) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.hoursEnd, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Input,
+        {
+          type: "number",
+          min: 0,
+          max: 23,
+          step: 1,
+          value: parsed.end,
+          onChange: (event) => setHour("end", event.target.value)
+        }
+      ) })
+    ] }) : legacy ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "text-xs text-text-muted", children: [
+      s.hoursLegacyHint,
+      " ",
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "text-text", children: value })
+    ] }) : null
   ] });
 }
 function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destinations, models, selected, onSelect, onClose, onRemoved }) {
@@ -367,15 +592,14 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
     selected ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceDetailRail, { label: name, closeLabel: t.common.close, onClose, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-3", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.name, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { value: draft.name, onChange: (e) => patch({ name: e.target.value }), placeholder: "morning-digest" }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.schedule, hint: s.helpSchedule, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "relative", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { value: draft.schedule, onChange: (e) => patch({ schedule: e.target.value }), className: "pr-8 font-mono", placeholder: "daily 06:00" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "absolute right-2.5 top-1/2 -translate-y-1/2", title: validSchedule ? s.scheduleValid : s.scheduleInvalid, children: validSchedule ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, className: "text-success", "aria-label": s.scheduleValid }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 14, className: "text-danger", "aria-label": s.scheduleInvalid }) })
-        ] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.hours, hint: s.helpHours, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { value: draft.hours ?? "", onChange: (e) => patch({ hours: e.target.value || void 0 }), className: "font-mono", placeholder: "5-21" }) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.enabled, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex h-9 items-center gap-2 text-sm text-text-muted", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: enabled, onChange: (v) => patch({ enabled: v }), label: `${name}: ${s.enabled}` }),
           enabled ? s.enabled : s.paused
-        ] }) }),
+        ] }) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.schedule, hint: s.helpSchedule, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ScheduleField, { schedule: draft.schedule, valid: validSchedule, onChange: (schedule) => patch({ schedule }) }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.hours, hint: s.helpHours, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ActiveHoursField, { value: draft.hours, onChange: (hours) => patch({ hours }) }) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.header, hint: s.helpHeader, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "flex h-9 items-center text-sm text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: draft.plain !== true, onChange: (v) => patch({ plain: v ? void 0 : true }), label: `${name}: ${s.header}` }) }) })
       ] }),
       adminFields && (job.ownerUserId == null || job.ownerUserId === myId) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.ownerColumn, hint: s.ownerFieldHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(

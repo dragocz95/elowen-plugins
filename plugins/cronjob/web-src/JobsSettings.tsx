@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, CalendarClock, Check, Clock, Hash, MessageSquare, PauseCircle, Plus, Search, Timer, Trash2, X } from 'lucide-react';
 import { runtime, type BrainModelOption, type CronJob, type NotificationDestinationOption, type ManageSelectionItem } from './runtime';
+import {
+  WEEKDAYS, builderForMode, parseActiveHours, parseBuilderSchedule, renderActiveHours,
+  renderBuilderSchedule, type ScheduleBuilder, type ScheduleMode,
+} from './scheduleBuilder';
 
 /** One page of jobs, matching the register size the built-in workspaces page at. */
 const PAGE_SIZE = 20;
@@ -50,6 +54,192 @@ function DestinationField({ value, onChange, destinations }: { value: string; on
         onSave={(next: Set<string>) => onChange([...next][0] ?? '')}
       />
     </>
+  );
+}
+
+function ScheduleField({ schedule, valid, onChange }: { schedule: string; valid: boolean; onChange: (value: string) => void }) {
+  const { components: C, hooks } = runtime();
+  const s = hooks.usePluginStrings('cronjob');
+  const parsed = parseBuilderSchedule(schedule);
+  const [mode, setMode] = useState<ScheduleMode>(parsed?.mode ?? 'advanced');
+  const emitted = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (emitted.current === schedule) {
+      emitted.current = null;
+      return;
+    }
+    setMode(parseBuilderSchedule(schedule)?.mode ?? 'advanced');
+  }, [schedule]);
+
+  const emit = (value: string) => {
+    emitted.current = value;
+    onChange(value);
+  };
+  const selectMode = (next: ScheduleMode) => {
+    setMode(next);
+    if (next === 'advanced') return;
+    const value = renderBuilderSchedule(builderForMode(next, parsed));
+    if (value !== schedule) emit(value);
+  };
+  const updateBuilder = (builder: ScheduleBuilder) => emit(renderBuilderSchedule(builder));
+  const builder = mode === 'advanced' ? null : builderForMode(mode, parsed);
+  const weekdayLabels = WEEKDAYS.map((day) => ({
+    value: day,
+    label: s[`weekday${day[0]!.toUpperCase()}${day.slice(1)}`],
+  }));
+
+  return (
+    <div className="flex flex-col gap-3">
+      <C.Segmented
+        value={mode}
+        onChange={selectMode}
+        options={[
+          { value: 'every', label: s.scheduleEvery },
+          { value: 'daily', label: s.scheduleDaily },
+          { value: 'weekly', label: s.scheduleWeekly },
+          { value: 'advanced', label: s.scheduleAdvanced },
+        ]}
+        aria-label={s.scheduleMode}
+      />
+      {builder?.mode === 'every' ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <C.Field label={s.scheduleInterval}>
+            <C.Input
+              type="number"
+              min={1}
+              step={1}
+              value={builder.amount}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                const amount = Number(event.target.value);
+                if (Number.isSafeInteger(amount) && amount >= 1) updateBuilder({ ...builder, amount });
+              }}
+            />
+          </C.Field>
+          <C.Field label={s.scheduleUnit}>
+            <C.Segmented
+              value={builder.unit}
+              onChange={(unit: 'm' | 'h') => updateBuilder({ ...builder, unit })}
+              options={[
+                { value: 'm', label: s.scheduleMinutes },
+                { value: 'h', label: s.scheduleHours },
+              ]}
+              aria-label={s.scheduleUnit}
+            />
+          </C.Field>
+        </div>
+      ) : null}
+      {builder?.mode === 'daily' || builder?.mode === 'weekly' ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {builder.mode === 'weekly' ? (
+            <C.Field label={s.scheduleWeekday}>
+              <C.ChoiceField
+                title={s.scheduleWeekday}
+                options={weekdayLabels}
+                value={builder.day}
+                onChange={(day: typeof builder.day) => updateBuilder({ ...builder, day })}
+                manageAriaLabel={s.scheduleWeekday}
+              />
+            </C.Field>
+          ) : null}
+          <C.Field label={s.scheduleTime}>
+            <C.Input
+              type="time"
+              step={60}
+              value={builder.time}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                if (/^([01]\d|2[0-3]):[0-5]\d$/.test(event.target.value)) {
+                  updateBuilder({ ...builder, time: event.target.value });
+                }
+              }}
+            />
+          </C.Field>
+        </div>
+      ) : null}
+      {builder ? (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
+          <span>{s.scheduleGenerated}</span>
+          <code className="rounded border border-border bg-bg px-2 py-1 text-text">{renderBuilderSchedule(builder)}</code>
+        </p>
+      ) : (
+        <div className="flex flex-col gap-1">
+          <div className="relative">
+            <C.Input
+              value={schedule}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => emit(event.target.value)}
+              className="pr-8 font-mono"
+              placeholder="0 9 * * 1-5"
+              aria-label={s.scheduleAdvancedValue}
+            />
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2" title={valid ? s.scheduleValid : s.scheduleInvalid}>
+              {valid
+                ? <Check size={14} className="text-success" aria-label={s.scheduleValid} />
+                : <X size={14} className="text-danger" aria-label={s.scheduleInvalid} />}
+            </span>
+          </div>
+          <p className="text-xs text-text-muted">{s.scheduleAdvancedHint}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActiveHoursField({ value, onChange }: { value: string | undefined; onChange: (value: string | undefined) => void }) {
+  const { components: C, hooks } = runtime();
+  const s = hooks.usePluginStrings('cronjob');
+  const parsed = parseActiveHours(value);
+  const legacy = Boolean(value && !parsed);
+  const mode = legacy ? 'legacy' : parsed ? 'window' : 'off';
+  const options = [
+    { value: 'off', label: s.hoursOff },
+    { value: 'window', label: s.hoursWindow },
+    ...(legacy ? [{ value: 'legacy', label: s.hoursLegacy }] : []),
+  ];
+  const setHour = (part: 'start' | 'end', raw: string) => {
+    if (!parsed || raw === '') return;
+    const hour = Number(raw);
+    const next = renderActiveHours(part === 'start' ? hour : parsed.start, part === 'end' ? hour : parsed.end);
+    if (next) onChange(next);
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <C.Segmented
+        value={mode}
+        onChange={(next: string) => {
+          if (next === 'off') onChange(undefined);
+          else if (next === 'window' && !parsed) onChange('8-17');
+        }}
+        options={options}
+        aria-label={s.hoursMode}
+      />
+      {parsed ? (
+        <div className="grid grid-cols-2 gap-3">
+          <C.Field label={s.hoursStart}>
+            <C.Input
+              type="number"
+              min={0}
+              max={23}
+              step={1}
+              value={parsed.start}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => setHour('start', event.target.value)}
+            />
+          </C.Field>
+          <C.Field label={s.hoursEnd}>
+            <C.Input
+              type="number"
+              min={0}
+              max={23}
+              step={1}
+              value={parsed.end}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => setHour('end', event.target.value)}
+            />
+          </C.Field>
+        </div>
+      ) : legacy ? (
+        <p className="text-xs text-text-muted">{s.hoursLegacyHint} <code className="text-text">{value}</code></p>
+      ) : null}
+    </div>
   );
 }
 
@@ -239,24 +429,19 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
               <C.Field label={s.name}>
                 <C.Input value={draft.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value })} placeholder="morning-digest" />
               </C.Field>
-              <C.Field label={s.schedule} hint={s.helpSchedule}>
-                <div className="relative">
-                  <C.Input value={draft.schedule} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ schedule: e.target.value })} className="pr-8 font-mono" placeholder="daily 06:00" />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2" title={validSchedule ? s.scheduleValid : s.scheduleInvalid}>
-                    {validSchedule
-                      ? <Check size={14} className="text-success" aria-label={s.scheduleValid} />
-                      : <X size={14} className="text-danger" aria-label={s.scheduleInvalid} />}
-                  </span>
-                </div>
-              </C.Field>
-              <C.Field label={s.hours} hint={s.helpHours}>
-                <C.Input value={draft.hours ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ hours: e.target.value || undefined })} className="font-mono" placeholder="5-21" />
-              </C.Field>
               <C.Field label={s.enabled}>
                 <span className="flex h-9 items-center gap-2 text-sm text-text-muted">
                   <C.Toggle checked={enabled} onChange={(v: boolean) => patch({ enabled: v })} label={`${name}: ${s.enabled}`} />
                   {enabled ? s.enabled : s.paused}
                 </span>
+              </C.Field>
+            </div>
+            <C.Field label={s.schedule} hint={s.helpSchedule}>
+              <ScheduleField schedule={draft.schedule} valid={validSchedule} onChange={(schedule) => patch({ schedule })} />
+            </C.Field>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <C.Field label={s.hours} hint={s.helpHours}>
+                <ActiveHoursField value={draft.hours} onChange={(hours) => patch({ hours })} />
               </C.Field>
               {/* Positive toggle over the stored `plain` flag: checked = header shown (plain unset). */}
               <C.Field label={s.header} hint={s.helpHeader}>

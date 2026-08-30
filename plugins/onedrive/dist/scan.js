@@ -79,13 +79,37 @@ export function normalizeSubpath(value) {
 export function isFloorIgnored(rel) {
     return IGNORE_FLOOR.some((pattern) => matchesGlob(rel, pattern));
 }
+/** Normalise the manifest's token list while accepting legacy comma strings. Array items are already
+ *  tokens and stay intact; legacy commas split only outside brace globs such as `*.{log,tmp}`. */
+export function normalizeIgnorePatterns(extra) {
+    if (Array.isArray(extra))
+        return extra.map((value) => String(value).trim()).filter(Boolean);
+    const patterns = [];
+    let token = '';
+    let braceDepth = 0;
+    const push = () => {
+        const trimmed = token.trim();
+        if (trimmed)
+            patterns.push(trimmed);
+        token = '';
+    };
+    for (const char of String(extra ?? '')) {
+        if (char === '{')
+            braceDepth += 1;
+        else if (char === '}' && braceDepth > 0)
+            braceDepth -= 1;
+        if (char === '\n' || char === '\r' || (char === ',' && braceDepth === 0))
+            push();
+        else
+            token += char;
+    }
+    push();
+    return patterns;
+}
 /** Floor plus the instance's own extra patterns. The floor is checked first and separately so a malformed
  *  operator pattern can never widen what is allowed, only narrow it further. */
 export function buildIgnore(extra) {
-    const patterns = String(extra ?? '')
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean);
+    const patterns = normalizeIgnorePatterns(extra);
     return (rel) => isFloorIgnored(rel) || patterns.some((pattern) => matchesGlob(rel, pattern));
 }
 /** OneDrive matches names case-insensitively and normalises Unicode; Linux does neither. Two local paths

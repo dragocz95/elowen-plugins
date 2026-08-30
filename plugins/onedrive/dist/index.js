@@ -4,7 +4,7 @@ import { asOneDriveContext } from './coreSeams.js';
 import { registerApi } from './api.js';
 import { OneDriveStore } from './store.js';
 import { SyncEngine } from './sync.js';
-import { normalizeSubpath } from './scan.js';
+import { normalizeIgnorePatterns, normalizeSubpath } from './scan.js';
 const numberSetting = (value, fallback) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -15,7 +15,9 @@ export function register(published) {
     const settings = () => ({
         rootFolder: typeof ctx.config.rootFolder === 'string' && ctx.config.rootFolder.trim() ? ctx.config.rootFolder.trim() : 'Elowen',
         maxFileMb: numberSetting(ctx.config.maxFileMb, 100),
-        extraIgnore: typeof ctx.config.extraIgnore === 'string' ? ctx.config.extraIgnore : '',
+        extraIgnore: normalizeIgnorePatterns(typeof ctx.config.extraIgnore === 'string' || Array.isArray(ctx.config.extraIgnore)
+            ? ctx.config.extraIgnore
+            : undefined),
         applyRemoteDeletions: ctx.config.applyRemoteDeletions !== false,
     });
     /** Active worktrees of one project for an EXPLICITLY named account. The ambient `workspaceRoots` is
