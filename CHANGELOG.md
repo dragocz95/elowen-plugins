@@ -1,5 +1,9 @@
 # Changelog
 
+## stats 0.2.2 - 2026-08-30
+
+- Use semantic chart and table tokens in Light and Dark.
+
 ## editor 0.3.2 - 2026-08-30
 
 - Use semantic host surfaces and readable Light/Dark editor styling.

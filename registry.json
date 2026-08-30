@@ -169,7 +169,7 @@
     },
     {
       "name": "stats",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "description": "Model usage analytics for tokens, cost, cache efficiency and generation speed. Uses Elowen's shared usage ledger and keeps task tracking focused on work rather than infrastructure spend.",
       "category": "productivity",
       "author": "Elowen",
