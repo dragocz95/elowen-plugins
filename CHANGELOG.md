@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.7.3 - 2026-08-30
+
+- Use semantic host tokens across site register and detail views.
+
 ## skills 0.3.2 - 2026-08-30
 
 - Use semantic host text tokens in settings.
