@@ -1,5 +1,9 @@
 # Changelog
 
+## msteams 0.5.31 - 2026-08-30
+
+- Use semantic host tokens across Teams identity and mapping views.
+
 ## sites 0.7.3 - 2026-08-30
 
 - Use semantic host tokens across site register and detail views.
