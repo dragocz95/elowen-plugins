@@ -1,5 +1,9 @@
 # Changelog
 
+## cronjob 0.2.6 - 2026-08-30
+
+- Use semantic host tokens across scheduler forms and tables.
+
 ## stats 0.2.2 - 2026-08-30
 
 - Use semantic chart and table tokens in Light and Dark.
