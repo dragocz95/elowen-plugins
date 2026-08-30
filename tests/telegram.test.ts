@@ -9,6 +9,20 @@ import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+describe('telegram token-list config compatibility', () => {
+  it('accepts legacy and array allowed-chat ids without constraining their string shape', async () => {
+    const { splitList } = await import(join(repoRoot, 'plugins/telegram/lib/adapter.mjs')) as {
+      splitList: (value: unknown) => string[];
+    };
+    expect(splitList('123456789, -1001234567890\n987654321')).toEqual([
+      '123456789', '-1001234567890', '987654321',
+    ]);
+    expect(splitList(['123456789', ' -1001234567890 ', '987654321'])).toEqual([
+      '123456789', '-1001234567890', '987654321',
+    ]);
+  });
+});
+
 describe('telegram chat and member lookups', () => {
   type Tool = { name: string; execute: (id: string, p: unknown) => Promise<{ content: { text: string }[] }> };
   const loadTools = async (api: Record<string, unknown>, admin = true): Promise<Tool[]> => {

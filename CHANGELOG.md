@@ -1,5 +1,17 @@
 # Changelog
 
+## whatsapp 0.2.14 - 2026-08-30
+
+- Accept token-list group allowlists while keeping phone number and JID notification targets open
+
+## telegram 0.2.12 - 2026-08-30
+
+- Accept token-list chat allowlists while keeping notification chat IDs open
+
+## discord 0.3.16 - 2026-08-30
+
+- Use the live destination catalog for notifications and token-list thread allowlists
+
 ## onedrive 0.2.1 - 2026-08-30
 
 - Use token-list ignore patterns with lossless array handling and legacy string compatibility

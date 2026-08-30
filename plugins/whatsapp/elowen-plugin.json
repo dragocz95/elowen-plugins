@@ -1,6 +1,6 @@
 {
   "name": "whatsapp",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "apiVersion": "1",
   "requiresCore": "0.28.11",
   "requiresSharedApi": 3,
@@ -43,8 +43,8 @@
     {
       "key": "groupIds",
       "label": "Allowed groups",
-      "type": "string",
-      "hint": "Comma-separated group JIDs (…@g.us). Empty = respond in every group where a mapped sender writes. When set, the bot only responds in these groups. Direct chats are always allowed for mapped senders."
+      "type": "tokenList",
+      "hint": "Group JIDs (…@g.us) where the bot may respond. Empty = every group where a mapped sender writes. Direct chats remain allowed for mapped senders."
     },
     {
       "key": "notifyChat",

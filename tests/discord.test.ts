@@ -25,6 +25,67 @@ describe('discord plugin', () => {
     });
     expect(reg.platforms.map((p) => p.name)).toEqual(['discord']);
   });
+
+  it('offers live text channels and threads through the authoritative destination provider', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/channels')) {
+        return new Response(JSON.stringify([
+          { id: 'cat', name: 'General', type: 4 },
+          { id: '100', name: 'alerts', type: 0, parent_id: 'cat' },
+        ]), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url.endsWith('/threads/active')) {
+        return new Response(JSON.stringify({
+          threads: [{ id: '200', name: 'incident', type: 11, parent_id: '100' }],
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(null, { status: 404 });
+    }));
+    const [{ listGuildChannels }, { notificationDestinationOptions }] = await Promise.all([
+      import(join(repoRoot, 'plugins/discord/lib/channels.mjs')) as Promise<{
+        listGuildChannels: (config: unknown) => Promise<unknown[]>;
+      }>,
+      import(join(repoRoot, 'plugins/discord/index.mjs')) as Promise<{
+        notificationDestinationOptions: (channels: unknown[]) => unknown[];
+      }>,
+    ]);
+    const channels = await listGuildChannels({ botToken: 'tok', guildId: 'guild' });
+    expect(notificationDestinationOptions(channels)).toEqual([
+      { id: '100', kind: 'channel', label: '#alerts', group: 'Discord · General' },
+      { id: '200', kind: 'thread', label: 'incident', group: 'Discord · alerts' },
+    ]);
+  });
+});
+
+describe('discord destination and list config compatibility', () => {
+  it('normalizes legacy raw ids, opaque destinations and stale stored Discord options', async () => {
+    const { DiscordAdapter, discordDestinationId } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as {
+      DiscordAdapter: { prototype: { notify: (text: string, channelId?: string) => Promise<void> } };
+      discordDestinationId: (value: unknown) => string;
+    };
+    expect(discordDestinationId('123')).toBe('123');
+    expect(discordDestinationId('destination:discord:456')).toBe('456');
+    expect(discordDestinationId('destination:discord:thread%3A789')).toBe('thread:789');
+
+    const reply = vi.fn(async () => undefined);
+    await DiscordAdapter.prototype.notify.call({ cfg: { notifyChannelId: 'destination:discord:999' }, reply }, 'hello');
+    expect(reply).toHaveBeenCalledWith('999', 'hello');
+    reply.mockClear();
+    await DiscordAdapter.prototype.notify.call(
+      { cfg: { notifyChannelId: 'destination:discord:999' }, reply },
+      'hello', 'destination:discord:123',
+    );
+    expect(reply).toHaveBeenCalledWith('123', 'hello');
+  });
+
+  it('accepts legacy and array allowed-thread lists without dropping stale ids', async () => {
+    const { splitList } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as {
+      splitList: (value: unknown) => string[];
+    };
+    expect(splitList('111, 222\n333')).toEqual(['111', '222', '333']);
+    expect(splitList(['111', ' 999 ', '222'])).toEqual(['111', '999', '222']);
+  });
 });
 
 describe('DiscordReadChannel message ids', () => {

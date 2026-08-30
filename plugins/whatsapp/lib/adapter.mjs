@@ -30,6 +30,12 @@ const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per 
 const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per reply — no config key: the agent
                                          // chooses what to share, so this is a transport bound, not a preference
 
+/** Token-list settings arrive as arrays from current core and comma/newline strings from older installs. */
+export function splitList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  return String(value ?? '').split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+}
+
 /** Read a numeric config field, clamped to [min,max], falling back to `def` when unset/invalid. */
 function cfgNum(cfg, key, def, min, max) {
   return Math.min(Math.max(Number(cfg?.[key]) || def, min), max);
@@ -322,7 +328,7 @@ export class WhatsAppAdapter {
 
     // Group allowlist: when configured, only respond inside these groups.
     if (group) {
-      const allowed = new Set(String(this.cfg.groupIds ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+      const allowed = new Set(splitList(this.cfg.groupIds));
       if (allowed.size > 0 && !allowed.has(chatJid)) return;
     }
 

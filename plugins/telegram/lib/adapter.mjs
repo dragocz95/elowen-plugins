@@ -37,6 +37,12 @@ const TG_MAX_COMMANDS = 100;
 const TG_COMMAND_NAME = /^[a-z0-9_]{1,32}$/;
 const TG_DESCRIPTION_MAX = 256;
 
+/** Token-list settings arrive as arrays from current core and comma/newline strings from older installs. */
+export function splitList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  return String(value ?? '').split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+}
+
 /** The adapter's OWN commands: dispatched here (onCommand) against this chat's stored state. Core
  *  DECLARES them (`execution: 'adapter-state'`), which is what reserves the names so a plugin macro can
  *  never shadow them, but deliberately does not PUBLISH them — each adapter registers its own, and which
@@ -290,7 +296,7 @@ export class TelegramAdapter {
     }
 
     // Chat allowlist: when configured, the bot only responds in these chats. Empty/unset = everywhere.
-    const allow = new Set(String(this.cfg.allowedChatIds ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    const allow = new Set(splitList(this.cfg.allowedChatIds));
     if (allow.size > 0 && !allow.has(String(chatId))) return;
 
     // Direct chats always respond; in groups respond only on @mention/reply-to-bot unless configured freely.

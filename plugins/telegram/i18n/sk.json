@@ -31,7 +31,7 @@
     },
     "allowedChatIds": {
       "label": "Povolené chaty",
-      "hint": "ID chatov oddelené čiarkou (číselné user/group id, napr. 123456789 alebo -1001234567890). Prázdne = odpovedať všade, kde je to povolené. Keď vyplníte, bot odpovedá len v týchto chatoch."
+      "hint": "Číselné ID používateľských alebo skupinových chatov (napr. 123456789 alebo -1001234567890). Prázdne = odpovedať všade, kde je to povolené."
     },
     "notifyChatId": {
       "label": "ID oznamovacieho chatu",

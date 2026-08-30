@@ -11,7 +11,7 @@
     },
     "groupIds": {
       "label": "Povolené skupiny",
-      "hint": "JID skupín oddelené čiarkou (…@g.us). Prázdne = odpovedať v každej skupine, kde píše namapovaný odosielateľ. Keď vyplníte, bot odpovedá len v týchto skupinách. Priame chaty sú pre namapovaných odosielateľov vždy povolené."
+      "hint": "JID skupín (…@g.us), v ktorých smie bot odpovedať. Prázdne = každá skupina, kde píše namapovaný odosielateľ. Priame chaty zostávajú povolené."
     },
     "notifyChat": {
       "label": "Oznamovací chat",

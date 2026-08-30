@@ -55,11 +55,11 @@
     },
     "threadIds": {
       "label": "Povolená vlákna",
-      "hint": "ID vláken oddělená čárkou. Prázdné = odpovídat všude, kde je to povoleno. Když vyplníte, bot odpovídá jen v těchto vláknech."
+      "hint": "ID vláken, ve kterých smí bot odpovídat. Prázdné = odpovídat všude, kde je to povoleno."
     },
     "notifyChannelId": {
-      "label": "ID oznamovacího kanálu",
-      "hint": "Kam se posílají proaktivní zprávy (výsledky cronů/ticků, eskalace). Prázdné = žádné proaktivní zprávy."
+      "label": "Cíl oznámení",
+      "hint": "Kanál nebo vlákno pro proaktivní zprávy (výsledky cronů/ticků a eskalace). Prázdné = žádné proaktivní zprávy."
     },
     "toolActivity": {
       "label": "Aktivita nástrojů",

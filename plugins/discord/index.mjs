@@ -19,15 +19,19 @@ export { buildAskComponents, askTruncationNote, ASK_MAX_QUESTIONS, ASK_MAX_SELEC
 export { LiveMessage } from './lib/stream.mjs';
 export { resolveDisplaySettings, updateDisplayOverrides } from './lib/display.mjs';
 
+export function notificationDestinationOptions(channels) {
+  return channels.map((channel) => ({
+    id: channel.id,
+    kind: channel.type,
+    label: channel.type === 'channel' ? `#${channel.name}` : channel.name,
+    group: channel.parentName ? `Discord · ${channel.parentName}` : 'Discord',
+  }));
+}
+
 export function register(ctx) {
   ctx.registerNotificationDestinationProvider({
     platform: 'discord',
-    list: async () => (await listGuildChannels(ctx.config)).map((channel) => ({
-      id: channel.id,
-      kind: channel.type,
-      label: channel.type === 'channel' ? `#${channel.name}` : channel.name,
-      group: channel.parentName ? `Discord · ${channel.parentName}` : 'Discord',
-    })),
+    list: async () => notificationDestinationOptions(await listGuildChannels(ctx.config)),
   });
 
   // Registered BEFORE the token check: an instance with the plugin on but no bot token still shows a

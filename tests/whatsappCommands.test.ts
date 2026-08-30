@@ -6,6 +6,16 @@ const repoRoot = join(__dirname, '..');
 const log = { info() {}, warn() {}, error() {} };
 const CHAT = '420123456789@s.whatsapp.net';
 
+describe('whatsapp token-list config compatibility', () => {
+  it('accepts legacy and array group JIDs', async () => {
+    const { splitList } = await import(join(repoRoot, 'plugins/whatsapp/lib/adapter.mjs')) as {
+      splitList: (value: unknown) => string[];
+    };
+    expect(splitList('111@g.us, 222@g.us\n999@g.us')).toEqual(['111@g.us', '222@g.us', '999@g.us']);
+    expect(splitList(['111@g.us', ' 999@g.us ', '222@g.us'])).toEqual(['111@g.us', '999@g.us', '222@g.us']);
+  });
+});
+
 interface ModelOption {
   provider: string;
   providerLabel: string;

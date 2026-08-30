@@ -29,6 +29,24 @@ const TTS_MAX_CHARS = 4000;              // cap the spoken text (OpenAI TTS inpu
 const SELECT_PAGE = 25;                  // Discord StringSelect hard cap — the /model + /context picker page size
 const CONTEXT_MAX = 200;                 // upper bound of own conversations the /context picker pages over
 
+/** Token-list settings arrive as arrays from current core and comma/newline strings from older installs. */
+export function splitList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  return String(value ?? '').split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+}
+
+/** A destination field stores an opaque provider-qualified value. Discord's REST API still needs only the
+ *  raw channel/thread id; legacy raw ids and stale Discord options remain valid and are never discarded. */
+export function discordDestinationId(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  const prefix = 'destination:discord:';
+  if (!trimmed.startsWith(prefix)) return trimmed;
+  const encoded = trimmed.slice(prefix.length);
+  if (!encoded) return '';
+  try { return decodeURIComponent(encoded); } catch { return encoded; }
+}
+
 /** The commands this adapter runs end to end against its own per-channel state. Core DECLARES them
  *  (`execution: 'adapter-state'`), which is what reserves the names so a plugin macro can never shadow
  *  them, but deliberately does not PUBLISH them: this adapter appends them to its own bulk registration,
@@ -453,7 +471,7 @@ export class DiscordAdapter {
     }
     // Thread allowlist: when configured, the bot only speaks inside these threads. A thread message's
     // channel_id IS the thread id, so we gate on it. Empty/unset = respond everywhere else allowed.
-    const threadIds = new Set(String(this.cfg.threadIds ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    const threadIds = new Set(splitList(this.cfg.threadIds));
     if (threadIds.size > 0 && !threadIds.has(m.channel_id)) return;
     // Iris-style free response is the default; flipping the toggle makes the bot mention-only.
     const mentioned = (m.mentions ?? []).some((u) => u.id === this.botId);
@@ -983,8 +1001,7 @@ export class DiscordAdapter {
    *  A `notice` marks one of the daemon's standing announcements, which we say in the configured
    *  language; free-form text arrives without one and is delivered as written. */
   async notify(text, channelId, notice) {
-    const target = (typeof channelId === 'string' && channelId.trim())
-      || (typeof this.cfg.notifyChannelId === 'string' ? this.cfg.notifyChannelId.trim() : '');
+    const target = discordDestinationId(channelId) || discordDestinationId(this.cfg.notifyChannelId);
     if (!target) return;
     await this.reply(target, lifecycleText(this.cfg.language, notice, text));
   }

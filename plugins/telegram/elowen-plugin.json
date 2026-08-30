@@ -1,6 +1,6 @@
 {
   "name": "telegram",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "apiVersion": "1",
   "requiresCore": "0.28.11",
   "requiresSharedApi": 3,
@@ -47,8 +47,8 @@
     {
       "key": "allowedChatIds",
       "label": "Allowed chats",
-      "type": "string",
-      "hint": "Comma-separated chat IDs (a numeric user/group id, e.g. 123456789 or -1001234567890). Empty = respond everywhere allowed. When set, the bot only responds in these chats."
+      "type": "tokenList",
+      "hint": "Numeric user or group chat IDs (for example 123456789 or -1001234567890). Empty = respond everywhere allowed."
     },
     {
       "key": "notifyChatId",
