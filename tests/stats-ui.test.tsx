@@ -81,6 +81,37 @@ describe('StatsView', () => {
     expect(new URLSearchParams(daySearch).get('days')).toBe('7');
   });
 
+  it('uses semantic host surfaces and readable chart and table tokens', async () => {
+    renderStats();
+    const tokenHeading = await screen.findByText(strings.tokensByModel);
+    const tokenCard = tokenHeading.closest('section');
+    expect(tokenCard).toHaveClass('bg-card', 'text-card-foreground');
+    expect(tokenHeading).toHaveClass('text-foreground');
+    expect(screen.getByText(strings.tokensByModelHint)).toHaveClass('text-muted-foreground');
+
+    const tokenFigure = screen.getByRole('figure', { name: strings.tokensByModel });
+    const firstLegendRow = within(tokenFigure).getAllByRole('listitem')[0]!;
+    expect(within(firstLegendRow).getByText('token-heavy')).toHaveClass('text-foreground');
+    expect(within(firstLegendRow).getByText(/83\.3%/)).toHaveClass('text-muted-foreground');
+    fireEvent.mouseEnter(firstLegendRow);
+    expect(firstLegendRow).toHaveClass('bg-muted');
+
+    const trendHeading = screen.getByText(strings.trendTitle);
+    const trendCard = trendHeading.closest('section')!;
+    expect(trendCard).toHaveClass('bg-card', 'text-card-foreground');
+    const tokenSeriesLabel = within(trendCard).getByText(strings.trendTokens);
+    const tokenSeriesMark = tokenSeriesLabel.parentElement?.querySelector('[aria-hidden]') as HTMLElement;
+    expect(tokenSeriesMark.style.background).toBe('var(--color-chart-1)');
+
+    const rows = await screen.findAllByTestId('model-usage-row');
+    const cells = within(rows[0]!).getAllByRole('cell');
+    expect(cells[0]).toHaveClass('text-foreground');
+    expect(cells[1]).toHaveClass('text-muted-foreground');
+    expect(cells[2]).toHaveClass('text-foreground');
+    expect(cells[3]).toHaveClass('text-muted-foreground');
+    expect(cells[4]).toHaveClass('text-muted-foreground');
+  });
+
   it('persists a changed range and sends both bounds for Today', async () => {
     renderStats();
     await screen.findByRole('figure', { name: strings.tokensByModel });

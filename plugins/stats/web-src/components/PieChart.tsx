@@ -14,12 +14,11 @@ export interface PieSegment extends PieDatum {
 }
 
 const COLORS = [
-  'var(--color-accent)',
-  'var(--color-info)',
-  'var(--color-success)',
-  'var(--color-warning)',
-  'var(--color-danger)',
-  'var(--color-text-muted)',
+  'var(--color-chart-1)',
+  'var(--color-chart-2)',
+  'var(--color-chart-3)',
+  'var(--color-chart-4)',
+  'var(--color-chart-5)',
 ];
 
 export function calculatePieSegments(data: PieDatum[]): PieSegment[] {
@@ -51,7 +50,7 @@ export function PieChart({ title, data, emptyText, renderIcon }: {
 }) {
   const segments = calculatePieSegments(data);
   const [activeId, setActiveId] = useState<string | null>(null);
-  if (segments.length === 0) return <p className="py-10 text-center text-sm text-text-muted">{emptyText}</p>;
+  if (segments.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{emptyText}</p>;
 
   const active = segments.find((segment) => segment.id === activeId) ?? null;
   // Hovering either a slice or its legend row lights up the same model, so the pointer affordance works
@@ -86,8 +85,8 @@ export function PieChart({ title, data, emptyText, renderIcon }: {
           {active ? (
             <>
               {renderIcon?.(active)}
-              <span className="font-mono text-sm tabular-nums text-text">{active.percentage.toFixed(1)}%</span>
-              <span className="w-full truncate text-[0.65rem] text-text-muted">{active.valueLabel}</span>
+              <span className="font-mono text-sm tabular-nums text-foreground">{active.percentage.toFixed(1)}%</span>
+              <span className="w-full truncate text-[0.65rem] text-muted-foreground">{active.valueLabel}</span>
             </>
           ) : null}
         </div>
@@ -97,8 +96,7 @@ export function PieChart({ title, data, emptyText, renderIcon }: {
           {segments.map((segment, index) => (
             <li
               key={segment.id}
-              className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-1 py-0.5 text-xs transition-colors"
-              style={active?.id === segment.id ? { backgroundColor: 'var(--color-elevated)' } : undefined}
+              className={`grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-1 py-0.5 text-xs transition-colors ${active?.id === segment.id ? 'bg-muted' : 'hover:bg-muted'}`}
               onMouseEnter={hover(segment.id)}
               onMouseLeave={hover(null)}
             >
@@ -106,8 +104,8 @@ export function PieChart({ title, data, emptyText, renderIcon }: {
                 <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: COLORS[index % COLORS.length] }} aria-hidden />
                 {renderIcon?.(segment)}
               </span>
-              <span className="truncate text-text" title={segment.label}>{segment.label}</span>
-              <span className="whitespace-nowrap font-mono tabular-nums text-text-muted">
+              <span className="truncate text-foreground" title={segment.label}>{segment.label}</span>
+              <span className="whitespace-nowrap font-mono tabular-nums text-muted-foreground">
                 {segment.percentage.toFixed(1)}% · {segment.valueLabel}
               </span>
             </li>

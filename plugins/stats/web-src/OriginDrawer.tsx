@@ -44,7 +44,7 @@ function originLabel(row: UsageOriginRow, strings: Record<string, string>): stri
 function ShareBar({ share }: { share: number }) {
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-border/60" aria-hidden>
-      <div className="h-full rounded-full bg-accent" style={{ width: `${Math.max(1, Math.round(share * 100))}%` }} />
+      <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(1, Math.round(share * 100))}%` }} />
     </div>
   );
 }
@@ -70,7 +70,7 @@ function OriginRows({
         return (
           <li
             key={key}
-            className={selectable ? 'group cursor-pointer rounded-md p-2 hover:bg-surface-muted' : 'rounded-md p-2'}
+            className={selectable ? 'group cursor-pointer rounded-md p-2 hover:bg-muted' : 'rounded-md p-2'}
             {...(selectable ? {
               role: 'button',
               tabIndex: 0,
@@ -84,21 +84,21 @@ function OriginRows({
             } : { 'data-testid': 'origin-row' })}
           >
             <div className="flex min-w-0 items-center gap-2">
-              <span className="font-mono text-xs text-text-muted">{index + 1}.</span>
-              <span className="min-w-0 flex-1 truncate text-sm text-text" title={rowLabel(row, group, strings)}>
+              <span className="font-mono text-xs text-muted-foreground">{index + 1}.</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-foreground" title={rowLabel(row, group, strings)}>
                 {rowLabel(row, group, strings)}
               </span>
               {!row.trusted ? (
                 <AlertTriangle size={13} aria-label={strings.originUnverified} className="shrink-0 text-warning" />
               ) : null}
-              {selectable ? <ChevronRight size={13} aria-hidden className="shrink-0 text-text-muted" /> : null}
+              {selectable ? <ChevronRight size={13} aria-hidden className="shrink-0 text-muted-foreground" /> : null}
             </div>
             <div className="mt-1.5 flex items-center gap-3">
               <ShareBar share={peak > 0 ? value / peak : 0} />
-              <span className="shrink-0 font-mono text-xs tabular-nums text-text">{integer(row.tokens, locale)}</span>
-              <span className="shrink-0 font-mono text-xs tabular-nums text-text-muted">{money(row.cost, locale)}</span>
+              <span className="shrink-0 font-mono text-xs tabular-nums text-foreground">{integer(row.tokens, locale)}</span>
+              <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{money(row.cost, locale)}</span>
             </div>
-            <p className="mt-1 text-xs text-text-muted">
+            <p className="mt-1 text-xs text-muted-foreground">
               {group === 'user'
                 ? strings.rowOrigins.replace('{count}', String(row.origins))
                 : strings.rowTurns.replace('{count}', String(row.turns))}
@@ -154,7 +154,7 @@ export function OriginDrawer({
       return (
         <div className="flex flex-col gap-4">
           <Button variant="ghost" icon={ChevronLeft} onClick={() => setDrillUserId(null)}>{strings.originBack}</Button>
-          <h3 className="text-sm font-semibold text-text">{drillLabel}</h3>
+          <h3 className="text-sm font-semibold text-foreground">{drillLabel}</h3>
           {pairs.isLoading ? <LoadingState variant="cards" /> : (
             <OriginRows rows={drillRows} group="origin" sort={sort} locale={locale} strings={strings} />
           )}
@@ -177,11 +177,11 @@ export function OriginDrawer({
     <WorkspaceDetailRail label={strings.originTitle} closeLabel={closeLabel} onClose={onClose}>
       <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <h2 className="text-sm font-semibold text-text">{strings.originTitle}</h2>
+          <h2 className="text-sm font-semibold text-foreground">{strings.originTitle}</h2>
           {/* The window and the tracking start come FIRST: without them the ranking reads as the
               instance's whole history, and everything spent before the rollup existed has no origin. */}
-          <p className="text-xs text-text-muted">{rangeLabel}</p>
-          <p className="text-xs text-text-muted">
+          <p className="text-xs text-muted-foreground">{rangeLabel}</p>
+          <p className="text-xs text-muted-foreground">
             {result?.trackingSince
               ? strings.originTrackedSince.replace('{day}', result.trackingSince)
               : strings.originTrackedNever}
@@ -191,7 +191,7 @@ export function OriginDrawer({
         {untrusted > 0 ? (
           <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2.5">
             <AlertTriangle size={14} aria-hidden className="mt-0.5 shrink-0 text-warning" />
-            <p className="min-w-0 text-xs text-text">
+            <p className="min-w-0 text-xs text-foreground">
               {strings.originUntrustedWarning.replace('{count}', String(untrusted))}
             </p>
             <HelpTip>{strings.originUntrustedHelp}</HelpTip>
@@ -224,7 +224,7 @@ export function OriginDrawer({
 
         {body()}
 
-        <p className="border-t border-border/70 pt-3 text-xs text-text-muted">{strings.originFootnote}</p>
+        <p className="border-t border-border/70 pt-3 text-xs text-muted-foreground">{strings.originFootnote}</p>
       </div>
     </WorkspaceDetailRail>
   );

@@ -24,9 +24,9 @@ export function ResetUsageModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title={s.resetTitle} onClose={onClose} size="sm" icon={AlertTriangle}>
       <ModalBody>
-        <p className="text-sm leading-relaxed text-text-muted">{s.resetBody}</p>
+        <p className="text-sm leading-relaxed text-muted-foreground">{s.resetBody}</p>
         <div className="flex flex-col gap-1.5">
-          <label htmlFor={confirmInputId} className="text-xs text-text-muted">{s.resetConfirmHint.replace('{word}', s.resetConfirmWord)}</label>
+          <label htmlFor={confirmInputId} className="text-xs text-muted-foreground">{s.resetConfirmHint.replace('{word}', s.resetConfirmWord)}</label>
           <Input id={confirmInputId} value={typed} onChange={(event) => setTyped(event.target.value)} autoFocus spellCheck={false} className="font-mono" />
         </div>
       </ModalBody>

@@ -172,17 +172,20 @@
       border-color: color-mix(in oklab, var(--color-warning, #edae49) 40%, transparent);
     }
   }
-  .bg-accent {
-    background-color: var(--color-accent, #ff5236);
-  }
   .bg-border\/60 {
     background-color: color-mix(in srgb, #242424 60%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-border, #242424) 60%, transparent);
     }
   }
-  .bg-surface {
-    background-color: var(--color-surface, #070707);
+  .bg-card {
+    background-color: var(--color-card, #070707);
+  }
+  .bg-muted {
+    background-color: var(--color-muted, #0d0d0d);
+  }
+  .bg-primary {
+    background-color: var(--color-primary, #ff5236);
   }
   .bg-warning\/10 {
     background-color: color-mix(in srgb, #edae49 10%, transparent);
@@ -248,11 +251,14 @@
   .whitespace-nowrap {
     white-space: nowrap;
   }
-  .text-text {
-    color: var(--color-text, #f7f3f0);
+  .text-card-foreground {
+    color: var(--color-card-foreground, var(--color-foreground));
   }
-  .text-text-muted {
-    color: var(--color-text-muted, #9d948e);
+  .text-foreground {
+    color: var(--color-foreground, #f7f3f0);
+  }
+  .text-muted-foreground {
+    color: var(--color-muted-foreground, #9d948e);
   }
   .text-warning {
     color: var(--color-warning, #edae49);
@@ -274,6 +280,11 @@
   .duration-150 {
     --tw-duration: 150ms;
     transition-duration: 150ms;
+  }
+  @media (hover: hover) {
+    .hover\:bg-muted:hover {
+      background-color: var(--color-muted, #0d0d0d);
+    }
   }
   @media (width >= 40rem) {
     .sm\:grid-cols-\[10rem_minmax\(0\,1fr\)\] {
