@@ -83,6 +83,19 @@ vi.mock('../plugins/editor/web-src/editor/MediaPreview', () => ({ MediaPreview: 
 // installed BEFORE the module is imported (it destructures the hook set at module scope) — which is
 // also the order the shipped bundle is loaded in.
 let ProjectEditor: ComponentType<{ projectId: number }>;
+const desktopMatchMedia = window.matchMedia;
+const useMobileViewport = () => {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: query === '(max-width: 767px)',
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }));
+};
 beforeAll(async () => {
   ensurePluginUiRuntime();
   ({ ProjectEditor } = await import('../plugins/editor/web-src/editor/ProjectEditor'));
@@ -136,6 +149,7 @@ beforeEach(() => {
   localStorage.clear();
 });
 afterEach(() => {
+  window.matchMedia = desktopMatchMedia;
   holdReads = false;
   for (const open of [...gates.values(), ...readGates]) open();
   cleanup();
@@ -185,6 +199,16 @@ describe('ProjectEditor copy', () => {
     expect(screen.getByRole('tree')).toHaveAccessibleName('Code editor');
   });
 
+  it('uses accent semantics for the selected file row', async () => {
+    await renderEditor();
+
+    const selectedFile = within(screen.getByRole('tree')).getByRole('button', { name: 'a.ts' });
+    expect(selectedFile).toHaveClass('bg-accent', 'text-accent-foreground');
+    for (const className of ['bg-primary/10', 'text-primary']) {
+      expect(selectedFile).not.toHaveClass(className);
+    }
+  });
+
   // Fullscreen used to be a hand-rolled `fixed inset-0 z-50 h-screen` div: it measured `vh` rather than
   // `dvh`, it tied with the navigation drawer and the advisor launcher on the shared overlay scale, and
   // its only exit was an unlabelled chevron. It is the host's takeover primitive now, and these are the
@@ -192,20 +216,65 @@ describe('ProjectEditor copy', () => {
   it('goes fullscreen as a labelled takeover rather than a hand-rolled overlay', async () => {
     await renderEditor();
 
+    const inlineWorkbench = screen.getByRole('region', { name: 'Code editor' });
+    expect(inlineWorkbench).toHaveClass('rounded-lg', 'border', 'border-border', 'bg-card');
+
     fireEvent.click(screen.getByRole('menuitem', { name: 'View' }));
     fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Fullscreen' }));
 
     const takeover = await screen.findByRole('dialog', { name: 'Code editor' });
     expect(takeover).toHaveAttribute('data-presentation', 'fullscreen');
-    // The view controls ride in the takeover's own header, which is the strip that is always on screen.
-    expect(within(takeover).getByRole('tablist', { name: 'View mode' })).toBeInTheDocument();
+    // Production WorkspaceTakeover has two direct rows: its own top strip, then the flex body. Editor
+    // controls belong inside that body, never in the takeover strip beside Back and the title.
+    const topStrip = takeover.firstElementChild as HTMLElement;
+    const takeoverBody = takeover.lastElementChild as HTMLElement;
+    const editorToolbar = within(takeover).getByRole('toolbar', { name: 'Code editor' });
+    expect(topStrip).not.toBe(takeoverBody);
+    expect(within(topStrip).queryByRole('toolbar')).not.toBeInTheDocument();
+    expect(topStrip).not.toContainElement(editorToolbar);
+    expect(takeoverBody).toContainElement(editorToolbar);
+    expect(within(takeover).getAllByRole('toolbar', { name: 'Code editor' })).toHaveLength(1);
+    for (const name of ['File', 'View', 'Settings']) {
+      expect(within(editorToolbar).getByRole('menuitem', { name })).toBeInTheDocument();
+    }
+
+    const fullscreenWorkbench = within(takeoverBody).getByRole('region', { name: 'Code editor' });
+    expect(fullscreenWorkbench).toHaveClass('min-h-0', 'min-w-0', 'overflow-hidden');
+    for (const className of ['bg-card', 'border', 'rounded-lg']) {
+      expect(fullscreenWorkbench).not.toHaveClass(className);
+    }
     // One exit, and it says what it does.
-    const back = within(takeover).getByRole('button', { name: 'Exit fullscreen' });
+    const back = within(topStrip).getByRole('button', { name: 'Exit fullscreen' });
 
     fireEvent.click(back);
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    // …and the editor is still there, inline, with the file still open.
+    // …and the editor is still there, inline, with the file still open and its card ownership restored.
     expect(editorEl().value).toBe('line one\n');
+    expect(screen.getByRole('region', { name: 'Code editor' })).toHaveClass('rounded-lg', 'border', 'bg-card');
+  });
+
+  it('keeps every file-open control reachable in the wrapping phone toolbar', async () => {
+    useMobileViewport();
+    const { wrapper: Base } = createWrapper();
+    const Wrapper = ({ children }: { children: ReactNode }) => <Base><ToastProvider>{children}</ToastProvider></Base>;
+    render(<ProjectEditor projectId={5} />, { wrapper: Wrapper });
+
+    const takeover = await screen.findByRole('dialog', { name: 'Code editor' });
+    fireEvent.click(within(takeover).getByRole('button', { name: 'Files' }));
+    await screen.findByRole('tree');
+    openInTree('a.ts');
+    await waitFor(() => expect(editorEl().value).toBe('line one\n'));
+
+    const toolbar = within(takeover).getByRole('toolbar', { name: 'Code editor' });
+    expect(toolbar).toHaveClass('flex-wrap', 'max-w-full');
+    expect(toolbar.closest('section')).toHaveClass('min-w-0', 'overflow-hidden');
+    const trailingControls = toolbar.querySelector('.ml-auto');
+    expect(trailingControls).toHaveClass('flex-wrap', 'max-w-full');
+    for (const name of ['File', 'View', 'Settings']) {
+      expect(within(toolbar).getByRole('menuitem', { name })).toBeInTheDocument();
+    }
+    expect(within(toolbar).getByRole('tablist', { name: 'View mode' })).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: 'Save' })).toBeInTheDocument();
   });
 
   it('reports the caret and the selection size in the status bar', async () => {
