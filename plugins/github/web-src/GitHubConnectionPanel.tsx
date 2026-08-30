@@ -102,15 +102,15 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
     const state = flowStatus.data?.status;
     const terminal = state === 'cancelled' || state === 'expired' || state === 'failed' || state === 'interrupted';
     return <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-surface p-4">
-        <div className="text-sm font-semibold text-text">{s.waitingForGitHub}</div>
-        <div className="mt-3 text-xs text-text-muted">{s.deviceCode}</div>
-        <code className="mt-1 block rounded-lg bg-bg px-3 py-2 text-center text-lg font-semibold tracking-[0.2em] text-text">{flow.userCode}</code>
-        <a className="mt-3 inline-flex text-sm font-medium text-accent hover:underline" href={flow.verificationUrl} target="_blank" rel="noreferrer">{s.verifyOnGitHub}</a>
-        {state === 'failed' ? <p className="mt-3 text-sm text-danger">{s.connectionFailed}</p> : null}
-        {state === 'expired' ? <p className="mt-3 text-sm text-danger">{s.connectionExpired}</p> : null}
-        {state === 'cancelled' ? <p className="mt-3 text-sm text-text-muted">{s.connectionCancelled}</p> : null}
-        {state === 'interrupted' ? <p className="mt-3 text-sm text-danger">{s.connectionFailed}</p> : null}
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="text-sm font-semibold text-foreground">{s.waitingForGitHub}</div>
+        <div className="mt-3 text-xs text-muted-foreground">{s.deviceCode}</div>
+        <code className="mt-1 block rounded-lg bg-background px-3 py-2 text-center text-lg font-semibold tracking-[0.2em] text-foreground">{flow.userCode}</code>
+        <a className="mt-3 inline-flex text-sm font-medium text-primary hover:underline" href={flow.verificationUrl} target="_blank" rel="noreferrer">{s.verifyOnGitHub}</a>
+        {state === 'failed' ? <p className="mt-3 text-sm text-destructive">{s.connectionFailed}</p> : null}
+        {state === 'expired' ? <p className="mt-3 text-sm text-destructive">{s.connectionExpired}</p> : null}
+        {state === 'cancelled' ? <p className="mt-3 text-sm text-muted-foreground">{s.connectionCancelled}</p> : null}
+        {state === 'interrupted' ? <p className="mt-3 text-sm text-destructive">{s.connectionFailed}</p> : null}
       </div>
       <div className="flex flex-wrap gap-2">
         {!terminal ? <C.Button variant="ghost" onClick={() => cancel.mutate(flow.flowId)} disabled={cancel.isPending}>{s.cancelConnection}</C.Button> : null}
@@ -142,7 +142,7 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
     >
       {connected && account ? (
         <span className="flex items-center gap-2">
-          <span className="truncate font-mono text-sm text-text">@{account.login}</span>
+          <span className="truncate font-mono text-sm text-foreground">@{account.login}</span>
           <C.Badge tone={status.data?.reconnectRequired ? 'danger' : 'success'}>{status.data?.reconnectRequired ? s.reconnectRequired : s.connected}</C.Badge>
         </span>
       ) : null}
