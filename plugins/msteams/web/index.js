@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -62,19 +62,19 @@ async function apiJson(path, init) {
 // plugins/msteams/web-src/TeamsWorkspace.tsx
 var import_react3 = __toESM(require_react(), 1);
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -87,7 +87,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -119,7 +119,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -133,14 +133,14 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/download.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/download.js
 var Download = createLucideIcon("Download", [
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
   ["polyline", { points: "7 10 12 15 17 10", key: "2ggqvy" }],
   ["line", { x1: "12", x2: "12", y1: "15", y2: "3", key: "1vk2je" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/key-round.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/key-round.js
 var KeyRound = createLucideIcon("KeyRound", [
   [
     "path",
@@ -152,12 +152,12 @@ var KeyRound = createLucideIcon("KeyRound", [
   ["circle", { cx: "16.5", cy: "7.5", r: ".5", fill: "currentColor", key: "w0ekpg" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/message-circle.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/message-circle.js
 var MessageCircle = createLucideIcon("MessageCircle", [
   ["path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z", key: "vv11sd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/refresh-cw.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/refresh-cw.js
 var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
@@ -165,13 +165,13 @@ var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/search.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/search.js
 var Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
   ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/settings-2.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/settings-2.js
 var Settings2 = createLucideIcon("Settings2", [
   ["path", { d: "M20 7h-9", key: "3s1dr2" }],
   ["path", { d: "M14 17H5", key: "gfn3mx" }],
@@ -179,7 +179,7 @@ var Settings2 = createLucideIcon("Settings2", [
   ["circle", { cx: "7", cy: "7", r: "3", key: "dfmy0x" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/shield-check.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/shield-check.js
 var ShieldCheck = createLucideIcon("ShieldCheck", [
   [
     "path",
@@ -191,14 +191,14 @@ var ShieldCheck = createLucideIcon("ShieldCheck", [
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/user-check.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/user-check.js
 var UserCheck = createLucideIcon("UserCheck", [
   ["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", key: "1yyitq" }],
   ["circle", { cx: "9", cy: "7", r: "4", key: "nufk8" }],
   ["polyline", { points: "16 11 18 13 22 9", key: "1pwet4" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/users.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/users.js
 var Users = createLucideIcon("Users", [
   ["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", key: "1yyitq" }],
   ["circle", { cx: "9", cy: "7", r: "4", key: "nufk8" }],
@@ -502,42 +502,45 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
         }
       )
     ] }),
-    response.people.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleEmptyTitle, description: s.peopleEmptyDescription, icon: Users }) }) : visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleNoResults, description: s.peopleNoResultsDescription, icon: Search }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceRegister, { className: "grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(18rem,0.8fr)_minmax(24rem,1.2fr)]", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex min-w-0 flex-col gap-2", children: visible.map((person) => {
+    response.people.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleEmptyTitle, description: s.peopleEmptyDescription, icon: Users }) }) : visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleNoResults, description: s.peopleNoResultsDescription, icon: Search }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceRegister, { className: "grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:!grid-cols-[19rem_minmax(0,1fr)] lg:items-start", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex min-w-0 flex-col gap-1 lg:max-h-[calc(100dvh-15rem)] lg:overflow-y-auto lg:pr-1", children: visible.map((person) => {
         const mapped = directPolicyIndex(policies, person) >= 0;
         const linkedUser = linkedUserFor(person, users);
         const active = selected?.key === person.key;
+        const accessLabel = mapped ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped;
         return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
           "button",
           {
             type: "button",
+            "aria-pressed": active,
             onClick: () => setSelectedKey(person.key),
-            className: `flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? "border-accent/60 bg-accent/10" : "border-border bg-surface hover:border-border-strong hover:bg-elevated/50"}`,
+            className: `flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition ${active ? "border-accent/50 bg-accent/10" : "border-transparent bg-transparent hover:border-border hover:bg-elevated/40"}`,
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: person.name || person.upn || s.personFallback, src: person.teamsAvatarUrl, user: linkedUser, size: "md" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "min-w-0 flex-1", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-sm font-semibold text-text", children: person.name || s.personFallback }),
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-xs text-text-muted", children: person.upn || person.aadObjectId })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex shrink-0 flex-col items-end gap-1", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: mapped ? "accent" : void 0, children: mapped ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped }),
-                person.hasPersonalChat ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "inline-flex items-center gap-1 text-[11px] text-text-muted", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageCircle, { size: 11, "aria-hidden": true }),
-                  s.chatOpen
-                ] }) : null
-              ] })
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "inline-flex shrink-0 items-center", title: accessLabel, "aria-label": accessLabel, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `size-2 rounded-full ${mapped ? "bg-accent" : "bg-border-strong"}`, "aria-hidden": true }) })
             ]
           },
           person.key
         );
       }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "min-w-0 rounded-xl border border-border bg-elevated/30 p-5", children: selected === null ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "min-w-0 rounded-xl border border-border bg-elevated/30 p-5 lg:sticky lg:top-4 lg:self-start", children: selected === null ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-start gap-3", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: selected.name || selected.upn || s.personFallback, src: selected.teamsAvatarUrl, user: selectedUser, size: "lg" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0 flex-1", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "truncate text-base font-semibold text-text", children: selected.name || s.personFallback }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "truncate text-sm text-text-muted", children: selected.upn || selected.aadObjectId }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 font-mono text-[11px] text-text-subtle", children: selected.aadObjectId || selected.teamsId })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 font-mono text-[11px] text-text-subtle", children: selected.aadObjectId || selected.teamsId }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-2 flex flex-wrap items-center gap-2", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: policy ? "accent" : void 0, children: policy ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped }),
+              selected.hasPersonalChat ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "inline-flex items-center gap-1 text-xs text-text-muted", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageCircle, { size: 12, "aria-hidden": true }),
+                s.chatOpen
+              ] }) : null
+            ] })
           ] }),
           policy ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: removePolicy, children: s.removeAccess }) : null
         ] }),
