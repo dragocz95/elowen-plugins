@@ -51,11 +51,14 @@ function bundleSources(): string[] {
 }
 
 const HEX = /#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b/g;
-const RETIRED_STATS_TOKENS = [
-  /\bbg-(?:surface-muted|surface|elevated|bg)\b/g,
-  /\btext-(?:text-muted|text|danger)\b/g,
-  /var\(--color-(?:surface-muted|surface|elevated|bg|text-muted|text|danger|accent)\)/g,
+const RETIRED_SOURCE_TOKENS = [
+  /\b(?:bg|text|border|ring)-(?:bg|surface(?:-2|-muted)?|elevated|overlay|text(?:-muted|-subtle)?|danger)\b/g,
+  /\btext-accent(?!-foreground)\b/g,
+  /\b(?:bg|border)-accent\/\d+\b/g,
+  /\bring-accent\b/g,
+  /var\(--color-(?:surface(?:-2|-muted)?|elevated|bg|overlay|text-muted|text-subtle|text|danger)\)/g,
 ];
+const RETIRED_BUILT_TOKENS = /(?:bg-(?:surface(?:-2|-muted)?|elevated|bg|overlay)|text-(?:text-muted|text-subtle|text|danger)|--color-(?:surface(?:-2|-muted)?|elevated|bg|overlay|text-muted|text-subtle|text|danger))(?![a-z-])/g;
 
 describe('plugin bundles paint from the host tokens, not from literals', () => {
   it('finds the bundle sources at all', () => {
@@ -95,24 +98,36 @@ describe('plugin bundles paint from the host tokens, not from literals', () => {
     expect(found('const anchor = "#section-two";')).toEqual([]);
   });
 
-  it('keeps Stats on the current semantic token vocabulary', () => {
+  it('keeps every plugin on the current semantic token vocabulary in source and shipped assets', () => {
     const offenders: string[] = [];
-    const statsRoot = resolve(pluginsDir, 'stats', 'web-src');
-    for (const file of bundleSources().filter((source) => source.startsWith(`${statsRoot}/`))) {
+    for (const file of bundleSources()) {
       const text = readFileSync(file, 'utf8');
       text.split('\n').forEach((line, i) => {
-        for (const pattern of RETIRED_STATS_TOKENS) {
+        for (const pattern of RETIRED_SOURCE_TOKENS) {
           for (const hit of line.match(pattern) ?? []) offenders.push(`${relative(registryRoot, file)}:${i + 1} ${hit}`);
         }
       });
     }
+    for (const name of pluginsDeclaringABundle()) {
+      for (const asset of ['index.js', 'index.css']) {
+        const file = resolve(pluginsDir, name, 'web', asset);
+        let text: string;
+        try { text = readFileSync(file, 'utf8'); } catch { continue; }
+        text.split('\n').forEach((line, i) => {
+          for (const hit of line.match(RETIRED_BUILT_TOKENS) ?? []) {
+            offenders.push(`${relative(registryRoot, file)}:${i + 1} ${hit}`);
+          }
+        });
+      }
+    }
     expect(offenders).toEqual([]);
+  });
 
-    const builtJs = readFileSync(resolve(pluginsDir, 'stats', 'web', 'index.js'), 'utf8');
-    const builtCss = readFileSync(resolve(pluginsDir, 'stats', 'web', 'index.css'), 'utf8');
-    expect(`${builtJs}\n${builtCss}`).not.toMatch(/(?:bg-(?:surface-muted|surface|elevated|bg)|text-(?:text-muted|text|danger)|--color-(?:surface-muted|surface|elevated|bg|text-muted|text|danger))(?![a-z-])/);
-    expect(builtCss).toContain('.bg-card');
-    expect(builtCss).toContain('.text-foreground');
-    expect(builtCss).toContain('.text-muted-foreground');
+  it('recognises retired plugin utilities without rejecting current shadcn roles', () => {
+    const retired = (line: string) => RETIRED_SOURCE_TOKENS.flatMap((pattern) => line.match(pattern) ?? []);
+    expect(retired('bg-surface text-text-muted text-accent bg-accent/10 ring-accent')).toEqual([
+      'bg-surface', 'text-text-muted', 'text-accent', 'bg-accent/10', 'ring-accent',
+    ]);
+    expect(retired('bg-card text-foreground text-muted-foreground bg-accent text-accent-foreground ring-ring')).toEqual([]);
   });
 });
