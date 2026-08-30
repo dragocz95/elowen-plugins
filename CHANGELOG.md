@@ -1,5 +1,9 @@
 # Changelog
 
+## github 0.1.10 - 2026-08-30
+
+- Use semantic host tokens across connection and project views.
+
 ## whatsapp 0.2.15 - 2026-08-30
 
 - Use semantic host tokens in pairing settings.
