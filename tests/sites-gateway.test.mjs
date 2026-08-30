@@ -59,9 +59,17 @@ test('the readiness check names the exact DNS record while the wildcard is missi
   // readiness check that only says "not configured" leaves the feature permanently unusable.
   assert.equal(readiness.ok, false);
   assert.match(readiness.detail, /does not resolve/);
-  assert.match(readiness.hint, /\*\.sites\.agent\.example\.invalid/);
-  assert.match(readiness.hint, /CNAME/);
-  assert.match(readiness.hint, /agent\.example\.invalid\./);
+  assert.match(readiness.hint, /registrar/);
+
+  // The record travels as LABELLED FIELDS, not inside the sentence: it is retyped by hand into somebody
+  // else's control panel, where one wrong character fails silently — the wildcard simply does not
+  // resolve, which is the same symptom as never having created it. The settings screen renders each
+  // value with its own copy control, so no part of it has to be picked out of prose.
+  assert.deepEqual(readiness.fix, [
+    { label: 'Type', value: 'CNAME' },
+    { label: 'Name', value: '*.sites.agent.example.invalid' },
+    { label: 'Value', value: 'agent.example.invalid.' },
+  ]);
 
   // Nothing was asked of the broker: without the record there is no certificate to obtain.
   assert.equal(harness.calls.sync, 0);

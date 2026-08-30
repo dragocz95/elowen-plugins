@@ -193,7 +193,12 @@ export class SiteGatewayManager {
 
   /** The gateway's health as the Settings screen reports it. This readiness check is the ONE place the
    *  required DNS record is surfaced to a person: there is no configuration form, because the record
-   *  lives at a registrar and is not something this instance could write. */
+   *  lives at a registrar and is not something this instance could write.
+   *
+   *  The record goes out as `fix` — labelled fields the screen renders as copyable values — rather than
+   *  only as a sentence. It is transcribed by hand into somebody else's control panel, where one wrong
+   *  character produces no error anywhere: the wildcard simply does not resolve, and the gateway reports
+   *  the same "does not resolve" it reports when nobody created the record at all. */
   async readiness() {
     await this.reconcile();
     const record = this.requiredRecord();
@@ -203,7 +208,12 @@ export class SiteGatewayManager {
       ok: this.current.active,
       detail: this.current.active ? this.current.hostnameBase ?? 'active' : this.current.detail ?? 'not configured',
       ...(this.current.active || !record ? {} : {
-        hint: `Create this DNS record at your domain's registrar: ${record.name} ${record.type} ${record.value}`,
+        hint: 'Add this DNS record at the registrar for your domain. Sites start working within a minute of it resolving — nothing else has to be configured.',
+        fix: [
+          { label: 'Type', value: record.type },
+          { label: 'Name', value: record.name },
+          { label: 'Value', value: record.value },
+        ],
       }),
     };
   }
