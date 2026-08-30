@@ -1,5 +1,9 @@
 # Changelog
 
+## editor 0.3.2 - 2026-08-30
+
+- Use semantic host surfaces and readable Light/Dark editor styling.
+
 ## whatsapp 0.2.14 - 2026-08-30
 
 - Accept token-list group allowlists while keeping phone number and JID notification targets open
