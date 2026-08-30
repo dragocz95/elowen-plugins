@@ -23,8 +23,8 @@ export function UsageTrend({ data, locale, tokenLabel, costLabel, emptyText }: {
   const { components: C } = runtime();
   const points = useMemo(() => data.map((row) => ({ label: row.day, tokens: row.tokens, cost: row.cost })), [data]);
   const series = useMemo(() => [
-    { key: 'tokens', label: tokenLabel, colour: 'var(--color-accent)', variant: 'bar' as const, axis: 'left' as const, format: (value: number) => formatTokens(value, locale) },
-    { key: 'cost', label: costLabel, colour: 'var(--color-warning)', variant: 'line' as const, axis: 'right' as const, format: (value: number) => formatCost(value, locale) },
+    { key: 'tokens', label: tokenLabel, colour: 'var(--color-chart-1)', variant: 'bar' as const, axis: 'left' as const, format: (value: number) => formatTokens(value, locale) },
+    { key: 'cost', label: costLabel, colour: 'var(--color-chart-2)', variant: 'line' as const, axis: 'right' as const, format: (value: number) => formatCost(value, locale) },
   ], [costLabel, locale, tokenLabel]);
 
   return <C.TimeSeriesChart data={points} series={series} height={220} emptyText={emptyText} />;
