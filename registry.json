@@ -14,7 +14,7 @@
     },
     {
       "name": "cronjob",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "description": "Scheduler: recurring prompts, one-shot wake-ups and shell collectors that wake the agent on a schedule, with a jobs screen in Settings.",
       "category": "automation",
       "author": "Elowen",
@@ -42,7 +42,7 @@
     },
     {
       "name": "editor",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "description": "Project file editor with Monaco, file management, previews for Markdown, images, PDF, media, Office and CSV files, a binary download fallback, and read-only Git history. Disabling it removes the editor UI and makes its grandfathered project-file API unavailable while project registration and task Git history remain available.",
       "category": "tools",
       "author": "Elowen",
@@ -53,7 +53,7 @@
     },
     {
       "name": "github",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "requiresCore": "0.28.13",
       "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
       "category": "productivity",
@@ -111,7 +111,7 @@
     },
     {
       "name": "msteams",
-      "version": "0.5.30",
+      "version": "0.5.31",
       "requiresCore": "0.28.11",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
@@ -128,7 +128,7 @@
     },
     {
       "name": "onedrive",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "requiresCore": "0.28.17",
       "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
       "category": "productivity",
@@ -143,7 +143,7 @@
     },
     {
       "name": "skills",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
       "category": "automation",
       "author": "Elowen",
@@ -155,7 +155,7 @@
     },
     {
       "name": "sites",
-      "version": "0.7.2",
+      "version": "0.7.3",
       "requiresCore": "0.28.21",
       "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is a separate release you can roll back to.",
       "category": "productivity",
@@ -169,7 +169,7 @@
     },
     {
       "name": "stats",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "description": "Model usage analytics for tokens, cost, cache efficiency and generation speed. Uses Elowen's shared usage ledger and keeps task tracking focused on work rather than infrastructure spend.",
       "category": "productivity",
       "author": "Elowen",
@@ -226,7 +226,7 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.14",
+      "version": "0.2.15",
       "requiresCore": "0.28.11",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",

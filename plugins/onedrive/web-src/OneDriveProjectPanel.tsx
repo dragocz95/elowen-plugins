@@ -48,7 +48,7 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: 
 
   return (
     <C.WorkspaceDetailRail label={s.conflicts} closeLabel={s.close} onClose={onClose}>
-      <p className="mb-3 text-xs text-text-muted">{s.conflictsHint}</p>
+      <p className="mb-3 text-xs text-muted-foreground">{s.conflictsHint}</p>
       {conflicts.isLoading ? <C.LoadingState variant="list" />
         : conflicts.isError
           // A failed load must not look like "no conflicts": this is the screen someone uses to decide
@@ -117,15 +117,15 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1 text-xs">
         <button type="button" onClick={() => setBrowsing('')}
-          className={`rounded px-1.5 py-0.5 hover:bg-surface-2 ${browsing === '' ? 'text-text font-medium' : 'text-text-muted'}`}>
+          className={`rounded px-1.5 py-0.5 hover:bg-accent hover:text-accent-foreground ${browsing === '' ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
           {rootLabel}
         </button>
         {crumbs.map((crumb, index) => (
           <span key={crumbs.slice(0, index + 1).join('/')} className="flex items-center gap-1">
-            <ChevronRight size={12} className="text-text-muted" aria-hidden />
+            <ChevronRight size={12} className="text-subtle-foreground" aria-hidden />
             <button type="button" onClick={() => setBrowsing(crumbs.slice(0, index + 1).join('/'))}
               title={crumb}
-              className={`max-w-[10rem] truncate rounded px-1.5 py-0.5 hover:bg-surface-2 ${index === crumbs.length - 1 ? 'text-text font-medium' : 'text-text-muted'}`}>
+              className={`max-w-[10rem] truncate rounded px-1.5 py-0.5 hover:bg-accent hover:text-accent-foreground ${index === crumbs.length - 1 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
               {crumb}
             </button>
           </span>
@@ -138,8 +138,8 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
         <button type="button" aria-pressed={value?.subpath === browsing}
           disabled={!listing.data}
           onClick={() => listing.data && onChange({ subpath: browsing, remotePath: listing.data.remotePath })}
-          className={`flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-surface-2 disabled:opacity-50 ${
-            value?.subpath === browsing ? 'bg-accent/10 text-accent' : ''}`}>
+          className={`flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-50 ${
+            value?.subpath === browsing ? 'bg-accent text-accent-foreground' : ''}`}>
           <FolderOpen size={13} aria-hidden />
           <span className="truncate">{browsing === '' ? s.mirrorWholeProject : `${s.mirrorThisFolder}: ${browsing}`}</span>
           {value?.subpath === browsing ? <span className="ml-auto shrink-0 font-medium">{s.selected}</span> : null}
@@ -149,19 +149,19 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
           : listing.isLoading
             ? <div className="p-3"><C.LoadingState variant="list" /></div>
             : (listing.data?.folders ?? []).length === 0
-              ? <p className="px-3 py-2 text-xs text-text-muted">{s.noSubfolders}</p>
+              ? <p className="px-3 py-2 text-xs text-muted-foreground">{s.noSubfolders}</p>
               : (listing.data?.folders ?? []).map((folder) => (
                 <div key={folder.path} className="flex items-stretch border-b border-border/70 last:border-b-0">
                   <button type="button" aria-pressed={value?.subpath === folder.path}
                     onClick={() => onChange({ subpath: folder.path, remotePath: folder.remotePath })}
-                    className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-2 ${
-                      value?.subpath === folder.path ? 'bg-accent/10 text-accent' : ''}`}>
+                    className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-accent hover:text-accent-foreground ${
+                      value?.subpath === folder.path ? 'bg-accent text-accent-foreground' : ''}`}>
                     <Folder size={13} aria-hidden />
                     <span className="truncate" title={folder.path}>{folder.name}</span>
                     {value?.subpath === folder.path ? <span className="ml-auto shrink-0 font-medium">{s.selected}</span> : null}
                   </button>
                   <button type="button" onClick={() => setBrowsing(folder.path)} aria-label={`${s.openFolderLabel}: ${folder.name}`}
-                    className="px-2 text-text-muted hover:bg-surface-2 hover:text-text">
+                    className="px-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
                     <ChevronRight size={14} aria-hidden />
                   </button>
                 </div>
@@ -190,25 +190,25 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
     : s.never;
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <C.Badge tone={statusTone(row)}>{statusLabel(row, s)}</C.Badge>
-        <span>{s.lastSync}: <span className="text-text">{syncedAt}</span></span>
+        <span>{s.lastSync}: <span className="text-foreground">{syncedAt}</span></span>
         <span aria-hidden>·</span>
-        <span>{s.files}: <span className="text-text">{row.fileCount} · {humanBytes(row.byteCount)}</span></span>
+        <span>{s.files}: <span className="text-foreground">{row.fileCount} · {humanBytes(row.byteCount)}</span></span>
         <span aria-hidden>·</span>
-        <span>{s.mirroredFolder}: <span className="font-mono text-text" title={row.subpath || undefined}>
+        <span>{s.mirroredFolder}: <span className="font-mono text-foreground" title={row.subpath || undefined}>
           {row.subpath || s.wholeProject}
         </span></span>
       </div>
       {/* Which OneDrive folder this is. Somebody who connected weeks ago has no other way to find out. */}
-      <p className="break-all text-xs text-text-muted">
-        {s.destination}: <span className="font-mono text-text">{row.remotePath}</span>
+      <p className="break-all text-xs text-muted-foreground">
+        {s.destination}: <span className="font-mono text-foreground">{row.remotePath}</span>
       </p>
 
       {row.status === 'blocked' ? (
         <div className="rounded-lg border border-warning/40 bg-warning/5 p-3">
           <p className="text-sm font-medium">{s.blockedTitle.replace('{count}', String(row.blockedDeletions))}</p>
-          <p className="mt-1 text-xs text-text-muted">{s.blockedBody.replace('{count}', String(row.blockedDeletions))}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{s.blockedBody.replace('{count}', String(row.blockedDeletions))}</p>
         </div>
       ) : row.error ? <C.ErrorState message={row.error} /> : null}
 
@@ -222,7 +222,7 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
 
       {row.conflictCount > 0 && (
         <button type="button" onClick={onConflicts}
-          className="flex w-full items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-left text-sm hover:bg-surface-2">
+          className="flex w-full items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground">
           <TriangleAlert size={15} className="text-warning" aria-hidden />
           <span>{s.conflicts}</span>
           <C.Badge tone="warning">{row.conflictCount}</C.Badge>
@@ -306,13 +306,13 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
 
   return (
     <div className="space-y-4 py-3">
-      <section className="rounded-xl border border-border bg-surface p-4">
+      <section className="rounded-xl border border-border bg-card p-4">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-text">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
               <Cloud size={14} aria-hidden /> {s.title}
             </h3>
-            <p className="mt-1 text-xs text-text-muted">{s.connectHint}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{s.connectHint}</p>
           </div>
           {projectLink ? null : (
             <C.Button variant="accent" onClick={() => { setChoice(null); setConnectFor({ workspaceId: null, label: project.slug }); }}>
@@ -330,16 +330,16 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
             onSync={() => syncNow.mutate({ id: projectLink.id })}
             onConfirmSync={() => syncNow.mutate({ id: projectLink.id, confirmDeletions: true })}
           />
-        ) : <p className="text-xs text-text-muted">{s.mirrorScopeHint}</p>}
+        ) : <p className="text-xs text-muted-foreground">{s.mirrorScopeHint}</p>}
       </section>
 
       {data.workspaces.length > 0 && (
-        <section className="rounded-xl border border-border bg-surface p-4">
+        <section className="rounded-xl border border-border bg-card p-4">
           <div className="mb-3 min-w-0">
-            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-text">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
               <Cloud size={14} aria-hidden /> {s.workspaces}
             </h3>
-            <p className="mt-1 text-xs text-text-muted">{s.workspacesHint}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{s.workspacesHint}</p>
           </div>
           <C.DataTable ariaLabel={s.workspaces} columns="minmax(0,1fr) 7rem auto" compactColumns="minmax(0,1fr)">
             {data.workspaces.map((workspace) => {
@@ -359,7 +359,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
                         <p className="text-right text-xs text-warning">
                           {s.blockedTitle.replace('{count}', String(row.blockedDeletions))}
                         </p>
-                      ) : row?.error ? <p className="text-xs text-danger text-right">{row.error}</p> : null}
+                      ) : row?.error ? <p className="text-xs text-destructive text-right">{row.error}</p> : null}
                       <div className="flex flex-wrap justify-end gap-2">
                       {row && row.status === 'blocked' && (
                         <C.Button variant="danger" disabled={syncNow.isPending}
@@ -411,8 +411,8 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
 
           <div className="space-y-2">
             <div>
-              <p className="text-text-muted text-xs uppercase tracking-wide">{s.chooseFolder}</p>
-              <p className="text-xs text-text-muted">{s.chooseFolderHint}</p>
+              <p className="text-muted-foreground text-xs uppercase tracking-wide">{s.chooseFolder}</p>
+              <p className="text-xs text-muted-foreground">{s.chooseFolderHint}</p>
             </div>
             <FolderPicker
               projectId={project.id}
@@ -428,22 +428,22 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
               here got that wrong once already. */}
           {choice ? (
             <div>
-              <p className="text-text-muted text-xs uppercase tracking-wide">{s.destination}</p>
+              <p className="text-muted-foreground text-xs uppercase tracking-wide">{s.destination}</p>
               <p className="break-all font-mono text-xs">{choice.remotePath}</p>
             </div>
           ) : null}
 
           {data.identity?.upn ? (
             <div>
-              <p className="text-text-muted text-xs uppercase tracking-wide">{s.account}</p>
+              <p className="text-muted-foreground text-xs uppercase tracking-wide">{s.account}</p>
               <p className="break-all text-xs">{data.identity.upn}</p>
             </div>
           ) : null}
 
           <div>
-            <p className="text-text-muted text-xs uppercase tracking-wide">{s.mirrorScope}</p>
+            <p className="text-muted-foreground text-xs uppercase tracking-wide">{s.mirrorScope}</p>
             <p className="text-xs">{s.mirrorScopeHint}</p>
-            <p className="mt-1 text-xs text-text-muted">{s.safetyHint}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{s.safetyHint}</p>
           </div>
 
           <C.Button

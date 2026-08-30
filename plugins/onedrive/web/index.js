@@ -253,7 +253,7 @@ function ConflictsRail({ row, onClose, onResolved }) {
     }
   });
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.WorkspaceDetailRail, { label: s.conflicts, closeLabel: s.close, onClose, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mb-3 text-xs text-text-muted", children: s.conflictsHint }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mb-3 text-xs text-muted-foreground", children: s.conflictsHint }),
     conflicts.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) : conflicts.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(conflicts.error), onRetry: () => conflicts.refetch() }) : (conflicts.data?.conflicts ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.conflictsEmpty }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.conflicts, columns: "minmax(0,1fr) auto", compactColumns: "minmax(0,1fr)", children: (conflicts.data?.conflicts ?? []).map((conflict) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, className: "font-mono text-xs", children: conflict.rel }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap justify-end gap-2", children: [
@@ -301,19 +301,19 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
         {
           type: "button",
           onClick: () => setBrowsing(""),
-          className: `rounded px-1.5 py-0.5 hover:bg-surface-2 ${browsing === "" ? "text-text font-medium" : "text-text-muted"}`,
+          className: `rounded px-1.5 py-0.5 hover:bg-accent hover:text-accent-foreground ${browsing === "" ? "text-foreground font-medium" : "text-muted-foreground"}`,
           children: rootLabel
         }
       ),
       crumbs.map((crumb, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-1", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronRight, { size: 12, className: "text-text-muted", "aria-hidden": true }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronRight, { size: 12, className: "text-subtle-foreground", "aria-hidden": true }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           "button",
           {
             type: "button",
             onClick: () => setBrowsing(crumbs.slice(0, index + 1).join("/")),
             title: crumb,
-            className: `max-w-[10rem] truncate rounded px-1.5 py-0.5 hover:bg-surface-2 ${index === crumbs.length - 1 ? "text-text font-medium" : "text-text-muted"}`,
+            className: `max-w-[10rem] truncate rounded px-1.5 py-0.5 hover:bg-accent hover:text-accent-foreground ${index === crumbs.length - 1 ? "text-foreground font-medium" : "text-muted-foreground"}`,
             children: crumb
           }
         )
@@ -327,7 +327,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
           "aria-pressed": value?.subpath === browsing,
           disabled: !listing.data,
           onClick: () => listing.data && onChange({ subpath: browsing, remotePath: listing.data.remotePath }),
-          className: `flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-surface-2 disabled:opacity-50 ${value?.subpath === browsing ? "bg-accent/10 text-accent" : ""}`,
+          className: `flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-50 ${value?.subpath === browsing ? "bg-accent text-accent-foreground" : ""}`,
           children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderOpen, { size: 13, "aria-hidden": true }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", children: browsing === "" ? s.mirrorWholeProject : `${s.mirrorThisFolder}: ${browsing}` }),
@@ -335,14 +335,14 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
           ]
         }
       ),
-      listing.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "p-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(listing.error), onRetry: () => listing.refetch() }) }) : listing.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "p-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) }) : (listing.data?.folders ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "px-3 py-2 text-xs text-text-muted", children: s.noSubfolders }) : (listing.data?.folders ?? []).map((folder) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-stretch border-b border-border/70 last:border-b-0", children: [
+      listing.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "p-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(listing.error), onRetry: () => listing.refetch() }) }) : listing.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "p-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) }) : (listing.data?.folders ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "px-3 py-2 text-xs text-muted-foreground", children: s.noSubfolders }) : (listing.data?.folders ?? []).map((folder) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-stretch border-b border-border/70 last:border-b-0", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
           "button",
           {
             type: "button",
             "aria-pressed": value?.subpath === folder.path,
             onClick: () => onChange({ subpath: folder.path, remotePath: folder.remotePath }),
-            className: `flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-2 ${value?.subpath === folder.path ? "bg-accent/10 text-accent" : ""}`,
+            className: `flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-accent hover:text-accent-foreground ${value?.subpath === folder.path ? "bg-accent text-accent-foreground" : ""}`,
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Folder, { size: 13, "aria-hidden": true }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", title: folder.path, children: folder.name }),
@@ -356,7 +356,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
             type: "button",
             onClick: () => setBrowsing(folder.path),
             "aria-label": `${s.openFolderLabel}: ${folder.name}`,
-            className: "px-2 text-text-muted hover:bg-surface-2 hover:text-text",
+            className: "px-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
             children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronRight, { size: 14, "aria-hidden": true })
           }
         )
@@ -370,18 +370,18 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
   const { locale } = hooks.useTranslation();
   const syncedAt = row.lastSyncAt ? new Date(row.lastSyncAt).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" }) : s.never;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-3", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: statusTone(row), children: statusLabel(row, s) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
         s.lastSync,
         ": ",
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-text", children: syncedAt })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-foreground", children: syncedAt })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { "aria-hidden": true, children: "\xB7" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
         s.files,
         ": ",
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "text-text", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "text-foreground", children: [
           row.fileCount,
           " \xB7 ",
           humanBytes(row.byteCount)
@@ -391,17 +391,17 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
         s.mirroredFolder,
         ": ",
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-text", title: row.subpath || void 0, children: row.subpath || s.wholeProject })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-foreground", title: row.subpath || void 0, children: row.subpath || s.wholeProject })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "break-all text-xs text-text-muted", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "break-all text-xs text-muted-foreground", children: [
       s.destination,
       ": ",
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-text", children: row.remotePath })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-foreground", children: row.remotePath })
     ] }),
     row.status === "blocked" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-lg border border-warning/40 bg-warning/5 p-3", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-medium", children: s.blockedTitle.replace("{count}", String(row.blockedDeletions)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-text-muted", children: s.blockedBody.replace("{count}", String(row.blockedDeletions)) })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-muted-foreground", children: s.blockedBody.replace("{count}", String(row.blockedDeletions)) })
     ] }) : row.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: row.error }) : null,
     row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "danger", disabled: busy, onClick: onConfirmSync, children: s.confirmDeletions.replace("{count}", String(row.blockedDeletions)) }),
     row.conflictCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
@@ -409,7 +409,7 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
       {
         type: "button",
         onClick: onConflicts,
-        className: "flex w-full items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-left text-sm hover:bg-surface-2",
+        className: "flex w-full items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TriangleAlert, { size: 15, className: "text-warning", "aria-hidden": true }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: s.conflicts }),
@@ -478,15 +478,15 @@ function OneDriveProjectPanel({ project }) {
   }
   const projectLink = data.links.find((row) => row.workspaceId === null) ?? null;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4 py-3", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "rounded-xl border border-border bg-surface p-4", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "rounded-xl border border-border bg-card p-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mb-4 flex items-start justify-between gap-3", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", { className: "flex items-center gap-1.5 text-sm font-semibold text-text", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", { className: "flex items-center gap-1.5 text-sm font-semibold text-foreground", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Cloud, { size: 14, "aria-hidden": true }),
             " ",
             s.title
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-text-muted", children: s.connectHint })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-muted-foreground", children: s.connectHint })
         ] }),
         projectLink ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: () => {
           setChoice(null);
@@ -504,16 +504,16 @@ function OneDriveProjectPanel({ project }) {
           onSync: () => syncNow.mutate({ id: projectLink.id }),
           onConfirmSync: () => syncNow.mutate({ id: projectLink.id, confirmDeletions: true })
         }
-      ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-text-muted", children: s.mirrorScopeHint })
+      ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.mirrorScopeHint })
     ] }),
-    data.workspaces.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "rounded-xl border border-border bg-surface p-4", children: [
+    data.workspaces.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "rounded-xl border border-border bg-card p-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mb-3 min-w-0", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", { className: "flex items-center gap-1.5 text-sm font-semibold text-text", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", { className: "flex items-center gap-1.5 text-sm font-semibold text-foreground", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Cloud, { size: 14, "aria-hidden": true }),
           " ",
           s.workspaces
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-text-muted", children: s.workspacesHint })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-muted-foreground", children: s.workspacesHint })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.workspaces, columns: "minmax(0,1fr) 7rem auto", compactColumns: "minmax(0,1fr)", children: data.workspaces.map((workspace) => {
         const row = data.links.find((link) => link.workspaceId === workspace.workspaceId) ?? null;
@@ -521,7 +521,7 @@ function OneDriveProjectPanel({ project }) {
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, children: workspace.label }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", children: row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: statusTone(row), children: statusLabel(row, s) }) : null }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-end gap-2", children: [
-            row?.status === "blocked" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-right text-xs text-warning", children: s.blockedTitle.replace("{count}", String(row.blockedDeletions)) }) : row?.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-danger text-right", children: row.error }) : null,
+            row?.status === "blocked" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-right text-xs text-warning", children: s.blockedTitle.replace("{count}", String(row.blockedDeletions)) }) : row?.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-destructive text-right", children: row.error }) : null,
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap justify-end gap-2", children: [
               row && row.status === "blocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                 C.Button,
@@ -573,8 +573,8 @@ function OneDriveProjectPanel({ project }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-medium", children: connectFor.label }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.chooseFolder }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-text-muted", children: s.chooseFolderHint })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-muted-foreground text-xs uppercase tracking-wide", children: s.chooseFolder }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.chooseFolderHint })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           FolderPicker,
@@ -588,17 +588,17 @@ function OneDriveProjectPanel({ project }) {
         )
       ] }),
       choice ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.destination }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-muted-foreground text-xs uppercase tracking-wide", children: s.destination }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all font-mono text-xs", children: choice.remotePath })
       ] }) : null,
       data.identity?.upn ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.account }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-muted-foreground text-xs uppercase tracking-wide", children: s.account }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all text-xs", children: data.identity.upn })
       ] }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-text-muted text-xs uppercase tracking-wide", children: s.mirrorScope }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-muted-foreground text-xs uppercase tracking-wide", children: s.mirrorScope }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs", children: s.mirrorScopeHint }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-text-muted", children: s.safetyHint })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-muted-foreground", children: s.safetyHint })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         C.Button,

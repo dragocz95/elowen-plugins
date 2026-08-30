@@ -264,15 +264,15 @@ function GitHubConnectionPanel({ onChanged }) {
     const state = flowStatus.data?.status;
     const terminal = state === "cancelled" || state === "expired" || state === "failed" || state === "interrupted";
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-xl border border-border bg-surface p-4", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm font-semibold text-text", children: s.waitingForGitHub }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3 text-xs text-text-muted", children: s.deviceCode }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "mt-1 block rounded-lg bg-bg px-3 py-2 text-center text-lg font-semibold tracking-[0.2em] text-text", children: flow.userCode }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "mt-3 inline-flex text-sm font-medium text-accent hover:underline", href: flow.verificationUrl, target: "_blank", rel: "noreferrer", children: s.verifyOnGitHub }),
-        state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-danger", children: s.connectionFailed }) : null,
-        state === "expired" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-danger", children: s.connectionExpired }) : null,
-        state === "cancelled" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-text-muted", children: s.connectionCancelled }) : null,
-        state === "interrupted" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-danger", children: s.connectionFailed }) : null
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-xl border border-border bg-card p-4", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm font-semibold text-foreground", children: s.waitingForGitHub }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3 text-xs text-muted-foreground", children: s.deviceCode }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "mt-1 block rounded-lg bg-background px-3 py-2 text-center text-lg font-semibold tracking-[0.2em] text-foreground", children: flow.userCode }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "mt-3 inline-flex text-sm font-medium text-primary hover:underline", href: flow.verificationUrl, target: "_blank", rel: "noreferrer", children: s.verifyOnGitHub }),
+        state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-destructive", children: s.connectionFailed }) : null,
+        state === "expired" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-destructive", children: s.connectionExpired }) : null,
+        state === "cancelled" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-muted-foreground", children: s.connectionCancelled }) : null,
+        state === "interrupted" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-destructive", children: s.connectionFailed }) : null
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex flex-wrap gap-2", children: !terminal ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => cancel.mutate(flow.flowId), disabled: cancel.isPending, children: s.cancelConnection }) : null })
     ] });
@@ -291,7 +291,7 @@ function GitHubConnectionPanel({ onChanged }) {
         ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: beginConnect, disabled: connect.isPending, children: status.data?.reconnectRequired ? s.reconnect : s.connect }),
         description: connected ? s.accountHint || s.intro : s.intro,
         children: connected && account ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "truncate font-mono text-sm text-text", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "truncate font-mono text-sm text-foreground", children: [
             "@",
             account.login
           ] }),
@@ -420,12 +420,12 @@ function GitHubProjectPanel({ project }) {
   const pushLabel = row.mapping ? `${row.mapping.pushOwner}/${row.mapping.pushName}` : row.detected.push ? `${row.detected.push.owner}/${row.detected.push.name}` : "\u2014";
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "space-y-4 py-4", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: "rounded-xl border border-border bg-surface p-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: "rounded-xl border border-border bg-card p-4", children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex items-start justify-between gap-3", children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "min-w-0", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { className: "text-sm font-semibold text-text", children: s.projectRepository }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "mt-1 truncate font-mono text-xs text-text-muted", children: mappingLabel }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: "mt-1 truncate font-mono text-[11px] text-text-muted", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { className: "text-sm font-semibold text-foreground", children: s.projectRepository }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "mt-1 truncate font-mono text-xs text-muted-foreground", children: mappingLabel }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: "mt-1 truncate font-mono text-[11px] text-subtle-foreground", children: [
               s.pushRepository,
               ": ",
               pushLabel
@@ -435,7 +435,7 @@ function GitHubProjectPanel({ project }) {
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "mt-4 flex flex-wrap gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { icon: Link2, onClick: () => setMapping(mappingFrom(row)), children: s.map }),
-          row.mapping ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("a", { href: `https://github.com/${encodeURIComponent(row.mapping.baseOwner)}/${encodeURIComponent(row.mapping.baseName)}`, target: "_blank", rel: "noreferrer", className: "inline-flex h-9 items-center text-xs font-medium text-accent hover:underline pointer-coarse:min-h-[var(--touch-target)]", children: s.openGitHub }) : null
+          row.mapping ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("a", { href: `https://github.com/${encodeURIComponent(row.mapping.baseOwner)}/${encodeURIComponent(row.mapping.baseName)}`, target: "_blank", rel: "noreferrer", className: "inline-flex h-9 items-center text-xs font-medium text-primary hover:underline pointer-coarse:min-h-[var(--touch-target)]", children: s.openGitHub }) : null
         ] })
       ] }),
       mapped ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
@@ -458,13 +458,13 @@ function GitHubProjectPanel({ project }) {
             ] }),
             (pulls.data?.pullRequests ?? []).map((pull) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTableRow, { height: "tall", onOpen: () => setSelectedPr(pull.number), openLabel: `${s.openPullRequest} #${pull.number}`, children: [
               /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.DataTableCell, { lines: "auto", title: `#${pull.number} ${pull.title}`, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "truncate text-sm font-medium text-text", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "truncate text-sm font-medium text-foreground", children: [
                   "#",
                   pull.number,
                   " ",
                   pull.title
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "truncate font-mono text-[11px] text-text-muted", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "truncate font-mono text-[11px] text-subtle-foreground", children: [
                   pull.headRef,
                   " \u2192 ",
                   pull.baseRef
@@ -493,7 +493,7 @@ function GitHubProjectPanel({ project }) {
     createOpen ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.Modal, { title: s.createPullRequest, size: "md", onClose: () => setCreateOpen(false), children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.ModalBody, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.pullRequestTitle, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { autoFocus: true, value: createForm.title, onChange: (event) => setCreateForm({ ...createForm, title: event.target.value }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.description, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("textarea", { className: "min-h-28 w-full rounded-md border border-border bg-bg p-3 text-sm text-text", value: createForm.body, onChange: (event) => setCreateForm({ ...createForm, body: event.target.value }) }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.description, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("textarea", { className: "min-h-28 w-full rounded-md border border-border bg-background p-3 text-sm text-foreground", value: createForm.body, onChange: (event) => setCreateForm({ ...createForm, body: event.target.value }) }) }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.baseBranch, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: createForm.base, onChange: (event) => setCreateForm({ ...createForm, base: event.target.value }) }) })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.ModalFooter, { children: [
@@ -503,7 +503,7 @@ function GitHubProjectPanel({ project }) {
     ] }) : null,
     selectedPr ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.Modal, { title: `#${selectedPr} ${selected?.title ?? ""}`, size: "xl", onClose: () => setSelectedPr(null), children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ModalBody, { children: pullDetail.isError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => pullDetail.refetch() }) : pullDetail.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.LoadingState, { variant: "list" }) : pullDetail.data ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "space-y-5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "whitespace-pre-wrap text-sm text-text-muted", children: pullDetail.data.body }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "whitespace-pre-wrap text-sm text-muted-foreground", children: pullDetail.data.body }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { tone: checks.data?.state === "success" ? "success" : checks.data?.state === "failure" ? "danger" : "warning", children: checks.data?.state ?? "pending" }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.Badge, { children: [
@@ -513,16 +513,16 @@ function GitHubProjectPanel({ project }) {
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { className: "mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted", children: s.checks }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { className: "mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground", children: s.checks }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "space-y-2", children: (checks.data?.items ?? []).map((item) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-sm", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "font-medium text-text", children: item.name }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "font-medium text-foreground", children: item.name }),
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { children: item.state })
           ] }, item.name)) })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { className: "mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted", children: s.changedFiles }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { className: "mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground", children: s.changedFiles }),
           (pullDetail.data.files ?? []).map((file) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "mb-3 overflow-hidden rounded-lg border border-border", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "border-b border-border px-3 py-2 font-mono text-xs text-text", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "border-b border-border px-3 py-2 font-mono text-xs text-foreground", children: [
               file.status,
               " ",
               file.path,
@@ -532,7 +532,7 @@ function GitHubProjectPanel({ project }) {
                 file.additions
               ] }),
               " ",
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "text-danger", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "text-destructive", children: [
                 "-",
                 file.deletions
               ] })
@@ -541,7 +541,7 @@ function GitHubProjectPanel({ project }) {
           ] }, file.path))
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.reviewEvent, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.SelectMenu, { value: reviewForm.event, onChange: (event) => setReviewForm({ ...reviewForm, event }), label: s.reviewEvent, options: [{ value: "APPROVE", label: s.approve }, { value: "REQUEST_CHANGES", label: s.requestChanges }, { value: "COMMENT", label: s.comment }] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.description, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("textarea", { className: "min-h-20 w-full rounded-md border border-border bg-bg p-3 text-sm text-text", value: reviewForm.body, onChange: (event) => setReviewForm({ ...reviewForm, body: event.target.value }) }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.description, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("textarea", { className: "min-h-20 w-full rounded-md border border-border bg-background p-3 text-sm text-foreground", value: reviewForm.body, onChange: (event) => setReviewForm({ ...reviewForm, body: event.target.value }) }) }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.mergeMethod, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.SelectMenu, { value: mergeMethod, onChange: setMergeMethod, label: s.mergeMethod, options: [{ value: "squash", label: s.squash }, { value: "merge", label: s.mergeCommit }, { value: "rebase", label: s.rebase }] }) })
       ] }) : null }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.ModalFooter, { children: [

@@ -70,18 +70,18 @@
   }
   :where(.space-y-2 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
-    margin-block-start: calc(var(--space-2, 0.5rem) * var(--tw-space-y-reverse));
-    margin-block-end: calc(var(--space-2, 0.5rem) * calc(1 - var(--tw-space-y-reverse)));
+    margin-block-start: calc(calc(var(--spacing, 0.25rem) * 2) * var(--tw-space-y-reverse));
+    margin-block-end: calc(calc(var(--spacing, 0.25rem) * 2) * calc(1 - var(--tw-space-y-reverse)));
   }
   :where(.space-y-4 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
-    margin-block-start: calc(var(--space-4, 1rem) * var(--tw-space-y-reverse));
-    margin-block-end: calc(var(--space-4, 1rem) * calc(1 - var(--tw-space-y-reverse)));
+    margin-block-start: calc(calc(var(--spacing, 0.25rem) * 4) * var(--tw-space-y-reverse));
+    margin-block-end: calc(calc(var(--spacing, 0.25rem) * 4) * calc(1 - var(--tw-space-y-reverse)));
   }
   :where(.space-y-5 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
-    margin-block-start: calc(var(--space-5, 1.25rem) * var(--tw-space-y-reverse));
-    margin-block-end: calc(var(--space-5, 1.25rem) * calc(1 - var(--tw-space-y-reverse)));
+    margin-block-start: calc(calc(var(--spacing, 0.25rem) * 5) * var(--tw-space-y-reverse));
+    margin-block-end: calc(calc(var(--spacing, 0.25rem) * 5) * calc(1 - var(--tw-space-y-reverse)));
   }
   .truncate {
     overflow: hidden;
@@ -111,11 +111,11 @@
   .border-border {
     border-color: var(--color-border, #242424);
   }
-  .bg-bg {
-    background-color: var(--color-bg, #000000);
+  .bg-background {
+    background-color: var(--color-background, #000000);
   }
-  .bg-surface {
-    background-color: var(--color-surface, #070707);
+  .bg-card {
+    background-color: var(--color-card, #070707);
   }
   .p-3 {
     padding: calc(var(--spacing, 0.25rem) * 3);
@@ -172,20 +172,23 @@
   .whitespace-pre-wrap {
     white-space: pre-wrap;
   }
-  .text-accent {
-    color: var(--color-accent, #ff5236);
+  .text-destructive {
+    color: var(--color-destructive, #e94d42);
   }
-  .text-danger {
-    color: var(--color-danger, #e94d42);
+  .text-foreground {
+    color: var(--color-foreground, #f7f3f0);
+  }
+  .text-muted-foreground {
+    color: var(--color-muted-foreground, #9d948e);
+  }
+  .text-primary {
+    color: var(--color-primary, #ff5236);
+  }
+  .text-subtle-foreground {
+    color: var(--color-subtle-foreground, #827974);
   }
   .text-success {
     color: var(--color-success, #32c986);
-  }
-  .text-text {
-    color: var(--color-text, #f7f3f0);
-  }
-  .text-text-muted {
-    color: var(--color-text-muted, #9d948e);
   }
   .uppercase {
     text-transform: uppercase;

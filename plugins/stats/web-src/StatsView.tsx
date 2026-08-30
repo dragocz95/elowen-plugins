@@ -86,13 +86,13 @@ function ModelDetail({ model, locale, strings }: { model: ModelUsage; locale: st
     <div className="flex min-w-0 flex-col gap-5">
       <div className="flex min-w-0 items-center gap-3">
         <ModelIcon name={model.exec} size={24} />
-        <h2 className="truncate font-mono text-sm text-text" title={model.exec}>{model.exec}</h2>
+        <h2 className="truncate font-mono text-sm text-foreground" title={model.exec}>{model.exec}</h2>
       </div>
       <dl className="flex flex-col divide-y divide-border/70">
         {rows.map(([label, value]) => (
           <div key={label} className="flex items-center justify-between gap-4 py-3 text-sm">
-            <dt className="text-text-muted">{label}</dt>
-            <dd className="truncate font-mono tabular-nums text-text" title={value}>{value}</dd>
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="truncate font-mono tabular-nums text-foreground" title={value}>{value}</dd>
           </div>
         ))}
       </dl>
@@ -234,26 +234,26 @@ export function StatsView() {
                   ) : (
                     <>
                       <div className="grid gap-4 xl:grid-cols-2">
-                        <section className="rounded-lg border border-border bg-surface p-4">
-                          <h2 className="text-sm font-semibold text-text">{s.tokensByModel}</h2>
-                          <p className="mb-4 text-xs text-text-muted">{s.tokensByModelHint}</p>
+                        <section className="rounded-lg border border-border bg-card p-4 text-card-foreground">
+                          <h2 className="text-sm font-semibold text-foreground">{s.tokensByModel}</h2>
+                          <p className="mb-4 text-xs text-muted-foreground">{s.tokensByModelHint}</p>
                           <PieChart title={s.tokensByModel} data={pieTokens} emptyText={s.noChartData} renderIcon={renderModelIcon} />
                         </section>
-                        <section className="rounded-lg border border-border bg-surface p-4">
-                          <h2 className="text-sm font-semibold text-text">{s.costByModel}</h2>
-                          <p className="mb-4 text-xs text-text-muted">{s.costByModelHint}</p>
+                        <section className="rounded-lg border border-border bg-card p-4 text-card-foreground">
+                          <h2 className="text-sm font-semibold text-foreground">{s.costByModel}</h2>
+                          <p className="mb-4 text-xs text-muted-foreground">{s.costByModelHint}</p>
                           <PieChart title={s.costByModel} data={pieCosts} emptyText={s.noChartData} renderIcon={renderModelIcon} />
                         </section>
                       </div>
 
-                      <section className="rounded-lg border border-border bg-surface p-4">
-                        <h2 className="text-sm font-semibold text-text">{s.trendTitle}</h2>
-                        <p className="mb-4 text-xs text-text-muted">{s.trendHint}</p>
+                      <section className="rounded-lg border border-border bg-card p-4 text-card-foreground">
+                        <h2 className="text-sm font-semibold text-foreground">{s.trendTitle}</h2>
+                        <p className="mb-4 text-xs text-muted-foreground">{s.trendHint}</p>
                         <UsageTrend data={trend} locale={locale} tokenLabel={s.trendTokens} costLabel={s.trendCost} emptyText={trendUnavailable ? s.trendUnavailable : s.noChartData} />
                       </section>
 
                       <div className="flex min-w-0 flex-col gap-3">
-                        <h2 className="text-sm font-semibold text-text">{s.tableTitle}</h2>
+                        <h2 className="text-sm font-semibold text-foreground">{s.tableTitle}</h2>
                         {filtered.length === 0 ? (
                           <EmptyState title={s.emptySearch} icon={Search} />
                         ) : (
@@ -290,12 +290,12 @@ export function StatsView() {
                                       header row, which is what makes a screen reader read the remaining
                                       columns against the wrong names. Being decoration is also why it is
                                       `wide`: at 320px its 2rem track was width the model name needed. */}
-                                  <DataTableCell lines="auto" priority="wide" aria-hidden className="flex items-center gap-1.5 text-text-muted"><ModelIcon name={row.exec} size={12} /></DataTableCell>
-                                  <DataTableCell lines={1} className="font-mono text-xs text-text">{row.exec}</DataTableCell>
-                                  <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{row.tokensLabel}</DataTableCell>
-                                  <DataTableCell lines={1} className="text-right font-mono text-xs tabular-nums text-text">{row.costLabel}</DataTableCell>
-                                  <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{percent(row.cacheHitPct)}</DataTableCell>
-                                  <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-text-muted">{row.speedLabel}</DataTableCell>
+                                  <DataTableCell lines="auto" priority="wide" aria-hidden className="flex items-center gap-1.5 text-muted-foreground"><ModelIcon name={row.exec} size={12} /></DataTableCell>
+                                  <DataTableCell lines={1} className="font-mono text-xs text-foreground">{row.exec}</DataTableCell>
+                                  <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-muted-foreground">{row.tokensLabel}</DataTableCell>
+                                  <DataTableCell lines={1} className="text-right font-mono text-xs tabular-nums text-foreground">{row.costLabel}</DataTableCell>
+                                  <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-muted-foreground">{percent(row.cacheHitPct)}</DataTableCell>
+                                  <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-muted-foreground">{row.speedLabel}</DataTableCell>
                                   <DataTableChevronCell />
                                 </DataTableRow>
                               ))}

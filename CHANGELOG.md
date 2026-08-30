@@ -1,5 +1,41 @@
 # Changelog
 
+## onedrive 0.2.2 - 2026-08-30
+
+- Use semantic host tokens across OneDrive project panels.
+
+## github 0.1.10 - 2026-08-30
+
+- Use semantic host tokens across connection and project views.
+
+## whatsapp 0.2.15 - 2026-08-30
+
+- Use semantic host tokens in pairing settings.
+
+## msteams 0.5.31 - 2026-08-30
+
+- Use semantic host tokens across Teams identity and mapping views.
+
+## sites 0.7.3 - 2026-08-30
+
+- Use semantic host tokens across site register and detail views.
+
+## skills 0.3.2 - 2026-08-30
+
+- Use semantic host text tokens in settings.
+
+## cronjob 0.2.6 - 2026-08-30
+
+- Use semantic host tokens across scheduler forms and tables.
+
+## stats 0.2.2 - 2026-08-30
+
+- Use semantic chart and table tokens in Light and Dark.
+
+## editor 0.3.2 - 2026-08-30
+
+- Use semantic host surfaces and readable Light/Dark editor styling.
+
 ## whatsapp 0.2.14 - 2026-08-30
 
 - Accept token-list group allowlists while keeping phone number and JID notification targets open

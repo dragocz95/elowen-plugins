@@ -211,12 +211,11 @@ var TriangleAlert = createLucideIcon("TriangleAlert", [
 var import_react3 = __toESM(require_react(), 1);
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var COLORS = [
-  "var(--color-accent)",
-  "var(--color-info)",
-  "var(--color-success)",
-  "var(--color-warning)",
-  "var(--color-danger)",
-  "var(--color-text-muted)"
+  "var(--color-chart-1)",
+  "var(--color-chart-2)",
+  "var(--color-chart-3)",
+  "var(--color-chart-4)",
+  "var(--color-chart-5)"
 ];
 function calculatePieSegments(data) {
   const valid = data.filter((item) => Number.isFinite(item.value) && item.value > 0);
@@ -237,7 +236,7 @@ function calculatePieSegments(data) {
 function PieChart({ title, data, emptyText, renderIcon }) {
   const segments = calculatePieSegments(data);
   const [activeId, setActiveId] = (0, import_react3.useState)(null);
-  if (segments.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "py-10 text-center text-sm text-text-muted", children: emptyText });
+  if (segments.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "py-10 text-center text-sm text-muted-foreground", children: emptyText });
   const active = segments.find((segment) => segment.id === activeId) ?? null;
   const hover = (id) => () => setActiveId(id);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("figure", { className: "grid gap-5 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center", "aria-label": title, children: [
@@ -266,18 +265,17 @@ function PieChart({ title, data, emptyText, renderIcon }) {
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 px-7 text-center", children: active ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         renderIcon?.(active),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "font-mono text-sm tabular-nums text-text", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "font-mono text-sm tabular-nums text-foreground", children: [
           active.percentage.toFixed(1),
           "%"
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "w-full truncate text-[0.65rem] text-text-muted", children: active.valueLabel })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "w-full truncate text-[0.65rem] text-muted-foreground", children: active.valueLabel })
       ] }) : null })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("figcaption", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex min-w-0 flex-col gap-2", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       "li",
       {
-        className: "grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-1 py-0.5 text-xs transition-colors",
-        style: active?.id === segment.id ? { backgroundColor: "var(--color-elevated)" } : void 0,
+        className: `grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-1 py-0.5 text-xs transition-colors ${active?.id === segment.id ? "bg-muted" : "hover:bg-muted"}`,
         onMouseEnter: hover(segment.id),
         onMouseLeave: hover(null),
         children: [
@@ -285,8 +283,8 @@ function PieChart({ title, data, emptyText, renderIcon }) {
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "h-2.5 w-2.5 rounded-sm", style: { backgroundColor: COLORS[index % COLORS.length] }, "aria-hidden": true }),
             renderIcon?.(segment)
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-text", title: segment.label, children: segment.label }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "whitespace-nowrap font-mono tabular-nums text-text-muted", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-foreground", title: segment.label, children: segment.label }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "whitespace-nowrap font-mono tabular-nums text-muted-foreground", children: [
             segment.percentage.toFixed(1),
             "% \xB7 ",
             segment.valueLabel
@@ -307,8 +305,8 @@ function UsageTrend({ data, locale, tokenLabel, costLabel, emptyText }) {
   const { components: C } = runtime();
   const points = (0, import_react4.useMemo)(() => data.map((row) => ({ label: row.day, tokens: row.tokens, cost: row.cost })), [data]);
   const series = (0, import_react4.useMemo)(() => [
-    { key: "tokens", label: tokenLabel, colour: "var(--color-accent)", variant: "bar", axis: "left", format: (value) => formatTokens(value, locale) },
-    { key: "cost", label: costLabel, colour: "var(--color-warning)", variant: "line", axis: "right", format: (value) => formatCost(value, locale) }
+    { key: "tokens", label: tokenLabel, colour: "var(--color-chart-1)", variant: "bar", axis: "left", format: (value) => formatTokens(value, locale) },
+    { key: "cost", label: costLabel, colour: "var(--color-chart-2)", variant: "line", axis: "right", format: (value) => formatCost(value, locale) }
   ], [costLabel, locale, tokenLabel]);
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.TimeSeriesChart, { data: points, series, height: 220, emptyText });
 }
@@ -337,9 +335,9 @@ function ResetUsageModal({ onClose }) {
   };
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Modal, { title: s.resetTitle, onClose, size: "sm", icon: TriangleAlert, children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(ModalBody, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-sm leading-relaxed text-text-muted", children: s.resetBody }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-sm leading-relaxed text-muted-foreground", children: s.resetBody }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-col gap-1.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { htmlFor: confirmInputId, className: "text-xs text-text-muted", children: s.resetConfirmHint.replace("{word}", s.resetConfirmWord) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { htmlFor: confirmInputId, className: "text-xs text-muted-foreground", children: s.resetConfirmHint.replace("{word}", s.resetConfirmWord) }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Input, { id: confirmInputId, value: typed, onChange: (event) => setTyped(event.target.value), autoFocus: true, spellCheck: false, className: "font-mono" })
       ] })
     ] }),
@@ -391,7 +389,7 @@ function originLabel(row, strings) {
   return row.origin;
 }
 function ShareBar({ share }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "h-1.5 w-full overflow-hidden rounded-full bg-border/60", "aria-hidden": true, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "h-full rounded-full bg-accent", style: { width: `${Math.max(1, Math.round(share * 100))}%` } }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "h-1.5 w-full overflow-hidden rounded-full bg-border/60", "aria-hidden": true, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "h-full rounded-full bg-primary", style: { width: `${Math.max(1, Math.round(share * 100))}%` } }) });
 }
 function OriginRows({
   rows,
@@ -410,7 +408,7 @@ function OriginRows({
     return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
       "li",
       {
-        className: selectable ? "group cursor-pointer rounded-md p-2 hover:bg-surface-muted" : "rounded-md p-2",
+        className: selectable ? "group cursor-pointer rounded-md p-2 hover:bg-muted" : "rounded-md p-2",
         ...selectable ? {
           role: "button",
           tabIndex: 0,
@@ -424,20 +422,20 @@ function OriginRows({
         } : { "data-testid": "origin-row" },
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "font-mono text-xs text-text-muted", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "font-mono text-xs text-muted-foreground", children: [
               index + 1,
               "."
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "min-w-0 flex-1 truncate text-sm text-text", title: rowLabel(row, group, strings), children: rowLabel(row, group, strings) }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "min-w-0 flex-1 truncate text-sm text-foreground", title: rowLabel(row, group, strings), children: rowLabel(row, group, strings) }),
             !row.trusted ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TriangleAlert, { size: 13, "aria-label": strings.originUnverified, className: "shrink-0 text-warning" }) : null,
-            selectable ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ChevronRight, { size: 13, "aria-hidden": true, className: "shrink-0 text-text-muted" }) : null
+            selectable ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ChevronRight, { size: 13, "aria-hidden": true, className: "shrink-0 text-muted-foreground" }) : null
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mt-1.5 flex items-center gap-3", children: [
             /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ShareBar, { share: peak > 0 ? value / peak : 0 }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "shrink-0 font-mono text-xs tabular-nums text-text", children: integer(row.tokens, locale) }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "shrink-0 font-mono text-xs tabular-nums text-text-muted", children: money(row.cost, locale) })
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "shrink-0 font-mono text-xs tabular-nums text-foreground", children: integer(row.tokens, locale) }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "shrink-0 font-mono text-xs tabular-nums text-muted-foreground", children: money(row.cost, locale) })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: "mt-1 text-xs text-text-muted", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: "mt-1 text-xs text-muted-foreground", children: [
             group === "user" ? strings.rowOrigins.replace("{count}", String(row.origins)) : strings.rowTurns.replace("{count}", String(row.turns)),
             " \xB7 ",
             strings.rowLastSeen.replace("{when}", shortDateTime(row.lastAt, locale))
@@ -477,7 +475,7 @@ function OriginDrawer({
     if (drillUserId != null) {
       return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-col gap-4", children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button2, { variant: "ghost", icon: ChevronLeft, onClick: () => setDrillUserId(null), children: strings.originBack }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h3", { className: "text-sm font-semibold text-text", children: drillLabel }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h3", { className: "text-sm font-semibold text-foreground", children: drillLabel }),
         pairs.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(LoadingState, { variant: "cards" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(OriginRows, { rows: drillRows, group: "origin", sort, locale, strings })
       ] });
     }
@@ -497,13 +495,13 @@ function OriginDrawer({
   };
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceDetailRail, { label: strings.originTitle, closeLabel, onClose, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-col gap-1", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "text-sm font-semibold text-text", children: strings.originTitle }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-text-muted", children: rangeLabel }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-text-muted", children: result?.trackingSince ? strings.originTrackedSince.replace("{day}", result.trackingSince) : strings.originTrackedNever })
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: strings.originTitle }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-muted-foreground", children: rangeLabel }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-muted-foreground", children: result?.trackingSince ? strings.originTrackedSince.replace("{day}", result.trackingSince) : strings.originTrackedNever })
     ] }),
     untrusted > 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2.5", children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TriangleAlert, { size: 14, "aria-hidden": true, className: "mt-0.5 shrink-0 text-warning" }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "min-w-0 text-xs text-text", children: strings.originUntrustedWarning.replace("{count}", String(untrusted)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "min-w-0 text-xs text-foreground", children: strings.originUntrustedWarning.replace("{count}", String(untrusted)) }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(HelpTip, { children: strings.originUntrustedHelp })
     ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
@@ -539,7 +537,7 @@ function OriginDrawer({
       )
     ] }),
     body(),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "border-t border-border/70 pt-3 text-xs text-text-muted", children: strings.originFootnote })
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "border-t border-border/70 pt-3 text-xs text-muted-foreground", children: strings.originFootnote })
   ] }) });
 }
 
@@ -624,11 +622,11 @@ function ModelDetail({ model, locale, strings }) {
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-5", children: [
     /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 items-center gap-3", children: [
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: model.exec, size: 24 }),
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "truncate font-mono text-sm text-text", title: model.exec, children: model.exec })
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "truncate font-mono text-sm text-foreground", title: model.exec, children: model.exec })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dl", { className: "flex flex-col divide-y divide-border/70", children: rows.map(([label, value]) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex items-center justify-between gap-4 py-3 text-sm", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dt", { className: "text-text-muted", children: label }),
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dd", { className: "truncate font-mono tabular-nums text-text", title: value, children: value })
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dt", { className: "text-muted-foreground", children: label }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dd", { className: "truncate font-mono tabular-nums text-foreground", title: value, children: value })
     ] }, label)) })
   ] });
 }
@@ -761,24 +759,24 @@ function StatsView() {
         ] }) }),
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-5", children: !summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptyTitle, description: s.emptyDescription, icon: ChartColumn }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid gap-4 xl:grid-cols-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.tokensByModel }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-text-muted", children: s.tokensByModelHint }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tokensByModel }),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.tokensByModelHint }),
               /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData, renderIcon: renderModelIcon })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.costByModel }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-text-muted", children: s.costByModelHint }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.costByModel }),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.costByModelHint }),
               /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData, renderIcon: renderModelIcon })
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-surface p-4", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.trendTitle }),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-text-muted", children: s.trendHint }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.trendTitle }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.trendHint }),
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(UsageTrend, { data: trend, locale, tokenLabel: s.trendTokens, costLabel: s.trendCost, emptyText: trendUnavailable ? s.trendUnavailable : s.noChartData })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-text", children: s.tableTitle }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tableTitle }),
             filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptySearch, icon: Search }) : (
               /* The compact template keeps three tracks: the model name, the cost and the
                  chevron. The provider glyph and the wide 7rem cost track are both dropped,
@@ -805,12 +803,12 @@ function StatsView() {
                     onOpen: () => setSelectedExec(row.exec),
                     openLabel: `${s.detailTitle}: ${row.exec}`,
                     children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: "auto", priority: "wide", "aria-hidden": true, className: "flex items-center gap-1.5 text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "font-mono text-xs text-text", children: row.exec }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.tokensLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "text-right font-mono text-xs tabular-nums text-text", children: row.costLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: percent(row.cacheHitPct) }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-text-muted", children: row.speedLabel }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: "auto", priority: "wide", "aria-hidden": true, className: "flex items-center gap-1.5 text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "font-mono text-xs text-foreground", children: row.exec }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.tokensLabel }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "text-right font-mono text-xs tabular-nums text-foreground", children: row.costLabel }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: percent(row.cacheHitPct) }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.speedLabel }),
                       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableChevronCell, {})
                     ]
                   },

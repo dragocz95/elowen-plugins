@@ -10,7 +10,7 @@ import {
 const PAGE_SIZE = 20;
 type Filter = 'all' | 'active' | 'paused';
 
-const textareaClass = 'w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm text-text placeholder:text-text-muted focus:border-accent';
+const textareaClass = 'w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-ring';
 
 /** Single-select notification target across every enabled platform. A saved opaque value whose provider
  *  is currently unavailable stays pinned, so opening and saving the editor never silently drops it. */
@@ -157,9 +157,9 @@ function ScheduleField({ schedule, valid, onChange }: { schedule: string; valid:
         </div>
       ) : null}
       {builder ? (
-        <p className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
+        <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>{s.scheduleGenerated}</span>
-          <code className="rounded border border-border bg-bg px-2 py-1 text-text">{renderBuilderSchedule(builder)}</code>
+          <code className="rounded border border-border bg-background px-2 py-1 text-foreground">{renderBuilderSchedule(builder)}</code>
         </p>
       ) : (
         <div className="flex flex-col gap-1">
@@ -174,10 +174,10 @@ function ScheduleField({ schedule, valid, onChange }: { schedule: string; valid:
             <span className="absolute right-2.5 top-1/2 -translate-y-1/2" title={valid ? s.scheduleValid : s.scheduleInvalid}>
               {valid
                 ? <Check size={14} className="text-success" aria-label={s.scheduleValid} />
-                : <X size={14} className="text-danger" aria-label={s.scheduleInvalid} />}
+                : <X size={14} className="text-destructive" aria-label={s.scheduleInvalid} />}
             </span>
           </div>
-          <p className="text-xs text-text-muted">{s.scheduleAdvancedHint}</p>
+          <p className="text-xs text-muted-foreground">{s.scheduleAdvancedHint}</p>
         </div>
       )}
     </div>
@@ -237,7 +237,7 @@ function ActiveHoursField({ value, onChange }: { value: string | undefined; onCh
           </C.Field>
         </div>
       ) : legacy ? (
-        <p className="text-xs text-text-muted">{s.hoursLegacyHint} <code className="text-text">{value}</code></p>
+        <p className="text-xs text-muted-foreground">{s.hoursLegacyHint} <code className="text-foreground">{value}</code></p>
       ) : null}
     </div>
   );
@@ -371,12 +371,12 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             needed. */}
         <C.DataTableCell lines="auto" priority="wide" aria-hidden className="flex items-center justify-center">
           <span
-            className={`h-2 w-2 rounded-full ${enabled ? 'bg-success' : 'bg-text-muted/50'}`}
+            className={`h-2 w-2 rounded-full ${enabled ? 'bg-success' : 'bg-muted-foreground/50'}`}
             title={enabled ? s.enabled : s.paused}
           />
         </C.DataTableCell>
         <C.DataTableCell lines="auto" title={name} className="flex items-center gap-2">
-          <span className="truncate text-sm text-text">{name}</span>
+          <span className="truncate text-sm text-foreground">{name}</span>
           {!enabled ? <C.Badge tone="muted">{s.paused}</C.Badge> : null}
           {/* The state as text, in the column that survives every width: colour alone does not carry it,
               `title` is not reliably announced, and an active job has no badge to speak for it. */}
@@ -389,7 +389,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
           </C.Badge>
         </C.DataTableCell>
         {ownerLabel !== null ? (
-          <C.DataTableCell lines={1} priority="wide" className="text-xs text-text-muted">{ownerLabel}</C.DataTableCell>
+          <C.DataTableCell lines={1} priority="wide" className="text-xs text-muted-foreground">{ownerLabel}</C.DataTableCell>
         ) : null}
         {/* Destination: one line that truncates, full name on hover. A channel or thread title can be far
             longer than the column, and wrapping it pushed every other row out of alignment. Shown only to
@@ -397,19 +397,19 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             that, so the column would repeat one value down the whole page — and "default channel" would
             name a channel the job never writes to. */}
         {adminFields ? (
-          <C.DataTableCell lines={1} priority="wide" title={dest ?? s.channelDefault} className="text-xs text-text-muted">
+          <C.DataTableCell lines={1} priority="wide" title={dest ?? s.channelDefault} className="text-xs text-muted-foreground">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="shrink-0">
                 {destination && destination.kind !== 'channel' ? <MessageSquare size={12} aria-hidden /> : <Hash size={12} aria-hidden />}
               </span>
-              <span className={`truncate ${dest ? '' : 'italic text-text-muted/65'}`}>{dest ?? s.channelDefault}</span>
+              <span className={`truncate ${dest ? '' : 'italic text-muted-foreground'}`}>{dest ?? s.channelDefault}</span>
             </span>
           </C.DataTableCell>
         ) : null}
-        <C.DataTableCell lines={1} priority="wide" title={lastRunMs != null ? new Date(lastRunMs).toLocaleString() : undefined} className="whitespace-nowrap text-xs text-text-muted">
+        <C.DataTableCell lines={1} priority="wide" title={lastRunMs != null ? new Date(lastRunMs).toLocaleString() : undefined} className="whitespace-nowrap text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <Timer size={12} aria-hidden />
-            <span className={lastRunMs == null ? 'text-text-muted/60' : undefined}>
+            <span className={lastRunMs == null ? 'text-muted-foreground' : undefined}>
               {lastRunMs != null ? utils.compactElapsed(Date.now() - lastRunMs) : '—'}
             </span>
           </span>
@@ -430,7 +430,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
                 <C.Input value={draft.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value })} placeholder="morning-digest" />
               </C.Field>
               <C.Field label={s.enabled}>
-                <span className="flex h-9 items-center gap-2 text-sm text-text-muted">
+                <span className="flex h-9 items-center gap-2 text-sm text-muted-foreground">
                   <C.Toggle checked={enabled} onChange={(v: boolean) => patch({ enabled: v })} label={`${name}: ${s.enabled}`} />
                   {enabled ? s.enabled : s.paused}
                 </span>
@@ -445,7 +445,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
               </C.Field>
               {/* Positive toggle over the stored `plain` flag: checked = header shown (plain unset). */}
               <C.Field label={s.header} hint={s.helpHeader}>
-                <span className="flex h-9 items-center text-sm text-text-muted">
+                <span className="flex h-9 items-center text-sm text-muted-foreground">
                   <C.Toggle checked={draft.plain !== true} onChange={(v: boolean) => patch({ plain: v ? undefined : true })} label={`${name}: ${s.header}`} />
                 </span>
               </C.Field>
@@ -507,7 +507,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             </C.Field>
             {job.lastResult ? (
               <C.Field label={s.lastResult}>
-                <p className="whitespace-pre-wrap rounded-md border border-border bg-bg px-3 py-2 text-xs text-text-muted">{job.lastResult}</p>
+                <p className="whitespace-pre-wrap rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">{job.lastResult}</p>
               </C.Field>
             ) : null}
             <div className="flex justify-end border-t border-border pt-3">

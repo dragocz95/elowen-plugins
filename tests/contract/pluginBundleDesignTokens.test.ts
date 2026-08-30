@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,14 +20,20 @@ const pluginsDir = resolve(registryRoot, 'plugins');
  *  deriving that from the manifests is the only self-check that stays honest as the set changes: a file
  *  count would be a magic number the day a plugin lands, while this fails the day a DECLARED bundle stops
  *  being scanned — a renamed folder, a broken walk, a plugin whose sources moved. */
-function pluginsDeclaringABundle(): string[] {
-  return readdirSync(pluginsDir).filter((name) => {
+interface DeclaredBundle { name: string; entry: string; css?: string }
+
+function declaredBundles(): DeclaredBundle[] {
+  return readdirSync(pluginsDir).flatMap((name): DeclaredBundle[] => {
     try {
-      const manifest = JSON.parse(readFileSync(resolve(pluginsDir, name, 'elowen-plugin.json'), 'utf8')) as { web?: { entry?: string } };
-      return typeof manifest.web?.entry === 'string';
-    } catch { return false; }
-  }).sort();
+      const manifest = JSON.parse(readFileSync(resolve(pluginsDir, name, 'elowen-plugin.json'), 'utf8')) as { web?: { entry?: string; css?: string } };
+      return typeof manifest.web?.entry === 'string'
+        ? [{ name, entry: manifest.web.entry, ...(typeof manifest.web.css === 'string' ? { css: manifest.web.css } : {}) }]
+        : [];
+    } catch { return []; }
+  }).sort((a, b) => a.name.localeCompare(b.name));
 }
+
+const pluginsDeclaringABundle = (): string[] => declaredBundles().map(({ name }) => name);
 
 /** Every `plugins/<name>/web-src/**` source, minus tests — a new plugin is covered the day it lands. */
 function bundleSources(): string[] {
@@ -51,6 +57,14 @@ function bundleSources(): string[] {
 }
 
 const HEX = /#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b/g;
+const RETIRED_SOURCE_TOKENS = [
+  /\b(?:bg|text|border|ring)-(?:bg|surface(?:-2|-muted)?|elevated|overlay|text(?:-muted|-subtle)?|danger)\b/g,
+  /\btext-accent(?!-foreground)\b/g,
+  /\b(?:bg|border)-accent\/\d+\b/g,
+  /\bring-accent\b/g,
+  /var\(--color-(?:surface(?:-2|-muted)?|elevated|bg|overlay|text-muted|text-subtle|text|danger)\)/g,
+];
+const RETIRED_BUILT_TOKENS = /(?:bg-(?:surface(?:-2|-muted)?|elevated|bg|overlay)|text-(?:text-muted|text-subtle|text|danger)|--color-(?:surface(?:-2|-muted)?|elevated|bg|overlay|text-muted|text-subtle|text|danger))(?![a-z-])/g;
 
 describe('plugin bundles paint from the host tokens, not from literals', () => {
   it('finds the bundle sources at all', () => {
@@ -88,5 +102,38 @@ describe('plugin bundles paint from the host tokens, not from literals', () => {
     expect(found('<stop stopColor="#FFF" />')).toEqual(['#FFF']);
     expect(found('style={{ color: "var(--color-document)" }}')).toEqual([]);
     expect(found('const anchor = "#section-two";')).toEqual([]);
+  });
+
+  it('keeps every plugin on the current semantic token vocabulary in source and shipped assets', () => {
+    const offenders: string[] = [];
+    for (const file of bundleSources()) {
+      const text = readFileSync(file, 'utf8');
+      text.split('\n').forEach((line, i) => {
+        for (const pattern of RETIRED_SOURCE_TOKENS) {
+          for (const hit of line.match(pattern) ?? []) offenders.push(`${relative(registryRoot, file)}:${i + 1} ${hit}`);
+        }
+      });
+    }
+    for (const bundle of declaredBundles()) {
+      for (const asset of [bundle.entry, bundle.css].filter((path): path is string => path !== undefined)) {
+        const file = resolve(pluginsDir, bundle.name, asset);
+        expect(existsSync(file), `${bundle.name} declares missing web asset ${asset}`).toBe(true);
+        const text = readFileSync(file, 'utf8');
+        text.split('\n').forEach((line, i) => {
+          for (const hit of line.match(RETIRED_BUILT_TOKENS) ?? []) {
+            offenders.push(`${relative(registryRoot, file)}:${i + 1} ${hit}`);
+          }
+        });
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('recognises retired plugin utilities without rejecting current shadcn roles', () => {
+    const retired = (line: string) => RETIRED_SOURCE_TOKENS.flatMap((pattern) => line.match(pattern) ?? []);
+    expect(retired('bg-surface text-text-muted text-accent bg-accent/10 ring-accent')).toEqual([
+      'bg-surface', 'text-text-muted', 'text-accent', 'bg-accent/10', 'ring-accent',
+    ]);
+    expect(retired('bg-card text-foreground text-muted-foreground bg-accent text-accent-foreground ring-ring')).toEqual([]);
   });
 });

@@ -284,17 +284,17 @@ function PairModal({ onClose }) {
   };
   const connected = state?.connected === true;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Modal, { title: s.pairModalTitle, icon: QrCode, size: "sm", onClose, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ModalBody, { children: error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-danger", children: s.pairError }) : connected ? (
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ModalBody, { children: error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-destructive", children: s.pairError }) : connected ? (
       // Success is shown by the check + the footer flipping to "OK"; no wording needed.
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex flex-col items-center gap-3 py-8 text-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CircleCheck, { size: 48, className: "text-success", "aria-hidden": true }) })
     ) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col items-center gap-4 py-2 text-center", children: [
       state?.qrImage ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-text-muted", children: s.pairScan }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-muted-foreground", children: s.pairScan }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: state.qrImage, alt: "WhatsApp QR", width: 280, height: 280, className: "h-auto w-full max-w-[280px] rounded-md bg-white p-2" })
-      ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "py-6 text-sm text-text-muted", children: s.pairWaiting }),
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "py-6 text-sm text-muted-foreground", children: s.pairWaiting }),
       state?.code ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "w-full border-t border-border pt-3", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-text-muted", children: s.pairCode }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 font-mono text-2xl font-bold tracking-widest text-text", children: state.code })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-muted-foreground", children: s.pairCode }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 font-mono text-2xl font-bold tracking-widest text-foreground", children: state.code })
       ] }) : null
     ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ModalFooter, { children: [

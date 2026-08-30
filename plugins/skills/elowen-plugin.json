@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "apiVersion": "1",
   "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
   "entry": "index.mjs",
@@ -18,7 +18,7 @@
       "/plugins/skills",
       "/plugins/skills/list",
       "/plugins/skills/:name",
-    "/plugins/skills/:name/owner"
+      "/plugins/skills/:name/owner"
     ]
   },
   "userGrantable": true,

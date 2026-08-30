@@ -1,6 +1,6 @@
 {
   "name": "sites",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "apiVersion": "1",
   "requiresCore": "0.28.21",
   "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is a separate release you can roll back to.",

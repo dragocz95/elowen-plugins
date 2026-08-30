@@ -157,8 +157,8 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
                 label={s.disableModelInvocation}
               />
               <span className="flex flex-col">
-                <span className="text-sm text-text">{s.disableModelInvocation}</span>
-                <span className="text-xs text-text-muted">{s.disableModelInvocationHint}</span>
+                <span className="text-sm text-foreground">{s.disableModelInvocation}</span>
+                <span className="text-xs text-muted-foreground">{s.disableModelInvocationHint}</span>
               </span>
             </label>
           </>
