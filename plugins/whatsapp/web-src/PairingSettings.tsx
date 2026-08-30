@@ -91,7 +91,7 @@ function PairModal({ onClose }: { onClose: () => void }) {
     <C.Modal title={s.pairModalTitle} icon={QrCode} size="sm" onClose={onClose}>
       <C.ModalBody>
         {error ? (
-          <p className="text-sm text-danger">{s.pairError}</p>
+          <p className="text-sm text-destructive">{s.pairError}</p>
         ) : connected ? (
           // Success is shown by the check + the footer flipping to "OK"; no wording needed.
           <div className="flex flex-col items-center gap-3 py-8 text-center">
@@ -101,18 +101,18 @@ function PairModal({ onClose }: { onClose: () => void }) {
           <div className="flex flex-col items-center gap-4 py-2 text-center">
             {state?.qrImage ? (
               <>
-                <p className="text-sm text-text-muted">{s.pairScan}</p>
+                <p className="text-sm text-muted-foreground">{s.pairScan}</p>
                 {/* Square, but never wider than the modal: a fixed 280px sat outside a phone-width
                     dialog and clipped the code's right edge, which is exactly the part a scan needs. */}
                 <img src={state.qrImage} alt="WhatsApp QR" width={280} height={280} className="h-auto w-full max-w-[280px] rounded-md bg-white p-2" />
               </>
             ) : (
-              <p className="py-6 text-sm text-text-muted">{s.pairWaiting}</p>
+              <p className="py-6 text-sm text-muted-foreground">{s.pairWaiting}</p>
             )}
             {state?.code ? (
               <div className="w-full border-t border-border pt-3">
-                <p className="text-sm text-text-muted">{s.pairCode}</p>
-                <p className="mt-1 font-mono text-2xl font-bold tracking-widest text-text">{state.code}</p>
+                <p className="text-sm text-muted-foreground">{s.pairCode}</p>
+                <p className="mt-1 font-mono text-2xl font-bold tracking-widest text-foreground">{state.code}</p>
               </div>
             ) : null}
           </div>

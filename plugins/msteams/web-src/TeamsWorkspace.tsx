@@ -191,13 +191,13 @@ function IdentityCard({ person, users, onDetail }: {
   const profile = detail?.profile;
 
   return (
-    <section className="rounded-xl border border-border bg-surface p-4">
+    <section className="rounded-xl border border-border bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{s.identityTitle}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.identityTitle}</p>
           <div className="mt-2 flex items-center gap-2">
             <C.Badge tone={identity.signedIn ? 'success' : identity.linked ? 'warning' : undefined}>{statusLabel}</C.Badge>
-            {loading ? <span className="text-xs text-text-muted">{s.identityLoading}</span> : null}
+            {loading ? <span className="text-xs text-muted-foreground">{s.identityLoading}</span> : null}
           </div>
         </div>
         <C.Button variant="ghost" icon={RefreshCw} disabled={pending || !person.aadObjectId} onClick={() => void signOut()}>
@@ -207,26 +207,26 @@ function IdentityCard({ person, users, onDetail }: {
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <p className="text-xs font-semibold text-text">{s.identityMicrosoftProfile}</p>
-          <p className="text-sm text-text">{profile?.displayName || person.name || s.personFallback}</p>
-          <p className="break-all text-xs text-text-muted">{profile?.userPrincipalName || person.upn || '—'}</p>
-          {profile?.mail && profile.mail !== profile.userPrincipalName ? <p className="break-all text-xs text-text-muted">{profile.mail}</p> : null}
-          <p className="break-all font-mono text-[11px] text-text-subtle">{profile?.id || person.aadObjectId || '—'}</p>
-          {profile ? <p className="text-xs text-text-muted">{profile.userType} · {profile.accountEnabled ? s.identityAccountEnabled : s.identityAccountDisabled}</p> : null}
+          <p className="text-xs font-semibold text-foreground">{s.identityMicrosoftProfile}</p>
+          <p className="text-sm text-foreground">{profile?.displayName || person.name || s.personFallback}</p>
+          <p className="break-all text-xs text-muted-foreground">{profile?.userPrincipalName || person.upn || '—'}</p>
+          {profile?.mail && profile.mail !== profile.userPrincipalName ? <p className="break-all text-xs text-muted-foreground">{profile.mail}</p> : null}
+          <p className="break-all font-mono text-[11px] text-subtle-foreground">{profile?.id || person.aadObjectId || '—'}</p>
+          {profile ? <p className="text-xs text-muted-foreground">{profile.userType} · {profile.accountEnabled ? s.identityAccountEnabled : s.identityAccountDisabled}</p> : null}
         </div>
 
         <div className="space-y-2">
-          <p className="text-xs font-semibold text-text">{s.identityElowenAccount}</p>
+          <p className="text-xs font-semibold text-foreground">{s.identityElowenAccount}</p>
           {identity.user ? (
-            <div className="flex items-center gap-3 rounded-lg border border-border bg-elevated/40 p-3">
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 p-3">
               <C.Avatar name={linkedHostUser?.name || identity.user.username} user={linkedHostUser} size="md" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-text">{linkedHostUser?.name || `@${identity.user.username}`}</p>
-                <p className="truncate text-xs text-text-muted">@{identity.user.username}</p>
+                <p className="truncate text-sm font-medium text-foreground">{linkedHostUser?.name || `@${identity.user.username}`}</p>
+                <p className="truncate text-xs text-muted-foreground">@{identity.user.username}</p>
               </div>
               {identity.user.isAdmin ? <C.Badge tone="accent">{s.identityAdmin}</C.Badge> : null}
             </div>
-          ) : <p className="text-xs text-text-muted">{s.identityNoElowenAccount}</p>}
+          ) : <p className="text-xs text-muted-foreground">{s.identityNoElowenAccount}</p>}
           <C.Field label={identity.user ? s.identityChangeAccount : s.identityLinkAccount} hint={s.identityLinkAccountHint}>
             <C.SelectMenu
               value={identity.user ? String(identity.user.id) : ''}
@@ -244,15 +244,15 @@ function IdentityCard({ person, users, onDetail }: {
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-3 text-xs text-text-muted">
+      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-3 text-xs text-muted-foreground">
         <span>{person.hasPersonalChat ? s.identityPersonalChatOpen : s.identityPersonalChatMissing}</span>
         <span>{s.identityLastSeen.replace('{value}', formatTimestamp(person.lastSeenAt))}</span>
         <span>{identity.signedIn ? s.identitySessionActive : s.identitySessionSignedOut}</span>
         {identity.linkedAt ? <span>{s.identityLinkedAt.replace('{value}', formatTimestamp(identity.linkedAt))}</span> : null}
         {detail?.verifiedAt ? <span>{s.identityVerifiedAt.replace('{value}', formatTimestamp(detail.verifiedAt))}</span> : null}
       </div>
-      {pending ? <p className="mt-3 text-xs text-text-muted" aria-live="polite">{s.identitySaving}</p> : null}
-      {error ? <p className="mt-3 text-xs text-danger" role="alert">{error}</p> : null}
+      {pending ? <p className="mt-3 text-xs text-muted-foreground" aria-live="polite">{s.identitySaving}</p> : null}
+      {error ? <p className="mt-3 text-xs text-destructive" role="alert">{error}</p> : null}
 
       <C.ConfirmDialog
         open={replacement !== null}
@@ -358,31 +358,31 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
                   type="button"
                   key={person.key}
                   onClick={() => setSelectedKey(person.key)}
-                  className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? 'border-accent/60 bg-accent/10' : 'border-border bg-surface hover:border-border-strong hover:bg-elevated/50'}`}
+                  className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? 'border-primary/60 bg-accent' : 'border-border bg-card hover:border-border-strong hover:bg-accent'}`}
                 >
                   <C.Avatar name={person.name || person.upn || s.personFallback} src={person.teamsAvatarUrl} user={linkedUser} size="md" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-text">{person.name || s.personFallback}</span>
-                    <span className="block truncate text-xs text-text-muted">{person.upn || person.aadObjectId}</span>
+                    <span className="block truncate text-sm font-semibold text-foreground">{person.name || s.personFallback}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{person.upn || person.aadObjectId}</span>
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
                     <C.Badge tone={mapped ? 'accent' : undefined}>{mapped ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped}</C.Badge>
-                    {person.hasPersonalChat ? <span className="inline-flex items-center gap-1 text-[11px] text-text-muted"><MessageCircle size={11} aria-hidden />{s.chatOpen}</span> : null}
+                    {person.hasPersonalChat ? <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><MessageCircle size={11} aria-hidden />{s.chatOpen}</span> : null}
                   </span>
                 </button>
               );
             })}
           </div>
 
-          <div className="min-w-0 rounded-xl border border-border bg-elevated/30 p-5">
+          <div className="min-w-0 rounded-xl border border-border bg-muted/30 p-5">
             {selected === null ? null : (
               <div className="flex flex-col gap-5">
                 <div className="flex items-start gap-3">
                   <C.Avatar name={selected.name || selected.upn || s.personFallback} src={selected.teamsAvatarUrl} user={selectedUser} size="lg" />
                   <div className="min-w-0 flex-1">
-                    <h2 className="truncate text-base font-semibold text-text">{selected.name || s.personFallback}</h2>
-                    <p className="truncate text-sm text-text-muted">{selected.upn || selected.aadObjectId}</p>
-                    <p className="mt-1 font-mono text-[11px] text-text-subtle">{selected.aadObjectId || selected.teamsId}</p>
+                    <h2 className="truncate text-base font-semibold text-foreground">{selected.name || s.personFallback}</h2>
+                    <p className="truncate text-sm text-muted-foreground">{selected.upn || selected.aadObjectId}</p>
+                    <p className="mt-1 font-mono text-[11px] text-subtle-foreground">{selected.aadObjectId || selected.teamsId}</p>
                   </div>
                   {policy ? <C.Button variant="ghost" onClick={removePolicy}>{s.removeAccess}</C.Button> : null}
                 </div>
@@ -391,20 +391,20 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
 
                 {policy === null ? (
                   <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 text-center">
-                    <UserCheck size={28} className="text-text-muted" aria-hidden />
+                    <UserCheck size={28} className="text-muted-foreground" aria-hidden />
                     <div>
-                      <p className="text-sm font-semibold text-text">{inherited ? s.inheritedTitle : s.unmappedTitle}</p>
-                      <p className="mt-1 max-w-md text-xs leading-relaxed text-text-muted">{inherited ? s.inheritedDescription : s.unmappedDescription}</p>
+                      <p className="text-sm font-semibold text-foreground">{inherited ? s.inheritedTitle : s.unmappedTitle}</p>
+                      <p className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">{inherited ? s.inheritedDescription : s.unmappedDescription}</p>
                     </div>
                     <C.Button variant="accent" icon={KeyRound} onClick={createPolicy}>{s.configureAccess}</C.Button>
                   </div>
                 ) : (
                   <>
-                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface p-3">
+                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3">
                       <C.Toggle checked={policy.admin === true} onChange={(value: boolean) => patchPolicy({ admin: value })} label={s.adminLabel} />
                       <span>
-                        <span className="block text-sm font-medium text-text">{s.adminLabel}</span>
-                        <span className="block text-xs leading-relaxed text-text-muted">{s.adminHint}</span>
+                        <span className="block text-sm font-medium text-foreground">{s.adminLabel}</span>
+                        <span className="block text-xs leading-relaxed text-muted-foreground">{s.adminHint}</span>
                       </span>
                     </label>
 
@@ -414,7 +414,7 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
                         value={policy.prompt ?? ''}
                         onChange={(event) => patchPolicy({ prompt: event.target.value })}
                         rows={5}
-                        className="w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none transition focus:border-accent"
+                        className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
                         placeholder={s.promptPlaceholder}
                       />
                     </C.Field>
