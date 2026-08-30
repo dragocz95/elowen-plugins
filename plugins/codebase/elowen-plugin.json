@@ -51,7 +51,7 @@
       "type": "number",
       "min": 1000,
       "max": 5000000,
-      "step": 50000,
+      "step": 1000,
       "placeholder": "300000",
       "default": 300000,
       "hint": "Files larger than this are skipped (also skips likely-minified files with very long lines)."
@@ -108,7 +108,7 @@
       "type": "number",
       "min": 1,
       "max": 5000,
-      "step": 50,
+      "step": 1,
       "placeholder": "200",
       "default": 200,
       "hint": "Max chunks embedded in a single indexing pass, so a large repo spreads across passes instead of hammering the provider."

@@ -144,7 +144,7 @@
       "type": "number",
       "min": 1,
       "max": 1440,
-      "step": 5,
+      "step": 1,
       "placeholder": "15",
       "default": 15,
       "hint": "The fastest recurring schedule a non-admin account may set. Every fire is a model call the operator pays for."
