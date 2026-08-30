@@ -370,7 +370,7 @@ var VISIBILITY_ICON = {
 var VISIBILITY_TONE = {
   private: "muted",
   project: "muted",
-  authenticated: "accent",
+  authenticated: "muted",
   public: "warning"
 };
 var STATUS_ORDER = ["live", "draft", "failed"];
@@ -501,17 +501,17 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
       ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "text-base font-semibold leading-snug text-text", children: site.title }),
-      site.summary ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm leading-relaxed text-text-muted", children: site.summary }) : null
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "text-base font-semibold leading-snug text-foreground", children: site.title }),
+      site.summary ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm leading-relaxed text-muted-foreground", children: site.summary }) : null
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-2", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Avatar, { size: "sm", name: site.owner.name, user: avatarUser(site.owner) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-text-muted", children: strings.columnOwner }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-xs text-text", children: site.owner.name })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-muted-foreground", children: strings.columnOwner }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-xs text-foreground", children: site.owner.name })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DetailBlock, { icon: Link2, title: strings.address, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "break-all font-mono text-xs text-text", children: site.url }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DetailBlock, { icon: Link2, title: strings.address, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "break-all font-mono text-xs text-foreground", children: site.url }) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-3 divide-x divide-border/70 border-y border-border/70", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         Metric,
@@ -537,14 +537,14 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
             return { value, label: strings[VISIBILITY_STRING[value]], icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon2, { size: 16 }) };
           })
         }
-      ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-text", children: strings[VISIBILITY_STRING[site.visibility]] }),
-      !allowPublicSites ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-text-muted", children: strings.publicDisabled }) : null
+      ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-foreground", children: strings[VISIBILITY_STRING[site.visibility]] }),
+      !allowPublicSites ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.publicDisabled }) : null
     ] }),
     canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DetailBlock, { icon: Users, title: strings.guests, hint: strings.guestsHint, children: [
-      members.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-text-muted", children: strings.noGuests }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: members.map((member) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "flex items-center justify-between gap-2", children: [
+      members.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.noGuests }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: members.map((member) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "flex items-center justify-between gap-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Avatar, { size: "sm", name: member.name, user: avatarUser(member) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm text-text", children: member.name })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm text-foreground", children: member.name })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           IconButton,
@@ -559,17 +559,17 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
       ] }, member.id)) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", icon: Users, onClick: () => setGuestPicker(true), children: strings.manageGuests }) })
     ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DetailBlock, { icon: History, title: strings.releases, children: releases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-text-muted", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: releases.map((release) => {
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DetailBlock, { icon: History, title: strings.releases, children: releases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: releases.map((release) => {
       const live = release.id === site.currentReleaseId;
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: `flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? "border-accent/40 bg-accent/5" : "border-border bg-elevated/40"}`, children: [
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: `flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? "border-primary/40 bg-primary/10" : "border-border bg-muted/40"}`, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-2 text-xs text-text", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-2 text-xs text-foreground", children: [
             relativeTime(release.createdAt),
             " \xB7 ",
             strings.releaseSummary.replace("{files}", String(release.fileCount)).replace("{size}", formatBytes(release.sizeBytes)),
             live ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: "success", children: strings.releaseLive }) : null
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-[11px] text-text-muted", children: release.note || release.model })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-[11px] text-muted-foreground", children: release.note || release.model })
         ] }),
         canManage && !live ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           IconButton,
@@ -600,17 +600,17 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
         ) : null
       ] }),
       runtimeState.startCommand ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-text-muted", children: strings.runtimeCommand }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "break-all font-mono text-[11px] text-text", children: runtimeState.startCommand })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-muted-foreground", children: strings.runtimeCommand }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "break-all font-mono text-[11px] text-foreground", children: runtimeState.startCommand })
       ] }) : null,
-      runtimeState.lastError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-danger", children: runtimeState.lastError }) : null,
+      runtimeState.lastError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-destructive", children: runtimeState.lastError }) : null,
       runtimeState.logTail !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-text-muted", children: strings.runtimeLog }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-elevated/40 p-3 font-mono text-[11px] text-text-muted", children: runtimeState.logTail || strings.runtimeEmptyLog })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-muted-foreground", children: strings.runtimeLog }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-muted/40 p-3 font-mono text-[11px] text-muted-foreground", children: runtimeState.logTail || strings.runtimeEmptyLog })
       ] }) : null
     ] }) : null,
     canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DetailBlock, { icon: Trash2, title: strings.deleteTitle, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-text-muted", children: strings.deleteHint }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.deleteHint }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost-danger", icon: Trash2, onClick: () => setConfirmDelete(true), children: strings.delete }) })
     ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -671,11 +671,11 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
 }
 function Metric({ icon: Icon2, label, value, title }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-w-0 flex-col gap-1 px-2 py-3", title, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-text-muted", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon2, { size: 11, "aria-hidden": true }),
       label
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate font-mono text-xs text-text", children: value })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate font-mono text-xs text-foreground", children: value })
   ] });
 }
 
@@ -755,23 +755,23 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }) {
         className: "flex w-full min-w-0 flex-col items-start gap-0.5 text-left",
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex min-w-0 max-w-full items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(StatusIcon, { size: 12, "aria-hidden": true, className: site.status === "live" ? "shrink-0 text-success" : site.status === "failed" ? "shrink-0 text-danger" : "shrink-0 text-text-muted" }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-sm text-text", children: site.title })
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(StatusIcon, { size: 12, "aria-hidden": true, className: site.status === "live" ? "shrink-0 text-success" : site.status === "failed" ? "shrink-0 text-destructive" : "shrink-0 text-muted-foreground" }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-sm text-foreground", children: site.title })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "max-w-full truncate font-mono text-[11px] text-text-muted", children: site.url })
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "max-w-full truncate font-mono text-[11px] text-muted-foreground", children: site.url })
         ]
       }
     ) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { priority: "wide", title: site.owner.name, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Avatar, { size: 22, name: site.owner.name, user: avatarUser(site.owner) }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-xs text-text-muted", children: site.owner.name })
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-xs text-muted-foreground", children: site.owner.name })
     ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { priority: "wide", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Badge, { tone: VISIBILITY_TONE[site.visibility], children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(VisibilityIcon, { size: 10, "aria-hidden": true, className: "mr-1" }),
       strings[VISIBILITY_STRING[site.visibility]]
     ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { priority: "wide", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: STATUS_TONE[site.status], children: strings[STATUS_STRING[site.status]] }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { priority: "wide", className: "whitespace-nowrap text-xs text-text-muted", children: published }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { priority: "wide", className: "whitespace-nowrap text-xs text-muted-foreground", children: published }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { children: site.status === "live" && site.url !== null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
       IconButton,
       {
@@ -780,7 +780,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }) {
         onClick: () => window.open(site.url, "_blank", "noopener,noreferrer")
       }
     ) : null }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { "aria-hidden": true, className: "text-text-muted/50 transition-colors group-hover:text-text", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ChevronRight, { size: 15 }) })
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { "aria-hidden": true, className: "text-muted-foreground/50 transition-colors group-hover:text-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ChevronRight, { size: 15 }) })
   ] });
 }
 function SitesPage() {
@@ -886,7 +886,7 @@ function SitesPage() {
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex w-full min-w-0 flex-wrap items-center gap-2 py-3", children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("label", { className: "register-search relative min-w-[14rem] flex-1", children: [
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sr-only", children: strings.searchPlaceholder }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Search, { size: 14, "aria-hidden": true, className: "pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-text-muted" }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Search, { size: 14, "aria-hidden": true, className: "pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground" }),
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
                 Input,
                 {

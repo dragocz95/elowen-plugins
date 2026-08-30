@@ -299,8 +299,8 @@ function SkillsSettings({ surface }) {
             }
           ),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex flex-col", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-text", children: s.disableModelInvocation }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs text-text-muted", children: s.disableModelInvocationHint })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-foreground", children: s.disableModelInvocation }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs text-muted-foreground", children: s.disableModelInvocationHint })
           ] })
         ] })
       ] }),

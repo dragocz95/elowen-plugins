@@ -24,10 +24,10 @@ export const VISIBILITY_ICON: Record<Visibility, LucideIcon> = {
 
 /** Public is the one value that widens who may read the page beyond this instance, so it is the one
  *  value that wears a warning tone rather than a quiet one. */
-export const VISIBILITY_TONE: Record<Visibility, 'muted' | 'accent' | 'warning'> = {
+export const VISIBILITY_TONE: Record<Visibility, 'muted' | 'warning'> = {
   private: 'muted',
   project: 'muted',
-  authenticated: 'accent',
+  authenticated: 'muted',
   public: 'warning',
 };
 

@@ -25,11 +25,11 @@
     font-size: var(--text-xs, 0.75rem);
     line-height: var(--tw-leading, var(--text-xs--line-height, calc(1 / 0.75)));
   }
-  .text-text {
-    color: var(--color-text, #f7f3f0);
+  .text-foreground {
+    color: var(--color-foreground, #f7f3f0);
   }
-  .text-text-muted {
-    color: var(--color-text-muted, #9d948e);
+  .text-muted-foreground {
+    color: var(--color-muted-foreground, #9d948e);
   }
 }
 @property --tw-rotate-x {

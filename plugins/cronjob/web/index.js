@@ -265,7 +265,7 @@ function renderActiveHours(start, end) {
 // plugins/cronjob/web-src/JobsSettings.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var PAGE_SIZE = 20;
-var textareaClass = "w-full rounded-md border border-border bg-bg px-3 py-2 font-mono text-sm text-text placeholder:text-text-muted focus:border-accent";
+var textareaClass = "w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-ring";
 function DestinationField({ value, onChange, destinations }) {
   const { components: C, hooks } = runtime();
   const { t } = hooks.useTranslation();
@@ -407,9 +407,9 @@ function ScheduleField({ schedule, valid, onChange }) {
         }
       ) })
     ] }) : null,
-    builder ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "flex flex-wrap items-center gap-2 text-xs text-text-muted", children: [
+    builder ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "flex flex-wrap items-center gap-2 text-xs text-muted-foreground", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: s.scheduleGenerated }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "rounded border border-border bg-bg px-2 py-1 text-text", children: renderBuilderSchedule(builder) })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "rounded border border-border bg-background px-2 py-1 text-foreground", children: renderBuilderSchedule(builder) })
     ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "relative", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -422,9 +422,9 @@ function ScheduleField({ schedule, valid, onChange }) {
             "aria-label": s.scheduleAdvancedValue
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "absolute right-2.5 top-1/2 -translate-y-1/2", title: valid ? s.scheduleValid : s.scheduleInvalid, children: valid ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, className: "text-success", "aria-label": s.scheduleValid }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 14, className: "text-danger", "aria-label": s.scheduleInvalid }) })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "absolute right-2.5 top-1/2 -translate-y-1/2", title: valid ? s.scheduleValid : s.scheduleInvalid, children: valid ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, className: "text-success", "aria-label": s.scheduleValid }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 14, className: "text-destructive", "aria-label": s.scheduleInvalid }) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-text-muted", children: s.scheduleAdvancedHint })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.scheduleAdvancedHint })
     ] })
   ] });
 }
@@ -481,10 +481,10 @@ function ActiveHoursField({ value, onChange }) {
           onChange: (event) => setHour("end", event.target.value)
         }
       ) })
-    ] }) : legacy ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "text-xs text-text-muted", children: [
+    ] }) : legacy ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "text-xs text-muted-foreground", children: [
       s.hoursLegacyHint,
       " ",
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "text-text", children: value })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "text-foreground", children: value })
     ] }) : null
   ] });
 }
@@ -562,12 +562,12 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", "aria-hidden": true, className: "flex items-center justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             "span",
             {
-              className: `h-2 w-2 rounded-full ${enabled ? "bg-success" : "bg-text-muted/50"}`,
+              className: `h-2 w-2 rounded-full ${enabled ? "bg-success" : "bg-muted-foreground/50"}`,
               title: enabled ? s.enabled : s.paused
             }
           ) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableCell, { lines: "auto", title: name, className: "flex items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm text-text", children: name }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm text-foreground", children: name }),
             !enabled ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "muted", children: s.paused }) : null,
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sr-only", children: enabled ? s.enabled : s.paused })
           ] }),
@@ -575,14 +575,14 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             draft.runAt ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CalendarClock, { size: 10, className: "mr-1 inline-block align-[-1px]", "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Clock, { size: 10, className: "mr-1 inline-block align-[-1px]", "aria-hidden": true }),
             draft.schedule
           ] }) }),
-          ownerLabel !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, priority: "wide", className: "text-xs text-text-muted", children: ownerLabel }) : null,
-          adminFields ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, priority: "wide", title: dest ?? s.channelDefault, className: "text-xs text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5", children: [
+          ownerLabel !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, priority: "wide", className: "text-xs text-muted-foreground", children: ownerLabel }) : null,
+          adminFields ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, priority: "wide", title: dest ?? s.channelDefault, className: "text-xs text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "shrink-0", children: destination && destination.kind !== "channel" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 12, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Hash, { size: 12, "aria-hidden": true }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `truncate ${dest ? "" : "italic text-text-muted/65"}`, children: dest ?? s.channelDefault })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `truncate ${dest ? "" : "italic text-muted-foreground"}`, children: dest ?? s.channelDefault })
           ] }) }) : null,
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, priority: "wide", title: lastRunMs != null ? new Date(lastRunMs).toLocaleString() : void 0, className: "whitespace-nowrap text-xs text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, priority: "wide", title: lastRunMs != null ? new Date(lastRunMs).toLocaleString() : void 0, className: "whitespace-nowrap text-xs text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-1.5", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Timer, { size: 12, "aria-hidden": true }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: lastRunMs == null ? "text-text-muted/60" : void 0, children: lastRunMs != null ? utils.compactElapsed(Date.now() - lastRunMs) : "\u2014" })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: lastRunMs == null ? "text-muted-foreground" : void 0, children: lastRunMs != null ? utils.compactElapsed(Date.now() - lastRunMs) : "\u2014" })
           ] }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", className: "flex items-center justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.AutoSaveStatus, { status: autosave.status, onRetry: autosave.retry }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableChevronCell, {})
@@ -592,7 +592,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
     selected ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceDetailRail, { label: name, closeLabel: t.common.close, onClose, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-3", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.name, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { value: draft.name, onChange: (e) => patch({ name: e.target.value }), placeholder: "morning-digest" }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.enabled, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex h-9 items-center gap-2 text-sm text-text-muted", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.enabled, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex h-9 items-center gap-2 text-sm text-muted-foreground", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: enabled, onChange: (v) => patch({ enabled: v }), label: `${name}: ${s.enabled}` }),
           enabled ? s.enabled : s.paused
         ] }) })
@@ -600,7 +600,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.schedule, hint: s.helpSchedule, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ScheduleField, { schedule: draft.schedule, valid: validSchedule, onChange: (schedule) => patch({ schedule }) }) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.hours, hint: s.helpHours, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ActiveHoursField, { value: draft.hours, onChange: (hours) => patch({ hours }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.header, hint: s.helpHeader, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "flex h-9 items-center text-sm text-text-muted", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: draft.plain !== true, onChange: (v) => patch({ plain: v ? void 0 : true }), label: `${name}: ${s.header}` }) }) })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.header, hint: s.helpHeader, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "flex h-9 items-center text-sm text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: draft.plain !== true, onChange: (v) => patch({ plain: v ? void 0 : true }), label: `${name}: ${s.header}` }) }) })
       ] }),
       adminFields && (job.ownerUserId == null || job.ownerUserId === myId) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.ownerColumn, hint: s.ownerFieldHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         C.Segmented,
@@ -649,7 +649,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
           keyOf: (m) => `${m.provider}/${m.model}`
         }
       ) }),
-      job.lastResult ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.lastResult, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "whitespace-pre-wrap rounded-md border border-border bg-bg px-3 py-2 text-xs text-text-muted", children: job.lastResult }) }) : null,
+      job.lastResult ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.lastResult, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "whitespace-pre-wrap rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground", children: job.lastResult }) }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex justify-end border-t border-border pt-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", icon: Trash2, onClick: () => setConfirming(true), children: s.removeJob }) })
     ] }) }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(

@@ -128,20 +128,20 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
       </div>
 
       <div className="flex flex-col gap-1">
-        <h2 className="text-base font-semibold leading-snug text-text">{site.title}</h2>
-        {site.summary ? <p className="text-sm leading-relaxed text-text-muted">{site.summary}</p> : null}
+        <h2 className="text-base font-semibold leading-snug text-foreground">{site.title}</h2>
+        {site.summary ? <p className="text-sm leading-relaxed text-muted-foreground">{site.summary}</p> : null}
       </div>
 
       <div className="flex items-center gap-2">
         <Avatar size="sm" name={site.owner.name} user={avatarUser(site.owner)} />
         <span className="flex min-w-0 flex-col">
-          <span className="text-[10px] uppercase tracking-wide text-text-muted">{strings.columnOwner}</span>
-          <span className="truncate text-xs text-text">{site.owner.name}</span>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{strings.columnOwner}</span>
+          <span className="truncate text-xs text-foreground">{site.owner.name}</span>
         </span>
       </div>
 
       <DetailBlock icon={Link2} title={strings.address}>
-        <code className="break-all font-mono text-xs text-text">{site.url}</code>
+        <code className="break-all font-mono text-xs text-foreground">{site.url}</code>
       </DetailBlock>
 
       <div className="grid grid-cols-3 divide-x divide-border/70 border-y border-border/70">
@@ -167,9 +167,9 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
             })}
           />
         ) : (
-          <span className="text-sm text-text">{strings[VISIBILITY_STRING[site.visibility]]}</span>
+          <span className="text-sm text-foreground">{strings[VISIBILITY_STRING[site.visibility]]}</span>
         )}
-        {!allowPublicSites ? <p className="text-[11px] text-text-muted">{strings.publicDisabled}</p> : null}
+        {!allowPublicSites ? <p className="text-[11px] text-muted-foreground">{strings.publicDisabled}</p> : null}
       </DetailBlock>
 
       {/* Owner only. A guest is deliberately not sent the member list, so this block would tell them
@@ -177,14 +177,14 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
       {canManage ? (
         <DetailBlock icon={Users} title={strings.guests} hint={strings.guestsHint}>
           {members.length === 0 ? (
-            <p className="text-[11px] text-text-muted">{strings.noGuests}</p>
+            <p className="text-[11px] text-muted-foreground">{strings.noGuests}</p>
           ) : (
             <ul className="flex flex-col gap-1.5">
               {members.map((member) => (
                 <li key={member.id} className="flex items-center justify-between gap-2">
                   <span className="flex min-w-0 items-center gap-2">
                     <Avatar size="sm" name={member.name} user={avatarUser(member)} />
-                    <span className="truncate text-sm text-text">{member.name}</span>
+                    <span className="truncate text-sm text-foreground">{member.name}</span>
                   </span>
                   <IconButton
                     icon={UserMinus}
@@ -205,21 +205,21 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
 
       <DetailBlock icon={History} title={strings.releases}>
         {releases.length === 0 ? (
-          <p className="text-[11px] text-text-muted">{strings.noReleases}</p>
+          <p className="text-[11px] text-muted-foreground">{strings.noReleases}</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
             {releases.map((release) => {
               const live = release.id === site.currentReleaseId;
               return (
-              <li key={release.id} className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? 'border-accent/40 bg-accent/5' : 'border-border bg-elevated/40'}`}>
+              <li key={release.id} className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? 'border-primary/40 bg-primary/10' : 'border-border bg-muted/40'}`}>
                 <span className="flex min-w-0 flex-col">
-                  <span className="flex items-center gap-2 text-xs text-text">
+                  <span className="flex items-center gap-2 text-xs text-foreground">
                     {relativeTime(release.createdAt)} · {strings.releaseSummary
                       .replace('{files}', String(release.fileCount))
                       .replace('{size}', formatBytes(release.sizeBytes))}
                     {live ? <Badge tone="success">{strings.releaseLive}</Badge> : null}
                   </span>
-                  <span className="truncate text-[11px] text-text-muted">{release.note || release.model}</span>
+                  <span className="truncate text-[11px] text-muted-foreground">{release.note || release.model}</span>
                 </span>
                 {canManage && !live ? (
                   <IconButton
@@ -257,15 +257,15 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
           </div>
           {runtimeState.startCommand ? (
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-wide text-text-muted">{strings.runtimeCommand}</span>
-              <code className="break-all font-mono text-[11px] text-text">{runtimeState.startCommand}</code>
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{strings.runtimeCommand}</span>
+              <code className="break-all font-mono text-[11px] text-foreground">{runtimeState.startCommand}</code>
             </div>
           ) : null}
-          {runtimeState.lastError ? <p className="text-[11px] text-danger">{runtimeState.lastError}</p> : null}
+          {runtimeState.lastError ? <p className="text-[11px] text-destructive">{runtimeState.lastError}</p> : null}
           {runtimeState.logTail !== null ? (
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-wide text-text-muted">{strings.runtimeLog}</span>
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-elevated/40 p-3 font-mono text-[11px] text-text-muted">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{strings.runtimeLog}</span>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-muted/40 p-3 font-mono text-[11px] text-muted-foreground">
                 {runtimeState.logTail || strings.runtimeEmptyLog}
               </pre>
             </div>
@@ -275,7 +275,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
 
       {canManage ? (
         <DetailBlock icon={Trash2} title={strings.deleteTitle}>
-          <p className="text-[11px] text-text-muted">{strings.deleteHint}</p>
+          <p className="text-[11px] text-muted-foreground">{strings.deleteHint}</p>
           <div>
             <Button variant="ghost-danger" icon={Trash2} onClick={() => setConfirmDelete(true)}>{strings.delete}</Button>
           </div>
@@ -339,10 +339,10 @@ function Metric({ icon: Icon, label, value, title }: {
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 px-2 py-3" title={title}>
-      <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-text-muted">
+      <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
         <Icon size={11} aria-hidden />{label}
       </span>
-      <span className="truncate font-mono text-xs text-text">{value}</span>
+      <span className="truncate font-mono text-xs text-foreground">{value}</span>
     </div>
   );
 }
