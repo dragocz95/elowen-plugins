@@ -1,5 +1,9 @@
 # Changelog
 
+## msteams 0.5.32 - 2026-08-30
+
+- Keep people access in a clean desktop master-detail layout with a scrollable avatar list and sticky detail panel
+
 ## onedrive 0.2.2 - 2026-08-30
 
 - Use semantic host tokens across OneDrive project panels.
