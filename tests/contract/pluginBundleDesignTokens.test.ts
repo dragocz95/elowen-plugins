@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,14 +20,20 @@ const pluginsDir = resolve(registryRoot, 'plugins');
  *  deriving that from the manifests is the only self-check that stays honest as the set changes: a file
  *  count would be a magic number the day a plugin lands, while this fails the day a DECLARED bundle stops
  *  being scanned — a renamed folder, a broken walk, a plugin whose sources moved. */
-function pluginsDeclaringABundle(): string[] {
-  return readdirSync(pluginsDir).filter((name) => {
+interface DeclaredBundle { name: string; entry: string; css?: string }
+
+function declaredBundles(): DeclaredBundle[] {
+  return readdirSync(pluginsDir).flatMap((name): DeclaredBundle[] => {
     try {
-      const manifest = JSON.parse(readFileSync(resolve(pluginsDir, name, 'elowen-plugin.json'), 'utf8')) as { web?: { entry?: string } };
-      return typeof manifest.web?.entry === 'string';
-    } catch { return false; }
-  }).sort();
+      const manifest = JSON.parse(readFileSync(resolve(pluginsDir, name, 'elowen-plugin.json'), 'utf8')) as { web?: { entry?: string; css?: string } };
+      return typeof manifest.web?.entry === 'string'
+        ? [{ name, entry: manifest.web.entry, ...(typeof manifest.web.css === 'string' ? { css: manifest.web.css } : {}) }]
+        : [];
+    } catch { return []; }
+  }).sort((a, b) => a.name.localeCompare(b.name));
 }
+
+const pluginsDeclaringABundle = (): string[] => declaredBundles().map(({ name }) => name);
 
 /** Every `plugins/<name>/web-src/**` source, minus tests — a new plugin is covered the day it lands. */
 function bundleSources(): string[] {
@@ -108,11 +114,11 @@ describe('plugin bundles paint from the host tokens, not from literals', () => {
         }
       });
     }
-    for (const name of pluginsDeclaringABundle()) {
-      for (const asset of ['index.js', 'index.css']) {
-        const file = resolve(pluginsDir, name, 'web', asset);
-        let text: string;
-        try { text = readFileSync(file, 'utf8'); } catch { continue; }
+    for (const bundle of declaredBundles()) {
+      for (const asset of [bundle.entry, bundle.css].filter((path): path is string => path !== undefined)) {
+        const file = resolve(pluginsDir, bundle.name, asset);
+        expect(existsSync(file), `${bundle.name} declares missing web asset ${asset}`).toBe(true);
+        const text = readFileSync(file, 'utf8');
         text.split('\n').forEach((line, i) => {
           for (const hit of line.match(RETIRED_BUILT_TOKENS) ?? []) {
             offenders.push(`${relative(registryRoot, file)}:${i + 1} ${hit}`);

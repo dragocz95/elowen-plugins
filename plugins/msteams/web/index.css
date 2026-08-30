@@ -226,6 +226,9 @@
   .break-all {
     word-break: break-all;
   }
+  .text-accent-foreground {
+    color: var(--color-accent-foreground, var(--color-foreground));
+  }
   .text-destructive {
     color: var(--color-destructive, #e94d42);
   }
@@ -241,6 +244,9 @@
   .uppercase {
     text-transform: uppercase;
   }
+  .opacity-70 {
+    opacity: 70%;
+  }
   .transition {
     transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, opacity, box-shadow, transform, translate, scale, rotate, filter, -webkit-backdrop-filter, backdrop-filter, display, content-visibility, overlay, pointer-events;
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function, cubic-bezier(0.4, 0, 0.2, 1)));
@@ -251,6 +257,9 @@
     outline-style: none;
   }
   @media (hover: hover) {
+    .group-hover\:text-accent-foreground:is(:where(.group):hover *) {
+      color: var(--color-accent-foreground, var(--color-foreground));
+    }
     .hover\:border-border-strong:hover {
       border-color: var(--color-border-strong, #363636);
     }
@@ -261,6 +270,9 @@
       .hover\:bg-accent:hover {
         background-color: var(--color-accent, color-mix(in srgb, var(--color-foreground) 10%, transparent));
       }
+    }
+    .hover\:text-accent-foreground:hover {
+      color: var(--color-accent-foreground, var(--color-foreground));
     }
   }
   .focus\:border-primary:focus {

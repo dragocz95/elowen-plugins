@@ -358,16 +358,16 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
                   type="button"
                   key={person.key}
                   onClick={() => setSelectedKey(person.key)}
-                  className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? 'border-primary/60 bg-accent' : 'border-border bg-card hover:border-border-strong hover:bg-accent'}`}
+                  className={`group flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? 'border-primary/60 bg-accent text-accent-foreground' : 'border-border bg-card text-foreground hover:border-border-strong hover:bg-accent hover:text-accent-foreground'}`}
                 >
                   <C.Avatar name={person.name || person.upn || s.personFallback} src={person.teamsAvatarUrl} user={linkedUser} size="md" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-foreground">{person.name || s.personFallback}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{person.upn || person.aadObjectId}</span>
+                    <span className="block truncate text-sm font-semibold">{person.name || s.personFallback}</span>
+                    <span className={`block truncate text-xs ${active ? 'text-accent-foreground opacity-70' : 'text-muted-foreground group-hover:text-accent-foreground'}`}>{person.upn || person.aadObjectId}</span>
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
                     <C.Badge tone={mapped ? 'accent' : undefined}>{mapped ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped}</C.Badge>
-                    {person.hasPersonalChat ? <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><MessageCircle size={11} aria-hidden />{s.chatOpen}</span> : null}
+                    {person.hasPersonalChat ? <span className={`inline-flex items-center gap-1 text-[11px] ${active ? 'text-accent-foreground opacity-70' : 'text-muted-foreground group-hover:text-accent-foreground'}`}><MessageCircle size={11} aria-hidden />{s.chatOpen}</span> : null}
                   </span>
                 </button>
               );

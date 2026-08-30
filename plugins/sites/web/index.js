@@ -370,7 +370,7 @@ var VISIBILITY_ICON = {
 var VISIBILITY_TONE = {
   private: "muted",
   project: "muted",
-  authenticated: "muted",
+  authenticated: "accent",
   public: "warning"
 };
 var STATUS_ORDER = ["live", "draft", "failed"];

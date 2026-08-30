@@ -512,16 +512,16 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
           {
             type: "button",
             onClick: () => setSelectedKey(person.key),
-            className: `flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? "border-primary/60 bg-accent" : "border-border bg-card hover:border-border-strong hover:bg-accent"}`,
+            className: `group flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? "border-primary/60 bg-accent text-accent-foreground" : "border-border bg-card text-foreground hover:border-border-strong hover:bg-accent hover:text-accent-foreground"}`,
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: person.name || person.upn || s.personFallback, src: person.teamsAvatarUrl, user: linkedUser, size: "md" }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "min-w-0 flex-1", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-sm font-semibold text-foreground", children: person.name || s.personFallback }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-xs text-muted-foreground", children: person.upn || person.aadObjectId })
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-sm font-semibold", children: person.name || s.personFallback }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `block truncate text-xs ${active ? "text-accent-foreground opacity-70" : "text-muted-foreground group-hover:text-accent-foreground"}`, children: person.upn || person.aadObjectId })
               ] }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex shrink-0 flex-col items-end gap-1", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: mapped ? "accent" : void 0, children: mapped ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped }),
-                person.hasPersonalChat ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "inline-flex items-center gap-1 text-[11px] text-muted-foreground", children: [
+                person.hasPersonalChat ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: `inline-flex items-center gap-1 text-[11px] ${active ? "text-accent-foreground opacity-70" : "text-muted-foreground group-hover:text-accent-foreground"}`, children: [
                   /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageCircle, { size: 11, "aria-hidden": true }),
                   s.chatOpen
                 ] }) : null

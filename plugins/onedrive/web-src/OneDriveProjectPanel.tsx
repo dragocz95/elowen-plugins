@@ -139,7 +139,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
           disabled={!listing.data}
           onClick={() => listing.data && onChange({ subpath: browsing, remotePath: listing.data.remotePath })}
           className={`flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-xs hover:bg-accent disabled:opacity-50 ${
-            value?.subpath === browsing ? 'bg-accent text-primary' : ''}`}>
+            value?.subpath === browsing ? 'bg-accent text-accent-foreground' : ''}`}>
           <FolderOpen size={13} aria-hidden />
           <span className="truncate">{browsing === '' ? s.mirrorWholeProject : `${s.mirrorThisFolder}: ${browsing}`}</span>
           {value?.subpath === browsing ? <span className="ml-auto shrink-0 font-medium">{s.selected}</span> : null}
@@ -155,7 +155,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }: {
                   <button type="button" aria-pressed={value?.subpath === folder.path}
                     onClick={() => onChange({ subpath: folder.path, remotePath: folder.remotePath })}
                     className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-accent ${
-                      value?.subpath === folder.path ? 'bg-accent text-primary' : ''}`}>
+                      value?.subpath === folder.path ? 'bg-accent text-accent-foreground' : ''}`}>
                     <Folder size={13} aria-hidden />
                     <span className="truncate" title={folder.path}>{folder.name}</span>
                     {value?.subpath === folder.path ? <span className="ml-auto shrink-0 font-medium">{s.selected}</span> : null}

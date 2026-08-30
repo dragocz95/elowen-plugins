@@ -22,12 +22,12 @@ export const VISIBILITY_ICON: Record<Visibility, LucideIcon> = {
   public: Globe,
 };
 
-/** Public is the one value that widens who may read the page beyond this instance, so it is the one
- *  value that wears a warning tone rather than a quiet one. */
-export const VISIBILITY_TONE: Record<Visibility, 'muted' | 'warning'> = {
+/** Authenticated access is intentionally distinct from project/private scope; public widens readership
+ *  beyond the instance and therefore keeps the warning tone. */
+export const VISIBILITY_TONE: Record<Visibility, 'muted' | 'accent' | 'warning'> = {
   private: 'muted',
   project: 'muted',
-  authenticated: 'muted',
+  authenticated: 'accent',
   public: 'warning',
 };
 

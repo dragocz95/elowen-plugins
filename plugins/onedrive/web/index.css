@@ -212,6 +212,9 @@
   .break-all {
     word-break: break-all;
   }
+  .text-accent-foreground {
+    color: var(--color-accent-foreground, var(--color-foreground));
+  }
   .text-destructive {
     color: var(--color-destructive, #e94d42);
   }
@@ -220,9 +223,6 @@
   }
   .text-muted-foreground {
     color: var(--color-muted-foreground, #9d948e);
-  }
-  .text-primary {
-    color: var(--color-primary, #ff5236);
   }
   .text-subtle-foreground {
     color: var(--color-subtle-foreground, #827974);
