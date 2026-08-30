@@ -347,34 +347,35 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
           <C.EmptyState title={s.peopleNoResults} description={s.peopleNoResultsDescription} icon={Search} />
         </C.ControlSurfaceState>
       ) : (
-        <C.ControlSurfaceRegister className="grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(18rem,0.8fr)_minmax(24rem,1.2fr)]">
-          <div className="flex min-w-0 flex-col gap-2">
+        <C.ControlSurfaceRegister className="grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:!grid-cols-[19rem_minmax(0,1fr)] lg:items-start">
+          <div className="flex min-w-0 flex-col gap-1 lg:max-h-[calc(100dvh-15rem)] lg:overflow-y-auto lg:pr-1">
             {visible.map((person) => {
               const mapped = directPolicyIndex(policies, person) >= 0;
               const linkedUser = linkedUserFor(person, users);
               const active = selected?.key === person.key;
+              const accessLabel = mapped ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped;
               return (
                 <button
                   type="button"
                   key={person.key}
+                  aria-pressed={active}
                   onClick={() => setSelectedKey(person.key)}
-                  className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active ? 'border-accent/60 bg-accent/10' : 'border-border bg-surface hover:border-border-strong hover:bg-elevated/50'}`}
+                  className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition ${active ? 'border-accent/50 bg-accent/10' : 'border-transparent bg-transparent hover:border-border hover:bg-elevated/40'}`}
                 >
                   <C.Avatar name={person.name || person.upn || s.personFallback} src={person.teamsAvatarUrl} user={linkedUser} size="md" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold text-text">{person.name || s.personFallback}</span>
                     <span className="block truncate text-xs text-text-muted">{person.upn || person.aadObjectId}</span>
                   </span>
-                  <span className="flex shrink-0 flex-col items-end gap-1">
-                    <C.Badge tone={mapped ? 'accent' : undefined}>{mapped ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped}</C.Badge>
-                    {person.hasPersonalChat ? <span className="inline-flex items-center gap-1 text-[11px] text-text-muted"><MessageCircle size={11} aria-hidden />{s.chatOpen}</span> : null}
+                  <span className="inline-flex shrink-0 items-center" title={accessLabel} aria-label={accessLabel}>
+                    <span className={`size-2 rounded-full ${mapped ? 'bg-accent' : 'bg-border-strong'}`} aria-hidden />
                   </span>
                 </button>
               );
             })}
           </div>
 
-          <div className="min-w-0 rounded-xl border border-border bg-elevated/30 p-5">
+          <div className="min-w-0 rounded-xl border border-border bg-elevated/30 p-5 lg:sticky lg:top-4 lg:self-start">
             {selected === null ? null : (
               <div className="flex flex-col gap-5">
                 <div className="flex items-start gap-3">
@@ -383,6 +384,10 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
                     <h2 className="truncate text-base font-semibold text-text">{selected.name || s.personFallback}</h2>
                     <p className="truncate text-sm text-text-muted">{selected.upn || selected.aadObjectId}</p>
                     <p className="mt-1 font-mono text-[11px] text-text-subtle">{selected.aadObjectId || selected.teamsId}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <C.Badge tone={policy ? 'accent' : undefined}>{policy ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped}</C.Badge>
+                      {selected.hasPersonalChat ? <span className="inline-flex items-center gap-1 text-xs text-text-muted"><MessageCircle size={12} aria-hidden />{s.chatOpen}</span> : null}
+                    </div>
                   </div>
                   {policy ? <C.Button variant="ghost" onClick={removePolicy}>{s.removeAccess}</C.Button> : null}
                 </div>
@@ -407,7 +412,6 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
                         <span className="block text-xs leading-relaxed text-text-muted">{s.adminHint}</span>
                       </span>
                     </label>
-
 
                     <C.Field label={s.promptLabel} hint={s.promptHint}>
                       <textarea

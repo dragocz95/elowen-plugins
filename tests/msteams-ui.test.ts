@@ -143,4 +143,13 @@ describe('Teams person access matching', () => {
     expect(globalSettingsDetail(detail).configSchema.map((field) => field.key)).toEqual(['sec_connection', 'appId']);
     expect(detail.config.rolePolicies).toEqual([policy('*')]);
   });
+
+  it('keeps the people register as a desktop master-detail surface despite host utility order', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const source = await readFile(`${process.cwd()}/plugins/msteams/web-src/TeamsWorkspace.tsx`, 'utf8');
+
+    expect(source).toContain('lg:!grid-cols-[19rem_minmax(0,1fr)]');
+    expect(source).toContain('lg:max-h-[calc(100dvh-15rem)]');
+    expect(source).toContain('lg:sticky lg:top-4 lg:self-start');
+  });
 });
