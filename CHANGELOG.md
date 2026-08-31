@@ -1,5 +1,9 @@
 # Changelog
 
+## stats 0.2.3 - 2026-08-31
+
+- Apply date ranges across every metric, restore the shared chart palette and unify search with condensed filters.
+
 ## msteams 0.5.33 - 2026-08-31
 
 - Preserve person identity width on mobile access details
