@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,8 +25,9 @@ const skillMd = (name, description) => `---\nname: ${name}\ndescription: ${descr
  * Load the plugin under a stub host rooted at `dataRoot` (the daemon resolves ctx.dataDir() to
  * `<dataRoot>/skills`, which is where the HTTP routes and the CreateSkill tool both write).
  */
-function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [] } = {}) {
+function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], catalogSkills, catalogCanonicalBaseDir, skillCatalogControl = true } = {}) {
   const skills = [];
+  const registeredRoots = new Map();
   const tools = [];
   const routes = [];
   const userRemoved = [];
@@ -34,11 +35,34 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [] } = {
   // The identity/admin state the host would install around a turn or an API request. It is ambient in
   // the daemon (AsyncLocalStorage); a mutable cell is the same thing for a single-threaded test.
   const session = { identity: null, adminSession: false, contributionUserId: null };
+  const defaultCatalog = (ownerUserId) => {
+    const selected = [];
+    const byName = new Map();
+    for (const skill of skills) {
+      if (skill.ownerUserId !== null && skill.ownerUserId !== ownerUserId) continue;
+      const prior = byName.get(skill.name);
+      if (prior === undefined) {
+        byName.set(skill.name, selected.length);
+        selected.push(skill);
+      } else if (skill.ownerUserId !== null && selected[prior].ownerUserId === null) {
+        selected[prior] = skill;
+      }
+    }
+    return selected;
+  };
   const ctx = {
     logger: log,
     dataDir: () => join(dataRoot, 'skills'),
-    registerSkill: (skill, opts = {}) => { skills.push({ ...skill, ownerUserId: opts.ownerUserId ?? null }); },
-    registerTool: (tool, opts = {}) => tools.push({ ...tool, ownerUserId: opts.ownerUserId ?? null }),
+    registerSkill: (skill, opts = {}) => {
+      const registered = { ...skill, ownerUserId: opts.ownerUserId ?? null };
+      skills.push(registered);
+      try { registeredRoots.set(registered, realpathSync(registered.baseDir)); } catch { registeredRoots.set(registered, null); }
+    },
+    registerTool: (tool, opts = {}) => tools.push({
+      ...tool,
+      ownerUserId: opts.ownerUserId ?? null,
+      workspaceSafe: opts.workspaceSafe === true,
+    }),
     registerSystemPromptFragment: (fragment) => promptFragments.push(fragment),
     registerApiRoute: (route) => routes.push(route),
     registerUserRemoved: (fn) => userRemoved.push(fn),
@@ -48,6 +72,14 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [] } = {
     // verified writer, so it is deliberately NOT derived from `identity` here either: the two part company
     // for a delegated sub-agent, and a stub that tied them together could never show that.
     currentContributionUserId: () => session.contributionUserId,
+    control: (name) => name === 'skillCatalog' && skillCatalogControl
+      ? {
+          visibleSkills: () => (catalogSkills ?? defaultCatalog)(session.contributionUserId),
+          canonicalBaseDir: (skill) => catalogCanonicalBaseDir?.(skill) ?? registeredRoots.get(skill) ?? (() => {
+            try { return realpathSync(skill.baseDir); } catch { return null; }
+          })(),
+        }
+      : undefined,
     isAdminSession: () => session.adminSession,
     // Declared by the manifest as `capabilities.reads: ['stores']`; the plugin refuses to mint a personal
     // folder for an id that names no account, so it needs the same account list the daemon wires in. Read
@@ -361,14 +393,126 @@ test('bundled skills plugin', async (t) => {
     assert.ok(reg.skills.map((s) => s.name).includes('skill-creation'));
   });
 
-  await t.test('registers SkillLoad and preserves the Read fallback for skills from other plugins', async () => {
+  await t.test('registers one workspace-safe SkillLoad for the host-advertised catalog', async () => {
     const reg = loadPlugin({ dataRoot: tmpDir('skills') });
     assert.ok(formatSkillsForPrompt(reg.skills).length > 0);
-    assert.ok(reg.promptFragments.some((fragment) => fragment.includes('SkillLoad') && fragment.includes('other plugins') && fragment.includes('Read')));
+    assert.ok(reg.promptFragments.some((fragment) => fragment.includes('SkillLoad') && fragment.includes('plugin-contributed')));
+    assert.ok(reg.promptFragments.every((fragment) => !fragment.includes('load those with Read')));
+    const tool = reg.tools.find((entry) => entry.name === 'SkillLoad');
+    assert.equal(tool?.workspaceSafe, true);
     const loaded = asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'skill-creation' }));
     assert.match(loaded, /Skill: skill-creation/);
     assert.match(loaded, /Skill directory:/);
     assert.match(loaded, /CreateSkill/);
+  });
+
+  await t.test('SkillLoad opens a sibling plugin skill from the exact per-turn catalog', async () => {
+    const dataRoot = tmpDir('skills');
+    const raynetDir = tmpDir('raynet-skill');
+    const filePath = join(raynetDir, 'SKILL.md');
+    writeFileSync(filePath, skillMd('raynet-crm', 'work in Raynet'));
+    const raynetSkill = {
+      name: 'raynet-crm', description: 'work in Raynet', filePath, baseDir: raynetDir,
+      sourceInfo: { path: filePath, source: 'elowen-plugin:raynet', scope: 'user', origin: 'package' },
+      disableModelInvocation: false,
+    };
+    const reg = loadPlugin({
+      dataRoot,
+      catalogSkills: (ownerUserId) => ownerUserId === 7 ? [raynetSkill] : [],
+    });
+
+    const loaded = asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'raynet-crm' }));
+    assert.match(loaded, /Skill: raynet-crm/);
+    assert.match(loaded, new RegExp(`Skill directory: ${raynetDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(loaded, /Body of raynet-crm/);
+
+    const denied = await refusalOf(runScopedTool(reg, 'SkillLoad', 8, { name: 'raynet-crm' }));
+    assert.doesNotMatch(denied, /SkillLoad can load exactly these:.*raynet-crm/);
+  });
+
+  await t.test('SkillLoad refuses a sibling skill whose file escapes its registered directory', async () => {
+    const dataRoot = tmpDir('skills');
+    const raynetDir = tmpDir('raynet-skill');
+    const secretDir = tmpDir('outside-skill');
+    const secret = join(secretDir, 'secret.md');
+    const link = join(raynetDir, 'SKILL.md');
+    writeFileSync(secret, skillMd('raynet-crm', 'must stay outside'));
+    symlinkSync(secret, link);
+    const raynetSkill = {
+      name: 'raynet-crm', description: 'work in Raynet', filePath: link, baseDir: raynetDir,
+      sourceInfo: { path: link, source: 'elowen-plugin:raynet', scope: 'user', origin: 'package' },
+      disableModelInvocation: false,
+    };
+    const reg = loadPlugin({ dataRoot, catalogSkills: () => [raynetSkill] });
+
+    const refusal = await refusalOf(runScopedTool(reg, 'SkillLoad', 7, { name: 'raynet-crm' }));
+    assert.match(refusal, /missing or unreadable/);
+    assert.doesNotMatch(refusal, /Body of raynet-crm/);
+  });
+
+  await t.test('SkillLoad refuses a base-directory symlink re-pointed after registration', async () => {
+    const dataRoot = tmpDir('skills');
+    const firstDir = tmpDir('raynet-first');
+    const secondDir = tmpDir('raynet-second');
+    const linkedDir = join(tmpDir('raynet-link-parent'), 'raynet');
+    writeFileSync(join(firstDir, 'SKILL.md'), skillMd('raynet-crm', 'first body'));
+    writeFileSync(join(secondDir, 'SKILL.md'), skillMd('raynet-crm', 'second body'));
+    symlinkSync(firstDir, linkedDir, 'dir');
+    const pinned = realpathSync(linkedDir);
+    const raynetSkill = {
+      name: 'raynet-crm', description: 'work in Raynet', filePath: join(linkedDir, 'SKILL.md'), baseDir: linkedDir,
+      sourceInfo: { path: join(linkedDir, 'SKILL.md'), source: 'elowen-plugin:raynet', scope: 'user', origin: 'package' },
+      disableModelInvocation: false,
+    };
+    const reg = loadPlugin({
+      dataRoot,
+      catalogSkills: () => [raynetSkill],
+      catalogCanonicalBaseDir: () => pinned,
+    });
+
+    rmSync(linkedDir);
+    symlinkSync(secondDir, linkedDir, 'dir');
+    const refusal = await refusalOf(runScopedTool(reg, 'SkillLoad', 7, { name: 'raynet-crm' }));
+    assert.match(refusal, /missing or unreadable/);
+    assert.doesNotMatch(refusal, /second body/);
+  });
+
+  await t.test('SkillLoad refuses when the pinned canonical directory itself is replaced by a symlink', async () => {
+    const dataRoot = tmpDir('skills');
+    const firstDir = tmpDir('raynet-pinned-first');
+    const secondDir = tmpDir('raynet-pinned-second');
+    const linkedDir = join(tmpDir('raynet-pinned-parent'), 'raynet');
+    writeFileSync(join(firstDir, 'SKILL.md'), skillMd('raynet-crm', 'first body'));
+    writeFileSync(join(secondDir, 'SKILL.md'), skillMd('raynet-crm', 'second body'));
+    symlinkSync(firstDir, linkedDir, 'dir');
+    const pinned = realpathSync(linkedDir);
+    const raynetSkill = {
+      name: 'raynet-crm', description: 'work in Raynet', filePath: join(linkedDir, 'SKILL.md'), baseDir: linkedDir,
+      sourceInfo: { path: join(linkedDir, 'SKILL.md'), source: 'elowen-plugin:raynet', scope: 'user', origin: 'package' },
+      disableModelInvocation: false,
+    };
+    const reg = loadPlugin({
+      dataRoot,
+      catalogSkills: () => [raynetSkill],
+      catalogCanonicalBaseDir: () => pinned,
+    });
+
+    rmSync(firstDir, { recursive: true });
+    symlinkSync(secondDir, firstDir, 'dir');
+    const refusal = await refusalOf(runScopedTool(reg, 'SkillLoad', 7, { name: 'raynet-crm' }));
+    assert.match(refusal, /missing or unreadable/);
+    assert.doesNotMatch(refusal, /second body/);
+  });
+
+  await t.test('SkillLoad fails closed when the host catalog is missing or throws', async () => {
+    const withoutControl = loadPlugin({ dataRoot: tmpDir('skills'), skillCatalogControl: false });
+    assert.match(await refusalOf(runScopedTool(withoutControl, 'SkillLoad', null, { name: 'skill-creation' })), /catalog is unavailable/);
+
+    const throwing = loadPlugin({
+      dataRoot: tmpDir('skills'),
+      catalogSkills: () => { throw new Error('catalog exploded'); },
+    });
+    assert.match(await refusalOf(runScopedTool(throwing, 'SkillLoad', null, { name: 'skill-creation' })), /catalog failed/);
   });
 
   await t.test('SkillLoad accepts only visible exact names and fails safely when a file disappears', async () => {
@@ -548,6 +692,27 @@ test('bundled skills plugin', async (t) => {
     symlinkSync(join(eightDir, 'secret-eight.md'), link);
     const refusal = await refusalOf(runScopedTool(reg, 'SkillLoad', 7, { name: 'swapped' }));
     assert.doesNotMatch(refusal, /Body of secret-eight/, 'a re-pointed link served account 8\'s body');
+  });
+
+  await t.test('a personal skill stays inside its own registered directory, not merely the account root', async () => {
+    const dataRoot = tmpDir('skills');
+    const sevenDir = join(dataRoot, 'skills', 'users', '7');
+    const firstDir = join(sevenDir, 'first');
+    const secondDir = join(sevenDir, 'second');
+    mkdirSync(firstDir, { recursive: true });
+    mkdirSync(secondDir, { recursive: true });
+    const firstFile = join(firstDir, 'SKILL.md');
+    const secondFile = join(secondDir, 'SKILL.md');
+    writeFileSync(firstFile, skillMd('nested-personal', 'first directory'));
+    writeFileSync(secondFile, skillMd('other-personal', 'second directory'));
+    const reg = loadPlugin({ dataRoot });
+
+    const loaded = asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'nested-personal' }));
+    assert.match(loaded, new RegExp(`Skill directory: ${firstDir.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}`));
+    rmSync(firstFile);
+    symlinkSync(secondFile, firstFile);
+    const refusal = await refusalOf(runScopedTool(reg, 'SkillLoad', 7, { name: 'nested-personal' }));
+    assert.doesNotMatch(refusal, /Body of other-personal/, 'a personal skill escaped into a sibling skill directory');
   });
 
   await t.test('a personal folder that is ITSELF a link to another account\'s is not an owner at all', async () => {
