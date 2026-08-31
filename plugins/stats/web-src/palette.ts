@@ -1,14 +1,10 @@
-/** Runtime colour tokens guaranteed by the host skin contract.
- *
- * Plugin bundles are compiled separately from the host, so Tailwind's tree-shaken `--color-chart-*`
- * theme variables may not exist when only the plugin references them. These semantic/brand tokens are
- * emitted by every skin and keep charts coloured without hard-coding a palette into the bundle. */
+/** Public chart tokens emitted by every compatible host and overridden by skins as one palette. */
 export const STATS_SERIES_COLORS = [
-  'var(--color-primary)',
-  'var(--color-success)',
-  'var(--color-warning)',
-  'var(--color-info)',
-  'var(--color-ember)',
+  'var(--color-chart-1)',
+  'var(--color-chart-2)',
+  'var(--color-chart-3)',
+  'var(--color-chart-4)',
+  'var(--color-chart-5)',
 ] as const;
 
 export const STATS_TREND_COLORS = {

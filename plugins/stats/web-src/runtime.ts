@@ -1,4 +1,4 @@
-import type { ChangeEvent, ComponentType } from 'react';
+import type { ChangeEvent, ComponentType, ReactNode } from 'react';
 import type { DateRange, DayUsage, ModelUsage, ResetUsageResult, UsageByOriginResult, UsageOriginGroup, UsageSummary } from './types';
 
 interface QueryResult<T> {
@@ -17,6 +17,16 @@ type AnyComponent = ComponentType<any>;
 type InputComponent = ComponentType<Record<string, unknown> & { onChange?(event: ChangeEvent<HTMLInputElement>): void }>;
 type SegmentedComponent = ComponentType<Record<string, unknown> & { onChange?(value: string): void }>;
 type DateRangeComponent = ComponentType<Record<string, unknown> & { onChange?(range: DateRange): void }>;
+export type PageFilterField =
+  | { id: string; label: string; control: ReactNode; hint?: string; active: false }
+  | { id: string; label: string; control: ReactNode; hint?: string; active: true; activeLabel: string; onReset(): void };
+type WorkspaceShellComponent = ComponentType<{
+  variant?: 'register' | 'deck' | 'single';
+  hero: Record<string, unknown>;
+  toolbar?: { search?: ReactNode; filters?: PageFilterField[]; actions?: ReactNode; children?: ReactNode };
+  children: ReactNode;
+  className?: string;
+}>;
 
 interface StatsRuntime {
   components: {
@@ -74,7 +84,7 @@ interface StatsRuntime {
     }>;
     WorkspaceDetailRail: AnyComponent;
     WorkspaceMetric: AnyComponent;
-    WorkspaceShell: AnyComponent;
+    WorkspaceShell: WorkspaceShellComponent;
   };
   hooks: {
     useMe(): QueryResult<{ user?: { id: number; username: string; is_admin: boolean } }>;

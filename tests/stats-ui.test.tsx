@@ -81,6 +81,29 @@ describe('StatsView', () => {
     expect(new URLSearchParams(daySearch).get('days')).toBe('7');
   });
 
+  it('uses one host toolbar for search and the condensed filters control', async () => {
+    const { container } = renderStats();
+    await screen.findByRole('figure', { name: strings.tokensByModel });
+    const toolbar = screen.getByTestId('page-toolbar');
+    expect(within(toolbar).getByRole('searchbox', { name: strings.searchPlaceholder })).toBeVisible();
+    expect(within(toolbar).getByTestId('page-filters-trigger')).toBeVisible();
+    expect(container.querySelector('.control-surface-toolbar')).toBeNull();
+  });
+
+  it('announces and clears an active usage filter through its chip', async () => {
+    renderStats();
+    await screen.findByRole('figure', { name: strings.tokensByModel });
+    fireEvent.click(screen.getByTestId('page-filters-trigger'));
+    const dialog = screen.getByRole('dialog', { name: 'Filters' });
+    fireEvent.click(within(dialog).getByRole('radio', { name: strings.filterCached }));
+    await waitFor(() => expect(screen.getAllByTestId('model-usage-row')).toHaveLength(1));
+    expect(screen.getByRole('button', { name: 'Filters, 1 active' })).toBeVisible();
+    const chips = screen.getByTestId('page-filter-chips');
+    expect(chips).toHaveTextContent(`${strings.filterLabel}: ${strings.filterCached}`);
+    fireEvent.click(within(chips).getByRole('button'));
+    await waitFor(() => expect(screen.getAllByTestId('model-usage-row')).toHaveLength(2));
+  });
+
   it('uses semantic host surfaces and readable chart and table tokens', async () => {
     renderStats();
     const tokenHeading = await screen.findByText(strings.tokensByModel);
@@ -101,7 +124,7 @@ describe('StatsView', () => {
     expect(trendCard).toHaveClass('bg-card', 'text-card-foreground');
     const tokenSeriesLabel = within(trendCard).getByText(strings.trendTokens);
     const tokenSeriesMark = tokenSeriesLabel.parentElement?.querySelector('[aria-hidden]') as HTMLElement;
-    expect(tokenSeriesMark.style.background).toBe('var(--color-primary)');
+    expect(tokenSeriesMark.style.background).toBe('var(--color-chart-1)');
 
     const rows = await screen.findAllByTestId('model-usage-row');
     const cells = within(rows[0]!).getAllByRole('cell');
@@ -125,7 +148,9 @@ describe('StatsView', () => {
     await screen.findByRole('figure', { name: strings.tokensByModel });
     expect(screen.getAllByText('token-heavy').length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('button', { expanded: false }));
+    fireEvent.click(screen.getByTestId('page-filters-trigger'));
+    const dialog = screen.getByRole('dialog', { name: 'Filters' });
+    fireEvent.click(within(dialog).getByRole('button', { expanded: false }));
     fireEvent.click(screen.getByRole('button', { name: 'Today' }));
     await waitFor(() => {
       const params = new URLSearchParams(modelSearch);
@@ -137,6 +162,15 @@ describe('StatsView', () => {
     expect((await screen.findAllByText('today-only')).length).toBeGreaterThan(0);
     expect(screen.getByText(strings.metricTokens).closest('.workspace-metric')).toHaveTextContent('42');
     expect(screen.queryByText('token-heavy')).toBeNull();
+
+    const chips = screen.getByTestId('page-filter-chips');
+    expect(chips).toHaveTextContent('Date range: Today');
+    fireEvent.click(within(chips).getByRole('button'));
+    await waitFor(() => {
+      expect(localStorage.getItem('elowen.stats.range')).toBe('7d||');
+      expect(new URLSearchParams(modelSearch).has('to')).toBe(false);
+      expect(new URLSearchParams(daySearch).get('days')).toBe('7');
+    });
   });
 
   it('shows the retry state when one query fails while the other is still loading', async () => {

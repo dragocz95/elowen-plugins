@@ -212,11 +212,11 @@ var import_react3 = __toESM(require_react(), 1);
 
 // plugins/stats/web-src/palette.ts
 var STATS_SERIES_COLORS = [
-  "var(--color-primary)",
-  "var(--color-success)",
-  "var(--color-warning)",
-  "var(--color-info)",
-  "var(--color-ember)"
+  "var(--color-chart-1)",
+  "var(--color-chart-2)",
+  "var(--color-chart-3)",
+  "var(--color-chart-4)",
+  "var(--color-chart-5)"
 ];
 var STATS_TREND_COLORS = {
   tokens: STATS_SERIES_COLORS[0],
@@ -559,7 +559,6 @@ var {
   ControlSurfaceDocument,
   ControlSurfaceRegister,
   ControlSurfaceState,
-  ControlSurfaceToolbar,
   DataTable,
   DataTableCell,
   DataTableChevronCell,
@@ -579,6 +578,7 @@ var {
 } = runtime().components;
 var { useMe, useModelUsage, usePersistentState, usePluginStrings: usePluginStrings2, useTranslation: useTranslation2, useUsageByDay } = runtime().hooks;
 var { buildUsageSummary, DEFAULT_RANGE, isStoredRange, parseRange, rangeBounds, serializeRange } = runtime().utils;
+var pageFilterField = (base, active, activeLabel, onReset) => active ? { ...base, active: true, activeLabel, onReset } : { ...base, active: false };
 var renderModelIcon = (datum) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: datum.id, size: 20 });
 var utcDayStart = (timestamp) => {
   const date = new Date(timestamp);
@@ -702,6 +702,54 @@ function StatsView() {
     setRangeRaw(serializeRange(next));
     resetPage();
   };
+  const changeUsageFilter = (next) => {
+    setFilter(next);
+    resetPage();
+  };
+  const usageLabels = {
+    all: s.filterAll,
+    costed: s.filterCosted,
+    cached: s.filterCached
+  };
+  const rangeLabels = {
+    today: t.common.rangeToday,
+    "7d": t.common.rangeLast7,
+    "30d": t.common.rangeLast30,
+    "90d": t.common.rangeLast90,
+    all: t.common.rangeAll,
+    custom: t.common.rangeCustom
+  };
+  const rangeLabel = range.preset === "custom" ? `${range.from ?? "\u2026"} \u2013 ${range.to ?? "\u2026"}` : rangeLabels[range.preset] ?? range.preset;
+  const filterFields = [
+    pageFilterField(
+      { id: "range", label: t.common.rangeLabel, control: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DateRangeFilter, { value: range, onChange: changeRange }) },
+      serializeRange(range) !== serializeRange(DEFAULT_RANGE),
+      `${t.common.rangeLabel}: ${rangeLabel}`,
+      () => changeRange(DEFAULT_RANGE)
+    ),
+    pageFilterField(
+      {
+        id: "usage",
+        label: s.filterLabel,
+        control: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+          Segmented2,
+          {
+            "aria-label": s.filterLabel,
+            value: filter,
+            onChange: (value) => changeUsageFilter(value),
+            options: [
+              { value: "all", label: s.filterAll },
+              { value: "costed", label: s.filterCosted },
+              { value: "cached", label: s.filterCached }
+            ]
+          }
+        )
+      },
+      filter !== "all",
+      `${s.filterLabel}: ${usageLabels[filter]}`,
+      () => changeUsageFilter("all")
+    )
+  ];
   const retry = () => {
     usage.refetch();
     daily.refetch();
@@ -727,108 +775,90 @@ function StatsView() {
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricCache, value: summary.totalCacheLabel, icon: Database }),
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricSpeed, value: summary.avgSpeedLabel, icon: Gauge })
       ] })
+    }, toolbar: {
+      search: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+        RegisterSearch,
+        {
+          value: query,
+          onChange: (value) => {
+            setQuery(value);
+            resetPage();
+          },
+          placeholder: s.searchPlaceholder,
+          label: s.searchPlaceholder,
+          onClear: () => {
+            setQuery("");
+            resetPage();
+          },
+          clearLabel: s.searchClear,
+          count: hasError || isLoading ? void 0 : filtered.length,
+          countLabel: hasError || isLoading ? void 0 : s.searchCount.replace("{count}", String(filtered.length))
+        }
+      ),
+      filters: filterFields
     }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceDocument, { children: hasError ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ErrorState2, { message: t.common.daemonUnreachable, onRetry: retry }) }) : isLoading ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LoadingState2, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "workspace-master-detail", "data-detail": originOpen || selected != null, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex w-full min-w-0 flex-wrap items-center gap-2 py-3", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-            RegisterSearch,
-            {
-              value: query,
-              onChange: (value) => {
-                setQuery(value);
-                resetPage();
-              },
-              placeholder: s.searchPlaceholder,
-              label: s.searchPlaceholder,
-              onClear: () => {
-                setQuery("");
-                resetPage();
-              },
-              clearLabel: s.searchClear
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-            Segmented2,
-            {
-              nowrap: true,
-              "aria-label": s.filterLabel,
-              value: filter,
-              onChange: (value) => {
-                setFilter(value);
-                resetPage();
-              },
-              options: [
-                { value: "all", label: s.filterAll },
-                { value: "costed", label: s.filterCosted },
-                { value: "cached", label: s.filterCached }
-              ]
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DateRangeFilter, { value: range, onChange: changeRange, compact: true })
-        ] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-5", children: !summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptyTitle, description: s.emptyDescription, icon: ChartColumn }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid gap-4 xl:grid-cols-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tokensByModel }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.tokensByModelHint }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData, renderIcon: renderModelIcon })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.costByModel }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.costByModelHint }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData, renderIcon: renderModelIcon })
-            ] })
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "flex min-w-0 flex-col gap-4", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-5", children: !summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptyTitle, description: s.emptyDescription, icon: ChartColumn }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid gap-4 xl:grid-cols-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tokensByModel }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.tokensByModelHint }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData, renderIcon: renderModelIcon })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.trendTitle }),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.trendHint }),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(UsageTrend, { data: trend, locale, tokenLabel: s.trendTokens, costLabel: s.trendCost, emptyText: trendUnavailable ? s.trendUnavailable : s.noChartData })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tableTitle }),
-            filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptySearch, icon: Search }) : (
-              /* The compact template keeps three tracks: the model name, the cost and the
-                 chevron. The provider glyph and the wide 7rem cost track are both dropped,
-                 because at 320px the row has ~194px to spend and the previous four-track
-                 compact template asked for 200px of fixed tracks and gaps — the `1fr` name
-                 column resolved to 0px and the row lost the value that identifies it. Cost
-                 keeps a narrower compact track and still truncates with the full value on
-                 `title`. */
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTable, { ariaLabel: s.tableTitle, columns: "2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem", compactColumns: "minmax(0,1fr) 4.5rem 1.25rem", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTableRow, { header: true, children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", role: "presentation", "aria-hidden": true, children: null }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, children: s.columnModel }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnTokens }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, className: "text-right", children: s.columnCost }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnCache }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnSpeed }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, role: "presentation", "aria-hidden": true, children: null })
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "rowgroup", children: pageRows.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
-                  DataTableRow,
-                  {
-                    "data-testid": "model-usage-row",
-                    selected: selectedExec === row.exec,
-                    onOpen: () => setSelectedExec(row.exec),
-                    openLabel: `${s.detailTitle}: ${row.exec}`,
-                    children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: "auto", priority: "wide", "aria-hidden": true, className: "flex items-center gap-1.5 text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "font-mono text-xs text-foreground", children: row.exec }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.tokensLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "text-right font-mono text-xs tabular-nums text-foreground", children: row.costLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: percent(row.cacheHitPct) }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.speedLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableChevronCell, {})
-                    ]
-                  },
-                  row.exec
-                )) })
-              ] })
-            ),
-            filtered.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Pager, { page: clampedPage, pageSize: PAGE_SIZE, total: filtered.length, onPageChange: setPage, ariaLabel: s.tableTitle }) : null
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.costByModel }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.costByModelHint }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData, renderIcon: renderModelIcon })
           ] })
-        ] }) })
-      ] }),
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.trendTitle }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.trendHint }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(UsageTrend, { data: trend, locale, tokenLabel: s.trendTokens, costLabel: s.trendCost, emptyText: trendUnavailable ? s.trendUnavailable : s.noChartData })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tableTitle }),
+          filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptySearch, icon: Search }) : (
+            /* The compact template keeps three tracks: the model name, the cost and the
+               chevron. The provider glyph and the wide 7rem cost track are both dropped,
+               because at 320px the row has ~194px to spend and the previous four-track
+               compact template asked for 200px of fixed tracks and gaps — the `1fr` name
+               column resolved to 0px and the row lost the value that identifies it. Cost
+               keeps a narrower compact track and still truncates with the full value on
+               `title`. */
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTable, { ariaLabel: s.tableTitle, columns: "2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem", compactColumns: "minmax(0,1fr) 4.5rem 1.25rem", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTableRow, { header: true, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", role: "presentation", "aria-hidden": true, children: null }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, children: s.columnModel }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnTokens }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, className: "text-right", children: s.columnCost }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnCache }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnSpeed }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, role: "presentation", "aria-hidden": true, children: null })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "rowgroup", children: pageRows.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+                DataTableRow,
+                {
+                  "data-testid": "model-usage-row",
+                  selected: selectedExec === row.exec,
+                  onOpen: () => setSelectedExec(row.exec),
+                  openLabel: `${s.detailTitle}: ${row.exec}`,
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: "auto", priority: "wide", "aria-hidden": true, className: "flex items-center gap-1.5 text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "font-mono text-xs text-foreground", children: row.exec }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.tokensLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "text-right font-mono text-xs tabular-nums text-foreground", children: row.costLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: percent(row.cacheHitPct) }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.speedLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableChevronCell, {})
+                  ]
+                },
+                row.exec
+              )) })
+            ] })
+          ),
+          filtered.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Pager, { page: clampedPage, pageSize: PAGE_SIZE, total: filtered.length, onPageChange: setPage, ariaLabel: s.tableTitle }) : null
+        ] })
+      ] }) }) }),
       originOpen ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         OriginDrawer,
         {

@@ -16,8 +16,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState,
 import { createPortal } from 'react-dom';
 import {
   CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Cpu, FolderGit2,
-  GitCommitHorizontal, Loader2, Maximize2, Search, Settings2, Trash2, TriangleAlert,
-  XCircle, type LucideIcon,
+  GitCommitHorizontal, Loader2, Maximize2, Search, Settings2, SlidersHorizontal, Trash2, TriangleAlert,
+  X, XCircle, type LucideIcon,
 } from 'lucide-react';
 import { apiErrorMessage, type Task } from './hostClient';
 import { useBrainModels, useConfig, useProjectGit, useProjects,
@@ -458,12 +458,103 @@ export function WorkspaceHero({ eyebrow, title, count, description, status, acti
   );
 }
 
+type PageFilterField =
+  | { id: string; label: string; control: ReactNode; hint?: string; active: false }
+  | { id: string; label: string; control: ReactNode; hint?: string; active: true; activeLabel: string; onReset(): void };
+
+type PageToolbarProps = {
+  search?: ReactNode;
+  filters?: PageFilterField[];
+  actions?: ReactNode;
+  children?: ReactNode;
+};
+
+function PageFilters({ fields }: { fields: PageFilterField[] }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const activeCount = fields.filter((field) => field.active).length;
+  if (fields.length === 0) return null;
+  const accessibleName = activeCount > 0
+    ? t.common.filtersWithCount.replace('{count}', String(activeCount))
+    : undefined;
+  return (
+    <div className="page-filters">
+      <Button
+        type="button"
+        icon={SlidersHorizontal}
+        className="page-filters__trigger"
+        data-testid="page-filters-trigger"
+        aria-label={accessibleName}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {t.common.filters}
+        {activeCount > 0 ? <span className="page-filters__count" aria-hidden>{activeCount}</span> : null}
+      </Button>
+      {open ? (
+        <div role="dialog" aria-label={t.common.filters} className="page-filters__panel">
+          <div className="page-filters__fields">
+            {fields.map((field) => {
+              const labelId = `page-filter-${field.id}`;
+              return (
+                <div key={field.id} className="page-filters__field" role="group" aria-labelledby={labelId}>
+                  <span id={labelId} className="page-filters__field-label">{field.label}</span>
+                  <div className="page-filters__field-control">{field.control}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PageFilterChips({ fields }: { fields: PageFilterField[] }) {
+  const { t } = useTranslation();
+  const active = fields.filter((field): field is Extract<PageFilterField, { active: true }> => field.active);
+  if (active.length === 0) return null;
+  return (
+    <div className="page-filters__chips" role="group" aria-label={t.common.filtersActive} data-testid="page-filter-chips">
+      {active.map((field) => (
+        <button
+          key={field.id}
+          type="button"
+          className="page-filters__chip"
+          aria-label={t.common.filterRemove.replace('{name}', field.activeLabel)}
+          onClick={field.onReset}
+        >
+          <span className="page-filters__chip-name">{field.activeLabel}</span>
+          <X size={12} aria-hidden />
+        </button>
+      ))}
+      {active.length > 1 ? <Button variant="ghost" onClick={() => active.forEach((field) => field.onReset())}>{t.common.filtersClear}</Button> : null}
+    </div>
+  );
+}
+
+function PageToolbar({ search, filters = [], actions, children }: PageToolbarProps) {
+  return (
+    <div className="page-toolbar" data-testid="page-toolbar">
+      <div className="page-toolbar__row">
+        {search ? <div className="page-toolbar__search">{search}</div> : null}
+        {children}
+        <PageFilters fields={filters} />
+        {actions ? <div className="page-toolbar__actions">{actions}</div> : null}
+      </div>
+      <PageFilterChips fields={filters} />
+    </div>
+  );
+}
+
 /** The canonical page shell. All three variants share one anatomy (hero, optional rail, content); the
  *  variant only decides which parts are present. */
-export function WorkspaceShell({ variant = 'register', hero, navigation, children, className = '' }: {
+export function WorkspaceShell({ variant = 'register', hero, navigation, toolbar, children, className = '' }: {
   variant?: 'register' | 'deck' | 'single';
   hero: WorkspaceHeroProps;
   navigation?: { sections: SpatialDeckSection[]; value: string; onChange: (id: string) => void; ariaLabel: string };
+  toolbar?: PageToolbarProps;
   children: ReactNode;
   className?: string;
 }) {
@@ -471,6 +562,7 @@ export function WorkspaceShell({ variant = 'register', hero, navigation, childre
     <div className={`workspace-shell ${className}`.trim()} data-variant={variant}>
       <WorkspaceHero {...hero} />
       {navigation ? <SpatialSectionRail {...navigation} /> : null}
+      <PageToolbar {...toolbar} />
       <section
         className="workspace-shell__content spatial-content-surface"
         data-testid={variant === 'register' ? 'spatial-workspace-layout' : 'spatial-content-surface'}

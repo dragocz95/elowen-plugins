@@ -10,16 +10,15 @@ const data = [
 ];
 
 describe('PieChart', () => {
-  it('uses host-emitted runtime tokens rather than tree-shaken Tailwind chart variables', () => {
+  it('uses the host chart palette shared by pies, bars and lines', () => {
     expect(STATS_SERIES_COLORS).toEqual([
-      'var(--color-primary)',
-      'var(--color-success)',
-      'var(--color-warning)',
-      'var(--color-info)',
-      'var(--color-ember)',
+      'var(--color-chart-1)',
+      'var(--color-chart-2)',
+      'var(--color-chart-3)',
+      'var(--color-chart-4)',
+      'var(--color-chart-5)',
     ]);
-    expect(STATS_TREND_COLORS).toEqual({ tokens: 'var(--color-primary)', cost: 'var(--color-success)' });
-    expect(STATS_SERIES_COLORS.some((colour) => colour.includes('--color-chart-'))).toBe(false);
+    expect(STATS_TREND_COLORS).toEqual({ tokens: 'var(--color-chart-1)', cost: 'var(--color-chart-2)' });
   });
 
   it('calculates each share against the total and closes exactly at 100 percent', () => {

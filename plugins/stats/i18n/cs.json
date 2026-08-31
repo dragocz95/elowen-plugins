@@ -15,6 +15,7 @@
       "metricSpeed": "Průměrná rychlost",
       "searchPlaceholder": "Hledat modely",
       "searchClear": "Vymazat hledání modelů",
+      "searchCount": "{count} modelů",
       "filterLabel": "Filtr spotřeby",
       "filterAll": "Vše",
       "filterCosted": "S náklady",
