@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { PieChart, calculatePieSegments } from '../plugins/stats/web-src/components/PieChart';
+import { STATS_SERIES_COLORS, STATS_TREND_COLORS } from '../plugins/stats/web-src/palette';
 
 const data = [
   { id: 'large', label: 'Large', value: 60, valueLabel: '60' },
@@ -9,6 +10,17 @@ const data = [
 ];
 
 describe('PieChart', () => {
+  it('uses the host chart palette shared by pies, bars and lines', () => {
+    expect(STATS_SERIES_COLORS).toEqual([
+      'var(--color-chart-1)',
+      'var(--color-chart-2)',
+      'var(--color-chart-3)',
+      'var(--color-chart-4)',
+      'var(--color-chart-5)',
+    ]);
+    expect(STATS_TREND_COLORS).toEqual({ tokens: 'var(--color-chart-1)', cost: 'var(--color-chart-2)' });
+  });
+
   it('calculates each share against the total and closes exactly at 100 percent', () => {
     const segments = calculatePieSegments(data);
     expect(segments.map((segment) => segment.percentage)).toEqual([60, 30, 10]);

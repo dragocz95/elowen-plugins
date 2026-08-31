@@ -1,4 +1,4 @@
-import type { ChangeEvent, ComponentType } from 'react';
+import type { ChangeEvent, ComponentType, ReactNode } from 'react';
 import type { DateRange, DayUsage, ModelUsage, ResetUsageResult, UsageByOriginResult, UsageOriginGroup, UsageSummary } from './types';
 
 interface QueryResult<T> {
@@ -17,6 +17,16 @@ type AnyComponent = ComponentType<any>;
 type InputComponent = ComponentType<Record<string, unknown> & { onChange?(event: ChangeEvent<HTMLInputElement>): void }>;
 type SegmentedComponent = ComponentType<Record<string, unknown> & { onChange?(value: string): void }>;
 type DateRangeComponent = ComponentType<Record<string, unknown> & { onChange?(range: DateRange): void }>;
+export type PageFilterField =
+  | { id: string; label: string; control: ReactNode; hint?: string; active: false }
+  | { id: string; label: string; control: ReactNode; hint?: string; active: true; activeLabel: string; onReset(): void };
+type WorkspaceShellComponent = ComponentType<{
+  variant?: 'register' | 'deck' | 'single';
+  hero: Record<string, unknown>;
+  toolbar?: { search?: ReactNode; filters?: PageFilterField[]; actions?: ReactNode; children?: ReactNode };
+  children: ReactNode;
+  className?: string;
+}>;
 
 interface StatsRuntime {
   components: {
@@ -74,12 +84,12 @@ interface StatsRuntime {
     }>;
     WorkspaceDetailRail: AnyComponent;
     WorkspaceMetric: AnyComponent;
-    WorkspaceShell: AnyComponent;
+    WorkspaceShell: WorkspaceShellComponent;
   };
   hooks: {
     useMe(): QueryResult<{ user?: { id: number; username: string; is_admin: boolean } }>;
-    useModelUsage(projectId?: number, window?: { fromMs: number; toMs: number }): QueryResult<ModelUsage[]>;
-    useUsageByDay(projectId?: number, days?: number): QueryResult<DayUsage[]>;
+    useModelUsage(window?: { fromMs: number; toMs: number }): QueryResult<ModelUsage[]>;
+    useUsageByDay(days?: number): QueryResult<DayUsage[]>;
     /** ADMIN-ONLY on the server: a non-admin caller gets 403 by design. `enabled` keeps a normal
      *  account from firing a request that is meant to fail; it is not the access control. */
     useUsageByOrigin(
@@ -116,5 +126,5 @@ export function runtime(): StatsRuntime {
 }
 
 export function registerStatsUi(pages: Record<string, PluginPage>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 8, pages });
+  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 11, pages });
 }

@@ -4,7 +4,7 @@
  *  stand-ins in tests/ui/* to the INSTALLED package, because CI has the package and nothing else. That
  *  is the right truth for a stand-in — except while this repository is deliberately built against a host
  *  change that has not been released yet. The plugin-UI redesign is exactly that case: it targets
- *  PLUGIN_UI_API_VERSION 8, and the pinned elowen 0.28.17 / elowen-plugin-ui-kit 0.5.0 still ship 6.
+ *  PLUGIN_UI_API_VERSION 11, and the pinned elowen 0.28.17 / elowen-plugin-ui-kit 0.5.0 still ship 6.
  *
  *  So the guards allow a stand-in to carry these names — and NOTHING else the package lacks. Every entry
  *  is a promise about the host, not a free pass: each guard also asserts that the package does NOT have
@@ -36,8 +36,9 @@ export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; 
 export const AHEAD_OF_RELEASE_DICTIONARY = [
   'pagination.label', 'pagination.previous', 'pagination.next',
   'pagination.previousPage', 'pagination.nextPage', 'pagination.range', 'pagination.pageLabel',
+  'common.filters', 'common.filtersWithCount', 'common.filtersActive', 'common.filtersClear', 'common.filterRemove',
 ];
 
 /** The plugin UI API version the daemon's main branch declares, and therefore the version the stand-in
  *  runtime installs. The pinned package still answers 6. */
-export const AHEAD_OF_RELEASE_API_VERSION = 8;
+export const AHEAD_OF_RELEASE_API_VERSION = 11;

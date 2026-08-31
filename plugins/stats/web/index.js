@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -53,25 +53,25 @@ function runtime() {
   return value;
 }
 function registerStatsUi(pages) {
-  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 8, pages });
+  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 11, pages });
 }
 
 // plugins/stats/web-src/StatsView.tsx
 var import_react7 = __toESM(require_react(), 1);
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -84,7 +84,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -116,7 +116,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -130,7 +130,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/chart-column.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/chart-column.js
 var ChartColumn = createLucideIcon("ChartColumn", [
   ["path", { d: "M3 3v16a2 2 0 0 0 2 2h16", key: "c24i48" }],
   ["path", { d: "M18 17V9", key: "2bz60n" }],
@@ -138,36 +138,36 @@ var ChartColumn = createLucideIcon("ChartColumn", [
   ["path", { d: "M8 17v-3", key: "17ska0" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/chevron-left.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/chevron-left.js
 var ChevronLeft = createLucideIcon("ChevronLeft", [
   ["path", { d: "m15 18-6-6 6-6", key: "1wnfg3" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/chevron-right.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/chevron-right.js
 var ChevronRight = createLucideIcon("ChevronRight", [
   ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/database.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/database.js
 var Database = createLucideIcon("Database", [
   ["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3", key: "msslwz" }],
   ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5", key: "1wlel7" }],
   ["path", { d: "M3 12A9 3 0 0 0 21 12", key: "mv7ke4" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/dollar-sign.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/dollar-sign.js
 var DollarSign = createLucideIcon("DollarSign", [
   ["line", { x1: "12", x2: "12", y1: "2", y2: "22", key: "7eqyqh" }],
   ["path", { d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", key: "1b0p4s" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/gauge.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/gauge.js
 var Gauge = createLucideIcon("Gauge", [
   ["path", { d: "m12 14 4-4", key: "9kzdfg" }],
   ["path", { d: "M3.34 19a10 10 0 1 1 17.32 0", key: "19p75a" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/map-pin.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/map-pin.js
 var MapPin = createLucideIcon("MapPin", [
   [
     "path",
@@ -179,13 +179,13 @@ var MapPin = createLucideIcon("MapPin", [
   ["circle", { cx: "12", cy: "10", r: "3", key: "ilqhr7" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/search.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/search.js
 var Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
   ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/trash-2.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
@@ -194,7 +194,7 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/triangle-alert.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/triangle-alert.js
 var TriangleAlert = createLucideIcon("TriangleAlert", [
   [
     "path",
@@ -209,14 +209,23 @@ var TriangleAlert = createLucideIcon("TriangleAlert", [
 
 // plugins/stats/web-src/components/PieChart.tsx
 var import_react3 = __toESM(require_react(), 1);
-var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
-var COLORS = [
+
+// plugins/stats/web-src/palette.ts
+var STATS_SERIES_COLORS = [
   "var(--color-chart-1)",
   "var(--color-chart-2)",
   "var(--color-chart-3)",
   "var(--color-chart-4)",
   "var(--color-chart-5)"
 ];
+var STATS_TREND_COLORS = {
+  tokens: STATS_SERIES_COLORS[0],
+  cost: STATS_SERIES_COLORS[1]
+};
+
+// plugins/stats/web-src/components/PieChart.tsx
+var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+var COLORS = STATS_SERIES_COLORS;
 function calculatePieSegments(data) {
   const valid = data.filter((item) => Number.isFinite(item.value) && item.value > 0);
   const total = valid.reduce((sum, item) => sum + item.value, 0);
@@ -305,8 +314,8 @@ function UsageTrend({ data, locale, tokenLabel, costLabel, emptyText }) {
   const { components: C } = runtime();
   const points = (0, import_react4.useMemo)(() => data.map((row) => ({ label: row.day, tokens: row.tokens, cost: row.cost })), [data]);
   const series = (0, import_react4.useMemo)(() => [
-    { key: "tokens", label: tokenLabel, colour: "var(--color-chart-1)", variant: "bar", axis: "left", format: (value) => formatTokens(value, locale) },
-    { key: "cost", label: costLabel, colour: "var(--color-chart-2)", variant: "line", axis: "right", format: (value) => formatCost(value, locale) }
+    { key: "tokens", label: tokenLabel, colour: STATS_TREND_COLORS.tokens, variant: "bar", axis: "left", format: (value) => formatTokens(value, locale) },
+    { key: "cost", label: costLabel, colour: STATS_TREND_COLORS.cost, variant: "line", axis: "right", format: (value) => formatCost(value, locale) }
   ], [costLabel, locale, tokenLabel]);
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.TimeSeriesChart, { data: points, series, height: 220, emptyText });
 }
@@ -550,7 +559,6 @@ var {
   ControlSurfaceDocument,
   ControlSurfaceRegister,
   ControlSurfaceState,
-  ControlSurfaceToolbar,
   DataTable,
   DataTableCell,
   DataTableChevronCell,
@@ -570,6 +578,7 @@ var {
 } = runtime().components;
 var { useMe, useModelUsage, usePersistentState, usePluginStrings: usePluginStrings2, useTranslation: useTranslation2, useUsageByDay } = runtime().hooks;
 var { buildUsageSummary, DEFAULT_RANGE, isStoredRange, parseRange, rangeBounds, serializeRange } = runtime().utils;
+var pageFilterField = (base, active, activeLabel, onReset) => active ? { ...base, active: true, activeLabel, onReset } : { ...base, active: false };
 var renderModelIcon = (datum) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: datum.id, size: 20 });
 var utcDayStart = (timestamp) => {
   const date = new Date(timestamp);
@@ -640,8 +649,8 @@ function StatsView() {
   }), [rangeRaw]);
   const window2 = (0, import_react7.useMemo)(() => rangeBounds(range, now), [range, now]);
   const trendDays = (0, import_react7.useMemo)(() => trendDaysForWindow(window2, now), [window2, now]);
-  const usage = useModelUsage(void 0, window2);
-  const daily = useUsageByDay(void 0, trendDays);
+  const usage = useModelUsage(window2);
+  const daily = useUsageByDay(trendDays);
   const me = useMe();
   const summary = buildUsageSummary(usage.data);
   const [query, setQuery] = (0, import_react7.useState)("");
@@ -693,6 +702,54 @@ function StatsView() {
     setRangeRaw(serializeRange(next));
     resetPage();
   };
+  const changeUsageFilter = (next) => {
+    setFilter(next);
+    resetPage();
+  };
+  const usageLabels = {
+    all: s.filterAll,
+    costed: s.filterCosted,
+    cached: s.filterCached
+  };
+  const rangeLabels = {
+    today: t.common.rangeToday,
+    "7d": t.common.rangeLast7,
+    "30d": t.common.rangeLast30,
+    "90d": t.common.rangeLast90,
+    all: t.common.rangeAll,
+    custom: t.common.rangeCustom
+  };
+  const rangeLabel = range.preset === "custom" ? `${range.from ?? "\u2026"} \u2013 ${range.to ?? "\u2026"}` : rangeLabels[range.preset] ?? range.preset;
+  const filterFields = [
+    pageFilterField(
+      { id: "range", label: t.common.rangeLabel, control: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DateRangeFilter, { value: range, onChange: changeRange }) },
+      serializeRange(range) !== serializeRange(DEFAULT_RANGE),
+      `${t.common.rangeLabel}: ${rangeLabel}`,
+      () => changeRange(DEFAULT_RANGE)
+    ),
+    pageFilterField(
+      {
+        id: "usage",
+        label: s.filterLabel,
+        control: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+          Segmented2,
+          {
+            "aria-label": s.filterLabel,
+            value: filter,
+            onChange: (value) => changeUsageFilter(value),
+            options: [
+              { value: "all", label: s.filterAll },
+              { value: "costed", label: s.filterCosted },
+              { value: "cached", label: s.filterCached }
+            ]
+          }
+        )
+      },
+      filter !== "all",
+      `${s.filterLabel}: ${usageLabels[filter]}`,
+      () => changeUsageFilter("all")
+    )
+  ];
   const retry = () => {
     usage.refetch();
     daily.refetch();
@@ -718,108 +775,90 @@ function StatsView() {
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricCache, value: summary.totalCacheLabel, icon: Database }),
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricSpeed, value: summary.avgSpeedLabel, icon: Gauge })
       ] })
+    }, toolbar: {
+      search: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+        RegisterSearch,
+        {
+          value: query,
+          onChange: (value) => {
+            setQuery(value);
+            resetPage();
+          },
+          placeholder: s.searchPlaceholder,
+          label: s.searchPlaceholder,
+          onClear: () => {
+            setQuery("");
+            resetPage();
+          },
+          clearLabel: s.searchClear,
+          count: hasError || isLoading ? void 0 : filtered.length,
+          countLabel: hasError || isLoading ? void 0 : s.searchCount.replace("{count}", String(filtered.length))
+        }
+      ),
+      filters: filterFields
     }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceDocument, { children: hasError ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ErrorState2, { message: t.common.daemonUnreachable, onRetry: retry }) }) : isLoading ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LoadingState2, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "workspace-master-detail", "data-detail": originOpen || selected != null, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex w-full min-w-0 flex-wrap items-center gap-2 py-3", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-            RegisterSearch,
-            {
-              value: query,
-              onChange: (value) => {
-                setQuery(value);
-                resetPage();
-              },
-              placeholder: s.searchPlaceholder,
-              label: s.searchPlaceholder,
-              onClear: () => {
-                setQuery("");
-                resetPage();
-              },
-              clearLabel: s.searchClear
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-            Segmented2,
-            {
-              nowrap: true,
-              "aria-label": s.filterLabel,
-              value: filter,
-              onChange: (value) => {
-                setFilter(value);
-                resetPage();
-              },
-              options: [
-                { value: "all", label: s.filterAll },
-                { value: "costed", label: s.filterCosted },
-                { value: "cached", label: s.filterCached }
-              ]
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DateRangeFilter, { value: range, onChange: changeRange, compact: true })
-        ] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-5", children: !summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptyTitle, description: s.emptyDescription, icon: ChartColumn }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid gap-4 xl:grid-cols-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tokensByModel }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.tokensByModelHint }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData, renderIcon: renderModelIcon })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.costByModel }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.costByModelHint }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData, renderIcon: renderModelIcon })
-            ] })
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "flex min-w-0 flex-col gap-4", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-5", children: !summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptyTitle, description: s.emptyDescription, icon: ChartColumn }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid gap-4 xl:grid-cols-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tokensByModel }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.tokensByModelHint }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData, renderIcon: renderModelIcon })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.trendTitle }),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.trendHint }),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(UsageTrend, { data: trend, locale, tokenLabel: s.trendTokens, costLabel: s.trendCost, emptyText: trendUnavailable ? s.trendUnavailable : s.noChartData })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tableTitle }),
-            filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptySearch, icon: Search }) : (
-              /* The compact template keeps three tracks: the model name, the cost and the
-                 chevron. The provider glyph and the wide 7rem cost track are both dropped,
-                 because at 320px the row has ~194px to spend and the previous four-track
-                 compact template asked for 200px of fixed tracks and gaps — the `1fr` name
-                 column resolved to 0px and the row lost the value that identifies it. Cost
-                 keeps a narrower compact track and still truncates with the full value on
-                 `title`. */
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTable, { ariaLabel: s.tableTitle, columns: "2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem", compactColumns: "minmax(0,1fr) 4.5rem 1.25rem", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTableRow, { header: true, children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", role: "presentation", "aria-hidden": true, children: null }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, children: s.columnModel }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnTokens }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, className: "text-right", children: s.columnCost }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnCache }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnSpeed }),
-                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, role: "presentation", "aria-hidden": true, children: null })
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "rowgroup", children: pageRows.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
-                  DataTableRow,
-                  {
-                    "data-testid": "model-usage-row",
-                    selected: selectedExec === row.exec,
-                    onOpen: () => setSelectedExec(row.exec),
-                    openLabel: `${s.detailTitle}: ${row.exec}`,
-                    children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: "auto", priority: "wide", "aria-hidden": true, className: "flex items-center gap-1.5 text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "font-mono text-xs text-foreground", children: row.exec }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.tokensLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "text-right font-mono text-xs tabular-nums text-foreground", children: row.costLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: percent(row.cacheHitPct) }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.speedLabel }),
-                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableChevronCell, {})
-                    ]
-                  },
-                  row.exec
-                )) })
-              ] })
-            ),
-            filtered.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Pager, { page: clampedPage, pageSize: PAGE_SIZE, total: filtered.length, onPageChange: setPage, ariaLabel: s.tableTitle }) : null
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.costByModel }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.costByModelHint }),
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData, renderIcon: renderModelIcon })
           ] })
-        ] }) })
-      ] }),
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.trendTitle }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.trendHint }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(UsageTrend, { data: trend, locale, tokenLabel: s.trendTokens, costLabel: s.trendCost, emptyText: trendUnavailable ? s.trendUnavailable : s.noChartData })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tableTitle }),
+          filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptySearch, icon: Search }) : (
+            /* The compact template keeps three tracks: the model name, the cost and the
+               chevron. The provider glyph and the wide 7rem cost track are both dropped,
+               because at 320px the row has ~194px to spend and the previous four-track
+               compact template asked for 200px of fixed tracks and gaps — the `1fr` name
+               column resolved to 0px and the row lost the value that identifies it. Cost
+               keeps a narrower compact track and still truncates with the full value on
+               `title`. */
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTable, { ariaLabel: s.tableTitle, columns: "2rem minmax(0,1fr) 8rem 8rem 7rem 7rem 1.25rem", compactColumns: "minmax(0,1fr) 4.5rem 1.25rem", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(DataTableRow, { header: true, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", role: "presentation", "aria-hidden": true, children: null }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, children: s.columnModel }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnTokens }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, className: "text-right", children: s.columnCost }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnCache }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, priority: "wide", className: "text-right", children: s.columnSpeed }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { header: true, lines: 1, role: "presentation", "aria-hidden": true, children: null })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "rowgroup", children: pageRows.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+                DataTableRow,
+                {
+                  "data-testid": "model-usage-row",
+                  selected: selectedExec === row.exec,
+                  onOpen: () => setSelectedExec(row.exec),
+                  openLabel: `${s.detailTitle}: ${row.exec}`,
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: "auto", priority: "wide", "aria-hidden": true, className: "flex items-center gap-1.5 text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ModelIcon, { name: row.exec, size: 12 }) }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "font-mono text-xs text-foreground", children: row.exec }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.tokensLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "text-right font-mono text-xs tabular-nums text-foreground", children: row.costLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: percent(row.cacheHitPct) }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.speedLabel }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableChevronCell, {})
+                  ]
+                },
+                row.exec
+              )) })
+            ] })
+          ),
+          filtered.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Pager, { page: clampedPage, pageSize: PAGE_SIZE, total: filtered.length, onPageChange: setPage, ariaLabel: s.tableTitle }) : null
+        ] })
+      ] }) }) }),
       originOpen ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         OriginDrawer,
         {

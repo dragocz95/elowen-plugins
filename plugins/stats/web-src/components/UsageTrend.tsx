@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { runtime } from '../runtime';
+import { STATS_TREND_COLORS } from '../palette';
 import type { DayUsage } from '../types';
 
 const formatTokens = (value: number, locale: string) => new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
@@ -23,8 +24,8 @@ export function UsageTrend({ data, locale, tokenLabel, costLabel, emptyText }: {
   const { components: C } = runtime();
   const points = useMemo(() => data.map((row) => ({ label: row.day, tokens: row.tokens, cost: row.cost })), [data]);
   const series = useMemo(() => [
-    { key: 'tokens', label: tokenLabel, colour: 'var(--color-chart-1)', variant: 'bar' as const, axis: 'left' as const, format: (value: number) => formatTokens(value, locale) },
-    { key: 'cost', label: costLabel, colour: 'var(--color-chart-2)', variant: 'line' as const, axis: 'right' as const, format: (value: number) => formatCost(value, locale) },
+    { key: 'tokens', label: tokenLabel, colour: STATS_TREND_COLORS.tokens, variant: 'bar' as const, axis: 'left' as const, format: (value: number) => formatTokens(value, locale) },
+    { key: 'cost', label: costLabel, colour: STATS_TREND_COLORS.cost, variant: 'line' as const, axis: 'right' as const, format: (value: number) => formatCost(value, locale) },
   ], [costLabel, locale, tokenLabel]);
 
   return <C.TimeSeriesChart data={points} series={series} height={220} emptyText={emptyText} />;

@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { STATS_SERIES_COLORS } from '../palette';
 
 export interface PieDatum {
   id: string;
@@ -13,13 +14,7 @@ export interface PieSegment extends PieDatum {
   dashOffset: number;
 }
 
-const COLORS = [
-  'var(--color-chart-1)',
-  'var(--color-chart-2)',
-  'var(--color-chart-3)',
-  'var(--color-chart-4)',
-  'var(--color-chart-5)',
-];
+const COLORS = STATS_SERIES_COLORS;
 
 export function calculatePieSegments(data: PieDatum[]): PieSegment[] {
   const valid = data.filter((item) => Number.isFinite(item.value) && item.value > 0);

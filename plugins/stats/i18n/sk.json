@@ -15,6 +15,7 @@
       "metricSpeed": "Priemerná rýchlosť",
       "searchPlaceholder": "Hľadať modely",
       "searchClear": "Vymazať hľadanie modelov",
+      "searchCount": "{count} modelov",
       "filterLabel": "Filter spotreby",
       "filterAll": "Všetko",
       "filterCosted": "S nákladmi",

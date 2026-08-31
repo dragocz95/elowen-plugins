@@ -1,18 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { BarChart3, Database, DollarSign, Gauge, MapPin, Search, Trash2 } from 'lucide-react';
 import { PieChart } from './components/PieChart';
 import { UsageTrend } from './components/UsageTrend';
 import { ResetUsageModal } from './ResetUsageModal';
 import { OriginDrawer } from './OriginDrawer';
 import { integer } from './format';
-import { runtime } from './runtime';
+import { runtime, type PageFilterField } from './runtime';
 import type { DayUsage, ModelUsage, TokenUsage } from './types';
 
 const PAGE_SIZE = 20;
 const DAY_MS = 86_400_000;
 
 const {
-  Button, ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState, ControlSurfaceToolbar,
+  Button, ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState,
   DataTable, DataTableCell, DataTableChevronCell, DataTableRow, DateRangeFilter, EmptyState, ErrorState,
   LoadingState, ModelIcon, ModuleHeader, Pager, RegisterSearch, Segmented, WorkspaceDetailRail,
   WorkspaceMetric, WorkspaceShell,
@@ -21,6 +21,14 @@ const { useMe, useModelUsage, usePersistentState, usePluginStrings, useTranslati
 const { buildUsageSummary, DEFAULT_RANGE, isStoredRange, parseRange, rangeBounds, serializeRange } = runtime().utils;
 
 type UsageFilter = 'all' | 'costed' | 'cached';
+
+/** The page owns whether an opaque filter control is narrowing results; the host owns its panel and chip. */
+const pageFilterField = (
+  base: { id: string; label: string; control: ReactNode; hint?: string },
+  active: boolean,
+  activeLabel: string,
+  onReset: () => void,
+): PageFilterField => active ? { ...base, active: true, activeLabel, onReset } : { ...base, active: false };
 
 /** The pie's datum id IS the exec string, which is what ModelIcon resolves its brand mark from. */
 const renderModelIcon = (datum: { id: string }) => <ModelIcon name={datum.id} size={20} />;
@@ -110,8 +118,8 @@ export function StatsView() {
   }), [rangeRaw]);
   const window = useMemo(() => rangeBounds(range, now), [range, now]);
   const trendDays = useMemo(() => trendDaysForWindow(window, now), [window, now]);
-  const usage = useModelUsage(undefined, window);
-  const daily = useUsageByDay(undefined, trendDays);
+  const usage = useModelUsage(window);
+  const daily = useUsageByDay(trendDays);
   const me = useMe();
   const summary = buildUsageSummary(usage.data);
   const [query, setQuery] = useState('');
@@ -164,6 +172,52 @@ export function StatsView() {
 
   const resetPage = () => setPage(0);
   const changeRange = (next: typeof range) => { setRangeRaw(serializeRange(next)); resetPage(); };
+  const changeUsageFilter = (next: UsageFilter) => { setFilter(next); resetPage(); };
+  const usageLabels: Record<UsageFilter, string> = {
+    all: s.filterAll,
+    costed: s.filterCosted,
+    cached: s.filterCached,
+  };
+  const rangeLabels: Record<string, string> = {
+    today: t.common.rangeToday,
+    '7d': t.common.rangeLast7,
+    '30d': t.common.rangeLast30,
+    '90d': t.common.rangeLast90,
+    all: t.common.rangeAll,
+    custom: t.common.rangeCustom,
+  };
+  const rangeLabel = range.preset === 'custom'
+    ? `${range.from ?? '…'} – ${range.to ?? '…'}`
+    : rangeLabels[range.preset] ?? range.preset;
+  const filterFields: PageFilterField[] = [
+    pageFilterField(
+      { id: 'range', label: t.common.rangeLabel, control: <DateRangeFilter value={range} onChange={changeRange} /> },
+      serializeRange(range) !== serializeRange(DEFAULT_RANGE),
+      `${t.common.rangeLabel}: ${rangeLabel}`,
+      () => changeRange(DEFAULT_RANGE),
+    ),
+    pageFilterField(
+      {
+        id: 'usage',
+        label: s.filterLabel,
+        control: (
+          <Segmented
+            aria-label={s.filterLabel}
+            value={filter}
+            onChange={(value: string) => changeUsageFilter(value as UsageFilter)}
+            options={[
+              { value: 'all', label: s.filterAll },
+              { value: 'costed', label: s.filterCosted },
+              { value: 'cached', label: s.filterCached },
+            ]}
+          />
+        ),
+      },
+      filter !== 'all',
+      `${s.filterLabel}: ${usageLabels[filter]}`,
+      () => changeUsageFilter('all'),
+    ),
+  ];
   const retry = () => { usage.refetch(); daily.refetch(); };
 
   return (
@@ -192,6 +246,20 @@ export function StatsView() {
           <WorkspaceMetric label={s.metricCache} value={summary.totalCacheLabel} icon={Database} />
           <WorkspaceMetric label={s.metricSpeed} value={summary.avgSpeedLabel} icon={Gauge} />
         </>,
+      }} toolbar={{
+        search: (
+          <RegisterSearch
+            value={query}
+            onChange={(value: string) => { setQuery(value); resetPage(); }}
+            placeholder={s.searchPlaceholder}
+            label={s.searchPlaceholder}
+            onClear={() => { setQuery(''); resetPage(); }}
+            clearLabel={s.searchClear}
+            count={hasError || isLoading ? undefined : filtered.length}
+            countLabel={hasError || isLoading ? undefined : s.searchCount.replace('{count}', String(filtered.length))}
+          />
+        ),
+        filters: filterFields,
       }}>
         <ControlSurfaceDocument>
           {hasError ? (
@@ -201,33 +269,6 @@ export function StatsView() {
           ) : (
             <div className="workspace-master-detail" data-detail={originOpen || selected != null}>
               <div className="flex min-w-0 flex-col gap-4">
-                <ControlSurfaceToolbar>
-                  {/* w-full, not items-stretch: a plugin's utilities live in @layer utilities and lose
-                      to the host's unlayered .control-surface-toolbar { align-items: center }. */}
-                  <div className="flex w-full min-w-0 flex-wrap items-center gap-2 py-3">
-                    <RegisterSearch
-                      value={query}
-                      onChange={(value: string) => { setQuery(value); resetPage(); }}
-                      placeholder={s.searchPlaceholder}
-                      label={s.searchPlaceholder}
-                      onClear={() => { setQuery(''); resetPage(); }}
-                      clearLabel={s.searchClear}
-                    />
-                    <Segmented
-                      nowrap
-                      aria-label={s.filterLabel}
-                      value={filter}
-                      onChange={(value) => { setFilter(value as UsageFilter); resetPage(); }}
-                      options={[
-                        { value: 'all', label: s.filterAll },
-                        { value: 'costed', label: s.filterCosted },
-                        { value: 'cached', label: s.filterCached },
-                      ]}
-                    />
-                    <DateRangeFilter value={range} onChange={changeRange} compact />
-                  </div>
-                </ControlSurfaceToolbar>
-
                 <ControlSurfaceRegister className="flex flex-col gap-5">
                   {!summary.hasAnyUsage ? (
                     <EmptyState title={s.emptyTitle} description={s.emptyDescription} icon={BarChart3} />
