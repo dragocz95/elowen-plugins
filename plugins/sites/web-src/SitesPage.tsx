@@ -157,8 +157,8 @@ export function SitesPage() {
   const { components, hooks } = runtime();
   const {
     SpatialWorkspaceLayout, WorkspaceMetric, WorkspaceDetailRail,
-    ControlSurfaceDocument, ControlSurfaceToolbar, ControlSurfaceRegister, ControlSurfaceState,
-    Input, SelectMenu, LoadingState, ErrorState, EmptyState,
+    ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState,
+    RegisterSearch, SelectMenu, LoadingState, ErrorState, EmptyState,
   } = components;
   const strings = hooks.usePluginStrings('sites');
 
@@ -222,6 +222,32 @@ export function SitesPage() {
       return { value, label: strings[STATUS_STRING[value]], icon: <Icon size={14} /> };
     }),
   ];
+  const toolbarFilters = [
+    {
+      id: 'visibility',
+      label: strings.filterVisibility,
+      control: <SelectMenu value={visibility} onChange={setVisibility} options={visibilityOptions} label={strings.filterVisibility} />,
+      ...(visibility === 'all'
+        ? { active: false as const }
+        : {
+            active: true as const,
+            activeLabel: `${strings.filterVisibility}: ${visibilityOptions.find((option) => option.value === visibility)?.label ?? visibility}`,
+            onReset: () => setVisibility('all'),
+          }),
+    },
+    {
+      id: 'status',
+      label: strings.filterStatus,
+      control: <SelectMenu value={status} onChange={setStatus} options={statusOptions} label={strings.filterStatus} />,
+      ...(status === 'all'
+        ? { active: false as const }
+        : {
+            active: true as const,
+            activeLabel: `${strings.filterStatus}: ${statusOptions.find((option) => option.value === status)?.label ?? status}`,
+            onReset: () => setStatus('all'),
+          }),
+    },
+  ];
 
   const register = () => {
     if (sectionSites.length === 0) {
@@ -255,6 +281,18 @@ export function SitesPage() {
         onChange: (value) => setSection(value as Section),
         ariaLabel: strings.title,
       }}
+      toolbar={{
+        search: (
+          <RegisterSearch
+            value={query}
+            onChange={setQuery}
+            placeholder={strings.searchPlaceholder}
+            label={strings.searchPlaceholder}
+            onClear={() => setQuery('')}
+          />
+        ),
+        filters: toolbarFilters,
+      }}
     >
       <ControlSurfaceDocument>
         {list.isLoading ? <ControlSurfaceState><LoadingState variant="cards" /></ControlSurfaceState>
@@ -265,37 +303,6 @@ export function SitesPage() {
           ) : (
             <div className="workspace-master-detail" data-detail={selected != null}>
               <div className="flex min-w-0 flex-col gap-4">
-                <ControlSurfaceToolbar>
-                  <div className="flex w-full min-w-0 flex-wrap items-center gap-2 py-3">
-                    <label className="register-search relative min-w-[14rem] flex-1">
-                      <span className="sr-only">{strings.searchPlaceholder}</span>
-                      <Search size={14} aria-hidden className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        type="search"
-                        value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                        placeholder={strings.searchPlaceholder}
-                        aria-label={strings.searchPlaceholder}
-                        className="pl-9"
-                      />
-                    </label>
-                    <SelectMenu
-                      value={visibility}
-                      onChange={setVisibility}
-                      options={visibilityOptions}
-                      label={strings.filterVisibility}
-                      className="min-w-[10rem]"
-                    />
-                    <SelectMenu
-                      value={status}
-                      onChange={setStatus}
-                      options={statusOptions}
-                      label={strings.filterStatus}
-                      className="min-w-[9.5rem]"
-                    />
-                  </div>
-                </ControlSurfaceToolbar>
-
                 <ControlSurfaceRegister className="flex flex-col gap-4">{register()}</ControlSurfaceRegister>
               </div>
 

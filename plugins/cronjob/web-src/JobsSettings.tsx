@@ -596,6 +596,38 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
   };
 
   const addButton = <C.Button variant="accent" icon={Plus} onClick={addJob}>{s.addJob}</C.Button>;
+  const toolbarFilters = [
+    {
+      id: 'status',
+      label: s.enabled,
+      control: (
+        <C.Segmented
+          value={filter}
+          onChange={(value: string) => setFilter(value as Filter)}
+          options={[{ value: 'all', label: s.filterAll }, { value: 'active', label: s.filterActive }, { value: 'paused', label: s.filterPaused }]}
+          aria-label={s.enabled}
+        />
+      ),
+      ...(filter === 'all'
+        ? { active: false as const }
+        : { active: true as const, activeLabel: `${s.enabled}: ${filter === 'active' ? s.filterActive : s.filterPaused}`, onReset: () => setFilter('all') }),
+    },
+    ...(isAdmin ? [{
+      id: 'owner',
+      label: s.ownerColumn,
+      control: (
+        <C.Segmented
+          value={scope}
+          onChange={(value: string) => setScope(value as 'all' | 'mine' | 'instance')}
+          options={[{ value: 'all', label: s.filterAll }, { value: 'mine', label: s.filterMine }, { value: 'instance', label: s.filterInstance }]}
+          aria-label={s.ownerColumn}
+        />
+      ),
+      ...(scope === 'all'
+        ? { active: false as const }
+        : { active: true as const, activeLabel: `${s.ownerColumn}: ${scope === 'mine' ? s.filterMine : s.filterInstance}`, onReset: () => setScope('all') }),
+    }] : []),
+  ];
 
   const table = (
     <div className="flex min-w-0 flex-col gap-3">
@@ -652,36 +684,15 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
 
   const surfaceDocument = (
     <C.ControlSurfaceDocument>
+      <C.ControlSurfaceToolbar
+        search={<C.RegisterSearch value={query} onChange={setQuery} placeholder={s.searchPlaceholder} label={s.searchPlaceholder} />}
+        filters={toolbarFilters}
+        actions={surface === 'deck' ? addButton : undefined}
+      />
       {isError ? <C.ControlSurfaceState tone="danger"><C.ErrorState message={t.common.daemonUnreachable} onRetry={() => refetch()} /></C.ControlSurfaceState>
         : isLoading || !data ? <C.ControlSurfaceState><C.LoadingState variant="cards" /></C.ControlSurfaceState>
         : (
           <div className="flex min-w-0 flex-col gap-4">
-            {/* w-full, not items-stretch: a plugin's utilities live in @layer utilities and lose to the
-                host's unlayered .control-surface-toolbar { align-items: center }, so the row kept its
-                max-content width and overflowed the surface at 320px instead of wrapping. */}
-            <C.ControlSurfaceToolbar>
-              <div className="flex w-full min-w-0 flex-wrap items-center gap-2 py-3">
-                <C.RegisterSearch value={query} onChange={setQuery} placeholder={s.searchPlaceholder} label={s.searchPlaceholder} />
-                <C.Segmented
-                  value={filter}
-                  onChange={(v: string) => setFilter(v as Filter)}
-                  options={[{ value: 'all', label: s.filterAll }, { value: 'active', label: s.filterActive }, { value: 'paused', label: s.filterPaused }]}
-                  aria-label={s.enabled}
-                  nowrap
-                />
-                {isAdmin ? (
-                  <C.Segmented
-                    value={scope}
-                    onChange={(v: string) => setScope(v as 'all' | 'mine' | 'instance')}
-                    options={[{ value: 'all', label: s.filterAll }, { value: 'mine', label: s.filterMine }, { value: 'instance', label: s.filterInstance }]}
-                    aria-label={s.ownerColumn}
-                    nowrap
-                  />
-                ) : null}
-                {surface === 'deck' ? addButton : null}
-              </div>
-            </C.ControlSurfaceToolbar>
-
             <C.ControlSurfaceRegister className="flex flex-col gap-4">
               {rows.length === 0
                 ? <C.EmptyState title={s.empty} icon={Clock} action={addButton} />

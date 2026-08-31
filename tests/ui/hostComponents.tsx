@@ -10,7 +10,7 @@
  *  are simplified: the hero mascot and the HelpTip tooltip body. HelpTip keeps its trigger BUTTON, so the
  *  form's button set matches production.
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState,
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
   type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type InputHTMLAttributes, type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -132,7 +132,10 @@ export function Segmented({ options, value, onChange, className, 'aria-label': a
 export function ControlSurfaceDocument({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <section data-control-surface className={`control-surface-document ${className}`}>{children}</section>;
 }
-export function ControlSurfaceToolbar({ children, className = '' }: { children: ReactNode; className?: string }) {
+export function ControlSurfaceToolbar({ children, search, filters, actions, className = '' }: PageToolbarProps & { className?: string }) {
+  if (search !== undefined || filters !== undefined || actions !== undefined) {
+    return <PageToolbarContribution search={search} filters={filters} actions={actions}>{children}</PageToolbarContribution>;
+  }
   return <div className={`control-surface-toolbar ${className}`}>{children}</div>;
 }
 export function ControlSurfaceRegister({ children, className = '', ...rest }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
@@ -469,6 +472,52 @@ type PageToolbarProps = {
   children?: ReactNode;
 };
 
+type PageToolbarContributionValue = { ownerId: string; props: PageToolbarProps };
+const PageToolbarContributionRegistryContext = createContext<{
+  register(id: string, props: PageToolbarProps): void;
+  release(id: string): void;
+} | null>(null);
+const PageToolbarContributionContext = createContext<PageToolbarContributionValue | null>(null);
+
+function PageToolbarProvider({ children }: { children: ReactNode }) {
+  const [contributions, setContributions] = useState<PageToolbarContributionValue[]>([]);
+  const register = useCallback((id: string, props: PageToolbarProps) => {
+    setContributions((current) => {
+      const index = current.findIndex((entry) => entry.ownerId === id);
+      if (index < 0) return [...current, { ownerId: id, props }];
+      const previous = current[index]!.props;
+      if (previous.search === props.search && previous.filters === props.filters
+        && previous.actions === props.actions && previous.children === props.children) return current;
+      return current.map((entry, entryIndex) => entryIndex === index ? { ownerId: id, props } : entry);
+    });
+  }, []);
+  const release = useCallback((id: string) => {
+    setContributions((current) => current.some((entry) => entry.ownerId === id)
+      ? current.filter((entry) => entry.ownerId !== id)
+      : current);
+  }, []);
+  const registry = useMemo(() => ({ register, release }), [register, release]);
+  return (
+    <PageToolbarContributionRegistryContext.Provider value={registry}>
+      <PageToolbarContributionContext.Provider value={contributions[0] ?? null}>
+        {children}
+      </PageToolbarContributionContext.Provider>
+    </PageToolbarContributionRegistryContext.Provider>
+  );
+}
+
+function PageToolbarContribution({ search, filters, actions, children }: PageToolbarProps) {
+  const id = useId();
+  const registry = useContext(PageToolbarContributionRegistryContext);
+  const contribution = useMemo(() => ({ search, filters, actions, children }), [search, filters, actions, children]);
+  useLayoutEffect(() => {
+    registry?.register(id, contribution);
+    return () => registry?.release(id);
+  }, [contribution, id, registry]);
+  if (!registry) return <PageToolbar {...contribution} />;
+  return null;
+}
+
 function PageFilters({ fields }: { fields: PageFilterField[] }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -534,7 +583,12 @@ function PageFilterChips({ fields }: { fields: PageFilterField[] }) {
   );
 }
 
-function PageToolbar({ search, filters = [], actions, children }: PageToolbarProps) {
+function PageToolbar(props: PageToolbarProps) {
+  const contribution = useContext(PageToolbarContributionContext)?.props;
+  const search = contribution?.search !== undefined ? contribution.search : props.search;
+  const filters = contribution?.filters !== undefined ? contribution.filters : props.filters ?? [];
+  const actions = contribution?.actions !== undefined ? contribution.actions : props.actions;
+  const children = contribution?.children !== undefined ? contribution.children : props.children;
   return (
     <div className="page-toolbar" data-testid="page-toolbar">
       <div className="page-toolbar__row">
@@ -559,31 +613,34 @@ export function WorkspaceShell({ variant = 'register', hero, navigation, toolbar
   className?: string;
 }) {
   return (
-    <div className={`workspace-shell ${className}`.trim()} data-variant={variant}>
-      <WorkspaceHero {...hero} />
-      {navigation ? <SpatialSectionRail {...navigation} /> : null}
-      <PageToolbar {...toolbar} />
-      <section
-        className="workspace-shell__content spatial-content-surface"
-        data-testid={variant === 'register' ? 'spatial-workspace-layout' : 'spatial-content-surface'}
-      >
-        {children}
-      </section>
-    </div>
+    <PageToolbarProvider>
+      <div className={`workspace-shell ${className}`.trim()} data-variant={variant}>
+        <WorkspaceHero {...hero} />
+        {navigation ? <SpatialSectionRail {...navigation} /> : null}
+        <PageToolbar {...toolbar} />
+        <section
+          className="workspace-shell__content spatial-content-surface"
+          data-testid={variant === 'register' ? 'spatial-workspace-layout' : 'spatial-content-surface'}
+        >
+          {children}
+        </section>
+      </div>
+    </PageToolbarProvider>
   );
 }
 
 /** The register shell under its pre-unification name — a thin alias onto WorkspaceShell's `register`
  *  variant, kept because bundles across two repositories mount it by that name. */
-export function SpatialWorkspaceLayout({ hero, navigation, children, className = '' }: {
+export function SpatialWorkspaceLayout({ hero, navigation, toolbar, children, className = '' }: {
   hero: Omit<WorkspaceHeroProps, 'mascot' | 'metrics'> & { mascotState?: string; metrics: ReactNode };
   navigation?: { sections: SpatialDeckSection[]; value: string; onChange: (id: string) => void; ariaLabel: string };
+  toolbar?: PageToolbarProps;
   children: ReactNode;
   className?: string;
 }) {
   const { metrics, mascotState = 'idle', ...heroProps } = hero;
   return (
-    <WorkspaceShell variant="register" className={className} hero={{ ...heroProps, mascot: mascotState, metrics }} navigation={navigation}>
+    <WorkspaceShell variant="register" className={className} hero={{ ...heroProps, mascot: mascotState, metrics }} navigation={navigation} toolbar={toolbar}>
       {children}
     </WorkspaceShell>
   );

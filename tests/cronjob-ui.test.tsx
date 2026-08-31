@@ -118,7 +118,10 @@ describe('cronjob JobsSettings — error state', () => {
     expect(screen.getAllByText(strings.ownerMine).length).toBeGreaterThan(0);
     expect(screen.getByText('#9')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('radio', { name: strings.filterInstance }));
+    fireEvent.click(screen.getByTestId('page-filters-trigger'));
+    const filters = screen.getByRole('dialog', { name: 'Filters' });
+    fireEvent.click(within(filters).getByRole('radio', { name: strings.filterInstance }));
+    expect(screen.getByTestId('page-filter-chips')).toHaveTextContent(`${strings.ownerColumn}: ${strings.filterInstance}`);
     await waitFor(() => expect(screen.queryByText('my digest')).toBeNull());
     expect(screen.getByText('instance digest')).toBeInTheDocument();
     expect(screen.queryByText('her digest')).toBeNull();
@@ -141,8 +144,8 @@ describe('cronjob JobsSettings — error state', () => {
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
 
-    // Scoped to the DRAWER: the scope filter above the table is also a radiogroup, also labelled
-    // "Owner", and also spells one of its options "Mine" — searched globally, it answers for the drawer.
+    // Scoped to the DRAWER: the page-level owner filter lives behind the condensed Filters trigger,
+    // while this radiogroup belongs to the selected job itself.
     const ownerSwitch = () => within(screen.getByRole('dialog')).queryByRole('radiogroup', { name: strings.ownerColumn });
 
     await openRow('her digest');

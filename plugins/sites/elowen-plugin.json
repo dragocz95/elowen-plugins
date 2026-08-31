@@ -205,7 +205,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 7,
+    "requiresApiVersion": 12,
     "label": "Sites",
     "navKind": "domain",
     "nav": [

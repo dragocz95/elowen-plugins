@@ -86,19 +86,21 @@ const openSite = async () => {
 };
 
 describe('the Sites workspace', () => {
-  it('builds the leftmost search from API-7 primitives without a newer RegisterSearch component', async () => {
-    const components = (window.ElowenUiRuntime as unknown as { components: Record<string, unknown> }).components;
-    const aheadOfRelease = components.RegisterSearch;
-    delete components.RegisterSearch;
-    try {
-      mount();
-      const search = await screen.findByRole('searchbox', { name: strings.searchPlaceholder });
-      const searchControl = search.closest('.register-search');
-      expect(searchControl).not.toBeNull();
-      expect(searchControl?.parentElement?.firstElementChild).toBe(searchControl);
-    } finally {
-      components.RegisterSearch = aheadOfRelease;
-    }
+  it('uses the host search and condensed filters pattern instead of a hand-laid toolbar', async () => {
+    const { wrapper: Wrapper } = createWrapper();
+    const { container } = render(<Wrapper><ToastProvider><SitesPage /></ToastProvider></Wrapper>);
+    const search = await screen.findByRole('searchbox', { name: strings.searchPlaceholder });
+    const toolbar = search.closest('.page-toolbar');
+    expect(toolbar).not.toBeNull();
+    expect(within(toolbar!).getByTestId('page-filters-trigger')).toBeVisible();
+    expect(container.querySelector('.control-surface-toolbar')).toBeNull();
+
+    fireEvent.click(within(toolbar!).getByTestId('page-filters-trigger'));
+    const filters = screen.getByRole('dialog', { name: 'Filters' });
+    expect(within(filters).getByRole('combobox', { name: strings.filterVisibility })).toBeVisible();
+    expect(within(filters).getByRole('combobox', { name: strings.filterStatus })).toBeVisible();
+    fireEvent.change(within(filters).getByRole('combobox', { name: strings.filterStatus }), { target: { value: 'failed' } });
+    expect(screen.getByTestId('page-filter-chips')).toHaveTextContent(`${strings.filterStatus}: ${strings.statusFailed}`);
   });
 
   it('shows each site\'s owner as an avatar and a name, never as an account id', async () => {
