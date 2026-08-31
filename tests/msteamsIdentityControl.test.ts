@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { createMicrosoftIdentityControl, driveScopedPath } from '../plugins/msteams/lib/identityControl.mjs';
+import { createMicrosoftIdentityControl, createMicrosoftIdentityRuntime, driveScopedPath } from '../plugins/msteams/lib/identityControl.mjs';
 
 type Person = { id: string; aad: string; upn?: string; name?: string };
 
@@ -10,16 +10,21 @@ function fixture(overrides: { token?: unknown; people?: Person[] } = {}) {
     { id: '29:filip', aad: 'aad-filip', upn: 'filip@example.test', name: 'Filip' },
     { id: '29:stranger', aad: 'aad-stranger', upn: 'stranger@example.test', name: 'Stranger' },
   ];
-  const tokenForUser = vi.fn(async () => (overrides.token === undefined ? 'delegated-token' : overrides.token));
+  const delegatedSessionForPerson = vi.fn(async () => {
+    if (overrides.token instanceof Error) throw overrides.token;
+    if (overrides.token === null) throw new Error('sign in required');
+    return { token: overrides.token === undefined ? 'delegated-token' : overrides.token };
+  });
   const linking = {
     bindingFor: (aad: string) => (aad === 'aad-filip' ? { user: { id: 7 } } : null),
-    tokenForUser,
+    delegatedSessionForPerson,
+    delegatedSession: vi.fn(async () => ({ token: 'interactive-token' })),
   };
   const warn = vi.fn();
-  const control = createMicrosoftIdentityControl({
+  const runtime = createMicrosoftIdentityRuntime({
     linking, people: { list: () => people }, logger: { warn },
   });
-  return { control, tokenForUser, warn };
+  return { control: runtime.control, runtime, delegatedSessionForPerson, warn };
 }
 
 describe('microsoftIdentity control', () => {
@@ -33,10 +38,10 @@ describe('microsoftIdentity control', () => {
   });
 
   it('mints a delegated client for a bound account and refuses everyone else', async () => {
-    const { control, tokenForUser } = fixture();
+    const { control, delegatedSessionForPerson } = fixture();
     const graph = await control.driveGraphFor(7);
     expect(graph).not.toBeNull();
-    expect(tokenForUser).toHaveBeenCalledWith('29:filip');
+    expect(delegatedSessionForPerson).toHaveBeenCalledWith(expect.objectContaining({ id: '29:filip', aad: 'aad-filip' }), 7);
     expect(await control.driveGraphFor(99)).toBeNull();
   });
 
@@ -48,13 +53,42 @@ describe('microsoftIdentity control', () => {
     const control = createMicrosoftIdentityControl({
       linking: {
         bindingFor: () => ({ user: { id: 7 } }),
-        tokenForUser: async () => { throw new Error('token service down'); },
+        delegatedSessionForPerson: async () => { throw new Error('token service down'); },
+        delegatedSession: async () => { throw new Error('interactive only'); },
       },
       people: { list: () => people },
       logger: { warn },
     });
     expect(await control.driveGraphFor(7)).toBeNull();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('token service down'));
+  });
+
+  it('resolves a host-verified scheduled identity through the durable account binding', async () => {
+    const { runtime, delegatedSessionForPerson } = fixture();
+    const session = await runtime.sessionForIdentity({
+      platform: 'cron', userId: 'cron', elowenUserId: 7, automation: 'scheduled',
+    });
+    expect(session).toMatchObject({ token: 'delegated-token' });
+    expect(delegatedSessionForPerson).toHaveBeenCalledWith(expect.objectContaining({ aad: 'aad-filip' }), 7);
+  });
+
+  it('fails closed when scheduled identity has no account or no durable Microsoft binding', async () => {
+    const { runtime } = fixture();
+    await expect(runtime.sessionForIdentity({ platform: 'cron', userId: 'cron', automation: 'scheduled' }))
+      .rejects.toThrow('verified Elowen account');
+    await expect(runtime.sessionForIdentity({ platform: 'cron', userId: 'cron', elowenUserId: 99, automation: 'scheduled' }))
+      .rejects.toThrow('no linked Microsoft identity');
+  });
+
+  it.each([
+    { platform: 'elowen', userId: '7', elowenUserId: 7, conversation: 'own' },
+    { platform: 'msteams', userId: 'aad-filip', elowenUserId: 7, conversation: 'direct' },
+    { platform: 'discord', userId: 'discord-filip', elowenUserId: 7, conversation: 'shared' },
+    { platform: 'cron', userId: 'cron', elowenUserId: 7, automation: 'scheduled', conversation: 'shared' },
+  ])('resolves the same durable Microsoft account on every verified Elowen surface: $platform', async (identity) => {
+    const { runtime, delegatedSessionForPerson } = fixture();
+    await expect(runtime.sessionForIdentity(identity)).resolves.toMatchObject({ token: 'delegated-token' });
+    expect(delegatedSessionForPerson).toHaveBeenCalledWith(expect.objectContaining({ aad: 'aad-filip' }), 7);
   });
 
   it('confines the client to the drive namespace, after resolving the path', async () => {
@@ -81,7 +115,11 @@ describe('microsoftIdentity control', () => {
     }));
     const people: Person[] = [{ id: '29:filip', aad: 'aad-filip' }];
     const control = createMicrosoftIdentityControl({
-      linking: { bindingFor: () => ({ user: { id: 7 } }), tokenForUser: async () => 'tok' },
+      linking: {
+        bindingFor: () => ({ user: { id: 7 } }),
+        delegatedSessionForPerson: async () => ({ token: 'tok' }),
+        delegatedSession: async () => ({ token: 'interactive-token' }),
+      },
       people: { list: () => people },
       logger: { warn: vi.fn() },
     });

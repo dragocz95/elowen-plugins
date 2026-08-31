@@ -50,15 +50,14 @@ class DriveScopedGraph {
 /** Publish "who is this account in Microsoft, and may I act on their drive" for other plugins.
  *
  *  Both methods name the account EXPLICITLY instead of reading an ambient turn scope, because the callers
- *  are background workers and HTTP routes — neither has one. That is a different authorization model from
- *  the delegated CHAT tools, which stay bound to the person actually talking through
- *  `TeamsAccountLinking.delegatedSession()`; this seam is reachable only by plugin code inside the daemon's
- *  own trust domain, and what it returns is already narrowed to drive paths.
+ *  are background workers and HTTP routes — neither has one. Chat tools use the same durable account
+ *  binding through `sessionForIdentity`, so one verified Elowen account gets the same Microsoft identity
+ *  on every surface. This shared control remains narrower: what it returns is restricted to drive paths.
  *
  *  No token is stored anywhere by this control or by its consumers. Azure Bot Service holds the refresh
  *  token for the configured OAuth connection (which is why `offline_access` on that connection is not
  *  optional), and each call mints a fresh access token that lives only for the duration of the work. */
-export function createMicrosoftIdentityControl({ linking, people, logger }) {
+export function createMicrosoftIdentityRuntime({ linking, people, logger }) {
   /** The Teams person behind an Elowen account, or null. Walks the directory rather than querying by
    *  account id because the durable binding is stored the other way round — subject id to account — and the
    *  directory is the tenant's handful of known people, not a table that grows with usage. */
@@ -72,7 +71,16 @@ export function createMicrosoftIdentityControl({ linking, people, logger }) {
     return null;
   };
 
-  return {
+  const sessionForAccountIdentity = async (identity) => {
+    if (!Number.isSafeInteger(identity?.elowenUserId) || identity.elowenUserId <= 0) {
+      throw new Error('Microsoft access requires a verified Elowen account.');
+    }
+    const person = personFor(identity.elowenUserId);
+    if (!person) throw new Error('This Elowen account has no linked Microsoft identity.');
+    return linking.delegatedSessionForPerson(person, identity.elowenUserId);
+  };
+
+  const control = {
     identityFor: (elowenUserId) => {
       const person = personFor(elowenUserId);
       if (!person) return { linked: false };
@@ -88,15 +96,23 @@ export function createMicrosoftIdentityControl({ linking, people, logger }) {
       if (!person) return null;
       // A missing token is the ordinary "has not signed in, or the grant expired" state and must read as
       // "not connected" rather than as a fault: the caller's whole job is to skip that account this cycle.
-      let token = null;
       try {
-        token = await linking.tokenForUser(person.id);
+        const session = await linking.delegatedSessionForPerson(person, elowenUserId);
+        return new DriveScopedGraph(new DelegatedGraphClient(session.token));
       } catch (error) {
         logger?.warn?.(`msteams delegated drive token for account ${elowenUserId}: ${error?.message ?? error}`);
         return null;
       }
-      if (!token) return null;
-      return new DriveScopedGraph(new DelegatedGraphClient(token));
     },
   };
+
+  return {
+    control,
+    sessionForIdentity: sessionForAccountIdentity,
+  };
+}
+
+/** Backwards-compatible constructor for tests and consumers that need only the narrow shared control. */
+export function createMicrosoftIdentityControl(deps) {
+  return createMicrosoftIdentityRuntime(deps).control;
 }

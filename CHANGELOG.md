@@ -1,5 +1,14 @@
 # Changelog
 
+## msteams 0.5.35 - 2026-08-31
+
+- Resolve delegated Microsoft 365 access from the verified Elowen account on every surface, so web chat, linked platform chats and personal scheduled jobs share the same configured read/write capabilities.
+
+## cronjob 0.2.8 - 2026-08-31
+
+- Show each personal job's owner with their avatar, display name and account ID in the admin jobs register.
+- Require Elowen 0.28.22 so personal jobs carry the owner's verified scheduled identity through every delivery path.
+
 ## sites 0.7.4 - 2026-08-31
 
 - Move site search, visibility and status filters into the canonical condensed page toolbar.

@@ -35,7 +35,7 @@
     "ssoDefaultModel": { "label": "Preferovaný model nových účtov", "hint": "Preferovaný model nastavený novému účtu. Prázdna hodnota ho nenastaví." },
     "ssoDefaultPlugins": { "label": "Povolené pluginy nových účtov", "hint": "Pluginy s riadeným prístupom, ktoré budú novému účtu povolené." },
     "ssoAllowedTools": { "label": "Pridelené nástroje nových účtov", "hint": "Nástroje, ktoré bude nový účet smieť používať. Prázdny výber nepridelí žiadny, takže účet nebude mať až do pridelenia správcom k dispozícii žiadny nástroj pluginu." },
-    "sec_m365": { "label": "Nástroje Microsoft 365", "hint": "Delegované nástroje Graph vždy konajú v mene prihlásenej osoby a fungujú iba v jej osobnom chate Teams. Tokeny zostávajú v službe Bot Framework Token Service." },
+    "sec_m365": { "label": "Nástroje Microsoft 365", "hint": "Delegované nástroje Graph vždy konajú v mene prepojeného účtu Elowen a fungujú všade, kde ich tento účet smie používať, vrátane osobných naplánovaných úloh. Tokeny zostávajú v službe Bot Framework Token Service." },
     "m365AccessMode": { "label": "Prístup k Microsoft 365", "hint": "Režim iba na čítanie blokuje všetky externé zmeny. Čítanie a zápis aj naďalej najskôr zobrazí náhľad a zmenu vykoná až po výslovnom potvrdení konkrétnej operácie.", "options": { "read_only": "Iba na čítanie", "read_write": "Čítanie a zápis" } },
     "m365MaxTransferBytes": { "label": "Limit prenosu súborov Microsoft", "hint": "Najväčší súbor, ktorý možno jedným volaním stiahnuť z Microsoft 365 alebo doň nahrať. Väčšie súbory používajú obnoviteľnú reláciu nahrávania Microsoft." },
     "agentName": {

@@ -1,8 +1,8 @@
 {
   "name": "msteams",
-  "version": "0.5.34",
+  "version": "0.5.35",
   "apiVersion": "1",
-  "requiresCore": "0.28.21",
+  "requiresCore": "0.28.22",
   "requiresSharedApi": 3,
   "capabilities": {
     "reads": [
@@ -312,7 +312,7 @@
       "key": "sec_m365",
       "label": "Microsoft 365 tools",
       "type": "section",
-      "hint": "Delegated Graph tools always act as the signed-in person and are available only inside that person's personal Teams chat. Tokens remain in Bot Framework Token Service."
+      "hint": "Delegated Graph tools always act as the linked Elowen account and are available anywhere that account can use them, including personal scheduled jobs. Tokens remain in Bot Framework Token Service."
     },
     {
       "key": "m365AccessMode",

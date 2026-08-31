@@ -9,12 +9,21 @@ import type { ComponentType, ReactNode } from 'react';
 
 // ---- data shapes (structural mirrors of the daemon's wire types) --------------------------------
 
+interface CronJobOwner {
+  id: number;
+  username: string;
+  name: string;
+  avatar: string;
+}
+
 export interface CronJob {
   id: string; name: string; schedule: string; prompt: string;
   check?: string; hours?: string; notifyChannelId?: string; plain?: boolean;
   model?: { provider: string; model: string };
   /** The account this job belongs to; absent/null = an instance job (admin-created, admin-powered). */
   ownerUserId?: number | null;
+  /** Read-only display projection supplied by GET; never persisted or returned in PUT payloads. */
+  owner?: CronJobOwner;
   enabled?: boolean; runAt?: string; createdAt?: string; lastRun?: string; lastResult?: string;
 }
 export interface NotificationDestinationOption {
@@ -69,6 +78,7 @@ interface CronUtils {
 type AnyComponent = ComponentType<any>;
 
 interface CronComponents {
+  Avatar: AnyComponent;
   Badge: AnyComponent; Button: AnyComponent; Input: AnyComponent; Field: AnyComponent; Toggle: AnyComponent;
   ConfirmDialog: AnyComponent; AutoSaveStatus: AnyComponent; LoadingState: AnyComponent; ErrorState: AnyComponent;
   ManageSelectionModal: AnyComponent; SelectionSummary: AnyComponent; BrainModelField: AnyComponent;

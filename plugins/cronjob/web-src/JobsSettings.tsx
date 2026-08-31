@@ -303,8 +303,9 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const autosave = hooks.useAutoSaveStatus([draft], async () => {
     if (deleted.current) return;
     const sent = draftRef.current;
+    const { owner: _owner, ...payload } = sent;
     everSaved.current = true;
-    const request = save.mutateAsync(sent);
+    const request = save.mutateAsync(payload);
     inFlight.current = request;
     try {
       await request;
@@ -389,7 +390,17 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
           </C.Badge>
         </C.DataTableCell>
         {ownerLabel !== null ? (
-          <C.DataTableCell lines={1} priority="wide" className="text-xs text-muted-foreground">{ownerLabel}</C.DataTableCell>
+          <C.DataTableCell lines={1} priority="wide" className="text-xs text-muted-foreground">
+            {job.owner ? (
+              <span className="flex min-w-0 items-center gap-2" title={`${job.owner.name} (#${job.owner.id})`}>
+                <C.Avatar name={job.owner.name || job.owner.username} user={job.owner} size={22} />
+                <span className="flex min-w-0 flex-col leading-tight">
+                  <span className="truncate text-xs font-medium text-foreground">{job.owner.name || job.owner.username}</span>
+                  <span className="text-[10px] text-muted-foreground">#{job.owner.id}</span>
+                </span>
+              </span>
+            ) : ownerLabel}
+          </C.DataTableCell>
         ) : null}
         {/* Destination: one line that truncates, full name on hover. A channel or thread title can be far
             longer than the column, and wrapping it pushed every other row out of alignment. Shown only to
@@ -639,7 +650,7 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
           closed exists nowhere else. */}
       <C.DataTable
         ariaLabel={s.title}
-        columns={isAdmin ? '2rem minmax(0,1fr) 9.5rem 7rem minmax(0,12rem) 7rem 4.5rem 1.25rem' : '2rem minmax(0,1fr) 9.5rem 7rem 4.5rem 1.25rem'}
+        columns={isAdmin ? '2rem minmax(0,1fr) 9.5rem minmax(9rem,11rem) minmax(0,12rem) 7rem 4.5rem 1.25rem' : '2rem minmax(0,1fr) 9.5rem 7rem 4.5rem 1.25rem'}
         compactColumns="minmax(0,1fr) 4.5rem 1.25rem"
       >
         <C.DataTableRow header>
@@ -665,7 +676,7 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
             key={job.id}
             job={job}
             persisted={saved.has(job.id)}
-            ownerLabel={isAdmin ? (job.ownerUserId == null ? s.ownerInstance : job.ownerUserId === myId ? s.ownerMine : `#${job.ownerUserId}`) : null}
+            ownerLabel={isAdmin ? (job.ownerUserId == null ? s.ownerInstance : `#${job.ownerUserId}`) : null}
             adminFields={isAdmin}
             myId={myId}
             destinations={destinations.data ?? []}

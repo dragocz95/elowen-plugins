@@ -122,6 +122,20 @@ export class TeamsAccountLinking {
     return safeProfile(profile);
   }
 
+  async verifiedSession(identity, signInMessage) {
+    const token = await this.tokenForUser(identity.teamsUserId);
+    if (!token) throw new TeamsAccountError('sign_in_required', signInMessage);
+    const claims = claimsOf(token);
+    if (normalized(claims.tid) !== identity.tenantId) {
+      throw new TeamsAccountError('wrong_tenant', 'This Microsoft account does not belong to the configured organisation.');
+    }
+    if (!claims.oid || normalized(claims.oid) !== identity.objectId) {
+      throw new TeamsAccountError('identity_mismatch', 'The signed-in Microsoft account does not match the linked Teams identity.');
+    }
+    const profile = await this.profileFor(token, identity);
+    return { token, profile, subjectId: identity.objectId, tenantId: identity.tenantId };
+  }
+
   async authenticate(activity, { magicCode } = {}) {
     const identity = this.validateActivity(activity);
     const token = await this.tokenForUser(identity.teamsUserId, magicCode);
@@ -163,13 +177,34 @@ export class TeamsAccountLinking {
     if (currentIdentity?.platform !== 'msteams' || normalized(currentIdentity?.userId) !== scoped.identity.objectId) {
       throw new TeamsAccountError('turn_identity_mismatch', 'Microsoft 365 access is not available outside the verified Teams sender turn.');
     }
-    scoped.session ??= (async () => {
-      const token = await this.tokenForUser(scoped.identity.teamsUserId);
-      if (!token) throw new TeamsAccountError('sign_in_required', 'Microsoft sign-in expired. Send a new message in the personal Teams chat and sign in again.');
-      const profile = await this.profileFor(token, scoped.identity);
-      return { token, profile, subjectId: scoped.identity.objectId, tenantId: scoped.identity.tenantId };
-    })();
+    scoped.session ??= this.verifiedSession(
+      scoped.identity,
+      'Microsoft sign-in expired. Send a new message in the personal Teams chat and sign in again.',
+    );
     return scoped.session;
+  }
+
+  /** Mint a fresh delegated session for host-verified work owned by one Elowen account. */
+  async delegatedSessionForPerson(person, expectedElowenUserId) {
+    const objectId = normalized(person?.aad);
+    const teamsUserId = String(person?.id ?? '').trim();
+    const tenantId = normalized(this.cfg.tenantId);
+    if (!Number.isSafeInteger(expectedElowenUserId) || expectedElowenUserId <= 0 || !objectId || !teamsUserId) {
+      throw new TeamsAccountError('missing_identity', 'This Elowen account has no verified Microsoft Teams identity.');
+    }
+    const boundBefore = this.bindingFor(objectId);
+    if (boundBefore?.user?.id !== expectedElowenUserId) {
+      throw new TeamsAccountError('identity_mismatch', 'The Microsoft identity is not linked to this Elowen account.');
+    }
+    const session = await this.verifiedSession(
+      { objectId, teamsUserId, tenantId },
+      'Microsoft sign-in expired. Open the personal Teams chat and sign in again.',
+    );
+    // Re-check after the network boundary so an unlink/rebind racing the token/profile lookup fails closed.
+    if (this.bindingFor(objectId)?.user?.id !== expectedElowenUserId) {
+      throw new TeamsAccountError('identity_mismatch', 'The Microsoft identity link changed while access was being verified.');
+    }
+    return session;
   }
 
   bindingFor(objectId) {
@@ -195,11 +230,12 @@ export class TeamsAccountLinking {
     const teamsUserId = String(person?.id ?? '').trim();
     const binding = this.bindingFor(objectId);
     if (!objectId || !teamsUserId) return { linked: Boolean(binding), ...(binding ?? {}), signedIn: false };
-    const token = await this.tokenForUser(teamsUserId).catch(() => null);
-    if (!token) return { linked: Boolean(binding), ...(binding ?? {}), signedIn: false };
     try {
-      const profile = await this.profileFor(token, { objectId, tenantId: normalized(this.cfg.tenantId), teamsUserId });
-      return { linked: Boolean(binding), ...(binding ?? {}), signedIn: true, verifiedAt: new Date().toISOString(), profile };
+      const session = await this.verifiedSession(
+        { objectId, tenantId: normalized(this.cfg.tenantId), teamsUserId },
+        'Microsoft sign-in expired.',
+      );
+      return { linked: Boolean(binding), ...(binding ?? {}), signedIn: true, verifiedAt: new Date().toISOString(), profile: session.profile };
     } catch (error) {
       this.log?.warn?.(`msteams delegated account status: ${error?.message ?? error}`);
       return { linked: Boolean(binding), ...(binding ?? {}), signedIn: false };

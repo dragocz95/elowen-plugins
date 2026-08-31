@@ -10,7 +10,7 @@ import { PeopleDirectory } from './lib/directory.mjs';
 import { TeamsAccountLinking } from './lib/accountLinking.mjs';
 import { registerTools } from './lib/tools.mjs';
 import { registerMicrosoftTools } from './lib/microsoftTools.mjs';
-import { createMicrosoftIdentityControl } from './lib/identityControl.mjs';
+import { createMicrosoftIdentityRuntime } from './lib/identityControl.mjs';
 import { platformImageDirs } from 'elowen-plugin-shared/images';
 
 export { matchesId, matchPolicy, senderIds, senderIsAdmin, displayNameOf } from './lib/ids.mjs';
@@ -213,13 +213,12 @@ export function register(ctx) {
   ctx.registerHttpRoute({ path: 'messages', handler: (req) => adapter.handleWebhook(req) });
   ctx.registerPlatform(adapter);
   registerTools(ctx, adapter);
-  registerMicrosoftTools(ctx, accountLinking, config);
+  const microsoftIdentity = accountLinking
+    ? createMicrosoftIdentityRuntime({ linking: accountLinking, people, logger: ctx.logger })
+    : null;
+  registerMicrosoftTools(ctx, microsoftIdentity, config);
   // Microsoft identity as a domain other plugins can build on. Registered ONLY with a working delegated
   // connection, so a sibling asking for it sees "no owner" rather than a control that answers null forever.
-  if (accountLinking) {
-    ctx.registerControl('microsoftIdentity', createMicrosoftIdentityControl({
-      linking: accountLinking, people, logger: ctx.logger,
-    }));
-  }
+  if (microsoftIdentity) ctx.registerControl('microsoftIdentity', microsoftIdentity.control);
   ctx.logger.info('msteams platform registered (webhook /hooks/msteams/messages + Teams and delegated Microsoft 365 tools)');
 }

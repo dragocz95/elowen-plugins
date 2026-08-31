@@ -155,10 +155,10 @@ function mutationGate(cfg, p, preview) {
   return { result: null };
 }
 
-function clientFor(ctx, linking, cfg) {
+function clientFor(ctx, identityRuntime, cfg) {
   return async () => {
-    if (!linking) throw new Error('Microsoft account linking is not configured.');
-    const session = await linking.delegatedSession(ctx.currentIdentity?.());
+    if (!identityRuntime) throw new Error('Microsoft account linking is not configured.');
+    const session = await identityRuntime.sessionForIdentity(ctx.currentIdentity?.());
     return { graph: new DelegatedGraphClient(session.token, { outputLimit: 20_000 }), session, cfg };
   };
 }
@@ -173,8 +173,8 @@ function register(ctx, name, label, description, execute) {
   }));
 }
 
-export function registerMicrosoftTools(ctx, linking, cfg) {
-  const get = clientFor(ctx, linking, cfg);
+export function registerMicrosoftTools(ctx, identityRuntime, cfg) {
+  const get = clientFor(ctx, identityRuntime, cfg);
 
   register(ctx, 'MicrosoftDirectory', 'Microsoft directory',
     'Read the signed-in user, relevant people, Entra users, organisation chart, group memberships and group members. Actions: me, search_people, get_user, org_chart, memberships, get_group, group_members.',

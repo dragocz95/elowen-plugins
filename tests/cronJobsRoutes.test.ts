@@ -31,6 +31,21 @@ function setup(opts: { enabled?: string[]; config?: Record<string, Record<string
   // The '/plugins/cronjob/jobs' surface is served by the REAL cronjob plugin (root mounts) now.
   const provider = new PluginRegistryProvider(() => loadPlugins({
     dirs: [pluginsDir], enabled: opts.enabled ?? ['cronjob'], dataRoot, config: opts.config,
+    host: {
+      stores: {
+        usersRead: {
+          list: () => users.list().map((user) => ({
+            id: user.id, username: user.username, name: user.name, avatar: user.avatar, isAdmin: user.is_admin,
+          })),
+          isAdmin: (id: number) => users.isAdmin(id),
+          allowedExecs: (id: number) => users.list().find((user) => user.id === id)?.allowed_execs ?? null,
+          mayUsePlugin: (id: number, plugin: string) => {
+            const user = users.list().find((candidate) => candidate.id === id);
+            return user?.is_admin === true || user?.granted_plugins.includes(plugin) === true;
+          },
+        },
+      },
+    } as never,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   }));
   const app = createServer({
@@ -42,7 +57,7 @@ function setup(opts: { enabled?: string[]; config?: Record<string, Record<string
     plugins: provider,
   });
   return {
-    app, dataRoot, users, amy,
+    app, dataRoot, db, users, amy,
     adminTok: opts.noUsers ? '' : users.issueToken(admin.id),
     amyTok: opts.noUsers ? '' : users.issueToken(amy.id),
   };
@@ -283,6 +298,27 @@ describe('cron jobs routes', () => {
     expect((await app.request('/plugins/cronjob/jobs/shared', del(amyTok))).status).toBe(403);
     const still = (await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json()) as { id: string; name: string }[];
     expect(still.find((j) => j.id === 'shared')?.name).toBe('instance job');
+  });
+
+  it('enriches visible owned jobs with a safe display profile and never persists that view metadata', async () => {
+    const { app, dataRoot, db, users, amy, adminTok, amyTok } = setup();
+    users.setGrantedPlugins(amy.id, ['cronjob']);
+    db.prepare('UPDATE users SET name = ?, email = ?, avatar = ? WHERE id = ?')
+      .run('Amy Adams', 'amy-secret@example.test', 'amy.png', amy.id);
+    expect((await save(app, amyTok, job({ id: 'mine', name: 'Amy job' }))).status).toBe(200);
+
+    const adminRows = await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json() as Record<string, unknown>[];
+    expect(adminRows).toEqual([expect.objectContaining({
+      id: 'mine', ownerUserId: amy.id,
+      owner: { id: amy.id, username: 'amy', name: 'Amy Adams', avatar: 'amy.png' },
+    })]);
+    expect(JSON.stringify(adminRows)).not.toContain('amy-secret@example.test');
+
+    const mineRows = await (await app.request('/plugins/cronjob/jobs', auth(amyTok))).json() as Record<string, unknown>[];
+    expect(mineRows[0]).toHaveProperty('owner.name', 'Amy Adams');
+
+    expect((await save(app, amyTok, { ...job({ id: 'mine', name: 'Edited' }), owner: { id: 999, name: 'Forged' } })).status).toBe(200);
+    expect(onDisk(dataRoot)[0]).not.toHaveProperty('owner');
   });
 
   // `originSessionId` names the conversation a job was scheduled FROM and beats every other delivery

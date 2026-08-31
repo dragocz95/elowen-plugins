@@ -13,28 +13,30 @@ afterEach(async () => {
 
 type Tool = { description: string; execute(id: string, params: Record<string, unknown>): Promise<{ content: { text: string }[] }> };
 
-function harness(config: Record<string, unknown> = { m365AccessMode: 'read_write' }, subjectId = 'aad-1') {
+function harness(
+  config: Record<string, unknown> = { m365AccessMode: 'read_write' },
+  subjectId = 'aad-1',
+  identity: Record<string, unknown> = { platform: 'msteams', userId: subjectId, elowenUserId: 7 },
+) {
   const tools = new Map<string, Tool>();
-  const linking = {
-    delegatedSession: vi.fn(async () => ({
-      token: 'delegated-secret-token',
-      subjectId,
-      tenantId: 'tenant-1',
-      profile: { id: subjectId, displayName: 'Alex' },
-    })),
-  };
+  const sessionForIdentity = vi.fn(async () => ({
+    token: 'delegated-secret-token',
+    subjectId,
+    tenantId: 'tenant-1',
+    profile: { id: subjectId, displayName: 'Alex' },
+  }));
   const ctx = {
-    currentIdentity: () => ({ platform: 'msteams', userId: subjectId, elowenUserId: 7 }),
+    currentIdentity: () => identity,
     currentWorkDir: () => tempRoot,
     host: { projectFiles: () => ({ safe: (_root: string, path: string) => `${tempRoot}/${path}` }) },
     registerTool: (tool: Tool & { name: string }) => tools.set(tool.name, tool),
   };
-  registerMicrosoftTools(ctx, linking, config);
+  registerMicrosoftTools(ctx, { sessionForIdentity }, config);
   const run = async (name: string, params: Record<string, unknown>) => {
     const result = await tools.get(name)!.execute('call-1', params);
     return result.content.map((item) => item.text).join('\n');
   };
-  return { tools, linking, run };
+  return { tools, sessionForIdentity, run };
 }
 
 describe('delegated Microsoft 365 tools', () => {
@@ -50,11 +52,26 @@ describe('delegated Microsoft 365 tools', () => {
     globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ id: 'aad-1', displayName: 'Alex' }), {
       status: 200, headers: { 'content-type': 'application/json' },
     }));
-    const { linking, run } = harness();
+    const { sessionForIdentity, run } = harness();
     const text = await run('MicrosoftDirectory', { action: 'me' });
-    expect(linking.delegatedSession).toHaveBeenCalledWith(expect.objectContaining({ platform: 'msteams', userId: 'aad-1' }));
+    expect(sessionForIdentity).toHaveBeenCalledWith(expect.objectContaining({ platform: 'msteams', userId: 'aad-1' }));
     expect(text).toContain('Alex');
     expect(text).not.toContain('delegated-secret-token');
+  });
+
+  it('gives a personal scheduled turn the same configured Microsoft write access as the user chat', async () => {
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      expect(init?.method).toBe('POST');
+      return new Response(null, { status: 202 });
+    });
+    const identity = { platform: 'cron', userId: 'cron', elowenUserId: 7, automation: 'scheduled' };
+    const { run, sessionForIdentity } = harness({ m365AccessMode: 'read_write' }, 'aad-1', identity);
+    const text = await run('MicrosoftOutlook', {
+      resource: 'mail', action: 'send', to: ['person@example.com'], subject: 'Hello', body: 'World', commit: true,
+    });
+    expect(text).toContain('"sent": true');
+    expect(sessionForIdentity).toHaveBeenCalledWith(identity);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('shows permission context only for classified authorization failures', async () => {

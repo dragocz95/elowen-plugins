@@ -170,6 +170,41 @@ describe('TeamsAccountLinking', () => {
       .rejects.toMatchObject({ code: 'personal_turn_required' });
   });
 
+  it('mints fresh verified sessions for a durably bound account outside a Teams activity', async () => {
+    const { linking, tokenClient } = harness();
+    const person = { aad: OBJECT_ID, id: '29:teams-user' };
+    await expect(linking.delegatedSessionForPerson(person, 7)).resolves.toMatchObject({
+      subjectId: OBJECT_ID, tenantId: TENANT, profile: { id: OBJECT_ID },
+    });
+    await linking.delegatedSessionForPerson(person, 7);
+    expect(tokenClient.getUserToken).toHaveBeenCalledTimes(2); // never cached across unattended tool calls
+  });
+
+  it('refuses offline access before token lookup when the durable account binding does not match', async () => {
+    const { linking, tokenClient } = harness();
+    await expect(linking.delegatedSessionForPerson({ aad: OBJECT_ID, id: '29:teams-user' }, 8))
+      .rejects.toMatchObject({ code: 'identity_mismatch' });
+    expect(tokenClient.getUserToken).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the durable binding after token/profile verification', async () => {
+    const { linking, externalUsers } = harness();
+    vi.mocked(externalUsers.describe)
+      .mockReturnValueOnce({ user: { id: 7, username: 'alex', isAdmin: false }, linkedAt: 'before' })
+      .mockReturnValueOnce({ user: { id: 8, username: 'other', isAdmin: false }, linkedAt: 'after' });
+    await expect(linking.delegatedSessionForPerson({ aad: OBJECT_ID, id: '29:teams-user' }, 7))
+      .rejects.toMatchObject({ code: 'identity_mismatch' });
+  });
+
+  it('applies tenant, subject and profile checks to offline delegated sessions too', async () => {
+    await expect(harness({ accessToken: token({ tid: 'other' }) }).linking
+      .delegatedSessionForPerson({ aad: OBJECT_ID, id: '29:teams-user' }, 7)).rejects.toMatchObject({ code: 'wrong_tenant' });
+    await expect(harness({ accessToken: token({ oid: 'other' }) }).linking
+      .delegatedSessionForPerson({ aad: OBJECT_ID, id: '29:teams-user' }, 7)).rejects.toMatchObject({ code: 'identity_mismatch' });
+    await expect(harness({ profile: { id: OBJECT_ID, userType: 'Guest', accountEnabled: true } }).linking
+      .delegatedSessionForPerson({ aad: OBJECT_ID, id: '29:teams-user' }, 7)).rejects.toMatchObject({ code: 'not_member' });
+  });
+
   it('isolates concurrent delegated turns by immutable Entra subject', async () => {
     const otherObjectId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     const { linking } = harness();

@@ -108,15 +108,18 @@ describe('cronjob JobsSettings — error state', () => {
   it('shows the admin who owns each job and filters by scope', async () => {
     use(http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([
       job({ id: 'shared', name: 'instance digest' }),
-      job({ id: 'mine', name: 'my digest', ownerUserId: 7 }),
-      job({ id: 'hers', name: 'her digest', ownerUserId: 9 }),
+      job({ id: 'mine', name: 'my digest', ownerUserId: 7, owner: { id: 7, username: 'filip', name: 'Filip Džudža', avatar: '7.png' } }),
+      job({ id: 'hers', name: 'her digest', ownerUserId: 9, owner: { id: 9, username: 'amy', name: 'Amy Adams', avatar: '9.png' } }),
     ])));
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
     await screen.findByText('instance digest');
     expect(screen.getAllByText(strings.ownerInstance).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(strings.ownerMine).length).toBeGreaterThan(0);
+    expect(screen.getByText('Filip Džudža')).toBeInTheDocument();
+    expect(screen.getByText('#7')).toBeInTheDocument();
+    expect(screen.getByText('Amy Adams')).toBeInTheDocument();
     expect(screen.getByText('#9')).toBeInTheDocument();
+    expect(screen.getByTitle('Amy Adams (#9)')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('page-filters-trigger'));
     const filters = screen.getByRole('dialog', { name: 'Filters' });
@@ -295,12 +298,16 @@ describe('cronjob JobsSettings writes', () => {
 
   it('saves only the job that was edited', async () => {
     const writes: { id: string; body: unknown }[] = [];
-    mount([job({}), job({ id: 'j2', name: 'other' })], writes, []);
+    mount([
+      job({ ownerUserId: 7, owner: { id: 7, username: 'filip', name: 'Filip Džudža', avatar: '7.png' } }),
+      job({ id: 'j2', name: 'other' }),
+    ], writes, []);
     await openRow('digest');
     fireEvent.change(screen.getByPlaceholderText('morning-digest'), { target: { value: 'renamed' } });
     await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
     expect(writes[0]?.id).toBe('j1');
-    expect(writes[0]?.body).toMatchObject({ id: 'j1', name: 'renamed' });
+    expect(writes[0]?.body).toMatchObject({ id: 'j1', name: 'renamed', ownerUserId: 7 });
+    expect(writes[0]?.body).not.toHaveProperty('owner');
   });
 
   it('changes builder modes with standard segmented keyboard semantics', async () => {

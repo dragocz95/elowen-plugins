@@ -1044,9 +1044,24 @@ export function register(ctx) {
       let jobs;
       try { jobs = readJobsStrict(); }
       catch { return jsonRes([]); } // a read-only view may show an unreadable file as empty; a write may not
-      // The admin sees every job (with its owner) because he is the one who has to know what this machine
-      // runs; everyone else sees exactly their own.
-      return jsonRes(req.auth.admin ? jobs : jobs.filter((j) => ownerOf(j) === req.auth.userId));
+      // Filter FIRST, then enrich only the rows this caller may see. The host's PluginUserView is already a
+      // safe projection; copy its four display fields explicitly so future additions cannot widen this API.
+      const visible = req.auth.admin ? jobs : jobs.filter((j) => ownerOf(j) === req.auth.userId);
+      let owners = new Map();
+      try {
+        owners = new Map(ctx.host.stores().usersRead.list().map((user) => [user.id, {
+          id: user.id,
+          username: user.username,
+          name: String(user.name ?? '').trim() || user.username,
+          avatar: user.avatar || '',
+        }]));
+      } catch (error) {
+        ctx.logger.warn(`could not read cron job owner profiles (${error instanceof Error ? error.message : error})`);
+      }
+      return jsonRes(visible.map((job) => {
+        const owner = ownerOf(job);
+        return owner !== null && owners.has(owner) ? { ...job, owner: owners.get(owner) } : job;
+      }));
     },
   });
 
