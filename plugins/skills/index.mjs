@@ -29,14 +29,13 @@ const RESERVED_NAMES = new Set(['config', 'icon', 'logs', 'contributions', 'hook
  *  gone, it is a dangling link, it is unreadable — answers null, because an uncheckable path is not a
  *  contained one and a containment check must never fail open. */
 function canonicalWithin(root, path) {
-  let base;
   let abs;
-  try {
-    base = realpathSync(root);
-    abs = realpathSync(path);
-  } catch { return null; }
-  if (abs === base) return abs;
-  return abs.startsWith(base + sep) ? abs : null;
+  try { abs = realpathSync(path); } catch { return null; }
+  // `root` is already canonical and PINNED by the host at registration time (or by ownerScopeRoot for the
+  // account boundary). Never realpath it again: replacing that exact directory with a symlink later would
+  // otherwise move both sides of the comparison together and turn the containment check into an approval.
+  if (abs === root) return abs;
+  return abs.startsWith(root + sep) ? abs : null;
 }
 
 /** Index the visible (model-invocable) skills of one set by name, alongside the names the set deliberately
@@ -83,46 +82,32 @@ function refuseSkill(wanted, loadable, manualOnly) {
       + `/skill:${wanted}. SkillLoad cannot open it. Loadable skills are: ${nameList(loadable.keys())}.`;
   }
   if (loadable.size === 0) {
-    return `No skill named "${wanted}" is loadable in this session, and SkillLoad currently manages none at `
-      + 'all. Any skill in the available-skills list belongs to another plugin — open it with Read at the '
-      + 'path shown there.';
+    return `No skill named "${wanted}" is loadable in this session, and no model-invocable skill is currently available.`;
   }
   return `No skill named "${wanted}" is available in this session. SkillLoad can load exactly these: `
-    + `${nameList(loadable.keys())}. A skill in the available-skills list that is absent from that set is `
-    + 'contributed by another plugin — open it with Read at the path shown there.';
+    + `${nameList(loadable.keys())}.`;
 }
 
-/** ONE instance-wide loader over every set this plugin owns, resolving WHOSE personal skills the call may
- *  open at execute time — the same shape the memory tools use, and for the same reason.
- *
- *  It used to be one registered definition per account, selected by PluginRegistry.toolsFor() from the
- *  session's owner. That works only where a session has ONE owner. A shared room has none: its sender
- *  changes turn to turn while its tool set is fixed at spawn, so every room fell back to the instance
- *  definition and a colleague's own skills did not exist there at all — for them or for anyone.
- *
- *  The caller comes from `ctx.currentContributionUserId()`, which the host resolves once per turn and uses
- *  for its OWN available-skills announcement, so this tool offers exactly the set the model was told about.
- *  Deliberately not `currentIdentity().elowenUserId`: a delegated sub-agent carries no account identity yet
- *  legitimately inherits the skills of the turn that spawned it, and reading identity there would announce
- *  a skill and then refuse to open it. Outside a turn, or for an unlinked sender / accountless automation,
- *  it answers null and only the instance set is reachable. */
-function buildSkillLoadTool(ctx, instanceSkills, personalSkills, personalScopeRoot) {
+/** ONE instance-wide loader over the merged registry's live skill catalog. The host resolves the current
+ *  contribution owner once per turn and applies both personal ownership and plugin grants before returning
+ *  the list, so this tool can load exactly what the model's available-skills block announced — including
+ *  skills contributed by sibling plugins. The control is REQUIRED: silently falling back to this plugin's
+ *  local files would recreate the split-brain catalog this tool exists to prevent. */
+function buildSkillLoadTool(ctx, personalSkills, personalScopeRoot) {
   const logger = ctx.logger;
-  const instance = indexVisible(instanceSkills, logger);
   const personal = new Map();
   for (const [ownerUserId, owned] of personalSkills) personal.set(ownerUserId, indexVisible(owned, logger));
-  const anyPersonal = [...personal.values()].some((set) => set.byName.size > 0);
-  if (instance.byName.size === 0 && !anyPersonal) return null;
-
-  /** A personal definition shadows an instance one of the same name, inside that account's turns only —
-   *  the precedence PluginRegistry.toolsFor() applied when this was still one tool per owner. */
-  const visibleTo = (ownerUserId) => {
-    const owned = ownerUserId == null ? undefined : personal.get(ownerUserId);
-    return owned && owned.byName.size ? new Map([...instance.byName, ...owned.byName]) : instance.byName;
-  };
-  const manualOnlyTo = (ownerUserId) => {
-    const owned = ownerUserId == null ? undefined : personal.get(ownerUserId);
-    return owned && owned.manualOnly.size ? new Set([...instance.manualOnly, ...owned.manualOnly]) : instance.manualOnly;
+  const visibleCatalog = () => {
+    const control = ctx.control?.('skillCatalog');
+    if (!control || typeof control.visibleSkills !== 'function' || typeof control.canonicalBaseDir !== 'function') {
+      throw new SkillLoadError('The live skill catalog is unavailable, so SkillLoad cannot safely decide which skill belongs to this turn. Continue without it and tell the user.');
+    }
+    try {
+      return { ...indexVisible(control.visibleSkills(), logger), control };
+    } catch (error) {
+      logger.warn(`live skill catalog failed: ${error instanceof Error ? error.message : error}`);
+      throw new SkillLoadError('The live skill catalog failed, so SkillLoad cannot safely decide which skill belongs to this turn. Continue without it and tell the user.');
+    }
   };
 
   // A free-form string, always — deliberately NOT an enum of the installed names.
@@ -133,9 +118,9 @@ function buildSkillLoadTool(ctx, instanceSkills, personalSkills, personalScopeRo
   // prompt. So the schema's SHAPE used to flip — enum or string — on unrelated state, which is exactly the
   // kind of divergence that bites silently.
   //
-  // It also could not be made correct. The host announces skills contributed by OTHER plugins, and
-  // manual-only skills, neither of which this tool can load; no enum built here can mirror that list. And
-  // an enum failure is unrecoverable in the worst way: the call is rejected by schema validation before
+  // It also could not be made correct. The host catalog is filtered per turn and includes personal,
+  // grant-gated and manual-only skills, so no static enum built at plugin registration can mirror it. An
+  // enum failure is unrecoverable in the worst way: the call is rejected by schema validation before
   // execute() runs, so the model never reads the message that would have told it what to call instead. It
   // just sees "must be equal to constant" — which does not even name the constant — and guesses again.
   // Seven recorded SkillLoad failures were exactly that.
@@ -148,35 +133,36 @@ function buildSkillLoadTool(ctx, instanceSkills, personalSkills, personalScopeRo
   return defineTool({
     name: 'SkillLoad', label: 'Load skill',
     description: [
-      'Load the complete instructions for one available skill managed by the skills plugin, using an exact name from the available-skills list.',
-      'Prefer this tool over Read for a skill it can load; skills contributed by other plugins remain loadable through Read at the location shown in the available-skills list.',
-      'The result includes the skill directory used to resolve relative paths in its instructions.',
-      'Personal skills remain limited to their owner and instance skills are shared. Manual-only skills are omitted; only the user can invoke one explicitly with /skill:<name>.',
+      'Load the complete instructions for any model-invocable skill in the available-skills list, including skills contributed by other plugins.',
+      'Pass the exact listed name. The result includes the canonical skill directory used to resolve relative paths in its instructions.',
+      'Personal skills and grant-gated plugin skills remain limited to the current contribution owner. Manual-only skills are refused; only the user can invoke one explicitly with /skill:<name>.',
     ].join(' '),
     parameters: Type.Object({ name }),
     execute: async (_id, params) => {
       const owner = ctx.currentContributionUserId();
-      const loadable = visibleTo(owner);
+      const { byName: loadable, manualOnly, control } = visibleCatalog();
       const wanted = String(params.name ?? '').trim();
       const skill = loadable.get(wanted);
-      if (!skill) throw new SkillLoadError(refuseSkill(wanted, loadable, manualOnlyTo(owner)));
-      // A personal skill is re-checked HERE, and the canonical path is what gets read. The scan that
-      // registered it proved where the file was at load time, which is not the same as where the name
-      // points now — a plugin load can be hours old. Reading the already-resolved path rather than
-      // handing the announced one back to readFileSync also means the bytes come from the location that
-      // was actually verified, instead of from whatever the link chain resolves to a second time.
-      let file = skill.filePath;
+      if (!skill) throw new SkillLoadError(refuseSkill(wanted, loadable, manualOnly));
+
+      // Every advertised body is re-checked HERE, and the canonical path is what gets read. The host pins
+      // the canonical base directory at REGISTRATION time, so re-pointing the base symlink later cannot move
+      // the boundary. A local personal skill must satisfy BOTH boundaries: its base directory stays inside
+      // the account's store, and its file stays inside that registered base directory. This also preserves
+      // the correct directory for relative references in a directory-form skill.
+      let directory = control.canonicalBaseDir(skill);
       if (owner != null && personal.get(owner)?.byName.get(wanted) === skill) {
-        const root = personalScopeRoot(owner);
-        file = root === null ? null : canonicalWithin(root, skill.filePath);
-        if (file === null) {
-          logger.warn(`skill '${wanted}' no longer resolves inside account ${owner}'s skills directory — refused`);
-          throw new SkillLoadError(`The skill "${wanted}" is announced but its file is missing or unreadable, so it cannot be loaded. Continue without it and tell the user.`);
-        }
+        const accountRoot = personalScopeRoot(owner);
+        directory = accountRoot === null || directory === null ? null : canonicalWithin(accountRoot, directory);
+      }
+      const file = directory === null ? null : canonicalWithin(directory, skill.filePath);
+      if (file === null) {
+        logger.warn(`skill '${wanted}' no longer resolves inside its registered skill directory — refused`);
+        throw new SkillLoadError(`The skill "${wanted}" is announced but its file is missing or unreadable, so it cannot be loaded. Continue without it and tell the user.`);
       }
       try {
         const content = readFileSync(file, 'utf-8');
-        return ok(`Skill: ${skill.name}\nSkill directory: ${skill.baseDir}\n\n${content}`);
+        return ok(`Skill: ${skill.name}\nSkill directory: ${directory}\n\n${content}`);
       } catch (error) {
         logger.warn(`could not load skill '${skill.name}' from '${skill.filePath}': ${error instanceof Error ? error.message : error}`);
         throw new SkillLoadError(`The skill "${skill.name}" is announced but its file is missing or unreadable, so it cannot be loaded. Continue without it and tell the user.`);
@@ -302,21 +288,18 @@ export function register(ctx) {
 
   // ONE registered definition, instance-wide. The per-account variants it replaced could only ever be
   // selected by a session's OWNER, which no shared room has — so the loader now carries every set and
-  // decides per turn (see buildSkillLoadTool). Being an ordinary instance tool also puts it squarely under
-  // the writer's own tool grant: an account an admin never granted SkillLoad cannot reach their personal
-  // skills through it, which is exactly what the grant is for.
-  const skillLoader = buildSkillLoadTool(ctx, instanceSkills, personalSkills, ownerScopeRoot);
-  if (skillLoader) ctx.registerTool(skillLoader);
-  if (skillLoader) {
-    ctx.registerSystemPromptFragment([
-      '<skill_loading>',
-      'Prefer SkillLoad for any skill it manages, passing the name exactly as the available-skills list spells it.',
-      'Some available skills are contributed by other plugins and are not offered by SkillLoad; load those with Read at the location shown in the available-skills list.',
-      'If SkillLoad refuses a name, its error lists every skill it can load — take the name from that list rather than guessing another spelling.',
-      'SkillLoad returns the skill directory; resolve every relative reference in the instructions against that directory.',
-      '</skill_loading>',
-    ].join('\n'));
-  }
+  // decides per turn (see buildSkillLoadTool). The core announces skills only when this writer may use the
+  // loader, so granting a sibling plugin without granting the skills subsystem never creates a dead catalog.
+  const skillLoader = buildSkillLoadTool(ctx, personalSkills, ownerScopeRoot);
+  ctx.registerTool(skillLoader, { workspaceSafe: true });
+  ctx.registerSystemPromptFragment([
+    '<skill_loading>',
+    'Use SkillLoad for every model-invocable skill in the available-skills list, passing its exact name.',
+    'SkillLoad resolves the same per-turn catalog the host advertised, including grant-gated and plugin-contributed skills.',
+    'If SkillLoad refuses a name, use the loadable names in its error rather than guessing another spelling.',
+    'SkillLoad returns the skill directory; resolve every relative reference in the instructions against that directory.',
+    '</skill_loading>',
+  ].join('\n'));
 
   // An account is gone: drop its personal skills with it. Nothing else ever reaches this folder again
   // (the id is never handed out twice — see db.ts's user-sequence guard), so leaving it behind would
