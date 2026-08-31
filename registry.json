@@ -14,7 +14,7 @@
     },
     {
       "name": "cronjob",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "description": "Scheduler: recurring prompts, one-shot wake-ups and shell collectors that wake the agent on a schedule, with a jobs screen in Settings.",
       "category": "automation",
       "author": "Elowen",

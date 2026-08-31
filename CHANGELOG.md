@@ -1,5 +1,9 @@
 # Changelog
 
+## cronjob 0.2.7 - 2026-08-31
+
+- Move search, status and ownership filters into the canonical condensed page toolbar.
+
 ## stats 0.2.3 - 2026-08-31
 
 - Apply date ranges across every metric, restore the shared chart palette and unify search with condensed filters.

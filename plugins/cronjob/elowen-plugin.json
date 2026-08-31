@@ -1,6 +1,6 @@
 {
   "name": "cronjob",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "apiVersion": "1",
   "requiresCore": "0.28.21",
   "requiresSharedApi": 3,
