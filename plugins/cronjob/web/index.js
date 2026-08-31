@@ -563,7 +563,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", "aria-hidden": true, className: "flex items-center justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             "span",
             {
-              className: `h-2 w-2 rounded-full ${enabled ? "bg-success" : "bg-muted-foreground/50"}`,
+              className: `h-2 w-2 rounded-full ${enabled ? "bg-success" : "bg-destructive"}`,
               title: enabled ? s.enabled : s.paused
             }
           ) }),
