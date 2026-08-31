@@ -48,7 +48,7 @@ describe('msteams owner onboarding flow', () => {
         const user = id === undefined ? undefined : users.get(id);
         return user ? { user } : null;
       },
-      linkOrProvision: (input: { subjectId: string; preferredUsername: string; name: string; email?: string }) => {
+      linkOrProvision: async (input: { subjectId: string; preferredUsername: string; name: string; email?: string }) => {
         const subjectId = input.subjectId.toLowerCase();
         const existingId = bindings.get(subjectId);
         if (existingId !== undefined) return { user: users.get(existingId)!, created: false };

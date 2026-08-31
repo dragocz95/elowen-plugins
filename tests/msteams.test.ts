@@ -283,7 +283,7 @@ describe('msteams plugin registration', () => {
   it('requires the capability-gated external account seam when account linking is enabled', async () => {
     const externalUsers = {
       resolve: () => null,
-      linkOrProvision: () => ({ user: { id: 7, username: 'alex', isAdmin: false }, created: true }),
+      linkOrProvision: async () => ({ user: { id: 7, username: 'alex', isAdmin: false }, created: true }),
     };
     const reg = await loadPlugins({
       dirs: [join(repoRoot, 'plugins')], enabled: ['msteams'], logger: log,

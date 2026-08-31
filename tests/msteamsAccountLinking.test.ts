@@ -56,7 +56,7 @@ function harness(options: {
     resolvePlatformUser: vi.fn(() => ({ id: 7, username: 'alex', isAdmin: false })),
     resolve: vi.fn(() => ({ id: 7, username: 'alex', isAdmin: false })),
     describe: vi.fn(() => ({ user: { id: 7, username: 'alex', isAdmin: false }, linkedAt: '2026-08-19T01:00:00.000Z' })),
-    linkOrProvision: vi.fn(() => ({ user: { id: 7, username: 'alex', isAdmin: false }, created: true })),
+    linkOrProvision: vi.fn(async () => ({ user: { id: 7, username: 'alex', isAdmin: false }, created: true })),
     linkExisting: vi.fn(() => ({ user: { id: 7, username: 'alex', isAdmin: false }, linkedAt: '2026-08-19T01:00:00.000Z' })),
   };
   const linking = new TeamsAccountLinking(cfg, externalUsers, { info() {}, warn() {}, error() {} }, { tokenClient, fetch });
@@ -87,6 +87,23 @@ describe('TeamsAccountLinking', () => {
       preferredUsername: 'alex', name: 'Alex Example', email: 'alex@chetty.ai',
     });
     expect(JSON.stringify(externalUsers.linkOrProvision.mock.calls)).not.toContain('signature');
+  });
+
+  it('waits for core provisioning to finish before authorizing the Teams turn', async () => {
+    const { linking, externalUsers } = harness();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    externalUsers.linkOrProvision.mockImplementationOnce(async () => {
+      await gate;
+      return { user: { id: 7, username: 'alex', isAdmin: false }, created: true };
+    });
+    let settled = false;
+    const authentication = linking.authenticate(activity()).finally(() => { settled = true; });
+
+    await vi.waitFor(() => expect(externalUsers.linkOrProvision).toHaveBeenCalledOnce());
+    expect(settled).toBe(false);
+    release();
+    await expect(authentication).resolves.toMatchObject({ status: 'authorized', created: true });
   });
 
   it('returns a sign-in requirement without calling Graph or provisioning', async () => {

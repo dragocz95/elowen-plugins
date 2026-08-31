@@ -150,7 +150,7 @@ export class TeamsAccountLinking {
     }
 
     const profile = await this.profileFor(token, identity);
-    const result = this.externalUsers.linkOrProvision({
+    const result = await this.externalUsers.linkOrProvision({
       provider: PROVIDER,
       tenantId: identity.tenantId,
       subjectId: identity.objectId,

@@ -111,8 +111,8 @@
     },
     {
       "name": "msteams",
-      "version": "0.5.35",
-      "requiresCore": "0.28.22",
+      "version": "0.6.0",
+      "requiresCore": "0.28.23",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
       "author": "Elowen",

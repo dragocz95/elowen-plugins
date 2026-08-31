@@ -1,5 +1,10 @@
 # Changelog
 
+## msteams 0.6.0 - 2026-08-31
+
+- Apply one validated Microsoft onboarding template to accounts created from either web SSO or a delegated personal Teams sign-in: projects, models, preferred model, plugins, tools and the persisted YOLO default.
+- Await core provisioning before the first Teams turn starts, so a new account is never briefly visible with empty permissions.
+
 ## cronjob 0.3.1 - 2026-08-31
 
 - Give active and paused job dots an inline-block box so their semantic width and height render instead of collapsing to 0 × 0.
