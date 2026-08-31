@@ -266,16 +266,16 @@ function IdentityCard({ person, users, onDetail }: {
   );
 }
 
-function PeopleAccess({ draft, response, onIdentityDetail }: {
+function PeopleAccess({ draft, response, search, filter, onIdentityDetail }: {
   draft: ReturnType<ReturnType<typeof runtime>['hooks']['usePluginConfigDraft']>;
   response: PeopleResponse;
+  search: string;
+  filter: PersonFilter;
   onIdentityDetail(aadObjectId: string, detail: TeamsAccountDetail): void;
 }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('msteams');
   const users = hooks.useUsers().data ?? [];
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<PersonFilter>('all');
   const [selectedKey, setSelectedKey] = useState<string | null>(response.people[0]?.key ?? null);
 
   const policies = policiesOf(draft.values);
@@ -311,33 +311,6 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
 
   return (
     <C.ControlSurfaceDocument>
-      {/* The toolbar is itself a wrapping flex row whose children may shrink, so the search field and
-          the filter need no wrapper of their own — the copy-pasted `min-w-[15rem]` box around the input
-          was what pushed the filter out of the surface at 320px. */}
-      <C.ControlSurfaceToolbar>
-        <C.RegisterSearch
-          value={search}
-          onChange={setSearch}
-          placeholder={s.peopleSearch}
-          label={s.peopleSearch}
-          onClear={() => setSearch('')}
-          clearLabel={s.peopleSearchClear}
-          count={visible.length}
-          countLabel={s.peopleSearchCount}
-        />
-        <C.Segmented
-          aria-label={s.peopleFilter}
-          nowrap
-          value={filter}
-          onChange={(value: string) => setFilter(value as PersonFilter)}
-          options={[
-            { value: 'all', label: s.filterAll },
-            { value: 'mapped', label: s.filterMapped },
-            { value: 'unmapped', label: s.filterUnmapped },
-          ]}
-        />
-      </C.ControlSurfaceToolbar>
-
       {response.people.length === 0 ? (
         <C.ControlSurfaceState>
           <C.EmptyState title={s.peopleEmptyTitle} description={s.peopleEmptyDescription} icon={Users} />
@@ -439,6 +412,8 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
   const { locale } = hooks.useTranslation();
   const draft = hooks.usePluginConfigDraft('msteams', detail);
   const [tab, setTab] = useState<WorkspaceTab>('people');
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<PersonFilter>('all');
   const [people, setPeople] = useState<PeopleResponse | null>(null);
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const updateIdentityDetail = useCallback((aadObjectId: string, account: TeamsAccountDetail) => {
@@ -463,6 +438,25 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
   const fieldHint = (field: ConfigField) => overlay[field.key]?.hint ?? field.hint;
   const fieldOptions = (field: ConfigField) => (field.options ?? []).map((option) => ({ value: option.value, label: overlay[field.key]?.options?.[option.value] ?? option.label }));
   const riskText = (risk: 'low' | 'medium' | 'high') => risk === 'high' ? s.riskHigh : risk === 'medium' ? s.riskMedium : s.riskLow;
+  const toolbarFilters = [{
+    id: 'mapping',
+    label: s.peopleFilter,
+    control: (
+      <C.Segmented
+        aria-label={s.peopleFilter}
+        value={filter}
+        onChange={(value: string) => setFilter(value as PersonFilter)}
+        options={[
+          { value: 'all', label: s.filterAll },
+          { value: 'mapped', label: s.filterMapped },
+          { value: 'unmapped', label: s.filterUnmapped },
+        ]}
+      />
+    ),
+    ...(filter === 'all'
+      ? { active: false as const }
+      : { active: true as const, activeLabel: `${s.peopleFilter}: ${filter === 'mapped' ? s.filterMapped : s.filterUnmapped}`, onReset: () => setFilter('all') }),
+  }];
 
   const hero = {
     eyebrow: s.workspaceEyebrow,
@@ -503,13 +497,26 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
         onChange: (value: WorkspaceTab) => setTab(value),
         ariaLabel: s.title,
       }}
+      toolbar={tab === 'people' ? {
+        search: (
+          <C.RegisterSearch
+            value={search}
+            onChange={setSearch}
+            placeholder={s.peopleSearch}
+            label={s.peopleSearch}
+            onClear={() => setSearch('')}
+            clearLabel={s.peopleSearchClear}
+          />
+        ),
+        filters: toolbarFilters,
+      } : undefined}
     >
       {tab === 'people' ? (
         peopleError !== null ? (
           <C.ControlSurfaceDocument><C.ControlSurfaceState tone="danger"><C.ErrorState message={`${s.peopleLoadError} — ${peopleError}`} /></C.ControlSurfaceState></C.ControlSurfaceDocument>
         ) : people === null ? (
           <C.ControlSurfaceDocument><C.ControlSurfaceState><C.LoadingState variant="list" /></C.ControlSurfaceState></C.ControlSurfaceDocument>
-        ) : <PeopleAccess draft={draft} response={people} onIdentityDetail={updateIdentityDetail} />
+        ) : <PeopleAccess draft={draft} response={people} search={search} filter={filter} onIdentityDetail={updateIdentityDetail} />
       ) : (
         <C.SettingsDocument>
           <C.PluginConfigEditor

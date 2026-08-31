@@ -9,7 +9,7 @@ import { registerCronUi } from './runtime';
 import { JobsSettings } from './JobsSettings';
 
 registerCronUi({
-  requiresApiVersion: 8,
+  requiresApiVersion: 12,
   settings: {
     'jobs': JobsSettings,
   },

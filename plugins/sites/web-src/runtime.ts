@@ -86,6 +86,10 @@ interface MutationResult<TVars, TData = unknown> {
 }
 interface QueryClient { invalidateQueries(input: { queryKey: unknown[] }): Promise<void> }
 
+type PageFilterField =
+  | { id: string; label: string; control: ReactNode; hint?: string; active: false }
+  | { id: string; label: string; control: ReactNode; hint?: string; active: true; activeLabel: string; onReset(): void };
+
 interface RuntimeHooks {
   usePluginStrings(plugin: string): Record<string, string>;
   useToast(): { toast(message: string, tone?: 'ok' | 'error'): void };
@@ -125,6 +129,16 @@ interface RuntimeComponents {
     type?: 'text' | 'password' | 'email' | 'search';
     autoComplete?: string;
     'aria-label'?: string;
+  }>;
+  RegisterSearch: ComponentType<{
+    value: string;
+    onChange(value: string): void;
+    placeholder?: string;
+    label?: string;
+    onClear?(): void;
+    clearLabel?: string;
+    count?: number;
+    countLabel?: string;
   }>;
   Badge: ComponentType<{ tone?: 'default' | 'accent' | 'muted' | 'danger' | 'success' | 'warning'; children: ReactNode }>;
   Avatar: ComponentType<{
@@ -194,6 +208,7 @@ interface RuntimeComponents {
       onChange(id: string): void;
       ariaLabel: string;
     };
+    toolbar?: { search?: ReactNode; filters?: PageFilterField[]; actions?: ReactNode; children?: ReactNode };
     className?: string;
     children: ReactNode;
   }>;
@@ -202,7 +217,13 @@ interface RuntimeComponents {
    *  surface is the same size — this bundle must never wrap it in anything that resizes it. */
   WorkspaceDetailRail: ComponentType<{ label: string; closeLabel: string; onClose(): void; children: ReactNode }>;
   ControlSurfaceDocument: ComponentType<{ className?: string; children: ReactNode }>;
-  ControlSurfaceToolbar: ComponentType<{ className?: string; children: ReactNode }>;
+  ControlSurfaceToolbar: ComponentType<{
+    className?: string;
+    search?: ReactNode;
+    filters?: PageFilterField[];
+    actions?: ReactNode;
+    children?: ReactNode;
+  }>;
   ControlSurfaceRegister: ComponentType<{ className?: string; children: ReactNode }>;
   ControlSurfaceState: ComponentType<{ tone?: 'default' | 'danger'; className?: string; children: ReactNode }>;
   DataTable: ComponentType<{ ariaLabel: string; columns: string; compactColumns?: string; className?: string; children: ReactNode }>;
@@ -261,7 +282,7 @@ export function registerSitesUi(
   project: Record<string, ComponentType<never>>,
 ): void {
   (window as HostWindow).__elowenRegisterPluginUi?.('sites', {
-    requiresApiVersion: 7,
+    requiresApiVersion: 12,
     pages,
     project,
   });

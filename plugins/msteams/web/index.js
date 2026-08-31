@@ -437,12 +437,10 @@ function IdentityCard({ person, users, onDetail }) {
     )
   ] });
 }
-function PeopleAccess({ draft, response, onIdentityDetail }) {
+function PeopleAccess({ draft, response, search, filter, onIdentityDetail }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("msteams");
   const users = hooks.useUsers().data ?? [];
-  const [search, setSearch] = (0, import_react3.useState)("");
-  const [filter, setFilter] = (0, import_react3.useState)("all");
   const [selectedKey, setSelectedKey] = (0, import_react3.useState)(response.people[0]?.key ?? null);
   const policies = policiesOf(draft.values);
   const visible = response.people.filter((person) => {
@@ -472,108 +470,77 @@ function PeopleAccess({ draft, response, onIdentityDetail }) {
     replacePolicies(policies.filter((_, index) => index !== policyIndex));
   };
   const inherited = policies.some((item) => item.roleId === "*");
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceDocument, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceToolbar, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        C.RegisterSearch,
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: response.people.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleEmptyTitle, description: s.peopleEmptyDescription, icon: Users }) }) : visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleNoResults, description: s.peopleNoResultsDescription, icon: Search }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceRegister, { className: "grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:!grid-cols-[19rem_minmax(0,1fr)] lg:items-start", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex min-w-0 flex-col gap-1 lg:max-h-[calc(100dvh-15rem)] lg:overflow-y-auto lg:pr-1", children: visible.map((person) => {
+      const mapped = directPolicyIndex(policies, person) >= 0;
+      const linkedUser = linkedUserFor(person, users);
+      const active = selected?.key === person.key;
+      const accessLabel = mapped ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped;
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+        "button",
         {
-          value: search,
-          onChange: setSearch,
-          placeholder: s.peopleSearch,
-          label: s.peopleSearch,
-          onClear: () => setSearch(""),
-          clearLabel: s.peopleSearchClear,
-          count: visible.length,
-          countLabel: s.peopleSearchCount
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        C.Segmented,
-        {
-          "aria-label": s.peopleFilter,
-          nowrap: true,
-          value: filter,
-          onChange: (value) => setFilter(value),
-          options: [
-            { value: "all", label: s.filterAll },
-            { value: "mapped", label: s.filterMapped },
-            { value: "unmapped", label: s.filterUnmapped }
+          type: "button",
+          "aria-pressed": active,
+          onClick: () => setSelectedKey(person.key),
+          className: `group flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition ${active ? "border-primary/50 bg-accent text-accent-foreground" : "border-transparent bg-transparent text-foreground hover:border-border hover:bg-accent hover:text-accent-foreground"}`,
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: person.name || person.upn || s.personFallback, src: person.teamsAvatarUrl, user: linkedUser, size: "md" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "min-w-0 flex-1", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-sm font-semibold", children: person.name || s.personFallback }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `block truncate text-xs ${active ? "text-accent-foreground opacity-70" : "text-muted-foreground group-hover:text-accent-foreground"}`, children: person.upn || person.aadObjectId })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "inline-flex shrink-0 items-center", title: accessLabel, "aria-label": accessLabel, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `size-2 rounded-full ${mapped ? "bg-primary" : "bg-border-strong"}`, "aria-hidden": true }) })
           ]
-        }
-      )
-    ] }),
-    response.people.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleEmptyTitle, description: s.peopleEmptyDescription, icon: Users }) }) : visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.peopleNoResults, description: s.peopleNoResultsDescription, icon: Search }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceRegister, { className: "grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:!grid-cols-[19rem_minmax(0,1fr)] lg:items-start", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex min-w-0 flex-col gap-1 lg:max-h-[calc(100dvh-15rem)] lg:overflow-y-auto lg:pr-1", children: visible.map((person) => {
-        const mapped = directPolicyIndex(policies, person) >= 0;
-        const linkedUser = linkedUserFor(person, users);
-        const active = selected?.key === person.key;
-        const accessLabel = mapped ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped;
-        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-          "button",
-          {
-            type: "button",
-            "aria-pressed": active,
-            onClick: () => setSelectedKey(person.key),
-            className: `group flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition ${active ? "border-primary/50 bg-accent text-accent-foreground" : "border-transparent bg-transparent text-foreground hover:border-border hover:bg-accent hover:text-accent-foreground"}`,
-            children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: person.name || person.upn || s.personFallback, src: person.teamsAvatarUrl, user: linkedUser, size: "md" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "min-w-0 flex-1", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block truncate text-sm font-semibold", children: person.name || s.personFallback }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `block truncate text-xs ${active ? "text-accent-foreground opacity-70" : "text-muted-foreground group-hover:text-accent-foreground"}`, children: person.upn || person.aadObjectId })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "inline-flex shrink-0 items-center", title: accessLabel, "aria-label": accessLabel, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `size-2 rounded-full ${mapped ? "bg-primary" : "bg-border-strong"}`, "aria-hidden": true }) })
-            ]
-          },
-          person.key
-        );
-      }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "min-w-0 rounded-xl border border-border bg-muted/30 p-5 lg:sticky lg:top-4 lg:self-start", children: selected === null ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: selected.name || selected.upn || s.personFallback, src: selected.teamsAvatarUrl, user: selectedUser, size: "lg" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "truncate text-base font-semibold text-foreground", children: selected.name || s.personFallback }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "truncate text-sm text-muted-foreground", children: selected.upn || selected.aadObjectId }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 break-all font-mono text-[11px] text-subtle-foreground", children: selected.aadObjectId || selected.teamsId }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-2 flex flex-wrap items-center gap-2", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: policy ? "accent" : void 0, children: policy ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped }),
-              selected.hasPersonalChat ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "inline-flex items-center gap-1 text-xs text-muted-foreground", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageCircle, { size: 12, "aria-hidden": true }),
-                s.chatOpen
-              ] }) : null
-            ] })
-          ] }),
-          policy ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "col-span-2 sm:col-span-1", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: removePolicy, children: s.removeAccess }) }) : null
+        },
+        person.key
+      );
+    }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "min-w-0 rounded-xl border border-border bg-muted/30 p-5 lg:sticky lg:top-4 lg:self-start", children: selected === null ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: selected.name || selected.upn || s.personFallback, src: selected.teamsAvatarUrl, user: selectedUser, size: "lg" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "truncate text-base font-semibold text-foreground", children: selected.name || s.personFallback }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "truncate text-sm text-muted-foreground", children: selected.upn || selected.aadObjectId }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 break-all font-mono text-[11px] text-subtle-foreground", children: selected.aadObjectId || selected.teamsId }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-2 flex flex-wrap items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: policy ? "accent" : void 0, children: policy ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped }),
+            selected.hasPersonalChat ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "inline-flex items-center gap-1 text-xs text-muted-foreground", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageCircle, { size: 12, "aria-hidden": true }),
+              s.chatOpen
+            ] }) : null
+          ] })
         ] }),
-        accountLinking ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(IdentityCard, { person: selected, users, onDetail: onIdentityDetail }, selected.key) : null,
-        policy === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 text-center", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserCheck, { size: 28, className: "text-muted-foreground", "aria-hidden": true }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-semibold text-foreground", children: inherited ? s.inheritedTitle : s.unmappedTitle }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 max-w-md text-xs leading-relaxed text-muted-foreground", children: inherited ? s.inheritedDescription : s.unmappedDescription })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: KeyRound, onClick: createPolicy, children: s.configureAccess })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: policy.admin === true, onChange: (value) => patchPolicy({ admin: value }), label: s.adminLabel }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block text-sm font-medium text-foreground", children: s.adminLabel }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block text-xs leading-relaxed text-muted-foreground", children: s.adminHint })
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.promptLabel, hint: s.promptHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "textarea",
-            {
-              value: policy.prompt ?? "",
-              onChange: (event) => patchPolicy({ prompt: event.target.value }),
-              rows: 5,
-              className: "w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary",
-              placeholder: s.promptPlaceholder
-            }
-          ) })
-        ] })
-      ] }) })
-    ] })
-  ] });
+        policy ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "col-span-2 sm:col-span-1", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: removePolicy, children: s.removeAccess }) }) : null
+      ] }),
+      accountLinking ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(IdentityCard, { person: selected, users, onDetail: onIdentityDetail }, selected.key) : null,
+      policy === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 text-center", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserCheck, { size: 28, className: "text-muted-foreground", "aria-hidden": true }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-semibold text-foreground", children: inherited ? s.inheritedTitle : s.unmappedTitle }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 max-w-md text-xs leading-relaxed text-muted-foreground", children: inherited ? s.inheritedDescription : s.unmappedDescription })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: KeyRound, onClick: createPolicy, children: s.configureAccess })
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: policy.admin === true, onChange: (value) => patchPolicy({ admin: value }), label: s.adminLabel }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block text-sm font-medium text-foreground", children: s.adminLabel }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "block text-xs leading-relaxed text-muted-foreground", children: s.adminHint })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.promptLabel, hint: s.promptHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "textarea",
+          {
+            value: policy.prompt ?? "",
+            onChange: (event) => patchPolicy({ prompt: event.target.value }),
+            rows: 5,
+            className: "w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary",
+            placeholder: s.promptPlaceholder
+          }
+        ) })
+      ] })
+    ] }) })
+  ] }) });
 }
 function LoadedWorkspace({ detail }) {
   const { components: C, hooks, utils } = runtime();
@@ -581,6 +548,8 @@ function LoadedWorkspace({ detail }) {
   const { locale } = hooks.useTranslation();
   const draft = hooks.usePluginConfigDraft("msteams", detail);
   const [tab, setTab] = (0, import_react3.useState)("people");
+  const [search, setSearch] = (0, import_react3.useState)("");
+  const [filter, setFilter] = (0, import_react3.useState)("all");
   const [people, setPeople] = (0, import_react3.useState)(null);
   const [peopleError, setPeopleError] = (0, import_react3.useState)(null);
   const updateIdentityDetail = (0, import_react3.useCallback)((aadObjectId, account) => {
@@ -607,6 +576,24 @@ function LoadedWorkspace({ detail }) {
   const fieldHint = (field) => overlay[field.key]?.hint ?? field.hint;
   const fieldOptions = (field) => (field.options ?? []).map((option) => ({ value: option.value, label: overlay[field.key]?.options?.[option.value] ?? option.label }));
   const riskText = (risk) => risk === "high" ? s.riskHigh : risk === "medium" ? s.riskMedium : s.riskLow;
+  const toolbarFilters = [{
+    id: "mapping",
+    label: s.peopleFilter,
+    control: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      C.Segmented,
+      {
+        "aria-label": s.peopleFilter,
+        value: filter,
+        onChange: (value) => setFilter(value),
+        options: [
+          { value: "all", label: s.filterAll },
+          { value: "mapped", label: s.filterMapped },
+          { value: "unmapped", label: s.filterUnmapped }
+        ]
+      }
+    ),
+    ...filter === "all" ? { active: false } : { active: true, activeLabel: `${s.peopleFilter}: ${filter === "mapped" ? s.filterMapped : s.filterUnmapped}`, onReset: () => setFilter("all") }
+  }];
   const hero = {
     eyebrow: s.workspaceEyebrow,
     title: s.title,
@@ -640,7 +627,21 @@ function LoadedWorkspace({ detail }) {
         onChange: (value) => setTab(value),
         ariaLabel: s.title
       },
-      children: tab === "people" ? peopleError !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: `${s.peopleLoadError} \u2014 ${peopleError}` }) }) }) : people === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PeopleAccess, { draft, response: people, onIdentityDetail: updateIdentityDetail }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SettingsDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      toolbar: tab === "people" ? {
+        search: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          C.RegisterSearch,
+          {
+            value: search,
+            onChange: setSearch,
+            placeholder: s.peopleSearch,
+            label: s.peopleSearch,
+            onClear: () => setSearch(""),
+            clearLabel: s.peopleSearchClear
+          }
+        ),
+        filters: toolbarFilters
+      } : void 0,
+      children: tab === "people" ? peopleError !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: `${s.peopleLoadError} \u2014 ${peopleError}` }) }) }) : people === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PeopleAccess, { draft, response: people, search, filter, onIdentityDetail: updateIdentityDetail }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SettingsDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         C.PluginConfigEditor,
         {
           name: "msteams",
@@ -673,6 +674,6 @@ function TeamsWorkspace() {
 
 // plugins/msteams/web-src/index.tsx
 registerTeamsUi({
-  requiresApiVersion: 8,
+  requiresApiVersion: 12,
   pages: { "": TeamsWorkspace }
 });

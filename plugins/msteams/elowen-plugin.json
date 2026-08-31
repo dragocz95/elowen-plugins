@@ -2,7 +2,7 @@
   "name": "msteams",
   "version": "0.5.33",
   "apiVersion": "1",
-  "requiresCore": "0.28.11",
+  "requiresCore": "0.28.21",
   "requiresSharedApi": 3,
   "capabilities": {
     "reads": [
@@ -58,7 +58,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 8,
+    "requiresApiVersion": 12,
     "adminOnly": true,
     "nav": [
       {

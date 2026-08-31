@@ -155,5 +155,9 @@ describe('Teams person access matching', () => {
     expect(source).toContain('sm:grid-cols-[auto_minmax(0,1fr)_auto]');
     expect(source).toContain('col-span-2 sm:col-span-1');
     expect(source).toContain('mt-1 break-all font-mono');
+    expect(source).toContain("toolbar={tab === 'people' ? {");
+    expect(source).toContain('filters: toolbarFilters');
+    expect(source).not.toContain('<C.ControlSurfaceToolbar>');
+    expect(source).not.toContain('nowrap');
   });
 });

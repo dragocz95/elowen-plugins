@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -59,19 +59,19 @@ function registerCronUi(registration) {
 // plugins/cronjob/web-src/JobsSettings.tsx
 var import_react3 = __toESM(require_react(), 1);
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -84,7 +84,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -116,7 +116,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -130,7 +130,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/activity.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/activity.js
 var Activity = createLucideIcon("Activity", [
   [
     "path",
@@ -141,7 +141,7 @@ var Activity = createLucideIcon("Activity", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/calendar-clock.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/calendar-clock.js
 var CalendarClock = createLucideIcon("CalendarClock", [
   ["path", { d: "M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5", key: "1osxxc" }],
   ["path", { d: "M16 2v4", key: "4m81vk" }],
@@ -151,23 +151,23 @@ var CalendarClock = createLucideIcon("CalendarClock", [
   ["circle", { cx: "16", cy: "16", r: "6", key: "qoo3c4" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/check.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/check.js
 var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
 
-// node_modules/lucide-react/dist/esm/icons/circle-pause.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/circle-pause.js
 var CirclePause = createLucideIcon("CirclePause", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["line", { x1: "10", x2: "10", y1: "15", y2: "9", key: "c1nkhi" }],
   ["line", { x1: "14", x2: "14", y1: "15", y2: "9", key: "h65svq" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/clock.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/clock.js
 var Clock = createLucideIcon("Clock", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["polyline", { points: "12 6 12 12 16 14", key: "68esgv" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/hash.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/hash.js
 var Hash = createLucideIcon("Hash", [
   ["line", { x1: "4", x2: "20", y1: "9", y2: "9", key: "4lhtct" }],
   ["line", { x1: "4", x2: "20", y1: "15", y2: "15", key: "vyu0kd" }],
@@ -175,31 +175,31 @@ var Hash = createLucideIcon("Hash", [
   ["line", { x1: "16", x2: "14", y1: "3", y2: "21", key: "weycgp" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/message-square.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/message-square.js
 var MessageSquare = createLucideIcon("MessageSquare", [
   ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/plus.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/plus.js
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/search.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/search.js
 var Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
   ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/timer.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/timer.js
 var Timer = createLucideIcon("Timer", [
   ["line", { x1: "10", x2: "14", y1: "2", y2: "2", key: "14vaq8" }],
   ["line", { x1: "12", x2: "15", y1: "14", y2: "11", key: "17fdiu" }],
   ["circle", { cx: "12", cy: "14", r: "8", key: "1e1u0o" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/trash-2.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
@@ -208,7 +208,7 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/x.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/x.js
 var X = createLucideIcon("X", [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
@@ -720,6 +720,36 @@ function JobsSettings({ surface }) {
     setSelectedId((cur) => cur === id ? null : cur);
   };
   const addButton = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: Plus, onClick: addJob, children: s.addJob });
+  const toolbarFilters = [
+    {
+      id: "status",
+      label: s.enabled,
+      control: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Segmented,
+        {
+          value: filter,
+          onChange: (value) => setFilter(value),
+          options: [{ value: "all", label: s.filterAll }, { value: "active", label: s.filterActive }, { value: "paused", label: s.filterPaused }],
+          "aria-label": s.enabled
+        }
+      ),
+      ...filter === "all" ? { active: false } : { active: true, activeLabel: `${s.enabled}: ${filter === "active" ? s.filterActive : s.filterPaused}`, onReset: () => setFilter("all") }
+    },
+    ...isAdmin ? [{
+      id: "owner",
+      label: s.ownerColumn,
+      control: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Segmented,
+        {
+          value: scope,
+          onChange: (value) => setScope(value),
+          options: [{ value: "all", label: s.filterAll }, { value: "mine", label: s.filterMine }, { value: "instance", label: s.filterInstance }],
+          "aria-label": s.ownerColumn
+        }
+      ),
+      ...scope === "all" ? { active: false } : { active: true, activeLabel: `${s.ownerColumn}: ${scope === "mine" ? s.filterMine : s.filterInstance}`, onReset: () => setScope("all") }
+    }] : []
+  ];
   const table = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       C.DataTable,
@@ -760,33 +790,17 @@ function JobsSettings({ surface }) {
     ),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Pager, { page: clampedPage, pageSize: PAGE_SIZE, total: filtered.length, onPageChange: setPage, ariaLabel: s.title })
   ] });
-  const surfaceDocument = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: t.common.daemonUnreachable, onRetry: () => refetch() }) }) : isLoading || !data ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceToolbar, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex w-full min-w-0 flex-wrap items-center gap-2 py-3", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.RegisterSearch, { value: query, onChange: setQuery, placeholder: s.searchPlaceholder, label: s.searchPlaceholder }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        C.Segmented,
-        {
-          value: filter,
-          onChange: (v) => setFilter(v),
-          options: [{ value: "all", label: s.filterAll }, { value: "active", label: s.filterActive }, { value: "paused", label: s.filterPaused }],
-          "aria-label": s.enabled,
-          nowrap: true
-        }
-      ),
-      isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        C.Segmented,
-        {
-          value: scope,
-          onChange: (v) => setScope(v),
-          options: [{ value: "all", label: s.filterAll }, { value: "mine", label: s.filterMine }, { value: "instance", label: s.filterInstance }],
-          "aria-label": s.ownerColumn,
-          nowrap: true
-        }
-      ) : null,
-      surface === "deck" ? addButton : null
-    ] }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceRegister, { className: "flex flex-col gap-4", children: rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.empty, icon: Clock, action: addButton }) : filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.emptySearch, icon: Search }) : table })
-  ] }) });
+  const surfaceDocument = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceDocument, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      C.ControlSurfaceToolbar,
+      {
+        search: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.RegisterSearch, { value: query, onChange: setQuery, placeholder: s.searchPlaceholder, label: s.searchPlaceholder }),
+        filters: toolbarFilters,
+        actions: surface === "deck" ? addButton : void 0
+      }
+    ),
+    isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: t.common.daemonUnreachable, onRetry: () => refetch() }) }) : isLoading || !data ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex min-w-0 flex-col gap-4", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceRegister, { className: "flex flex-col gap-4", children: rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.empty, icon: Clock, action: addButton }) : filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.emptySearch, icon: Search }) : table }) })
+  ] });
   if (surface === "deck") return surfaceDocument;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
     C.WorkspaceShell,
@@ -813,7 +827,7 @@ function JobsSettings({ surface }) {
 
 // plugins/cronjob/web-src/index.tsx
 registerCronUi({
-  requiresApiVersion: 8,
+  requiresApiVersion: 12,
   settings: {
     "jobs": JobsSettings
   },
