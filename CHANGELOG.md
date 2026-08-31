@@ -1,5 +1,9 @@
 # Changelog
 
+## cronjob 0.2.9 - 2026-08-31
+
+- Show semantic green active and red paused status dots in the jobs table.
+
 ## msteams 0.5.35 - 2026-08-31
 
 - Resolve delegated Microsoft 365 access from the verified Elowen account on every surface, so web chat, linked platform chats and personal scheduled jobs share the same configured read/write capabilities.

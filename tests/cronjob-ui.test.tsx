@@ -102,6 +102,21 @@ describe('cronjob schedule builder', () => {
   });
 });
 
+describe('cronjob JobsSettings — status indicator', () => {
+  it('uses the semantic active and paused status colours', async () => {
+    use(http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([
+      job({ id: 'implicit', name: 'implicit active', enabled: undefined }),
+      job({ id: 'paused', name: 'paused job', enabled: false }),
+    ])));
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+
+    await screen.findByText('implicit active');
+    expect(screen.getByTitle(strings.enabled)).toHaveClass('bg-success');
+    expect(screen.getByTitle(strings.paused)).toHaveClass('bg-destructive');
+  });
+});
+
 describe('cronjob JobsSettings — error state', () => {
   // An admin is the one person who sees more than his own jobs, so he gets the owner column and the scope
   // filter; everyone else's list is already only theirs and the column would say the same thing on every row.
