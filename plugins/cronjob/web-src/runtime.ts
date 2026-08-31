@@ -71,6 +71,7 @@ interface CronUtils {
   compactElapsed(ms: number): string;
   parseTs(ts: string | undefined): number | null;
   isValidSchedule(spec: string): boolean;
+  apiErrorMessage(error: unknown): string;
 }
 
 // The host components are runtime records; `any` props keep the JSX call sites identical to the

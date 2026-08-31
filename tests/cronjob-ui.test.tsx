@@ -74,6 +74,7 @@ async function mountWith(jobs: CronJob[]) {
     http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
     http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
     http.put('/api/plugins/cronjob/jobs/:id', () => HttpResponse.json({ ok: true })),
+    http.post('/api/plugins/cronjob/jobs/:id/run', () => HttpResponse.json({ ok: true }, { status: 202 })),
   );
   const { wrapper: Wrapper } = createWrapper();
   render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
@@ -114,6 +115,31 @@ describe('cronjob JobsSettings — status indicator', () => {
     await screen.findByText('implicit active');
     expect(screen.getByTitle(strings.enabled)).toHaveClass('bg-success');
     expect(screen.getByTitle(strings.paused)).toHaveClass('bg-destructive');
+  });
+});
+
+describe('cronjob JobsSettings — manual run', () => {
+  it('starts the persisted recurring job from the shared Play button', async () => {
+    let runId: string | null = null;
+    use(
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job({})])),
+      http.post('/api/plugins/cronjob/jobs/:id/run', ({ params }) => {
+        runId = String(params.id);
+        return HttpResponse.json({ ok: true }, { status: 202 });
+      }),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await openRow('digest');
+
+    fireEvent.click(screen.getByRole('button', { name: strings.runNow }));
+    await waitFor(() => expect(runId).toBe('j1'));
+    expect(await screen.findByText(strings.runQueued)).toBeInTheDocument();
+  });
+
+  it('does not offer a manual run for a one-shot wake-up', async () => {
+    await mountWith([job({ runAt: '2026-09-01T12:00:00.000Z' })]);
+    expect(screen.getByRole('button', { name: strings.runNow })).toBeDisabled();
   });
 });
 

@@ -18,6 +18,7 @@ const pluginsDir = join(repoRoot, 'plugins');
 interface CronAdapterUnderTest {
   listen(fn: (src: SessionSource, text: string) => Promise<string | undefined>): void;
   tick(): Promise<void>;
+  queueRunNow(id: string): { ok?: boolean; error?: string; status: number };
   disconnect(): void;
 }
 
@@ -56,6 +57,27 @@ function parkingHandler(tag: string, calls: string[]) {
 }
 
 describe('cron scheduler across a plugin reload', () => {
+  it('runs a recurring job immediately without rewriting its future schedule', async () => {
+    const dataRoot = freshDataRoot();
+    mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
+    const createdAt = new Date().toISOString();
+    writeFileSync(join(dataRoot, 'cronjob/jobs.json'), JSON.stringify([
+      { id: 'manual', name: 'manual report', schedule: 'daily 23:59', prompt: 'do it', createdAt, lastRun: createdAt },
+    ]));
+    const adapter = await loadCron(dataRoot, async () => {});
+    const calls: string[] = [];
+    adapter.listen(async (src: SessionSource) => { calls.push(src.channelId); return 'manual result'; });
+
+    expect(adapter.queueRunNow('manual')).toEqual({ ok: true, status: 202 });
+    await vi.waitFor(() => expect(calls).toEqual(['job-manual']));
+    await vi.waitFor(() => {
+      const [stored] = JSON.parse(readFileSync(join(dataRoot, 'cronjob/jobs.json'), 'utf-8')) as Record<string, unknown>[];
+      expect(stored.schedule).toBe('daily 23:59');
+      expect(stored.lastSlot).toBeUndefined(); // the future natural slot remains armed
+      expect(stored.lastResult).toBe('manual result');
+    });
+  });
+
   it('an adapter torn down mid-tick hands the remaining jobs over instead of running them itself', async () => {
     const dataRoot = freshDataRoot();
     writeTwoDueJobs(dataRoot);

@@ -1,6 +1,6 @@
 {
   "name": "cronjob",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "apiVersion": "1",
   "requiresCore": "0.28.22",
   "requiresSharedApi": 3,
@@ -190,6 +190,10 @@
       "header": "Header with the job name",
       "saveError": "Saving the job failed",
       "deleteError": "Deleting the job failed",
+      "runNow": "Run now",
+      "runStarting": "Starting…",
+      "runQueued": "The job is starting now",
+      "runError": "Starting the job failed",
       "helpSchedule": "Use the builder for interval, daily or weekly schedules. Advanced mode preserves raw five-field cron expressions and existing values the builder does not represent.",
       "scheduleMode": "Schedule type",
       "scheduleEvery": "Interval",

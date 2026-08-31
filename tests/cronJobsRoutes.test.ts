@@ -65,6 +65,7 @@ function setup(opts: { enabled?: string[]; config?: Record<string, Record<string
 const auth = (t: string) => ({ headers: { authorization: `Bearer ${t}` } });
 const put = (t: string, body: unknown) => ({ method: 'PUT', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 const del = (t: string) => ({ method: 'DELETE', headers: { authorization: `Bearer ${t}` } });
+const post = (t: string) => ({ method: 'POST', headers: { authorization: `Bearer ${t}` } });
 
 const job = (extra: Record<string, unknown> = {}) => ({
   id: 'j1', name: 'digest', schedule: 'daily 06:00', prompt: 'Summarize the day.', createdAt: '2026-07-01T00:00:00.000Z', ...extra,
@@ -260,11 +261,13 @@ describe('cron jobs routes', () => {
     expect((await app.request('/plugins/cronjob/jobs/x', put(adminTok, { name: 'n', schedule: 'every 1h' }))).status).toBe(400);
   });
 
-  it('accepts only a non-empty string as notifyChannelId', async () => {
-    const { app, adminTok } = setup();
-    for (const notifyChannelId of [null, [], {}, '']) {
+  it('accepts only a non-empty destination, while normalizing the empty value GET may round-trip', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    for (const notifyChannelId of [null, [], {}]) {
       expect((await save(app, adminTok, job({ notifyChannelId: notifyChannelId as never }))).status, JSON.stringify(notifyChannelId)).toBe(400);
     }
+    expect((await save(app, adminTok, job({ notifyChannelId: '' }))).status).toBe(200);
+    expect(onDisk(dataRoot)[0]).not.toHaveProperty('notifyChannelId');
     expect((await save(app, adminTok, job({ notifyChannelId: 'destination:msteams:a%3Achat' }))).status).toBe(200);
   });
 
@@ -298,6 +301,21 @@ describe('cron jobs routes', () => {
     expect((await app.request('/plugins/cronjob/jobs/shared', del(amyTok))).status).toBe(403);
     const still = (await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json()) as { id: string; name: string }[];
     expect(still.find((j) => j.id === 'shared')?.name).toBe('instance job');
+  });
+
+  it('gates manual runs by ownership and refuses one-shot wake-ups', async () => {
+    const { app, users, amy, amyTok, adminTok } = setup();
+    users.setGrantedPlugins(amy.id, ['cronjob']);
+    expect((await save(app, adminTok, job({ id: 'shared' }))).status).toBe(200);
+    expect((await save(app, amyTok, job({ id: 'mine' }))).status).toBe(200);
+    expect((await save(app, amyTok, job({ id: 'wake', schedule: 'in 20m', runAt: '2026-09-01T12:00:00.000Z' }))).status).toBe(200);
+
+    expect((await app.request('/plugins/cronjob/jobs/shared/run', post(amyTok))).status).toBe(403);
+    expect((await app.request('/plugins/cronjob/jobs/missing/run', post(adminTok))).status).toBe(404);
+    expect((await app.request('/plugins/cronjob/jobs/wake/run', post(amyTok))).status).toBe(400);
+    // This API-only harness does not connect a brain handler; reaching 503 proves the authorized request
+    // reached the live adapter instead of being refused by ownership or route parsing.
+    expect((await app.request('/plugins/cronjob/jobs/mine/run', post(amyTok))).status).toBe(503);
   });
 
   it('enriches visible owned jobs with a safe display profile and never persists that view metadata', async () => {

@@ -443,6 +443,10 @@ class CronAdapter {
     // away has to actually stop the schedules it allowed.
     this.ownerMaySchedule = ownerMaySchedule;
     this.handler = null; this.running = false;
+    // At most one manual run is queued. A manual request never rewrites the schedule; the normal tick
+    // consumes this id before inspecting due slots and runs it through the exact same authority, guard,
+    // brain and delivery path as a scheduled fire.
+    this.manualJobId = null;
     // Set by disconnect(): this adapter generation has been torn down (a plugin reload) and must not
     // start any further work — see disconnect() and the tick loop.
     this.stopped = false;
@@ -489,12 +493,21 @@ class CronAdapter {
     await this.flushPendingDeliveries();
     const now = Date.now();
     const tz = this.timezone();
-    for (const snapshot of this.store.all()) {
+    // A manual run goes first, then the ordinary due set. It appears exactly once even when it also happens
+    // to be due now; claimManualJob consumes the current due slot only in that case, preventing the next
+    // 30-second tick from immediately running the same job again.
+    const manualJobId = this.manualJobId;
+    this.manualJobId = null;
+    const allJobs = this.store.all();
+    const manualSnapshot = manualJobId ? allJobs.find((job) => job.id === manualJobId) : undefined;
+    const snapshots = manualSnapshot ? [manualSnapshot, ...allJobs.filter((job) => job.id !== manualJobId)] : allJobs;
+    for (const snapshot of snapshots) {
       // Torn down mid-tick (plugin reload): the job just delivered is settled, so hand the rest over to
       // the adapter that replaced us instead of running them from a generation the host has dropped.
       if (this.stopped) break;
+      const manual = snapshot.id === manualJobId;
       // Cheap pre-filter on the snapshot — claiming re-reads the file, so only pay that for a due job.
-      if (dueSlot(snapshot, now, tz, this.cronLookbackMs) === null) continue;
+      if (!manual && dueSlot(snapshot, now, tz, this.cronLookbackMs) === null) continue;
       // WHOSE job this is. No owner = an instance job: admin powers, notification-channel delivery —
       // exactly the behaviour every job had before ownership existed.
       const owner = typeof snapshot.ownerUserId === 'number' ? snapshot.ownerUserId : null;
@@ -529,7 +542,7 @@ class CronAdapter {
         this.log.warn(`cron job ${snapshot.id} (${snapshot.name}) skipped — its model selection names no complete provider/model pair`);
         continue;
       }
-      const job = this.claimDueJob(snapshot.id, now, tz);
+      const job = manual ? this.claimManualJob(snapshot.id, now, tz) : this.claimDueJob(snapshot.id, now, tz);
       if (!job) continue;
       // Cheap guard gate: if the job has a `check` command, run it FIRST (no LLM). Only spend a brain
       // turn when the guard surfaces fresh work — an "every 5m" poll that finds nothing costs a shell
@@ -680,6 +693,35 @@ class CronAdapter {
     } finally {
       this.running = false;
     }
+  }
+
+  /** Queue one recurring job for the same execution path as a natural fire. The HTTP request returns
+   *  immediately rather than staying open for a multi-minute model turn; the page observes lastRun and
+   *  lastResult through its ordinary job refetch. */
+  queueRunNow(id) {
+    if (!this.handler || this.stopped) return { error: 'scheduler is not ready', status: 503 };
+    if (this.running || this.manualJobId !== null) return { error: 'scheduler is busy — try again shortly', status: 409 };
+    const job = this.store.all().find((entry) => entry.id === id);
+    if (!job) return { error: 'job not found', status: 404 };
+    if (job.runAt) return { error: 'a one-shot wake-up cannot be run manually', status: 400 };
+    this.manualJobId = id;
+    queueMicrotask(() => void this.tick().catch((error) => this.log.error(`manual run failed: ${error?.message ?? error}`)));
+    return { ok: true, status: 202 };
+  }
+
+  /** Claim a manual run without rewriting its schedule. `lastRun` records what the UI means by "ran",
+   *  while `lastSlot` is touched only when the natural slot is ALREADY due — otherwise a 07:00 manual test
+   *  must not consume the job's ordinary 08:00 fire. */
+  claimManualJob(id, now, tz) {
+    const job = this.store.all().find((entry) => entry.id === id);
+    if (!job || job.runAt) return null;
+    const slot = dueSlot(job, now, tz, this.cronLookbackMs);
+    this.store.patch(job.id, {
+      lastRun: new Date(now).toISOString(),
+      ...(slot !== null ? { lastSlot: slot } : {}),
+      lastResult: '▶ running manually…',
+    });
+    return job;
   }
 
   /** Take ownership of job `id`'s due slot and return the FRESH record to run, or null when it is no
@@ -845,6 +887,8 @@ class DeliveryStore {
 export function register(ctx) {
   const store = new JobStore(join(ctx.dataDir(), 'jobs.json'), ctx.logger);
   const deliveryStore = new DeliveryStore(join(ctx.dataDir(), 'pending-deliveries.json'), ctx.logger);
+  /** Assigned before register() returns; API handlers run later and can queue work on this live generation. */
+  let adapter = null;
   const maxJobsPerUser = clampConfig(ctx.config?.maxJobsPerUser, DEFAULT_MAX_JOBS_PER_USER, 1, 200);
   const minIntervalMs = clampConfig(ctx.config?.minIntervalMinutes, DEFAULT_MIN_INTERVAL_MINUTES, 1, 1440) * 60_000;
 
@@ -1076,6 +1120,9 @@ export function register(ctx) {
       if (!body || typeof body !== 'object' || Array.isArray(body)) return jsonRes({ error: 'body must be a job object' }, 400);
       // The URL names the job — a body id can't redirect the write onto another one.
       const job = { ...body, id: decodeURIComponent(segs[0]) };
+      // GET preserves legacy empty strings for display, while the canonical stored shape omits empty
+      // optional fields. Normalize before validation so an untouched row can round-trip through the UI.
+      for (const key of ['check', 'hours', 'notifyChannelId']) if (job[key] === '') delete job[key];
 
       let jobs;
       try { jobs = readJobsStrict(); }
@@ -1123,6 +1170,27 @@ export function register(ctx) {
       const saved = { ...edit, ...runtime, ...(enabling ? { lastRun: new Date().toISOString() } : {}) };
       store.save(prev ? jobs.map((j) => (j.id === job.id ? saved : j)) : [...jobs, saved]);
       return jsonRes({ ok: true });
+    },
+  });
+
+  // Run one recurring job NOW without rewriting its schedule. The model turn is deliberately detached
+  // from the HTTP request — it may take minutes — while the accepted response lets the page close the
+  // click immediately and observe progress through lastRun/lastResult.
+  ctx.registerApiRoute({
+    rootMount: '/plugins/cronjob/jobs', path: '', method: 'POST', access: 'user',
+    handler: async (req) => {
+      const segs = req.path === '' ? [] : req.path.split('/');
+      if (segs.length !== 2 || segs[1] !== 'run') return jsonRes({ error: 'not found' }, 404);
+      const id = decodeURIComponent(segs[0]);
+      const jobs = store.all();
+      const target = jobs.find((job) => job.id === id);
+      if (!target) return jsonRes({ error: 'job not found' }, 404);
+      if (!req.auth.admin && (req.auth.userId === null || ownerOf(target) !== req.auth.userId)) {
+        return jsonRes({ error: 'forbidden' }, 403);
+      }
+      if (target.runAt) return jsonRes({ error: 'a one-shot wake-up cannot be run manually' }, 400);
+      const queued = adapter?.queueRunNow(id) ?? { error: 'scheduler is not ready', status: 503 };
+      return queued.error ? jsonRes({ error: queued.error }, queued.status) : jsonRes({ ok: true }, queued.status);
     },
   });
 
@@ -1302,7 +1370,8 @@ export function register(ctx) {
       .map((j) => j.originSessionId),
   });
 
-  ctx.registerPlatform(new CronAdapter(store, deliveryStore, ctx.logger, ctx.notify, ctx.config, () => ctx.timezone(), ownerIsAdmin, ownerMaySchedule));
+  adapter = new CronAdapter(store, deliveryStore, ctx.logger, ctx.notify, ctx.config, () => ctx.timezone(), ownerIsAdmin, ownerMaySchedule);
+  ctx.registerPlatform(adapter);
   // The skill that teaches the model to USE those tools ships with them, the way the task domain's
   // does. Kept in the skills plugin it would keep describing CronAdd on an instance where this plugin
   // is not installed and nothing answers — and a model that believes a missing tool should be there

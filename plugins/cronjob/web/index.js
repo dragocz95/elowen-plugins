@@ -180,6 +180,11 @@ var MessageSquare = createLucideIcon("MessageSquare", [
   ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/play.js
+var Play = createLucideIcon("Play", [
+  ["polygon", { points: "6 3 20 12 6 21 6 3", key: "1oa8hb" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/plus.js
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
@@ -488,7 +493,7 @@ function ActiveHoursField({ value, onChange }) {
     ] }) : null
   ] });
 }
-function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destinations, models, selected, onSelect, onClose, onRemoved }) {
+function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destinations, models, selected, onSelect, onClose, onRemoved, onRefresh }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("cronjob");
   const { t } = hooks.useTranslation();
@@ -497,6 +502,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const del = hooks.useDeleteCronJob();
   const [draft, setDraft] = (0, import_react3.useState)(job);
   const [confirming, setConfirming] = (0, import_react3.useState)(false);
+  const [runPending, setRunPending] = (0, import_react3.useState)(false);
   const draftRef = (0, import_react3.useRef)(draft);
   draftRef.current = draft;
   const dirty = (0, import_react3.useRef)(false);
@@ -529,6 +535,19 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const patch = (p) => {
     dirty.current = true;
     setDraft((cur) => ({ ...cur, ...p }));
+  };
+  const runNow = async () => {
+    if (!persisted || draft.runAt || dirty.current || autosave.status === "saving") return;
+    setRunPending(true);
+    try {
+      await runtime().api(`/plugins/cronjob/jobs/${encodeURIComponent(job.id)}/run`, { method: "POST" });
+      toast(s.runQueued, "ok");
+      window.setTimeout(onRefresh, 600);
+    } catch (error) {
+      toast(`${s.runError} \u2014 ${utils.apiErrorMessage(error)}`, "error");
+    } finally {
+      setRunPending(false);
+    }
   };
   const remove = async () => {
     deleted.current = true;
@@ -660,7 +679,19 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
         }
       ) }),
       job.lastResult ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.lastResult, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "whitespace-pre-wrap rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground", children: job.lastResult }) }) : null,
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex justify-end border-t border-border pt-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", icon: Trash2, onClick: () => setConfirming(true), children: s.removeJob }) })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          C.Button,
+          {
+            variant: "outline",
+            icon: Play,
+            disabled: !persisted || Boolean(draft.runAt) || dirty.current || autosave.status === "saving" || runPending,
+            onClick: () => void runNow(),
+            children: runPending ? s.runStarting : s.runNow
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", icon: Trash2, onClick: () => setConfirming(true), children: s.removeJob })
+      ] })
     ] }) }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
       C.ConfirmDialog,
@@ -791,7 +822,8 @@ function JobsSettings({ surface }) {
               selected: selectedId === job.id,
               onSelect: () => setSelectedId(job.id),
               onClose: () => setSelectedId(null),
-              onRemoved: dropDraft
+              onRemoved: dropDraft,
+              onRefresh: refetch
             },
             job.id
           ))

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, CalendarClock, Check, Clock, Hash, MessageSquare, PauseCircle, Plus, Search, Timer, Trash2, X } from 'lucide-react';
+import { Activity, CalendarClock, Check, Clock, Hash, MessageSquare, PauseCircle, Play, Plus, Search, Timer, Trash2, X } from 'lucide-react';
 import { runtime, type BrainModelOption, type CronJob, type NotificationDestinationOption, type ManageSelectionItem } from './runtime';
 import {
   WEEKDAYS, builderForMode, parseActiveHours, parseBuilderSchedule, renderActiveHours,
@@ -255,7 +255,7 @@ function ActiveHoursField({ value, onChange }: { value: string | undefined; onCh
  *  last result); `draft` holds what the user is typing. When the server's copy changes and the row has no
  *  unsaved edit, the draft adopts it — otherwise a job the brain's cron tools changed behind this page's
  *  back would be shown stale and overwritten by the row's next save. */
-function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destinations, models, selected, onSelect, onClose, onRemoved }: {
+function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destinations, models, selected, onSelect, onClose, onRemoved, onRefresh }: {
   job: CronJob;
   persisted: boolean;
   /** Who owns the job, for the admin's owner column; null hides the column (everyone else sees only their own). */
@@ -272,6 +272,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   onSelect: () => void;
   onClose: () => void;
   onRemoved: (id: string) => void;
+  onRefresh: () => void;
 }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('cronjob');
@@ -281,6 +282,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const del = hooks.useDeleteCronJob();
   const [draft, setDraft] = useState<CronJob>(job);
   const [confirming, setConfirming] = useState(false);
+  const [runPending, setRunPending] = useState(false);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   /** Edits this row has not persisted yet. Only a clean row adopts a server change. */
@@ -331,6 +333,22 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const patch = (p: Partial<CronJob>) => {
     dirty.current = true;
     setDraft((cur) => ({ ...cur, ...p }));
+  };
+
+  const runNow = async () => {
+    if (!persisted || draft.runAt || dirty.current || autosave.status === 'saving') return;
+    setRunPending(true);
+    try {
+      await runtime().api(`/plugins/cronjob/jobs/${encodeURIComponent(job.id)}/run`, { method: 'POST' });
+      toast(s.runQueued, 'ok');
+      // The endpoint returns once the scheduler accepted the job; lastRun is stamped synchronously as the
+      // detached turn starts, so one short refresh makes the state visible without polling the model turn.
+      window.setTimeout(onRefresh, 600);
+    } catch (error) {
+      toast(`${s.runError} — ${utils.apiErrorMessage(error)}`, 'error');
+    } finally {
+      setRunPending(false);
+    }
   };
 
   const remove = async () => {
@@ -521,7 +539,15 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
                 <p className="whitespace-pre-wrap rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">{job.lastResult}</p>
               </C.Field>
             ) : null}
-            <div className="flex justify-end border-t border-border pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+              <C.Button
+                variant="outline"
+                icon={Play}
+                disabled={!persisted || Boolean(draft.runAt) || dirty.current || autosave.status === 'saving' || runPending}
+                onClick={() => void runNow()}
+              >
+                {runPending ? s.runStarting : s.runNow}
+              </C.Button>
               <C.Button variant="ghost-danger" icon={Trash2} onClick={() => setConfirming(true)}>{s.removeJob}</C.Button>
             </div>
           </div>
@@ -685,6 +711,7 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
             onSelect={() => setSelectedId(job.id)}
             onClose={() => setSelectedId(null)}
             onRemoved={dropDraft}
+            onRefresh={refetch}
           />
         ))}
       </C.DataTable>
