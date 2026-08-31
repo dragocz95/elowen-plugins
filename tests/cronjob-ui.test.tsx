@@ -113,8 +113,8 @@ describe('cronjob JobsSettings — status indicator', () => {
     render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
 
     await screen.findByText('implicit active');
-    expect(screen.getByTitle(strings.enabled)).toHaveClass('bg-success');
-    expect(screen.getByTitle(strings.paused)).toHaveClass('bg-destructive');
+    expect(screen.getByTitle(strings.enabled)).toHaveClass('inline-block', 'h-2', 'w-2', 'bg-success');
+    expect(screen.getByTitle(strings.paused)).toHaveClass('inline-block', 'h-2', 'w-2', 'bg-destructive');
   });
 });
 

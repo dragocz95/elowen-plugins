@@ -390,7 +390,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             needed. */}
         <C.DataTableCell lines="auto" priority="wide" aria-hidden className="flex items-center justify-center">
           <span
-            className={`h-2 w-2 rounded-full ${enabled ? 'bg-success' : 'bg-destructive'}`}
+            className={`inline-block h-2 w-2 shrink-0 rounded-full ${enabled ? 'bg-success' : 'bg-destructive'}`}
             title={enabled ? s.enabled : s.paused}
           />
         </C.DataTableCell>

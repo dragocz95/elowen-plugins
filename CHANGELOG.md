@@ -1,5 +1,14 @@
 # Changelog
 
+## cronjob 0.3.1 - 2026-08-31
+
+- Give active and paused job dots an inline-block box so their semantic width and height render instead of collapsing to 0 × 0.
+
+## cronjob 0.3.0 - 2026-08-31
+
+- Add a shadcn Play action that runs a recurring job immediately without rewriting its future schedule.
+- Normalize empty optional job fields so an untouched GET response can round-trip through the editor.
+
 ## cronjob 0.2.9 - 2026-08-31
 
 - Show semantic green active and red paused status dots in the jobs table.
