@@ -378,18 +378,18 @@ function PeopleAccess({ draft, response, onIdentityDetail }: {
           <div className="min-w-0 rounded-xl border border-border bg-muted/30 p-5 lg:sticky lg:top-4 lg:self-start">
             {selected === null ? null : (
               <div className="flex flex-col gap-5">
-                <div className="flex items-start gap-3">
+                <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
                   <C.Avatar name={selected.name || selected.upn || s.personFallback} src={selected.teamsAvatarUrl} user={selectedUser} size="lg" />
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0">
                     <h2 className="truncate text-base font-semibold text-foreground">{selected.name || s.personFallback}</h2>
                     <p className="truncate text-sm text-muted-foreground">{selected.upn || selected.aadObjectId}</p>
-                    <p className="mt-1 font-mono text-[11px] text-subtle-foreground">{selected.aadObjectId || selected.teamsId}</p>
+                    <p className="mt-1 break-all font-mono text-[11px] text-subtle-foreground">{selected.aadObjectId || selected.teamsId}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <C.Badge tone={policy ? 'accent' : undefined}>{policy ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped}</C.Badge>
                       {selected.hasPersonalChat ? <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><MessageCircle size={12} aria-hidden />{s.chatOpen}</span> : null}
                     </div>
                   </div>
-                  {policy ? <C.Button variant="ghost" onClick={removePolicy}>{s.removeAccess}</C.Button> : null}
+                  {policy ? <div className="col-span-2 sm:col-span-1"><C.Button variant="ghost" onClick={removePolicy}>{s.removeAccess}</C.Button></div> : null}
                 </div>
 
                 {accountLinking ? <IdentityCard key={selected.key} person={selected} users={users} onDetail={onIdentityDetail} /> : null}
