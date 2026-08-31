@@ -1,5 +1,9 @@
 # Changelog
 
+## msteams 0.5.34 - 2026-08-31
+
+- Use the canonical page toolbar for people search and mapping filters across loading and error states.
+
 ## cronjob 0.2.7 - 2026-08-31
 
 - Move search, status and ownership filters into the canonical condensed page toolbar.

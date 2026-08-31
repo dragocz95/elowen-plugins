@@ -1,6 +1,6 @@
 {
   "name": "msteams",
-  "version": "0.5.33",
+  "version": "0.5.34",
   "apiVersion": "1",
   "requiresCore": "0.28.21",
   "requiresSharedApi": 3,
