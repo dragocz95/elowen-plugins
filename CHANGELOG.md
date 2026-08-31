@@ -1,5 +1,9 @@
 # Changelog
 
+## skills 0.3.3 - 2026-08-31
+
+- SkillLoad now opens every grant-filtered skill advertised by the host, including plugin-contributed skills.
+
 ## cronjob 0.3.1 - 2026-08-31
 
 - Give active and paused job dots an inline-block box so their semantic width and height render instead of collapsing to 0 × 0.

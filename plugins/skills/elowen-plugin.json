@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "apiVersion": "1",
   "requiresCore": "0.28.23",
   "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
