@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.7.4 - 2026-08-31
+
+- Move site search, visibility and status filters into the canonical condensed page toolbar.
+
 ## msteams 0.5.34 - 2026-08-31
 
 - Use the canonical page toolbar for people search and mapping filters across loading and error states.
