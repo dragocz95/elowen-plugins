@@ -287,16 +287,16 @@ export const useActivity = (type?: string, limit?: number) =>
 
 /** Only FINITE window bounds join the key — an open ±Infinity bound collapses to null so every
  *  rolling preset shares one cache entry. */
-export const useModelUsage = (projectId?: number, window?: { fromMs: number; toMs: number }) =>
+export const useModelUsage = (window?: { fromMs: number; toMs: number }) =>
   useQuery({
-    queryKey: [...QUERY_KEYS.usageByModel, projectId ?? null,
+    queryKey: [...QUERY_KEYS.usageByModel,
       Number.isFinite(window?.fromMs) ? window!.fromMs : null,
       Number.isFinite(window?.toMs) ? window!.toMs : null],
-    queryFn: () => elowenClient.usageByModel(projectId, window),
+    queryFn: () => elowenClient.usageByModel(undefined, window),
   });
 
-export const useUsageByDay = (projectId?: number, days = 7) =>
-  useQuery({ queryKey: [...QUERY_KEYS.usageByDay, projectId ?? null, days], queryFn: () => elowenClient.usageByDay(projectId, days) });
+export const useUsageByDay = (days = 7) =>
+  useQuery({ queryKey: [...QUERY_KEYS.usageByDay, days], queryFn: () => elowenClient.usageByDay(undefined, days) });
 
 export const useUsageByOrigin = (
   group: 'user' | 'origin' | 'pair' = 'pair',

@@ -101,7 +101,7 @@ describe('StatsView', () => {
     expect(trendCard).toHaveClass('bg-card', 'text-card-foreground');
     const tokenSeriesLabel = within(trendCard).getByText(strings.trendTokens);
     const tokenSeriesMark = tokenSeriesLabel.parentElement?.querySelector('[aria-hidden]') as HTMLElement;
-    expect(tokenSeriesMark.style.background).toBe('var(--color-chart-1)');
+    expect(tokenSeriesMark.style.background).toBe('var(--color-primary)');
 
     const rows = await screen.findAllByTestId('model-usage-row');
     const cells = within(rows[0]!).getAllByRole('cell');
@@ -112,17 +112,31 @@ describe('StatsView', () => {
     expect(cells[4]).toHaveClass('text-muted-foreground');
   });
 
-  it('persists a changed range and sends both bounds for Today', async () => {
+  it('re-queries every metric and the trend when the range changes to Today', async () => {
+    server.use(http.get('*/api/usage/by-model', ({ request }) => {
+      modelSearch = new URL(request.url).search;
+      const params = new URLSearchParams(modelSearch);
+      return HttpResponse.json(params.has('to') ? [{
+        exec: 'today-only',
+        usage: { input: 30, output: 12, cacheRead: 0, cacheWrite: 0, total: 42, costUsd: 0.42, outputTps: 12, measuredOutput: 12, costSource: 'calculated' },
+      }] : models);
+    }));
     renderStats();
     await screen.findByRole('figure', { name: strings.tokensByModel });
+    expect(screen.getAllByText('token-heavy').length).toBeGreaterThan(0);
+
     fireEvent.click(screen.getByRole('button', { expanded: false }));
     fireEvent.click(screen.getByRole('button', { name: 'Today' }));
     await waitFor(() => {
       const params = new URLSearchParams(modelSearch);
       expect(params.has('from')).toBe(true);
       expect(params.has('to')).toBe(true);
+      expect(new URLSearchParams(daySearch).get('days')).toBe('1');
       expect(localStorage.getItem('elowen.stats.range')).toBe('today||');
     });
+    expect((await screen.findAllByText('today-only')).length).toBeGreaterThan(0);
+    expect(screen.getByText(strings.metricTokens).closest('.workspace-metric')).toHaveTextContent('42');
+    expect(screen.queryByText('token-heavy')).toBeNull();
   });
 
   it('shows the retry state when one query fails while the other is still loading', async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { PieChart, calculatePieSegments } from '../plugins/stats/web-src/components/PieChart';
+import { STATS_SERIES_COLORS, STATS_TREND_COLORS } from '../plugins/stats/web-src/palette';
 
 const data = [
   { id: 'large', label: 'Large', value: 60, valueLabel: '60' },
@@ -9,6 +10,18 @@ const data = [
 ];
 
 describe('PieChart', () => {
+  it('uses host-emitted runtime tokens rather than tree-shaken Tailwind chart variables', () => {
+    expect(STATS_SERIES_COLORS).toEqual([
+      'var(--color-primary)',
+      'var(--color-success)',
+      'var(--color-warning)',
+      'var(--color-info)',
+      'var(--color-ember)',
+    ]);
+    expect(STATS_TREND_COLORS).toEqual({ tokens: 'var(--color-primary)', cost: 'var(--color-success)' });
+    expect(STATS_SERIES_COLORS.some((colour) => colour.includes('--color-chart-'))).toBe(false);
+  });
+
   it('calculates each share against the total and closes exactly at 100 percent', () => {
     const segments = calculatePieSegments(data);
     expect(segments.map((segment) => segment.percentage)).toEqual([60, 30, 10]);

@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -53,25 +53,25 @@ function runtime() {
   return value;
 }
 function registerStatsUi(pages) {
-  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 8, pages });
+  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 11, pages });
 }
 
 // plugins/stats/web-src/StatsView.tsx
 var import_react7 = __toESM(require_react(), 1);
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -84,7 +84,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -116,7 +116,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -130,7 +130,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/chart-column.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/chart-column.js
 var ChartColumn = createLucideIcon("ChartColumn", [
   ["path", { d: "M3 3v16a2 2 0 0 0 2 2h16", key: "c24i48" }],
   ["path", { d: "M18 17V9", key: "2bz60n" }],
@@ -138,36 +138,36 @@ var ChartColumn = createLucideIcon("ChartColumn", [
   ["path", { d: "M8 17v-3", key: "17ska0" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/chevron-left.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/chevron-left.js
 var ChevronLeft = createLucideIcon("ChevronLeft", [
   ["path", { d: "m15 18-6-6 6-6", key: "1wnfg3" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/chevron-right.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/chevron-right.js
 var ChevronRight = createLucideIcon("ChevronRight", [
   ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/database.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/database.js
 var Database = createLucideIcon("Database", [
   ["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3", key: "msslwz" }],
   ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5", key: "1wlel7" }],
   ["path", { d: "M3 12A9 3 0 0 0 21 12", key: "mv7ke4" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/dollar-sign.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/dollar-sign.js
 var DollarSign = createLucideIcon("DollarSign", [
   ["line", { x1: "12", x2: "12", y1: "2", y2: "22", key: "7eqyqh" }],
   ["path", { d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", key: "1b0p4s" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/gauge.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/gauge.js
 var Gauge = createLucideIcon("Gauge", [
   ["path", { d: "m12 14 4-4", key: "9kzdfg" }],
   ["path", { d: "M3.34 19a10 10 0 1 1 17.32 0", key: "19p75a" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/map-pin.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/map-pin.js
 var MapPin = createLucideIcon("MapPin", [
   [
     "path",
@@ -179,13 +179,13 @@ var MapPin = createLucideIcon("MapPin", [
   ["circle", { cx: "12", cy: "10", r: "3", key: "ilqhr7" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/search.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/search.js
 var Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
   ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/trash-2.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
@@ -194,7 +194,7 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/triangle-alert.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/triangle-alert.js
 var TriangleAlert = createLucideIcon("TriangleAlert", [
   [
     "path",
@@ -209,14 +209,23 @@ var TriangleAlert = createLucideIcon("TriangleAlert", [
 
 // plugins/stats/web-src/components/PieChart.tsx
 var import_react3 = __toESM(require_react(), 1);
-var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
-var COLORS = [
-  "var(--color-chart-1)",
-  "var(--color-chart-2)",
-  "var(--color-chart-3)",
-  "var(--color-chart-4)",
-  "var(--color-chart-5)"
+
+// plugins/stats/web-src/palette.ts
+var STATS_SERIES_COLORS = [
+  "var(--color-primary)",
+  "var(--color-success)",
+  "var(--color-warning)",
+  "var(--color-info)",
+  "var(--color-ember)"
 ];
+var STATS_TREND_COLORS = {
+  tokens: STATS_SERIES_COLORS[0],
+  cost: STATS_SERIES_COLORS[1]
+};
+
+// plugins/stats/web-src/components/PieChart.tsx
+var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+var COLORS = STATS_SERIES_COLORS;
 function calculatePieSegments(data) {
   const valid = data.filter((item) => Number.isFinite(item.value) && item.value > 0);
   const total = valid.reduce((sum, item) => sum + item.value, 0);
@@ -305,8 +314,8 @@ function UsageTrend({ data, locale, tokenLabel, costLabel, emptyText }) {
   const { components: C } = runtime();
   const points = (0, import_react4.useMemo)(() => data.map((row) => ({ label: row.day, tokens: row.tokens, cost: row.cost })), [data]);
   const series = (0, import_react4.useMemo)(() => [
-    { key: "tokens", label: tokenLabel, colour: "var(--color-chart-1)", variant: "bar", axis: "left", format: (value) => formatTokens(value, locale) },
-    { key: "cost", label: costLabel, colour: "var(--color-chart-2)", variant: "line", axis: "right", format: (value) => formatCost(value, locale) }
+    { key: "tokens", label: tokenLabel, colour: STATS_TREND_COLORS.tokens, variant: "bar", axis: "left", format: (value) => formatTokens(value, locale) },
+    { key: "cost", label: costLabel, colour: STATS_TREND_COLORS.cost, variant: "line", axis: "right", format: (value) => formatCost(value, locale) }
   ], [costLabel, locale, tokenLabel]);
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.TimeSeriesChart, { data: points, series, height: 220, emptyText });
 }
@@ -640,8 +649,8 @@ function StatsView() {
   }), [rangeRaw]);
   const window2 = (0, import_react7.useMemo)(() => rangeBounds(range, now), [range, now]);
   const trendDays = (0, import_react7.useMemo)(() => trendDaysForWindow(window2, now), [window2, now]);
-  const usage = useModelUsage(void 0, window2);
-  const daily = useUsageByDay(void 0, trendDays);
+  const usage = useModelUsage(window2);
+  const daily = useUsageByDay(trendDays);
   const me = useMe();
   const summary = buildUsageSummary(usage.data);
   const [query, setQuery] = (0, import_react7.useState)("");

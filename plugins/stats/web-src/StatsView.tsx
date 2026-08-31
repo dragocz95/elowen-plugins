@@ -110,8 +110,8 @@ export function StatsView() {
   }), [rangeRaw]);
   const window = useMemo(() => rangeBounds(range, now), [range, now]);
   const trendDays = useMemo(() => trendDaysForWindow(window, now), [window, now]);
-  const usage = useModelUsage(undefined, window);
-  const daily = useUsageByDay(undefined, trendDays);
+  const usage = useModelUsage(window);
+  const daily = useUsageByDay(trendDays);
   const me = useMe();
   const summary = buildUsageSummary(usage.data);
   const [query, setQuery] = useState('');

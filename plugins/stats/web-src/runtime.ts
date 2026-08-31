@@ -78,8 +78,8 @@ interface StatsRuntime {
   };
   hooks: {
     useMe(): QueryResult<{ user?: { id: number; username: string; is_admin: boolean } }>;
-    useModelUsage(projectId?: number, window?: { fromMs: number; toMs: number }): QueryResult<ModelUsage[]>;
-    useUsageByDay(projectId?: number, days?: number): QueryResult<DayUsage[]>;
+    useModelUsage(window?: { fromMs: number; toMs: number }): QueryResult<ModelUsage[]>;
+    useUsageByDay(days?: number): QueryResult<DayUsage[]>;
     /** ADMIN-ONLY on the server: a non-admin caller gets 403 by design. `enabled` keeps a normal
      *  account from firing a request that is meant to fail; it is not the access control. */
     useUsageByOrigin(
@@ -116,5 +116,5 @@ export function runtime(): StatsRuntime {
 }
 
 export function registerStatsUi(pages: Record<string, PluginPage>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 8, pages });
+  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 11, pages });
 }
