@@ -275,7 +275,7 @@ describe('GitHub plugin', () => {
 
   it('declares device auth without App setup or callback routes', () => {
     expect(manifest.userGrantable).not.toBe(true);
-    expect(manifest.version).toBe('0.1.9');
+    expect(manifest.version).toBe('0.1.10');
     // 8, and no longer "nice to have". The floor stayed at 4 while `placement` was the only new thing,
     // because the HOST reads that off the manifest and an older one just falls back to a rail section.
     // The bundle CALLS `LinkedAccountRow` and `SummaryChip` (7), and the pull-request register now also

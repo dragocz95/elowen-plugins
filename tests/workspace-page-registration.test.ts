@@ -16,9 +16,9 @@ import { fileURLToPath } from 'node:url';
 
 const registryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** The API version that publishes the shell primitives these two sections render (WorkspaceShell,
- *  WorkspaceHero, Pager, RegisterSearch, DataTableChevronCell) and that reads `ownsPageFrame` at all. */
-const REQUIRED_API_VERSION = 8;
+/** API 8 first published the shell primitives and `ownsPageFrame`; later sections may legitimately require
+ * newer host components, so the bundle and manifest must agree while both stay at or above that floor. */
+const MINIMUM_API_VERSION = 8;
 
 interface Registration {
   requiresApiVersion?: number;
@@ -58,8 +58,8 @@ function expectSoleFramedSection(plugin: string, sectionId: string): void {
   expect(Object.keys(registration.settings ?? {})).toEqual([sectionId]);
   // The id the host compares against the manifest. An id that matches nothing fails no check at runtime.
   expect(registration.ownsPageFrame).toEqual([sectionId]);
-  expect(registration.requiresApiVersion).toBe(REQUIRED_API_VERSION);
-  expect(web.requiresApiVersion).toBe(REQUIRED_API_VERSION);
+  expect(registration.requiresApiVersion).toBe(web.requiresApiVersion);
+  expect(registration.requiresApiVersion).toBeGreaterThanOrEqual(MINIMUM_API_VERSION);
 }
 
 describe('single-surface plugin workspace registration', () => {

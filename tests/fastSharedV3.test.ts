@@ -8,11 +8,11 @@ const json = (path: string) => JSON.parse(readFileSync(join(root, path), 'utf8')
 
 describe('shared API v3 registry contract', () => {
   const versions = {
-    cronjob: '0.2.4',
-    discord: '0.3.15',
-    telegram: '0.2.11',
-    msteams: '0.5.30',
-    whatsapp: '0.2.13',
+    cronjob: '0.3.1',
+    discord: '0.3.16',
+    telegram: '0.2.12',
+    msteams: '0.6.0',
+    whatsapp: '0.2.15',
   } as const;
 
   it.each(Object.entries(versions))('%s manifest and registry entry agree on v3 and the patch version', (name, version) => {

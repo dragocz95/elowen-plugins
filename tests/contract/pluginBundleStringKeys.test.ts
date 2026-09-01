@@ -27,6 +27,10 @@ const PLUGINS = join(registryRoot, 'plugins');
  *  check, each one is listed here with the keys it can produce — so the read is still verified, a site
  *  that disappears fails as a stale entry, and a new computed read fails until it is declared. */
 const COMPUTED_READS: { file: string; keys: string[] }[] = [
+  {
+    file: 'cronjob/web-src/JobsSettings.tsx',
+    keys: ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'],
+  },
   // KanbanBoard renders one column per entry of its COLUMNS table and reads `s[col.labelKey]`.
   // A site card labels its visibility and status through lookup tables, so both sets are listed here
   // rather than dropping out of the check: a renamed string would otherwise render as a raw enum value.
