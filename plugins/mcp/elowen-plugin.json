@@ -62,6 +62,8 @@
       "commandHelp": "The command and arguments are executed as a local process. Add only a server you explicitly trust.",
       "arguments": "Arguments",
       "environment": "Environment variables",
+      "environmentSet": "Configured variable names",
+      "environmentPlaceholder": "KEY=value (existing values stay unchanged)",
       "url": "URL",
       "enabled": "Enabled",
       "stateEnabled": "Enabled",

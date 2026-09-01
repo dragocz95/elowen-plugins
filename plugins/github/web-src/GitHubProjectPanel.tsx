@@ -160,7 +160,7 @@ function mappingFrom(row: RepositoryRow): MappingForm {
     baseName: row.mapping?.baseName ?? row.detected.base?.name ?? '',
     pushOwner: row.mapping?.pushOwner ?? row.detected.push?.owner ?? '',
     pushName: row.mapping?.pushName ?? row.detected.push?.name ?? '',
-    baseRemote: row.detected.base?.remote ?? '',
-    pushRemote: row.detected.push?.remote ?? '',
+    baseRemote: row.mapping?.baseRemote ?? row.detected.base?.remote ?? '',
+    pushRemote: row.mapping?.pushRemote ?? row.detected.push?.remote ?? '',
   };
 }

@@ -24,7 +24,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
   const { components, hooks, utils } = runtime();
   const {
     Avatar, Badge, Button, IconButton, SelectMenu, ConfirmDialog, ManageSelectionModal,
-    DetailBlock, EmptyState, LoadingLine,
+    DetailBlock, EmptyState, ErrorState, LoadingLine,
   } = components;
   // Bound here rather than handed down as a prop: the static contract test can only verify a key a
   // file reads through its OWN `usePluginStrings` binding, and a drawer this large is exactly where a
@@ -36,6 +36,8 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
   const [pendingPublic, setPendingPublic] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [guestPicker, setGuestPicker] = useState(false);
+  const [failedAction, setFailedAction] = useState<{ path: string; init: RequestInit; done?: string; message: string } | null>(null);
+  const [failedGuests, setFailedGuests] = useState<{ next: Set<string>; message: string } | null>(null);
 
   const detail = hooks.useQuery<SiteDetailResponse>({
     queryKey: siteDetailKey(siteId),
@@ -61,11 +63,16 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
 
   const call = hooks.useMutation<unknown, unknown, { path: string; init: RequestInit; done?: string }>({
     mutationFn: (vars: { path: string; init: RequestInit }) => runtime().api(vars.path, vars.init),
-    onSuccess: (_data: unknown, vars: { done?: string }) => {
+    onSuccess: (_data: unknown, vars: { path: string; init: RequestInit; done?: string }) => {
+      setFailedAction(null);
       refresh();
       toast(vars.done ?? strings.saved);
     },
-    onError: (error: unknown) => toast(utils.apiErrorMessage(error), 'error'),
+    onError: (error: unknown, vars: { path: string; init: RequestInit; done?: string }) => {
+      const message = utils.apiErrorMessage(error);
+      setFailedAction({ ...vars, message });
+      toast(message, 'error');
+    },
   });
 
   /** The picker hands back the whole intended guest list, so the difference against the current one is
@@ -81,14 +88,21 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
         if (!next.has(id)) await runtime().api(`${basePath(siteId)}/members/${id}`, { method: 'DELETE' });
       }
     },
-    onSuccess: () => { refresh(); toast(strings.saved); },
-    onError: (error: unknown) => toast(utils.apiErrorMessage(error), 'error'),
+    onSuccess: () => { setFailedGuests(null); refresh(); toast(strings.saved); },
+    onError: (error: unknown, next: Set<string>) => {
+      // A later delta may have landed before the failure. Reconcile the drawer before offering Retry.
+      const message = utils.apiErrorMessage(error);
+      setFailedGuests({ next: new Set(next), message });
+      refresh();
+      toast(message, 'error');
+    },
   });
 
   if (detail.isError) return <EmptyState title={strings.loadFailed} icon={Server} />;
   if (!site) return <LoadingLine />;
 
   const setVisibility = (next: string) => {
+    if (call.isPending) return;
     if (next === 'public') { setPendingPublic(true); return; }
     call.mutate({ path: basePath(siteId), init: jsonBody('PATCH', { visibility: next }) });
   };
@@ -106,6 +120,18 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
 
   return (
     <div className="flex flex-col gap-5">
+      {failedAction ? (
+        <ErrorState
+          message={failedAction.message}
+          onRetry={() => { const retry = failedAction; setFailedAction(null); call.mutate(retry); }}
+        />
+      ) : null}
+      {failedGuests ? (
+        <ErrorState
+          message={failedGuests.message}
+          onRetry={() => { const retry = failedGuests.next; setFailedGuests(null); saveGuests.mutate(retry); }}
+        />
+      ) : null}
       {/* Identity strip — what this site IS and the two things you do with an address, on one line. */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -198,7 +224,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
             </ul>
           )}
           <div>
-            <Button variant="ghost" icon={Users} onClick={() => setGuestPicker(true)}>{strings.manageGuests}</Button>
+            <Button variant="ghost" icon={Users} disabled={call.isPending || saveGuests.isPending} onClick={() => setGuestPicker(true)}>{strings.manageGuests}</Button>
           </div>
         </DetailBlock>
       ) : null}
@@ -308,6 +334,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
         confirmLabel={strings.publicConfirm}
         onClose={() => setPendingPublic(false)}
         onConfirm={() => {
+          if (call.isPending) return;
           setPendingPublic(false);
           call.mutate({ path: basePath(siteId), init: jsonBody('PATCH', { visibility: 'public' satisfies Visibility }) });
         }}
@@ -320,6 +347,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
         confirmLabel={strings.delete}
         onClose={() => setConfirmDelete(false)}
         onConfirm={() => {
+          if (call.isPending) return;
           setConfirmDelete(false);
           call.mutate(
             { path: basePath(siteId), init: { method: 'DELETE' }, done: strings.deleted },

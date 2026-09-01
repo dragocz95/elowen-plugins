@@ -276,7 +276,10 @@ function ConflictsRail({ row, onClose, onResolved }) {
         )
       ] }) })
     ] }, conflict.rel)) }),
-    resolveError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: resolveError }) }) : null
+    resolveError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: resolveError, onRetry: () => {
+      setResolveError(null);
+      conflicts.refetch();
+    } }) }) : null
   ] });
 }
 function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
@@ -420,8 +423,8 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
       row.webUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { icon: ExternalLink, onClick: () => window.open(row.webUrl, "_blank", "noopener"), children: s.openFolder }),
       row.enabled ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { icon: RefreshCw, disabled: busy, onClick: onSync, children: s.syncNow }) : null,
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: onPause, children: row.enabled ? s.pause : s.resume }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: onDisconnect, children: s.disconnect })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", disabled: busy, onClick: onPause, children: row.enabled ? s.pause : s.resume }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", disabled: busy, onClick: onDisconnect, children: s.disconnect })
     ] })
   ] });
 }
@@ -497,7 +500,7 @@ function OneDriveProjectPanel({ project }) {
         MirrorCard,
         {
           row: projectLink,
-          busy: syncNow.isPending,
+          busy: syncNow.isPending || pause.isPending || disconnect.isPending,
           onConflicts: () => setConflictsFor(projectLink),
           onDisconnect: () => setDisconnecting(projectLink),
           onPause: () => pause.mutate({ id: projectLink.id, enabled: !projectLink.enabled }),
@@ -554,7 +557,7 @@ function OneDriveProjectPanel({ project }) {
                 row.conflictCount,
                 ")"
               ] }),
-              row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: () => setDisconnecting(row), children: s.disconnect }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", disabled: pause.isPending || syncNow.isPending || disconnect.isPending, onClick: () => setDisconnecting(row), children: s.disconnect }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                 C.Button,
                 {
                   onClick: () => {
@@ -619,7 +622,9 @@ function OneDriveProjectPanel({ project }) {
         description: s.disconnectHint,
         confirmLabel: s.disconnect,
         onClose: () => setDisconnecting(null),
-        onConfirm: () => disconnecting && disconnect.mutate({ id: disconnecting.id })
+        onConfirm: () => {
+          if (disconnecting && !disconnect.isPending) disconnect.mutate({ id: disconnecting.id });
+        }
       }
     )
   ] });

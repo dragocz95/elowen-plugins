@@ -55,20 +55,29 @@ describe('MCP bundle contract', () => {
 });
 
 describe('MCP settings form mapping', () => {
-  it('round-trips a stdio server without losing command arguments or environment values', () => {
+  it('does not round-trip write-only environment values from an existing server', () => {
     expect(serverPayload(serverDraft(server))).toEqual({
       scope: 'personal',
       name: 'github',
       transport: 'stdio',
       command: 'npx',
       args: ['-y', '@example/mcp'],
-      env: { TOKEN: 'secret', REGION: 'eu' },
       enabled: true,
+    });
+  });
+
+  it('still accepts explicitly replaced environment values', () => {
+    expect(serverPayload({ ...serverDraft(server), env: 'TOKEN=replaced\nREGION=eu' })).toMatchObject({
+      env: { TOKEN: 'replaced', REGION: 'eu' },
     });
   });
 
   it('keeps everything after the first equals sign in an environment value', () => {
     expect(parseEnvironment('TOKEN=a=b=c\nEMPTY=\nFLAG')).toEqual({ TOKEN: 'a=b=c', EMPTY: '', FLAG: '' });
+  });
+
+  it('does not emit an empty environment object that would clear stored secrets', () => {
+    expect(serverPayload(serverDraft(server))).not.toHaveProperty('env');
   });
 
   it('does not send stale stdio credentials after switching to HTTP', () => {

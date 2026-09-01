@@ -4,7 +4,7 @@ import { jsonBody, localizedError, runtime, type DeviceFlowResponse, type Previe
 
 export const STATUS_KEY = ['plugin', 'github', 'status'];
 interface PendingConnectionAction { action: Record<string, unknown>; preview: Preview }
-interface DeviceChallenge { flowId: string; verificationUrl: string; userCode: string; expiresAt: number }
+interface DeviceChallenge { flowId: string; verificationUrl: string | null; userCode: string | null; expiresAt: number }
 
 export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | Promise<void> }) {
   const { components: C, hooks, api, utils } = runtime();
@@ -57,7 +57,7 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
 
   useEffect(() => {
     const persisted = status.data?.flow;
-    if (!flow && persisted?.flowId && persisted.verificationUrl && persisted.userCode && (persisted.status === 'pending' || persisted.status === 'completing')) {
+    if (!flow && persisted?.flowId && (persisted.status === 'pending' || persisted.status === 'completing')) {
       setFlow({ flowId: persisted.flowId, verificationUrl: persisted.verificationUrl, userCode: persisted.userCode, expiresAt: persisted.expiresAt });
     }
   }, [flow, status.data?.flow]);
@@ -91,8 +91,10 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
   const completePending = () => {
     if (!pending) return;
     if (pending.action.type === 'replace_identity') {
-      connect.mutate({ replaceIdentity: true, confirmationToken: pending.preview.confirmationToken });
-      setPending(null);
+      connect.mutate(
+        { replaceIdentity: true, confirmationToken: pending.preview.confirmationToken },
+        { onSuccess: () => setPending(null) },
+      );
       return;
     }
     confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken });
@@ -104,13 +106,18 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
     return <div className="space-y-4">
       <div className="rounded-xl border border-border bg-card p-4">
         <div className="text-sm font-semibold text-foreground">{s.waitingForGitHub}</div>
-        <div className="mt-3 text-xs text-muted-foreground">{s.deviceCode}</div>
-        <code className="mt-1 block rounded-lg bg-background px-3 py-2 text-center text-lg font-semibold tracking-[0.2em] text-foreground">{flow.userCode}</code>
-        <a className="mt-3 inline-flex text-sm font-medium text-primary hover:underline" href={flow.verificationUrl} target="_blank" rel="noreferrer">{s.verifyOnGitHub}</a>
+        {flow.userCode ? <>
+          <div className="mt-3 text-xs text-muted-foreground">{s.deviceCode}</div>
+          <code className="mt-1 block rounded-lg bg-background px-3 py-2 text-center text-lg font-semibold tracking-[0.2em] text-foreground">{flow.userCode}</code>
+        </> : <p className="mt-3 text-sm text-muted-foreground">{s.waitingForGitHub}</p>}
+        {flow.verificationUrl ? <a className="mt-3 inline-flex text-sm font-medium text-primary hover:underline" href={flow.verificationUrl} target="_blank" rel="noreferrer">{s.verifyOnGitHub}</a> : null}
         {state === 'failed' ? <p className="mt-3 text-sm text-destructive">{s.connectionFailed}</p> : null}
         {state === 'expired' ? <p className="mt-3 text-sm text-destructive">{s.connectionExpired}</p> : null}
         {state === 'cancelled' ? <p className="mt-3 text-sm text-muted-foreground">{s.connectionCancelled}</p> : null}
         {state === 'interrupted' ? <p className="mt-3 text-sm text-destructive">{s.connectionFailed}</p> : null}
+        {flowStatus.isError && state !== 'failed' && state !== 'expired' && state !== 'cancelled' && state !== 'interrupted'
+          ? <C.ErrorState message={localizedError(flowStatus.error, s)} onRetry={() => flowStatus.refetch()} />
+          : null}
       </div>
       <div className="flex flex-wrap gap-2">
         {!terminal ? <C.Button variant="ghost" onClick={() => cancel.mutate(flow.flowId)} disabled={cancel.isPending}>{s.cancelConnection}</C.Button> : null}

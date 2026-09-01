@@ -172,7 +172,7 @@ var User = createLucideIcon("User", [
 
 // plugins/skills/web-src/SkillsSettings.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
-var EMPTY_FORM = { editing: null, name: "", description: "", body: "", disableModelInvocation: false, owner: null };
+var EMPTY_FORM = { editing: null, name: "", description: "", body: "", disableModelInvocation: false, owner: null, editingOwner: null };
 var ownerParam = (owner) => owner === "instance" ? "instance" : owner === null ? "me" : String(owner);
 function SkillsSettings({ surface }) {
   const { components: C, hooks, utils, api } = runtime();
@@ -203,7 +203,7 @@ function SkillsSettings({ surface }) {
     return skill.owner === myId ? s.ownerMine : `#${skill.owner}`;
   };
   const skills = query.data ?? [];
-  const editedSkill = (form) => form.editing === null ? void 0 : skills.find((skill) => skill.name === form.editing);
+  const editedSkill = (form) => form.editing === null ? void 0 : skills.find((skill) => skill.name === form.editing && targetOwner(skill) === form.editingOwner);
   const scopeSwitchable = (form) => {
     if (form.editing === null) return true;
     const skill = editedSkill(form);
@@ -248,7 +248,8 @@ function SkillsSettings({ surface }) {
         description: skill.description,
         body: skill.content ?? "",
         disableModelInvocation: skill.disableModelInvocation,
-        owner: targetOwner(skill)
+        owner: targetOwner(skill),
+        editingOwner: targetOwner(skill)
       }),
       ownership: {
         header: s.ownerColumn,

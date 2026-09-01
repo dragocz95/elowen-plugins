@@ -32,7 +32,9 @@ export function serverDraft(server: McpServer): ServerDraft {
     transport: server.transport,
     command: server.command ?? '',
     args: (server.args ?? []).join('\n'),
-    env: Object.entries(server.env ?? {}).map(([key, value]) => `${key}=${value}`).join('\n'),
+    // Secret values are write-only. Existing keys are shown below, while an empty draft keeps them
+    // unchanged on update instead of round-tripping them through the browser.
+    env: '',
     url: server.url ?? '',
     enabled: server.enabled,
   };
@@ -49,7 +51,9 @@ export function serverPayload(draft: ServerDraft) {
   return draft.transport === 'stdio'
     ? {
       scope: draft.scope, name: draft.name.trim(), transport: draft.transport, command: draft.command.trim(),
-      args: draft.args.split('\n').map((line) => line.trim()).filter(Boolean), env: parseEnvironment(draft.env), enabled: draft.enabled,
+      args: draft.args.split('\n').map((line) => line.trim()).filter(Boolean),
+      ...(draft.env.trim() ? { env: parseEnvironment(draft.env) } : {}),
+      enabled: draft.enabled,
     }
     : { scope: draft.scope, name: draft.name.trim(), transport: draft.transport, url: draft.url.trim(), enabled: draft.enabled };
 }
@@ -248,8 +252,14 @@ function ServerEditor({ server, draft, saving, busy, reconnecting, error, canMan
             <C.Field label={s.arguments}>
               <textarea className="min-h-24 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground" value={draft.args} disabled={busy} onChange={(event) => onChange({ ...draft, args: event.target.value })} />
             </C.Field>
-            <C.Field label={s.environment}>
-              <textarea className="min-h-24 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground" value={draft.env} disabled={busy} onChange={(event) => onChange({ ...draft, env: event.target.value })} />
+            <C.Field label={s.environment} hint={server?.envKeys?.length ? `${s.environmentSet}: ${server.envKeys.join(', ')}` : undefined}>
+              <textarea
+                className="min-h-24 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground"
+                value={draft.env}
+                placeholder={server?.envKeys?.length ? s.environmentPlaceholder : undefined}
+                disabled={busy}
+                onChange={(event) => onChange({ ...draft, env: event.target.value })}
+              />
             </C.Field>
           </>
         ) : (

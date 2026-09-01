@@ -225,7 +225,7 @@ function GitHubConnectionPanel({ onChanged }) {
   });
   (0, import_react3.useEffect)(() => {
     const persisted = status.data?.flow;
-    if (!flow && persisted?.flowId && persisted.verificationUrl && persisted.userCode && (persisted.status === "pending" || persisted.status === "completing")) {
+    if (!flow && persisted?.flowId && (persisted.status === "pending" || persisted.status === "completing")) {
       setFlow({ flowId: persisted.flowId, verificationUrl: persisted.verificationUrl, userCode: persisted.userCode, expiresAt: persisted.expiresAt });
     }
   }, [flow, status.data?.flow]);
@@ -254,8 +254,10 @@ function GitHubConnectionPanel({ onChanged }) {
   const completePending = () => {
     if (!pending) return;
     if (pending.action.type === "replace_identity") {
-      connect.mutate({ replaceIdentity: true, confirmationToken: pending.preview.confirmationToken });
-      setPending(null);
+      connect.mutate(
+        { replaceIdentity: true, confirmationToken: pending.preview.confirmationToken },
+        { onSuccess: () => setPending(null) }
+      );
       return;
     }
     confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken });
@@ -266,13 +268,16 @@ function GitHubConnectionPanel({ onChanged }) {
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-xl border border-border bg-card p-4", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm font-semibold text-foreground", children: s.waitingForGitHub }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3 text-xs text-muted-foreground", children: s.deviceCode }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "mt-1 block rounded-lg bg-background px-3 py-2 text-center text-lg font-semibold tracking-[0.2em] text-foreground", children: flow.userCode }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "mt-3 inline-flex text-sm font-medium text-primary hover:underline", href: flow.verificationUrl, target: "_blank", rel: "noreferrer", children: s.verifyOnGitHub }),
+        flow.userCode ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3 text-xs text-muted-foreground", children: s.deviceCode }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "mt-1 block rounded-lg bg-background px-3 py-2 text-center text-lg font-semibold tracking-[0.2em] text-foreground", children: flow.userCode })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-muted-foreground", children: s.waitingForGitHub }),
+        flow.verificationUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "mt-3 inline-flex text-sm font-medium text-primary hover:underline", href: flow.verificationUrl, target: "_blank", rel: "noreferrer", children: s.verifyOnGitHub }) : null,
         state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-destructive", children: s.connectionFailed }) : null,
         state === "expired" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-destructive", children: s.connectionExpired }) : null,
         state === "cancelled" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-muted-foreground", children: s.connectionCancelled }) : null,
-        state === "interrupted" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-destructive", children: s.connectionFailed }) : null
+        state === "interrupted" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-destructive", children: s.connectionFailed }) : null,
+        flowStatus.isError && state !== "failed" && state !== "expired" && state !== "cancelled" && state !== "interrupted" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: localizedError(flowStatus.error, s), onRetry: () => flowStatus.refetch() }) : null
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex flex-wrap gap-2", children: !terminal ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => cancel.mutate(flow.flowId), disabled: cancel.isPending, children: s.cancelConnection }) : null })
     ] });
@@ -562,8 +567,8 @@ function mappingFrom(row) {
     baseName: row.mapping?.baseName ?? row.detected.base?.name ?? "",
     pushOwner: row.mapping?.pushOwner ?? row.detected.push?.owner ?? "",
     pushName: row.mapping?.pushName ?? row.detected.push?.name ?? "",
-    baseRemote: row.detected.base?.remote ?? "",
-    pushRemote: row.detected.push?.remote ?? ""
+    baseRemote: row.mapping?.baseRemote ?? row.detected.base?.remote ?? "",
+    pushRemote: row.mapping?.pushRemote ?? row.detected.push?.remote ?? ""
   };
 }
 

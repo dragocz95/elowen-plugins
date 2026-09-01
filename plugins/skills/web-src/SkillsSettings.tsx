@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { Hand, Package, Plus, User } from 'lucide-react';
 import { runtime, type PluginSkill, type SkillOwner } from './runtime';
 
-type SkillExtra = { disableModelInvocation: boolean; owner: SkillOwner };
+type SkillExtra = { disableModelInvocation: boolean; owner: SkillOwner; editingOwner: SkillOwner };
 type SkillForm = { editing: string | null; name: string; description: string; body: string } & SkillExtra;
 // `owner: null` on a NEW skill means "mine" — the daemon resolves an absent owner to the caller's own
-// set. Only an admin can switch the form to the instance set.
-const EMPTY_FORM: SkillForm = { editing: null, name: '', description: '', body: '', disableModelInvocation: false, owner: null };
+// set. Only an admin can switch the form to the instance set. `editingOwner` remains the original
+// identity while the draft owner is changed, so a move still addresses the correct source row.
+const EMPTY_FORM: SkillForm = { editing: null, name: '', description: '', body: '', disableModelInvocation: false, owner: null, editingOwner: null };
 
 /** Skills manager (the skills plugin's own page): bundled skills ship read-only with the install; user
  *  skills are one .md file each and can be created, edited and deleted here. Changes hot-reload the
@@ -55,7 +56,8 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
 
   const skills: PluginSkill[] = query.data ?? [];
   const editedSkill = (form: SkillForm): PluginSkill | undefined =>
-    (form.editing === null ? undefined : skills.find((skill) => skill.name === form.editing));
+    (form.editing === null ? undefined : skills.find((skill) =>
+      skill.name === form.editing && targetOwner(skill) === form.editingOwner));
   /** A new skill, an instance-wide one, or the admin's own — see the switch's comment for why somebody
    *  else's personal skill is excluded. Fail CLOSED on an editing form whose skill is not in the list: a
    *  refetch error or an in-flight invalidation empties it, and "unknown owner" must not read as
@@ -107,6 +109,7 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
           body: skill.content ?? '',
           disableModelInvocation: skill.disableModelInvocation,
           owner: targetOwner(skill),
+          editingOwner: targetOwner(skill),
         })}
         ownership={{
           header: s.ownerColumn,

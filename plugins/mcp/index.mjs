@@ -138,7 +138,9 @@ function assertTransportAuthority(ctx, spec) {
   }
 }
 
-function validateServerInput(input) {
+const SENSITIVE_URL_PARAMETER = /^(?:api[_-]?key|auth|authorization|access[_-]?token|password|secret|token)$/i;
+
+export function validateServerInput(input) {
   const name = String(input?.name ?? '').trim();
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(name)) throw new Error('server name must be 1-40 letters, numbers, underscores or dashes');
   const transport = input?.transport ?? (input?.url ? 'http' : 'stdio');
@@ -149,15 +151,18 @@ function validateServerInput(input) {
     return {
       name, enabled: input?.enabled !== false, transport, command,
       args: Array.isArray(input?.args) ? input.args.map(String) : [],
-      env: input?.env && typeof input.env === 'object' && !Array.isArray(input.env)
-        ? Object.fromEntries(Object.entries(input.env).map(([key, value]) => [key, String(value)]))
-        : {},
+      ...(input?.env && typeof input.env === 'object' && !Array.isArray(input.env)
+        ? { env: Object.fromEntries(Object.entries(input.env).map(([key, value]) => [key, String(value)])) }
+        : {}),
     };
   }
   const url = String(input?.url ?? '').trim();
   let parsed;
   try { parsed = new URL(url); } catch { throw new Error(`${transport} MCP servers require a valid URL`); }
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('MCP server URL must use http or https');
+  if (parsed.username || parsed.password || [...parsed.searchParams.keys()].some((key) => SENSITIVE_URL_PARAMETER.test(key))) {
+    throw new Error('MCP server URLs must not contain credentials or secret query parameters');
+  }
   return { name, enabled: input?.enabled !== false, transport, url: parsed.toString() };
 }
 
@@ -234,11 +239,26 @@ async function reconnectMcpServerForScope(ctx, scope, name) {
   return publicServerState(spec);
 }
 
+function redactUrl(value) {
+  if (!value) return value;
+  try {
+    const parsed = new URL(value);
+    parsed.username = '';
+    parsed.password = '';
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (SENSITIVE_URL_PARAMETER.test(key)) parsed.searchParams.delete(key);
+    }
+    return parsed.toString();
+  } catch { return undefined; }
+}
+
 function editableServer(spec) {
   return {
     ...publicServerState(spec),
     enabled: spec.enabled,
-    ...(transportKind(spec) === 'stdio' ? { command: spec.command, args: spec.args ?? [], env: spec.env ?? {} } : { url: spec.url }),
+    ...(transportKind(spec) === 'stdio'
+      ? { command: spec.command, args: spec.args ?? [], envKeys: Object.keys(spec.env ?? {}) }
+      : { url: redactUrl(spec.url) }),
   };
 }
 

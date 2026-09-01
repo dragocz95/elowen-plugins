@@ -39,6 +39,8 @@
       "commandHelp": "Príkaz a argumenty sa spustia ako miestny proces. Pridajte iba server, ktorému výslovne dôverujete.",
       "arguments": "Argumenty",
       "environment": "Premenné prostredia",
+      "environmentSet": "Nastavené názvy premenných",
+      "environmentPlaceholder": "KĽÚČ=hodnota (existujúce hodnoty zostanú nezmenené)",
       "url": "URL",
       "enabled": "Zapnuté",
       "stateEnabled": "Zapnuté",

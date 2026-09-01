@@ -406,6 +406,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
     ManageSelectionModal,
     DetailBlock,
     EmptyState,
+    ErrorState,
     LoadingLine
   } = components;
   const strings = hooks.usePluginStrings("sites");
@@ -414,6 +415,8 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
   const [pendingPublic, setPendingPublic] = (0, import_react3.useState)(false);
   const [confirmDelete, setConfirmDelete] = (0, import_react3.useState)(false);
   const [guestPicker, setGuestPicker] = (0, import_react3.useState)(false);
+  const [failedAction, setFailedAction] = (0, import_react3.useState)(null);
+  const [failedGuests, setFailedGuests] = (0, import_react3.useState)(null);
   const detail = hooks.useQuery({
     queryKey: siteDetailKey(siteId),
     queryFn: () => runtime().api(basePath(siteId))
@@ -433,10 +436,15 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
   const call = hooks.useMutation({
     mutationFn: (vars) => runtime().api(vars.path, vars.init),
     onSuccess: (_data, vars) => {
+      setFailedAction(null);
       refresh();
       toast(vars.done ?? strings.saved);
     },
-    onError: (error) => toast(utils.apiErrorMessage(error), "error")
+    onError: (error, vars) => {
+      const message = utils.apiErrorMessage(error);
+      setFailedAction({ ...vars, message });
+      toast(message, "error");
+    }
   });
   const saveGuests = hooks.useMutation({
     mutationFn: async (next) => {
@@ -449,14 +457,21 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
       }
     },
     onSuccess: () => {
+      setFailedGuests(null);
       refresh();
       toast(strings.saved);
     },
-    onError: (error) => toast(utils.apiErrorMessage(error), "error")
+    onError: (error, next) => {
+      const message = utils.apiErrorMessage(error);
+      setFailedGuests({ next: new Set(next), message });
+      refresh();
+      toast(message, "error");
+    }
   });
   if (detail.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EmptyState, { title: strings.loadFailed, icon: Server });
   if (!site) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoadingLine, {});
   const setVisibility = (next) => {
+    if (call.isPending) return;
     if (next === "public") {
       setPendingPublic(true);
       return;
@@ -476,6 +491,28 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
     }
   };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5", children: [
+    failedAction ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      ErrorState,
+      {
+        message: failedAction.message,
+        onRetry: () => {
+          const retry = failedAction;
+          setFailedAction(null);
+          call.mutate(retry);
+        }
+      }
+    ) : null,
+    failedGuests ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      ErrorState,
+      {
+        message: failedGuests.message,
+        onRetry: () => {
+          const retry = failedGuests.next;
+          setFailedGuests(null);
+          saveGuests.mutate(retry);
+        }
+      }
+    ) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-start justify-between gap-3", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-1.5", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: STATUS_TONE[site.status], children: strings[STATUS_STRING[site.status]] }),
@@ -557,7 +594,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
           }
         )
       ] }, member.id)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", icon: Users, onClick: () => setGuestPicker(true), children: strings.manageGuests }) })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", icon: Users, disabled: call.isPending || saveGuests.isPending, onClick: () => setGuestPicker(true), children: strings.manageGuests }) })
     ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DetailBlock, { icon: History, title: strings.releases, children: releases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: releases.map((release) => {
       const live = release.id === site.currentReleaseId;
@@ -645,6 +682,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
         confirmLabel: strings.publicConfirm,
         onClose: () => setPendingPublic(false),
         onConfirm: () => {
+          if (call.isPending) return;
           setPendingPublic(false);
           call.mutate({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: "public" }) });
         }
@@ -659,6 +697,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
         confirmLabel: strings.delete,
         onClose: () => setConfirmDelete(false),
         onConfirm: () => {
+          if (call.isPending) return;
           setConfirmDelete(false);
           call.mutate(
             { path: basePath(siteId), init: { method: "DELETE" }, done: strings.deleted },

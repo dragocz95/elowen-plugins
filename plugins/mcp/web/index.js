@@ -239,7 +239,9 @@ function serverDraft(server) {
     transport: server.transport,
     command: server.command ?? "",
     args: (server.args ?? []).join("\n"),
-    env: Object.entries(server.env ?? {}).map(([key, value]) => `${key}=${value}`).join("\n"),
+    // Secret values are write-only. Existing keys are shown below, while an empty draft keeps them
+    // unchanged on update instead of round-tripping them through the browser.
+    env: "",
     url: server.url ?? "",
     enabled: server.enabled
   };
@@ -257,7 +259,7 @@ function serverPayload(draft) {
     transport: draft.transport,
     command: draft.command.trim(),
     args: draft.args.split("\n").map((line) => line.trim()).filter(Boolean),
-    env: parseEnvironment(draft.env),
+    ...draft.env.trim() ? { env: parseEnvironment(draft.env) } : {},
     enabled: draft.enabled
   } : { scope: draft.scope, name: draft.name.trim(), transport: draft.transport, url: draft.url.trim(), enabled: draft.enabled };
 }
@@ -381,7 +383,16 @@ function ServerEditor({ server, draft, saving, busy, reconnecting, error, canMan
       draft.transport === "stdio" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "sm:col-span-2", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.command, hint: s.commandHelp, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { value: draft.command, disabled: busy, onChange: (event) => onChange({ ...draft, command: event.target.value }) }) }) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.arguments, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", { className: "min-h-24 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground", value: draft.args, disabled: busy, onChange: (event) => onChange({ ...draft, args: event.target.value }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.environment, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", { className: "min-h-24 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground", value: draft.env, disabled: busy, onChange: (event) => onChange({ ...draft, env: event.target.value }) }) })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.environment, hint: server?.envKeys?.length ? `${s.environmentSet}: ${server.envKeys.join(", ")}` : void 0, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "textarea",
+          {
+            className: "min-h-24 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground",
+            value: draft.env,
+            placeholder: server?.envKeys?.length ? s.environmentPlaceholder : void 0,
+            disabled: busy,
+            onChange: (event) => onChange({ ...draft, env: event.target.value })
+          }
+        ) })
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "sm:col-span-2", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.url, htmlFor: "mcp-url", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { id: "mcp-url", value: draft.url, disabled: busy, onChange: (event) => onChange({ ...draft, url: event.target.value }) }) }) })
     ] }),
     server ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DetailBlock, { icon: Wrench, title: s.tools, hint: s.toolsHint, children: server.tools.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.noTools }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(

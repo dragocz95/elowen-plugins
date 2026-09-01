@@ -160,6 +160,8 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const toggle = (p: string) => setExpanded((cur) => { const n = new Set(cur); n.has(p) ? n.delete(p) : n.add(p); return n; });
   const expandPath = (dir: string) => setExpanded((cur) => { const n = new Set(cur); let acc = ''; for (const part of dir.split('/').filter(Boolean)) { acc = acc ? `${acc}/${part}` : part; n.add(acc); } return n; });
 
+  const confirmDiscard = () => dirtyPaths.size === 0 || window.confirm(s.statusUnsaved);
+
   // The one exit from the fullscreen takeover — its back control and Escape both land here. On a phone
   // the takeover replaced the app navigation and fullscreen is not the user's choice (it is forced
   // below), so leaving means leaving the editor; on desktop it means dropping back to the inline card.
@@ -169,8 +171,13 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   // one key press close both it and the editor.
   const leaveFullscreen = () => {
     if (menu) { setMenu(null); setOpenMenu(null); return; }
+    if (!confirmDiscard()) return;
     setShowTree(false);
     if (mobile && onClose) onClose(); else setFullscreen(false);
+  };
+
+  const closeEditor = () => {
+    if (confirmDiscard()) onClose?.();
   };
 
   // Auto-fullscreen on mobile so the editor owns the whole viewport (the inline card is too cramped on
@@ -179,6 +186,12 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   useEffect(() => { if (mobile) setFullscreen(true); }, [mobile]);
   // Reset the tree overlay whenever it stops being relevant (exit fullscreen, or switch to desktop).
   useEffect(() => { if (!fullscreen || !mobile) setShowTree(false); }, [fullscreen, mobile]);
+  useEffect(() => {
+    if (dirtyPaths.size === 0) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirtyPaths.size]);
 
   // Cmd+S doesn't block on a pending write, so several saves can overlap. Each one awaits its OWN
   // promise: `mutate(…, { onSuccess })` would attach the callbacks to the hook's single observer, and
@@ -205,6 +218,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   };
 
   const closeTab = (p: string) => {
+    if (dirtyPaths.has(p) && !window.confirm(s.statusUnsaved)) return;
     setOpenTabs((tabs) => {
       const next = tabs.filter((x) => x !== p);
       if (selected === p) setSelected(next[next.length - 1] ?? null);
@@ -419,7 +433,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         {uploading ? <span className="text-xs text-muted-foreground">{s.uploading}</span> : null}
         <div className="ml-auto flex max-w-full flex-wrap items-center gap-2">
           {viewControls}
-          {!fullscreen && onClose ? <button type="button" aria-label={t.common.close} onClick={onClose} className="overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"><X size={15} /></button> : null}
+          {!fullscreen && onClose ? <button type="button" aria-label={t.common.close} onClick={closeEditor} className="overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"><X size={15} /></button> : null}
         </div>
       </div>
 

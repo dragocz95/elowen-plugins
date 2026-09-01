@@ -16,7 +16,7 @@ export interface DeviceFlowResponse {
 }
 export interface RepositoryRow {
   project: { id: number; slug: string };
-  mapping: null | { projectId: number; baseOwner: string; baseName: string; pushOwner: string; pushName: string; verifiedAt: number; active: boolean };
+  mapping: null | { projectId: number; baseOwner: string; baseName: string; pushOwner: string; pushName: string; baseRemote?: string | null; pushRemote?: string | null; verifiedAt: number; active: boolean };
   remotes: { name: string; fetchUrl: string; pushUrl: string }[];
   detected: { ambiguous: boolean; base: { owner: string; name: string; remote: string } | null; push: { owner: string; name: string; remote: string } | null };
 }
