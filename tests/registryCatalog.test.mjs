@@ -117,7 +117,9 @@ const EXPECTED_CAPABILITIES = {
   // requests are forwarded to a process on a loopback socket, which is network activity even though it
   // never leaves the machine.
   sites: { reads: ['controls', 'db', 'stores'], network: true },
-  skills: { reads: ['stores'] },
+  // `controls` is the host-owned live catalog: SkillLoad must resolve the exact grant/owner-filtered set
+  // announced to this turn instead of reopening only the skills plugin's own files.
+  skills: { reads: ['controls', 'stores'] },
   todo: { reads: ['db'] },
   // `network` is the whole point — it dials a telephone through an HTTP service — and `db` is what makes
   // the hourly call limit survive a restart, which is the only thing standing between a repeating agent
