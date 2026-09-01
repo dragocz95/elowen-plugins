@@ -60,7 +60,7 @@ describe('discord plugin', () => {
 
 describe('discord destination and list config compatibility', () => {
   it('normalizes legacy raw ids, opaque destinations and stale stored Discord options', async () => {
-    const { DiscordAdapter, discordDestinationId } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as {
+    const { DiscordAdapter, discordDestinationId } = await import('../plugins/discord/lib/adapter.mjs') as {
       DiscordAdapter: { prototype: { notify: (text: string, channelId?: string) => Promise<void> } };
       discordDestinationId: (value: unknown) => string;
     };
@@ -80,7 +80,7 @@ describe('discord destination and list config compatibility', () => {
   });
 
   it('accepts legacy and array allowed-thread lists without dropping stale ids', async () => {
-    const { splitList } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as {
+    const { splitList } = await import('../plugins/discord/lib/adapter.mjs') as {
       splitList: (value: unknown) => string[];
     };
     expect(splitList('111, 222\n333')).toEqual(['111', '222', '333']);
@@ -525,7 +525,7 @@ describe('discord display settings', () => {
   });
 
   it('/display persists operator-only channel overrides and reports the resolved policy', async () => {
-    const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
+    const { DiscordAdapter } = await import('../plugins/discord/lib/adapter.mjs') as { DiscordAdapter: new (...args: unknown[]) => any };
     const channels: Record<string, Record<string, unknown>> = {};
     const state = {
       get: (id: string) => channels[id] ?? {},
@@ -572,7 +572,7 @@ const discordCommands = () => DISCORD_CHAT_COMMANDS;
 
 describe('discord reasoning picker', () => {
   const makeAdapter = async (models: unknown[], initial: Record<string, unknown> = {}, language = 'en') => {
-    const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
+    const { DiscordAdapter } = await import('../plugins/discord/lib/adapter.mjs') as { DiscordAdapter: new (...args: unknown[]) => any };
     const channels: Record<string, Record<string, unknown>> = { C: initial };
     const state = {
       get: (id: string) => channels[id] ?? {},
@@ -715,7 +715,7 @@ describe('discord reasoning picker', () => {
 
 describe('discord /fast capability gate', () => {
   const makeAdapter = async (models: unknown[], initial: Record<string, unknown> = {}, commands = discordCommands) => {
-    const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
+    const { DiscordAdapter } = await import('../plugins/discord/lib/adapter.mjs') as { DiscordAdapter: new (...args: unknown[]) => any };
     const channels: Record<string, Record<string, unknown>> = { C: initial };
     const state = {
       get: (id: string) => channels[id] ?? {},
@@ -1205,7 +1205,7 @@ describe('discord memberIsAdmin (operator-only picker gate)', () => {
 // parked question — while `dispatchSlashPrompt` handed the stranger a full turn with the wildcard's scope.
 describe('discord interaction origin guard (a DM interaction is not a guild member)', () => {
   const makeAdapter = async (cfg: Record<string, unknown> = {}) => {
-    const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
+    const { DiscordAdapter } = await import('../plugins/discord/lib/adapter.mjs') as { DiscordAdapter: new (...args: unknown[]) => any };
     const channels: Record<string, Record<string, unknown>> = {};
     const state = {
       get: (id: string) => channels[id] ?? {},
@@ -1855,7 +1855,7 @@ describe('discord delivers a shared file through the installed shared reducer', 
   let chatFiles: string;
 
   const mkAdapter = async (cfg: Record<string, unknown> = {}) => {
-    const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
+    const { DiscordAdapter } = await import('../plugins/discord/lib/adapter.mjs') as { DiscordAdapter: new (...args: unknown[]) => any };
     const { LiveMessage } = await import(join(repoRoot, 'plugins/discord/index.mjs')) as {
       LiveMessage: new (...args: unknown[]) => { onEvent: (e: unknown) => void; finalize: (reply?: string) => Promise<void> };
     };
@@ -1980,7 +1980,7 @@ describe('discord delivers a shared file through the installed shared reducer', 
 
 describe('discord paged pickers + /context', () => {
   const makeAdapter = async (models: unknown[], initial: Record<string, unknown> = {}, language = 'en') => {
-    const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
+    const { DiscordAdapter } = await import('../plugins/discord/lib/adapter.mjs') as { DiscordAdapter: new (...args: unknown[]) => any };
     const channels: Record<string, Record<string, unknown>> = { C: initial };
     const state = {
       get: (id: string) => channels[id] ?? {},
@@ -2082,7 +2082,7 @@ describe('discord paged pickers + /context', () => {
 // expands the macro. The shared catalog `discordCommands` ends with a `deploy` prompt command.
 describe('discord plugin prompt-commands (native registration + RAW dispatch)', () => {
   const makeAdapter = async () => {
-    const { DiscordAdapter } = await import(join(repoRoot, 'plugins/discord/lib/adapter.mjs')) as { DiscordAdapter: new (...args: unknown[]) => any };
+    const { DiscordAdapter } = await import('../plugins/discord/lib/adapter.mjs') as { DiscordAdapter: new (...args: unknown[]) => any };
     const channels: Record<string, Record<string, unknown>> = {};
     const state = {
       get: (id: string) => channels[id] ?? {},

@@ -16,29 +16,16 @@
  *  `utils` are `Record<string, …>` — names travel, props do not. A primitive listed here is verified by
  *  eye against the daemon working copy and by the plugin bundles' own suites until it ships. */
 
-/** Runtime primitives added after 0.28.17. Names only — the maps are untyped records on both sides. */
+/** Runtime primitives added after the pinned release. Names only — the maps are untyped records on both
+ * sides. Elowen 0.28.17 already ships the register/page-shell primitives, so no runtime exemption remains. */
 export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; utils: string[] } = {
-  components: [
-    // The register trio (API 8): the shared footer, the toolbar search field that may shrink below
-    // 240px, and the row's trailing open affordance.
-    'Pager', 'RegisterSearch', 'DataTableChevronCell',
-    // The canonical page shell and its hero, and the fullscreen application surface.
-    'WorkspaceShell', 'WorkspaceHero', 'WorkspaceTakeover',
-    // The connector identity row and its chip in the closed Linked accounts summary (API 7).
-    'LinkedAccountRow', 'SummaryChip',
-  ],
+  components: [],
   hooks: [],
   utils: [],
 };
 
-/** Host dictionary leaves added after 0.28.17, as flattened `section.key` paths. `pagination` arrived
- *  with the shared Pager, which reads its own labels rather than taking them from a caller. */
-export const AHEAD_OF_RELEASE_DICTIONARY = [
-  'pagination.label', 'pagination.previous', 'pagination.next',
-  'pagination.previousPage', 'pagination.nextPage', 'pagination.range', 'pagination.pageLabel',
-  'common.filters', 'common.filtersWithCount', 'common.filtersActive', 'common.filtersClear', 'common.filterRemove',
-];
+/** Host dictionary leaves added after 0.28.17, as flattened `section.key` paths. */
+export const AHEAD_OF_RELEASE_DICTIONARY = ['projects.detailTitle'];
 
-/** The plugin UI API version the daemon's main branch declares, and therefore the version the stand-in
- *  runtime installs. The pinned package still answers 6. */
+/** The plugin UI API version the daemon's main branch and the pinned package both declare. */
 export const AHEAD_OF_RELEASE_API_VERSION = 12;

@@ -11,7 +11,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('telegram token-list config compatibility', () => {
   it('accepts legacy and array allowed-chat ids without constraining their string shape', async () => {
-    const { splitList } = await import(join(repoRoot, 'plugins/telegram/lib/adapter.mjs')) as {
+    const { splitList } = await import('../plugins/telegram/lib/adapter.mjs') as {
       splitList: (value: unknown) => string[];
     };
     expect(splitList('123456789, -1001234567890\n987654321')).toEqual([
@@ -214,7 +214,7 @@ const FAST_CATALOG = [...LOCAL_CATALOG, { name: 'fast', description: 'Set Fast m
 
 describe('telegram paged pickers + /context', () => {
   const makeAdapter = async (models: unknown[], initial: Record<string, unknown> = {}, commands: unknown[] = LOCAL_CATALOG) => {
-    const { TelegramAdapter } = await import(join(repoRoot, 'plugins/telegram/lib/adapter.mjs')) as { TelegramAdapter: new (...args: unknown[]) => any };
+    const { TelegramAdapter } = await import('../plugins/telegram/lib/adapter.mjs') as { TelegramAdapter: new (...args: unknown[]) => any };
     const chats: Record<string, Record<string, unknown>> = { '5': initial };
     const state = {
       get: (id: string) => chats[id] ?? {},
@@ -369,7 +369,7 @@ describe('telegram paged pickers + /context', () => {
 // ran on — and the forged line then rides the NEXT reply quote, reinforcing the pattern.
 describe('telegram reply quote', () => {
   const makeAdapter = async () => {
-    const { TelegramAdapter } = await import(join(repoRoot, 'plugins/telegram/lib/adapter.mjs')) as { TelegramAdapter: new (...args: unknown[]) => any };
+    const { TelegramAdapter } = await import('../plugins/telegram/lib/adapter.mjs') as { TelegramAdapter: new (...args: unknown[]) => any };
     const state = { get: () => ({}), patch: () => {} };
     const adapter = new TelegramAdapter(
       { language: 'en', rolePolicies: [{ roleId: '42' }], streaming: false, reactions: false },
@@ -407,7 +407,7 @@ describe('telegram reply quote', () => {
 describe('telegram command menu publication', () => {
   type Published = { command: string; description: string };
   const makeAdapter = async (commands: { name: string; description: string; kind?: string; adminOnly?: boolean }[]) => {
-    const { TelegramAdapter } = await import(join(repoRoot, 'plugins/telegram/lib/adapter.mjs')) as { TelegramAdapter: new (...args: unknown[]) => any };
+    const { TelegramAdapter } = await import('../plugins/telegram/lib/adapter.mjs') as { TelegramAdapter: new (...args: unknown[]) => any };
     const warns: string[] = [];
     const adapter = new TelegramAdapter(
       { language: 'en' }, { ...log, warn: (m: string) => warns.push(m) },
@@ -498,7 +498,7 @@ describe('telegram command menu publication', () => {
 
 describe('telegram interleaved final ordering', () => {
   const makeAdapter = async () => {
-    const { TelegramAdapter } = await import(join(repoRoot, 'plugins/telegram/lib/adapter.mjs')) as { TelegramAdapter: new (...args: unknown[]) => any };
+    const { TelegramAdapter } = await import('../plugins/telegram/lib/adapter.mjs') as { TelegramAdapter: new (...args: unknown[]) => any };
     const adapter = new TelegramAdapter(
       {
         language: 'en', rolePolicies: [{ roleId: '42' }], reactions: false,
@@ -567,7 +567,7 @@ describe('telegram delivers a shared file and retires a settled question through
   let chatFiles: string;
 
   const mkAdapter = async () => {
-    const { TelegramAdapter } = await import(join(repoRoot, 'plugins/telegram/lib/adapter.mjs')) as { TelegramAdapter: new (...args: unknown[]) => any };
+    const { TelegramAdapter } = await import('../plugins/telegram/lib/adapter.mjs') as { TelegramAdapter: new (...args: unknown[]) => any };
     const { LiveMessage } = await import(join(repoRoot, 'plugins/telegram/lib/stream.mjs')) as {
       LiveMessage: new (...args: unknown[]) => { onEvent: (e: unknown) => void; finalize: (reply?: string) => Promise<void> };
     };

@@ -83,8 +83,8 @@ test('sites manifest and marketplace registry expose the same release', () => {
   // The mount is namespaced by plugin name, so the declared route is 's' and the public address is
   // /hooks/sites/s/<slug>/. Declaring 'sites' here would serve /hooks/sites/sites/.
   assert.deepEqual(manifest.provides.httpRoutes, ['s']);
-  // The host UI contract is 7; a bundle that claims more renders a placeholder instead of the page.
-  assert.equal(manifest.web.requiresApiVersion, 7);
+  // The host UI contract is 12; a bundle that claims more renders a placeholder instead of the page.
+  assert.equal(manifest.web.requiresApiVersion, 12);
   assert.ok(!('userGrantable' in manifest), 'a grant would lock invited guests out of the ticket route');
 });
 
