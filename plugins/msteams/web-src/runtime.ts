@@ -1,4 +1,6 @@
 import type { ComponentType } from 'react';
+import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
+import type { AutoSaveStatusProps, SaveStatus } from '../../autoSaveContract';
 
 interface TeamsIdentityUser {
   id: number;
@@ -81,7 +83,7 @@ export interface User { id: number; username: string; name?: string; avatar?: st
 interface ConfigDraft {
   values: Record<string, unknown>;
   setValue(key: string, value: unknown): void;
-  status: 'idle' | 'saving' | 'saved' | 'error';
+  status: SaveStatus;
   retry(): void;
   flush(): void;
   ready: boolean;
@@ -109,7 +111,7 @@ interface TeamsComponents {
   Segmented: AnyComponent;
   SettingsDocument: AnyComponent;
   PluginConfigEditor: AnyComponent;
-  AutoSaveStatus: AnyComponent;
+  AutoSaveStatus: ComponentType<AutoSaveStatusProps>;
   LoadingState: AnyComponent;
   ErrorState: AnyComponent;
   EmptyState: AnyComponent;
@@ -130,24 +132,16 @@ interface TeamsRuntime {
   api(path: string, init?: RequestInit): Promise<unknown>;
 }
 
-type PluginPageComponent = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[]; surface: 'page' | 'deck' }>;
-interface TeamsRegistration {
-  requiresApiVersion: number;
-  pages?: Record<string, PluginPageComponent>;
-}
-interface HostWindow {
-  ElowenUiRuntime?: unknown;
-  __elowenRegisterPluginUi?: (plugin: string, registration: TeamsRegistration) => void;
-}
+type TeamsRegistration = Pick<PluginUiRegistration, 'requiresApiVersion' | 'pages'>;
 
 export function runtime(): TeamsRuntime {
-  const value = (window as HostWindow).ElowenUiRuntime as TeamsRuntime | undefined;
+  const value = window.ElowenUiRuntime as unknown as TeamsRuntime | undefined;
   if (!value) throw new Error('ElowenUiRuntime is not installed');
   return value;
 }
 
 export function registerTeamsUi(registration: TeamsRegistration): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('msteams', registration);
+  window.__elowenRegisterPluginUi?.('msteams', registration);
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {

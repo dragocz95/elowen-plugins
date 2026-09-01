@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
@@ -20,12 +20,7 @@ ensurePluginUiRuntime();
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
 const manifestApiVersion = (manifest as { web: { requiresApiVersion: number } }).web.requiresApiVersion;
 
-type PluginSectionComponent = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[]; surface: 'page' | 'deck' }>;
-interface BundleRegistration {
-  requiresApiVersion: number;
-  settings?: Record<string, PluginSectionComponent>;
-  ownsPageFrame?: string[];
-}
+type BundleRegistration = Pick<PluginUiRegistration, 'requiresApiVersion' | 'settings' | 'ownsPageFrame'>;
 
 /** Load the bundle entry the way the host does — it registers itself on import — and hand back what it
  *  registered. The entry is what carries `ownsPageFrame`, so nothing short of importing it proves the
