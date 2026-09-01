@@ -1,6 +1,6 @@
 {
   "name": "discord",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "apiVersion": "1",
   "requiresCore": "0.28.11",
   "requiresSharedApi": 3,
@@ -44,8 +44,12 @@
       "DiscordRemoveThreadMember"
     ]
   },
-  "deferLoading": ["Discord*"],
-  "icons": { "Discord*": "💬" },
+  "deferLoading": [
+    "Discord*"
+  ],
+  "icons": {
+    "Discord*": "💬"
+  },
   "configSchema": [
     {
       "key": "sec_connection",
@@ -97,9 +101,18 @@
       "type": "enum",
       "default": "status",
       "options": [
-        { "value": "off", "label": "Off" },
-        { "value": "status", "label": "Live status" },
-        { "value": "live", "label": "Live output" }
+        {
+          "value": "off",
+          "label": "Off"
+        },
+        {
+          "value": "status",
+          "label": "Live status"
+        },
+        {
+          "value": "live",
+          "label": "Live output"
+        }
       ],
       "hint": "Off hides the work trace. Live status updates tool start/completion. Live output also streams bounded Bash progress. Override per channel with /display."
     },
@@ -109,8 +122,14 @@
       "type": "enum",
       "default": "final",
       "options": [
-        { "value": "final", "label": "Final answer only" },
-        { "value": "live", "label": "Stream answer live" }
+        {
+          "value": "final",
+          "label": "Final answer only"
+        },
+        {
+          "value": "live",
+          "label": "Stream answer live"
+        }
       ],
       "hint": "Final posts one complete answer below the live tool trace. Live edits the answer while it is written. Override per channel with /display."
     },
@@ -120,9 +139,18 @@
       "type": "enum",
       "default": "summary",
       "options": [
-        { "value": "hidden", "label": "Status only" },
-        { "value": "summary", "label": "Short summary" },
-        { "value": "tail", "label": "Rolling output tail" }
+        {
+          "value": "hidden",
+          "label": "Status only"
+        },
+        {
+          "value": "summary",
+          "label": "Short summary"
+        },
+        {
+          "value": "tail",
+          "label": "Rolling output tail"
+        }
       ],
       "hint": "Controls how much bounded tool output appears below each status. Raw full output is never dumped into Discord."
     },
@@ -132,8 +160,14 @@
       "type": "enum",
       "default": "single",
       "options": [
-        { "value": "single", "label": "One live message" },
-        { "value": "per_tool", "label": "One message per tool" }
+        {
+          "value": "single",
+          "label": "One live message"
+        },
+        {
+          "value": "per_tool",
+          "label": "One message per tool"
+        }
       ],
       "hint": "One live message keeps the channel compact. One message per tool gives every tool call its own editable Discord bubble."
     },
@@ -171,9 +205,18 @@
       "type": "enum",
       "default": "en",
       "options": [
-        { "value": "en", "label": "English" },
-        { "value": "cs", "label": "Čeština" },
-        { "value": "sk", "label": "Slovenčina" }
+        {
+          "value": "en",
+          "label": "English"
+        },
+        {
+          "value": "cs",
+          "label": "Čeština"
+        },
+        {
+          "value": "sk",
+          "label": "Slovenčina"
+        }
       ],
       "hint": "Language of the bot's own service messages (/new, /model, placeholders)."
     },
@@ -317,7 +360,7 @@
       "key": "rolePolicies",
       "label": "Role policies",
       "type": "rolePolicies",
-      "hint": "First matching role wins. Users with no mapped role are ignored. The ID is a Discord role ID, or * for every member \u2014 keep a * policy last, below the named entries it would otherwise swallow. Projects and tool permissions come from the sender's linked Elowen account."
+      "hint": "First matching role wins. Users with no mapped role are ignored. The ID is a Discord role ID, or * for every member — keep a * policy last, below the named entries it would otherwise swallow. Projects and tool permissions come from the sender's linked Elowen account."
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "name": "voice-bot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "apiVersion": "1",
   "description": "Outbound telephone calls through a configurable voice API. VoiceCall dials a real phone number and hands the conversation to a voice agent briefed by the prompt sent with the call.",
   "entry": "index.mjs",

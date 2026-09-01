@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -62,19 +62,19 @@ async function apiJson(path, init) {
 // plugins/msteams/web-src/TeamsWorkspace.tsx
 var import_react3 = __toESM(require_react(), 1);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
+// node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
+// node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -87,7 +87,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -119,7 +119,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -133,14 +133,14 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/download.js
+// node_modules/lucide-react/dist/esm/icons/download.js
 var Download = createLucideIcon("Download", [
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
   ["polyline", { points: "7 10 12 15 17 10", key: "2ggqvy" }],
   ["line", { x1: "12", x2: "12", y1: "15", y2: "3", key: "1vk2je" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/key-round.js
+// node_modules/lucide-react/dist/esm/icons/key-round.js
 var KeyRound = createLucideIcon("KeyRound", [
   [
     "path",
@@ -152,12 +152,12 @@ var KeyRound = createLucideIcon("KeyRound", [
   ["circle", { cx: "16.5", cy: "7.5", r: ".5", fill: "currentColor", key: "w0ekpg" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/message-circle.js
+// node_modules/lucide-react/dist/esm/icons/message-circle.js
 var MessageCircle = createLucideIcon("MessageCircle", [
   ["path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z", key: "vv11sd" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/refresh-cw.js
+// node_modules/lucide-react/dist/esm/icons/refresh-cw.js
 var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
@@ -165,13 +165,13 @@ var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/search.js
+// node_modules/lucide-react/dist/esm/icons/search.js
 var Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
   ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/settings-2.js
+// node_modules/lucide-react/dist/esm/icons/settings-2.js
 var Settings2 = createLucideIcon("Settings2", [
   ["path", { d: "M20 7h-9", key: "3s1dr2" }],
   ["path", { d: "M14 17H5", key: "gfn3mx" }],
@@ -179,7 +179,7 @@ var Settings2 = createLucideIcon("Settings2", [
   ["circle", { cx: "7", cy: "7", r: "3", key: "dfmy0x" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/shield-check.js
+// node_modules/lucide-react/dist/esm/icons/shield-check.js
 var ShieldCheck = createLucideIcon("ShieldCheck", [
   [
     "path",
@@ -191,14 +191,14 @@ var ShieldCheck = createLucideIcon("ShieldCheck", [
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/user-check.js
+// node_modules/lucide-react/dist/esm/icons/user-check.js
 var UserCheck = createLucideIcon("UserCheck", [
   ["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", key: "1yyitq" }],
   ["circle", { cx: "9", cy: "7", r: "4", key: "nufk8" }],
   ["polyline", { points: "16 11 18 13 22 9", key: "1pwet4" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/users.js
+// node_modules/lucide-react/dist/esm/icons/users.js
 var Users = createLucideIcon("Users", [
   ["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", key: "1yyitq" }],
   ["circle", { cx: "9", cy: "7", r: "4", key: "nufk8" }],

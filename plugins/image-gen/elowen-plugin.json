@@ -1,6 +1,6 @@
 {
   "name": "image-gen",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "apiVersion": "1",
   "description": "Image generation via the OpenAI Images API (gpt-image-1 by default). Generated images show directly in the chat.",
   "entry": "index.mjs",
@@ -36,9 +36,18 @@
       "type": "enum",
       "default": "1024x1024",
       "options": [
-        { "value": "1024x1024", "label": "1024×1024 (square)" },
-        { "value": "1536x1024", "label": "1536×1024 (landscape)" },
-        { "value": "1024x1536", "label": "1024×1536 (portrait)" }
+        {
+          "value": "1024x1024",
+          "label": "1024×1024 (square)"
+        },
+        {
+          "value": "1536x1024",
+          "label": "1536×1024 (landscape)"
+        },
+        {
+          "value": "1024x1536",
+          "label": "1024×1536 (portrait)"
+        }
       ],
       "hint": "Output resolution and aspect ratio."
     }

@@ -3,7 +3,7 @@
   "plugins": [
     {
       "name": "codebase",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings → Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",
       "category": "tools",
       "author": "Elowen",
@@ -14,7 +14,7 @@
     },
     {
       "name": "cronjob",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "description": "Scheduler: recurring prompts, one-shot wake-ups and shell collectors that wake the agent on a schedule, with a jobs screen in Settings.",
       "category": "automation",
       "author": "Elowen",
@@ -28,7 +28,7 @@
     },
     {
       "name": "discord",
-      "version": "0.3.16",
+      "version": "0.3.17",
       "requiresCore": "0.28.11",
       "description": "Discord bot: chat with Elowen in a server channel, thread or DM, with slash commands, live message editing and role-based admission; account permissions come from the linked Elowen account.",
       "category": "chat",
@@ -42,7 +42,7 @@
     },
     {
       "name": "editor",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "description": "Project file editor with Monaco, file management, previews for Markdown, images, PDF, media, Office and CSV files, a binary download fallback, and read-only Git history. Disabling it removes the editor UI and makes its grandfathered project-file API unavailable while project registration and task Git history remain available.",
       "category": "tools",
       "author": "Elowen",
@@ -53,7 +53,7 @@
     },
     {
       "name": "github",
-      "version": "0.1.10",
+      "version": "0.1.11",
       "requiresCore": "0.28.13",
       "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
       "category": "productivity",
@@ -66,7 +66,7 @@
     },
     {
       "name": "image-edit",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "description": "Edit an existing image from a text instruction (image-to-image) via the OpenAI Images edits API. The result shows in the chat.",
       "category": "media",
       "author": "Elowen",
@@ -77,7 +77,7 @@
     },
     {
       "name": "image-gen",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "description": "Image generation via the OpenAI Images API (gpt-image-1 by default). Generated images show directly in the chat.",
       "category": "media",
       "author": "Elowen",
@@ -100,7 +100,7 @@
     },
     {
       "name": "mcp",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "requiresCore": "0.28.24",
       "description": "Connect external MCP servers to the assistant’s tools.",
       "category": "tools",
@@ -113,7 +113,7 @@
     },
     {
       "name": "msteams",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "requiresCore": "0.28.23",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
@@ -130,7 +130,7 @@
     },
     {
       "name": "onedrive",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "requiresCore": "0.28.17",
       "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
       "category": "productivity",
@@ -145,7 +145,7 @@
     },
     {
       "name": "skills",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "requiresCore": "0.28.23",
       "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
       "category": "automation",
@@ -158,7 +158,7 @@
     },
     {
       "name": "sites",
-      "version": "0.7.4",
+      "version": "0.7.5",
       "requiresCore": "0.28.21",
       "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is a separate release you can roll back to.",
       "category": "productivity",
@@ -181,7 +181,7 @@
     },
     {
       "name": "telegram",
-      "version": "0.2.12",
+      "version": "0.2.13",
       "requiresCore": "0.28.11",
       "description": "Telegram bot: chat with Elowen in a private chat, group or forum topic, with slash commands, inline keyboards and live message editing.",
       "category": "chat",
@@ -207,7 +207,7 @@
     },
     {
       "name": "voice-bot",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Outbound telephone calls: the agent dials a real phone number through a configurable voice API and briefs the voice agent that speaks on the call.",
       "category": "automation",
       "author": "Elowen",
@@ -218,7 +218,7 @@
     },
     {
       "name": "web",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "description": "Web research: WebSearch (Tavily) and WebFetch (fetch a page as readable text).",
       "category": "research",
       "author": "Elowen",
@@ -229,7 +229,7 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.15",
+      "version": "0.2.16",
       "requiresCore": "0.28.11",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",

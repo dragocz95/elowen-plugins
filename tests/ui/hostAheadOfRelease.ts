@@ -25,7 +25,7 @@ export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; 
 };
 
 /** Host dictionary leaves added after 0.28.17, as flattened `section.key` paths. */
-export const AHEAD_OF_RELEASE_DICTIONARY = ['common.activationPending', 'projects.detailTitle'];
+export const AHEAD_OF_RELEASE_DICTIONARY = ['projects.detailTitle'];
 
 /** The plugin UI API version the daemon's main branch and the pinned package both declare. */
 export const AHEAD_OF_RELEASE_API_VERSION = 12;

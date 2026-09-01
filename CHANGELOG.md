@@ -1,5 +1,69 @@
 # Changelog
 
+## whatsapp 0.2.16 - 2026-09-02
+
+- Validate role policies and harden pairing recovery
+
+## web 0.3.1 - 2026-09-02
+
+- Validate search provider and result limits
+
+## voice-bot 0.1.1 - 2026-09-02
+
+- Validate required endpoint and token configuration
+
+## telegram 0.2.13 - 2026-09-02
+
+- Normalize role policies and configuration validation
+
+## skills 0.3.4 - 2026-09-02
+
+- Add revision-safe edits and atomic move-update
+
+## sites 0.7.5 - 2026-09-02
+
+- Add atomic guest replacement and persistent action feedback
+
+## onedrive 0.2.3 - 2026-09-02
+
+- Preserve pending actions and retry state
+
+## msteams 0.6.1 - 2026-09-02
+
+- Validate role policies and add People retry feedback
+
+## mcp 0.1.7 - 2026-09-02
+
+- Add revision-safe server drafts and write-only credentials
+
+## image-gen 0.2.2 - 2026-09-02
+
+- Enforce image-size schema and runtime bounds
+
+## image-edit 0.2.2 - 2026-09-02
+
+- Validate image inputs and declare network access
+
+## github 0.1.11 - 2026-09-02
+
+- Harden device-flow recovery and duplicate submissions
+
+## editor 0.3.3 - 2026-09-02
+
+- Protect dirty drafts during close and navigation
+
+## discord 0.3.17 - 2026-09-02
+
+- Validate role policy configuration and surface slash-command failures
+
+## cronjob 0.3.2 - 2026-09-02
+
+- Add revision-safe job autosave and durable retry
+
+## codebase 0.1.3 - 2026-09-02
+
+- Validate indexing configuration and persistence feedback
+
 ## mcp 0.1.5 - 2026-09-01
 
 - Move MCP server management into the registry and place the Enabled/Disabled control at the top of the drawer.
