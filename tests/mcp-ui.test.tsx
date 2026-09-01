@@ -129,21 +129,69 @@ describe('MCP drawer reconnect', () => {
     expect(await screen.findByText(strings.reconnectSuccess.replace('{name}', reconnectable.name))).toBeInTheDocument();
   });
 
-  it('shows the server refusal without inventing a successful reconnect', async () => {
+  it('refreshes a formerly connected server after reconnect refusal instead of showing stale tools', async () => {
+    const connected = { ...refreshed, status: 'connected', toolCount: 1, tools: [{ name: 'search', title: 'Search' }] };
+    const rejected = { ...connected, status: 'error', toolCount: 0, tools: [], lastError: 'connection closed during reconnect' };
+    let loads = 0;
     use(
-      http.get('/api/plugins/mcp/api/servers', () => HttpResponse.json({ personal: [reconnectable], instance: [], canManageInstance: false })),
+      http.get('/api/plugins/mcp/api/servers', () => {
+        loads += 1;
+        return HttpResponse.json({ personal: [loads === 1 ? connected : rejected], instance: [], canManageInstance: false });
+      }),
       http.post('/api/plugins/mcp/api/reconnect', () => HttpResponse.json({ error: 'MCP server is disabled by policy' }, { status: 409 })),
     );
     mount();
 
-    fireEvent.click(await screen.findByRole('button', { name: strings.openServer.replace('{name}', reconnectable.name) }));
-    const drawer = within(await screen.findByRole('dialog', { name: reconnectable.name }));
+    fireEvent.click(await screen.findByRole('button', { name: strings.openServer.replace('{name}', connected.name) }));
+    const drawer = within(await screen.findByRole('dialog', { name: connected.name }));
+    expect(drawer.getByText('Search')).toBeInTheDocument();
     fireEvent.click(drawer.getByRole('button', { name: strings.reconnectServer }));
 
+    await waitFor(() => expect(loads).toBe(2));
     expect(await drawer.findByRole('alert')).toHaveTextContent('MCP server is disabled by policy');
+    expect(drawer.getByText(strings.statusError)).toBeInTheDocument();
+    expect(drawer.getByText(strings.noTools)).toBeInTheDocument();
+    expect(drawer.queryByText('Search')).toBeNull();
     const errorMessages = await screen.findAllByText('MCP server is disabled by policy');
     expect(errorMessages.some((element) => element.getAttribute('data-tone') === 'error')).toBe(true);
-    expect(screen.queryByText(strings.reconnectSuccess.replace('{name}', reconnectable.name))).toBeNull();
+    expect(screen.queryByText(strings.reconnectSuccess.replace('{name}', connected.name))).toBeNull();
+  });
+
+  it('keeps pending reconnect state on its originating drawer and locks other row triggers', async () => {
+    const first = { ...reconnectable, name: 'first', status: 'connected', toolCount: 0, tools: [], lastError: null };
+    const second = { ...reconnectable, name: 'second', status: 'connected', toolCount: 0, tools: [], lastError: null };
+    const firstError = { ...first, status: 'error', lastError: 'connection closed during reconnect' };
+    let loads = 0;
+    let releaseReconnect: (() => void) | undefined;
+    use(
+      http.get('/api/plugins/mcp/api/servers', () => {
+        loads += 1;
+        return HttpResponse.json({ personal: [loads === 1 ? first : firstError, second], instance: [], canManageInstance: false });
+      }),
+      http.post('/api/plugins/mcp/api/reconnect', async () => {
+        await new Promise<void>((resolve) => { releaseReconnect = resolve; });
+        return HttpResponse.json({ error: 'first server refused reconnect' }, { status: 409 });
+      }),
+    );
+    mount();
+
+    fireEvent.click(await screen.findByRole('button', { name: strings.openServer.replace('{name}', first.name) }));
+    const firstDrawer = within(await screen.findByRole('dialog', { name: first.name }));
+    fireEvent.click(firstDrawer.getByRole('button', { name: strings.reconnectServer }));
+
+    await screen.findByRole('button', { name: strings.reconnectingServer });
+    expect(screen.queryByRole('button', { name: strings.openServer.replace('{name}', second.name) })).toBeNull();
+    fireEvent.click(screen.getByRole('row', { name: new RegExp(second.name) }));
+    expect(screen.queryByRole('dialog', { name: second.name })).toBeNull();
+    expect(firstDrawer.getByRole('button', { name: strings.reconnectingServer })).toBeDisabled();
+
+    releaseReconnect?.();
+
+    await waitFor(() => expect(loads).toBe(2));
+    fireEvent.click(await screen.findByRole('button', { name: strings.openServer.replace('{name}', second.name) }));
+    const secondDrawer = within(await screen.findByRole('dialog', { name: second.name }));
+    expect(secondDrawer.queryByRole('button', { name: strings.reconnectingServer })).toBeNull();
+    expect(secondDrawer.queryByRole('alert')).toBeNull();
   });
 });
 

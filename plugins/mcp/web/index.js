@@ -304,8 +304,7 @@ function McpServerRow({ server, showScope, selected, onOpen }) {
     {
       selected,
       "aria-selected": selected,
-      onOpen,
-      openLabel: s.openServer.replace("{name}", server.name),
+      ...onOpen ? { onOpen, openLabel: s.openServer.replace("{name}", server.name) } : {},
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableCell, { lines: "auto", title: label, className: "flex items-center justify-center", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `h-2 w-2 rounded-full ${statusDot(server)}`, "aria-hidden": true }),
@@ -340,7 +339,8 @@ function ServerEditor({ server, draft, saving, busy, reconnecting, error, canMan
         {
           checked: draft.enabled,
           onChange: (enabled) => onChange({ ...draft, enabled }),
-          label: `${draft.name || s.addServer}: ${s.enabled}`
+          label: `${draft.name || s.addServer}: ${s.enabled}`,
+          disabled: busy
         }
       ),
       draft.enabled ? s.stateEnabled : s.stateDisabled
@@ -354,13 +354,14 @@ function ServerEditor({ server, draft, saving, busy, reconnecting, error, canMan
       server.lastError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-destructive", children: server.lastError }) : null
     ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.name, htmlFor: "mcp-name", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { id: "mcp-name", value: draft.name, disabled: Boolean(server), onChange: (event) => onChange({ ...draft, name: event.target.value }) }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.name, htmlFor: "mcp-name", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { id: "mcp-name", value: draft.name, disabled: busy || Boolean(server), onChange: (event) => onChange({ ...draft, name: event.target.value }) }) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.scope, hint: s.scopeHelp, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         C.SelectMenu,
         {
           label: s.scope,
           value: draft.scope,
           onChange: (scope) => onChange({ ...draft, scope }),
+          disabled: busy,
           options: [
             { value: "personal", label: s.scopePersonal },
             ...canManageInstance ? [{ value: "instance", label: s.scopeInstance }] : []
@@ -373,14 +374,15 @@ function ServerEditor({ server, draft, saving, busy, reconnecting, error, canMan
           label: s.transport,
           value: draft.transport,
           onChange: (transport) => onChange({ ...draft, transport }),
+          disabled: busy,
           options: [{ value: "stdio", label: "stdio" }, { value: "http", label: "HTTP" }, { value: "sse", label: "SSE" }]
         }
       ) }) }),
       draft.transport === "stdio" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "sm:col-span-2", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.command, hint: s.commandHelp, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { value: draft.command, onChange: (event) => onChange({ ...draft, command: event.target.value }) }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.arguments, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", { className: "min-h-24 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground", value: draft.args, onChange: (event) => onChange({ ...draft, args: event.target.value }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.environment, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", { className: "min-h-24 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground", value: draft.env, onChange: (event) => onChange({ ...draft, env: event.target.value }) }) })
-      ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "sm:col-span-2", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.url, htmlFor: "mcp-url", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { id: "mcp-url", value: draft.url, onChange: (event) => onChange({ ...draft, url: event.target.value }) }) }) })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "sm:col-span-2", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.command, hint: s.commandHelp, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { value: draft.command, disabled: busy, onChange: (event) => onChange({ ...draft, command: event.target.value }) }) }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.arguments, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", { className: "min-h-24 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground", value: draft.args, disabled: busy, onChange: (event) => onChange({ ...draft, args: event.target.value }) }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.environment, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", { className: "min-h-24 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground", value: draft.env, disabled: busy, onChange: (event) => onChange({ ...draft, env: event.target.value }) }) })
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "sm:col-span-2", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.url, htmlFor: "mcp-url", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { id: "mcp-url", value: draft.url, disabled: busy, onChange: (event) => onChange({ ...draft, url: event.target.value }) }) }) })
     ] }),
     server ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DetailBlock, { icon: Wrench, title: s.tools, hint: s.toolsHint, children: server.tools.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.noTools }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
       C.SelectionSummary,
@@ -422,7 +424,7 @@ function McpServersPage() {
   const [page, setPage] = (0, import_react3.useState)(0);
   const [editor, setEditor] = (0, import_react3.useState)();
   const [saving, setSaving] = (0, import_react3.useState)(false);
-  const [reconnecting, setReconnecting] = (0, import_react3.useState)(false);
+  const [reconnectingKey, setReconnectingKey] = (0, import_react3.useState)();
   const [reconnectingAll, setReconnectingAll] = (0, import_react3.useState)(false);
   const [busy, setBusy] = (0, import_react3.useState)(false);
   const [actionError, setActionError] = (0, import_react3.useState)();
@@ -492,30 +494,37 @@ function McpServersPage() {
     }
   };
   const reconnect = async () => {
-    if (!selected || !canReconnect(selected, canManageInstance)) return;
-    setReconnecting(true);
+    if (!selected || busy || !canReconnect(selected, canManageInstance)) return;
+    const target = selected;
+    const key = serverKey(target);
+    setReconnectingKey(key);
     setBusy(true);
     setActionError(void 0);
     try {
-      await apiJson("/plugins/mcp/api/reconnect", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scope: selected.scope, name: selected.name })
-      });
+      let refusal;
+      try {
+        await apiJson("/plugins/mcp/api/reconnect", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ scope: target.scope, name: target.name })
+        });
+      } catch (error) {
+        refusal = error;
+      }
       await load();
-      toast(s.reconnectSuccess.replace("{name}", selected.name));
-    } catch (error) {
-      const message = utils.apiErrorMessage(error) || s.actionError;
-      setActionError(message);
-      toast(message, "error");
+      if (refusal) {
+        const message = utils.apiErrorMessage(refusal) || s.actionError;
+        setActionError(message);
+        toast(message, "error");
+      } else toast(s.reconnectSuccess.replace("{name}", target.name));
     } finally {
-      setReconnecting(false);
+      setReconnectingKey(void 0);
       setBusy(false);
     }
   };
   const reconnectAll = async () => {
     const targets = reconnectableFailures;
-    if (targets.length === 0) return;
+    if (busy || targets.length === 0) return;
     setReconnectingAll(true);
     setBusy(true);
     setActionError(void 0);
@@ -567,10 +576,12 @@ function McpServersPage() {
     }
   };
   const openServer = (server) => {
+    if (busy) return;
     setActionError(void 0);
     setEditor({ key: serverKey(server), draft: serverDraft(server) });
   };
   const addServer = () => {
+    if (busy) return;
     setActionError(void 0);
     setEditor({ key: null, draft: emptyDraft("personal") });
   };
@@ -633,7 +644,7 @@ function McpServersPage() {
               server,
               showScope: canManageInstance,
               selected: editor?.key === serverKey(server),
-              onOpen: () => openServer(server)
+              onOpen: busy ? void 0 : () => openServer(server)
             },
             serverKey(server)
           ))
@@ -671,7 +682,7 @@ function McpServersPage() {
             draft: editor.draft,
             saving,
             busy,
-            reconnecting,
+            reconnecting: reconnectingKey === editor.key,
             error: actionError,
             canManageInstance,
             onChange: (draft) => setEditor((current) => current ? { ...current, draft } : current),
