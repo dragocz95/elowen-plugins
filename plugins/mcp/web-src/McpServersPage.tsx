@@ -100,6 +100,14 @@ export function canReconnect(server: McpServer, canManageInstance: boolean): boo
   return server.enabled && (server.transport !== 'stdio' || canManageInstance);
 }
 
+/** The CLI's reconnect-all action intentionally targets only servers that are not live. Keep this
+ *  predicate beside the single-server authorization guard so the page cannot drift into retrying a
+ *  disabled row or one the backend would refuse before the request is sent. */
+export function reconnectTargets(servers: McpServer[], canManageInstance: boolean): McpServer[] {
+  return servers.filter((server) => canReconnect(server, canManageInstance)
+    && (server.status === 'disconnected' || server.status === 'error'));
+}
+
 /** One server = one register row. The connection state is the leading dot, the columns that only make
  *  sense on a wide workspace fold away as a unit, and everything that can be long is a single
  *  truncated line with the full value on hover — a wrapped cell would push every other row out of
@@ -314,6 +322,7 @@ export function McpServersPage() {
   const [editor, setEditor] = useState<{ key: string | null; draft: ServerDraft }>();
   const [saving, setSaving] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const [reconnectingAll, setReconnectingAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [removing, setRemoving] = useState<McpServer>();
@@ -330,6 +339,7 @@ export function McpServersPage() {
 
   const canManageInstance = data?.canManageInstance === true;
   const rows = useMemo(() => (data ? allServers(data) : []), [data]);
+  const reconnectableFailures = useMemo(() => reconnectTargets(rows, canManageInstance), [rows, canManageInstance]);
   const filtered = useMemo(() => filterServers(rows, query, scope), [rows, query, scope]);
   // A narrowed list can be shorter than the page the user is on; landing on an empty page reads as
   // "nothing matches" when the matches are simply on page 1.
@@ -402,6 +412,34 @@ export function McpServersPage() {
     } finally { setReconnecting(false); setBusy(false); }
   };
 
+  const reconnectAll = async () => {
+    // Snapshot before the first await: one click has one explicit target set even if the live register
+    // refreshes while a server is reconnecting. Running it sequentially bounds concurrent connection
+    // attempts while preserving the CLI's per-server POST contract.
+    const targets = reconnectableFailures;
+    if (targets.length === 0) return;
+    setReconnectingAll(true); setBusy(true); setActionError(undefined);
+    let succeeded = 0;
+    let failed = 0;
+    try {
+      for (const target of targets) {
+        try {
+          await apiJson('/plugins/mcp/api/reconnect', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ scope: target.scope, name: target.name }),
+          });
+          succeeded += 1;
+        } catch { failed += 1; }
+      }
+      // Reload once, only after every requested server has settled, so the table and an open drawer get one
+      // coherent live snapshot rather than flickering through intermediate states.
+      await load();
+      if (failed === 0) toast(s.reconnectAllSuccess.replace('{n}', String(succeeded)));
+      else toast(s.reconnectAllPartial.replace('{succeeded}', String(succeeded)).replace('{failed}', String(failed)), 'error');
+    } finally { setReconnectingAll(false); setBusy(false); }
+  };
+
   const removeServer = async () => {
     const target = removing;
     if (!target) return;
@@ -425,7 +463,11 @@ export function McpServersPage() {
 
   const openServer = (server: McpServer) => { setActionError(undefined); setEditor({ key: serverKey(server), draft: serverDraft(server) }); };
   const addServer = () => { setActionError(undefined); setEditor({ key: null, draft: emptyDraft('personal') }); };
-  const addButton = <C.Button variant="accent" icon={Plus} onClick={addServer}>{s.addServer}</C.Button>;
+  const addButton = <C.Button variant="accent" icon={Plus} onClick={addServer} disabled={busy}>{s.addServer}</C.Button>;
+  const reconnectAllButton = reconnectableFailures.length > 0
+    ? <C.Button variant="ghost" icon={RefreshCw} onClick={() => void reconnectAll()} disabled={busy}>{reconnectingAll ? s.reconnectingAll : s.reconnectAll}</C.Button>
+    : null;
+  const pageActions = <div className="flex flex-wrap items-center gap-2">{reconnectAllButton}{addButton}</div>;
 
   // The register's controls belong to the PAGE, so they sit in the canonical toolbar row the shell draws
   // under the hero rather than in a band this bundle lays out inside its own content. They appear only
@@ -510,7 +552,7 @@ export function McpServersPage() {
         icon: Blocks,
         mascot: loadError ? 'error' : loading ? 'saving' : 'idle',
         status: !loading && !loadError ? <span className="workspace-status">{s.workspaceReady}</span> : undefined,
-        action: addButton,
+        action: pageActions,
         metrics: <>
           <C.WorkspaceMetric label={s.statusConnected} value={connected} icon={PlugZap} />
           <C.WorkspaceMetric label={s.statusError} value={failing} icon={TriangleAlert} />

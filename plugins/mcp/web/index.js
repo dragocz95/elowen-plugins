@@ -292,6 +292,9 @@ function scopeLabel(scope, strings) {
 function canReconnect(server, canManageInstance) {
   return server.enabled && (server.transport !== "stdio" || canManageInstance);
 }
+function reconnectTargets(servers, canManageInstance) {
+  return servers.filter((server) => canReconnect(server, canManageInstance) && (server.status === "disconnected" || server.status === "error"));
+}
 function McpServerRow({ server, showScope, selected, onOpen }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("mcp");
@@ -420,6 +423,7 @@ function McpServersPage() {
   const [editor, setEditor] = (0, import_react3.useState)();
   const [saving, setSaving] = (0, import_react3.useState)(false);
   const [reconnecting, setReconnecting] = (0, import_react3.useState)(false);
+  const [reconnectingAll, setReconnectingAll] = (0, import_react3.useState)(false);
   const [busy, setBusy] = (0, import_react3.useState)(false);
   const [actionError, setActionError] = (0, import_react3.useState)();
   const [removing, setRemoving] = (0, import_react3.useState)();
@@ -441,6 +445,7 @@ function McpServersPage() {
   }, [load]);
   const canManageInstance = data?.canManageInstance === true;
   const rows = (0, import_react3.useMemo)(() => data ? allServers(data) : [], [data]);
+  const reconnectableFailures = (0, import_react3.useMemo)(() => reconnectTargets(rows, canManageInstance), [rows, canManageInstance]);
   const filtered = (0, import_react3.useMemo)(() => filterServers(rows, query, scope), [rows, query, scope]);
   (0, import_react3.useEffect)(() => {
     setPage(0);
@@ -508,6 +513,35 @@ function McpServersPage() {
       setBusy(false);
     }
   };
+  const reconnectAll = async () => {
+    const targets = reconnectableFailures;
+    if (targets.length === 0) return;
+    setReconnectingAll(true);
+    setBusy(true);
+    setActionError(void 0);
+    let succeeded = 0;
+    let failed = 0;
+    try {
+      for (const target of targets) {
+        try {
+          await apiJson("/plugins/mcp/api/reconnect", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ scope: target.scope, name: target.name })
+          });
+          succeeded += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      await load();
+      if (failed === 0) toast(s.reconnectAllSuccess.replace("{n}", String(succeeded)));
+      else toast(s.reconnectAllPartial.replace("{succeeded}", String(succeeded)).replace("{failed}", String(failed)), "error");
+    } finally {
+      setReconnectingAll(false);
+      setBusy(false);
+    }
+  };
   const removeServer = async () => {
     const target = removing;
     if (!target) return;
@@ -540,7 +574,12 @@ function McpServersPage() {
     setActionError(void 0);
     setEditor({ key: null, draft: emptyDraft("personal") });
   };
-  const addButton = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: Plus, onClick: addServer, children: s.addServer });
+  const addButton = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: Plus, onClick: addServer, disabled: busy, children: s.addServer });
+  const reconnectAllButton = reconnectableFailures.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", icon: RefreshCw, onClick: () => void reconnectAll(), disabled: busy, children: reconnectingAll ? s.reconnectingAll : s.reconnectAll }) : null;
+  const pageActions = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
+    reconnectAllButton,
+    addButton
+  ] });
   const ready = !loading && !loadError && data !== void 0;
   const searchField = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
     C.RegisterSearch,
@@ -615,7 +654,7 @@ function McpServersPage() {
         icon: Blocks,
         mascot: loadError ? "error" : loading ? "saving" : "idle",
         status: !loading && !loadError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "workspace-status", children: s.workspaceReady }) : void 0,
-        action: addButton,
+        action: pageActions,
         metrics: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceMetric, { label: s.statusConnected, value: connected, icon: PlugZap }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceMetric, { label: s.statusError, value: failing, icon: TriangleAlert }),

@@ -146,3 +146,76 @@ describe('MCP drawer reconnect', () => {
     expect(screen.queryByText(strings.reconnectSuccess.replace('{name}', reconnectable.name))).toBeNull();
   });
 });
+
+describe('MCP page reconnect-all', () => {
+  const failedRemote: McpServer = {
+    ...server,
+    name: 'first',
+    transport: 'http',
+    status: 'error',
+    lastError: 'connection closed unexpectedly',
+    command: undefined,
+    args: undefined,
+    env: undefined,
+    url: 'https://first.example.test/',
+  };
+  const disconnectedRemote: McpServer = { ...failedRemote, name: 'second', status: 'disconnected', url: 'https://second.example.test/' };
+  const legacyStdio: McpServer = { ...server, name: 'legacy', status: 'error', lastError: 'connection closed unexpectedly' };
+  const disabledRemote: McpServer = { ...failedRemote, name: 'disabled', enabled: false };
+
+  it('reconnects only eligible failures sequentially, locks controls, refreshes once, and reports a partial failure', async () => {
+    let loads = 0;
+    const requests: unknown[] = [];
+    let releaseFirst: (() => void) | undefined;
+    use(
+      http.get('/api/plugins/mcp/api/servers', () => {
+        loads += 1;
+        return HttpResponse.json({
+          personal: loads === 1
+            ? [failedRemote, disconnectedRemote, legacyStdio, disabledRemote]
+            : [{ ...failedRemote, status: 'connected', lastError: null }, { ...disconnectedRemote, status: 'error', lastError: 'refused' }, legacyStdio, disabledRemote],
+          instance: [],
+          canManageInstance: false,
+        });
+      }),
+      http.post('/api/plugins/mcp/api/reconnect', async ({ request }) => {
+        const body = await request.json();
+        requests.push(body);
+        if ((body as { name: string }).name === 'first') {
+          await new Promise<void>((resolve) => { releaseFirst = resolve; });
+          return HttpResponse.json({ server: failedRemote });
+        }
+        if ((body as { name: string }).name === 'second') {
+          return HttpResponse.json({ error: 'second server refused reconnect' }, { status: 409 });
+        }
+        return HttpResponse.json({ error: 'unexpected reconnect target' }, { status: 500 });
+      }),
+    );
+    mount();
+
+    const reconnectAll = await screen.findByRole('button', { name: strings.reconnectAll });
+    fireEvent.click(reconnectAll);
+
+    await waitFor(() => expect(requests).toEqual([{ scope: 'personal', name: 'first' }]));
+    expect(reconnectAll).toBeDisabled();
+    expect(reconnectAll).toHaveTextContent(strings.reconnectingAll);
+    expect(screen.getByRole('button', { name: strings.addServer })).toBeDisabled();
+
+    releaseFirst?.();
+
+    await waitFor(() => expect(requests).toEqual([
+      { scope: 'personal', name: 'first' },
+      { scope: 'personal', name: 'second' },
+    ]));
+    await waitFor(() => expect(loads).toBe(2));
+    expect(await screen.findByText(strings.reconnectAllPartial.replace('{succeeded}', '1').replace('{failed}', '1'))).toHaveAttribute('data-tone', 'error');
+    expect(screen.queryByText(strings.reconnectAllSuccess.replace('{n}', '2'))).toBeNull();
+  });
+
+  it('hides reconnect-all without an eligible live server', async () => {
+    use(http.get('/api/plugins/mcp/api/servers', () => HttpResponse.json({ personal: [legacyStdio, disabledRemote], instance: [], canManageInstance: false })));
+    mount();
+    await screen.findByText(legacyStdio.name);
+    expect(screen.queryByRole('button', { name: strings.reconnectAll })).toBeNull();
+  });
+});

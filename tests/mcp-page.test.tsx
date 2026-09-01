@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { http, HttpResponse, listen, resetHandlers, close, use, setDefaults } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import {
-  allServers, canReconnect, filterServers, parseEnvironment, serverDraft, serverKey, serverPayload, McpServersPage,
+  allServers, canReconnect, filterServers, parseEnvironment, reconnectTargets, serverDraft, serverKey, serverPayload, McpServersPage,
 } from '../plugins/mcp/web-src/McpServersPage';
 import type { McpServer } from '../plugins/mcp/web-src/runtime';
 import manifest from '../plugins/mcp/elowen-plugin.json' with { type: 'json' };
@@ -103,6 +103,13 @@ describe('MCP register rows', () => {
     expect(canReconnect({ ...remote, enabled: false }, true)).toBe(false);
     expect(canReconnect(server, false)).toBe(false);
     expect(canReconnect(server, true)).toBe(true);
+  });
+
+  it('targets only manageable disconnected or failed servers for reconnect-all', () => {
+    const disconnected = { ...remote, name: 'remote-disconnected', status: 'disconnected' };
+    const disabled = { ...remote, name: 'disabled', enabled: false };
+    expect(reconnectTargets([remote, disconnected, server, disabled], false).map((entry) => entry.name))
+      .toEqual(['docs', 'remote-disconnected']);
   });
 });
 
