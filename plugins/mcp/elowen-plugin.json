@@ -1,18 +1,130 @@
 {
   "name": "mcp",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "apiVersion": "1",
-  "description": "Bridge external MCP (Model Context Protocol) servers into the agent. Configure stdio MCP servers and each server's tools become available to the brain as mcp__<server>__<tool>.",
+  "requiresCore": "0.28.24",
+  "description": "Connect external MCP servers to the assistant’s tools.",
   "entry": "index.mjs",
-  "provides": { "platforms": ["mcp-lifecycle"] },
-  "icons": { "mcp__*": "🔌" },
-  "capabilities": { "network": true },
+  "icons": {
+    "mcp__*": "🧩",
+    "*McpServer*": "🧩",
+    "ListMcpResources": "🧩",
+    "ReadMcpResource": "🧩"
+  },
+  "provides": {
+    "tools": [
+      "AddMcpServer",
+      "ListMcpServers",
+      "RemoveMcpServer",
+      "ReconnectMcpServer",
+      "ListMcpResources",
+      "ReadMcpResource",
+      "mcp__*"
+    ],
+    "apiRoutes": [
+      "servers",
+      "reconnect",
+      "transfer"
+    ]
+  },
+  "web": {
+    "entry": "web/index.js",
+    "css": "web/index.css",
+    "requiresApiVersion": 11,
+    "navKind": "infrastructure",
+    "nav": [
+      {
+        "label": "MCP",
+        "icon": "Blocks",
+        "route": ""
+      }
+    ],
+    "strings": {
+      "title": "MCP",
+      "description": "Connect external MCP servers and control who can use their tools.",
+      "workspaceReady": "Bridge running",
+      "addServer": "Add server",
+      "removeServer": "Remove server",
+      "reconnectServer": "Reconnect",
+      "name": "Name",
+      "scope": "Ownership",
+      "scopePersonal": "Personal",
+      "scopeInstance": "Instance",
+      "scopeHelp": "Personal credentials stay in your account only. Every eligible conversation can use instance servers.",
+      "transport": "Transport",
+      "command": "Command",
+      "commandHelp": "The command and arguments are executed as a local process. Add only a server you explicitly trust.",
+      "arguments": "Arguments",
+      "environment": "Environment variables",
+      "url": "URL",
+      "enabled": "Enabled",
+      "stateEnabled": "Enabled",
+      "stateDisabled": "Disabled",
+      "statusConnected": "Connected",
+      "statusDisconnected": "Disconnected",
+      "statusError": "Error",
+      "statusDisabled": "Disabled",
+      "colStatus": "Status",
+      "tools": "Tools",
+      "toolsHint": "Tools this server bridges into the assistant. The server itself provides them, so they cannot be edited here.",
+      "toolsCount": "{n} tools",
+      "viewTools": "View tools",
+      "noTools": "No tools discovered",
+      "empty": "No MCP server configured yet.",
+      "emptySearch": "No server matches the filter",
+      "searchPlaceholder": "Search servers…",
+      "searchClear": "Clear the server search",
+      "filterAll": "All",
+      "openServer": "Open server {name}",
+      "loadError": "Could not load MCP servers.",
+      "saveError": "Could not save the MCP server.",
+      "actionError": "The action could not be completed.",
+      "removeConfirmTitle": "Remove MCP server “{name}”?",
+      "removeConfirmDescription": "Ownership: {scope}\nTransport: {transport}\nRemoving this server immediately makes its bridged tools unavailable.",
+      "removeError": "The MCP server could not be removed. It remains configured.",
+      "removingServer": "Removing…",
+      "save": "Save",
+      "saving": "Saving…"
+    }
+  },
+  "deferLoading": [
+    "ListMcpResources",
+    "ReadMcpResource"
+  ],
+  "capabilities": {
+    "reads": [
+      "db"
+    ],
+    "network": true
+  },
   "configSchema": [
     {
-      "key": "servers",
-      "label": "MCP servers",
-      "type": "mcpServers",
-      "hint": "External MCP servers to launch (stdio). Each server's tools appear to the agent as mcp__<server>__<tool>. Changes reconnect on save."
+      "key": "sec_timeouts",
+      "label": "Timeouts",
+      "type": "section",
+      "hint": "Global connect and call timeouts, applied to every configured server."
+    },
+    {
+      "key": "connectTimeoutMs",
+      "label": "Connect timeout (ms)",
+      "type": "number",
+      "min": 5000,
+      "max": 60000,
+      "step": 1000,
+      "placeholder": "15000",
+      "default": 15000,
+      "hint": "How long to wait for a server to connect and list its tools before giving up."
+    },
+    {
+      "key": "callTimeoutMs",
+      "label": "Tool call timeout (ms)",
+      "type": "number",
+      "min": 30000,
+      "max": 300000,
+      "step": 5000,
+      "placeholder": "120000",
+      "default": 120000,
+      "hint": "How long to wait for a bridged tool call to finish before giving up."
     }
   ]
 }

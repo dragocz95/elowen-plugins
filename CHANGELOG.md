@@ -1,5 +1,9 @@
 # Changelog
 
+## mcp 0.1.5 - 2026-09-01
+
+- Move MCP server management into the registry and place the Enabled/Disabled control at the top of the drawer.
+
 ## msteams 0.6.0 - 2026-08-31
 
 - Apply one validated Microsoft onboarding template to accounts created from either web SSO or a delegated personal Teams sign-in: projects, models, preferred model, plugins, tools and the persisted YOLO default.

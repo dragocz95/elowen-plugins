@@ -101,7 +101,9 @@ const EXPECTED_CAPABILITIES = {
   editor: { reads: ['project-files', 'stores'] },
   github: { reads: ['controls', 'db', 'git', 'stores'], network: true },
   lsp: { network: true },
-  mcp: { network: true },
+  // MCP persists server ownership/tool discovery in its DB and connects to remote HTTP/SSE endpoints.
+  // stdio execution remains separately restricted to instance administrators by the plugin itself.
+  mcp: { reads: ['db'], network: true },
   msteams: { reads: ['project-files', 'stores'], mutates: ['users'] },
   // Reads only, and each one is load-bearing: `controls` reaches the Microsoft identity and the
   // account-explicit sandbox lookup, `stores` re-checks project tenancy outside a request, `db` holds the

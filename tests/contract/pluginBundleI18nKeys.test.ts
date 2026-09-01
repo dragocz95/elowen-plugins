@@ -48,9 +48,9 @@ function pluginsDeclaringABundle(): string[] {
  *  set cannot be nudged: a plugin that starts or stops reading host copy has to be added or removed here
  *  deliberately, which is a reviewed change with a reason attached.
  *
- *  Today: `cronjob`, `editor` and `stats` use `common` (save/close/cancel/back/daemonUnreachable) plus
+ *  Today: `cronjob`, `editor`, `mcp` and `stats` use `common` (save/close/cancel/back/daemonUnreachable) plus
  *  `managePicker`; `skills` uses `assetEditor`. The other bundles ship their own strings only. */
-const HOST_COPY_CONSUMERS = ['cronjob', 'editor', 'skills', 'stats'];
+const HOST_COPY_CONSUMERS = ['cronjob', 'editor', 'mcp', 'skills', 'stats'];
 
 function bundleFiles(): string[] {
   const out: string[] = [];

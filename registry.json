@@ -100,13 +100,15 @@
     },
     {
       "name": "mcp",
-      "version": "0.1.0",
-      "description": "Bridge external MCP (Model Context Protocol) servers into the agent — their tools become available to the brain.",
+      "version": "0.1.5",
+      "requiresCore": "0.28.24",
+      "description": "Connect external MCP servers to the assistant’s tools.",
       "category": "tools",
       "author": "Elowen",
       "apiVersion": "1",
       "provides": {
-        "platforms": 1
+        "tools": 7,
+        "apiRoutes": 3
       }
     },
     {
