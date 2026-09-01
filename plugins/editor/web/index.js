@@ -5078,15 +5078,24 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     }
     return n;
   });
+  const confirmDiscard = () => dirtyPaths.size === 0 || window.confirm(s.discardChanges);
   const leaveFullscreen = () => {
     if (menu) {
       setMenu(null);
       setOpenMenu(null);
       return;
     }
+    if (mobile && onClose) {
+      if (!confirmDiscard()) return;
+      setShowTree(false);
+      onClose();
+      return;
+    }
     setShowTree(false);
-    if (mobile && onClose) onClose();
-    else setFullscreen(false);
+    setFullscreen(false);
+  };
+  const closeEditor = () => {
+    if (confirmDiscard()) onClose?.();
   };
   (0, import_react21.useEffect)(() => {
     if (mobile) setFullscreen(true);
@@ -5094,6 +5103,15 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   (0, import_react21.useEffect)(() => {
     if (!fullscreen || !mobile) setShowTree(false);
   }, [fullscreen, mobile]);
+  (0, import_react21.useEffect)(() => {
+    if (dirtyPaths.size === 0) return;
+    const warn = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirtyPaths.size]);
   const save = () => {
     if (selected == null) return;
     const path = selected;
@@ -5119,6 +5137,19 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     );
   };
   const closeTab = (p) => {
+    if (dirtyPaths.has(p)) {
+      if (!window.confirm(s.discardChanges)) return;
+      updateDrafts((drafts2) => {
+        const next = { ...drafts2 };
+        delete next[p];
+        return next;
+      });
+      setDirtyPaths((paths) => {
+        const next = new Set(paths);
+        next.delete(p);
+        return next;
+      });
+    }
     setOpenTabs((tabs) => {
       const next = tabs.filter((x2) => x2 !== p);
       if (selected === p) setSelected(next[next.length - 1] ?? null);
@@ -5351,7 +5382,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       uploading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-xs text-muted-foreground", children: s.uploading }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "ml-auto flex max-w-full flex-wrap items-center gap-2", children: [
         viewControls,
-        !fullscreen && onClose ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { type: "button", "aria-label": t.common.close, onClick: onClose, className: "overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(X, { size: 15 }) }) : null
+        !fullscreen && onClose ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { type: "button", "aria-label": t.common.close, onClick: closeEditor, className: "overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(X, { size: 15 }) }) : null
       ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "relative flex min-h-0 flex-1", children: [

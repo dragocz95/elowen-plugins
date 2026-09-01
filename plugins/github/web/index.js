@@ -180,6 +180,9 @@ function GitHubConnectionPanel({ onChanged }) {
   const status = hooks.useQuery({ queryKey: STATUS_KEY, queryFn: () => api("/plugins/github/api/status") });
   const [pending, setPending] = (0, import_react3.useState)(null);
   const [flow, setFlow] = (0, import_react3.useState)(null);
+  const connectRef = (0, import_react3.useRef)(false);
+  const previewRef = (0, import_react3.useRef)(false);
+  const confirmRef = (0, import_react3.useRef)(false);
   const refresh = (0, import_react3.useCallback)(async () => {
     await qc.invalidateQueries({ queryKey: STATUS_KEY });
     await onChanged?.();
@@ -187,7 +190,23 @@ function GitHubConnectionPanel({ onChanged }) {
   const connect = hooks.useMutation({
     mutationFn: (value) => api("/plugins/github/api/auth/start", jsonBody(value)),
     onSuccess: (value) => setFlow(value),
-    onError: (error) => toast(localizedError(error, s), "error")
+    onError: (error, vars) => {
+      if (vars.confirmationToken) {
+        setPending(null);
+        if (!previewRef.current) {
+          previewRef.current = true;
+          preview.mutate({ type: "replace_identity" }, {
+            onSuccess: () => {
+              previewRef.current = false;
+            },
+            onError: () => {
+              previewRef.current = false;
+            }
+          });
+        }
+      }
+      toast(localizedError(error, s), "error");
+    }
   });
   const flowStatus = hooks.useQuery({
     queryKey: ["plugin", "github", "auth", flow?.flowId],
@@ -216,7 +235,21 @@ function GitHubConnectionPanel({ onChanged }) {
       await refresh();
       toast(s.actionComplete);
     },
-    onError: (error) => toast(localizedError(error, s), "error")
+    onError: (error, vars) => {
+      setPending(null);
+      if (!previewRef.current) {
+        previewRef.current = true;
+        preview.mutate(vars.action, {
+          onSuccess: () => {
+            previewRef.current = false;
+          },
+          onError: () => {
+            previewRef.current = false;
+          }
+        });
+      }
+      toast(localizedError(error, s), "error");
+    }
   });
   const test = hooks.useMutation({
     mutationFn: () => api("/plugins/github/api/test", jsonBody({})),
@@ -225,7 +258,7 @@ function GitHubConnectionPanel({ onChanged }) {
   });
   (0, import_react3.useEffect)(() => {
     const persisted = status.data?.flow;
-    if (!flow && persisted?.flowId && persisted.verificationUrl && persisted.userCode && (persisted.status === "pending" || persisted.status === "completing")) {
+    if (!flow && persisted?.flowId && (persisted.status === "pending" || persisted.status === "completing")) {
       setFlow({ flowId: persisted.flowId, verificationUrl: persisted.verificationUrl, userCode: persisted.userCode, expiresAt: persisted.expiresAt });
     }
   }, [flow, status.data?.flow]);
@@ -250,15 +283,60 @@ function GitHubConnectionPanel({ onChanged }) {
   if (status.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => status.refetch() });
   if (status.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "detail" });
   const account = status.data?.account;
-  const beginConnect = () => connect.mutate(status.data?.reconnectRequired ? { reconnect: true } : {});
+  const requestPreview = (action) => {
+    if (previewRef.current || confirmRef.current || connectRef.current) return;
+    previewRef.current = true;
+    preview.mutate(action, {
+      onSuccess: () => {
+        previewRef.current = false;
+      },
+      onError: () => {
+        previewRef.current = false;
+      }
+    });
+  };
+  const beginConnect = () => {
+    if (connectRef.current) return;
+    connectRef.current = true;
+    connect.mutate(status.data?.reconnectRequired ? { reconnect: true } : {}, {
+      onSuccess: () => {
+        connectRef.current = false;
+      },
+      onError: () => {
+        connectRef.current = false;
+      }
+    });
+  };
   const completePending = () => {
-    if (!pending) return;
+    if (!pending || confirmRef.current || connectRef.current) return;
     if (pending.action.type === "replace_identity") {
-      connect.mutate({ replaceIdentity: true, confirmationToken: pending.preview.confirmationToken });
-      setPending(null);
+      connectRef.current = true;
+      connect.mutate(
+        { replaceIdentity: true, confirmationToken: pending.preview.confirmationToken },
+        {
+          onSuccess: () => {
+            connectRef.current = false;
+            setPending(null);
+          },
+          onError: () => {
+            connectRef.current = false;
+          }
+        }
+      );
       return;
     }
-    confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken });
+    confirmRef.current = true;
+    confirm.mutate(
+      { action: pending.action, token: pending.preview.confirmationToken },
+      {
+        onSuccess: () => {
+          confirmRef.current = false;
+        },
+        onError: () => {
+          confirmRef.current = false;
+        }
+      }
+    );
   };
   if (flow) {
     const state = flowStatus.data?.status;
@@ -266,13 +344,16 @@ function GitHubConnectionPanel({ onChanged }) {
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-xl border border-border bg-card p-4", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-sm font-semibold text-foreground", children: s.waitingForGitHub }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3 text-xs text-muted-foreground", children: s.deviceCode }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "mt-1 block rounded-lg bg-background px-3 py-2 text-center text-lg font-semibold tracking-[0.2em] text-foreground", children: flow.userCode }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "mt-3 inline-flex text-sm font-medium text-primary hover:underline", href: flow.verificationUrl, target: "_blank", rel: "noreferrer", children: s.verifyOnGitHub }),
+        flow.userCode ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3 text-xs text-muted-foreground", children: s.deviceCode }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "mt-1 block rounded-lg bg-background px-3 py-2 text-center text-lg font-semibold tracking-[0.2em] text-foreground", children: flow.userCode })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-muted-foreground", children: s.waitingForGitHub }),
+        flow.verificationUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "mt-3 inline-flex text-sm font-medium text-primary hover:underline", href: flow.verificationUrl, target: "_blank", rel: "noreferrer", children: s.verifyOnGitHub }) : null,
         state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-destructive", children: s.connectionFailed }) : null,
         state === "expired" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-destructive", children: s.connectionExpired }) : null,
         state === "cancelled" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-muted-foreground", children: s.connectionCancelled }) : null,
-        state === "interrupted" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-destructive", children: s.connectionFailed }) : null
+        state === "interrupted" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-3 text-sm text-destructive", children: s.connectionFailed }) : null,
+        flowStatus.isError && state !== "failed" && state !== "expired" && state !== "cancelled" && state !== "interrupted" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: localizedError(flowStatus.error, s), onRetry: () => flowStatus.refetch() }) : null
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex flex-wrap gap-2", children: !terminal ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => cancel.mutate(flow.flowId), disabled: cancel.isPending, children: s.cancelConnection }) : null })
     ] });
@@ -286,8 +367,8 @@ function GitHubConnectionPanel({ onChanged }) {
         title: s.title,
         actions: connected ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => test.mutate(), disabled: test.isPending, children: s.testConnection }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => preview.mutate({ type: "replace_identity" }), children: s.replaceIdentity }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: () => preview.mutate({ type: "disconnect" }), children: s.disconnect })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: () => requestPreview({ type: "replace_identity" }), disabled: preview.isPending || confirm.isPending || connect.isPending, children: s.replaceIdentity }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: () => requestPreview({ type: "disconnect" }), disabled: preview.isPending || confirm.isPending || connect.isPending, children: s.disconnect })
         ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: beginConnect, disabled: connect.isPending, children: status.data?.reconnectRequired ? s.reconnect : s.connect }),
         description: connected ? s.accountHint || s.intro : s.intro,
         children: connected && account ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-2", children: [
@@ -301,7 +382,9 @@ function GitHubConnectionPanel({ onChanged }) {
     ),
     pending ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ConfirmDialog, { open: true, title: pending.preview.title || s.confirmExternal, description: `${pending.preview.description}
 
-${s.confirmationExpires}`, confirmLabel: s.confirm, onClose: () => setPending(null), onConfirm: completePending }) : null
+${s.confirmationExpires}`, confirmLabel: confirm.isPending || connect.isPending ? s.saving : s.confirm, onClose: () => {
+      if (!confirmRef.current && !connectRef.current) setPending(null);
+    }, onConfirm: completePending }) : null
   ] });
 }
 function GitHubAccountChip() {
@@ -354,6 +437,9 @@ function GitHubProjectPanel({ project }) {
   const [createForm, setCreateForm] = (0, import_react4.useState)({ title: "", body: "", base: "main" });
   const [reviewForm, setReviewForm] = (0, import_react4.useState)({ event: "APPROVE", body: "" });
   const [mergeMethod, setMergeMethod] = (0, import_react4.useState)("squash");
+  const mappingRef = (0, import_react4.useRef)(false);
+  const previewRef = (0, import_react4.useRef)(false);
+  const confirmRef = (0, import_react4.useRef)(false);
   const selected = (0, import_react4.useMemo)(() => (pulls.data?.pullRequests ?? []).find((pull) => pull.number === selectedPr) ?? null, [pulls.data, selectedPr]);
   const pullDetail = hooks.useQuery({
     queryKey: ["plugin", "github", "pull", String(project.id), selectedPr],
@@ -394,21 +480,71 @@ function GitHubProjectPanel({ project }) {
       await invalidate();
       toast(s.actionComplete);
     },
-    onError: async (error) => {
+    onError: async (error, vars) => {
       const code = utils.apiErrorMessage(error);
       const statusCode = error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
+      setPending(null);
       if (code === "state_changed" || code === "head_changed" || statusCode === 409) {
-        setPending(null);
         await Promise.all([
           qc.invalidateQueries({ queryKey: REPOSITORIES_KEY }),
           qc.invalidateQueries({ queryKey: ["plugin", "github", "pulls"] }),
           qc.invalidateQueries({ queryKey: ["plugin", "github", "pull"] }),
           qc.invalidateQueries({ queryKey: ["plugin", "github", "checks"] })
         ]);
+      } else if (!previewRef.current) {
+        previewRef.current = true;
+        preview.mutate(vars.action, {
+          onSuccess: () => {
+            previewRef.current = false;
+          },
+          onError: () => {
+            previewRef.current = false;
+          }
+        });
       }
       toast(localizedError(error, s), "error");
     }
   });
+  const requestPreview = (action) => {
+    if (previewRef.current || confirmRef.current) return;
+    previewRef.current = true;
+    preview.mutate(action, {
+      onSuccess: () => {
+        previewRef.current = false;
+      },
+      onError: () => {
+        previewRef.current = false;
+      }
+    });
+  };
+  const requestConfirm = () => {
+    if (!pending || confirmRef.current) return;
+    confirmRef.current = true;
+    confirm.mutate(
+      { action: pending.action, token: pending.preview.confirmationToken },
+      {
+        onSuccess: () => {
+          confirmRef.current = false;
+        },
+        onError: () => {
+          confirmRef.current = false;
+        }
+      }
+    );
+  };
+  const saveMapping = (value) => {
+    if (mappingRef.current) return;
+    mappingRef.current = true;
+    saveMap.mutate(value, {
+      onSuccess: () => {
+        mappingRef.current = false;
+        setMapping(null);
+      },
+      onError: () => {
+        mappingRef.current = false;
+      }
+    });
+  };
   if (status.isError) return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => status.refetch() });
   if (status.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.LoadingState, { variant: "list" });
   if (!connected) {
@@ -442,8 +578,8 @@ function GitHubProjectPanel({ project }) {
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-col gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.SelectMenu, { value: sessionId, onChange: setSessionId, label: s.conversation, options: (sessions.data ?? []).map((session) => ({ value: session.id, label: session.title })) }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { onClick: () => preview.mutate({ type: "publish", projectId: project.id, sessionId }), disabled: !sessionId, children: s.publish }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "accent", onClick: () => setCreateOpen(true), disabled: !sessionId, children: s.createPullRequest })
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { onClick: () => requestPreview({ type: "publish", projectId: project.id, sessionId }), disabled: !sessionId || preview.isPending || confirm.isPending, children: s.publish }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "accent", onClick: () => setCreateOpen(true), disabled: !sessionId || preview.isPending || confirm.isPending, children: s.createPullRequest })
           ] })
         ] }),
         pulls.isError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => pulls.refetch() }) : pulls.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.LoadingState, { variant: "list" }) : (pulls.data?.pullRequests ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.EmptyState, { title: s.noPullRequests, icon: GitPullRequest }) : (
@@ -477,17 +613,19 @@ function GitHubProjectPanel({ project }) {
         )
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.EmptyState, { title: s.mappingMissing, description: s.detectedRemotes, icon: Link2, action: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { icon: Link2, onClick: () => setMapping(mappingFrom(row)), children: s.map }) })
     ] }),
-    mapping ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.Modal, { title: s.map, size: "md", onClose: () => setMapping(null), children: [
+    mapping ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.Modal, { title: s.map, size: "md", onClose: () => {
+      if (!mappingRef.current) setMapping(null);
+    }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ModalBody, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "grid gap-3 sm:grid-cols-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: `${s.baseRepository} \xB7 ${s.owner}`, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: mapping.baseOwner, onChange: (event) => setMapping({ ...mapping, baseOwner: event.target.value }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: `${s.baseRepository} \xB7 ${s.name}`, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: mapping.baseName, onChange: (event) => setMapping({ ...mapping, baseName: event.target.value }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: `${s.pushRepository} \xB7 ${s.owner}`, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: mapping.pushOwner, onChange: (event) => setMapping({ ...mapping, pushOwner: event.target.value }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: `${s.pushRepository} \xB7 ${s.name}`, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: mapping.pushName, onChange: (event) => setMapping({ ...mapping, pushName: event.target.value }) }) })
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: `${s.baseRepository} \xB7 ${s.owner}`, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: mapping.baseOwner, disabled: saveMap.isPending, onChange: (event) => setMapping({ ...mapping, baseOwner: event.target.value }) }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: `${s.baseRepository} \xB7 ${s.name}`, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: mapping.baseName, disabled: saveMap.isPending, onChange: (event) => setMapping({ ...mapping, baseName: event.target.value }) }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: `${s.pushRepository} \xB7 ${s.owner}`, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: mapping.pushOwner, disabled: saveMap.isPending, onChange: (event) => setMapping({ ...mapping, pushOwner: event.target.value }) }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: `${s.pushRepository} \xB7 ${s.name}`, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: mapping.pushName, disabled: saveMap.isPending, onChange: (event) => setMapping({ ...mapping, pushName: event.target.value }) }) })
       ] }) }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.ModalFooter, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "ghost", onClick: () => setMapping(null), children: s.cancel }),
-        row.mapping ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "danger", onClick: () => preview.mutate({ type: "remove_mapping", projectId: project.id }), children: s.removeMapping }) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "accent", onClick: () => saveMap.mutate(mapping, { onSuccess: () => setMapping(null) }), disabled: !mapping.baseOwner || !mapping.baseName || !mapping.pushOwner || !mapping.pushName, children: s.saveMapping })
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "ghost", disabled: saveMap.isPending, onClick: () => setMapping(null), children: s.cancel }),
+        row.mapping ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "danger", disabled: saveMap.isPending || preview.isPending || confirm.isPending, onClick: () => requestPreview({ type: "remove_mapping", projectId: project.id }), children: s.removeMapping }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "accent", onClick: () => saveMapping(mapping), disabled: saveMap.isPending || !mapping.baseOwner || !mapping.baseName || !mapping.pushOwner || !mapping.pushName, children: saveMap.isPending ? s.saving : s.saveMapping })
       ] })
     ] }) : null,
     createOpen ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.Modal, { title: s.createPullRequest, size: "md", onClose: () => setCreateOpen(false), children: [
@@ -498,7 +636,7 @@ function GitHubProjectPanel({ project }) {
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.ModalFooter, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "ghost", onClick: () => setCreateOpen(false), children: s.cancel }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "accent", disabled: !sessionId || !createForm.title.trim(), onClick: () => preview.mutate({ type: "create_pr", projectId: project.id, sessionId, title: createForm.title, body: createForm.body, base: createForm.base }), children: s.createPullRequest })
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "accent", disabled: !sessionId || !createForm.title.trim() || preview.isPending || confirm.isPending, onClick: () => requestPreview({ type: "create_pr", projectId: project.id, sessionId, title: createForm.title, body: createForm.body, base: createForm.base }), children: s.createPullRequest })
       ] })
     ] }) : null,
     selectedPr ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.Modal, { title: `#${selectedPr} ${selected?.title ?? ""}`, size: "xl", onClose: () => setSelectedPr(null), children: [
@@ -546,13 +684,15 @@ function GitHubProjectPanel({ project }) {
       ] }) : null }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.ModalFooter, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "ghost", onClick: () => setSelectedPr(null), children: s.cancel }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { onClick: () => preview.mutate({ type: "review", projectId: project.id, number: selectedPr, event: reviewForm.event, body: reviewForm.body }), children: s.submitReview }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "danger", onClick: () => preview.mutate({ type: "merge", projectId: project.id, number: selectedPr, expectedHeadSha: pullDetail.data?.headSha, method: mergeMethod }), disabled: checks.data?.state !== "success", children: s.merge })
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { disabled: preview.isPending || confirm.isPending, onClick: () => requestPreview({ type: "review", projectId: project.id, number: selectedPr, event: reviewForm.event, body: reviewForm.body }), children: s.submitReview }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "danger", onClick: () => requestPreview({ type: "merge", projectId: project.id, number: selectedPr, expectedHeadSha: pullDetail.data?.headSha, method: mergeMethod }), disabled: checks.data?.state !== "success" || preview.isPending || confirm.isPending, children: s.merge })
       ] })
     ] }) : null,
     pending ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ConfirmDialog, { open: true, title: pending.preview.title || s.confirmExternal, description: `${pending.preview.description}
 
-${s.confirmationExpires}`, confirmLabel: s.confirm, onClose: () => setPending(null), onConfirm: () => confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken }) }) : null
+${s.confirmationExpires}`, confirmLabel: confirm.isPending ? s.saving : s.confirm, onClose: () => {
+      if (!confirmRef.current) setPending(null);
+    }, onConfirm: requestConfirm }) : null
   ] });
 }
 function mappingFrom(row) {
@@ -562,8 +702,8 @@ function mappingFrom(row) {
     baseName: row.mapping?.baseName ?? row.detected.base?.name ?? "",
     pushOwner: row.mapping?.pushOwner ?? row.detected.push?.owner ?? "",
     pushName: row.mapping?.pushName ?? row.detected.push?.name ?? "",
-    baseRemote: row.detected.base?.remote ?? "",
-    pushRemote: row.detected.push?.remote ?? ""
+    baseRemote: row.mapping?.baseRemote ?? row.detected.base?.remote ?? "",
+    pushRemote: row.mapping?.pushRemote ?? row.detected.push?.remote ?? ""
   };
 }
 

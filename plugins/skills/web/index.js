@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -59,19 +59,19 @@ function registerSkillsUi(registration) {
 // plugins/skills/web-src/SkillsSettings.tsx
 var import_react3 = __toESM(require_react(), 1);
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -84,7 +84,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -116,7 +116,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -130,7 +130,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/hand.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/hand.js
 var Hand = createLucideIcon("Hand", [
   ["path", { d: "M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2", key: "1fvzgz" }],
   ["path", { d: "M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2", key: "1kc0my" }],
@@ -144,7 +144,7 @@ var Hand = createLucideIcon("Hand", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/package.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/package.js
 var Package = createLucideIcon("Package", [
   [
     "path",
@@ -158,13 +158,13 @@ var Package = createLucideIcon("Package", [
   ["path", { d: "m7.5 4.27 9 5.15", key: "1c824w" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/plus.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/plus.js
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/user.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/user.js
 var User = createLucideIcon("User", [
   ["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2", key: "975kel" }],
   ["circle", { cx: "12", cy: "7", r: "4", key: "17ys0d" }]
@@ -172,7 +172,7 @@ var User = createLucideIcon("User", [
 
 // plugins/skills/web-src/SkillsSettings.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
-var EMPTY_FORM = { editing: null, name: "", description: "", body: "", disableModelInvocation: false, owner: null };
+var EMPTY_FORM = { editing: null, name: "", description: "", body: "", disableModelInvocation: false, owner: null, editingOwner: null };
 var ownerParam = (owner) => owner === "instance" ? "instance" : owner === null ? "me" : String(owner);
 function SkillsSettings({ surface }) {
   const { components: C, hooks, utils, api } = runtime();
@@ -187,6 +187,8 @@ function SkillsSettings({ surface }) {
   const update = hooks.useUpdatePluginSkill();
   const remove = hooks.useDeletePluginSkill();
   const [creating, setCreating] = (0, import_react3.useState)(false);
+  const [submitting, setSubmitting] = (0, import_react3.useState)(false);
+  const submitRef = (0, import_react3.useRef)(false);
   const targetOwner = (skill) => skill.owner === null ? "instance" : skill.owner;
   const toggleInvocation = (skill, enabled) => {
     update.mutate(
@@ -194,16 +196,12 @@ function SkillsSettings({ surface }) {
       { onError: (e) => toast(utils.apiErrorMessage(e), "error") }
     );
   };
-  const moveSkill = (name, from, to) => api(
-    `/plugins/skills/${encodeURIComponent(name)}/owner?owner=${encodeURIComponent(ownerParam(from))}`,
-    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner: ownerParam(to) }) }
-  );
   const ownerLabel = (skill) => {
     if (skill.owner === null) return s.ownerInstance;
     return skill.owner === myId ? s.ownerMine : `#${skill.owner}`;
   };
   const skills = query.data ?? [];
-  const editedSkill = (form) => form.editing === null ? void 0 : skills.find((skill) => skill.name === form.editing);
+  const editedSkill = (form) => form.editing === null ? void 0 : skills.find((skill) => skill.name === form.editing && targetOwner(skill) === form.editingOwner);
   const scopeSwitchable = (form) => {
     if (form.editing === null) return true;
     const skill = editedSkill(form);
@@ -248,7 +246,9 @@ function SkillsSettings({ surface }) {
         description: skill.description,
         body: skill.content ?? "",
         disableModelInvocation: skill.disableModelInvocation,
-        owner: targetOwner(skill)
+        owner: targetOwner(skill),
+        editingOwner: targetOwner(skill),
+        revision: skill.revision ?? skill.version ?? 0
       }),
       ownership: {
         header: s.ownerColumn,
@@ -305,39 +305,46 @@ function SkillsSettings({ surface }) {
         ] })
       ] }),
       onSave: (form, callbacks) => {
+        if (submitRef.current) return;
+        submitRef.current = true;
+        setSubmitting(true);
+        const guarded = {
+          onSuccess: () => {
+            submitRef.current = false;
+            setSubmitting(false);
+            callbacks.onSuccess();
+          },
+          onError: (e) => {
+            submitRef.current = false;
+            setSubmitting(false);
+            callbacks.onError(e);
+          }
+        };
         if (form.editing !== null) {
           const name = form.editing;
-          const from = editedSkill(form) ? targetOwner(editedSkill(form)) : form.owner;
-          const saveEdit = (owner) => update.mutate(
-            { name, owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
-            callbacks
-          );
-          if (form.owner !== from) {
-            void moveSkill(name, from, form.owner).then(
-              () => update.mutate(
-                { name, owner: form.owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
-                {
-                  onSuccess: callbacks.onSuccess,
-                  // The move ALREADY landed, so a refused edit (an empty description, say) leaves the
-                  // skill in its new set with its old body. Refetch before reporting the error, or the
-                  // register goes on naming an owner the skill no longer has.
-                  onError: (e) => {
-                    query.refetch();
-                    callbacks.onError(e);
-                  }
-                }
-              ),
-              callbacks.onError
-            );
-          } else saveEdit(from);
+          const from = form.editingOwner;
+          const patch = { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation };
+          const revision = form.revision ?? 0;
+          const saveEdit = async () => {
+            const path = form.owner !== from ? `/plugins/skills/${encodeURIComponent(name)}/owner?owner=${encodeURIComponent(ownerParam(from))}` : `/plugins/skills/${encodeURIComponent(name)}?owner=${encodeURIComponent(ownerParam(from))}`;
+            const body = form.owner !== from ? { owner: ownerParam(form.owner), expectedRevision: revision, patch } : { ...patch, expectedRevision: revision };
+            try {
+              await api(path, { method: form.owner !== from ? "POST" : "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+              guarded.onSuccess();
+            } catch (error) {
+              query.refetch();
+              guarded.onError(error);
+            }
+          };
+          void saveEdit();
         } else {
           create.mutate(
             { name: form.name.trim(), description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation, owner: form.owner },
-            callbacks
+            guarded
           );
         }
       },
-      saving: create.isPending || update.isPending,
+      saving: submitting || create.isPending || update.isPending,
       onDelete: (skill, callbacks) => remove.mutate({ name: skill.name, owner: targetOwner(skill) }, callbacks)
     }
   ) });

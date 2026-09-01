@@ -17,6 +17,23 @@ const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CREDS = { appId: 'app-guid', appPassword: 's3cret', tenantId: 'tenant-guid' };
 
+describe('msteams config policy normalization', () => {
+  it('drops malformed policies, deduplicates case-insensitive ids and keeps wildcard last', async () => {
+    const { normalizeRolePolicies } = await import('../plugins/msteams/lib/config.mjs') as {
+      normalizeRolePolicies: (value: unknown) => Array<Record<string, unknown>>;
+    };
+    expect(normalizeRolePolicies([
+      { roleId: '*', admin: true },
+      { roleId: 'User@Example.test', name: ' first ' },
+      { roleId: 'user@example.test', name: 'duplicate' },
+      { roleId: '' },
+    ])).toEqual([
+      { roleId: 'User@Example.test', name: 'first' },
+      { roleId: '*', admin: true },
+    ]);
+  });
+});
+
 describe('msteams Adaptive Card tables', () => {
   const columns = [
     { key: 'name', label: 'Name' },

@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
@@ -20,12 +20,7 @@ ensurePluginUiRuntime();
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
 const manifestApiVersion = (manifest as { web: { requiresApiVersion: number } }).web.requiresApiVersion;
 
-type PluginSectionComponent = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[]; surface: 'page' | 'deck' }>;
-interface BundleRegistration {
-  requiresApiVersion: number;
-  settings?: Record<string, PluginSectionComponent>;
-  ownsPageFrame?: string[];
-}
+type BundleRegistration = Pick<PluginUiRegistration, 'requiresApiVersion' | 'settings' | 'ownsPageFrame'>;
 
 /** Load the bundle entry the way the host does — it registers itself on import — and hand back what it
  *  registered. The entry is what carries `ownsPageFrame`, so nothing short of importing it proves the
@@ -463,6 +458,26 @@ describe('a cron job row', () => {
     // …so it must be deleted there too, or the refetch brings it back and it starts running on schedule.
     await waitFor(() => expect(calls.deletes).toEqual([calls.writes[0]?.id]));
     await waitFor(() => expect(screen.queryByDisplayValue('oops')).toBeNull());
+  });
+
+  it('keeps a failed save and Retry visible on the row after the drawer closes', async () => {
+    const calls = { writes: [] as { id: string; body: unknown }[], deletes: [] as string[] };
+    let attempts = 0;
+    mount([job({})], calls);
+    use(http.put('/api/plugins/cronjob/jobs/:id', async ({ request, params }) => {
+      attempts += 1;
+      calls.writes.push({ id: String(params.id), body: await request.json() });
+      return attempts === 1 ? HttpResponse.json({ error: 'temporary' }, { status: 500 }) : HttpResponse.json({ ok: true });
+    }));
+    await openRow('digest');
+    fireEvent.change(nameBox(), { target: { value: 'retry me' } });
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
+
+    const retry = await screen.findByRole('button', { name: 'Retry' }, { timeout: 3000 });
+    expect(screen.queryByRole('dialog', { name: 'digest' })).toBeNull();
+    fireEvent.click(retry);
+    await waitFor(() => expect(attempts).toBe(2));
+    expect(calls.writes[1]?.body).toMatchObject({ id: 'j1', name: 'retry me' });
   });
 
   it('keeps saving a job whose delete failed, instead of silently dropping every later edit', async () => {

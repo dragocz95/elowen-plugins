@@ -59,6 +59,22 @@ describe('discord plugin', () => {
 });
 
 describe('discord destination and list config compatibility', () => {
+  it('drops malformed policies, deduplicates ids and keeps wildcard last', async () => {
+    const { normalizeRolePolicies } = await import('../plugins/discord/lib/config.mjs') as {
+      normalizeRolePolicies: (value: unknown) => Array<Record<string, unknown>>;
+    };
+    expect(normalizeRolePolicies([
+      { roleId: ' * ', admin: true },
+      { roleId: ' 123 ', name: ' first ' },
+      { roleId: '123', name: 'duplicate' },
+      { roleId: '', admin: true },
+      null,
+    ])).toEqual([
+      { roleId: '123', name: 'first' },
+      { roleId: '*', admin: true },
+    ]);
+  });
+
   it('normalizes legacy raw ids, opaque destinations and stale stored Discord options', async () => {
     const { DiscordAdapter, discordDestinationId } = await import('../plugins/discord/lib/adapter.mjs') as {
       DiscordAdapter: { prototype: { notify: (text: string, channelId?: string) => Promise<void> } };

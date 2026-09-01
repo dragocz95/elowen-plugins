@@ -108,6 +108,23 @@ describe('cron jobs routes', () => {
     expect(onDisk(dataRoot)[0].prompt).toBe('Edited.');
   });
 
+  it('rejects a stale revision and returns the current job snapshot', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    seed(dataRoot, [job({ revision: 3, prompt: 'Server copy.' })]);
+    const res = await save(app, adminTok, job({ prompt: 'Stale copy.', expectedRevision: 2 }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ conflict: true, current: { revision: 3, prompt: 'Server copy.' } });
+    expect(onDisk(dataRoot)[0].prompt).toBe('Server copy.');
+  });
+
+  it('increments the revision after a conditional save', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    seed(dataRoot, [job({ revision: 4 })]);
+    const res = await save(app, adminTok, job({ prompt: 'Edited.', expectedRevision: 4 }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ revision: 5, job: { revision: 5, prompt: 'Edited.' } });
+  });
+
   it('a save creates the job when it is new, and GET round-trips it (recurring + one-shot)', async () => {
     const { app, dataRoot, adminTok } = setup();
     // lastRun/lastResult are scheduler-owned: the save strips them from the client payload (nothing was
@@ -117,7 +134,7 @@ describe('cron jobs routes', () => {
       job({ id: 'j2', name: 'wakeup', schedule: 'in 20m', runAt: '2026-07-02T18:00:00.000Z' }),
     ];
     for (const j of jobs) expect((await save(app, adminTok, j)).status).toBe(200);
-    const stripped = jobs.map(({ lastRun: _lr, lastResult: _lres, ...j }: Record<string, unknown>) => j);
+    const stripped = jobs.map(({ lastRun: _lr, lastResult: _lres, ...j }: Record<string, unknown>) => ({ ...j, revision: 1 }));
     const back = await app.request('/plugins/cronjob/jobs', auth(adminTok));
     expect(await back.json()).toEqual(stripped);
     // The plugin's scheduler reads this exact file every tick — verify it landed on disk.

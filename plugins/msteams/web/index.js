@@ -555,6 +555,10 @@ function LoadedWorkspace({ detail }) {
   const updateIdentityDetail = (0, import_react3.useCallback)((aadObjectId, account) => {
     setPeople((current) => current ? peopleWithAccountDetail(current, aadObjectId, account) : current);
   }, []);
+  const retryPeople = (0, import_react3.useCallback)(() => {
+    setPeopleError(null);
+    void apiJson("/plugins/msteams/people").then((value) => setPeople(value)).catch((error) => setPeopleError(utils.apiErrorMessage(error)));
+  }, [utils]);
   (0, import_react3.useEffect)(() => {
     let live = true;
     void apiJson("/plugins/msteams/people").then((value) => {
@@ -641,7 +645,7 @@ function LoadedWorkspace({ detail }) {
         ),
         filters: toolbarFilters
       } : void 0,
-      children: tab === "people" ? peopleError !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: `${s.peopleLoadError} \u2014 ${peopleError}` }) }) }) : people === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PeopleAccess, { draft, response: people, search, filter, onIdentityDetail: updateIdentityDetail }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SettingsDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      children: tab === "people" ? peopleError !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: `${s.peopleLoadError} \u2014 ${peopleError}`, onRetry: retryPeople }) }) }) : people === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PeopleAccess, { draft, response: people, search, filter, onIdentityDetail: updateIdentityDetail }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SettingsDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         C.PluginConfigEditor,
         {
           name: "msteams",

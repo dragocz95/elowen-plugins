@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -49,19 +49,19 @@ var require_jsx_runtime = __commonJS({
 // plugins/onedrive/web-src/OneDriveProjectPanel.tsx
 var import_react3 = __toESM(require_react(), 1);
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -74,7 +74,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -106,7 +106,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -120,12 +120,12 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/chevron-right.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/chevron-right.js
 var ChevronRight = createLucideIcon("ChevronRight", [
   ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/cloud-off.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/cloud-off.js
 var CloudOff = createLucideIcon("CloudOff", [
   ["path", { d: "m2 2 20 20", key: "1ooewy" }],
   ["path", { d: "M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193", key: "yfwify" }],
@@ -135,19 +135,19 @@ var CloudOff = createLucideIcon("CloudOff", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/cloud.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/cloud.js
 var Cloud = createLucideIcon("Cloud", [
   ["path", { d: "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z", key: "p7xjir" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/external-link.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/external-link.js
 var ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/folder-open.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/folder-open.js
 var FolderOpen = createLucideIcon("FolderOpen", [
   [
     "path",
@@ -158,7 +158,7 @@ var FolderOpen = createLucideIcon("FolderOpen", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/folder.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/folder.js
 var Folder = createLucideIcon("Folder", [
   [
     "path",
@@ -169,7 +169,7 @@ var Folder = createLucideIcon("Folder", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/refresh-cw.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/refresh-cw.js
 var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
@@ -177,7 +177,7 @@ var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/triangle-alert.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/triangle-alert.js
 var TriangleAlert = createLucideIcon("TriangleAlert", [
   [
     "path",
@@ -252,7 +252,9 @@ function ConflictsRail({ row, onClose, onResolved }) {
       conflicts.refetch();
     }
   });
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.WorkspaceDetailRail, { label: s.conflicts, closeLabel: s.close, onClose, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.WorkspaceDetailRail, { label: s.conflicts, closeLabel: s.close, onClose: () => {
+    if (!resolve.isPending) onClose();
+  }, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mb-3 text-xs text-muted-foreground", children: s.conflictsHint }),
     conflicts.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) : conflicts.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(conflicts.error), onRetry: () => conflicts.refetch() }) : (conflicts.data?.conflicts ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.conflictsEmpty }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.conflicts, columns: "minmax(0,1fr) auto", compactColumns: "minmax(0,1fr)", children: (conflicts.data?.conflicts ?? []).map((conflict) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, className: "font-mono text-xs", children: conflict.rel }),
@@ -276,7 +278,10 @@ function ConflictsRail({ row, onClose, onResolved }) {
         )
       ] }) })
     ] }, conflict.rel)) }),
-    resolveError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: resolveError }) }) : null
+    resolveError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: resolveError, onRetry: () => {
+      setResolveError(null);
+      conflicts.refetch();
+    } }) }) : null
   ] });
 }
 function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
@@ -420,8 +425,8 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
       row.webUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { icon: ExternalLink, onClick: () => window.open(row.webUrl, "_blank", "noopener"), children: s.openFolder }),
       row.enabled ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { icon: RefreshCw, disabled: busy, onClick: onSync, children: s.syncNow }) : null,
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", onClick: onPause, children: row.enabled ? s.pause : s.resume }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: onDisconnect, children: s.disconnect })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", disabled: busy, onClick: onPause, children: row.enabled ? s.pause : s.resume }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", disabled: busy, onClick: onDisconnect, children: s.disconnect })
     ] })
   ] });
 }
@@ -440,6 +445,7 @@ function OneDriveProjectPanel({ project }) {
   const [choice, setChoice] = (0, import_react3.useState)(null);
   const [conflictsFor, setConflictsFor] = (0, import_react3.useState)(null);
   const [disconnecting, setDisconnecting] = (0, import_react3.useState)(null);
+  const actionRef = (0, import_react3.useRef)(false);
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: key });
   };
@@ -470,6 +476,29 @@ function OneDriveProjectPanel({ project }) {
     onSuccess: refresh,
     onError: fail
   });
+  const releaseAction = () => {
+    actionRef.current = false;
+  };
+  const runConnect = (vars) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    connect.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
+  const runDisconnect = (vars) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    disconnect.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
+  const runPause = (vars) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    pause.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
+  const runSync = (vars) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    syncNow.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
   if (overview.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" });
   if (overview.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(overview.error), onRetry: () => overview.refetch() });
   const data = overview.data;
@@ -497,12 +526,12 @@ function OneDriveProjectPanel({ project }) {
         MirrorCard,
         {
           row: projectLink,
-          busy: syncNow.isPending,
+          busy: syncNow.isPending || pause.isPending || disconnect.isPending,
           onConflicts: () => setConflictsFor(projectLink),
           onDisconnect: () => setDisconnecting(projectLink),
-          onPause: () => pause.mutate({ id: projectLink.id, enabled: !projectLink.enabled }),
-          onSync: () => syncNow.mutate({ id: projectLink.id }),
-          onConfirmSync: () => syncNow.mutate({ id: projectLink.id, confirmDeletions: true })
+          onPause: () => runPause({ id: projectLink.id, enabled: !projectLink.enabled }),
+          onSync: () => runSync({ id: projectLink.id }),
+          onConfirmSync: () => runSync({ id: projectLink.id, confirmDeletions: true })
         }
       ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.mirrorScopeHint })
     ] }),
@@ -528,7 +557,7 @@ function OneDriveProjectPanel({ project }) {
                 {
                   variant: "danger",
                   disabled: syncNow.isPending,
-                  onClick: () => syncNow.mutate({ id: row.id, confirmDeletions: true }),
+                  onClick: () => runSync({ id: row.id, confirmDeletions: true }),
                   children: s.confirmDeletions.replace("{count}", String(row.blockedDeletions))
                 }
               ),
@@ -536,7 +565,7 @@ function OneDriveProjectPanel({ project }) {
                 C.Button,
                 {
                   disabled: pause.isPending,
-                  onClick: () => pause.mutate({ id: row.id, enabled: !row.enabled }),
+                  onClick: () => runPause({ id: row.id, enabled: !row.enabled }),
                   children: row.enabled ? s.pause : s.resume
                 }
               ),
@@ -544,7 +573,7 @@ function OneDriveProjectPanel({ project }) {
                 C.Button,
                 {
                   disabled: syncNow.isPending,
-                  onClick: () => syncNow.mutate({ id: row.id }),
+                  onClick: () => runSync({ id: row.id }),
                   children: s.syncNow
                 }
               ),
@@ -554,7 +583,7 @@ function OneDriveProjectPanel({ project }) {
                 row.conflictCount,
                 ")"
               ] }),
-              row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", onClick: () => setDisconnecting(row), children: s.disconnect }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              row ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost-danger", disabled: pause.isPending || syncNow.isPending || disconnect.isPending, onClick: () => setDisconnecting(row), children: s.disconnect }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                 C.Button,
                 {
                   onClick: () => {
@@ -569,7 +598,9 @@ function OneDriveProjectPanel({ project }) {
         ] }, workspace.workspaceId);
       }) })
     ] }),
-    connectFor && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceDetailRail, { label: s.connectCta, closeLabel: s.close, onClose: () => setConnectFor(null), children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4 text-sm", children: [
+    connectFor && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceDetailRail, { label: s.connectCta, closeLabel: s.close, onClose: () => {
+      if (!actionRef.current) setConnectFor(null);
+    }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4 text-sm", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-medium", children: connectFor.label }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
@@ -604,7 +635,7 @@ function OneDriveProjectPanel({ project }) {
         C.Button,
         {
           variant: "accent",
-          onClick: () => choice && connect.mutate({ workspaceId: connectFor.workspaceId, subpath: choice.subpath }),
+          onClick: () => choice && runConnect({ workspaceId: connectFor.workspaceId, subpath: choice.subpath }),
           disabled: connect.isPending || !choice,
           children: s.connectConfirm
         }
@@ -618,8 +649,12 @@ function OneDriveProjectPanel({ project }) {
         title: s.disconnect,
         description: s.disconnectHint,
         confirmLabel: s.disconnect,
-        onClose: () => setDisconnecting(null),
-        onConfirm: () => disconnecting && disconnect.mutate({ id: disconnecting.id })
+        onClose: () => {
+          if (!actionRef.current) setDisconnecting(null);
+        },
+        onConfirm: () => {
+          if (disconnecting) runDisconnect({ id: disconnecting.id });
+        }
       }
     )
   ] });

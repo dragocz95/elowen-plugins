@@ -16,6 +16,7 @@ export interface PluginSkill {
   canDelete: boolean;
   disableModelInvocation: boolean;
   version: number | null;
+  revision?: number;
   content?: string;
 }
 

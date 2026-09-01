@@ -6,6 +6,8 @@
  *  (it builds standalone via elowen-plugin-ui-kit).
  */
 import type { ComponentType, ReactNode } from 'react';
+import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
+import type { AutoSaveStatusProps, UseAutoSaveStatus } from '../../autoSaveContract';
 
 // ---- data shapes (structural mirrors of the daemon's wire types) --------------------------------
 
@@ -25,6 +27,9 @@ export interface CronJob {
   /** Read-only display projection supplied by GET; never persisted or returned in PUT payloads. */
   owner?: CronJobOwner;
   enabled?: boolean; runAt?: string; createdAt?: string; lastRun?: string; lastResult?: string;
+  /** Server revision used as the conditional-write token; never display as editable content. */
+  revision?: number;
+  expectedRevision?: number;
 }
 export interface NotificationDestinationOption {
   value: string; id: string; platform: string;
@@ -59,11 +64,7 @@ interface CronHooks {
   useBrainModels(): QueryResult<BrainModelOption[]>;
   useSaveCronJob(): MutationResult<CronJob>;
   useDeleteCronJob(): MutationResult<string>;
-  useAutoSaveStatus(
-    deps: readonly unknown[],
-    save: () => Promise<void> | void,
-    opts?: { ready?: boolean; savable?: boolean; delay?: number },
-  ): { status: 'idle' | 'saving' | 'saved' | 'error'; retry: () => void; flush: () => void };
+  useAutoSaveStatus: UseAutoSaveStatus;
   usePluginStrings(plugin: string): Record<string, string>;
 }
 
@@ -81,7 +82,7 @@ type AnyComponent = ComponentType<any>;
 interface CronComponents {
   Avatar: AnyComponent;
   Badge: AnyComponent; Button: AnyComponent; Input: AnyComponent; Field: AnyComponent; Toggle: AnyComponent;
-  ConfirmDialog: AnyComponent; AutoSaveStatus: AnyComponent; LoadingState: AnyComponent; ErrorState: AnyComponent;
+  ConfirmDialog: AnyComponent; AutoSaveStatus: ComponentType<AutoSaveStatusProps>; LoadingState: AnyComponent; ErrorState: AnyComponent;
   ManageSelectionModal: AnyComponent; SelectionSummary: AnyComponent; BrainModelField: AnyComponent;
   EmptyState: AnyComponent; Segmented: AnyComponent; ChoiceField: AnyComponent; Pager: AnyComponent; RegisterSearch: AnyComponent;
   DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent; DataTableChevronCell: AnyComponent;
@@ -99,29 +100,17 @@ interface CronRuntime {
   api(path: string, init?: RequestInit): Promise<unknown>;
 }
 
-type PluginPageComponent = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[]; surface: 'page' | 'deck' }>;
-interface CronRegistration {
-  requiresApiVersion: number;
-  pages?: Record<string, PluginPageComponent>;
-  settings?: Record<string, PluginPageComponent>;
-  /** Settings sections that draw their OWN page frame. The host wraps a section in its page column and
-   *  module header by default, which nests two frames around one that already brings its own. */
-  ownsPageFrame?: string[];
-}
-interface HostWindow {
-  ElowenUiRuntime?: unknown;
-  __elowenRegisterPluginUi?: (plugin: string, registration: CronRegistration) => void;
-}
+type CronRegistration = Pick<PluginUiRegistration, 'requiresApiVersion' | 'settings' | 'ownsPageFrame'>;
 
 /** The host runtime, narrowed. The settings deck loads the bundle only after installing the runtime,
  *  so a missing global here is a programming error worth throwing on. */
 export function runtime(): CronRuntime {
-  const rt = (window as HostWindow).ElowenUiRuntime as CronRuntime | undefined;
+  const rt = window.ElowenUiRuntime as unknown as CronRuntime | undefined;
   if (!rt) throw new Error('ElowenUiRuntime is not installed');
   return rt;
 }
 
 /** Register this plugin's settings components on the host (no-op outside the plugin-UI host page). */
 export function registerCronUi(registration: CronRegistration): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('cronjob', registration);
+  window.__elowenRegisterPluginUi?.('cronjob', registration);
 }

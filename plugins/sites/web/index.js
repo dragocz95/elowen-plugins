@@ -394,7 +394,7 @@ var STATUS_TONE = {
 var import_react3 = __toESM(require_react(), 1);
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var basePath = (siteId) => `/plugins/sites/api/site/${siteId}`;
-function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
+function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   const { components, hooks, utils } = runtime();
   const {
     Avatar,
@@ -406,6 +406,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
     ManageSelectionModal,
     DetailBlock,
     EmptyState,
+    ErrorState,
     LoadingLine
   } = components;
   const strings = hooks.usePluginStrings("sites");
@@ -414,6 +415,10 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
   const [pendingPublic, setPendingPublic] = (0, import_react3.useState)(false);
   const [confirmDelete, setConfirmDelete] = (0, import_react3.useState)(false);
   const [guestPicker, setGuestPicker] = (0, import_react3.useState)(false);
+  const [failedAction, setFailedAction] = (0, import_react3.useState)(null);
+  const [failedGuests, setFailedGuests] = (0, import_react3.useState)(null);
+  const callRef = (0, import_react3.useRef)(false);
+  const guestsRef = (0, import_react3.useRef)(false);
   const detail = hooks.useQuery({
     queryKey: siteDetailKey(siteId),
     queryFn: () => runtime().api(basePath(siteId))
@@ -433,35 +438,66 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
   const call = hooks.useMutation({
     mutationFn: (vars) => runtime().api(vars.path, vars.init),
     onSuccess: (_data, vars) => {
+      setFailedAction(null);
       refresh();
       toast(vars.done ?? strings.saved);
     },
-    onError: (error) => toast(utils.apiErrorMessage(error), "error")
+    onError: (error, vars) => {
+      const message = utils.apiErrorMessage(error);
+      setFailedAction({ ...vars, message });
+      toast(message, "error");
+    }
   });
   const saveGuests = hooks.useMutation({
-    mutationFn: async (next) => {
-      const current = new Set(members.map((member) => String(member.id)));
-      for (const id of next) {
-        if (!current.has(id)) await runtime().api(`${basePath(siteId)}/members`, jsonBody("POST", { userId: Number(id) }));
-      }
-      for (const id of current) {
-        if (!next.has(id)) await runtime().api(`${basePath(siteId)}/members/${id}`, { method: "DELETE" });
-      }
-    },
+    mutationFn: (next) => runtime().api(`${basePath(siteId)}/members/replace`, jsonBody("POST", {
+      userIds: [...next].map(Number)
+    })),
     onSuccess: () => {
+      setFailedGuests(null);
       refresh();
       toast(strings.saved);
     },
-    onError: (error) => toast(utils.apiErrorMessage(error), "error")
+    onError: (error, next) => {
+      const message = utils.apiErrorMessage(error);
+      setFailedGuests({ next: new Set(next), message });
+      refresh();
+      toast(message, "error");
+    }
   });
+  const runCall = (vars, onSuccess) => {
+    if (callRef.current) return;
+    callRef.current = true;
+    call.mutate(vars, {
+      onSuccess: () => {
+        callRef.current = false;
+        onSuccess?.();
+      },
+      onError: () => {
+        callRef.current = false;
+      }
+    });
+  };
+  const runGuests = async (next) => {
+    if (guestsRef.current) return;
+    guestsRef.current = true;
+    try {
+      await saveGuests.mutateAsync(next);
+    } finally {
+      guestsRef.current = false;
+    }
+  };
+  (0, import_react3.useEffect)(() => {
+    onBusyChange?.(callRef.current || guestsRef.current || call.isPending || saveGuests.isPending);
+  }, [call.isPending, onBusyChange, saveGuests.isPending]);
   if (detail.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EmptyState, { title: strings.loadFailed, icon: Server });
   if (!site) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoadingLine, {});
   const setVisibility = (next) => {
+    if (callRef.current) return;
     if (next === "public") {
       setPendingPublic(true);
       return;
     }
-    call.mutate({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: next }) });
+    runCall({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: next }) });
   };
   const releases = detail.data?.releases ?? [];
   const visits = (detail.data?.hits ?? []).reduce((sum, entry) => sum + entry.count, 0);
@@ -476,6 +512,28 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
     }
   };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-5", children: [
+    failedAction ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      ErrorState,
+      {
+        message: failedAction.message,
+        onRetry: () => {
+          const retry = failedAction;
+          setFailedAction(null);
+          runCall(retry);
+        }
+      }
+    ) : null,
+    failedGuests ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      ErrorState,
+      {
+        message: failedGuests.message,
+        onRetry: () => {
+          const retry = failedGuests.next;
+          setFailedGuests(null);
+          void runGuests(retry);
+        }
+      }
+    ) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-start justify-between gap-3", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-1.5", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: STATUS_TONE[site.status], children: strings[STATUS_STRING[site.status]] }),
@@ -553,11 +611,11 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
             label: strings.removeGuest,
             variant: "danger",
             disabled: call.isPending || saveGuests.isPending,
-            onClick: () => call.mutate({ path: `${basePath(siteId)}/members/${member.id}`, init: { method: "DELETE" } })
+            onClick: () => runCall({ path: `${basePath(siteId)}/members/${member.id}`, init: { method: "DELETE" } })
           }
         )
       ] }, member.id)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", icon: Users, onClick: () => setGuestPicker(true), children: strings.manageGuests }) })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", icon: Users, disabled: call.isPending || saveGuests.isPending, onClick: () => setGuestPicker(true), children: strings.manageGuests }) })
     ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DetailBlock, { icon: History, title: strings.releases, children: releases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: releases.map((release) => {
       const live = release.id === site.currentReleaseId;
@@ -577,7 +635,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
             icon: RotateCcw,
             label: strings.rollback,
             disabled: call.isPending,
-            onClick: () => call.mutate({
+            onClick: () => runCall({
               path: `${basePath(siteId)}/rollback`,
               init: jsonBody("POST", { releaseId: release.id }),
               done: strings.rollbackDone
@@ -595,7 +653,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
             icon: RefreshCw,
             label: strings.restart,
             disabled: call.isPending,
-            onClick: () => call.mutate({ path: `${basePath(siteId)}/restart`, init: { method: "POST" }, done: strings.restarted })
+            onClick: () => runCall({ path: `${basePath(siteId)}/restart`, init: { method: "POST" }, done: strings.restarted })
           }
         ) : null
       ] }),
@@ -629,9 +687,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
         })),
         countLabel: (count) => strings.guestsCount.replace("{n}", String(count)),
         selected: new Set(members.map((member) => String(member.id))),
-        onSave: async (next) => {
-          await saveGuests.mutateAsync(next);
-        },
+        onSave: runGuests,
         saving: saveGuests.isPending,
         emptySelectionHint: strings.noGuests
       }
@@ -645,8 +701,9 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
         confirmLabel: strings.publicConfirm,
         onClose: () => setPendingPublic(false),
         onConfirm: () => {
+          if (callRef.current) return;
           setPendingPublic(false);
-          call.mutate({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: "public" }) });
+          runCall({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: "public" }) });
         }
       }
     ),
@@ -659,10 +716,11 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
         confirmLabel: strings.delete,
         onClose: () => setConfirmDelete(false),
         onConfirm: () => {
+          if (callRef.current) return;
           setConfirmDelete(false);
-          call.mutate(
+          runCall(
             { path: basePath(siteId), init: { method: "DELETE" }, done: strings.deleted },
-            { onSuccess: () => onDeleted() }
+            onDeleted
           );
         }
       }
@@ -808,6 +866,7 @@ function SitesPage() {
   const [status, setStatus] = hooks.usePersistentState("elowen.sites.status", "all", isStatusFilter);
   const [query, setQuery] = (0, import_react4.useState)("");
   const [selectedId, setSelectedId] = (0, import_react4.useState)(null);
+  const [detailBusy, setDetailBusy] = (0, import_react4.useState)(false);
   const mine = (0, import_react4.useMemo)(() => list.data?.mine ?? [], [list.data]);
   const shared = (0, import_react4.useMemo)(() => list.data?.shared ?? [], [list.data]);
   const sectionSites = (0, import_react4.useMemo)(
@@ -917,12 +976,15 @@ function SitesPage() {
       },
       children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceDocument, { children: list.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(LoadingState, { variant: "cards" }) }) : list.isError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ErrorState, { message: strings.loadFailed, onRetry: () => list.refetch() }) }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex min-w-0 flex-col gap-4", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-4", children: register() }) }),
-        selected ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => setSelectedId(null), children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        selected ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => {
+          if (!detailBusy) setSelectedId(null);
+        }, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           SiteDetail,
           {
             siteId: selected.id,
             allowPublicSites: list.data?.allowPublicSites ?? false,
-            onDeleted: () => setSelectedId(null)
+            onDeleted: () => setSelectedId(null),
+            onBusyChange: setDetailBusy
           }
         ) }) : null
       ] }) })
@@ -985,6 +1047,7 @@ function SitesProjectPanel({ project }) {
   const { WorkspaceDetailRail, LoadingState, ErrorState, EmptyState } = components;
   const strings = hooks.usePluginStrings("sites");
   const [selectedId, setSelectedId] = (0, import_react6.useState)(null);
+  const [detailBusy, setDetailBusy] = (0, import_react6.useState)(false);
   const list = hooks.useQuery({
     queryKey: SITES_LIST_KEY,
     queryFn: () => runtime().api("/plugins/sites/api/sites")
@@ -999,12 +1062,15 @@ function SitesProjectPanel({ project }) {
   if (sites.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(EmptyState, { title: strings.empty, icon: Globe });
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SitesRegister, { sites, selectedId, onSelect: setSelectedId }),
-    selected ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => setSelectedId(null), children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    selected ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => {
+      if (!detailBusy) setSelectedId(null);
+    }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
       SiteDetail,
       {
         siteId: selected.id,
         allowPublicSites: list.data?.allowPublicSites ?? false,
-        onDeleted: () => setSelectedId(null)
+        onDeleted: () => setSelectedId(null),
+        onBusyChange: setDetailBusy
       }
     ) }) : null
   ] });

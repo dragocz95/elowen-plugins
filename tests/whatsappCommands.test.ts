@@ -5,6 +5,21 @@ const log = { info() {}, warn() {}, error() {} };
 const CHAT = '420123456789@s.whatsapp.net';
 
 describe('whatsapp token-list config compatibility', () => {
+  it('drops malformed policies, deduplicates ids and keeps wildcard last', async () => {
+    const { normalizeSenderPolicies } = await import('../plugins/whatsapp/lib/config.mjs') as {
+      normalizeSenderPolicies: (value: unknown) => Array<Record<string, unknown>>;
+    };
+    expect(normalizeSenderPolicies([
+      { roleId: '*', admin: true },
+      { roleId: ' 420123456789 ', name: ' first ' },
+      { roleId: '420123456789', name: 'duplicate' },
+      { roleId: {} },
+    ])).toEqual([
+      { roleId: '420123456789', name: 'first' },
+      { roleId: '*', admin: true },
+    ]);
+  });
+
   it('accepts legacy and array group JIDs', async () => {
     const { splitList } = await import('../plugins/whatsapp/lib/adapter.mjs') as {
       splitList: (value: unknown) => string[];

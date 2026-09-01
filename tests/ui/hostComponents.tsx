@@ -26,7 +26,7 @@ import { useBrainModels, useConfig, useProjectGit, useProjects,
 import { DIVIDER, PROVIDERS, type DateRange, type RangePreset, type Tone,
 } from './hostUtils';
 import { ProjectIcon } from './hostProjectIcon';
-import type { SaveStatus } from './useAutoSaveStatus';
+import type { AutoSaveStatusProps } from '../../plugins/autoSaveContract';
 
 /** The instance's display name — the app reads it from the brand config; here it is the default, which
  *  is what the moved suites assert the hero mascot is labelled with. */
@@ -773,7 +773,7 @@ export function Spinner({ size = 'sm', label }: { size?: keyof typeof SPINNER_PX
  *  nothing — the row keeps one stable `role="status"` node, so the first "Saving…" is announced instead
  *  of arriving with a brand-new region a screen reader may not read. The error is `role="alert"` and
  *  offers Retry. */
-export function AutoSaveStatus({ status, onRetry }: { status: SaveStatus; onRetry?: () => void }) {
+export function AutoSaveStatus({ status, onRetry }: AutoSaveStatusProps) {
   const { t } = useTranslation();
   if (status === 'idle') return <span role="status" aria-live="polite" />;
   if (status === 'saving') return <span role="status" aria-live="polite"><Spinner size="sm" tone="" />{t.common.saving}</span>;

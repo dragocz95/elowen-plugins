@@ -187,6 +187,9 @@
       "key": "historyLimit",
       "label": "Channel history backfill",
       "type": "number",
+      "min": 0,
+      "max": 100,
+      "step": 1,
       "default": 0,
       "hint": "How many recent channel messages a BRAND-NEW conversation loads as context (0 = off, max 100). Ongoing conversations never re-fetch."
     },

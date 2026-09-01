@@ -4,8 +4,10 @@
  *  the unmount flush ARE the behaviour under test, so a stand-in would only test the stand-in. */
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+import type {
+  UseAutoSaveStatusOptions,
+  UseAutoSaveStatusResult,
+} from '../../plugins/autoSaveContract';
 
 /**
  * Debounced auto-persist with a visible status, stale-response protection, and a flush hook — the
@@ -30,8 +32,8 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 export function useAutoSaveStatus(
   deps: readonly unknown[],
   save: () => Promise<void> | void,
-  opts: { ready?: boolean; savable?: boolean; delay?: number } = {},
-): { status: SaveStatus; retry: () => void; flush: () => void } {
+  opts: UseAutoSaveStatusOptions = {},
+): UseAutoSaveStatusResult {
   const { ready = true, savable = true, delay = 800 } = opts;
   const seeded = useRef(false);
   const saveRef = useRef(save);

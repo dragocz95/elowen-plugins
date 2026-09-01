@@ -14,31 +14,61 @@ export function PairingSettings({ surface }: { surface: 'page' | 'deck' }) {
   const s = hooks.usePluginStrings('whatsapp');
   const [open, setOpen] = useState(false);
   const [connected, setConnected] = useState<boolean | null>(null);
+  const [statusError, setStatusError] = useState(false);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [unpairing, setUnpairing] = useState(false);
+  const [unpairError, setUnpairError] = useState(false);
+  const unpairingRef = useRef(false);
   const [confirmUnpair, setConfirmUnpair] = useState(false);
 
   const refreshStatus = async () => {
-    try { const st = await pairing(); setConnected(st.connected); }
-    catch { setConnected(null); }
+    setStatusLoading(true);
+    try {
+      const st = await pairing();
+      setConnected(st.connected);
+      setStatusError(false);
+    } catch {
+      setConnected(null);
+      setStatusError(true);
+    } finally {
+      setStatusLoading(false);
+    }
   };
   useEffect(() => { void refreshStatus(); }, []);
 
   const doUnpair = async () => {
+    if (unpairingRef.current) return;
+    unpairingRef.current = true;
     setConfirmUnpair(false);
-    try { await unpair(); } catch { /* ignore — status refresh reflects reality */ }
-    await refreshStatus();
+    setUnpairing(true);
+    setUnpairError(false);
+    try { await unpair(); }
+    catch { setUnpairError(true); }
+    finally {
+      await refreshStatus();
+      unpairingRef.current = false;
+      setUnpairing(false);
+    }
   };
 
   return (
     <C.PluginSection surface={surface} className="plugin-card" icon={QrCode} title={s.pairTitle} description={s.pairHint}>
       <div className="settings-group__panel space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          {connected ? (
+          {connected === true ? (
             // Paired state reads from the action itself — the red "Unpair" is only shown when linked,
             // so no redundant "connected!" banner is needed.
-            <C.Button variant="danger" icon={Unlink} onClick={() => setConfirmUnpair(true)}>{s.unpairButton}</C.Button>
+            <C.Button variant="danger" icon={Unlink} disabled={unpairing} onClick={() => setConfirmUnpair(true)}>{s.unpairButton}</C.Button>
           ) : (
-            <C.Button variant="accent" icon={QrCode} onClick={() => setOpen(true)}>{s.pairButton}</C.Button>
+            <C.Button variant="accent" icon={QrCode} disabled={statusLoading} onClick={() => setOpen(true)}>{s.pairButton}</C.Button>
           )}
+          {statusError ? (
+            <>
+              <span className="text-sm text-destructive" role="alert">{s.pairError}</span>
+              <C.Button variant="ghost" icon={RefreshCw} disabled={statusLoading || unpairing} onClick={() => void refreshStatus()}>{s.retry}</C.Button>
+            </>
+          ) : null}
+          {unpairError ? <span className="text-sm text-destructive" role="alert">{s.unpairError}</span> : null}
         </div>
         {open ? <PairModal onClose={() => { setOpen(false); void refreshStatus(); }} /> : null}
         <C.ConfirmDialog
@@ -59,6 +89,7 @@ function PairModal({ onClose }: { onClose: () => void }) {
   const s = hooks.usePluginStrings('whatsapp');
   const [state, setState] = useState<WhatsAppPairing | null>(null);
   const [error, setError] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
@@ -83,7 +114,10 @@ function PairModal({ onClose }: { onClose: () => void }) {
   }, []);
 
   const refresh = async () => {
-    try { await pair(); setError(false); } catch { setError(true); }
+    setRefreshing(true);
+    try { await pair(); setError(false); }
+    catch { setError(true); }
+    finally { setRefreshing(false); }
   };
 
   const connected = state?.connected === true;
@@ -119,8 +153,8 @@ function PairModal({ onClose }: { onClose: () => void }) {
         )}
       </C.ModalBody>
       <C.ModalFooter>
-        {!connected && !error ? (
-          <C.Button variant="ghost" icon={RefreshCw} onClick={refresh}>{s.pairRefresh}</C.Button>
+        {!connected ? (
+          <C.Button variant="ghost" icon={RefreshCw} disabled={refreshing} onClick={() => void refresh()}>{s.pairRefresh}</C.Button>
         ) : null}
         <C.Button variant="accent" onClick={onClose}>{connected ? 'OK' : s.close}</C.Button>
       </C.ModalFooter>

@@ -170,7 +170,10 @@ export function createApiHandlers(deps: ApiDeps) {
       await deps.deleteSite(target.id);
       return json(200, { ok: true });
     }
-    if (req.method === 'POST' && action === 'members') return addMember(req, target);
+    if (req.method === 'POST' && action === 'members') {
+      if (segments[2] === 'replace') return replaceMembers(req, target);
+      return addMember(req, target);
+    }
     if (req.method === 'DELETE' && action === 'members') {
       const userId = Number(segments[2]);
       if (!Number.isSafeInteger(userId)) return json(400, { error: 'invalid account' });
@@ -234,6 +237,17 @@ export function createApiHandlers(deps: ApiDeps) {
     deps.store.addMember(target.id, userId);
     deps.store.bumpAccessGeneration(target.id);
     return json(200, { ok: true });
+  };
+
+  const replaceMembers = async (req: PluginApiRequest, target: Site): Promise<PluginHttpResponse> => {
+    const body = await req.json<{ userIds?: unknown }>().catch(() => ({} as { userIds?: unknown }));
+    if (!Array.isArray(body.userIds)) return json(400, { error: 'userIds must be an array' });
+    const userIds = [...new Set(body.userIds.map(Number))];
+    if (userIds.some((userId) => !Number.isSafeInteger(userId) || !deps.access.accountExists(userId))) {
+      return json(400, { error: 'unknown account' });
+    }
+    deps.store.replaceMembers(target.id, userIds);
+    return json(200, { ok: true, members: deps.store.memberIds(target.id) });
   };
 
   /** POST /plugins/sites/api/ticket — the app half of the sign-in handshake.

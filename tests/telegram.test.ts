@@ -10,6 +10,21 @@ const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('telegram token-list config compatibility', () => {
+  it('drops malformed policies, deduplicates ids and keeps wildcard last', async () => {
+    const { normalizeRolePolicies } = await import('../plugins/telegram/lib/config.mjs') as {
+      normalizeRolePolicies: (value: unknown) => Array<Record<string, unknown>>;
+    };
+    expect(normalizeRolePolicies([
+      { roleId: '*', admin: true },
+      { roleId: ' 42 ', name: ' first ' },
+      { roleId: '42', name: 'duplicate' },
+      { roleId: null },
+    ])).toEqual([
+      { roleId: '42', name: 'first' },
+      { roleId: '*', admin: true },
+    ]);
+  });
+
   it('accepts legacy and array allowed-chat ids without constraining their string shape', async () => {
     const { splitList } = await import('../plugins/telegram/lib/adapter.mjs') as {
       splitList: (value: unknown) => string[];

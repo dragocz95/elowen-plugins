@@ -208,6 +208,15 @@ test('changing who may open a site invalidates the sessions already issued', () 
   assert.equal(store.siteById('site-1').accessGeneration, 3);
 });
 
+test('replacing site members is atomic and bumps access generation once', () => {
+  const store = new SitesStore(makeDb());
+  store.insertSite(site());
+  store.addMember('site-1', 2);
+  store.replaceMembers('site-1', [3, 3]);
+  assert.deepEqual(store.memberIds('site-1'), [3]);
+  assert.equal(store.siteById('site-1').accessGeneration, 2);
+});
+
 test('deletion is durable, immediately invisible and safe to finish after a crash', () => {
   const store = new SitesStore(makeDb());
   store.insertSite(site());

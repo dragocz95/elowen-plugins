@@ -11,6 +11,7 @@ import { TeamsAccountLinking } from './lib/accountLinking.mjs';
 import { registerTools } from './lib/tools.mjs';
 import { registerMicrosoftTools } from './lib/microsoftTools.mjs';
 import { createMicrosoftIdentityRuntime } from './lib/identityControl.mjs';
+import { normalizeConfig } from './lib/config.mjs';
 import { platformImageDirs } from 'elowen-plugin-shared/images';
 
 export { matchesId, matchPolicy, senderIds, senderIsAdmin, displayNameOf } from './lib/ids.mjs';
@@ -191,7 +192,14 @@ export function register(ctx) {
     return;
   }
   const imageDirs = platformImageDirs(dataDir);
-  const config = { ...ctx.config, appId, appPassword, tenantId, agentName, productName };
+  const config = {
+    ...normalizeConfig(ctx.config),
+    appId,
+    appPassword,
+    tenantId,
+    agentName,
+    productName,
+  };
   if (config.accountLinking === true) {
     const connectionName = typeof config.oauthConnectionName === 'string' ? config.oauthConnectionName.trim() : '';
     if (connectionName) {

@@ -253,6 +253,34 @@ describe('ProjectEditor copy', () => {
     expect(screen.getByRole('region', { name: 'Code editor' })).toHaveClass('rounded-lg', 'border', 'bg-card');
   });
 
+  it('exits desktop fullscreen without a discard prompt because the editor stays mounted', async () => {
+    await renderEditor();
+    fireEvent.change(editorEl(), { target: { value: 'draft text\n' } });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'View' }));
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Fullscreen' }));
+    const takeover = await screen.findByRole('dialog', { name: 'Code editor' });
+    fireEvent.click(within(takeover).getByRole('button', { name: 'Exit fullscreen' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(confirm).not.toHaveBeenCalled();
+    expect(editorEl()).toHaveValue('draft text\n');
+    confirm.mockRestore();
+  });
+
+  it('discards a dirty tab only after confirmation and does not restore its stale draft', async () => {
+    await renderEditor();
+    fireEvent.change(editorEl(), { target: { value: 'discard me\n' } });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    openInTree('a.ts');
+
+    await waitFor(() => expect(editorEl()).toHaveValue('line one\n'));
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(confirm).toHaveBeenCalledWith(strings.discardChanges);
+    confirm.mockRestore();
+  });
+
   it('keeps every file-open control reachable in the wrapping phone toolbar', async () => {
     useMobileViewport();
     const { wrapper: Base } = createWrapper();

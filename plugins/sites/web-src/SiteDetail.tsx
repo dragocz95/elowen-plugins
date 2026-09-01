@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Activity, Clock, Copy, ExternalLink, History, Link2, RefreshCw, RotateCcw,
   Server, ShieldCheck, Terminal, Trash2, UserMinus, Users,
@@ -16,15 +16,16 @@ const basePath = (siteId: string): string => `/plugins/sites/api/site/${siteId}`
  *  Deliberately NOT tabbed: the drawer is one fixed size on every surface, and a tab strip inside it
  *  would make the same drawer feel like four differently shaped panels. Every choice here is a
  *  dropdown, a picker or a confirmed action — there is no field to type an id or a name into. */
-export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
+export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }: {
   siteId: string;
   allowPublicSites: boolean;
   onDeleted(): void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const { components, hooks, utils } = runtime();
   const {
     Avatar, Badge, Button, IconButton, SelectMenu, ConfirmDialog, ManageSelectionModal,
-    DetailBlock, EmptyState, LoadingLine,
+    DetailBlock, EmptyState, ErrorState, LoadingLine,
   } = components;
   // Bound here rather than handed down as a prop: the static contract test can only verify a key a
   // file reads through its OWN `usePluginStrings` binding, and a drawer this large is exactly where a
@@ -36,6 +37,10 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
   const [pendingPublic, setPendingPublic] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [guestPicker, setGuestPicker] = useState(false);
+  const [failedAction, setFailedAction] = useState<{ path: string; init: RequestInit; done?: string; message: string } | null>(null);
+  const [failedGuests, setFailedGuests] = useState<{ next: Set<string>; message: string } | null>(null);
+  const callRef = useRef(false);
+  const guestsRef = useRef(false);
 
   const detail = hooks.useQuery<SiteDetailResponse>({
     queryKey: siteDetailKey(siteId),
@@ -61,36 +66,61 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
 
   const call = hooks.useMutation<unknown, unknown, { path: string; init: RequestInit; done?: string }>({
     mutationFn: (vars: { path: string; init: RequestInit }) => runtime().api(vars.path, vars.init),
-    onSuccess: (_data: unknown, vars: { done?: string }) => {
+    onSuccess: (_data: unknown, vars: { path: string; init: RequestInit; done?: string }) => {
+      setFailedAction(null);
       refresh();
       toast(vars.done ?? strings.saved);
     },
-    onError: (error: unknown) => toast(utils.apiErrorMessage(error), 'error'),
+    onError: (error: unknown, vars: { path: string; init: RequestInit; done?: string }) => {
+      const message = utils.apiErrorMessage(error);
+      setFailedAction({ ...vars, message });
+      toast(message, 'error');
+    },
   });
 
-  /** The picker hands back the whole intended guest list, so the difference against the current one is
-   *  what actually gets written. Sequential on purpose: each write bumps the site's access generation,
-   *  and firing them together makes the resulting invalidations race. */
+  /** The picker hands back the whole intended guest list. The server replaces the set in one transaction,
+   * so a crash or concurrent refresh cannot leave half the guests from the old and new selections. */
   const saveGuests = hooks.useMutation<unknown, unknown, Set<string>>({
-    mutationFn: async (next: Set<string>) => {
-      const current = new Set(members.map((member) => String(member.id)));
-      for (const id of next) {
-        if (!current.has(id)) await runtime().api(`${basePath(siteId)}/members`, jsonBody('POST', { userId: Number(id) }));
-      }
-      for (const id of current) {
-        if (!next.has(id)) await runtime().api(`${basePath(siteId)}/members/${id}`, { method: 'DELETE' });
-      }
+    mutationFn: (next: Set<string>) => runtime().api(`${basePath(siteId)}/members/replace`, jsonBody('POST', {
+      userIds: [...next].map(Number),
+    })),
+    onSuccess: () => { setFailedGuests(null); refresh(); toast(strings.saved); },
+    onError: (error: unknown, next: Set<string>) => {
+      // A later delta may have landed before the failure. Reconcile the drawer before offering Retry.
+      const message = utils.apiErrorMessage(error);
+      setFailedGuests({ next: new Set(next), message });
+      refresh();
+      toast(message, 'error');
     },
-    onSuccess: () => { refresh(); toast(strings.saved); },
-    onError: (error: unknown) => toast(utils.apiErrorMessage(error), 'error'),
   });
+  const runCall = (
+    vars: { path: string; init: RequestInit; done?: string },
+    onSuccess?: () => void,
+  ) => {
+    if (callRef.current) return;
+    callRef.current = true;
+    call.mutate(vars, {
+      onSuccess: () => { callRef.current = false; onSuccess?.(); },
+      onError: () => { callRef.current = false; },
+    });
+  };
+  const runGuests = async (next: Set<string>) => {
+    if (guestsRef.current) return;
+    guestsRef.current = true;
+    try { await saveGuests.mutateAsync(next); }
+    finally { guestsRef.current = false; }
+  };
+  useEffect(() => {
+    onBusyChange?.(callRef.current || guestsRef.current || call.isPending || saveGuests.isPending);
+  }, [call.isPending, onBusyChange, saveGuests.isPending]);
 
   if (detail.isError) return <EmptyState title={strings.loadFailed} icon={Server} />;
   if (!site) return <LoadingLine />;
 
   const setVisibility = (next: string) => {
+    if (callRef.current) return;
     if (next === 'public') { setPendingPublic(true); return; }
-    call.mutate({ path: basePath(siteId), init: jsonBody('PATCH', { visibility: next }) });
+    runCall({ path: basePath(siteId), init: jsonBody('PATCH', { visibility: next }) });
   };
 
   const releases = detail.data?.releases ?? [];
@@ -106,6 +136,18 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
 
   return (
     <div className="flex flex-col gap-5">
+      {failedAction ? (
+        <ErrorState
+          message={failedAction.message}
+          onRetry={() => { const retry = failedAction; setFailedAction(null); runCall(retry); }}
+        />
+      ) : null}
+      {failedGuests ? (
+        <ErrorState
+          message={failedGuests.message}
+          onRetry={() => { const retry = failedGuests.next; setFailedGuests(null); void runGuests(retry); }}
+        />
+      ) : null}
       {/* Identity strip — what this site IS and the two things you do with an address, on one line. */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -191,14 +233,14 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
                     label={strings.removeGuest}
                     variant="danger"
                     disabled={call.isPending || saveGuests.isPending}
-                    onClick={() => call.mutate({ path: `${basePath(siteId)}/members/${member.id}`, init: { method: 'DELETE' } })}
+                    onClick={() => runCall({ path: `${basePath(siteId)}/members/${member.id}`, init: { method: 'DELETE' } })}
                   />
                 </li>
               ))}
             </ul>
           )}
           <div>
-            <Button variant="ghost" icon={Users} onClick={() => setGuestPicker(true)}>{strings.manageGuests}</Button>
+            <Button variant="ghost" icon={Users} disabled={call.isPending || saveGuests.isPending} onClick={() => setGuestPicker(true)}>{strings.manageGuests}</Button>
           </div>
         </DetailBlock>
       ) : null}
@@ -226,7 +268,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
                     icon={RotateCcw}
                     label={strings.rollback}
                     disabled={call.isPending}
-                    onClick={() => call.mutate({
+                    onClick={() => runCall({
                       path: `${basePath(siteId)}/rollback`,
                       init: jsonBody('POST', { releaseId: release.id }),
                       done: strings.rollbackDone,
@@ -251,7 +293,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
                 icon={RefreshCw}
                 label={strings.restart}
                 disabled={call.isPending}
-                onClick={() => call.mutate({ path: `${basePath(siteId)}/restart`, init: { method: 'POST' }, done: strings.restarted })}
+                onClick={() => runCall({ path: `${basePath(siteId)}/restart`, init: { method: 'POST' }, done: strings.restarted })}
               />
             ) : null}
           </div>
@@ -296,7 +338,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
         }))}
         countLabel={(count: number) => strings.guestsCount.replace('{n}', String(count))}
         selected={new Set(members.map((member) => String(member.id)))}
-        onSave={async (next: Set<string>) => { await saveGuests.mutateAsync(next); }}
+        onSave={runGuests}
         saving={saveGuests.isPending}
         emptySelectionHint={strings.noGuests}
       />
@@ -308,8 +350,9 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
         confirmLabel={strings.publicConfirm}
         onClose={() => setPendingPublic(false)}
         onConfirm={() => {
+          if (callRef.current) return;
           setPendingPublic(false);
-          call.mutate({ path: basePath(siteId), init: jsonBody('PATCH', { visibility: 'public' satisfies Visibility }) });
+          runCall({ path: basePath(siteId), init: jsonBody('PATCH', { visibility: 'public' satisfies Visibility }) });
         }}
       />
 
@@ -320,10 +363,11 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
         confirmLabel={strings.delete}
         onClose={() => setConfirmDelete(false)}
         onConfirm={() => {
+          if (callRef.current) return;
           setConfirmDelete(false);
-          call.mutate(
+          runCall(
             { path: basePath(siteId), init: { method: 'DELETE' }, done: strings.deleted },
-            { onSuccess: () => onDeleted() },
+            onDeleted,
           );
         }}
       />

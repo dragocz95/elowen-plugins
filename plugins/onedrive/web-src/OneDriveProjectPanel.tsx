@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, Cloud, CloudOff, ExternalLink, Folder, FolderOpen, RefreshCw, TriangleAlert } from 'lucide-react';
 import { humanBytes, jsonBody, runtime, type ConflictRow, type MirrorRow, type Overview } from './runtime';
 
@@ -47,7 +47,7 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: 
   });
 
   return (
-    <C.WorkspaceDetailRail label={s.conflicts} closeLabel={s.close} onClose={onClose}>
+    <C.WorkspaceDetailRail label={s.conflicts} closeLabel={s.close} onClose={() => { if (!resolve.isPending) onClose(); }}>
       <p className="mb-3 text-xs text-muted-foreground">{s.conflictsHint}</p>
       {conflicts.isLoading ? <C.LoadingState variant="list" />
         : conflicts.isError
@@ -73,7 +73,7 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: 
               ))}
             </C.DataTable>
           )}
-      {resolveError ? <div className="mt-3"><C.ErrorState message={resolveError} /></div> : null}
+      {resolveError ? <div className="mt-3"><C.ErrorState message={resolveError} onRetry={() => { setResolveError(null); conflicts.refetch(); }} /></div> : null}
     </C.WorkspaceDetailRail>
   );
 }
@@ -240,8 +240,8 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
         {row.enabled ? (
           <C.Button icon={RefreshCw} disabled={busy} onClick={onSync}>{s.syncNow}</C.Button>
         ) : null}
-        <C.Button variant="ghost" onClick={onPause}>{row.enabled ? s.pause : s.resume}</C.Button>
-        <C.Button variant="ghost-danger" onClick={onDisconnect}>{s.disconnect}</C.Button>
+        <C.Button variant="ghost" disabled={busy} onClick={onPause}>{row.enabled ? s.pause : s.resume}</C.Button>
+        <C.Button variant="ghost-danger" disabled={busy} onClick={onDisconnect}>{s.disconnect}</C.Button>
       </div>
     </div>
   );
@@ -265,6 +265,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
   const [choice, setChoice] = useState<FolderChoice | null>(null);
   const [conflictsFor, setConflictsFor] = useState<MirrorRow | null>(null);
   const [disconnecting, setDisconnecting] = useState<MirrorRow | null>(null);
+  const actionRef = useRef(false);
 
   const refresh = () => { void qc.invalidateQueries({ queryKey: key }); };
   const fail = (error: unknown) => toast(utils.apiErrorMessage(error), 'error');
@@ -291,6 +292,27 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
     onSuccess: refresh,
     onError: fail,
   });
+  const releaseAction = () => { actionRef.current = false; };
+  const runConnect = (vars: { workspaceId: string | null; subpath: string }) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    connect.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
+  const runDisconnect = (vars: { id: number }) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    disconnect.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
+  const runPause = (vars: { id: number; enabled: boolean }) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    pause.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
+  const runSync = (vars: { id: number; confirmDeletions?: boolean }) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    syncNow.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
 
   if (overview.isLoading) return <C.LoadingState variant="list" />;
   if (overview.isError) return <C.ErrorState message={utils.apiErrorMessage(overview.error)} onRetry={() => overview.refetch()} />;
@@ -323,12 +345,12 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
         {projectLink ? (
           <MirrorCard
             row={projectLink}
-            busy={syncNow.isPending}
+            busy={syncNow.isPending || pause.isPending || disconnect.isPending}
             onConflicts={() => setConflictsFor(projectLink)}
             onDisconnect={() => setDisconnecting(projectLink)}
-            onPause={() => pause.mutate({ id: projectLink.id, enabled: !projectLink.enabled })}
-            onSync={() => syncNow.mutate({ id: projectLink.id })}
-            onConfirmSync={() => syncNow.mutate({ id: projectLink.id, confirmDeletions: true })}
+            onPause={() => runPause({ id: projectLink.id, enabled: !projectLink.enabled })}
+            onSync={() => runSync({ id: projectLink.id })}
+            onConfirmSync={() => runSync({ id: projectLink.id, confirmDeletions: true })}
           />
         ) : <p className="text-xs text-muted-foreground">{s.mirrorScopeHint}</p>}
       </section>
@@ -363,7 +385,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
                       <div className="flex flex-wrap justify-end gap-2">
                       {row && row.status === 'blocked' && (
                         <C.Button variant="danger" disabled={syncNow.isPending}
-                          onClick={() => syncNow.mutate({ id: row.id, confirmDeletions: true })}>
+                          onClick={() => runSync({ id: row.id, confirmDeletions: true })}>
                           {s.confirmDeletions.replace('{count}', String(row.blockedDeletions))}
                         </C.Button>
                       )}
@@ -371,13 +393,13 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
                           that does nothing. Resume is the action that state actually has. */}
                       {row && (
                         <C.Button disabled={pause.isPending}
-                          onClick={() => pause.mutate({ id: row.id, enabled: !row.enabled })}>
+                          onClick={() => runPause({ id: row.id, enabled: !row.enabled })}>
                           {row.enabled ? s.pause : s.resume}
                         </C.Button>
                       )}
                       {row && row.enabled && (
                         <C.Button disabled={syncNow.isPending}
-                          onClick={() => syncNow.mutate({ id: row.id })}>{s.syncNow}</C.Button>
+                          onClick={() => runSync({ id: row.id })}>{s.syncNow}</C.Button>
                       )}
                       {row && row.conflictCount > 0 && (
                         <C.Button onClick={() => setConflictsFor(row)}>
@@ -385,7 +407,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
                         </C.Button>
                       )}
                       {row ? (
-                        <C.Button variant="ghost-danger" onClick={() => setDisconnecting(row)}>{s.disconnect}</C.Button>
+                        <C.Button variant="ghost-danger" disabled={pause.isPending || syncNow.isPending || disconnect.isPending} onClick={() => setDisconnecting(row)}>{s.disconnect}</C.Button>
                       ) : (
                         <C.Button
                           onClick={() => { setChoice(null); setConnectFor({ workspaceId: workspace.workspaceId, label: workspace.label }); }}>
@@ -405,7 +427,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
       {/* First click opens a drawer; a centred window is only ever the second step from one. The rail has
           no `open` prop - it renders whenever it is mounted - so the condition belongs HERE. */}
       {connectFor && (
-      <C.WorkspaceDetailRail label={s.connectCta} closeLabel={s.close} onClose={() => setConnectFor(null)}>
+      <C.WorkspaceDetailRail label={s.connectCta} closeLabel={s.close} onClose={() => { if (!actionRef.current) setConnectFor(null); }}>
         <div className="space-y-4 text-sm">
           <p className="text-sm font-medium">{connectFor.label}</p>
 
@@ -448,7 +470,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
 
           <C.Button
             variant="accent"
-            onClick={() => choice && connect.mutate({ workspaceId: connectFor.workspaceId, subpath: choice.subpath })}
+            onClick={() => choice && runConnect({ workspaceId: connectFor.workspaceId, subpath: choice.subpath })}
             disabled={connect.isPending || !choice}
           >
             {s.connectConfirm}
@@ -466,8 +488,10 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
         title={s.disconnect}
         description={s.disconnectHint}
         confirmLabel={s.disconnect}
-        onClose={() => setDisconnecting(null)}
-        onConfirm={() => disconnecting && disconnect.mutate({ id: disconnecting.id })}
+        onClose={() => { if (!actionRef.current) setDisconnecting(null); }}
+        onConfirm={() => {
+          if (disconnecting) runDisconnect({ id: disconnecting.id });
+        }}
       />
     </div>
   );

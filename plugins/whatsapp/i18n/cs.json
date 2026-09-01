@@ -107,6 +107,8 @@
       "pairError": "Nepodařilo se spojit s WhatsApp pluginem. Je zapnutý?",
       "unpairButton": "Zrušit párování",
       "unpairConfirm": "Odpojit tento WhatsApp účet? Bot přestane přijímat zprávy, dokud znovu nespárujete.",
+      "unpairError": "Párování se nepodařilo zrušit. Zařízení zůstává připojené.",
+      "retry": "Zkusit znovu",
       "close": "Zavřít"
     }
   }

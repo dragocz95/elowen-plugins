@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -59,19 +59,19 @@ function registerWhatsAppUi(registration) {
 // plugins/whatsapp/web-src/PairingSettings.tsx
 var import_react3 = __toESM(require_react(), 1);
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -84,7 +84,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -116,7 +116,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -130,13 +130,13 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/circle-check.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/circle-check.js
 var CircleCheck = createLucideIcon("CircleCheck", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/qr-code.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/qr-code.js
 var QrCode = createLucideIcon("QrCode", [
   ["rect", { width: "5", height: "5", x: "3", y: "3", rx: "1", key: "1tu5fj" }],
   ["rect", { width: "5", height: "5", x: "16", y: "3", rx: "1", key: "1v8r4q" }],
@@ -152,7 +152,7 @@ var QrCode = createLucideIcon("QrCode", [
   ["path", { d: "M12 21v-1", key: "1880an" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/refresh-cw.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/refresh-cw.js
 var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
@@ -160,7 +160,7 @@ var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/unlink.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/unlink.js
 var Unlink = createLucideIcon("Unlink", [
   [
     "path",
@@ -183,7 +183,11 @@ var Unlink = createLucideIcon("Unlink", [
 ]);
 
 // plugins/whatsapp/web-src/PairingSettings.tsx
-var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime = (
+  // Paired state reads from the action itself — the red "Unpair" is only shown when linked,
+  // so no redundant "connected!" banner is needed.
+  __toESM(require_jsx_runtime(), 1)
+);
 var pairing = () => runtime().api("/plugins/whatsapp/pairing");
 var pair = () => runtime().api("/plugins/whatsapp/pair", { method: "POST" });
 var unpair = () => runtime().api("/plugins/whatsapp/unpair", { method: "POST" });
@@ -192,32 +196,53 @@ function PairingSettings({ surface }) {
   const s = hooks.usePluginStrings("whatsapp");
   const [open, setOpen] = (0, import_react3.useState)(false);
   const [connected, setConnected] = (0, import_react3.useState)(null);
+  const [statusError, setStatusError] = (0, import_react3.useState)(false);
+  const [statusLoading, setStatusLoading] = (0, import_react3.useState)(true);
+  const [unpairing, setUnpairing] = (0, import_react3.useState)(false);
+  const [unpairError, setUnpairError] = (0, import_react3.useState)(false);
+  const unpairingRef = (0, import_react3.useRef)(false);
   const [confirmUnpair, setConfirmUnpair] = (0, import_react3.useState)(false);
   const refreshStatus = async () => {
+    setStatusLoading(true);
     try {
       const st = await pairing();
       setConnected(st.connected);
+      setStatusError(false);
     } catch {
       setConnected(null);
+      setStatusError(true);
+    } finally {
+      setStatusLoading(false);
     }
   };
   (0, import_react3.useEffect)(() => {
     void refreshStatus();
   }, []);
   const doUnpair = async () => {
+    if (unpairingRef.current) return;
+    unpairingRef.current = true;
     setConfirmUnpair(false);
+    setUnpairing(true);
+    setUnpairError(false);
     try {
       await unpair();
     } catch {
+      setUnpairError(true);
+    } finally {
+      await refreshStatus();
+      unpairingRef.current = false;
+      setUnpairing(false);
     }
-    await refreshStatus();
   };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.PluginSection, { surface, className: "plugin-card", icon: QrCode, title: s.pairTitle, description: s.pairHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "settings-group__panel space-y-3", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex flex-wrap items-center gap-2", children: connected ? (
-      // Paired state reads from the action itself — the red "Unpair" is only shown when linked,
-      // so no redundant "connected!" banner is needed.
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "danger", icon: Unlink, onClick: () => setConfirmUnpair(true), children: s.unpairButton })
-    ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: QrCode, onClick: () => setOpen(true), children: s.pairButton }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
+      connected === true ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "danger", icon: Unlink, disabled: unpairing, onClick: () => setConfirmUnpair(true), children: s.unpairButton }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: QrCode, disabled: statusLoading, onClick: () => setOpen(true), children: s.pairButton }),
+      statusError ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-destructive", role: "alert", children: s.pairError }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", icon: RefreshCw, disabled: statusLoading || unpairing, onClick: () => void refreshStatus(), children: s.retry })
+      ] }) : null,
+      unpairError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-destructive", role: "alert", children: s.unpairError }) : null
+    ] }),
     open ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PairModal, { onClose: () => {
       setOpen(false);
       void refreshStatus();
@@ -240,6 +265,7 @@ function PairModal({ onClose }) {
   const s = hooks.usePluginStrings("whatsapp");
   const [state, setState] = (0, import_react3.useState)(null);
   const [error, setError] = (0, import_react3.useState)(false);
+  const [refreshing, setRefreshing] = (0, import_react3.useState)(false);
   const timer = (0, import_react3.useRef)(null);
   const stop = () => {
     if (timer.current) {
@@ -275,11 +301,14 @@ function PairModal({ onClose }) {
     };
   }, []);
   const refresh = async () => {
+    setRefreshing(true);
     try {
       await pair();
       setError(false);
     } catch {
       setError(true);
+    } finally {
+      setRefreshing(false);
     }
   };
   const connected = state?.connected === true;
@@ -298,7 +327,7 @@ function PairModal({ onClose }) {
       ] }) : null
     ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ModalFooter, { children: [
-      !connected && !error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", icon: RefreshCw, onClick: refresh, children: s.pairRefresh }) : null,
+      !connected ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", icon: RefreshCw, disabled: refreshing, onClick: () => void refresh(), children: s.pairRefresh }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: onClose, children: connected ? "OK" : s.close })
     ] })
   ] });

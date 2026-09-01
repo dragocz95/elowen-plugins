@@ -815,7 +815,8 @@ class JobStore {
     const parsed = readJsonSafe(this.file, [], (e) =>
       this.log?.error?.(`cron: corrupt jobs file ${this.file} — treating as empty: ${e?.message ?? e}`));
     return validEntries(parsed, isRecord, (reason) =>
-      this.log?.error?.(`cron: skipping malformed job in ${this.file} — ${reason}`));
+      this.log?.error?.(`cron: skipping malformed job in ${this.file} — ${reason}`))
+      .map((job) => ({ ...job, revision: Number.isSafeInteger(job.revision) && job.revision >= 0 ? job.revision : 0 }));
   }
   save(jobs) {
     try { writeJsonAtomic(this.file, jobs); }
@@ -1118,6 +1119,10 @@ export function register(ctx) {
       let body;
       try { body = await req.json(); } catch { body = null; }
       if (!body || typeof body !== 'object' || Array.isArray(body)) return jsonRes({ error: 'body must be a job object' }, 400);
+      const expectedRevision = body.expectedRevision;
+      if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) {
+        return jsonRes({ error: 'expectedRevision must be a non-negative integer' }, 400);
+      }
       // The URL names the job — a body id can't redirect the write onto another one.
       const job = { ...body, id: decodeURIComponent(segs[0]) };
       // GET preserves legacy empty strings for display, while the canonical stored shape omits empty
@@ -1128,6 +1133,20 @@ export function register(ctx) {
       try { jobs = readJobsStrict(); }
       catch { return jsonRes({ error: 'jobs file is unreadable — refusing to write over it' }, 500); }
       const prev = jobs.find((j) => j.id === job.id);
+      if (prev && expectedRevision !== undefined && expectedRevision !== prev.revision) {
+        return jsonRes({
+          error: 'job changed on the server; reload it before saving',
+          conflict: true,
+          current: prev,
+        }, 409);
+      }
+      if (!prev && expectedRevision !== undefined && expectedRevision !== 0) {
+        return jsonRes({
+          error: 'job changed on the server; reload it before saving',
+          conflict: true,
+          current: null,
+        }, 409);
+      }
       // Ownership is decided by the SERVER, never by the body: a non-admin always writes his own job, and
       // may not reach one that is not his (nor learn it exists — the refusal is the same either way).
       if (!req.auth.admin) {
@@ -1167,9 +1186,14 @@ export function register(ctx) {
         delete runtime.originUserId;
         delete runtime.originDeliveryTarget;
       }
-      const saved = { ...edit, ...runtime, ...(enabling ? { lastRun: new Date().toISOString() } : {}) };
+      const saved = {
+        ...edit,
+        ...runtime,
+        ...(enabling ? { lastRun: new Date().toISOString() } : {}),
+        revision: (prev?.revision ?? 0) + 1,
+      };
       store.save(prev ? jobs.map((j) => (j.id === job.id ? saved : j)) : [...jobs, saved]);
-      return jsonRes({ ok: true });
+      return jsonRes({ ok: true, job: saved, revision: saved.revision });
     },
   });
 

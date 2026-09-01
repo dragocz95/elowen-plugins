@@ -30,7 +30,8 @@ module.exports = {
         severity: 'error',
         comment: `Plugin ${name} must be self-contained; shared runtime code belongs in elowen-plugin-shared.`,
         from: { path: `^${pluginPath}` },
-        to: { path: '^plugins/', pathNot: `^${pluginPath}` },
+        // The registry-only auto-save ABI is type-only; it is erased from every bundle and is not shared runtime code.
+        to: { path: '^plugins/', pathNot: `^${pluginPath}|^plugins/autoSaveContract\.ts$` },
       };
     }),
     {
