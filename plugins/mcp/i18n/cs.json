@@ -1,9 +1,67 @@
 {
-  "description": "Napojení externích MCP (Model Context Protocol) serverů na agenta. Nastavíte stdio MCP servery a nástroje každého serveru se zpřístupní mozku jako mcp__<server>__<tool>.",
+  "description": "Napojí externí MCP servery (stdio, HTTP, SSE) do sady nástrojů asistenta.",
   "fields": {
-    "servers": {
-      "label": "MCP servery",
-      "hint": "Externí MCP servery ke spuštění (stdio). Nástroje každého serveru se agentovi zobrazí jako mcp__<server>__<tool>. Změny se po uložení znovu připojí."
+    "sec_timeouts": {
+      "label": "Časové limity",
+      "hint": "Globální časové limity pro připojení a volání, uplatněné na každý nakonfigurovaný server."
+    },
+    "connectTimeoutMs": {
+      "label": "Časový limit připojení (ms)",
+      "hint": "Jak dlouho čekat na připojení serveru a výpis jeho nástrojů, než se pokus ukončí."
+    },
+    "callTimeoutMs": {
+      "label": "Časový limit volání nástroje (ms)",
+      "hint": "Jak dlouho čekat na dokončení přemostěného volání nástroje, než se pokus ukončí."
+    }
+  },
+  "web": {
+    "nav": { "": "MCP" },
+    "strings": {
+      "title": "MCP",
+      "description": "Připojte externí MCP servery a určete, kdo smí používat jejich nástroje.",
+      "workspaceReady": "Přemostění je aktivní",
+      "addServer": "Přidat server",
+      "removeServer": "Odebrat server",
+      "reconnectServer": "Znovu připojit",
+      "name": "Název",
+      "scope": "Vlastnictví",
+      "scopePersonal": "Osobní",
+      "scopeInstance": "Instance",
+      "scopeHelp": "Osobní přihlašovací údaje zůstávají jen ve vašem účtu. Servery instance mohou používat všechny oprávněné konverzace.",
+      "transport": "Přenos",
+      "command": "Příkaz",
+      "commandHelp": "Příkaz a argumenty se spustí jako místní proces. Přidejte pouze server, kterému výslovně důvěřujete.",
+      "arguments": "Argumenty",
+      "environment": "Proměnné prostředí",
+      "url": "URL",
+      "enabled": "Zapnuto",
+      "stateEnabled": "Zapnuto",
+      "stateDisabled": "Vypnuto",
+      "statusConnected": "Připojeno",
+      "statusDisconnected": "Odpojeno",
+      "statusError": "Chyba",
+      "statusDisabled": "Zakázáno",
+      "colStatus": "Stav",
+      "tools": "Nástroje",
+      "toolsHint": "Nástroje, které tento server zpřístupňuje asistentovi. Poskytuje je samotný server, proto je zde nelze upravovat.",
+      "toolsCount": "Počet nástrojů: {n}",
+      "viewTools": "Zobrazit nástroje",
+      "noTools": "Nebyly nalezeny žádné nástroje",
+      "empty": "Zatím není nastavený žádný MCP server.",
+      "emptySearch": "Filtru neodpovídá žádný server",
+      "searchPlaceholder": "Hledat server…",
+      "searchClear": "Zrušit hledání serverů",
+      "filterAll": "Vše",
+      "openServer": "Otevřít server {name}",
+      "loadError": "MCP servery se nepodařilo načíst.",
+      "saveError": "MCP server se nepodařilo uložit.",
+      "actionError": "Akci se nepodařilo dokončit.",
+      "removeConfirmTitle": "Odebrat MCP server „{name}“?",
+      "removeConfirmDescription": "Vlastnictví: {scope}\nTransport: {transport}\nOdebráním serveru se jeho nástroje okamžitě přestanou používat.",
+      "removeError": "MCP server se nepodařilo odebrat. Zůstává nastavený.",
+      "removingServer": "Odebírání…",
+      "save": "Uložit",
+      "saving": "Ukládání…"
     }
   }
 }
