@@ -460,6 +460,26 @@ describe('a cron job row', () => {
     await waitFor(() => expect(screen.queryByDisplayValue('oops')).toBeNull());
   });
 
+  it('keeps a failed save and Retry visible on the row after the drawer closes', async () => {
+    const calls = { writes: [] as { id: string; body: unknown }[], deletes: [] as string[] };
+    let attempts = 0;
+    mount([job({})], calls);
+    use(http.put('/api/plugins/cronjob/jobs/:id', async ({ request, params }) => {
+      attempts += 1;
+      calls.writes.push({ id: String(params.id), body: await request.json() });
+      return attempts === 1 ? HttpResponse.json({ error: 'temporary' }, { status: 500 }) : HttpResponse.json({ ok: true });
+    }));
+    await openRow('digest');
+    fireEvent.change(nameBox(), { target: { value: 'retry me' } });
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
+
+    const retry = await screen.findByRole('button', { name: 'Retry' }, { timeout: 3000 });
+    expect(screen.queryByRole('dialog', { name: 'digest' })).toBeNull();
+    fireEvent.click(retry);
+    await waitFor(() => expect(attempts).toBe(2));
+    expect(calls.writes[1]?.body).toMatchObject({ id: 'j1', name: 'retry me' });
+  });
+
   it('keeps saving a job whose delete failed, instead of silently dropping every later edit', async () => {
     const calls = { writes: [] as { id: string; body: unknown }[], deletes: [] as string[] };
     mount([job({})], calls, 500);

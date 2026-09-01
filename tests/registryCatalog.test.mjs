@@ -100,6 +100,8 @@ const EXPECTED_CAPABILITIES = {
   cronjob: { reads: ['stores'] },
   editor: { reads: ['project-files', 'stores'] },
   github: { reads: ['controls', 'db', 'git', 'stores'], network: true },
+  // EditImage downloads an optional public source and sends image bytes to the configured Images API.
+  'image-edit': { network: true },
   lsp: { network: true },
   // MCP persists server ownership/tool discovery in its DB and connects to remote HTTP/SSE endpoints.
   // stdio execution remains separately restricted to instance administrators by the plugin itself.

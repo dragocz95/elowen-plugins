@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, beforeAll, afterAll, afterEach } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse, listen, resetHandlers, close, use, setDefaults } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import {
@@ -202,6 +202,39 @@ describe('MCP page load states', () => {
     fireEvent.click(screen.getByRole('button', { name: strings.searchClear }));
     expect(search).toHaveValue('');
     expect(screen.getByText('docs')).toBeInTheDocument();
+  });
+
+  it('keeps the moved row identity after a later edit failure, so Retry PATCHes instead of POSTing a duplicate', async () => {
+    let moved = false;
+    let transfers = 0;
+    let patches = 0;
+    let creates = 0;
+    const personalRemote = { ...remote, scope: 'personal' as const, status: 'connected' as const };
+    const instanceRemote = { ...personalRemote, scope: 'instance' as const };
+    use(
+      http.get('*/api/plugins/mcp/api/servers', () => HttpResponse.json({
+        personal: moved ? [] : [personalRemote],
+        instance: moved ? [instanceRemote] : [],
+        canManageInstance: true,
+      })),
+      http.post('*/api/plugins/mcp/api/transfer', () => { transfers += 1; moved = true; return HttpResponse.json({ ok: true }); }),
+      http.patch('*/api/plugins/mcp/api/servers/:name', () => {
+        patches += 1;
+        return patches === 1 ? HttpResponse.json({ error: 'edit failed' }, { status: 500 }) : HttpResponse.json({ ok: true });
+      }),
+      http.post('*/api/plugins/mcp/api/servers', () => { creates += 1; return HttpResponse.json({ ok: true }); }),
+    );
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: strings.openServer.replace('{name}', 'docs') }));
+    fireEvent.change(await screen.findByRole('combobox', { name: strings.scope }), { target: { value: 'instance' } });
+    fireEvent.click(screen.getByRole('button', { name: strings.save }));
+    await screen.findByText('edit failed');
+
+    fireEvent.click(screen.getByRole('button', { name: strings.save }));
+    await waitFor(() => expect(patches).toBe(2));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(transfers).toBe(1);
+    expect(creates).toBe(0);
   });
 });
 

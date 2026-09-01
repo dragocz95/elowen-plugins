@@ -113,7 +113,8 @@
       "statusColumn": "Col",
       "statusSelected": "selected",
       "statusSpaces": "Spaces",
-      "statusUnsaved": "Unsaved changes"
+      "statusUnsaved": "Unsaved changes",
+      "discardChanges": "Discard unsaved changes?"
     }
   }
 }

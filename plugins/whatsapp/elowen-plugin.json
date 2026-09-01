@@ -220,6 +220,7 @@
       "pairError": "Could not reach the WhatsApp plugin. Is it enabled?",
       "unpairButton": "Unpair device",
       "unpairConfirm": "Unlink this WhatsApp account? The bot will stop receiving messages until you pair again.",
+      "unpairError": "Could not unpair this device. It remains connected.",
       "retry": "Retry",
       "close": "Close"
     }

@@ -164,6 +164,7 @@
       "baseRemote": "Base remote",
       "pushRemote": "Push remote",
       "saveMapping": "Save mapping",
+      "saving": "Saving…",
       "mappingSaved": "Repository mapping saved.",
       "mappingRemoved": "Repository mapping removed.",
       "search": "Search",

@@ -63,6 +63,7 @@
       "openServer": "Otvoriť server {name}",
       "loadError": "MCP servery sa nepodarilo načítať.",
       "saveError": "MCP server sa nepodarilo uložiť.",
+      "serverChanged": "MCP server sa zmenil alebo bol odstránený. Pred uložením editor zatvorte a znova otvorte.",
       "actionError": "Akciu sa nepodarilo dokončiť.",
       "removeConfirmTitle": "Odobrať MCP server „{name}“?",
       "removeConfirmDescription": "Vlastníctvo: {scope}\nTransport: {transport}\nOdstránením servera sa jeho nástroje okamžite prestanú používať.",

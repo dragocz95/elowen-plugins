@@ -187,6 +187,8 @@ function SkillsSettings({ surface }) {
   const update = hooks.useUpdatePluginSkill();
   const remove = hooks.useDeletePluginSkill();
   const [creating, setCreating] = (0, import_react3.useState)(false);
+  const [submitting, setSubmitting] = (0, import_react3.useState)(false);
+  const submitRef = (0, import_react3.useRef)(false);
   const targetOwner = (skill) => skill.owner === null ? "instance" : skill.owner;
   const toggleInvocation = (skill, enabled) => {
     update.mutate(
@@ -306,39 +308,54 @@ function SkillsSettings({ surface }) {
         ] })
       ] }),
       onSave: (form, callbacks) => {
+        if (submitRef.current) return;
+        submitRef.current = true;
+        setSubmitting(true);
+        const guarded = {
+          onSuccess: () => {
+            submitRef.current = false;
+            setSubmitting(false);
+            callbacks.onSuccess();
+          },
+          onError: (e) => {
+            submitRef.current = false;
+            setSubmitting(false);
+            callbacks.onError(e);
+          }
+        };
         if (form.editing !== null) {
           const name = form.editing;
-          const from = editedSkill(form) ? targetOwner(editedSkill(form)) : form.owner;
+          const from = form.editingOwner;
           const saveEdit = (owner) => update.mutate(
             { name, owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
-            callbacks
+            guarded
           );
           if (form.owner !== from) {
             void moveSkill(name, from, form.owner).then(
               () => update.mutate(
                 { name, owner: form.owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
                 {
-                  onSuccess: callbacks.onSuccess,
+                  onSuccess: guarded.onSuccess,
                   // The move ALREADY landed, so a refused edit (an empty description, say) leaves the
                   // skill in its new set with its old body. Refetch before reporting the error, or the
                   // register goes on naming an owner the skill no longer has.
                   onError: (e) => {
                     query.refetch();
-                    callbacks.onError(e);
+                    guarded.onError(e);
                   }
                 }
               ),
-              callbacks.onError
+              guarded.onError
             );
           } else saveEdit(from);
         } else {
           create.mutate(
             { name: form.name.trim(), description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation, owner: form.owner },
-            callbacks
+            guarded
           );
         }
       },
-      saving: create.isPending || update.isPending,
+      saving: submitting || create.isPending || update.isPending,
       onDelete: (skill, callbacks) => remove.mutate({ name: skill.name, owner: targetOwner(skill) }, callbacks)
     }
   ) });

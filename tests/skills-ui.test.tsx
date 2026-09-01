@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { ToastProvider, createWrapper } from './ui/hostHooks';
@@ -48,8 +48,8 @@ const list = [skillRow('alpha', false), skillRow('beta', false)];
 const toggles = () => screen.getAllByRole('switch', { name: strings.disableModelInvocation });
 
 const mount = (surface: 'page' | 'deck' = 'deck') => {
-  const { wrapper: Wrapper } = createWrapper();
-  return render(<Wrapper><ToastProvider><SkillsSettings surface={surface} /></ToastProvider></Wrapper>);
+  const { wrapper: Wrapper, client } = createWrapper();
+  return { ...render(<Wrapper><ToastProvider><SkillsSettings surface={surface} /></ToastProvider></Wrapper>), client };
 };
 
 describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
@@ -190,6 +190,45 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     // where the skill is NOW; the edit then addresses it in the set it just landed in.
     expect(calls).toEqual(['move:7', 'patch:instance']);
     expect(moveBody).toEqual({ owner: 'instance' });
+  });
+
+  it('keeps one submission lock across a pending move and the following edit', async () => {
+    let moves = 0;
+    let releaseMove!: () => void;
+    const moveDone = new Promise<void>((resolve) => { releaseMove = resolve; });
+    use(
+      http.get('/api/plugins/skills/list', () => HttpResponse.json([skillRow('alpha', false, 7)])),
+      http.post('/api/plugins/skills/alpha/owner', async () => { moves += 1; await moveDone; return HttpResponse.json({ ok: true, owner: null }); }),
+      http.patch('/api/plugins/skills/alpha', () => HttpResponse.json({ ok: true })),
+    );
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'alpha' }));
+    const form = within(await screen.findByRole('dialog'));
+    fireEvent.click(form.getByRole('radio', { name: strings.scopeFieldInstance }));
+    const save = form.getByRole('button', { name: strings.save });
+    act(() => { save.click(); save.click(); });
+
+    await waitFor(() => expect(moves).toBe(1));
+    expect(save).toBeDisabled();
+    releaseMove();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('keeps the original owner identity when a refetch removes the open row', async () => {
+    const calls: string[] = [];
+    use(
+      http.get('/api/plugins/skills/list', () => HttpResponse.json([skillRow('alpha', false, 7)])),
+      http.post('/api/plugins/skills/alpha/owner', ({ url }) => { calls.push(`move:${url.searchParams.get('owner')}`); return HttpResponse.json({ ok: true, owner: null }); }),
+      http.patch('/api/plugins/skills/alpha', ({ url }) => { calls.push(`patch:${url.searchParams.get('owner')}`); return HttpResponse.json({ ok: true }); }),
+    );
+    const mounted = mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'alpha' }));
+    const form = within(await screen.findByRole('dialog'));
+    fireEvent.click(form.getByRole('radio', { name: strings.scopeFieldInstance }));
+    mounted.client.setQueryData(['plugin-skills'], []);
+    fireEvent.click(form.getByRole('button', { name: strings.save }));
+
+    await waitFor(() => expect(calls).toEqual(['move:7', 'patch:instance']));
   });
 
   // Somebody else's personal skill stays editable by an admin but must not offer the scope switch: its

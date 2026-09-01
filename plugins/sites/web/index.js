@@ -417,6 +417,8 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
   const [guestPicker, setGuestPicker] = (0, import_react3.useState)(false);
   const [failedAction, setFailedAction] = (0, import_react3.useState)(null);
   const [failedGuests, setFailedGuests] = (0, import_react3.useState)(null);
+  const callRef = (0, import_react3.useRef)(false);
+  const guestsRef = (0, import_react3.useRef)(false);
   const detail = hooks.useQuery({
     queryKey: siteDetailKey(siteId),
     queryFn: () => runtime().api(basePath(siteId))
@@ -468,15 +470,37 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
       toast(message, "error");
     }
   });
+  const runCall = (vars, onSuccess) => {
+    if (callRef.current) return;
+    callRef.current = true;
+    call.mutate(vars, {
+      onSuccess: () => {
+        callRef.current = false;
+        onSuccess?.();
+      },
+      onError: () => {
+        callRef.current = false;
+      }
+    });
+  };
+  const runGuests = async (next) => {
+    if (guestsRef.current) return;
+    guestsRef.current = true;
+    try {
+      await saveGuests.mutateAsync(next);
+    } finally {
+      guestsRef.current = false;
+    }
+  };
   if (detail.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EmptyState, { title: strings.loadFailed, icon: Server });
   if (!site) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoadingLine, {});
   const setVisibility = (next) => {
-    if (call.isPending) return;
+    if (callRef.current) return;
     if (next === "public") {
       setPendingPublic(true);
       return;
     }
-    call.mutate({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: next }) });
+    runCall({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: next }) });
   };
   const releases = detail.data?.releases ?? [];
   const visits = (detail.data?.hits ?? []).reduce((sum, entry) => sum + entry.count, 0);
@@ -498,7 +522,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
         onRetry: () => {
           const retry = failedAction;
           setFailedAction(null);
-          call.mutate(retry);
+          runCall(retry);
         }
       }
     ) : null,
@@ -509,7 +533,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
         onRetry: () => {
           const retry = failedGuests.next;
           setFailedGuests(null);
-          saveGuests.mutate(retry);
+          void runGuests(retry);
         }
       }
     ) : null,
@@ -590,7 +614,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
             label: strings.removeGuest,
             variant: "danger",
             disabled: call.isPending || saveGuests.isPending,
-            onClick: () => call.mutate({ path: `${basePath(siteId)}/members/${member.id}`, init: { method: "DELETE" } })
+            onClick: () => runCall({ path: `${basePath(siteId)}/members/${member.id}`, init: { method: "DELETE" } })
           }
         )
       ] }, member.id)) }),
@@ -614,7 +638,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
             icon: RotateCcw,
             label: strings.rollback,
             disabled: call.isPending,
-            onClick: () => call.mutate({
+            onClick: () => runCall({
               path: `${basePath(siteId)}/rollback`,
               init: jsonBody("POST", { releaseId: release.id }),
               done: strings.rollbackDone
@@ -632,7 +656,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
             icon: RefreshCw,
             label: strings.restart,
             disabled: call.isPending,
-            onClick: () => call.mutate({ path: `${basePath(siteId)}/restart`, init: { method: "POST" }, done: strings.restarted })
+            onClick: () => runCall({ path: `${basePath(siteId)}/restart`, init: { method: "POST" }, done: strings.restarted })
           }
         ) : null
       ] }),
@@ -666,9 +690,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
         })),
         countLabel: (count) => strings.guestsCount.replace("{n}", String(count)),
         selected: new Set(members.map((member) => String(member.id))),
-        onSave: async (next) => {
-          await saveGuests.mutateAsync(next);
-        },
+        onSave: runGuests,
         saving: saveGuests.isPending,
         emptySelectionHint: strings.noGuests
       }
@@ -682,9 +704,9 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
         confirmLabel: strings.publicConfirm,
         onClose: () => setPendingPublic(false),
         onConfirm: () => {
-          if (call.isPending) return;
+          if (callRef.current) return;
           setPendingPublic(false);
-          call.mutate({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: "public" }) });
+          runCall({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: "public" }) });
         }
       }
     ),
@@ -697,11 +719,11 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
         confirmLabel: strings.delete,
         onClose: () => setConfirmDelete(false),
         onConfirm: () => {
-          if (call.isPending) return;
+          if (callRef.current) return;
           setConfirmDelete(false);
-          call.mutate(
+          runCall(
             { path: basePath(siteId), init: { method: "DELETE" }, done: strings.deleted },
-            { onSuccess: () => onDeleted() }
+            onDeleted
           );
         }
       }

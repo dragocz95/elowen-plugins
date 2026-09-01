@@ -5078,17 +5078,21 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     }
     return n;
   });
-  const confirmDiscard = () => dirtyPaths.size === 0 || window.confirm(s.statusUnsaved);
+  const confirmDiscard = () => dirtyPaths.size === 0 || window.confirm(s.discardChanges);
   const leaveFullscreen = () => {
     if (menu) {
       setMenu(null);
       setOpenMenu(null);
       return;
     }
-    if (!confirmDiscard()) return;
+    if (mobile && onClose) {
+      if (!confirmDiscard()) return;
+      setShowTree(false);
+      onClose();
+      return;
+    }
     setShowTree(false);
-    if (mobile && onClose) onClose();
-    else setFullscreen(false);
+    setFullscreen(false);
   };
   const closeEditor = () => {
     if (confirmDiscard()) onClose?.();
@@ -5133,7 +5137,19 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     );
   };
   const closeTab = (p) => {
-    if (dirtyPaths.has(p) && !window.confirm(s.statusUnsaved)) return;
+    if (dirtyPaths.has(p)) {
+      if (!window.confirm(s.discardChanges)) return;
+      updateDrafts((drafts2) => {
+        const next = { ...drafts2 };
+        delete next[p];
+        return next;
+      });
+      setDirtyPaths((paths) => {
+        const next = new Set(paths);
+        next.delete(p);
+        return next;
+      });
+    }
     setOpenTabs((tabs) => {
       const next = tabs.filter((x2) => x2 !== p);
       if (selected === p) setSelected(next[next.length - 1] ?? null);

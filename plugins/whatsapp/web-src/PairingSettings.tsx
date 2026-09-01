@@ -17,6 +17,8 @@ export function PairingSettings({ surface }: { surface: 'page' | 'deck' }) {
   const [statusError, setStatusError] = useState(false);
   const [statusLoading, setStatusLoading] = useState(true);
   const [unpairing, setUnpairing] = useState(false);
+  const [unpairError, setUnpairError] = useState(false);
+  const unpairingRef = useRef(false);
   const [confirmUnpair, setConfirmUnpair] = useState(false);
 
   const refreshStatus = async () => {
@@ -35,14 +37,17 @@ export function PairingSettings({ surface }: { surface: 'page' | 'deck' }) {
   useEffect(() => { void refreshStatus(); }, []);
 
   const doUnpair = async () => {
+    if (unpairingRef.current) return;
+    unpairingRef.current = true;
     setConfirmUnpair(false);
     setUnpairing(true);
-    setStatusError(false);
+    setUnpairError(false);
     try { await unpair(); }
-    catch { setStatusError(true); }
+    catch { setUnpairError(true); }
     finally {
-      setUnpairing(false);
       await refreshStatus();
+      unpairingRef.current = false;
+      setUnpairing(false);
     }
   };
 
@@ -63,6 +68,7 @@ export function PairingSettings({ surface }: { surface: 'page' | 'deck' }) {
               <C.Button variant="ghost" icon={RefreshCw} disabled={statusLoading || unpairing} onClick={() => void refreshStatus()}>{s.retry}</C.Button>
             </>
           ) : null}
+          {unpairError ? <span className="text-sm text-destructive" role="alert">{s.unpairError}</span> : null}
         </div>
         {open ? <PairModal onClose={() => { setOpen(false); void refreshStatus(); }} /> : null}
         <C.ConfirmDialog

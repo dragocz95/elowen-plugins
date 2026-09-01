@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Activity, Clock, Copy, ExternalLink, History, Link2, RefreshCw, RotateCcw,
   Server, ShieldCheck, Terminal, Trash2, UserMinus, Users,
@@ -38,6 +38,8 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
   const [guestPicker, setGuestPicker] = useState(false);
   const [failedAction, setFailedAction] = useState<{ path: string; init: RequestInit; done?: string; message: string } | null>(null);
   const [failedGuests, setFailedGuests] = useState<{ next: Set<string>; message: string } | null>(null);
+  const callRef = useRef(false);
+  const guestsRef = useRef(false);
 
   const detail = hooks.useQuery<SiteDetailResponse>({
     queryKey: siteDetailKey(siteId),
@@ -97,14 +99,31 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
       toast(message, 'error');
     },
   });
+  const runCall = (
+    vars: { path: string; init: RequestInit; done?: string },
+    onSuccess?: () => void,
+  ) => {
+    if (callRef.current) return;
+    callRef.current = true;
+    call.mutate(vars, {
+      onSuccess: () => { callRef.current = false; onSuccess?.(); },
+      onError: () => { callRef.current = false; },
+    });
+  };
+  const runGuests = async (next: Set<string>) => {
+    if (guestsRef.current) return;
+    guestsRef.current = true;
+    try { await saveGuests.mutateAsync(next); }
+    finally { guestsRef.current = false; }
+  };
 
   if (detail.isError) return <EmptyState title={strings.loadFailed} icon={Server} />;
   if (!site) return <LoadingLine />;
 
   const setVisibility = (next: string) => {
-    if (call.isPending) return;
+    if (callRef.current) return;
     if (next === 'public') { setPendingPublic(true); return; }
-    call.mutate({ path: basePath(siteId), init: jsonBody('PATCH', { visibility: next }) });
+    runCall({ path: basePath(siteId), init: jsonBody('PATCH', { visibility: next }) });
   };
 
   const releases = detail.data?.releases ?? [];
@@ -123,13 +142,13 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
       {failedAction ? (
         <ErrorState
           message={failedAction.message}
-          onRetry={() => { const retry = failedAction; setFailedAction(null); call.mutate(retry); }}
+          onRetry={() => { const retry = failedAction; setFailedAction(null); runCall(retry); }}
         />
       ) : null}
       {failedGuests ? (
         <ErrorState
           message={failedGuests.message}
-          onRetry={() => { const retry = failedGuests.next; setFailedGuests(null); saveGuests.mutate(retry); }}
+          onRetry={() => { const retry = failedGuests.next; setFailedGuests(null); void runGuests(retry); }}
         />
       ) : null}
       {/* Identity strip — what this site IS and the two things you do with an address, on one line. */}
@@ -217,7 +236,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
                     label={strings.removeGuest}
                     variant="danger"
                     disabled={call.isPending || saveGuests.isPending}
-                    onClick={() => call.mutate({ path: `${basePath(siteId)}/members/${member.id}`, init: { method: 'DELETE' } })}
+                    onClick={() => runCall({ path: `${basePath(siteId)}/members/${member.id}`, init: { method: 'DELETE' } })}
                   />
                 </li>
               ))}
@@ -252,7 +271,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
                     icon={RotateCcw}
                     label={strings.rollback}
                     disabled={call.isPending}
-                    onClick={() => call.mutate({
+                    onClick={() => runCall({
                       path: `${basePath(siteId)}/rollback`,
                       init: jsonBody('POST', { releaseId: release.id }),
                       done: strings.rollbackDone,
@@ -277,7 +296,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
                 icon={RefreshCw}
                 label={strings.restart}
                 disabled={call.isPending}
-                onClick={() => call.mutate({ path: `${basePath(siteId)}/restart`, init: { method: 'POST' }, done: strings.restarted })}
+                onClick={() => runCall({ path: `${basePath(siteId)}/restart`, init: { method: 'POST' }, done: strings.restarted })}
               />
             ) : null}
           </div>
@@ -322,7 +341,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
         }))}
         countLabel={(count: number) => strings.guestsCount.replace('{n}', String(count))}
         selected={new Set(members.map((member) => String(member.id)))}
-        onSave={async (next: Set<string>) => { await saveGuests.mutateAsync(next); }}
+        onSave={runGuests}
         saving={saveGuests.isPending}
         emptySelectionHint={strings.noGuests}
       />
@@ -334,9 +353,9 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
         confirmLabel={strings.publicConfirm}
         onClose={() => setPendingPublic(false)}
         onConfirm={() => {
-          if (call.isPending) return;
+          if (callRef.current) return;
           setPendingPublic(false);
-          call.mutate({ path: basePath(siteId), init: jsonBody('PATCH', { visibility: 'public' satisfies Visibility }) });
+          runCall({ path: basePath(siteId), init: jsonBody('PATCH', { visibility: 'public' satisfies Visibility }) });
         }}
       />
 
@@ -347,11 +366,11 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
         confirmLabel={strings.delete}
         onClose={() => setConfirmDelete(false)}
         onConfirm={() => {
-          if (call.isPending) return;
+          if (callRef.current) return;
           setConfirmDelete(false);
-          call.mutate(
+          runCall(
             { path: basePath(siteId), init: { method: 'DELETE' }, done: strings.deleted },
-            { onSuccess: () => onDeleted() },
+            onDeleted,
           );
         }}
       />

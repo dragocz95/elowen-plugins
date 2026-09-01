@@ -14,6 +14,7 @@ const field = (name, key) => manifest(name).configSchema.find((entry) => entry.k
 describe('plugin autosave configuration contracts', () => {
   it('declares effective image defaults and enum sizes', () => {
     assert.equal(field('image-edit', 'model').default, 'gpt-image-1');
+    assert.equal(manifest('image-edit').capabilities.network, true);
     assert.equal(field('image-gen', 'model').default, 'gpt-image-1');
     assert.equal(field('image-gen', 'size').type, 'enum');
     assert.deepEqual(field('image-gen', 'size').options.map((option) => option.value), [

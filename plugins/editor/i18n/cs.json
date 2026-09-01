@@ -75,7 +75,8 @@
       "statusColumn": "Sloupec",
       "statusSelected": "vybráno",
       "statusSpaces": "Mezery",
-      "statusUnsaved": "Neuložené změny"
+      "statusUnsaved": "Neuložené změny",
+      "discardChanges": "Zahodit neuložené změny?"
     }
   }
 }

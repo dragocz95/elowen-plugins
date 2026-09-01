@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Github } from 'lucide-react';
 import { jsonBody, localizedError, runtime, type DeviceFlowResponse, type Preview, type StatusResponse } from './runtime';
 
@@ -14,6 +14,9 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
   const status = hooks.useQuery<StatusResponse>({ queryKey: STATUS_KEY, queryFn: () => api('/plugins/github/api/status') });
   const [pending, setPending] = useState<PendingConnectionAction | null>(null);
   const [flow, setFlow] = useState<DeviceChallenge | null>(null);
+  const connectRef = useRef(false);
+  const previewRef = useRef(false);
+  const confirmRef = useRef(false);
 
   const refresh = useCallback(async () => {
     await qc.invalidateQueries({ queryKey: STATUS_KEY });
@@ -22,7 +25,19 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
   const connect = hooks.useMutation<DeviceChallenge, unknown, { replaceIdentity?: boolean; reconnect?: boolean; confirmationToken?: string }>({
     mutationFn: (value: { replaceIdentity?: boolean; reconnect?: boolean; confirmationToken?: string }) => api('/plugins/github/api/auth/start', jsonBody(value)) as Promise<DeviceChallenge>,
     onSuccess: (value: DeviceChallenge) => setFlow(value),
-    onError: (error: unknown) => toast(localizedError(error, s), 'error'),
+    onError: (error: unknown, vars: { replaceIdentity?: boolean; reconnect?: boolean; confirmationToken?: string }) => {
+      if (vars.confirmationToken) {
+        setPending(null);
+        if (!previewRef.current) {
+          previewRef.current = true;
+          preview.mutate({ type: 'replace_identity' }, {
+            onSuccess: () => { previewRef.current = false; },
+            onError: () => { previewRef.current = false; },
+          });
+        }
+      }
+      toast(localizedError(error, s), 'error');
+    },
   });
   const flowStatus = hooks.useQuery<DeviceFlowResponse>({
     queryKey: ['plugin', 'github', 'auth', flow?.flowId],
@@ -47,7 +62,17 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
   const confirm = hooks.useMutation<unknown, unknown, { action: Record<string, unknown>; token: string }>({
     mutationFn: (value: { action: Record<string, unknown>; token: string }) => api('/plugins/github/api/actions/confirm', jsonBody({ ...value.action, confirmationToken: value.token })),
     onSuccess: async () => { setPending(null); await refresh(); toast(s.actionComplete); },
-    onError: (error: unknown) => toast(localizedError(error, s), 'error'),
+    onError: (error: unknown, vars: { action: Record<string, unknown>; token: string }) => {
+      setPending(null);
+      if (!previewRef.current) {
+        previewRef.current = true;
+        preview.mutate(vars.action, {
+          onSuccess: () => { previewRef.current = false; },
+          onError: () => { previewRef.current = false; },
+        });
+      }
+      toast(localizedError(error, s), 'error');
+    },
   });
   const test = hooks.useMutation<{ rateLimit: { limit: number; remaining: number; reset: number } | null }, unknown, void>({
     mutationFn: () => api('/plugins/github/api/test', jsonBody({})) as Promise<{ rateLimit: { limit: number; remaining: number; reset: number } | null }>,
@@ -87,17 +112,43 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
   if (status.isLoading) return <C.LoadingState variant="detail" />;
 
   const account = status.data?.account;
-  const beginConnect = () => connect.mutate(status.data?.reconnectRequired ? { reconnect: true } : {});
+  const requestPreview = (action: Record<string, unknown>) => {
+    if (previewRef.current || confirmRef.current || connectRef.current) return;
+    previewRef.current = true;
+    preview.mutate(action, {
+      onSuccess: () => { previewRef.current = false; },
+      onError: () => { previewRef.current = false; },
+    });
+  };
+  const beginConnect = () => {
+    if (connectRef.current) return;
+    connectRef.current = true;
+    connect.mutate(status.data?.reconnectRequired ? { reconnect: true } : {}, {
+      onSuccess: () => { connectRef.current = false; },
+      onError: () => { connectRef.current = false; },
+    });
+  };
   const completePending = () => {
-    if (!pending) return;
+    if (!pending || confirmRef.current || connectRef.current) return;
     if (pending.action.type === 'replace_identity') {
+      connectRef.current = true;
       connect.mutate(
         { replaceIdentity: true, confirmationToken: pending.preview.confirmationToken },
-        { onSuccess: () => setPending(null) },
+        {
+          onSuccess: () => { connectRef.current = false; setPending(null); },
+          onError: () => { connectRef.current = false; },
+        },
       );
       return;
     }
-    confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken });
+    confirmRef.current = true;
+    confirm.mutate(
+      { action: pending.action, token: pending.preview.confirmationToken },
+      {
+        onSuccess: () => { confirmRef.current = false; },
+        onError: () => { confirmRef.current = false; },
+      },
+    );
   };
 
   if (flow) {
@@ -139,8 +190,8 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
       actions={connected ? (
         <>
           <C.Button variant="ghost" onClick={() => test.mutate()} disabled={test.isPending}>{s.testConnection}</C.Button>
-          <C.Button variant="ghost" onClick={() => preview.mutate({ type: 'replace_identity' })}>{s.replaceIdentity}</C.Button>
-          <C.Button variant="ghost-danger" onClick={() => preview.mutate({ type: 'disconnect' })}>{s.disconnect}</C.Button>
+          <C.Button variant="ghost" onClick={() => requestPreview({ type: 'replace_identity' })} disabled={preview.isPending || confirm.isPending || connect.isPending}>{s.replaceIdentity}</C.Button>
+          <C.Button variant="ghost-danger" onClick={() => requestPreview({ type: 'disconnect' })} disabled={preview.isPending || confirm.isPending || connect.isPending}>{s.disconnect}</C.Button>
         </>
       ) : (
         <C.Button variant="ghost" onClick={beginConnect} disabled={connect.isPending}>{status.data?.reconnectRequired ? s.reconnect : s.connect}</C.Button>
@@ -154,7 +205,7 @@ export function GitHubConnectionPanel({ onChanged }: { onChanged?: () => void | 
         </span>
       ) : null}
     </C.LinkedAccountRow>
-    {pending ? <C.ConfirmDialog open title={pending.preview.title || s.confirmExternal} description={`${pending.preview.description}\n\n${s.confirmationExpires}`} confirmLabel={s.confirm} onClose={() => setPending(null)} onConfirm={completePending} /> : null}
+    {pending ? <C.ConfirmDialog open title={pending.preview.title || s.confirmExternal} description={`${pending.preview.description}\n\n${s.confirmationExpires}`} confirmLabel={confirm.isPending || connect.isPending ? s.saving : s.confirm} onClose={() => { if (!confirmRef.current && !connectRef.current) setPending(null); }} onConfirm={completePending} /> : null}
   </>;
 }
 

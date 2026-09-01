@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Hand, Package, Plus, User } from 'lucide-react';
 import { runtime, type PluginSkill, type SkillOwner } from './runtime';
 
@@ -29,6 +29,10 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
   const update = hooks.useUpdatePluginSkill();
   const remove = hooks.useDeletePluginSkill();
   const [creating, setCreating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  /** The shared editor disables Save after React renders. This lock also rejects a second click in the
+   * same event turn, and remains held across the move-then-PATCH sequence. */
+  const submitRef = useRef(false);
 
   // Quick per-row switch: flip the flag without opening the full editor.
   // Which set a write addresses. A skill of MINE is written without an owner (the daemon resolves it to
@@ -167,12 +171,22 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
           </>
         )}
         onSave={(form: SkillForm, callbacks: { onSuccess: () => void; onError: (e: unknown) => void }) => {
+          if (submitRef.current) return;
+          submitRef.current = true;
+          setSubmitting(true);
+          const guarded = {
+            onSuccess: () => { submitRef.current = false; setSubmitting(false); callbacks.onSuccess(); },
+            onError: (e: unknown) => { submitRef.current = false; setSubmitting(false); callbacks.onError(e); },
+          };
           if (form.editing !== null) {
             const name = form.editing;
-            const from = editedSkill(form) ? targetOwner(editedSkill(form)!) : form.owner;
+            // The source identity belongs to the draft, not to a refetch that may have removed or moved
+            // the row while the editor remained open. Addressing the desired owner here could edit a
+            // different same-named skill after a stale refresh.
+            const from = form.editingOwner;
             const saveEdit = (owner: SkillOwner) => update.mutate(
               { name, owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
-              callbacks,
+              guarded,
             );
             // Move BEFORE saving the edit: the move is the step that can be refused (a name already taken
             // in the destination), and a refusal must leave the skill exactly as it was rather than
@@ -182,24 +196,24 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
                 () => update.mutate(
                   { name, owner: form.owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
                   {
-                    onSuccess: callbacks.onSuccess,
+                    onSuccess: guarded.onSuccess,
                     // The move ALREADY landed, so a refused edit (an empty description, say) leaves the
                     // skill in its new set with its old body. Refetch before reporting the error, or the
                     // register goes on naming an owner the skill no longer has.
-                    onError: (e: unknown) => { query.refetch(); callbacks.onError(e); },
+                    onError: (e: unknown) => { query.refetch(); guarded.onError(e); },
                   },
                 ),
-                callbacks.onError,
+                guarded.onError,
               );
             } else saveEdit(from);
           } else {
             create.mutate(
               { name: form.name.trim(), description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation, owner: form.owner },
-              callbacks,
+              guarded,
             );
           }
         }}
-        saving={create.isPending || update.isPending}
+        saving={submitting || create.isPending || update.isPending}
         onDelete={(skill: PluginSkill, callbacks: { onSuccess: () => void; onError: (e: unknown) => void }) => remove.mutate({ name: skill.name, owner: targetOwner(skill) }, callbacks)}
       />
     </C.ControlSurfaceDocument>

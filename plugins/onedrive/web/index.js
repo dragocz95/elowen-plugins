@@ -443,6 +443,7 @@ function OneDriveProjectPanel({ project }) {
   const [choice, setChoice] = (0, import_react3.useState)(null);
   const [conflictsFor, setConflictsFor] = (0, import_react3.useState)(null);
   const [disconnecting, setDisconnecting] = (0, import_react3.useState)(null);
+  const actionRef = (0, import_react3.useRef)(false);
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: key });
   };
@@ -473,6 +474,29 @@ function OneDriveProjectPanel({ project }) {
     onSuccess: refresh,
     onError: fail
   });
+  const releaseAction = () => {
+    actionRef.current = false;
+  };
+  const runConnect = (vars) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    connect.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
+  const runDisconnect = (vars) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    disconnect.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
+  const runPause = (vars) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    pause.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
+  const runSync = (vars) => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    syncNow.mutate(vars, { onSuccess: releaseAction, onError: releaseAction });
+  };
   if (overview.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" });
   if (overview.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(overview.error), onRetry: () => overview.refetch() });
   const data = overview.data;
@@ -503,9 +527,9 @@ function OneDriveProjectPanel({ project }) {
           busy: syncNow.isPending || pause.isPending || disconnect.isPending,
           onConflicts: () => setConflictsFor(projectLink),
           onDisconnect: () => setDisconnecting(projectLink),
-          onPause: () => pause.mutate({ id: projectLink.id, enabled: !projectLink.enabled }),
-          onSync: () => syncNow.mutate({ id: projectLink.id }),
-          onConfirmSync: () => syncNow.mutate({ id: projectLink.id, confirmDeletions: true })
+          onPause: () => runPause({ id: projectLink.id, enabled: !projectLink.enabled }),
+          onSync: () => runSync({ id: projectLink.id }),
+          onConfirmSync: () => runSync({ id: projectLink.id, confirmDeletions: true })
         }
       ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.mirrorScopeHint })
     ] }),
@@ -531,7 +555,7 @@ function OneDriveProjectPanel({ project }) {
                 {
                   variant: "danger",
                   disabled: syncNow.isPending,
-                  onClick: () => syncNow.mutate({ id: row.id, confirmDeletions: true }),
+                  onClick: () => runSync({ id: row.id, confirmDeletions: true }),
                   children: s.confirmDeletions.replace("{count}", String(row.blockedDeletions))
                 }
               ),
@@ -539,7 +563,7 @@ function OneDriveProjectPanel({ project }) {
                 C.Button,
                 {
                   disabled: pause.isPending,
-                  onClick: () => pause.mutate({ id: row.id, enabled: !row.enabled }),
+                  onClick: () => runPause({ id: row.id, enabled: !row.enabled }),
                   children: row.enabled ? s.pause : s.resume
                 }
               ),
@@ -547,7 +571,7 @@ function OneDriveProjectPanel({ project }) {
                 C.Button,
                 {
                   disabled: syncNow.isPending,
-                  onClick: () => syncNow.mutate({ id: row.id }),
+                  onClick: () => runSync({ id: row.id }),
                   children: s.syncNow
                 }
               ),
@@ -607,7 +631,7 @@ function OneDriveProjectPanel({ project }) {
         C.Button,
         {
           variant: "accent",
-          onClick: () => choice && connect.mutate({ workspaceId: connectFor.workspaceId, subpath: choice.subpath }),
+          onClick: () => choice && runConnect({ workspaceId: connectFor.workspaceId, subpath: choice.subpath }),
           disabled: connect.isPending || !choice,
           children: s.connectConfirm
         }
@@ -621,9 +645,11 @@ function OneDriveProjectPanel({ project }) {
         title: s.disconnect,
         description: s.disconnectHint,
         confirmLabel: s.disconnect,
-        onClose: () => setDisconnecting(null),
+        onClose: () => {
+          if (!actionRef.current) setDisconnecting(null);
+        },
         onConfirm: () => {
-          if (disconnecting && !disconnect.isPending) disconnect.mutate({ id: disconnecting.id });
+          if (disconnecting) runDisconnect({ id: disconnecting.id });
         }
       }
     )

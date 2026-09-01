@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Github, GitPullRequest, Link2 } from 'lucide-react';
 import { jsonBody, localizedError, runtime, type Checks, type Preview, type PullRequest, type RepositoryRow, type Session, type StatusResponse } from './runtime';
 import { STATUS_KEY } from './GitHubConnectionPanel';
@@ -41,6 +41,9 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
   const [createForm, setCreateForm] = useState({ title: '', body: '', base: 'main' });
   const [reviewForm, setReviewForm] = useState({ event: 'APPROVE', body: '' });
   const [mergeMethod, setMergeMethod] = useState('squash');
+  const mappingRef = useRef(false);
+  const previewRef = useRef(false);
+  const confirmRef = useRef(false);
 
   const selected = useMemo(() => (pulls.data?.pullRequests ?? []).find((pull) => pull.number === selectedPr) ?? null, [pulls.data, selectedPr]);
   const pullDetail = hooks.useQuery<PullRequest>({
@@ -75,21 +78,57 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
   const confirm = hooks.useMutation<unknown, unknown, { action: Record<string, unknown>; token: string }>({
     mutationFn: (value: { action: Record<string, unknown>; token: string }) => api('/plugins/github/api/actions/confirm', jsonBody({ ...value.action, confirmationToken: value.token })),
     onSuccess: async () => { setPending(null); setCreateOpen(false); await invalidate(); toast(s.actionComplete); },
-    onError: async (error: unknown) => {
+    onError: async (error: unknown, vars: { action: Record<string, unknown>; token: string }) => {
       const code = utils.apiErrorMessage(error);
       const statusCode = error && typeof error === 'object' && 'status' in error ? Number((error as { status?: unknown }).status) : 0;
+      setPending(null);
       if (code === 'state_changed' || code === 'head_changed' || statusCode === 409) {
-        setPending(null);
         await Promise.all([
           qc.invalidateQueries({ queryKey: REPOSITORIES_KEY }),
           qc.invalidateQueries({ queryKey: ['plugin', 'github', 'pulls'] }),
           qc.invalidateQueries({ queryKey: ['plugin', 'github', 'pull'] }),
           qc.invalidateQueries({ queryKey: ['plugin', 'github', 'checks'] }),
         ]);
+      } else if (!previewRef.current) {
+        // Confirmations are one-use even when execution fails. Obtain a fresh preview instead of leaving
+        // a Retry-looking dialog wired to a token the daemon has already consumed.
+        previewRef.current = true;
+        preview.mutate(vars.action, {
+          onSuccess: () => { previewRef.current = false; },
+          onError: () => { previewRef.current = false; },
+        });
       }
       toast(localizedError(error, s), 'error');
     },
   });
+
+  const requestPreview = (action: Record<string, unknown>) => {
+    if (previewRef.current || confirmRef.current) return;
+    previewRef.current = true;
+    preview.mutate(action, {
+      onSuccess: () => { previewRef.current = false; },
+      onError: () => { previewRef.current = false; },
+    });
+  };
+  const requestConfirm = () => {
+    if (!pending || confirmRef.current) return;
+    confirmRef.current = true;
+    confirm.mutate(
+      { action: pending.action, token: pending.preview.confirmationToken },
+      {
+        onSuccess: () => { confirmRef.current = false; },
+        onError: () => { confirmRef.current = false; },
+      },
+    );
+  };
+  const saveMapping = (value: MappingForm) => {
+    if (mappingRef.current) return;
+    mappingRef.current = true;
+    saveMap.mutate(value, {
+      onSuccess: () => { mappingRef.current = false; setMapping(null); },
+      onError: () => { mappingRef.current = false; },
+    });
+  };
 
   if (status.isError) return <C.ErrorState message={s.loadError} onRetry={() => status.refetch()} />;
   if (status.isLoading) return <C.LoadingState variant="list" />;
@@ -115,7 +154,7 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
       </section>
 
       {mapped ? <>
-        <div className="flex flex-col gap-2"><C.SelectMenu value={sessionId} onChange={setSessionId} label={s.conversation} options={(sessions.data ?? []).map((session) => ({ value: session.id, label: session.title }))} /><div className="flex flex-wrap gap-2"><C.Button onClick={() => preview.mutate({ type: 'publish', projectId: project.id, sessionId })} disabled={!sessionId}>{s.publish}</C.Button><C.Button variant="accent" onClick={() => setCreateOpen(true)} disabled={!sessionId}>{s.createPullRequest}</C.Button></div></div>
+        <div className="flex flex-col gap-2"><C.SelectMenu value={sessionId} onChange={setSessionId} label={s.conversation} options={(sessions.data ?? []).map((session) => ({ value: session.id, label: session.title }))} /><div className="flex flex-wrap gap-2"><C.Button onClick={() => requestPreview({ type: 'publish', projectId: project.id, sessionId })} disabled={!sessionId || preview.isPending || confirm.isPending}>{s.publish}</C.Button><C.Button variant="accent" onClick={() => setCreateOpen(true)} disabled={!sessionId || preview.isPending || confirm.isPending}>{s.createPullRequest}</C.Button></div></div>
         {pulls.isError ? <C.ErrorState message={s.loadError} onRetry={() => pulls.refetch()} /> : pulls.isLoading ? <C.LoadingState variant="list" /> : (pulls.data?.pullRequests ?? []).length === 0 ? <C.EmptyState title={s.noPullRequests} icon={GitPullRequest} /> : (
           // The trailing 1.25rem track is the chevron's, in BOTH templates, so the open affordance
           // survives the compact layout. Opening a row is the host's `onOpen` + `openLabel` contract:
@@ -143,13 +182,13 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
       </> : <C.EmptyState title={s.mappingMissing} description={s.detectedRemotes} icon={Link2} action={<C.Button icon={Link2} onClick={() => setMapping(mappingFrom(row))}>{s.map}</C.Button>} />}
     </div>
 
-    {mapping ? <C.Modal title={s.map} size="md" onClose={() => setMapping(null)}><C.ModalBody><div className="grid gap-3 sm:grid-cols-2"><C.Field label={`${s.baseRepository} · ${s.owner}`}><C.Input value={mapping.baseOwner} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setMapping({ ...mapping, baseOwner: event.target.value })} /></C.Field><C.Field label={`${s.baseRepository} · ${s.name}`}><C.Input value={mapping.baseName} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setMapping({ ...mapping, baseName: event.target.value })} /></C.Field><C.Field label={`${s.pushRepository} · ${s.owner}`}><C.Input value={mapping.pushOwner} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setMapping({ ...mapping, pushOwner: event.target.value })} /></C.Field><C.Field label={`${s.pushRepository} · ${s.name}`}><C.Input value={mapping.pushName} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setMapping({ ...mapping, pushName: event.target.value })} /></C.Field></div></C.ModalBody><C.ModalFooter><C.Button variant="ghost" onClick={() => setMapping(null)}>{s.cancel}</C.Button>{row.mapping ? <C.Button variant="danger" onClick={() => preview.mutate({ type: 'remove_mapping', projectId: project.id })}>{s.removeMapping}</C.Button> : null}<C.Button variant="accent" onClick={() => saveMap.mutate(mapping, { onSuccess: () => setMapping(null) })} disabled={!mapping.baseOwner || !mapping.baseName || !mapping.pushOwner || !mapping.pushName}>{s.saveMapping}</C.Button></C.ModalFooter></C.Modal> : null}
+    {mapping ? <C.Modal title={s.map} size="md" onClose={() => { if (!mappingRef.current) setMapping(null); }}><C.ModalBody><div className="grid gap-3 sm:grid-cols-2"><C.Field label={`${s.baseRepository} · ${s.owner}`}><C.Input value={mapping.baseOwner} disabled={saveMap.isPending} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setMapping({ ...mapping, baseOwner: event.target.value })} /></C.Field><C.Field label={`${s.baseRepository} · ${s.name}`}><C.Input value={mapping.baseName} disabled={saveMap.isPending} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setMapping({ ...mapping, baseName: event.target.value })} /></C.Field><C.Field label={`${s.pushRepository} · ${s.owner}`}><C.Input value={mapping.pushOwner} disabled={saveMap.isPending} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setMapping({ ...mapping, pushOwner: event.target.value })} /></C.Field><C.Field label={`${s.pushRepository} · ${s.name}`}><C.Input value={mapping.pushName} disabled={saveMap.isPending} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setMapping({ ...mapping, pushName: event.target.value })} /></C.Field></div></C.ModalBody><C.ModalFooter><C.Button variant="ghost" disabled={saveMap.isPending} onClick={() => setMapping(null)}>{s.cancel}</C.Button>{row.mapping ? <C.Button variant="danger" disabled={saveMap.isPending || preview.isPending || confirm.isPending} onClick={() => requestPreview({ type: 'remove_mapping', projectId: project.id })}>{s.removeMapping}</C.Button> : null}<C.Button variant="accent" onClick={() => saveMapping(mapping)} disabled={saveMap.isPending || !mapping.baseOwner || !mapping.baseName || !mapping.pushOwner || !mapping.pushName}>{saveMap.isPending ? s.saving : s.saveMapping}</C.Button></C.ModalFooter></C.Modal> : null}
 
-    {createOpen ? <C.Modal title={s.createPullRequest} size="md" onClose={() => setCreateOpen(false)}><C.ModalBody><C.Field label={s.pullRequestTitle}><C.Input autoFocus value={createForm.title} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setCreateForm({ ...createForm, title: event.target.value })} /></C.Field><C.Field label={s.description}><textarea className="min-h-28 w-full rounded-md border border-border bg-background p-3 text-sm text-foreground" value={createForm.body} onChange={(event) => setCreateForm({ ...createForm, body: event.target.value })} /></C.Field><C.Field label={s.baseBranch}><C.Input value={createForm.base} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setCreateForm({ ...createForm, base: event.target.value })} /></C.Field></C.ModalBody><C.ModalFooter><C.Button variant="ghost" onClick={() => setCreateOpen(false)}>{s.cancel}</C.Button><C.Button variant="accent" disabled={!sessionId || !createForm.title.trim()} onClick={() => preview.mutate({ type: 'create_pr', projectId: project.id, sessionId, title: createForm.title, body: createForm.body, base: createForm.base })}>{s.createPullRequest}</C.Button></C.ModalFooter></C.Modal> : null}
+    {createOpen ? <C.Modal title={s.createPullRequest} size="md" onClose={() => setCreateOpen(false)}><C.ModalBody><C.Field label={s.pullRequestTitle}><C.Input autoFocus value={createForm.title} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setCreateForm({ ...createForm, title: event.target.value })} /></C.Field><C.Field label={s.description}><textarea className="min-h-28 w-full rounded-md border border-border bg-background p-3 text-sm text-foreground" value={createForm.body} onChange={(event) => setCreateForm({ ...createForm, body: event.target.value })} /></C.Field><C.Field label={s.baseBranch}><C.Input value={createForm.base} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setCreateForm({ ...createForm, base: event.target.value })} /></C.Field></C.ModalBody><C.ModalFooter><C.Button variant="ghost" onClick={() => setCreateOpen(false)}>{s.cancel}</C.Button><C.Button variant="accent" disabled={!sessionId || !createForm.title.trim() || preview.isPending || confirm.isPending} onClick={() => requestPreview({ type: 'create_pr', projectId: project.id, sessionId, title: createForm.title, body: createForm.body, base: createForm.base })}>{s.createPullRequest}</C.Button></C.ModalFooter></C.Modal> : null}
 
-    {selectedPr ? <C.Modal title={`#${selectedPr} ${selected?.title ?? ''}`} size="xl" onClose={() => setSelectedPr(null)}><C.ModalBody>{pullDetail.isError ? <C.ErrorState message={s.loadError} onRetry={() => pullDetail.refetch()} /> : pullDetail.isLoading ? <C.LoadingState variant="list" /> : pullDetail.data ? <div className="space-y-5"><p className="whitespace-pre-wrap text-sm text-muted-foreground">{pullDetail.data.body}</p><div className="flex flex-wrap gap-2"><C.Badge tone={checks.data?.state === 'success' ? 'success' : checks.data?.state === 'failure' ? 'danger' : 'warning'}>{checks.data?.state ?? 'pending'}</C.Badge><C.Badge>{pullDetail.data.headRef} → {pullDetail.data.baseRef}</C.Badge></div><section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{s.checks}</h3><div className="space-y-2">{(checks.data?.items ?? []).map((item) => <div key={item.name} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-sm"><span className="font-medium text-foreground">{item.name}</span><C.Badge>{item.state}</C.Badge></div>)}</div></section><section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{s.changedFiles}</h3>{(pullDetail.data.files ?? []).map((file) => <div key={file.path} className="mb-3 overflow-hidden rounded-lg border border-border"><div className="border-b border-border px-3 py-2 font-mono text-xs text-foreground">{file.status} {file.path} <span className="text-success">+{file.additions}</span> <span className="text-destructive">-{file.deletions}</span></div><C.PatchView diff={file.patch ?? ''} empty="No patch available." /></div>)}</section><C.Field label={s.reviewEvent}><C.SelectMenu value={reviewForm.event} onChange={(event: string) => setReviewForm({ ...reviewForm, event })} label={s.reviewEvent} options={[{ value: 'APPROVE', label: s.approve }, { value: 'REQUEST_CHANGES', label: s.requestChanges }, { value: 'COMMENT', label: s.comment }]} /></C.Field><C.Field label={s.description}><textarea className="min-h-20 w-full rounded-md border border-border bg-background p-3 text-sm text-foreground" value={reviewForm.body} onChange={(event) => setReviewForm({ ...reviewForm, body: event.target.value })} /></C.Field><C.Field label={s.mergeMethod}><C.SelectMenu value={mergeMethod} onChange={setMergeMethod} label={s.mergeMethod} options={[{ value: 'squash', label: s.squash }, { value: 'merge', label: s.mergeCommit }, { value: 'rebase', label: s.rebase }]} /></C.Field></div> : null}</C.ModalBody><C.ModalFooter><C.Button variant="ghost" onClick={() => setSelectedPr(null)}>{s.cancel}</C.Button><C.Button onClick={() => preview.mutate({ type: 'review', projectId: project.id, number: selectedPr, event: reviewForm.event, body: reviewForm.body })}>{s.submitReview}</C.Button><C.Button variant="danger" onClick={() => preview.mutate({ type: 'merge', projectId: project.id, number: selectedPr, expectedHeadSha: pullDetail.data?.headSha, method: mergeMethod })} disabled={checks.data?.state !== 'success'}>{s.merge}</C.Button></C.ModalFooter></C.Modal> : null}
+    {selectedPr ? <C.Modal title={`#${selectedPr} ${selected?.title ?? ''}`} size="xl" onClose={() => setSelectedPr(null)}><C.ModalBody>{pullDetail.isError ? <C.ErrorState message={s.loadError} onRetry={() => pullDetail.refetch()} /> : pullDetail.isLoading ? <C.LoadingState variant="list" /> : pullDetail.data ? <div className="space-y-5"><p className="whitespace-pre-wrap text-sm text-muted-foreground">{pullDetail.data.body}</p><div className="flex flex-wrap gap-2"><C.Badge tone={checks.data?.state === 'success' ? 'success' : checks.data?.state === 'failure' ? 'danger' : 'warning'}>{checks.data?.state ?? 'pending'}</C.Badge><C.Badge>{pullDetail.data.headRef} → {pullDetail.data.baseRef}</C.Badge></div><section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{s.checks}</h3><div className="space-y-2">{(checks.data?.items ?? []).map((item) => <div key={item.name} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-sm"><span className="font-medium text-foreground">{item.name}</span><C.Badge>{item.state}</C.Badge></div>)}</div></section><section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{s.changedFiles}</h3>{(pullDetail.data.files ?? []).map((file) => <div key={file.path} className="mb-3 overflow-hidden rounded-lg border border-border"><div className="border-b border-border px-3 py-2 font-mono text-xs text-foreground">{file.status} {file.path} <span className="text-success">+{file.additions}</span> <span className="text-destructive">-{file.deletions}</span></div><C.PatchView diff={file.patch ?? ''} empty="No patch available." /></div>)}</section><C.Field label={s.reviewEvent}><C.SelectMenu value={reviewForm.event} onChange={(event: string) => setReviewForm({ ...reviewForm, event })} label={s.reviewEvent} options={[{ value: 'APPROVE', label: s.approve }, { value: 'REQUEST_CHANGES', label: s.requestChanges }, { value: 'COMMENT', label: s.comment }]} /></C.Field><C.Field label={s.description}><textarea className="min-h-20 w-full rounded-md border border-border bg-background p-3 text-sm text-foreground" value={reviewForm.body} onChange={(event) => setReviewForm({ ...reviewForm, body: event.target.value })} /></C.Field><C.Field label={s.mergeMethod}><C.SelectMenu value={mergeMethod} onChange={setMergeMethod} label={s.mergeMethod} options={[{ value: 'squash', label: s.squash }, { value: 'merge', label: s.mergeCommit }, { value: 'rebase', label: s.rebase }]} /></C.Field></div> : null}</C.ModalBody><C.ModalFooter><C.Button variant="ghost" onClick={() => setSelectedPr(null)}>{s.cancel}</C.Button><C.Button disabled={preview.isPending || confirm.isPending} onClick={() => requestPreview({ type: 'review', projectId: project.id, number: selectedPr, event: reviewForm.event, body: reviewForm.body })}>{s.submitReview}</C.Button><C.Button variant="danger" onClick={() => requestPreview({ type: 'merge', projectId: project.id, number: selectedPr, expectedHeadSha: pullDetail.data?.headSha, method: mergeMethod })} disabled={checks.data?.state !== 'success' || preview.isPending || confirm.isPending}>{s.merge}</C.Button></C.ModalFooter></C.Modal> : null}
 
-    {pending ? <C.ConfirmDialog open title={pending.preview.title || s.confirmExternal} description={`${pending.preview.description}\n\n${s.confirmationExpires}`} confirmLabel={s.confirm} onClose={() => setPending(null)} onConfirm={() => confirm.mutate({ action: pending.action, token: pending.preview.confirmationToken })} /> : null}
+    {pending ? <C.ConfirmDialog open title={pending.preview.title || s.confirmExternal} description={`${pending.preview.description}\n\n${s.confirmationExpires}`} confirmLabel={confirm.isPending ? s.saving : s.confirm} onClose={() => { if (!confirmRef.current) setPending(null); }} onConfirm={requestConfirm} /> : null}
   </>;
 }
 

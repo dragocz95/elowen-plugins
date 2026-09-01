@@ -442,6 +442,7 @@ function McpServersPage() {
   const [removing, setRemoving] = (0, import_react3.useState)();
   const [removeError, setRemoveError] = (0, import_react3.useState)();
   const [showTools, setShowTools] = (0, import_react3.useState)(false);
+  const busyRef = (0, import_react3.useRef)(false);
   const load = (0, import_react3.useCallback)(async () => {
     setLoading(true);
     setLoadError(false);
@@ -471,12 +472,18 @@ function McpServersPage() {
   const bridged = rows.reduce((total, server) => total + server.toolCount, 0);
   const selected = editor?.key != null ? rows.find((server) => serverKey(server) === editor.key) : void 0;
   const closeEditor = () => {
+    if (busyRef.current) return;
     setEditor(void 0);
     setActionError(void 0);
     setShowTools(false);
   };
   const save = async () => {
-    if (!editor) return;
+    if (!editor || busyRef.current) return;
+    if (editor.key !== null && !selected) {
+      setActionError(s.serverChanged);
+      return;
+    }
+    busyRef.current = true;
     setSaving(true);
     setBusy(true);
     setActionError(void 0);
@@ -487,6 +494,7 @@ function McpServersPage() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ fromScope: selected.scope, name: selected.name, toScope: editor.draft.scope })
         });
+        setEditor((current) => current ? { ...current, key: serverKey({ scope: editor.draft.scope, name: selected.name }) } : current);
       }
       const path = selected ? `/plugins/mcp/api/servers/${encodeURIComponent(selected.name)}` : "/plugins/mcp/api/servers";
       await apiJson(path, {
@@ -500,12 +508,14 @@ function McpServersPage() {
       setActionError(utils.apiErrorMessage(error) || s.saveError);
       await load();
     } finally {
+      busyRef.current = false;
       setSaving(false);
       setBusy(false);
     }
   };
   const reconnect = async () => {
-    if (!selected || busy || !canReconnect(selected, canManageInstance)) return;
+    if (!selected || busyRef.current || !canReconnect(selected, canManageInstance)) return;
+    busyRef.current = true;
     const target = selected;
     const key = serverKey(target);
     setReconnectingKey(key);
@@ -529,13 +539,15 @@ function McpServersPage() {
         toast(message, "error");
       } else toast(s.reconnectSuccess.replace("{name}", target.name));
     } finally {
+      busyRef.current = false;
       setReconnectingKey(void 0);
       setBusy(false);
     }
   };
   const reconnectAll = async () => {
     const targets = reconnectableFailures;
-    if (busy || targets.length === 0) return;
+    if (busyRef.current || targets.length === 0) return;
+    busyRef.current = true;
     setReconnectingAll(true);
     setBusy(true);
     setActionError(void 0);
@@ -558,13 +570,15 @@ function McpServersPage() {
       if (failed === 0) toast(s.reconnectAllSuccess.replace("{n}", String(succeeded)));
       else toast(s.reconnectAllPartial.replace("{succeeded}", String(succeeded)).replace("{failed}", String(failed)), "error");
     } finally {
+      busyRef.current = false;
       setReconnectingAll(false);
       setBusy(false);
     }
   };
   const removeServer = async () => {
     const target = removing;
-    if (!target) return;
+    if (!target || busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setActionError(void 0);
     setRemoveError(void 0);
@@ -583,16 +597,17 @@ function McpServersPage() {
       setRemoveError(message);
       throw error;
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
   const openServer = (server) => {
-    if (busy) return;
+    if (busyRef.current) return;
     setActionError(void 0);
     setEditor({ key: serverKey(server), draft: serverDraft(server) });
   };
   const addServer = () => {
-    if (busy) return;
+    if (busyRef.current) return;
     setActionError(void 0);
     setEditor({ key: null, draft: emptyDraft("personal") });
   };
@@ -700,7 +715,7 @@ function McpServersPage() {
             onSave: () => void save(),
             onReconnect: () => void reconnect(),
             onRemove: () => {
-              if (selected) {
+              if (selected && !busyRef.current) {
                 setRemoveError(void 0);
                 setRemoving(selected);
               }
@@ -735,8 +750,10 @@ function McpServersPage() {
             pendingLabel: s.removingServer,
             error: removeError,
             onClose: () => {
-              setRemoving(void 0);
-              setRemoveError(void 0);
+              if (!busyRef.current) {
+                setRemoving(void 0);
+                setRemoveError(void 0);
+              }
             },
             onConfirm: removeServer
           }

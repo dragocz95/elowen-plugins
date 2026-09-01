@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { SitesPage } from '../plugins/sites/web-src/SitesPage';
@@ -139,6 +139,29 @@ describe('the Sites workspace', () => {
     const picker = drawer.getByRole('combobox', { name: strings.whoCanOpen });
     fireEvent.change(picker, { target: { value: 'authenticated' } });
     await waitFor(() => expect(patched).toEqual([{ visibility: 'authenticated' }]));
+  });
+
+  it('submits only one visibility change while the first request is pending', async () => {
+    const patched: unknown[] = [];
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    use(http.patch('/api/plugins/sites/api/site/:id', async ({ request }) => {
+      patched.push(await request.json());
+      await pending;
+      return HttpResponse.json({ site });
+    }));
+    mount();
+    const drawer = within(await openSite());
+    const picker = drawer.getByRole('combobox', { name: strings.whoCanOpen }) as HTMLSelectElement;
+    act(() => {
+      picker.value = 'authenticated';
+      picker.dispatchEvent(new Event('change', { bubbles: true }));
+      picker.value = 'private';
+      picker.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    await waitFor(() => expect(patched).toEqual([{ visibility: 'authenticated' }]));
+    release();
   });
 
   it('never publishes to the world without a confirmation', async () => {

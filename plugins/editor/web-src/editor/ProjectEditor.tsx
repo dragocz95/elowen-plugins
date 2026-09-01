@@ -160,20 +160,26 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const toggle = (p: string) => setExpanded((cur) => { const n = new Set(cur); n.has(p) ? n.delete(p) : n.add(p); return n; });
   const expandPath = (dir: string) => setExpanded((cur) => { const n = new Set(cur); let acc = ''; for (const part of dir.split('/').filter(Boolean)) { acc = acc ? `${acc}/${part}` : part; n.add(acc); } return n; });
 
-  const confirmDiscard = () => dirtyPaths.size === 0 || window.confirm(s.statusUnsaved);
+  const confirmDiscard = () => dirtyPaths.size === 0 || window.confirm(s.discardChanges);
 
   // The one exit from the fullscreen takeover — its back control and Escape both land here. On a phone
   // the takeover replaced the app navigation and fullscreen is not the user's choice (it is forced
-  // below), so leaving means leaving the editor; on desktop it means dropping back to the inline card.
+  // below), so leaving means leaving the editor; on desktop it only drops back to the still-mounted
+  // inline card and therefore must not ask to discard drafts that remain intact.
   //
   // A dialog registers with the host's overlay stack and takes Escape before the takeover ever sees it,
   // but the context menu is portalled outside that stack, so it is dismissed here instead of letting
   // one key press close both it and the editor.
   const leaveFullscreen = () => {
     if (menu) { setMenu(null); setOpenMenu(null); return; }
-    if (!confirmDiscard()) return;
+    if (mobile && onClose) {
+      if (!confirmDiscard()) return;
+      setShowTree(false);
+      onClose();
+      return;
+    }
     setShowTree(false);
-    if (mobile && onClose) onClose(); else setFullscreen(false);
+    setFullscreen(false);
   };
 
   const closeEditor = () => {
@@ -218,7 +224,11 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   };
 
   const closeTab = (p: string) => {
-    if (dirtyPaths.has(p) && !window.confirm(s.statusUnsaved)) return;
+    if (dirtyPaths.has(p)) {
+      if (!window.confirm(s.discardChanges)) return;
+      updateDrafts((drafts) => { const next = { ...drafts }; delete next[p]; return next; });
+      setDirtyPaths((paths) => { const next = new Set(paths); next.delete(p); return next; });
+    }
     setOpenTabs((tabs) => {
       const next = tabs.filter((x) => x !== p);
       if (selected === p) setSelected(next[next.length - 1] ?? null);

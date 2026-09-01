@@ -199,6 +199,8 @@ function PairingSettings({ surface }) {
   const [statusError, setStatusError] = (0, import_react3.useState)(false);
   const [statusLoading, setStatusLoading] = (0, import_react3.useState)(true);
   const [unpairing, setUnpairing] = (0, import_react3.useState)(false);
+  const [unpairError, setUnpairError] = (0, import_react3.useState)(false);
+  const unpairingRef = (0, import_react3.useRef)(false);
   const [confirmUnpair, setConfirmUnpair] = (0, import_react3.useState)(false);
   const refreshStatus = async () => {
     setStatusLoading(true);
@@ -217,16 +219,19 @@ function PairingSettings({ surface }) {
     void refreshStatus();
   }, []);
   const doUnpair = async () => {
+    if (unpairingRef.current) return;
+    unpairingRef.current = true;
     setConfirmUnpair(false);
     setUnpairing(true);
-    setStatusError(false);
+    setUnpairError(false);
     try {
       await unpair();
     } catch {
-      setStatusError(true);
+      setUnpairError(true);
     } finally {
-      setUnpairing(false);
       await refreshStatus();
+      unpairingRef.current = false;
+      setUnpairing(false);
     }
   };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.PluginSection, { surface, className: "plugin-card", icon: QrCode, title: s.pairTitle, description: s.pairHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "settings-group__panel space-y-3", children: [
@@ -235,7 +240,8 @@ function PairingSettings({ surface }) {
       statusError ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-destructive", role: "alert", children: s.pairError }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", icon: RefreshCw, disabled: statusLoading || unpairing, onClick: () => void refreshStatus(), children: s.retry })
-      ] }) : null
+      ] }) : null,
+      unpairError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-destructive", role: "alert", children: s.unpairError }) : null
     ] }),
     open ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PairModal, { onClose: () => {
       setOpen(false);

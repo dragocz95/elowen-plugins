@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { ToastProvider, createWrapper } from './ui/hostHooks';
@@ -164,6 +164,58 @@ describe('GitHub plugin UI', () => {
     fireEvent.click(screen.getByRole('button', { name: strings.confirm }));
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Merge pull request' })).not.toBeInTheDocument());
     await waitFor(() => { expect(detailCalls).toBeGreaterThan(1); expect(checksCalls).toBeGreaterThan(1); });
+  });
+
+  it('obtains a fresh confirmation after a consumed token fails', async () => {
+    let previews = 0;
+    const pull = {
+      number: 7, title: 'Feature', state: 'open', draft: false, htmlUrl: 'https://github.com/base/repo/pull/7',
+      author: 'octocat', headRef: 'feature', headSha: 'a'.repeat(40), baseRef: 'main', updatedAt: new Date().toISOString(),
+      mergeable: true, mergeableState: 'clean', body: 'Body', files: [], reviews: [],
+    };
+    use(
+      http.get('/api/plugins/github/api/status', () => HttpResponse.json(connected)),
+      http.get('/api/plugins/github/api/repositories', () => HttpResponse.json({ repositories: [mappedRepository] })),
+      http.get('/api/brain/sessions', () => HttpResponse.json([{ id: 'brain-1', title: 'Feature', updated_at: new Date().toISOString() }])),
+      http.get('/api/plugins/github/api/pull-requests', () => HttpResponse.json({ pullRequests: [pull] })),
+      http.get('/api/plugins/github/api/pull-request', () => HttpResponse.json(pull)),
+      http.get('/api/plugins/github/api/checks', () => HttpResponse.json({ state: 'success', items: [] })),
+      http.post('/api/plugins/github/api/actions/preview', () => {
+        previews += 1;
+        return HttpResponse.json({ action: { type: 'merge' }, title: 'Merge pull request', description: 'Merge now.', confirmationToken: `token-${previews}`, expiresAt: Date.now() + 60_000 });
+      }),
+      http.post('/api/plugins/github/api/actions/confirm', () => HttpResponse.json({ error: 'github_unavailable' }, { status: 502 })),
+    );
+    mountProject();
+    fireEvent.click(await screen.findByRole('button', { name: `${strings.openPullRequest} #7` }));
+    await waitFor(() => expect(screen.getByRole('button', { name: strings.merge })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: strings.merge }));
+    const dialog = await screen.findByRole('dialog', { name: 'Merge pull request' });
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.confirm }));
+
+    await waitFor(() => expect(previews).toBe(2));
+    expect(await screen.findByRole('dialog', { name: 'Merge pull request' })).toBeInTheDocument();
+  });
+
+  it('submits a repository mapping only once while validation is pending', async () => {
+    let saves = 0;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    use(
+      http.get('/api/plugins/github/api/status', () => HttpResponse.json(connected)),
+      http.get('/api/plugins/github/api/repositories', () => HttpResponse.json({ repositories: [{ project: { id: 1, slug: 'project' }, mapping: null, remotes: [{ name: 'origin', fetchUrl: 'git@github.com:base/repo.git', pushUrl: 'https://github.com/fork/repo.git' }], detected: { ambiguous: false, base: { owner: 'base', name: 'repo', remote: 'origin' }, push: { owner: 'fork', name: 'repo', remote: 'origin' } } }] })),
+      http.get('/api/brain/sessions', () => HttpResponse.json([])),
+      http.post('/api/plugins/github/api/repositories/map', async () => { saves += 1; await pending; return HttpResponse.json({ ok: true }); }),
+    );
+    mountProject();
+    fireEvent.click((await screen.findAllByRole('button', { name: strings.map }))[0]);
+    const dialog = await screen.findByRole('dialog', { name: strings.map });
+    const save = within(dialog).getByRole('button', { name: strings.saveMapping });
+    act(() => { save.click(); save.click(); });
+
+    await waitFor(() => expect(saves).toBe(1));
+    expect(within(dialog).getByRole('button', { name: strings.saving })).toBeDisabled();
+    release();
   });
 
   it('opens repository mapping in the selected Project', async () => {
