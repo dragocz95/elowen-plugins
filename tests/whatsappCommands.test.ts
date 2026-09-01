@@ -1,14 +1,12 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
-import { join } from 'node:path';
 
-const repoRoot = join(__dirname, '..');
 const log = { info() {}, warn() {}, error() {} };
 const CHAT = '420123456789@s.whatsapp.net';
 
 describe('whatsapp token-list config compatibility', () => {
   it('accepts legacy and array group JIDs', async () => {
-    const { splitList } = await import(join(repoRoot, 'plugins/whatsapp/lib/adapter.mjs')) as {
+    const { splitList } = await import('../plugins/whatsapp/lib/adapter.mjs') as {
       splitList: (value: unknown) => string[];
     };
     expect(splitList('111@g.us, 222@g.us\n999@g.us')).toEqual(['111@g.us', '222@g.us', '999@g.us']);
@@ -58,7 +56,7 @@ const CATALOG = [
 ];
 
 const makeAdapter = async (models: ModelOption[], initial: Record<string, unknown> = {}, language = 'en', commands: { name: string; kind?: string; execution?: string }[] = CATALOG) => {
-  const { WhatsAppAdapter } = await import(join(repoRoot, 'plugins/whatsapp/lib/adapter.mjs')) as {
+  const { WhatsAppAdapter } = await import('../plugins/whatsapp/lib/adapter.mjs') as {
     WhatsAppAdapter: new (...args: unknown[]) => TestAdapter & { sendText: (jid: string, text: string) => Promise<void> };
   };
   const chats: Record<string, Record<string, unknown>> = { [CHAT]: initial };
