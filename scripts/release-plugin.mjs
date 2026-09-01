@@ -75,6 +75,10 @@ function releasePlugin({
 
   manifest.version = newVersion;
   entry.version = newVersion;
+  for (const key of ['requiresCore', 'requiresSharedApi']) {
+    if (manifest[key] === undefined) delete entry[key];
+    else entry[key] = manifest[key];
+  }
   const heading = '# Changelog';
   const previous = originals.changelog?.trim() || heading;
   const body = previous.startsWith(heading) ? previous.slice(heading.length).trimStart() : previous;

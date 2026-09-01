@@ -7,6 +7,14 @@ const scriptRoot = fileURLToPath(new URL('..', import.meta.url));
 const root = resolve(process.env.ELOWEN_MANIFEST_CHECK_ROOT ?? scriptRoot);
 const pluginsDir = join(root, 'plugins');
 const errors = [];
+const registryFile = join(root, 'registry.json');
+let catalogByName = new Map();
+try {
+  const registry = JSON.parse(readFileSync(registryFile, 'utf8'));
+  catalogByName = new Map((Array.isArray(registry.plugins) ? registry.plugins : []).map((entry) => [entry.name, entry]));
+} catch {
+  errors.push('registry.json is not valid JSON');
+}
 
 const pluginNames = readdirSync(pluginsDir)
   .filter((name) => statSync(join(pluginsDir, name)).isDirectory())
@@ -34,6 +42,17 @@ for (const name of pluginNames) {
   // be stricter: publishing a field before the published daemon knows it makes that setting disappear on
   // every installed instance, and older cores reject the whole plugin rather than degrade it.
   for (const warning of warnings) errors.push(`plugin ${name}: ${warning}`);
+
+  const catalog = catalogByName.get(name);
+  if (!catalog) {
+    errors.push(`plugin ${name}: missing from registry.json`);
+    continue;
+  }
+  for (const key of ['requiresCore', 'requiresSharedApi']) {
+    if (catalog[key] !== raw[key]) {
+      errors.push(`plugin ${name}: registry ${key} ${JSON.stringify(catalog[key])} does not match manifest ${JSON.stringify(raw[key])}`);
+    }
+  }
 }
 
 if (errors.length > 0) {

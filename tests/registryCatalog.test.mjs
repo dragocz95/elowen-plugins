@@ -48,14 +48,16 @@ test('every catalog entry has a plugin folder behind it', () => {
 });
 
 for (const name of folders) {
-  test(`${name}: catalog version and apiVersion match its manifest`, () => {
+  test(`${name}: catalog release and compatibility metadata match its manifest`, () => {
     const manifest = manifestOf(name);
     const entry = catalog.plugins.find((p) => p.name === name);
     assert.ok(entry, `${name} is not in registry.json`);
-    // The catalog version drives the "update available" badge. When it lags the manifest, an installed
-    // user is told they are current while the repo already holds a newer build.
+    // The catalog version drives the update badge, while compatibility metadata lets the marketplace
+    // reject an incompatible install before cloning the plugin payload. Both must describe the manifest.
     assert.equal(entry.version, manifest.version, `${name}: catalog says ${entry.version}, manifest says ${manifest.version}`);
     assert.equal(entry.apiVersion, manifest.apiVersion, `${name}: catalog apiVersion disagrees with the manifest`);
+    assert.equal(entry.requiresCore, manifest.requiresCore, `${name}: catalog requiresCore disagrees with the manifest`);
+    assert.equal(entry.requiresSharedApi, manifest.requiresSharedApi, `${name}: catalog requiresSharedApi disagrees with the manifest`);
   });
 
   test(`${name}: the entry point named by its manifest exists`, () => {

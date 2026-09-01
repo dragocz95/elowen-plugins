@@ -24,7 +24,8 @@
         "tools": 4,
         "apiRoutes": 1,
         "skills": 1
-      }
+      },
+      "requiresSharedApi": 3
     },
     {
       "name": "discord",
@@ -38,7 +39,8 @@
         "platforms": 1,
         "tools": 25,
         "apiRoutes": 1
-      }
+      },
+      "requiresSharedApi": 3
     },
     {
       "name": "editor",
@@ -126,7 +128,8 @@
         "controls": [
           "microsoftIdentity"
         ]
-      }
+      },
+      "requiresSharedApi": 3
     },
     {
       "name": "onedrive",
@@ -177,7 +180,8 @@
       "category": "productivity",
       "author": "Elowen",
       "apiVersion": "1",
-      "provides": {}
+      "provides": {},
+      "requiresCore": "0.28.21"
     },
     {
       "name": "telegram",
@@ -190,7 +194,8 @@
       "provides": {
         "platforms": 1,
         "tools": 16
-      }
+      },
+      "requiresSharedApi": 3
     },
     {
       "name": "todo",
@@ -239,7 +244,8 @@
         "platforms": 1,
         "tools": 6,
         "apiRoutes": 3
-      }
+      },
+      "requiresSharedApi": 3
     }
   ]
 }

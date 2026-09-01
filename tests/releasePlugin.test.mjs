@@ -57,6 +57,39 @@ test('raises manifest and catalog together and writes one changelog entry', () =
   assert.match(readFileSync(join(root, 'CHANGELOG.md'), 'utf8'), /## demo 1\.1\.0 - 2026-08-27\n\n- Add safer project selection/);
 });
 
+test('synchronizes compatibility metadata from the released manifest into the catalog', () => {
+  const { root, plugin } = fixture();
+  const manifestFile = join(plugin, 'elowen-plugin.json');
+  const registryFile = join(root, 'registry.json');
+  const manifest = readJson(manifestFile);
+  manifest.requiresCore = '0.28.24';
+  manifest.requiresSharedApi = 3;
+  writeFileSync(manifestFile, JSON.stringify(manifest, null, 2));
+  const registry = readJson(registryFile);
+  registry.plugins[0].requiresCore = '0.27.0';
+  registry.plugins[0].requiresSharedApi = 2;
+  writeFileSync(registryFile, JSON.stringify(registry, null, 2));
+
+  const result = run(root, ['demo', '1.1.0', 'Sync compatibility metadata']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(readJson(registryFile).plugins[0], {
+    name: 'demo', version: '1.1.0', apiVersion: '1', requiresCore: '0.28.24', requiresSharedApi: 3,
+  });
+});
+
+test('removes compatibility metadata the released manifest no longer declares', () => {
+  const { root } = fixture();
+  const registryFile = join(root, 'registry.json');
+  const registry = readJson(registryFile);
+  registry.plugins[0].requiresCore = '0.27.0';
+  registry.plugins[0].requiresSharedApi = 2;
+  writeFileSync(registryFile, JSON.stringify(registry, null, 2));
+
+  const result = run(root, ['demo', '1.1.0', 'Remove stale compatibility metadata']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(readJson(registryFile).plugins[0], { name: 'demo', version: '1.1.0', apiVersion: '1' });
+});
+
 test('refuses pre-existing manifest/catalogue drift without changing either file', () => {
   const { root, plugin } = fixture({ registryVersion: '0.9.0' });
   const beforeManifest = readFileSync(join(plugin, 'elowen-plugin.json'), 'utf8');
