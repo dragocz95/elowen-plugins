@@ -23,6 +23,8 @@
       "addServer": "Přidat server",
       "removeServer": "Odebrat server",
       "reconnectServer": "Znovu připojit",
+      "reconnectingServer": "Znovu se připojuje…",
+      "reconnectSuccess": "MCP server „{name}“ byl znovu připojen.",
       "name": "Název",
       "scope": "Vlastnictví",
       "scopePersonal": "Osobní",

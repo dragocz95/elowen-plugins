@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { http, HttpResponse, listen, resetHandlers, close, use, setDefaults } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import {
-  allServers, filterServers, parseEnvironment, serverDraft, serverKey, serverPayload, McpServersPage,
+  allServers, canReconnect, filterServers, parseEnvironment, serverDraft, serverKey, serverPayload, McpServersPage,
 } from '../plugins/mcp/web-src/McpServersPage';
 import type { McpServer } from '../plugins/mcp/web-src/runtime';
 import manifest from '../plugins/mcp/elowen-plugin.json' with { type: 'json' };
@@ -96,6 +96,13 @@ describe('MCP register rows', () => {
     expect(filterServers(rows, 'example.test', 'all').map((row) => row.name)).toEqual(['docs']);
     expect(filterServers(rows, 'HTTP', 'all').map((row) => row.name)).toEqual(['docs']);
     expect(filterServers(rows, 'nothing', 'all')).toEqual([]);
+  });
+
+  it('offers reconnect only when the current account can execute it', () => {
+    expect(canReconnect({ ...remote, enabled: true }, true)).toBe(true);
+    expect(canReconnect({ ...remote, enabled: false }, true)).toBe(false);
+    expect(canReconnect(server, false)).toBe(false);
+    expect(canReconnect(server, true)).toBe(true);
   });
 });
 

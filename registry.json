@@ -100,7 +100,7 @@
     },
     {
       "name": "mcp",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "requiresCore": "0.28.24",
       "description": "Connect external MCP servers to the assistant’s tools.",
       "category": "tools",

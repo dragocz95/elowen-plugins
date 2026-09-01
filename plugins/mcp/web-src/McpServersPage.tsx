@@ -93,6 +93,13 @@ function scopeLabel(scope: McpScope, strings: Record<string, string>): string {
   return scope === 'instance' ? strings.scopeInstance : strings.scopePersonal;
 }
 
+/** The API only returns scopes the current account can manage. A disabled server is explicitly refused by
+ *  the reconnect endpoint, and a legacy personal stdio row still needs the owner gate before it could
+ *  start a local process. Do not render a control that the current identity cannot safely execute. */
+export function canReconnect(server: McpServer, canManageInstance: boolean): boolean {
+  return server.enabled && (server.transport !== 'stdio' || canManageInstance);
+}
+
 /** One server = one register row. The connection state is the leading dot, the columns that only make
  *  sense on a wide workspace fold away as a unit, and everything that can be long is a single
  *  truncated line with the full value on hover — a wrapped cell would push every other row out of
@@ -155,11 +162,12 @@ function McpServerRow({ server, showScope, selected, onOpen }: {
 /** The selected server's editor, rendered in the workspace's detail drawer. `server` is the saved copy
  *  (it carries the live connection state and the bridged tools); `draft` is what the user is editing.
  *  A draft with no saved copy is a server being added. */
-function ServerEditor({ server, draft, saving, busy, error, canManageInstance, onChange, onSave, onReconnect, onRemove, onShowTools }: {
+function ServerEditor({ server, draft, saving, busy, reconnecting, error, canManageInstance, onChange, onSave, onReconnect, onRemove, onShowTools }: {
   server?: McpServer;
   draft: ServerDraft;
   saving: boolean;
   busy: boolean;
+  reconnecting: boolean;
   error?: string;
   canManageInstance: boolean;
   onChange: (next: ServerDraft) => void;
@@ -278,7 +286,9 @@ function ServerEditor({ server, draft, saving, busy, error, canManageInstance, o
           ? <C.Button variant="ghost-danger" icon={Trash2} onClick={onRemove} disabled={busy}>{s.removeServer}</C.Button>
           : <span />}
         <div className="flex flex-wrap items-center gap-2">
-          {server ? <C.Button variant="ghost" icon={RefreshCw} onClick={onReconnect} disabled={busy}>{s.reconnectServer}</C.Button> : null}
+          {server && canReconnect(server, canManageInstance)
+            ? <C.Button variant="ghost" icon={RefreshCw} onClick={onReconnect} disabled={busy}>{reconnecting ? s.reconnectingServer : s.reconnectServer}</C.Button>
+            : null}
           <C.Button variant="accent" onClick={onSave} disabled={busy}>{saving ? s.saving : s.save}</C.Button>
         </div>
       </div>
@@ -293,6 +303,7 @@ export function McpServersPage() {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('mcp');
   const { t } = hooks.useTranslation();
+  const { toast } = hooks.useToast();
   const [data, setData] = useState<McpServersResponse>();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -302,6 +313,7 @@ export function McpServersPage() {
   /** The open editor: the key of the server it belongs to (null = a server being added) and its draft. */
   const [editor, setEditor] = useState<{ key: string | null; draft: ServerDraft }>();
   const [saving, setSaving] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [removing, setRemoving] = useState<McpServer>();
@@ -371,17 +383,23 @@ export function McpServersPage() {
   };
 
   const reconnect = async () => {
-    if (!selected) return;
-    setBusy(true); setActionError(undefined);
+    if (!selected || !canReconnect(selected, canManageInstance)) return;
+    setReconnecting(true); setBusy(true); setActionError(undefined);
     try {
       await apiJson('/plugins/mcp/api/reconnect', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ scope: selected.scope, name: selected.name }),
       });
+      // The reconnect response is a point-in-time acknowledgement. Re-read the register so this drawer
+      // uses the daemon's live status and newly discovered tool descriptors, not stale response data.
       await load();
-    } catch { setActionError(s.actionError); }
-    finally { setBusy(false); }
+      toast(s.reconnectSuccess.replace('{name}', selected.name));
+    } catch (error) {
+      const message = utils.apiErrorMessage(error) || s.actionError;
+      setActionError(message);
+      toast(message, 'error');
+    } finally { setReconnecting(false); setBusy(false); }
   };
 
   const removeServer = async () => {
@@ -524,6 +542,7 @@ export function McpServersPage() {
             draft={editor.draft}
             saving={saving}
             busy={busy}
+            reconnecting={reconnecting}
             error={actionError}
             canManageInstance={canManageInstance}
             onChange={(draft) => setEditor((current) => (current ? { ...current, draft } : current))}

@@ -74,3 +74,75 @@ describe('MCP drawer status toggle', () => {
     expect(csStrings.stateDisabled).toBe('Vypnuto');
   });
 });
+
+describe('MCP drawer reconnect', () => {
+  const reconnectable: McpServer = {
+    ...server,
+    transport: 'http',
+    status: 'error',
+    lastError: 'connection closed unexpectedly',
+    command: undefined,
+    args: undefined,
+    env: undefined,
+    url: 'https://mcp.example.test/',
+  };
+  const refreshed: McpServer = {
+    ...reconnectable,
+    status: 'connected',
+    toolCount: 2,
+    tools: [{ name: 'search', title: 'Search' }, { name: 'issues', title: 'Issues' }],
+    lastError: null,
+  };
+
+  it('posts the selected scope and name, locks the drawer, then reloads live status and tools', async () => {
+    let loads = 0;
+    let body: unknown;
+    let releaseReconnect: (() => void) | undefined;
+    use(
+      http.get('/api/plugins/mcp/api/servers', () => {
+        loads += 1;
+        return HttpResponse.json({ personal: [loads === 1 ? reconnectable : refreshed], instance: [], canManageInstance: false });
+      }),
+      http.post('/api/plugins/mcp/api/reconnect', async ({ request }) => {
+        body = await request.json();
+        await new Promise<void>((resolve) => { releaseReconnect = resolve; });
+        return HttpResponse.json({ server: refreshed });
+      }),
+    );
+    mount();
+
+    fireEvent.click(await screen.findByRole('button', { name: strings.openServer.replace('{name}', reconnectable.name) }));
+    const drawer = within(await screen.findByRole('dialog', { name: reconnectable.name }));
+    const reconnect = drawer.getByRole('button', { name: strings.reconnectServer });
+    fireEvent.click(reconnect);
+
+    await waitFor(() => expect(body).toEqual({ scope: 'personal', name: 'github' }));
+    expect(reconnect).toBeDisabled();
+    expect(reconnect).toHaveTextContent(strings.reconnectingServer);
+    expect(drawer.getByRole('button', { name: strings.save })).toBeDisabled();
+
+    releaseReconnect?.();
+
+    await waitFor(() => expect(loads).toBe(2));
+    expect(await drawer.findByText(strings.statusConnected)).toBeInTheDocument();
+    expect(drawer.getByText(strings.toolsCount.replace('{n}', '2'))).toBeInTheDocument();
+    expect(await screen.findByText(strings.reconnectSuccess.replace('{name}', reconnectable.name))).toBeInTheDocument();
+  });
+
+  it('shows the server refusal without inventing a successful reconnect', async () => {
+    use(
+      http.get('/api/plugins/mcp/api/servers', () => HttpResponse.json({ personal: [reconnectable], instance: [], canManageInstance: false })),
+      http.post('/api/plugins/mcp/api/reconnect', () => HttpResponse.json({ error: 'MCP server is disabled by policy' }, { status: 409 })),
+    );
+    mount();
+
+    fireEvent.click(await screen.findByRole('button', { name: strings.openServer.replace('{name}', reconnectable.name) }));
+    const drawer = within(await screen.findByRole('dialog', { name: reconnectable.name }));
+    fireEvent.click(drawer.getByRole('button', { name: strings.reconnectServer }));
+
+    expect(await drawer.findByRole('alert')).toHaveTextContent('MCP server is disabled by policy');
+    const errorMessages = await screen.findAllByText('MCP server is disabled by policy');
+    expect(errorMessages.some((element) => element.getAttribute('data-tone') === 'error')).toBe(true);
+    expect(screen.queryByText(strings.reconnectSuccess.replace('{name}', reconnectable.name))).toBeNull();
+  });
+});

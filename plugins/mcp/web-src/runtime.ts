@@ -88,6 +88,7 @@ interface McpRuntime {
   hooks: {
     usePluginStrings(plugin: string): Record<string, string>;
     useTranslation(): { t: { common: { close: string }; pluginUi: { eyebrow: string } } };
+    useToast(): { toast(message: string, tone?: 'ok' | 'error'): void };
   };
   utils: {
     /** The daemon's own refusal text when it sent one, rather than a bare status line. */
