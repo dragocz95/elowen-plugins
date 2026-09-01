@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -63,19 +63,19 @@ function registerMcpUi(registration) {
 // plugins/mcp/web-src/McpServersPage.tsx
 var import_react3 = __toESM(require_react(), 1);
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -88,7 +88,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -120,7 +120,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -134,7 +134,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/blocks.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/blocks.js
 var Blocks = createLucideIcon("Blocks", [
   ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1", key: "6d4xhi" }],
   [
@@ -146,7 +146,7 @@ var Blocks = createLucideIcon("Blocks", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/plug-zap.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/plug-zap.js
 var PlugZap = createLucideIcon("PlugZap", [
   [
     "path",
@@ -158,13 +158,13 @@ var PlugZap = createLucideIcon("PlugZap", [
   ["path", { d: "m18 3-4 4h6l-4 4", key: "16psg9" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/plus.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/plus.js
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/refresh-cw.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/refresh-cw.js
 var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
@@ -172,13 +172,13 @@ var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/search.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/search.js
 var Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
   ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/server.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/server.js
 var Server = createLucideIcon("Server", [
   ["rect", { width: "20", height: "8", x: "2", y: "2", rx: "2", ry: "2", key: "ngkwjq" }],
   ["rect", { width: "20", height: "8", x: "2", y: "14", rx: "2", ry: "2", key: "iecqi9" }],
@@ -186,7 +186,7 @@ var Server = createLucideIcon("Server", [
   ["line", { x1: "6", x2: "6.01", y1: "18", y2: "18", key: "nzw8ys" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/trash-2.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
@@ -195,7 +195,7 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/triangle-alert.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/triangle-alert.js
 var TriangleAlert = createLucideIcon("TriangleAlert", [
   [
     "path",
@@ -208,7 +208,7 @@ var TriangleAlert = createLucideIcon("TriangleAlert", [
   ["path", { d: "M12 17h.01", key: "p32p05" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/wrench.js
+// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/wrench.js
 var Wrench = createLucideIcon("Wrench", [
   [
     "path",
@@ -234,6 +234,7 @@ var emptyDraft = (scope) => ({
 });
 function serverDraft(server) {
   return {
+    revision: server.revision,
     scope: server.scope,
     name: server.name,
     transport: server.transport,
@@ -258,10 +259,18 @@ function serverPayload(draft) {
     name: draft.name.trim(),
     transport: draft.transport,
     command: draft.command.trim(),
+    ...draft.revision !== void 0 ? { expectedRevision: draft.revision } : {},
     args: draft.args.split("\n").map((line) => line.trim()).filter(Boolean),
     ...draft.env.trim() ? { env: parseEnvironment(draft.env) } : {},
     enabled: draft.enabled
-  } : { scope: draft.scope, name: draft.name.trim(), transport: draft.transport, url: draft.url.trim(), enabled: draft.enabled };
+  } : {
+    scope: draft.scope,
+    name: draft.name.trim(),
+    transport: draft.transport,
+    url: draft.url.trim(),
+    enabled: draft.enabled,
+    ...draft.revision !== void 0 ? { expectedRevision: draft.revision } : {}
+  };
 }
 function allServers(data) {
   return [...data.personal, ...data.instance];
@@ -492,7 +501,7 @@ function McpServersPage() {
         await apiJson("/plugins/mcp/api/transfer", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ fromScope: selected.scope, name: selected.name, toScope: editor.draft.scope })
+          body: JSON.stringify({ fromScope: selected.scope, name: selected.name, toScope: editor.draft.scope, expectedRevision: editor.draft.revision ?? 0 })
         });
         setEditor((current) => current ? { ...current, key: serverKey({ scope: editor.draft.scope, name: selected.name }) } : current);
       }

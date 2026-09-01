@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Hand, Package, Plus, User } from 'lucide-react';
 import { runtime, type PluginSkill, type SkillOwner } from './runtime';
 
-type SkillExtra = { disableModelInvocation: boolean; owner: SkillOwner; editingOwner: SkillOwner };
+type SkillExtra = { disableModelInvocation: boolean; owner: SkillOwner; editingOwner: SkillOwner; revision?: number };
 type SkillForm = { editing: string | null; name: string; description: string; body: string } & SkillExtra;
 // `owner: null` on a NEW skill means "mine" — the daemon resolves an absent owner to the caller's own
 // set. Only an admin can switch the form to the instance set. `editingOwner` remains the original
@@ -45,13 +45,6 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
       { onError: (e) => toast(utils.apiErrorMessage(e), 'error') },
     );
   };
-
-  /** Move a skill to another set. Separate from the PATCH that saves an edit, because on the daemon it
-   *  is a filesystem move that can be refused on its own (a name already taken in the destination). */
-  const moveSkill = (name: string, from: SkillOwner, to: SkillOwner) => api(
-    `/plugins/skills/${encodeURIComponent(name)}/owner?owner=${encodeURIComponent(ownerParam(from))}`,
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ owner: ownerParam(to) }) },
-  );
 
   const ownerLabel = (skill: PluginSkill): string => {
     if (skill.owner === null) return s.ownerInstance;
@@ -114,6 +107,7 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
           disableModelInvocation: skill.disableModelInvocation,
           owner: targetOwner(skill),
           editingOwner: targetOwner(skill),
+          revision: skill.revision ?? skill.version ?? 0,
         })}
         ownership={{
           header: s.ownerColumn,
@@ -184,28 +178,27 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
             // the row while the editor remained open. Addressing the desired owner here could edit a
             // different same-named skill after a stale refresh.
             const from = form.editingOwner;
-            const saveEdit = (owner: SkillOwner) => update.mutate(
-              { name, owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
-              guarded,
-            );
-            // Move BEFORE saving the edit: the move is the step that can be refused (a name already taken
-            // in the destination), and a refusal must leave the skill exactly as it was rather than
-            // half-applied. Once it lands, the edit has to address the skill in its NEW set.
-            if (form.owner !== from) {
-              void moveSkill(name, from, form.owner).then(
-                () => update.mutate(
-                  { name, owner: form.owner, patch: { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation } },
-                  {
-                    onSuccess: guarded.onSuccess,
-                    // The move ALREADY landed, so a refused edit (an empty description, say) leaves the
-                    // skill in its new set with its old body. Refetch before reporting the error, or the
-                    // register goes on naming an owner the skill no longer has.
-                    onError: (e: unknown) => { query.refetch(); guarded.onError(e); },
-                  },
-                ),
-                guarded.onError,
-              );
-            } else saveEdit(from);
+            const patch = { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation };
+            const revision = form.revision ?? 0;
+            const saveEdit = async () => {
+              const path = form.owner !== from
+                ? `/plugins/skills/${encodeURIComponent(name)}/owner?owner=${encodeURIComponent(ownerParam(from))}`
+                : `/plugins/skills/${encodeURIComponent(name)}?owner=${encodeURIComponent(ownerParam(from))}`;
+              const body = form.owner !== from
+                ? { owner: ownerParam(form.owner), expectedRevision: revision, patch }
+                : { ...patch, expectedRevision: revision };
+              try {
+                await api(path, { method: form.owner !== from ? 'POST' : 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+                guarded.onSuccess();
+              } catch (error) {
+                query.refetch();
+                guarded.onError(error);
+              }
+            };
+            // The move and edit are one server operation. It validates the complete edit first and rolls
+            // the filesystem move back if writing the destination fails, so a later PATCH cannot leave a
+            // skill in its new scope with its old body.
+            void saveEdit();
           } else {
             create.mutate(
               { name: form.name.trim(), description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation, owner: form.owner },

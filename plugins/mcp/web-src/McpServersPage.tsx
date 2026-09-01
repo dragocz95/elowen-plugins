@@ -11,6 +11,7 @@ const PAGE_SIZE = 20;
 type ScopeFilter = 'all' | McpScope;
 
 interface ServerDraft {
+  revision?: number;
   scope: McpScope;
   name: string;
   transport: McpTransport;
@@ -27,6 +28,7 @@ const emptyDraft = (scope: McpScope): ServerDraft => ({
 
 export function serverDraft(server: McpServer): ServerDraft {
   return {
+    revision: server.revision,
     scope: server.scope,
     name: server.name,
     transport: server.transport,
@@ -51,11 +53,15 @@ export function serverPayload(draft: ServerDraft) {
   return draft.transport === 'stdio'
     ? {
       scope: draft.scope, name: draft.name.trim(), transport: draft.transport, command: draft.command.trim(),
+      ...(draft.revision !== undefined ? { expectedRevision: draft.revision } : {}),
       args: draft.args.split('\n').map((line) => line.trim()).filter(Boolean),
       ...(draft.env.trim() ? { env: parseEnvironment(draft.env) } : {}),
       enabled: draft.enabled,
     }
-    : { scope: draft.scope, name: draft.name.trim(), transport: draft.transport, url: draft.url.trim(), enabled: draft.enabled };
+    : {
+      scope: draft.scope, name: draft.name.trim(), transport: draft.transport, url: draft.url.trim(), enabled: draft.enabled,
+      ...(draft.revision !== undefined ? { expectedRevision: draft.revision } : {}),
+    };
 }
 
 /** Both ownership scopes as ONE register, personal first. The API already returns an empty `instance`
@@ -395,7 +401,7 @@ export function McpServersPage() {
         await apiJson('/plugins/mcp/api/transfer', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ fromScope: selected.scope, name: selected.name, toScope: editor.draft.scope }),
+          body: JSON.stringify({ fromScope: selected.scope, name: selected.name, toScope: editor.draft.scope, expectedRevision: editor.draft.revision ?? 0 }),
         });
         // If the later PATCH fails, Retry must address the row in the scope where the completed move left it.
         setEditor((current) => current ? { ...current, key: serverKey({ scope: editor.draft.scope, name: selected.name }) } : current);

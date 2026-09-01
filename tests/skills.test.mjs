@@ -1047,13 +1047,13 @@ test('skills routes', async (t) => {
     assert.equal((await app.request('/plugins/skills/deploy-checklist?owner=instance', patch(adminTok, { disableModelInvocation: true }))).status, 200);
     assert.equal(
       readFileSync(join(userDir, 'deploy-checklist.md'), 'utf-8'),
-      '---\nname: deploy-checklist\ndescription: When deploying.\ndisable-model-invocation: true\n---\n\nCheck twice.\n',
+      '---\nname: deploy-checklist\ndescription: When deploying.\ndisable-model-invocation: true\nmetadata:\n  revision: 1\n---\n\nCheck twice.\n',
     );
     // Edit body + description, and clear the flag. A content edit bumps metadata.version (absent → 1).
     assert.equal((await app.request('/plugins/skills/deploy-checklist?owner=instance', patch(adminTok, { description: 'Updated.', content: 'New body.', disableModelInvocation: false }))).status, 200);
     assert.equal(
       readFileSync(join(userDir, 'deploy-checklist.md'), 'utf-8'),
-      '---\nname: deploy-checklist\ndescription: Updated.\nmetadata:\n  version: 1\n---\n\nNew body.\n',
+      '---\nname: deploy-checklist\ndescription: Updated.\nmetadata:\n  revision: 2\n  version: 1\n---\n\nNew body.\n',
     );
   });
 
@@ -1082,11 +1082,17 @@ test('skills routes', async (t) => {
     const { app, userDir, adminTok } = setup();
     mkdirSync(userDir, { recursive: true });
     writeFileSync(join(userDir, 'versioned.md'), '---\nname: versioned\ndescription: D.\nmetadata:\n  version: 5\n---\n\nBody.\n');
-    // Flag-only toggle: version stays 5.
-    await app.request('/plugins/skills/versioned?owner=instance', patch(adminTok, { disableModelInvocation: true }));
+    // Flag-only toggle: content version stays 5, but the independent CAS revision advances.
+    const first = await app.request('/plugins/skills/versioned?owner=instance', patch(adminTok, { disableModelInvocation: true, expectedRevision: 0 }));
+    assert.equal(first.status, 200);
+    assert.deepEqual(await first.json(), { ok: true, revision: 1 });
     assert.ok(readFileSync(join(userDir, 'versioned.md'), 'utf-8').includes('version: 5\n'));
-    // Content edit: 5 → 6.
-    await app.request('/plugins/skills/versioned?owner=instance', patch(adminTok, { content: 'Changed.' }));
+    const stale = await app.request('/plugins/skills/versioned?owner=instance', patch(adminTok, { content: 'Stale.', expectedRevision: 0 }));
+    assert.equal(stale.status, 409);
+    // Content edit: 5 → 6 and revision 1 → 2.
+    const second = await app.request('/plugins/skills/versioned?owner=instance', patch(adminTok, { content: 'Changed.', expectedRevision: 1 }));
+    assert.equal(second.status, 200);
+    assert.deepEqual(await second.json(), { ok: true, revision: 2 });
     assert.ok(readFileSync(join(userDir, 'versioned.md'), 'utf-8').includes('version: 6\n'));
   });
 
@@ -1353,6 +1359,20 @@ test('skills ownership transfer', async (t) => {
     assert.deepStrictEqual(await response.json(), { ok: true, owner: amy.id });
     assert.equal(existsSync(join(userDir, 'movable.md')), false, 'it must LEAVE the instance set');
     assert.equal(existsSync(join(userDir, 'users', String(amy.id), 'movable.md')), true);
+  });
+
+  await t.test('moves and edits a skill in one request', async () => {
+    const { app, userDir, adminTok, amy } = setup();
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'atomic.md'), skillMd('atomic', 'Original.'));
+    const response = await app.request('/plugins/skills/atomic/owner?owner=instance', post(adminTok, {
+      owner: String(amy.id), expectedRevision: 0,
+      patch: { description: 'Updated.', content: 'Changed.' },
+    }));
+    assert.equal(response.status, 200);
+    assert.equal(existsSync(join(userDir, 'atomic.md')), false);
+    assert.match(readFileSync(join(userDir, 'users', String(amy.id), 'atomic.md'), 'utf-8'), /Updated\./);
+    assert.match(readFileSync(join(userDir, 'users', String(amy.id), 'atomic.md'), 'utf-8'), /Changed\./);
   });
 
   // The whole point of moving the folder rather than the markdown: SKILL.md resolves its references

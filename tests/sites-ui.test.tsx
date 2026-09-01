@@ -181,16 +181,11 @@ describe('the Sites workspace', () => {
     await waitFor(() => expect(patched).toEqual([{ visibility: 'public' }]));
   });
 
-  it('adds a guest through the people picker, writing only the difference', async () => {
-    const added: unknown[] = [];
-    const removed: string[] = [];
+  it('replaces the guest list through one atomic request', async () => {
+    const replaced: unknown[] = [];
     use(
-      http.post('/api/plugins/sites/api/site/:id/members', async ({ request }) => {
-        added.push(await request.json());
-        return HttpResponse.json({ ok: true });
-      }),
-      http.delete('/api/plugins/sites/api/site/:id/members/:userId', ({ params }) => {
-        removed.push(params.userId!);
+      http.post('/api/plugins/sites/api/site/:id/members/replace', async ({ request }) => {
+        replaced.push(await request.json());
         return HttpResponse.json({ ok: true });
       }),
     );
@@ -207,8 +202,7 @@ describe('the Sites workspace', () => {
     fireEvent.click(within(picker).getByRole('button', { name: new RegExp(OUTSIDER.name) }));
     fireEvent.click(within(picker).getByRole('button', { name: 'Save changes' }));
 
-    // The already-named guest is left alone: only the one account that changed is written.
-    await waitFor(() => expect(added).toEqual([{ userId: OUTSIDER.id }]));
-    expect(removed).toEqual([]);
+    // The server receives the complete intended set and applies it in one transaction.
+    await waitFor(() => expect(replaced).toEqual([{ userIds: [GUEST.id, OUTSIDER.id] }]));
   });
 });

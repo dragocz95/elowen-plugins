@@ -432,6 +432,18 @@ export function register(ctx) {
     meta.version = (typeof meta.version === 'number' ? meta.version : 0) + 1;
     fm.metadata = meta;
   };
+  // Revision changes for every editable write, including a disclosure-only toggle. It is separate from the
+  // human-facing content version so two tabs cannot silently overwrite each other's operational flag.
+  const skillRevision = (front) => {
+    const meta = front.metadata;
+    return meta && typeof meta === 'object' && !Array.isArray(meta) && Number.isSafeInteger(meta.revision) && meta.revision >= 0
+      ? meta.revision : 0;
+  };
+  const bumpRevision = (fm, current) => {
+    const meta = (fm.metadata && typeof fm.metadata === 'object' && !Array.isArray(fm.metadata)) ? { ...fm.metadata } : {};
+    meta.revision = current + 1;
+    fm.metadata = meta;
+  };
   const buildSkillBody = (front, content) => `---\n${stringifyYaml(front).trimEnd()}\n---\n\n${content}\n`;
   const jsonRes = (body, status = 200) => ({ status, body });
 
@@ -506,6 +518,7 @@ export function register(ctx) {
       canDelete: source === 'user' && canWrite,
       disableModelInvocation: parsed.disableModelInvocation,
       version: parsed.version,
+      revision: skillRevision(parsed.front),
       // Editable skills carry their body so the web editor can prefill an edit; bundled skills are
       // read-only, so their (larger) content is left off the list payload.
       ...(source === 'user' ? { content: parsed.content } : {}),
@@ -589,17 +602,24 @@ export function register(ctx) {
       let b;
       try { b = await req.json(); } catch { b = null; }
       const cur = readSkillFile(file);
+      const expectedRevision = b?.expectedRevision;
+      const currentRevision = skillRevision(cur.front);
+      if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) {
+        return jsonRes({ error: 'expectedRevision must be a non-negative integer' }, 400);
+      }
+      if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+        return jsonRes({ error: 'skill changed on the server; reload it before saving', conflict: true, current: describeSkill(name, file, 'user', target.owner, true) }, 409);
+      }
       const description = typeof b?.description === 'string' ? b.description.trim() : cur.description;
       const content = typeof b?.content === 'string' ? b.content : cur.content;
       const disableModelInvocation = typeof b?.disableModelInvocation === 'boolean' ? b.disableModelInvocation : cur.disableModelInvocation;
       if (description === '' || content.trim() === '') return jsonRes({ error: 'description and content must be non-empty' }, 400);
       const fm = applyManagedFields(cur.front, name, description, disableModelInvocation);
-      // Bump the revision only when the editable content actually changed — a bare disclosure toggle
-      // is an operational flag, not a new version of the skill.
       if (description !== cur.description || content !== cur.content) bumpVersion(fm);
+      bumpRevision(fm, currentRevision);
       writeFileSync(file, buildSkillBody(fm, content), 'utf-8');
       ctx.requestReload?.();
-      return jsonRes({ ok: true });
+      return jsonRes({ ok: true, revision: skillRevision(fm) });
     },
   });
 
@@ -644,6 +664,22 @@ export function register(ctx) {
       try { b = await req.json(); } catch { b = null; }
       const raw = typeof b?.owner === 'string' ? b.owner.trim() : (typeof b?.owner === 'number' ? String(b.owner) : '');
       if (raw === '') return jsonRes({ error: 'owner is required: "instance", "me" or an account id' }, 400);
+      const edit = b?.patch && typeof b.patch === 'object' && !Array.isArray(b.patch) ? b.patch : null;
+      const expectedRevision = b?.expectedRevision;
+      const current = edit ? readSkillFile(file) : null;
+      if (edit && expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) {
+        return jsonRes({ error: 'expectedRevision must be a non-negative integer' }, 400);
+      }
+      if (edit && expectedRevision !== undefined && expectedRevision !== skillRevision(current.front)) {
+        return jsonRes({ error: 'skill changed on the server; reload it before saving', conflict: true, current: describeSkill(name, file, 'user', source.owner, true) }, 409);
+      }
+      const editedDescription = edit && typeof edit.description === 'string' ? edit.description.trim() : current?.description;
+      const editedContent = edit && typeof edit.content === 'string' ? edit.content : current?.content;
+      const editedDisableModelInvocation = edit && typeof edit.disableModelInvocation === 'boolean'
+        ? edit.disableModelInvocation : current?.disableModelInvocation;
+      if (edit && (!editedDescription || !editedContent?.trim())) {
+        return jsonRes({ error: 'description and content must be non-empty' }, 400);
+      }
       const dest = resolveOwnerSpec(raw, req.auth);
       if (dest === null || !dest.ok) return jsonRes({ error: dest?.invalid ? 'invalid owner' : 'forbidden' }, dest?.invalid ? 400 : 403);
       if (sameDir(source.dir, dest.dir)) return jsonRes({ error: 'the skill already belongs to that owner' }, 400);
@@ -666,18 +702,33 @@ export function register(ctx) {
       if (existsSync(join(source.dir, `${name}.md`)) && existsSync(join(source.dir, name, 'SKILL.md'))) {
         return jsonRes({ error: `"${name}" exists both as ${name}.md and ${name}/SKILL.md — remove one before moving it` }, 409);
       }
-      // Directory form travels whole; a flat skill is the single .md file.
+      // Directory form travels whole; a flat skill is the single .md file. When an edit accompanies the
+      // move, write the destination before exposing success and restore the source if that write fails.
       const dirForm = basename(file).toLowerCase() === 'skill.md';
       const from = dirForm ? dirname(file) : file;
       const to = join(dest.dir, dirForm ? name : `${name}.md`);
+      const destinationFile = dirForm ? join(to, 'SKILL.md') : to;
       mkdirSync(dest.dir, { recursive: true });
       try { renameSync(from, to); }
       catch (e) {
         ctx.logger.warn(`could not move skill '${name}': ${e instanceof Error ? e.message : e}`);
         return jsonRes({ error: 'the skill could not be moved' }, 500);
       }
+      try {
+        if (edit) {
+          const fm = applyManagedFields(current.front, name, editedDescription, editedDisableModelInvocation);
+          if (editedDescription !== current.description || editedContent !== current.content) bumpVersion(fm);
+          bumpRevision(fm, skillRevision(current.front));
+          writeFileSync(destinationFile, buildSkillBody(fm, editedContent), 'utf-8');
+        }
+      } catch (e) {
+        try { renameSync(to, from); }
+        catch (rollback) { ctx.logger.error(`could not roll back skill '${name}' move: ${rollback instanceof Error ? rollback.message : rollback}`); }
+        ctx.logger.warn(`could not edit moved skill '${name}': ${e instanceof Error ? e.message : e}`);
+        return jsonRes({ error: 'the skill could not be updated' }, 500);
+      }
       ctx.requestReload?.(); // it leaves one prompt and enters another — apply live
-      return jsonRes({ ok: true, owner: dest.owner });
+      return jsonRes({ ok: true, owner: dest.owner, ...(edit ? { revision: skillRevision(readSkillFile(destinationFile).front) } : {}) });
     },
   });
 

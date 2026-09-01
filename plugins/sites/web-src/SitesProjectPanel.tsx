@@ -11,6 +11,7 @@ export function SitesProjectPanel({ project }: { project: { id: number } }) {
   const { WorkspaceDetailRail, LoadingState, ErrorState, EmptyState } = components;
   const strings = hooks.usePluginStrings('sites');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
 
   const list = hooks.useQuery<SitesListResponse>({
     queryKey: SITES_LIST_KEY,
@@ -31,11 +32,12 @@ export function SitesProjectPanel({ project }: { project: { id: number } }) {
     <div className="workspace-master-detail" data-detail={selected != null}>
       <SitesRegister sites={sites} selectedId={selectedId} onSelect={setSelectedId} />
       {selected ? (
-        <WorkspaceDetailRail label={strings.detailTitle} closeLabel={strings.close} onClose={() => setSelectedId(null)}>
+        <WorkspaceDetailRail label={strings.detailTitle} closeLabel={strings.close} onClose={() => { if (!detailBusy) setSelectedId(null); }}>
           <SiteDetail
             siteId={selected.id}
             allowPublicSites={list.data?.allowPublicSites ?? false}
             onDeleted={() => setSelectedId(null)}
+            onBusyChange={setDetailBusy}
           />
         </WorkspaceDetailRail>
       ) : null}

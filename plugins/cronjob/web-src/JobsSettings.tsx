@@ -305,9 +305,9 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const autosave = hooks.useAutoSaveStatus([draft], async () => {
     if (deleted.current) return;
     const sent = draftRef.current;
-    const { owner: _owner, ...payload } = sent;
+    const { owner: _owner, expectedRevision: _expectedRevision, ...payload } = sent;
     everSaved.current = true;
-    const request = save.mutateAsync(payload);
+    const request = save.mutateAsync({ ...payload, expectedRevision: sent.revision ?? 0 });
     inFlight.current = request;
     try {
       await request;

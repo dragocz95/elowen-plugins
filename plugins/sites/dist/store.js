@@ -282,6 +282,16 @@ export class SitesStore {
     removeMember(siteId, userId) {
         this.db.prepare('DELETE FROM p_sites_members WHERE site_id = ? AND user_id = ?').run(siteId, userId);
     }
+    replaceMembers(siteId, userIds) {
+        this.db.transaction(() => {
+            this.db.prepare('DELETE FROM p_sites_members WHERE site_id = ?').run(siteId);
+            const insert = this.db.prepare('INSERT INTO p_sites_members (site_id, user_id, added_at) VALUES (?, ?, ?)');
+            const addedAt = new Date().toISOString();
+            for (const userId of [...new Set(userIds)])
+                insert.run(siteId, userId, addedAt);
+            this.bumpAccessGeneration(siteId);
+        });
+    }
     insertRelease(release) {
         this.db.prepare(`
       INSERT INTO p_sites_releases (id, site_id, created_at, model, file_count, size_bytes, note)

@@ -15,12 +15,11 @@ import type {
 const HOST_HOOK_HASH = '7c63144e929b44e472f11061a2d4756fc0e05c83d176a98a7def8a5c40822899';
 const registryRoot = resolve(dirname(new URL(import.meta.url).pathname), '..');
 const requireFromHere = createRequire(import.meta.url);
-const siblingCoreRoot = resolve(registryRoot, '..', 'elowen');
 const configuredCoreRoot = process.env.ELOWEN_CORE_ROOT?.trim();
 const installedCoreRoot = dirname(requireFromHere.resolve('elowen/package.json'));
-const coreRoot = configuredCoreRoot
-  ? resolve(configuredCoreRoot)
-  : existsSync(join(siblingCoreRoot, 'package.json')) ? siblingCoreRoot : installedCoreRoot;
+// CI and integration worktrees must opt into the exact core checkout they target. Falling back to a sibling
+// directory made the parity assertion pass against an unrelated developer checkout.
+const coreRoot = configuredCoreRoot ? resolve(configuredCoreRoot) : installedCoreRoot;
 const hostHookPath = join(coreRoot, 'web/lib/useAutoSaveStatus.ts');
 
 function normalizedHook(source: string): string {

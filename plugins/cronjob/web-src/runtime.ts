@@ -27,6 +27,9 @@ export interface CronJob {
   /** Read-only display projection supplied by GET; never persisted or returned in PUT payloads. */
   owner?: CronJobOwner;
   enabled?: boolean; runAt?: string; createdAt?: string; lastRun?: string; lastResult?: string;
+  /** Server revision used as the conditional-write token; never display as editable content. */
+  revision?: number;
+  expectedRevision?: number;
 }
 export interface NotificationDestinationOption {
   value: string; id: string; platform: string;

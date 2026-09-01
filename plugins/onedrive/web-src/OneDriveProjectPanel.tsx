@@ -47,7 +47,7 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: 
   });
 
   return (
-    <C.WorkspaceDetailRail label={s.conflicts} closeLabel={s.close} onClose={onClose}>
+    <C.WorkspaceDetailRail label={s.conflicts} closeLabel={s.close} onClose={() => { if (!resolve.isPending) onClose(); }}>
       <p className="mb-3 text-xs text-muted-foreground">{s.conflictsHint}</p>
       {conflicts.isLoading ? <C.LoadingState variant="list" />
         : conflicts.isError
@@ -427,7 +427,7 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
       {/* First click opens a drawer; a centred window is only ever the second step from one. The rail has
           no `open` prop - it renders whenever it is mounted - so the condition belongs HERE. */}
       {connectFor && (
-      <C.WorkspaceDetailRail label={s.connectCta} closeLabel={s.close} onClose={() => setConnectFor(null)}>
+      <C.WorkspaceDetailRail label={s.connectCta} closeLabel={s.close} onClose={() => { if (!actionRef.current) setConnectFor(null); }}>
         <div className="space-y-4 text-sm">
           <p className="text-sm font-medium">{connectFor.label}</p>
 

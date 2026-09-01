@@ -161,9 +161,9 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     expect(mounted.container.querySelectorAll('[aria-selected="true"]')).toHaveLength(1);
   });
 
-  // Moving a skill between sets is a filesystem move on the daemon, so the editor must call the transfer
-  // route rather than folding the new owner into the PATCH that saves the edit.
-  it('moves a skill to the other set before saving the edit', async () => {
+  // Moving and editing a skill is one server operation, so a failed write cannot leave a moved skill with
+  // its old body.
+  it('moves and saves a skill through one atomic request', async () => {
     const calls: string[] = [];
     let moveBody: unknown;
     use(
@@ -173,10 +173,6 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
         moveBody = await request.json();
         return HttpResponse.json({ ok: true, owner: null });
       }),
-      http.patch('/api/plugins/skills/alpha', ({ url }) => {
-        calls.push(`patch:${url.searchParams.get('owner')}`);
-        return HttpResponse.json({ ok: true });
-      }),
     );
     mount();
 
@@ -185,14 +181,12 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     fireEvent.click(form.getByRole('radio', { name: strings.scopeFieldInstance }));
     fireEvent.click(form.getByRole('button', { name: strings.save }));
 
-    await waitFor(() => expect(calls).toHaveLength(2));
-    // The move runs FIRST — a refused move must leave the skill as it was, not half-edited — and it says
-    // where the skill is NOW; the edit then addresses it in the set it just landed in.
-    expect(calls).toEqual(['move:7', 'patch:instance']);
-    expect(moveBody).toEqual({ owner: 'instance' });
+    await waitFor(() => expect(calls).toEqual(['move:7']));
+    expect(moveBody).toMatchObject({ owner: 'instance', expectedRevision: 0 });
+    expect(moveBody).toHaveProperty('patch', { description: 'alpha desc', content: 'Body alpha.', disableModelInvocation: false });
   });
 
-  it('keeps one submission lock across a pending move and the following edit', async () => {
+  it('keeps one submission lock across a pending atomic move-edit', async () => {
     let moves = 0;
     let releaseMove!: () => void;
     const moveDone = new Promise<void>((resolve) => { releaseMove = resolve; });
@@ -219,7 +213,6 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     use(
       http.get('/api/plugins/skills/list', () => HttpResponse.json([skillRow('alpha', false, 7)])),
       http.post('/api/plugins/skills/alpha/owner', ({ url }) => { calls.push(`move:${url.searchParams.get('owner')}`); return HttpResponse.json({ ok: true, owner: null }); }),
-      http.patch('/api/plugins/skills/alpha', ({ url }) => { calls.push(`patch:${url.searchParams.get('owner')}`); return HttpResponse.json({ ok: true }); }),
     );
     const mounted = mount();
     fireEvent.click(await screen.findByRole('button', { name: 'alpha' }));
@@ -228,7 +221,7 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     mounted.client.setQueryData(['plugin-skills'], []);
     fireEvent.click(form.getByRole('button', { name: strings.save }));
 
-    await waitFor(() => expect(calls).toEqual(['move:7', 'patch:instance']));
+    await waitFor(() => expect(calls).toEqual(['move:7']));
   });
 
   // Somebody else's personal skill stays editable by an admin but must not offer the scope switch: its

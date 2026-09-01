@@ -394,7 +394,7 @@ var STATUS_TONE = {
 var import_react3 = __toESM(require_react(), 1);
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var basePath = (siteId) => `/plugins/sites/api/site/${siteId}`;
-function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
+function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   const { components, hooks, utils } = runtime();
   const {
     Avatar,
@@ -449,15 +449,9 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
     }
   });
   const saveGuests = hooks.useMutation({
-    mutationFn: async (next) => {
-      const current = new Set(members.map((member) => String(member.id)));
-      for (const id of next) {
-        if (!current.has(id)) await runtime().api(`${basePath(siteId)}/members`, jsonBody("POST", { userId: Number(id) }));
-      }
-      for (const id of current) {
-        if (!next.has(id)) await runtime().api(`${basePath(siteId)}/members/${id}`, { method: "DELETE" });
-      }
-    },
+    mutationFn: (next) => runtime().api(`${basePath(siteId)}/members/replace`, jsonBody("POST", {
+      userIds: [...next].map(Number)
+    })),
     onSuccess: () => {
       setFailedGuests(null);
       refresh();
@@ -492,6 +486,9 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted }) {
       guestsRef.current = false;
     }
   };
+  (0, import_react3.useEffect)(() => {
+    onBusyChange?.(callRef.current || guestsRef.current || call.isPending || saveGuests.isPending);
+  }, [call.isPending, onBusyChange, saveGuests.isPending]);
   if (detail.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EmptyState, { title: strings.loadFailed, icon: Server });
   if (!site) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoadingLine, {});
   const setVisibility = (next) => {
@@ -869,6 +866,7 @@ function SitesPage() {
   const [status, setStatus] = hooks.usePersistentState("elowen.sites.status", "all", isStatusFilter);
   const [query, setQuery] = (0, import_react4.useState)("");
   const [selectedId, setSelectedId] = (0, import_react4.useState)(null);
+  const [detailBusy, setDetailBusy] = (0, import_react4.useState)(false);
   const mine = (0, import_react4.useMemo)(() => list.data?.mine ?? [], [list.data]);
   const shared = (0, import_react4.useMemo)(() => list.data?.shared ?? [], [list.data]);
   const sectionSites = (0, import_react4.useMemo)(
@@ -978,12 +976,15 @@ function SitesPage() {
       },
       children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceDocument, { children: list.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(LoadingState, { variant: "cards" }) }) : list.isError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ErrorState, { message: strings.loadFailed, onRetry: () => list.refetch() }) }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex min-w-0 flex-col gap-4", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-4", children: register() }) }),
-        selected ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => setSelectedId(null), children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        selected ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => {
+          if (!detailBusy) setSelectedId(null);
+        }, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           SiteDetail,
           {
             siteId: selected.id,
             allowPublicSites: list.data?.allowPublicSites ?? false,
-            onDeleted: () => setSelectedId(null)
+            onDeleted: () => setSelectedId(null),
+            onBusyChange: setDetailBusy
           }
         ) }) : null
       ] }) })
@@ -1046,6 +1047,7 @@ function SitesProjectPanel({ project }) {
   const { WorkspaceDetailRail, LoadingState, ErrorState, EmptyState } = components;
   const strings = hooks.usePluginStrings("sites");
   const [selectedId, setSelectedId] = (0, import_react6.useState)(null);
+  const [detailBusy, setDetailBusy] = (0, import_react6.useState)(false);
   const list = hooks.useQuery({
     queryKey: SITES_LIST_KEY,
     queryFn: () => runtime().api("/plugins/sites/api/sites")
@@ -1060,12 +1062,15 @@ function SitesProjectPanel({ project }) {
   if (sites.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(EmptyState, { title: strings.empty, icon: Globe });
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SitesRegister, { sites, selectedId, onSelect: setSelectedId }),
-    selected ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => setSelectedId(null), children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    selected ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => {
+      if (!detailBusy) setSelectedId(null);
+    }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
       SiteDetail,
       {
         siteId: selected.id,
         allowPublicSites: list.data?.allowPublicSites ?? false,
-        onDeleted: () => setSelectedId(null)
+        onDeleted: () => setSelectedId(null),
+        onBusyChange: setDetailBusy
       }
     ) }) : null
   ] });

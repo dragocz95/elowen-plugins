@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Activity, Clock, Copy, ExternalLink, History, Link2, RefreshCw, RotateCcw,
   Server, ShieldCheck, Terminal, Trash2, UserMinus, Users,
@@ -16,10 +16,11 @@ const basePath = (siteId: string): string => `/plugins/sites/api/site/${siteId}`
  *  Deliberately NOT tabbed: the drawer is one fixed size on every surface, and a tab strip inside it
  *  would make the same drawer feel like four differently shaped panels. Every choice here is a
  *  dropdown, a picker or a confirmed action — there is no field to type an id or a name into. */
-export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
+export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }: {
   siteId: string;
   allowPublicSites: boolean;
   onDeleted(): void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const { components, hooks, utils } = runtime();
   const {
@@ -77,19 +78,12 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
     },
   });
 
-  /** The picker hands back the whole intended guest list, so the difference against the current one is
-   *  what actually gets written. Sequential on purpose: each write bumps the site's access generation,
-   *  and firing them together makes the resulting invalidations race. */
+  /** The picker hands back the whole intended guest list. The server replaces the set in one transaction,
+   * so a crash or concurrent refresh cannot leave half the guests from the old and new selections. */
   const saveGuests = hooks.useMutation<unknown, unknown, Set<string>>({
-    mutationFn: async (next: Set<string>) => {
-      const current = new Set(members.map((member) => String(member.id)));
-      for (const id of next) {
-        if (!current.has(id)) await runtime().api(`${basePath(siteId)}/members`, jsonBody('POST', { userId: Number(id) }));
-      }
-      for (const id of current) {
-        if (!next.has(id)) await runtime().api(`${basePath(siteId)}/members/${id}`, { method: 'DELETE' });
-      }
-    },
+    mutationFn: (next: Set<string>) => runtime().api(`${basePath(siteId)}/members/replace`, jsonBody('POST', {
+      userIds: [...next].map(Number),
+    })),
     onSuccess: () => { setFailedGuests(null); refresh(); toast(strings.saved); },
     onError: (error: unknown, next: Set<string>) => {
       // A later delta may have landed before the failure. Reconcile the drawer before offering Retry.
@@ -116,6 +110,9 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted }: {
     try { await saveGuests.mutateAsync(next); }
     finally { guestsRef.current = false; }
   };
+  useEffect(() => {
+    onBusyChange?.(callRef.current || guestsRef.current || call.isPending || saveGuests.isPending);
+  }, [call.isPending, onBusyChange, saveGuests.isPending]);
 
   if (detail.isError) return <EmptyState title={strings.loadFailed} icon={Server} />;
   if (!site) return <LoadingLine />;

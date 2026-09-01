@@ -10,6 +10,8 @@ interface McpToolInfo {
 }
 
 export interface McpServer {
+  /** Conditional-write token returned by the management API. */
+  revision?: number;
   name: string;
   scope: McpScope;
   transport: McpTransport;

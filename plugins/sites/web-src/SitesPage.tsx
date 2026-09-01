@@ -174,6 +174,7 @@ export function SitesPage() {
   // reload reads as missing data rather than as an active filter.
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
 
   const mine = useMemo(() => list.data?.mine ?? [], [list.data]);
   const shared = useMemo(() => list.data?.shared ?? [], [list.data]);
@@ -307,11 +308,12 @@ export function SitesPage() {
               </div>
 
               {selected ? (
-                <WorkspaceDetailRail label={strings.detailTitle} closeLabel={strings.close} onClose={() => setSelectedId(null)}>
+                <WorkspaceDetailRail label={strings.detailTitle} closeLabel={strings.close} onClose={() => { if (!detailBusy) setSelectedId(null); }}>
                   <SiteDetail
                     siteId={selected.id}
                     allowPublicSites={list.data?.allowPublicSites ?? false}
                     onDeleted={() => setSelectedId(null)}
+                    onBusyChange={setDetailBusy}
                   />
                 </WorkspaceDetailRail>
               ) : null}

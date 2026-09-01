@@ -52,6 +52,9 @@ function initStore(ctx) {
         );
       `);
     },
+  }, {
+    version: 2,
+    up(m) { m.exec('ALTER TABLE p_mcp_servers ADD COLUMN revision INTEGER NOT NULL DEFAULT 0'); },
   }]);
   const imported = db.prepare('SELECT value FROM p_mcp_meta WHERE key = ?').get('legacy_config_imported');
   if (!imported) {
@@ -80,13 +83,13 @@ function parseJsonArray(value) {
 }
 
 function loadStoredSpecs(db) {
-  const rows = db.prepare('SELECT owner_user_id, name, spec_json, tools_json FROM p_mcp_servers ORDER BY owner_user_id IS NOT NULL, owner_user_id, name').all();
+  const rows = db.prepare('SELECT owner_user_id, name, spec_json, tools_json, revision FROM p_mcp_servers ORDER BY owner_user_id IS NOT NULL, owner_user_id, name').all();
   const specs = [];
   for (const row of rows) {
     const spec = parseJsonObject(row.spec_json);
     if (!spec || typeof row.name !== 'string') continue;
     const cachedBridged = parseJsonArray(row.tools_json);
-    specs.push({ ...spec, name: row.name, enabled: spec.enabled !== false, ownerUserId: row.owner_user_id == null ? null : Number(row.owner_user_id), cachedBridged });
+    specs.push({ ...spec, name: row.name, enabled: spec.enabled !== false, ownerUserId: row.owner_user_id == null ? null : Number(row.owner_user_id), cachedBridged, revision: Number.isSafeInteger(row.revision) ? row.revision : 0 });
   }
   return specs;
 }
@@ -255,6 +258,7 @@ function redactUrl(value) {
 function editableServer(spec) {
   return {
     ...publicServerState(spec),
+    revision: spec.revision ?? 0,
     enabled: spec.enabled,
     ...(transportKind(spec) === 'stdio'
       ? { command: spec.command, args: spec.args ?? [], envKeys: Object.keys(spec.env ?? {}) }
@@ -266,16 +270,27 @@ async function updateMcpServerForScope(ctx, scope, name, input) {
   const ownerUserId = ownerForScope(ctx, scope);
   const spec = specForOwner(ownerUserId, String(name ?? '').trim());
   if (!spec) throw new Error(`unknown ${scope} MCP server "${name}"`);
+  const expectedRevision = input?.expectedRevision;
+  if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) {
+    throw new Error('expectedRevision must be a non-negative integer');
+  }
+  if (expectedRevision !== undefined && expectedRevision !== (spec.revision ?? 0)) {
+    const error = new Error('MCP server changed on the server; reload it before saving');
+    error.status = 409;
+    error.conflict = true;
+    error.current = editableServer(spec);
+    throw error;
+  }
   const previous = { ...spec, args: [...(spec.args ?? [])], env: { ...(spec.env ?? {}) }, cachedBridged: [...(spec.cachedBridged ?? [])] };
-  const next = { ...validateServerInput({ ...spec, ...input, name: spec.name }), ownerUserId, cachedBridged: [] };
+  const next = { ...validateServerInput({ ...spec, ...input, name: spec.name }), ownerUserId, cachedBridged: [], revision: (spec.revision ?? 0) + 1 };
   assertTransportAuthority(ctx, next);
   await closeLiveSpec(spec);
   Object.assign(spec, next);
   const sql = ownerUserId == null
-    ? 'UPDATE p_mcp_servers SET spec_json = ?, tools_json = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_user_id IS NULL AND name = ?'
-    : 'UPDATE p_mcp_servers SET spec_json = ?, tools_json = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_user_id = ? AND name = ?';
+    ? 'UPDATE p_mcp_servers SET spec_json = ?, tools_json = ?, revision = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_user_id IS NULL AND name = ?'
+    : 'UPDATE p_mcp_servers SET spec_json = ?, tools_json = ?, revision = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_user_id = ? AND name = ?';
   const stored = JSON.stringify({ ...next, ownerUserId: undefined, cachedBridged: undefined });
-  state.db.prepare(sql).run(...(ownerUserId == null ? [stored, '[]', spec.name] : [stored, '[]', ownerUserId, spec.name]));
+  state.db.prepare(sql).run(...(ownerUserId == null ? [stored, '[]', next.revision, spec.name] : [stored, '[]', next.revision, ownerUserId, spec.name]));
   try {
     if (spec.enabled) {
       await connectServer(ctx, spec, state.live);
@@ -290,8 +305,8 @@ async function updateMcpServerForScope(ctx, scope, name, input) {
     Object.assign(spec, previous);
     const oldStored = JSON.stringify({ ...previous, ownerUserId: undefined, cachedBridged: undefined });
     state.db.prepare(sql).run(...(ownerUserId == null
-      ? [oldStored, JSON.stringify(previous.cachedBridged), spec.name]
-      : [oldStored, JSON.stringify(previous.cachedBridged), ownerUserId, spec.name]));
+      ? [oldStored, JSON.stringify(previous.cachedBridged), previous.revision ?? 0, spec.name]
+      : [oldStored, JSON.stringify(previous.cachedBridged), previous.revision ?? 0, ownerUserId, spec.name]));
     setServerState(spec, { status: 'disconnected', lastError: null, tools: [], toolCount: previous.cachedBridged.length, bridged: previous.cachedBridged });
     throw error;
   }
@@ -310,12 +325,22 @@ async function updateMcpServerForScope(ctx, scope, name, input) {
  *  destination the stored `env`, which `editableServer` returns to whoever owns the row. So stdio stays
  *  what its own comment already says it is: an administrator's local-process decision, delegated by
  *  granting `terminal`, never by moving a row. */
-async function moveMcpServerScope(ctx, fromScope, name, toScope) {
+async function moveMcpServerScope(ctx, fromScope, name, toScope, expectedRevision) {
   const fromOwner = ownerForScope(ctx, fromScope);
   const toOwner = ownerForScope(ctx, toScope);
   if (fromOwner === toOwner) throw new Error('the MCP server already belongs to that scope');
   const spec = specForOwner(fromOwner, String(name ?? '').trim());
   if (!spec) throw new Error(`unknown ${fromScope} MCP server "${name}"`);
+  if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) {
+    throw new Error('expectedRevision must be a non-negative integer');
+  }
+  if (expectedRevision !== undefined && expectedRevision !== (spec.revision ?? 0)) {
+    const error = new Error('MCP server changed on the server; reload it before saving');
+    error.status = 409;
+    error.conflict = true;
+    error.current = editableServer(spec);
+    throw error;
+  }
   if (transportKind(spec) === 'stdio') {
     throw new Error('local-process MCP servers cannot change scope — create the server again in the target scope instead');
   }
@@ -333,13 +358,14 @@ async function moveMcpServerScope(ctx, fromScope, name, toScope) {
   const previousOwner = spec.ownerUserId;
   const previousKey = serverKey(previousOwner, spec.name);
   const sql = previousOwner == null
-    ? 'UPDATE p_mcp_servers SET owner_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_user_id IS NULL AND name = ?'
-    : 'UPDATE p_mcp_servers SET owner_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE owner_user_id = ? AND name = ?';
+    ? 'UPDATE p_mcp_servers SET owner_user_id = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE owner_user_id IS NULL AND name = ?'
+    : 'UPDATE p_mcp_servers SET owner_user_id = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE owner_user_id = ? AND name = ?';
   state.db.prepare(sql).run(...(previousOwner == null ? [toOwner, spec.name] : [toOwner, previousOwner, spec.name]));
   // The cached tool list is kept on purpose: the SPECIFICATION did not change, so what the server last
   // advertised is still what it advertises — and a personal server composes its tools from that cache
   // without connecting at all.
   spec.ownerUserId = toOwner;
+  spec.revision = (spec.revision ?? 0) + 1;
   state.servers.delete(previousKey);
   setServerState(spec, { status: spec.enabled ? 'disconnected' : 'disabled', transport: transportKind(spec), lastError: null });
   // An instance server is expected to be LIVE; a personal one connects lazily on first use, which is
@@ -754,7 +780,10 @@ function registerManagementTools(ctx) {
 function apiError(error) {
   const message = error instanceof Error ? error.message : String(error);
   const forbidden = /only by administrators of this instance|require a linked Elowen account/.test(message);
-  return { status: forbidden ? 403 : 409, body: { error: message } };
+  return {
+    status: error?.status ?? (forbidden ? 403 : 409),
+    body: { error: message, ...(error?.conflict ? { conflict: true, current: error.current } : {}) },
+  };
 }
 
 function registerManagementApi(ctx) {
@@ -806,7 +835,7 @@ function registerManagementApi(ctx) {
     handler: async (req) => {
       try {
         const body = await req.json();
-        return { body: { server: await moveMcpServerScope(ctx, body.fromScope, body.name, body.toScope) } };
+        return { body: { server: await moveMcpServerScope(ctx, body.fromScope, body.name, body.toScope, body.expectedRevision) } };
       } catch (error) { return apiError(error); }
     },
   });
