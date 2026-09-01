@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// ../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -59,19 +59,19 @@ function registerStatsUi(pages) {
 // plugins/stats/web-src/StatsView.tsx
 var import_react7 = __toESM(require_react(), 1);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
+// node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
+// node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -84,7 +84,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -116,7 +116,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -130,7 +130,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/chart-column.js
+// node_modules/lucide-react/dist/esm/icons/chart-column.js
 var ChartColumn = createLucideIcon("ChartColumn", [
   ["path", { d: "M3 3v16a2 2 0 0 0 2 2h16", key: "c24i48" }],
   ["path", { d: "M18 17V9", key: "2bz60n" }],
@@ -138,36 +138,36 @@ var ChartColumn = createLucideIcon("ChartColumn", [
   ["path", { d: "M8 17v-3", key: "17ska0" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/chevron-left.js
+// node_modules/lucide-react/dist/esm/icons/chevron-left.js
 var ChevronLeft = createLucideIcon("ChevronLeft", [
   ["path", { d: "m15 18-6-6 6-6", key: "1wnfg3" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/chevron-right.js
+// node_modules/lucide-react/dist/esm/icons/chevron-right.js
 var ChevronRight = createLucideIcon("ChevronRight", [
   ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/database.js
+// node_modules/lucide-react/dist/esm/icons/database.js
 var Database = createLucideIcon("Database", [
   ["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3", key: "msslwz" }],
   ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5", key: "1wlel7" }],
   ["path", { d: "M3 12A9 3 0 0 0 21 12", key: "mv7ke4" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/dollar-sign.js
+// node_modules/lucide-react/dist/esm/icons/dollar-sign.js
 var DollarSign = createLucideIcon("DollarSign", [
   ["line", { x1: "12", x2: "12", y1: "2", y2: "22", key: "7eqyqh" }],
   ["path", { d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", key: "1b0p4s" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/gauge.js
+// node_modules/lucide-react/dist/esm/icons/gauge.js
 var Gauge = createLucideIcon("Gauge", [
   ["path", { d: "m12 14 4-4", key: "9kzdfg" }],
   ["path", { d: "M3.34 19a10 10 0 1 1 17.32 0", key: "19p75a" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/map-pin.js
+// node_modules/lucide-react/dist/esm/icons/map-pin.js
 var MapPin = createLucideIcon("MapPin", [
   [
     "path",
@@ -179,13 +179,13 @@ var MapPin = createLucideIcon("MapPin", [
   ["circle", { cx: "12", cy: "10", r: "3", key: "ilqhr7" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/search.js
+// node_modules/lucide-react/dist/esm/icons/search.js
 var Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
   ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/trash-2.js
+// node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
@@ -194,7 +194,7 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
-// ../elowen-plugins/node_modules/lucide-react/dist/esm/icons/triangle-alert.js
+// node_modules/lucide-react/dist/esm/icons/triangle-alert.js
 var TriangleAlert = createLucideIcon("TriangleAlert", [
   [
     "path",

@@ -1,6 +1,6 @@
 {
   "name": "telegram",
-  "version": "0.2.12",
+  "version": "0.2.13",
   "apiVersion": "1",
   "requiresCore": "0.28.11",
   "requiresSharedApi": 3,
@@ -29,7 +29,9 @@
       "TelegramCloseForumTopic"
     ]
   },
-  "icons": { "Telegram*": "✈️" },
+  "icons": {
+    "Telegram*": "✈️"
+  },
   "configSchema": [
     {
       "key": "sec_connection",
@@ -75,9 +77,18 @@
       "type": "enum",
       "default": "status",
       "options": [
-        { "value": "off", "label": "Off" },
-        { "value": "status", "label": "Live status" },
-        { "value": "live", "label": "Live output" }
+        {
+          "value": "off",
+          "label": "Off"
+        },
+        {
+          "value": "status",
+          "label": "Live status"
+        },
+        {
+          "value": "live",
+          "label": "Live output"
+        }
       ],
       "hint": "Off hides the work trace. Live status updates tool start/completion. Live output also streams bounded Bash progress. Override per chat with /display."
     },
@@ -87,8 +98,14 @@
       "type": "enum",
       "default": "final",
       "options": [
-        { "value": "final", "label": "Final answer only" },
-        { "value": "live", "label": "Stream answer live" }
+        {
+          "value": "final",
+          "label": "Final answer only"
+        },
+        {
+          "value": "live",
+          "label": "Stream answer live"
+        }
       ],
       "hint": "Final posts one complete answer below the live tool trace. Live edits the answer while it is written. Override per chat with /display."
     },
@@ -98,9 +115,18 @@
       "type": "enum",
       "default": "summary",
       "options": [
-        { "value": "hidden", "label": "Status only" },
-        { "value": "summary", "label": "Short summary" },
-        { "value": "tail", "label": "Rolling output tail" }
+        {
+          "value": "hidden",
+          "label": "Status only"
+        },
+        {
+          "value": "summary",
+          "label": "Short summary"
+        },
+        {
+          "value": "tail",
+          "label": "Rolling output tail"
+        }
       ],
       "hint": "Controls how much bounded tool output appears below each status. Raw full output is never dumped into Telegram."
     },
@@ -110,8 +136,14 @@
       "type": "enum",
       "default": "single",
       "options": [
-        { "value": "single", "label": "One live message" },
-        { "value": "per_tool", "label": "One message per tool" }
+        {
+          "value": "single",
+          "label": "One live message"
+        },
+        {
+          "value": "per_tool",
+          "label": "One message per tool"
+        }
       ],
       "hint": "One live message keeps the chat compact. One message per tool gives every tool call its own editable Telegram message."
     },
@@ -149,9 +181,18 @@
       "type": "enum",
       "default": "en",
       "options": [
-        { "value": "en", "label": "English" },
-        { "value": "cs", "label": "Čeština" },
-        { "value": "sk", "label": "Slovenčina" }
+        {
+          "value": "en",
+          "label": "English"
+        },
+        {
+          "value": "cs",
+          "label": "Čeština"
+        },
+        {
+          "value": "sk",
+          "label": "Slovenčina"
+        }
       ],
       "hint": "Language of the bot's own service messages (/new, /model, placeholders)."
     },

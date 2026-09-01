@@ -13,7 +13,7 @@ import { requestOnSiteHost } from './config.js';
 import { ProxyError, proxyToRuntime, type ProxyLimits } from './proxy.js';
 import type { Endpoint } from './runtime.js';
 
-export interface ServeConfig {
+interface ServeConfig {
   /** Base hostname each site gets a subdomain under, or null while the gateway is unprovisioned — in
    *  which case nothing is served at all. */
   siteHostBase: string | null;
