@@ -13,6 +13,8 @@ export const MESSAGES = {
   en: {
     ...SHARED_MESSAGES.en,
     error: (detail) => `⚠️ ${detail}`,
+    stateSaveFailed: 'Could not save this channel setting. Try again.',
+    modelInvalid: 'That model is no longer available. Open the picker again.',
     newConversation: '🆕 Fresh conversation started in this channel.',
     pickModel: '🧠 Pick the model for this channel:',
     modelPlaceholder: 'Choose a model…',
@@ -42,6 +44,8 @@ export const MESSAGES = {
   cs: {
     ...SHARED_MESSAGES.cs,
     error: (detail) => `⚠️ ${detail}`,
+    stateSaveFailed: 'Nastavení kanálu se nepodařilo uložit. Zkuste to znovu.',
+    modelInvalid: 'Tento model už není dostupný. Otevřete výběr znovu.',
     newConversation: '🆕 V tomto kanálu začíná nová konverzace.',
     pickModel: '🧠 Vyberte model pro tento kanál:',
     modelPlaceholder: 'Vyberte model…',
@@ -71,6 +75,8 @@ export const MESSAGES = {
   sk: {
     ...SHARED_MESSAGES.sk,
     error: (detail) => `⚠️ ${detail}`,
+    stateSaveFailed: 'Nastavenie kanála sa nepodarilo uložiť. Skúste to znova.',
+    modelInvalid: 'Tento model už nie je dostupný. Otvorte výber znova.',
     newConversation: '🆕 V tomto kanáli začína nová konverzácia.',
     pickModel: '🧠 Vyberte model pre tento kanál:',
     modelPlaceholder: 'Vyberte model…',

@@ -209,25 +209,26 @@ function globToRegExp(glob) {
   return new RegExp(`^${re}$`);
 }
 
-function readConfig(raw) {
+export function readConfig(raw = {}) {
+  const source = raw && typeof raw === 'object' ? raw : {};
   const bool = (v, def) => (typeof v === 'boolean' ? v : v === 'true' ? true : v === 'false' ? false : def);
-  const include = splitList(raw.includeGlobs);
-  const exclude = splitList(raw.excludeGlobs);
+  const include = splitList(source.includeGlobs);
+  const exclude = splitList(source.excludeGlobs);
   return {
     includeGlobs: include.length ? include : DEFAULT_INCLUDE,
     excludeGlobs: exclude.length ? exclude : DEFAULT_EXCLUDE,
-    maxFileBytes: clampNum(raw.maxFileBytes, 300_000, 1_000, 5_000_000),
-    chunkMaxChars: clampNum(raw.chunkMaxChars, DEFAULT_CHUNK_MAX_CHARS, 200, 20_000),
+    maxFileBytes: clampNum(source.maxFileBytes, 300_000, 1_000, 5_000_000),
+    chunkMaxChars: clampNum(source.chunkMaxChars, DEFAULT_CHUNK_MAX_CHARS, 200, 20_000),
     chunkMaxLines: DEFAULT_CHUNK_MAX_LINES,
-    topK: clampNum(raw.topK, DEFAULT_TOP_K, 1, 50),
-    relevanceFloor: clampNum(raw.relevanceFloor, DEFAULT_RELEVANCE_FLOOR, 0, 1),
-    autoReindex: bool(raw.autoReindex, true),
-    reindexEmbedBudget: clampNum(raw.reindexEmbedBudget, DEFAULT_EMBED_BUDGET, 1, 5_000),
-    scheduledReindex: bool(raw.scheduledReindex, false),
-    reindexIntervalMs: clampNum(raw.reindexIntervalMinutes, DEFAULT_SCHEDULE_MINUTES, 5, 1_440) * 60_000,
-    reindexScope: raw.reindexScope === 'listed' ? 'listed' : 'indexed',
-    reindexRepos: splitList(raw.reindexRepos),
-    reindexMaxPasses: clampNum(raw.reindexMaxPassesPerRepo, DEFAULT_SCHEDULE_MAX_PASSES, 1, 20),
+    topK: clampNum(source.topK, DEFAULT_TOP_K, 1, 50),
+    relevanceFloor: clampNum(source.relevanceFloor, DEFAULT_RELEVANCE_FLOOR, 0, 1),
+    autoReindex: bool(source.autoReindex, true),
+    reindexEmbedBudget: clampNum(source.reindexEmbedBudget, DEFAULT_EMBED_BUDGET, 1, 5_000),
+    scheduledReindex: bool(source.scheduledReindex, false),
+    reindexIntervalMs: clampNum(source.reindexIntervalMinutes, DEFAULT_SCHEDULE_MINUTES, 5, 1_440) * 60_000,
+    reindexScope: source.reindexScope === 'listed' ? 'listed' : 'indexed',
+    reindexRepos: splitList(source.reindexRepos),
+    reindexMaxPasses: clampNum(source.reindexMaxPassesPerRepo, DEFAULT_SCHEDULE_MAX_PASSES, 1, 20),
   };
 }
 

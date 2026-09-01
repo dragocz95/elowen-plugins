@@ -9,6 +9,7 @@ import {
   cosine,
   packVector,
   planIncremental,
+  readConfig,
   register,
   splitList,
   unpackVector,
@@ -208,6 +209,14 @@ describe('codebase plugin — pure helpers', () => {
       splitList(['src/**/*.{ts,tsx}', 'fixtures/a,b/**', '  docs/**  ']),
       ['src/**/*.{ts,tsx}', 'fixtures/a,b/**', 'docs/**'],
     );
+  });
+
+  it('readConfig degrades malformed config input to safe defaults', () => {
+    const cfg = readConfig(null);
+    assert.equal(cfg.topK, 8);
+    assert.equal(cfg.reindexScope, 'indexed');
+    assert.deepEqual(cfg.reindexRepos, []);
+    assert.equal(cfg.autoReindex, true);
   });
 });
 

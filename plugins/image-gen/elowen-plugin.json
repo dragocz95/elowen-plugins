@@ -27,13 +27,20 @@
       "key": "model",
       "label": "Model",
       "type": "model",
+      "default": "gpt-image-1",
       "hint": "Pick from your configured models. Default: gpt-image-1."
     },
     {
       "key": "size",
       "label": "Size",
-      "type": "string",
-      "hint": "1024x1024 (default), 1536x1024 or 1024x1536."
+      "type": "enum",
+      "default": "1024x1024",
+      "options": [
+        { "value": "1024x1024", "label": "1024×1024 (square)" },
+        { "value": "1536x1024", "label": "1536×1024 (landscape)" },
+        { "value": "1024x1536", "label": "1024×1536 (portrait)" }
+      ],
+      "hint": "Output resolution and aspect ratio."
     }
   ]
 }

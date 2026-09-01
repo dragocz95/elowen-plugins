@@ -58,10 +58,13 @@ export function register(ctx) {
     }),
     execute: async (_id, p) => {
       try {
+        const instruction = typeof p.instruction === 'string' ? p.instruction.trim() : '';
+        if (!instruction) return ok('Error: instruction is required.');
         // Load the source bytes from a guarded repo path or a public URL.
         let bytes;
         let mime = 'image/png';
         if (p.path) {
+          if (!/\.(?:png|jpe?g)$/i.test(String(p.path))) return ok('Error: path must point to a PNG or JPEG image.');
           bytes = readFileSync(ctx.assertPathAllowed(p.path));
           if (/\.jpe?g$/i.test(p.path)) mime = 'image/jpeg';
         } else if (p.url) {
@@ -69,7 +72,9 @@ export function register(ctx) {
           if (u.protocol !== 'http:' && u.protocol !== 'https:') return ok('Error: url must be http(s).');
           const r = await fetch(u, { signal: AbortSignal.timeout(TIMEOUT_MS) });
           if (!r.ok) throw new Error(`fetch source HTTP ${r.status}`);
-          mime = r.headers.get('content-type')?.split(';')[0] || mime;
+          const contentType = r.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || '';
+          if (contentType && !['image/png', 'image/jpeg'].includes(contentType)) throw new Error('source URL must return a PNG or JPEG image');
+          mime = contentType || mime;
           bytes = Buffer.from(await r.arrayBuffer());
         } else {
           return ok('Error: provide either a repo file path or a public image URL.');
@@ -77,7 +82,7 @@ export function register(ctx) {
 
         const form = new FormData();
         form.set('model', model);
-        form.set('prompt', p.instruction);
+        form.set('prompt', instruction);
         form.set('size', SIZES.has(p.size) ? p.size : 'auto');
         form.set('image', new Blob([bytes], { type: mime }), 'source.png');
 
@@ -96,7 +101,7 @@ export function register(ctx) {
         if (!b64) throw new Error('no image in the response');
         const file = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}.png`;
         writeFileSync(join(ctx.dataDir(), file), Buffer.from(b64, 'base64'));
-        return ok(`![${p.instruction.slice(0, 80).replaceAll(']', '')}](/api/brain/images/${file})`);
+        return ok(`![${instruction.slice(0, 80).replaceAll(']', '')}](/api/brain/images/${file})`);
       } catch (e) { return fail(e); }
     },
   }));

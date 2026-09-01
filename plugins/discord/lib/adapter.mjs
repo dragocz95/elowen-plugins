@@ -717,7 +717,7 @@ export class DiscordAdapter {
         if (!this.isAdminMember(i.member)) return this.respond(i, 4, { content: this.msg.modelForbidden, flags: 64 });
         const opt = (i.data?.options ?? []).find((o) => o.name === 'state')?.value;
         const next = opt === 'on' ? true : opt === 'off' ? false : !this.voiceEnabled(i.channel_id); // no arg = toggle
-        this.state.patch(i.channel_id, { voice: next });
+        if (!await this.patchInteractionState(i, { voice: next })) return;
         const note = next && !this.voiceCreds() ? `\n${this.msg.voiceNeedsKey}` : '';
         return this.respond(i, 4, { content: `${this.msg.voiceSet(next)}${note}`, flags: 64 });
       }
@@ -732,7 +732,7 @@ export class DiscordAdapter {
           ...(options.layout ? { toolMessageMode: options.layout } : {}),
         };
         const state = this.state.get(i.channel_id);
-        if (Object.keys(values).length) this.state.patch(i.channel_id, { display: updateDisplayOverrides(state.display, values) });
+        if (Object.keys(values).length && !await this.patchInteractionState(i, { display: updateDisplayOverrides(state.display, values) })) return;
         const resolved = resolveDisplaySettings(this.cfg, this.state.get(i.channel_id));
         return this.respond(i, 4, { content: this.msg.displaySet(resolved), flags: 64 });
       }
@@ -790,7 +790,7 @@ export class DiscordAdapter {
         return this.respond(i, 7, { content: this.msg.reasoningUnavailable, components: [] });
       }
       const level = value === 'default' ? '' : value;
-      this.state.patch(i.channel_id, { thinkingLevel: level });
+      if (!await this.patchInteractionState(i, { thinkingLevel: level }, 7)) return;
       const displayLevel = level ? String(active.reasoningLabels?.[level] ?? level) : this.msg.reasoningDefaultValue;
       return this.respond(i, 7, { content: this.msg.thinkingSet(displayLevel), components: [] });
     }
@@ -798,8 +798,11 @@ export class DiscordAdapter {
       // Re-check on submit: the select menu was admin-gated, but the component round-trips independently.
       if (!this.isAdminMember(i.member)) return this.respond(i, 7, { content: this.msg.modelForbidden, components: [] });
       const [provider, model] = String(i.data.values?.[0] ?? '').split('::');
-      if (provider && model) this.state.patch(i.channel_id, { model: { provider, model } });
-      return this.respond(i, 7, { content: this.msg.modelSet(provider && model ? `${provider}/${model}` : model), components: [] });
+      const models = await this.listModels().catch(() => []);
+      const selected = (Array.isArray(models) ? models : []).find((entry) => entry.provider === provider && entry.model === model);
+      if (!selected) return this.respond(i, 7, { content: this.msg.modelInvalid, components: [] });
+      if (!await this.patchInteractionState(i, { model: { provider, model } }, 7)) return;
+      return this.respond(i, 7, { content: this.msg.modelSet(`${provider}/${model}`), components: [] });
     }
   }
 
@@ -811,6 +814,21 @@ export class DiscordAdapter {
   /** Edit the original (deferred) interaction reply — used after a type-5 defer for slow work. */
   async editOriginal(i, data) {
     await this.rest('PATCH', `/webhooks/${this.appId}/${i.token}/messages/@original`, data);
+  }
+
+  /** Persist per-channel settings and keep a failed interaction actionable instead of acknowledging a
+   * change that never reached disk. */
+  async patchInteractionState(i, patch, responseType = 4) {
+    try {
+      this.state.patch(i.channel_id, patch);
+      return true;
+    } catch {
+      await this.respond(i, responseType, {
+        content: this.msg.error(this.msg.stateSaveFailed),
+        ...(responseType === 4 ? { flags: 64 } : { components: [] }),
+      });
+      return false;
+    }
   }
 
   /** Render a parked AskUserQuestion (from the brain's `ask` event) as an orange embed plus native

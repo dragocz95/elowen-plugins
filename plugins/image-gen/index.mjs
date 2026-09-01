@@ -8,6 +8,10 @@ import { join } from 'node:path';
 
 const TIMEOUT_MS = 120_000; // image models are slow
 const SIZES = new Set(['1024x1024', '1536x1024', '1024x1536']);
+export function normalizeSize(value, fallback = '1024x1024') {
+  return typeof value === 'string' && SIZES.has(value.trim()) ? value.trim() : fallback;
+}
+
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
 
@@ -34,7 +38,7 @@ export function register(ctx) {
   const apiKey = provider.apiKey;
   const base = resolveBase(provider.baseUrl);
   const model = resolveModel(ctx.config.model);
-  const defaultSize = SIZES.has(ctx.config.size) ? ctx.config.size : '1024x1024';
+  const defaultSize = normalizeSize(ctx.config.size);
 
   ctx.registerTool(defineTool({
     name: 'GenerateImage', label: 'Generate image',
@@ -58,10 +62,12 @@ export function register(ctx) {
     }),
     execute: async (_id, p) => {
       try {
+        const prompt = typeof p.prompt === 'string' ? p.prompt.trim() : '';
+        if (!prompt) return ok('Error: prompt is required.');
         const res = await fetch(`${base}/images/generations`, {
           method: 'POST',
           headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ model, prompt: p.prompt, size: SIZES.has(p.size) ? p.size : defaultSize, n: 1 }),
+          body: JSON.stringify({ model, prompt, size: normalizeSize(p.size, defaultSize), n: 1 }),
           signal: AbortSignal.timeout(TIMEOUT_MS),
         });
         if (!res.ok) {
@@ -74,7 +80,7 @@ export function register(ctx) {
         const file = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}.png`;
         writeFileSync(join(ctx.dataDir(), file), Buffer.from(b64, 'base64'));
         // The daemon serves this plugin's data dir on /brain/images — the markdown renders inline.
-        return ok(`![${p.prompt.slice(0, 80).replaceAll(']', '')}](/api/brain/images/${file})`);
+        return ok(`![${prompt.slice(0, 80).replaceAll(']', '')}](/api/brain/images/${file})`);
       } catch (e) { return fail(e); }
     },
   }));

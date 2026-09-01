@@ -20,6 +20,19 @@ export function resolveCallTimeoutMs(raw) {
   return Math.min(MAX_CALL_TIMEOUT_S, Math.max(MIN_CALL_TIMEOUT_S, Math.floor(seconds))) * 1000;
 }
 
+/** Only network endpoints are accepted. Rejecting malformed values before registration avoids a saved
+ * configuration that can never activate the tool and prevents accidental non-HTTP transports. */
+export function resolveApiUrl(raw) {
+  const value = typeof raw === 'string' ? raw.trim().replace(/\/+$/, '') : '';
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString().replace(/\/$/, '') : '';
+  } catch {
+    return '';
+  }
+}
+
 /** E.164: a plus, a non-zero country digit, then 7-14 more. The one guard that catches a mistyped
  *  number before it reaches a stranger's phone, and it costs nothing. */
 const E164 = /^\+[1-9]\d{7,14}$/;
@@ -49,7 +62,7 @@ function minutesUntil(freeAt, now) {
 }
 
 export function registerVoiceCall(ctx, store) {
-  const apiUrl = text(ctx.config.apiUrl).replace(/\/+$/, '');
+  const apiUrl = resolveApiUrl(ctx.config.apiUrl);
   const apiToken = text(ctx.config.apiToken);
   if (!apiUrl || !apiToken) {
     ctx.logger.warn('enabled but the call endpoint or token is not configured — VoiceCall not registered');

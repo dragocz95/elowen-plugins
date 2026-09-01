@@ -419,6 +419,12 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
   const updateIdentityDetail = useCallback((aadObjectId: string, account: TeamsAccountDetail) => {
     setPeople((current) => current ? peopleWithAccountDetail(current, aadObjectId, account) : current);
   }, []);
+  const retryPeople = useCallback(() => {
+    setPeopleError(null);
+    void apiJson<PeopleResponse>('/plugins/msteams/people')
+      .then((value) => setPeople(value))
+      .catch((error) => setPeopleError(utils.apiErrorMessage(error)));
+  }, [utils]);
 
   useEffect(() => {
     let live = true;
@@ -513,7 +519,7 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
     >
       {tab === 'people' ? (
         peopleError !== null ? (
-          <C.ControlSurfaceDocument><C.ControlSurfaceState tone="danger"><C.ErrorState message={`${s.peopleLoadError} — ${peopleError}`} /></C.ControlSurfaceState></C.ControlSurfaceDocument>
+          <C.ControlSurfaceDocument><C.ControlSurfaceState tone="danger"><C.ErrorState message={`${s.peopleLoadError} — ${peopleError}`} onRetry={retryPeople} /></C.ControlSurfaceState></C.ControlSurfaceDocument>
         ) : people === null ? (
           <C.ControlSurfaceDocument><C.ControlSurfaceState><C.LoadingState variant="list" /></C.ControlSurfaceState></C.ControlSurfaceDocument>
         ) : <PeopleAccess draft={draft} response={people} search={search} filter={filter} onIdentityDetail={updateIdentityDetail} />

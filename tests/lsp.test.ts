@@ -8,8 +8,16 @@ import { join, basename } from 'node:path';
 import { detectLanguage, serverForLanguage, commandExists, listServers, resolveServerCommand } from '../plugins/lsp/src/servers.js';
 import { parsePublishDiagnostics, LspClient, type LspTransport, type JsonRpcMessage } from '../plugins/lsp/src/client.js';
 import { LspManager, formatCheckResult, projectRootForFile } from '../plugins/lsp/src/manager.js';
+import { lspPluginConfig } from '../plugins/lsp/src/config.js';
 import { workspaceBoundary, formatDocumentSymbols, formatLocations, formatHover, formatWorkspaceSymbols } from '../plugins/lsp/src/tools.js';
 import { lspToolCtx, registeredLspTools } from './helpers/lspHarness.js';
+
+describe('LSP plugin config boundary', () => {
+  it('falls back as a whole when diagnosticsEnabled is malformed', () => {
+    expect(lspPluginConfig({ diagnosticsEnabled: 'yes' })).toEqual({ diagnosticsEnabled: true });
+    expect(lspPluginConfig({ diagnosticsEnabled: false })).toEqual({ diagnosticsEnabled: false });
+  });
+});
 
 describe('LSP protocol codec', () => {
   it('encodes with a byte-accurate Content-Length header', () => {

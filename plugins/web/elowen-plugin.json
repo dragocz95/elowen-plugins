@@ -9,6 +9,6 @@
     { "key": "provider", "label": "Search provider", "type": "enum", "default": "auto", "options": [{ "value": "auto", "label": "Automatic" }, { "value": "tavily", "label": "Tavily" }, { "value": "serper", "label": "Serper" }], "hint": "Which backend answers WebSearch. Automatic uses Tavily when its key is set, otherwise Serper." },
     { "key": "tavilyApiKey", "label": "Tavily API key", "type": "secret", "hint": "app.tavily.com — powers WebSearch. Without a key here or in Serper only WebFetch works." },
     { "key": "serperApiKey", "label": "Serper API key", "type": "secret", "hint": "serper.dev — Google results for WebSearch. Without a key here or in Tavily only WebFetch works." },
-    { "key": "maxResults", "label": "Search results", "type": "number", "hint": "How many results WebSearch returns (default 5)." }
+    { "key": "maxResults", "label": "Search results", "type": "number", "min": 1, "max": 10, "step": 1, "default": 5, "hint": "How many results WebSearch returns (1–10, default 5)." }
   ]
 }

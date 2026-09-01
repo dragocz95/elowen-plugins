@@ -11,7 +11,12 @@
     },
     "size": {
       "label": "Veľkosť",
-      "hint": "1024x1024 (predvolené), 1536x1024 alebo 1024x1536."
+      "hint": "Výstupné rozlíšenie a pomer strán.",
+      "options": {
+        "1024x1024": "1024×1024 (štvorec)",
+        "1536x1024": "1536×1024 (na šírku)",
+        "1024x1536": "1024×1536 (na výšku)"
+      }
     }
   }
 }
