@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
-import type { AutoSaveStatusProps, SaveStatus } from '../../autoSaveContract';
+import type { AutoSaveStatusProps, PluginConfigDraft } from '../../autoSaveContract';
 
 interface TeamsIdentityUser {
   id: number;
@@ -80,14 +80,7 @@ interface QueryResult<T> {
 }
 
 export interface User { id: number; username: string; name?: string; avatar?: string }
-interface ConfigDraft {
-  values: Record<string, unknown>;
-  setValue(key: string, value: unknown): void;
-  status: SaveStatus;
-  retry(): void;
-  flush(): void;
-  ready: boolean;
-}
+type ConfigDraft = Pick<PluginConfigDraft, 'values' | 'setValue' | 'status' | 'retry' | 'flush' | 'ready'>;
 
 interface TeamsHooks {
   usePluginStrings(plugin: string): Record<string, string>;

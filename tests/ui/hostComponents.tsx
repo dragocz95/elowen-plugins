@@ -777,6 +777,7 @@ export function AutoSaveStatus({ status, onRetry }: AutoSaveStatusProps) {
   const { t } = useTranslation();
   if (status === 'idle') return <span role="status" aria-live="polite" />;
   if (status === 'saving') return <span role="status" aria-live="polite"><Spinner size="sm" tone="" />{t.common.saving}</span>;
+  if (status === 'pending') return <span role="status" aria-live="polite"><Spinner size="sm" tone="" />{t.common.activationPending}</span>;
   if (status === 'saved') return <span role="status" aria-live="polite"><Check size={13} aria-hidden />{t.common.saved}</span>;
   return (
     <span role="alert">

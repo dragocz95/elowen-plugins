@@ -10,9 +10,9 @@
  *  through silently stopped resolving. `gitSha` below is exactly that helper.
  *
  *  Source text cannot be compared across the repo boundary — the daemon's npm package publishes
- *  `dist/`, not `src/` — so this pins BEHAVIOUR against a built core. It prefers ELOWEN_CORE_ROOT,
- *  then a sibling checkout, then the installed package, and prints that choice on every run. The
- *  registry may lead the published package, so a narrowly pinned forward contract covers that window.
+ *  `dist/`, not `src/` — so this pins BEHAVIOUR against the built checkout named by
+ *  ELOWEN_CORE_ROOT. Requiring the root explicitly prevents a developer's sibling checkout or stale
+ *  installed package from silently becoming the comparison target.
  *  Behavioural equivalence is what survives TypeScript compilation and what actually breaks a user.
  *
  *  The copies are DISCOVERED, not hand-listed, so one added tomorrow is covered the moment it exists
@@ -24,28 +24,26 @@
  *  were never copies; those export a narrower surface, which is what tells the two apart.
  */
 import { describe, it, expect } from 'vitest';
-import { readdirSync, existsSync } from 'node:fs';
-import { join, dirname, basename, resolve } from 'node:path';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { join, basename, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createRequire } from 'node:module';
 
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const requireFromHere = createRequire(import.meta.url);
-const installedCoreRoot = dirname(requireFromHere.resolve('elowen/package.json'));
-const siblingCoreRoot = resolve(root, '..', 'elowen');
 const configuredCoreRoot = process.env.ELOWEN_CORE_ROOT?.trim();
-const coreRoot = configuredCoreRoot
-  ? resolve(configuredCoreRoot)
-  : existsSync(join(siblingCoreRoot, 'package.json'))
-    ? siblingCoreRoot
-    : installedCoreRoot;
-const coreSource = configuredCoreRoot ? 'ELOWEN_CORE_ROOT' : coreRoot === siblingCoreRoot ? 'sibling checkout' : 'installed package';
-const coreSharedDir = join(coreRoot, 'dist', 'shared');
-if (!existsSync(join(coreSharedDir, 'execs.js'))) {
-  throw new Error(`[copied-helper-parity] ${coreSource} has no built dist/shared/execs.js: ${coreRoot}`);
+if (!configuredCoreRoot) {
+  throw new Error('[copied-helper-parity] ELOWEN_CORE_ROOT must point to the authoritative built core checkout');
 }
-console.info(`[copied-helper-parity] core source: ${coreSource} (${coreRoot})`);
+const coreRoot = resolve(configuredCoreRoot);
+const coreSharedDir = join(coreRoot, 'dist', 'shared');
+const coreUiKitTypesPath = join(coreRoot, 'packages/plugin-ui-kit/index.d.ts');
+if (!existsSync(join(coreSharedDir, 'execs.js')) || !existsSync(coreUiKitTypesPath)) {
+  throw new Error(`[copied-helper-parity] ELOWEN_CORE_ROOT lacks built shared helpers or ui-kit sources: ${coreRoot}`);
+}
+if (!/PLUGIN_UI_API_VERSION:\s*12\b/.test(readFileSync(coreUiKitTypesPath, 'utf8'))) {
+  throw new Error(`[copied-helper-parity] ELOWEN_CORE_ROOT does not expose plugin UI API 12: ${coreRoot}`);
+}
+console.info(`[copied-helper-parity] core source: ELOWEN_CORE_ROOT (${coreRoot})`);
 
 /** Ids of the copies this file pins behaviourally. The discovery scan below asserts this list is
  *  exactly what it found, so a NEW copy fails the suite until someone adds cases for it here.
