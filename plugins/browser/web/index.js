@@ -516,6 +516,21 @@ var siteName = (url) => {
     return url;
   }
 };
+function GlassButton({ icon: Icon2, label, onClick, disabled, tone, className = "" }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    "button",
+    {
+      type: "button",
+      className: `browser-artifact__icon ${className}`.trim(),
+      "data-tone": tone,
+      "aria-label": label,
+      title: label,
+      onClick,
+      disabled,
+      children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Icon2, { size: 14, "aria-hidden": true })
+    }
+  );
+}
 function CanvasOverlay({ label, aspect, onClose, children }) {
   const surface = (0, import_react5.useRef)(null);
   const opener = (0, import_react5.useRef)(null);
@@ -586,7 +601,7 @@ function CanvasOverlay({ label, aspect, onClose, children }) {
 }
 function BrowserArtifact({ artifact }) {
   const host = runtime();
-  const { Button, IconButton, ConfirmDialog, Spinner } = host.components;
+  const { Button, ConfirmDialog, Spinner } = host.components;
   const strings = host.hooks.usePluginStrings("browser");
   const toast = host.hooks.useToast();
   const data = asData(artifact.data);
@@ -789,16 +804,16 @@ function BrowserArtifact({ artifact }) {
     ] }),
     expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(CanvasOverlay, { label: title, aspect: frameAspect, onClose: () => setExpanded(false), children: [
       canvas(true),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "browser-artifact__dismiss", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: X, label: strings.closeView || "Close view", onClick: () => setExpanded(false) }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: X, label: strings.closeView || "Close view", onClick: () => setExpanded(false), className: "browser-artifact__dismiss" }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__controls", children: [
         lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]) }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => shortcut("ArrowRight", "ArrowRight", ["Alt"]) }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => shortcut("r", "KeyR", ["Control"]) })
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]) }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => shortcut("ArrowRight", "ArrowRight", ["Alt"]) }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => shortcut("r", "KeyR", ["Control"]) })
         ] }) : null,
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__site", children: site || strings.noAddress || "No address yet" }),
         controlAction(),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: Power, label: strings.closeSession || "Close session", variant: "danger", onClick: () => setConfirmClose(true), disabled: pending !== null || stream.closed })
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: Power, label: strings.closeSession || "Close session", tone: "danger", onClick: () => setConfirmClose(true), disabled: pending !== null || stream.closed })
       ] })
     ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(

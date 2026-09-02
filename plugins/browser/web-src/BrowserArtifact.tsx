@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type WheelEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ArrowRight, Expand, Hand, Power, RotateCw, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Expand, Hand, Power, RotateCw, ShieldCheck, X, type LucideIcon } from 'lucide-react';
 import type { BrowserArtifactProps } from './runtime';
 import { apiError, jsonRequest, runtime } from './runtime';
 import { useBrowserStream } from './useBrowserStream';
@@ -34,6 +34,30 @@ const inputPath = (sessionId: string, action: string): string => `/plugins/brows
 const siteName = (url: string): string => {
   try { return new URL(url).host || url; } catch { return url; }
 };
+
+/** One control on the glass. The host `IconButton` is a bordered SQUARE by design — it aligns to the edge
+ *  of a table cell or a toolbar rule, which is why it declines a radius — so putting one on a translucent
+ *  disc drew two frames around a single control: the square outline inside the disc that the production
+ *  screenshot caught. This is the same affordance with one shape: a round ghost icon button that carries
+ *  the glass itself when it stands alone on the image, and stays transparent inside the controls pill,
+ *  which already is the glass. Keyboard focus is a ring, never the border. */
+function GlassButton({ icon: Icon, label, onClick, disabled, tone, className = '' }: {
+  icon: LucideIcon; label: string; onClick?: () => void; disabled?: boolean; tone?: 'danger'; className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`browser-artifact__icon ${className}`.trim()}
+      data-tone={tone}
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <Icon size={14} aria-hidden />
+    </button>
+  );
+}
 
 /** The expanded canvas: the live browser raised over the page, with the transcript still visible around
  *  it. The host `Modal` cannot draw this — every presentation frames its content in a titled card whose
@@ -106,7 +130,7 @@ function CanvasOverlay({ label, aspect, onClose, children }: { label: string; as
 
 export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
   const host = runtime();
-  const { Button, IconButton, ConfirmDialog, Spinner } = host.components;
+  const { Button, ConfirmDialog, Spinner } = host.components;
   const strings = host.hooks.usePluginStrings('browser');
   const toast = host.hooks.useToast();
   const data = asData(artifact.data);
@@ -318,20 +342,18 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
       {expanded ? (
         <CanvasOverlay label={title} aspect={frameAspect} onClose={() => setExpanded(false)}>
           {canvas(true)}
-          <div className="browser-artifact__dismiss">
-            <IconButton icon={X} label={strings.closeView || 'Close view'} onClick={() => setExpanded(false)} />
-          </div>
+          <GlassButton icon={X} label={strings.closeView || 'Close view'} onClick={() => setExpanded(false)} className="browser-artifact__dismiss" />
           <div className="browser-artifact__controls">
             {lease ? (
               <>
-                <IconButton icon={ArrowLeft} label={strings.back || 'Back'} onClick={() => shortcut('ArrowLeft', 'ArrowLeft', ['Alt'])} />
-                <IconButton icon={ArrowRight} label={strings.forward || 'Forward'} onClick={() => shortcut('ArrowRight', 'ArrowRight', ['Alt'])} />
-                <IconButton icon={RotateCw} label={strings.reload || 'Reload'} onClick={() => shortcut('r', 'KeyR', ['Control'])} />
+                <GlassButton icon={ArrowLeft} label={strings.back || 'Back'} onClick={() => shortcut('ArrowLeft', 'ArrowLeft', ['Alt'])} />
+                <GlassButton icon={ArrowRight} label={strings.forward || 'Forward'} onClick={() => shortcut('ArrowRight', 'ArrowRight', ['Alt'])} />
+                <GlassButton icon={RotateCw} label={strings.reload || 'Reload'} onClick={() => shortcut('r', 'KeyR', ['Control'])} />
               </>
             ) : null}
             <span className="browser-artifact__site">{site || strings.noAddress || 'No address yet'}</span>
             {controlAction()}
-            <IconButton icon={Power} label={strings.closeSession || 'Close session'} variant="danger" onClick={() => setConfirmClose(true)} disabled={pending !== null || stream.closed} />
+            <GlassButton icon={Power} label={strings.closeSession || 'Close session'} tone="danger" onClick={() => setConfirmClose(true)} disabled={pending !== null || stream.closed} />
           </div>
         </CanvasOverlay>
       ) : null}

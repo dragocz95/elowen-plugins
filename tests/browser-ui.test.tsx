@@ -97,6 +97,21 @@ describe('browser plugin UI', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
+  it('draws the close control as one glass button, not a bordered square inside a disc', async () => {
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    const close = await screen.findByRole('button', { name: strings.closeView });
+    // ONE element is the control AND its glass: no wrapper holding a second framed button inside it.
+    expect(close).toHaveClass('browser-artifact__icon', 'browser-artifact__dismiss');
+    expect(close.querySelector('button')).toBeNull();
+    expect(close.closest('.browser-artifact__dismiss')).toBe(close);
+    // Every control on the canvas is that same round ghost button — nothing draws its own square edge.
+    for (const label of [strings.closeSession, strings.closeView]) {
+      expect(screen.getByRole('button', { name: label })).toHaveClass('browser-artifact__icon');
+    }
+  });
+
   it('keeps an agent-requested handoff claimable by the user', async () => {
     use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(requestedStreamBody, { headers: { 'content-type': 'text/event-stream' } })));
     mountArtifact();

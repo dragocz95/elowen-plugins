@@ -47,7 +47,8 @@ interface RuntimeComponents {
     title?: string;
     children?: ReactNode;
   }>;
-  IconButton: ComponentType<{ icon: LucideIcon; label: string; onClick?: () => void; variant?: 'default' | 'danger'; disabled?: boolean }>;
+  // No `IconButton`: it is a bordered square that aligns to a table row or a toolbar rule, and the marks
+  // on the live canvas are round glass discs. The artifact draws that one itself (BrowserArtifact.GlassButton).
   Badge: ComponentType<{ tone?: 'default' | 'accent' | 'muted' | 'danger' | 'success' | 'warning'; children: ReactNode }>;
   // No `Modal`: the artifact's expanded view is a borderless canvas, and every Modal presentation frames
   // its content in a titled card. The plugin draws that surface itself (BrowserArtifact.CanvasOverlay).

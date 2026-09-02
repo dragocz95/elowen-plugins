@@ -336,6 +336,17 @@ describe('browser web artifact build', () => {
     expect(Number(veil![1])).toBeGreaterThanOrEqual(30);
   });
 
+  it('gives a control on the canvas one glass disc and no border of its own', () => {
+    const css = stylesheet();
+    const icon = rule(css, '.browser-artifact__icon');
+    // A ghost button: no edge of its own, so the disc it is given cannot become a second frame.
+    expect(icon).toContain('border: 0');
+    expect(icon).toContain('background: transparent');
+    expect(rule(css, '.browser-artifact__icon:focus-visible')).toContain('outline: 2px solid');
+    // The lone control over the page carries its own ground rather than sitting in a wrapper that has one.
+    expect(rule(css, '.browser-artifact__dismiss')).toMatch(/background: color-mix/);
+  });
+
   it('never hides the pointer on a canvas the user is driving', () => {
     const css = stylesheet();
     // `cursor: none` here left a takeover with no pointer at all: the streamed cursor it was standing in

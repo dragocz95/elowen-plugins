@@ -182,14 +182,48 @@
 .browser-artifact__surface .browser-artifact__canvas {
   height: 100%;
 }
+.browser-artifact__icon {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  flex: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  color: var(--color-muted-foreground, #9d948e);
+  cursor: pointer;
+  transition: color var(--motion-fast, 140ms) ease, background-color var(--motion-fast, 140ms) ease;
+}
+.browser-artifact__icon:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-foreground, #f7f3f0) 10%, transparent);
+  color: var(--color-foreground, #f7f3f0);
+}
+.browser-artifact__icon[data-tone=danger]:hover:not(:disabled) {
+  color: var(--color-destructive, #e94d42);
+}
+.browser-artifact__icon:disabled {
+  opacity: .45;
+  cursor: default;
+}
+.browser-artifact__icon:focus-visible {
+  outline: 2px solid var(--color-primary, #ff5236);
+  outline-offset: 1px;
+}
 .browser-artifact__dismiss {
   position: absolute;
   z-index: 4;
   top: .5rem;
   right: .5rem;
-  border-radius: 999px;
+  width: 2rem;
+  height: 2rem;
   background: color-mix(in srgb, var(--color-background, #000) 78%, transparent);
+  color: var(--color-foreground, #f7f3f0);
   backdrop-filter: blur(10px);
+}
+.browser-artifact__dismiss:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-background, #000) 90%, transparent);
 }
 .browser-artifact__controls {
   position: absolute;
