@@ -5,6 +5,20 @@ export const ok = (value) => ({
 
 export const fail = (error) => ok(`Error: ${error instanceof Error ? error.message : String(error)}`);
 
+/** C0 controls and DEL, which a task subject or owner must never carry.
+ *
+ *  Both are SINGLE-LINE labels reproduced verbatim on every surface: a card row, the CLI's fixed bottom
+ *  panel, and the `<subject>` element of the XML turn context. `escapeXml` neutralises markup but leaves a
+ *  raw control byte exactly as it is, so a newline forges a line in the rendered context and an escape
+ *  sequence walks the terminal cursor out of the row it was drawn in.
+ *
+ *  The check runs on the TRIMMED value, which is why an ordinary space still passes while a tab or a
+ *  newline INSIDE the label does not: surrounding whitespace is what trimming is for, and a subject is
+ *  one line. */
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
+
+export const hasControlCharacters = (value) => CONTROL_CHARACTERS.test(String(value).trim());
+
 export function escapeXml(value) {
   return String(value)
     .replaceAll('&', '&amp;')

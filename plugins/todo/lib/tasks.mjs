@@ -1,6 +1,6 @@
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { fail, keyFor, ok, parseObject } from './common.mjs';
+import { fail, hasControlCharacters, keyFor, ok, parseObject } from './common.mjs';
 import { pushTaskCard, renderTaskContext } from './render.mjs';
 
 const TASK_STATUSES = ['pending', 'in_progress', 'completed'];
@@ -12,6 +12,21 @@ const TASK_STATUS_SCHEMA = Type.Union(TASK_STATUSES.map((status) => Type.Literal
  *  value past them would be truncated on every surface that displays it anyway. */
 const MAX_SUBJECT = 200;
 const MAX_OWNER = 64;
+
+/** Refusals for a label carrying a control character. They name the rule rather than repeating the
+ *  generic "invalid task subject", because the caller — a browser field, or the model composing a
+ *  subject — cannot see the offending byte and would otherwise retry the same value. */
+const CONTROL_SUBJECT_ERROR = 'task subject must not contain control characters (it is a single line)';
+const CONTROL_OWNER_ERROR = 'task owner must not contain control characters';
+
+/** The control-character rule for a whole patch, applied wherever a subject or an owner is WRITTEN so
+ *  neither entry point can bypass it: the HTTP route checks first to answer 400 rather than 503, and the
+ *  store checks again because the TaskUpdate tool reaches it directly. Returns the refusal, or null. */
+function controlCharacterError(patch) {
+  if (typeof patch.subject === 'string' && hasControlCharacters(patch.subject)) return CONTROL_SUBJECT_ERROR;
+  if (typeof patch.owner === 'string' && hasControlCharacters(patch.owner)) return CONTROL_OWNER_ERROR;
+  return null;
+}
 
 /** Three idle conversation turns leave enough time to inspect finished work without carrying it into a
  *  later topic indefinitely. New work clears an aged finished list immediately, before its first task lands. */
@@ -207,6 +222,12 @@ class TaskStore {
    *  new conversational work starts with a clean panel instead of joining an old finished list. */
   create(key, inputs) {
     return this.db.transaction(() => {
+      // Before anything is written or aged away: a batch that cannot be stored must leave the list, and
+      // the completed-list grace period below it, exactly as it was.
+      for (const input of inputs) {
+        const control = controlCharacterError(input);
+        if (control) throw new Error(control);
+      }
       this.#ensureList(key);
       let current = this.list(key);
       const listState = this.readList.get(key);
@@ -318,6 +339,9 @@ class TaskStore {
       const tasks = this.list(key);
       const task = tasks.find((item) => item.id === String(taskId));
       if (!task) throw new Error('task not found');
+
+      const control = controlCharacterError(patch);
+      if (control) throw new Error(control);
 
       const hasUpdate = ['subject', 'description', 'activeForm', 'status', 'owner', 'metadata']
         .some((field) => patch[field] !== undefined)
@@ -438,6 +462,8 @@ const SAFE_ERRORS = new Set([
   'tasks must be a non-empty array of tasks to create',
   'every task needs a non-empty subject and description',
   'invalid task status',
+  CONTROL_SUBJECT_ERROR,
+  CONTROL_OWNER_ERROR,
   'task not found',
   'nothing to update',
   'a task cannot depend on itself',
@@ -507,6 +533,8 @@ function routePatch(body) {
     patch.owner = owner;
   }
 
+  const control = controlCharacterError(patch);
+  if (control) return { error: control };
   if (Object.keys(patch).length === 0) return { error: 'nothing to update' };
   return { value: patch };
 }

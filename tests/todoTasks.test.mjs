@@ -445,15 +445,80 @@ test('PATCH task renames and re-owns a task, and refuses a patch it cannot apply
     [{ subject: 'x'.repeat(201) }, 'invalid task subject'],
     [{ owner: 7 }, 'invalid task owner'],
     [{ owner: 'o'.repeat(65) }, 'invalid task owner'],
+    // A subject and an owner are single-line labels reproduced verbatim on every surface — a card row,
+    // the CLI's fixed panel, the `<subject>` of the XML turn context, none of which escapeXml protects
+    // from a raw control byte. Trimming handles the whitespace AROUND the label, so only what survives it
+    // is refused: an inner tab or newline, an ESC opening a terminal sequence, a NUL, a DEL.
+    [{ subject: 'Ship\nthe fix' }, 'task subject must not contain control characters (it is a single line)'],
+    [{ subject: 'Ship\tthe fix' }, 'task subject must not contain control characters (it is a single line)'],
+    [{ subject: 'Ship\x1b[2Jthe fix' }, 'task subject must not contain control characters (it is a single line)'],
+    [{ subject: 'Ship\x00 it' }, 'task subject must not contain control characters (it is a single line)'],
+    [{ subject: 'Ship\x7f it' }, 'task subject must not contain control characters (it is a single line)'],
+    [{ owner: 'Lu\nna' }, 'task owner must not contain control characters'],
+    [{ owner: 'Lu\x1b]52;c;x\x07na' }, 'task owner must not contain control characters'],
   ]) {
     const refused = await send(body);
     assert.equal(refused.status, 400, `${JSON.stringify(body)} rejected`);
     assert.equal(refused.body.error, error);
   }
+  // Ordinary spaces are not control characters, and surrounding whitespace is trimmed rather than refused.
+  const spaced = await send({ subject: ' \n Ship the fix now \t ', owner: '  Luna  ' });
+  assert.equal(spaced.status, 200);
+  assert.equal(spaced.body.task.subject, 'Ship the fix now');
+  assert.equal(spaced.body.task.owner, 'Luna');
+
   // Nothing the route refused reached the store.
+  await send({ subject: 'Kept' });
   assert.equal((await send({ owner: 'Luna' })).body.task.subject, 'Kept');
 
   assert.equal((await patch.handler(request({ taskId: '99', status: 'completed' }))).status, 404);
+});
+
+/** The tool path writes the same two labels the HTTP route does, into the same rows, and its values reach
+ *  the same surfaces — so it carries the same rule rather than trusting the model to compose a clean
+ *  subject. The refusal is a normal tool result naming the rule, which is what lets the model fix it. */
+test('TaskCreate and TaskUpdate refuse a subject or owner carrying control characters', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  const subjectError = 'task subject must not contain control characters (it is a single line)';
+
+  const rejected = text(await create.execute('1', {
+    tasks: [{ subject: 'Ship\nthe fix', description: 'Private detail' }],
+  }));
+  assert.equal(rejected, `Error: ${subjectError}`);
+  // The refusal is not a swallowed storage failure, and it left no row and no card behind.
+  assert.deepEqual(h.warnings, []);
+  assert.deepEqual(json(await h.tool('TaskList').execute('2', {})).tasks, []);
+
+  // A batch is refused whole: the clean sibling of a bad task is not written either.
+  await create.execute('3', {
+    tasks: [
+      { subject: 'Clean one', description: 'd' },
+      { subject: 'Bad\x1b[2Jone', description: 'd' },
+    ],
+  });
+  assert.deepEqual(json(await h.tool('TaskList').execute('4', {})).tasks, []);
+
+  const created = json(await create.execute('5', { tasks: [{ subject: 'Inspect auth', description: 'd' }] }));
+  assert.equal(created.tasks[0].id, '1');
+
+  const renamed = json(await update.execute('6', { taskId: '1', subject: 'Audit\tauth' }));
+  assert.equal(renamed.success, false);
+  assert.equal(renamed.error, subjectError);
+  const owned = json(await update.execute('7', { taskId: '1', owner: 'Lu\x00na' }));
+  assert.equal(owned.success, false);
+  assert.equal(owned.error, 'task owner must not contain control characters');
+  // Neither refusal reached the row.
+  const list = json(await h.tool('TaskList').execute('8', {})).tasks;
+  assert.equal(list[0].subject, 'Inspect auth');
+  assert.equal(list[0].owner, undefined);
+
+  // The turn context the model reads therefore cannot be forged with a smuggled newline.
+  assert.ok(!/<subject>[^<]*\n/.test(h.turnContext()));
+
+  // An ordinary multi-word label still goes through untouched.
+  assert.equal(json(await update.execute('9', { taskId: '1', subject: 'Audit the auth flow', owner: 'Luna' })).success, true);
 });
 
 test('bulk clear removes the requested rows without resetting the conversation id counter', async (t) => {
