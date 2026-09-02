@@ -98,6 +98,8 @@ for (const name of folders) {
  *  compared as sets: reordering is not a grant change, adding or removing an entry is.
  */
 const EXPECTED_CAPABILITIES = {
+  // Browser stores per-account session/process metadata and all page traffic crosses its enforcing proxy.
+  browser: { reads: ['db'], network: true },
   codebase: { reads: ['embeddings'], network: true },
   cronjob: { reads: ['stores'] },
   editor: { reads: ['project-files', 'stores'] },

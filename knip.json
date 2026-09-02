@@ -15,5 +15,9 @@
   ],
   "ignoreBinaries": [
     "soffice"
+  ],
+  "ignoreDependencies": [
+    "puppeteer-core",
+    "proxy-chain"
   ]
 }

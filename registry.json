@@ -2,6 +2,19 @@
   "schema": 1,
   "plugins": [
     {
+      "name": "browser",
+      "version": "0.1.0",
+      "requiresCore": "0.28.25",
+      "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, bounded live streaming, exclusive user takeover and a deny-by-default enforcing network boundary.",
+      "category": "tools",
+      "author": "Elowen",
+      "apiVersion": "1",
+      "provides": {
+        "tools": 11,
+        "apiRoutes": 11
+      }
+    },
+    {
       "name": "codebase",
       "version": "0.1.3",
       "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings → Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",

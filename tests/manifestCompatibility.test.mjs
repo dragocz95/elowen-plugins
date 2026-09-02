@@ -21,6 +21,7 @@ function fixture(field) {
     name: 'demo', version: '1.0.0', apiVersion: '1', description: 'Demo', entry: 'index.mjs',
     configSchema: [field],
   }));
+  writeFileSync(join(root, 'registry.json'), JSON.stringify({ schema: 1, plugins: [{ name: 'demo' }] }));
   return root;
 }
 
