@@ -20,8 +20,20 @@ const real = process.env.ELOWEN_BROWSER_E2E === '1' ? it : it.skip;
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
 
 async function fixture(): Promise<{ url: string }> {
-  server = createServer((_req, response) => {
+  server = createServer((request, response) => {
     response.writeHead(200, { 'content-type': 'text/html' });
+    if (request.url === '/alert') {
+      response.end('<!doctype html><script>alert("hello");document.title="Alert handled"</script>');
+      return;
+    }
+    if (request.url === '/beforeunload') {
+      response.end('<!doctype html><title>Form page</title><script>onbeforeunload=()=>"unsaved"</script>');
+      return;
+    }
+    if (request.url === '/landed') {
+      response.end('<!doctype html><title>Landed</title>');
+      return;
+    }
     response.end('<!doctype html><title>Browser smoke</title><button id="continue">Continue</button>');
   });
   await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
@@ -67,6 +79,12 @@ describe('browser real Chrome flow', () => {
       expect(captured.data.length).toBeGreaterThan(100);
       await cdp.send('Page.screencastFrameAck', { sessionId: captured.sessionId });
       await cdp.send('Page.stopScreencast');
+
+      await page.goto(`${pageUrl.url}alert`, { waitUntil: 'domcontentloaded', timeout: 5_000 });
+      expect(await page.title()).toBe('Alert handled');
+      await page.goto(`${pageUrl.url}beforeunload`, { waitUntil: 'domcontentloaded', timeout: 5_000 });
+      await page.goto(`${pageUrl.url}landed`, { waitUntil: 'domcontentloaded', timeout: 5_000 });
+      expect(await page.title()).toBe('Landed');
     } finally {
       await browser.close();
       await lease.close();

@@ -276,6 +276,11 @@ describe('browser process pool', () => {
       .toMatchObject({ authChallengeResponse: { response: 'ProvideCredentials', username: 'u1', password: 'secret' } });
     expect(firstPage.cdp.calls.find((call) => call.method === 'Fetch.continueWithAuth' && call.params?.requestId === 'server-auth')?.params)
       .toMatchObject({ authChallengeResponse: { response: 'CancelAuth' } });
+    firstPage.cdp.emit('Page.javascriptDialogOpening', { type: 'alert' });
+    firstPage.cdp.emit('Page.javascriptDialogOpening', { type: 'beforeunload' });
+    await tick();
+    expect(firstPage.cdp.calls.filter((call) => call.method === 'Page.handleJavaScriptDialog').map((call) => call.params))
+      .toEqual([{ accept: false }, { accept: true }]);
     expect(launches).toBe(1);
     expect(pool.activeSessionCount(1)).toBe(2);
     await pool.openPage(2, 's3');
@@ -336,6 +341,16 @@ describe('browser takeover state machine', () => {
     await session.subscribeEvents('test-events', async (event) => { events.push(event); });
     return { session, page, events };
   }
+
+  it('dismisses blocking dialogs and accepts beforeunload on the active session CDP', async () => {
+    const { session, page } = await createSession();
+    page.cdp.emit('Page.javascriptDialogOpening', { type: 'confirm' });
+    page.cdp.emit('Page.javascriptDialogOpening', { type: 'beforeunload' });
+    await tick();
+    expect(page.cdp.calls.filter((call) => call.method === 'Page.handleJavaScriptDialog').map((call) => call.params))
+      .toEqual([{ accept: false }, { accept: true }]);
+    await session.close();
+  });
 
   it('rejects concurrent claims and keeps stale leases unable to heartbeat or release without broadcasting the token', async () => {
     const { session, events } = await createSession();

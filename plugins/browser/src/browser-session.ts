@@ -315,6 +315,11 @@ export class BrowserSession {
 
   private async attachPage(page: PageLike): Promise<void> {
     const nextCdp = await page.createCDPSession();
+    nextCdp.on('Page.javascriptDialogOpening', (raw) => {
+      const type = (raw as { type?: unknown }).type;
+      // Navigation requested by the agent must pass beforeunload; no browser tool can answer other dialogs.
+      void nextCdp.send('Page.handleJavaScriptDialog', { accept: type === 'beforeunload' }).catch(() => {});
+    });
     await Promise.all([
       nextCdp.send('Accessibility.enable'),
       nextCdp.send('DOM.enable'),

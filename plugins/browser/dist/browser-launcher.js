@@ -2,30 +2,49 @@ import { randomBytes } from 'node:crypto';
 import { accessSync, chmodSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { TabManager } from './tab-manager.js';
-const proxyAuthSessions = new WeakMap();
+const proxyAuthSetups = new WeakMap();
 export async function installProxyAuthentication(page, proxy) {
-    if (proxyAuthSessions.has(page))
-        return;
-    const cdp = await page.createCDPSession();
-    cdp.on('Fetch.requestPaused', (raw) => {
-        const requestId = raw.requestId;
-        if (typeof requestId === 'string')
-            void cdp.send('Fetch.continueRequest', { requestId }).catch(() => { });
-    });
-    cdp.on('Fetch.authRequired', (raw) => {
-        const event = raw;
-        if (typeof event.requestId !== 'string')
-            return;
-        const proxyChallenge = event.authChallenge?.source === 'Proxy';
-        void cdp.send('Fetch.continueWithAuth', {
-            requestId: event.requestId,
-            authChallengeResponse: proxyChallenge
-                ? { response: 'ProvideCredentials', username: proxy.username, password: proxy.password }
-                : { response: 'CancelAuth' },
-        }).catch(() => { });
-    });
-    await cdp.send('Fetch.enable', { handleAuthRequests: true });
-    proxyAuthSessions.set(page, cdp);
+    const active = proxyAuthSetups.get(page);
+    if (active)
+        return active;
+    const setup = (async () => {
+        const cdp = await page.createCDPSession();
+        cdp.on('Page.javascriptDialogOpening', (raw) => {
+            const type = raw.type;
+            // Navigation requested by the agent must pass beforeunload; no browser tool can answer other dialogs.
+            void cdp.send('Page.handleJavaScriptDialog', { accept: type === 'beforeunload' }).catch(() => { });
+        });
+        cdp.on('Fetch.requestPaused', (raw) => {
+            const requestId = raw.requestId;
+            if (typeof requestId === 'string')
+                void cdp.send('Fetch.continueRequest', { requestId }).catch(() => { });
+        });
+        cdp.on('Fetch.authRequired', (raw) => {
+            const event = raw;
+            if (typeof event.requestId !== 'string')
+                return;
+            const proxyChallenge = event.authChallenge?.source === 'Proxy';
+            void cdp.send('Fetch.continueWithAuth', {
+                requestId: event.requestId,
+                authChallengeResponse: proxyChallenge
+                    ? { response: 'ProvideCredentials', username: proxy.username, password: proxy.password }
+                    : { response: 'CancelAuth' },
+            }).catch(() => { });
+        });
+        await Promise.all([
+            cdp.send('Page.enable'),
+            cdp.send('Fetch.enable', { handleAuthRequests: true }),
+        ]);
+    })();
+    proxyAuthSetups.set(page, setup);
+    try {
+        await setup;
+    }
+    catch (error) {
+        if (proxyAuthSetups.get(page) === setup)
+            proxyAuthSetups.delete(page);
+        throw error;
+    }
 }
 const CHROME_CANDIDATES = [
     '/usr/bin/google-chrome-stable',
