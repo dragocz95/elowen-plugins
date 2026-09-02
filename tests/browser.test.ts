@@ -292,8 +292,16 @@ describe('browser process pool', () => {
 });
 
 describe('browser web artifact build', () => {
+  const stylesheet = (): string => readFileSync(join(import.meta.dirname, '..', 'plugins', 'browser', 'web', 'index.css'), 'utf8');
+  /** The declarations of one authored rule, by selector. */
+  const rule = (css: string, selector: string): string => {
+    const at = css.indexOf(`${selector} {`);
+    expect(at, `missing rule for ${selector}`).toBeGreaterThan(-1);
+    return css.slice(at, css.indexOf('}', at));
+  };
+
   it('ships the authored responsive canvas styles alongside generated utilities', () => {
-    const css = readFileSync(join(import.meta.dirname, '..', 'plugins', 'browser', 'web', 'index.css'), 'utf8');
+    const css = stylesheet();
     expect(css).toContain('.browser-artifact__canvas');
     expect(css).toContain('.browser-artifact__waiting');
     expect(css).toContain('.browser-artifact__surface');
@@ -301,6 +309,31 @@ describe('browser web artifact build', () => {
     // The host defines `--color-*`, not shadcn's HSL triplets: a `hsl(var(--border))` here would be
     // dropped at computed-value time and paint the artifact transparent.
     expect(css).not.toContain('hsl(var(--');
+  });
+
+  it('keeps the transcript thumbnail square on a wide screen and shows the whole page in it', () => {
+    const css = stylesheet();
+    const desktop = css.slice(css.indexOf('@media (min-width: 768px)'));
+    expect(desktop).toMatch(/\.browser-artifact__tile \.browser-artifact__canvas \{[^}]*aspect-ratio: 1/);
+    // Square framing must never become a crop: the page is fitted into the square, not cut down to it.
+    expect(rule(css, '.browser-artifact__canvas img')).toContain('object-fit: contain');
+    expect(rule(css, '.browser-artifact')).toContain('max-width: 20rem');
+  });
+
+  it('raises the expanded canvas without a dialog frame over a still-readable page', () => {
+    const css = stylesheet();
+    const surface = rule(css, '.browser-artifact__surface');
+    // A screen, not a card: no edge, and no raised-card shadow token.
+    expect(surface).not.toMatch(/border(-(?!radius)\w+)?:/);
+    expect(surface).not.toContain('--shadow-raised');
+    const overlay = rule(css, '.browser-artifact__overlay');
+    // The scrim stays light enough to read the conversation through, and never blurs it.
+    expect(overlay).not.toContain('--color-scrim');
+    expect(overlay).not.toContain('backdrop-filter');
+    const veil = /background: color-mix\(in srgb, var\(--color-background, #000\) (\d+)%, transparent\)/.exec(overlay);
+    expect(veil, 'the overlay needs a token-derived scrim').not.toBeNull();
+    expect(Number(veil![1])).toBeLessThanOrEqual(40);
+    expect(Number(veil![1])).toBeGreaterThanOrEqual(30);
   });
 });
 

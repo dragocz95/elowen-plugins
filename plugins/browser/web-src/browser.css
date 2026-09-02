@@ -13,7 +13,7 @@
 .browser-artifact {
   /* A live session is one object in the transcript, not a full-width panel. The cap is the thumbnail's
      own width; a phone falls under it and the tile simply fills the column. */
-  max-width: 21rem;
+  max-width: 20rem;
   margin: .4rem 0 .6rem;
 }
 
@@ -29,12 +29,18 @@
 }
 .browser-artifact__tile:focus-visible { outline: 2px solid var(--color-primary, #ff5236); outline-offset: 2px; }
 .browser-artifact__tile .browser-artifact__canvas {
-  /* The stream's own shape (the component sets `--browser-aspect` from the live frame), capped so an
-     unusually tall page cannot grow a thumbnail into a panel. */
+  /* On a narrow column the thumbnail keeps the stream's shape (`--browser-aspect` comes from the live
+     frame) — a square there would be a tall block of empty ground on a phone. The desktop square is
+     below, where the tile sits in a wide transcript and a square is what keeps it from reading as a
+     banner across it. */
   aspect-ratio: var(--browser-aspect, 1.6);
-  max-height: 14rem;
   border: 1px solid var(--color-border, #242424);
   border-radius: var(--radius-lg, .75rem);
+}
+@media (min-width: 768px) {
+  /* A square tile, and the whole page inside it: `object-fit: contain` on the quiet muted ground, never
+     a crop — a thumbnail that cut the sides off the page would hide the half the agent is working in. */
+  .browser-artifact__tile .browser-artifact__canvas { aspect-ratio: 1; }
 }
 /* The one hint that the thumbnail opens: quiet at rest, plain on hover or keyboard focus. */
 .browser-artifact__expand {
@@ -89,8 +95,9 @@
 
 /* ── Marks on the glass ──────────────────────────────────────────────────────────────────────────── */
 
-/* What the session is doing, where a browser would put its tab: top left, over the page chrome rather
-   than over the content the reader is following. */
+/* Where a browser would put its tab: top left, over the page chrome rather than over the content the
+   reader is following. Without action copy it is just the state dot on a small glass disc; `has-action`
+   is what opens it into a strip, so the padding is never carrying an empty label. */
 .browser-artifact__activity {
   position: absolute;
   z-index: 2;
@@ -101,7 +108,7 @@
   align-items: center;
   gap: .4rem;
   border-radius: 999px;
-  padding: .22rem .55rem;
+  padding: .3rem;
   background: color-mix(in srgb, var(--color-background, #000) 78%, transparent);
   color: var(--color-foreground, #f7f3f0);
   backdrop-filter: blur(10px);
@@ -109,6 +116,7 @@
   line-height: 1.35;
   white-space: nowrap;
 }
+.browser-artifact__activity.has-action { padding: .22rem .55rem; }
 .browser-artifact__dot {
   width: .4rem;
   height: .4rem;
@@ -167,7 +175,10 @@
   padding:
     max(1rem, var(--safe-top, 0px)) max(1rem, var(--safe-right, 0px))
     max(1rem, var(--safe-bottom, 0px)) max(1rem, var(--safe-left, 0px));
-  background: var(--color-scrim, rgb(0 0 0 / .7));
+  /* A third of the way to black, and no blur. The point of raising the canvas rather than taking the
+     screen is that the conversation stays legible behind it; the app's `--color-scrim` (70%) is tuned
+     for a dialog you are meant to stop reading past, which is the opposite of this. */
+  background: color-mix(in srgb, var(--color-background, #000) 35%, transparent);
   animation: browser-overlay-in 120ms ease-out both;
 }
 /* Roughly three quarters of the window: big enough to work in, small enough that the conversation it
@@ -175,16 +186,19 @@
    `--browser-aspect` from the live frame), so the surface is the image rather than a fixed box with
    black bars down its sides. dvh, never vh — a mobile browser's collapsing toolbar makes vh taller than
    the screen. */
+/* No edge and no raised-card shadow: this is a screen, and a bordered rounded panel with a cast shadow
+   is exactly the dialog vocabulary the surface is meant to stop speaking. What is left is a small radius
+   and one soft ambient shade — enough to tell a white page apart from a light room behind it, not enough
+   to draw a frame. */
 .browser-artifact__surface {
   position: relative;
   width: min(76vw, calc(76dvh * var(--browser-aspect, 1.6)), 100%);
   max-height: 100%;
   aspect-ratio: var(--browser-aspect, 1.6);
-  border: 1px solid var(--color-border, #242424);
-  border-radius: var(--radius-xl, 1rem);
+  border-radius: var(--radius-md, .625rem);
   overflow: hidden;
   outline: none;
-  box-shadow: var(--shadow-raised, 0 22px 64px rgb(0 0 0 / .48));
+  box-shadow: 0 10px 40px rgb(0 0 0 / .3);
 }
 .browser-artifact__surface .browser-artifact__canvas { height: 100%; }
 /* Same glass as the activity mark, because it sits over the page for the same reason: a bare icon is
@@ -244,17 +258,12 @@
 }
 
 /* A phone gives the canvas every pixel it can use — there is no context worth keeping visible around a
-   surface that would otherwise be 280px wide — and drops the framing, because an edge and a cast shadow
-   around a full-width image only say "card" again. The address leaves the controls with it: on a screen
-   this size the image needs the room, and the thumbnail's caption already names the site. */
+   surface that would otherwise be 280px wide. The address leaves the controls with it: on a screen this
+   size the image needs the room, and the thumbnail's caption already names the site. */
 @media (max-width: 767px) {
   .browser-artifact { max-width: none; }
   .browser-artifact__overlay { padding: max(.5rem, var(--safe-top, 0px)) max(.5rem, var(--safe-right, 0px)) max(.5rem, var(--safe-bottom, 0px)) max(.5rem, var(--safe-left, 0px)); }
-  .browser-artifact__surface {
-    width: min(100%, calc(92dvh * var(--browser-aspect, 1.6)));
-    border: 0;
-    box-shadow: none;
-  }
+  .browser-artifact__surface { width: min(100%, calc(92dvh * var(--browser-aspect, 1.6))); }
   .browser-artifact__site { display: none; }
 }
 

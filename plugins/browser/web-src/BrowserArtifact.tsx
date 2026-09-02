@@ -153,8 +153,11 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
     if (stream.closed || state === 'closed') return { tone: 'muted' as const, label: strings.closed || 'Closed' };
     if (stream.error) return { tone: 'danger' as const, label: strings.disconnected || 'Disconnected' };
     if (state === 'user') return { tone: 'accent' as const, label: lease ? strings.youControl || 'You control' : strings.userControl || 'User control' };
+    // A handoff the agent asked for is a STATE, not a passing action: the thumbnail carries no action
+    // copy, so this is what turns its dot amber and tells a screen reader why the button is waiting.
+    if (takeoverRequested) return { tone: 'warning' as const, label: strings.waitingForUser || 'Waiting for user input' };
     return { tone: stream.connected ? 'success' as const : 'warning' as const, label: stream.connected ? strings.agentControl || 'Agent control' : strings.connecting || 'Connecting' };
-  }, [lease, state, stream.closed, stream.connected, stream.error, strings]);
+  }, [lease, state, stream.closed, stream.connected, stream.error, strings, takeoverRequested]);
 
   const run = async <T,>(name: string, operation: () => Promise<T>): Promise<T | undefined> => {
     setPending(name);
@@ -277,10 +280,12 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
           aria-hidden
         ><svg width="28" height="34" viewBox="0 0 28 34"><path d="M2 2l19 15-9 2 5 10-5 2-5-10-5 6z" /></svg></span>
       ) : null}
-      <div className="browser-artifact__activity">
+      <div className={`browser-artifact__activity ${interactive && action ? 'has-action' : ''}`}>
         <span className="browser-artifact__dot" data-tone={status.tone} aria-hidden />
         <span className="sr-only">{status.label}</span>
-        {action ? <span className="truncate">{action}</span> : null}
+        {/* Only the surface you are actually working on gets the running commentary. On the thumbnail a
+            line of action copy is the loudest thing in the transcript, and it says less than the dot. */}
+        {interactive && action ? <span className="truncate">{action}</span> : null}
       </div>
     </div>
   );

@@ -55,7 +55,7 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/BrowserAccount.tsx
+// plugins/browser/web-src/BrowserAccount.tsx
 var import_react3 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
@@ -247,7 +247,7 @@ var X = createLucideIcon("X", [
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ]);
 
-// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/runtime.ts
+// plugins/browser/web-src/runtime.ts
 function runtime() {
   const value = window.ElowenUiRuntime;
   if (!value) throw new Error("ElowenUiRuntime is not installed");
@@ -270,7 +270,7 @@ function jsonRequest(method, value) {
 }
 var apiError = (error) => runtime().utils.apiErrorMessage(error) || "Browser operation failed.";
 
-// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/BrowserAccount.tsx
+// plugins/browser/web-src/BrowserAccount.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var bytes = (value) => {
   if (value < 1024) return `${value} B`;
@@ -352,11 +352,11 @@ function BrowserAccount({ surface }) {
   ] });
 }
 
-// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/BrowserArtifact.tsx
+// plugins/browser/web-src/BrowserArtifact.tsx
 var import_react5 = __toESM(require_react(), 1);
 var import_react_dom = __toESM(require_react_dom(), 1);
 
-// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/useBrowserStream.ts
+// plugins/browser/web-src/useBrowserStream.ts
 var import_react4 = __toESM(require_react(), 1);
 var initialState = {
   frame: null,
@@ -494,7 +494,7 @@ function useBrowserStream(path) {
   return state;
 }
 
-// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/BrowserArtifact.tsx
+// plugins/browser/web-src/BrowserArtifact.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var asData = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -627,8 +627,9 @@ function BrowserArtifact({ artifact }) {
     if (stream.closed || state === "closed") return { tone: "muted", label: strings.closed || "Closed" };
     if (stream.error) return { tone: "danger", label: strings.disconnected || "Disconnected" };
     if (state === "user") return { tone: "accent", label: lease ? strings.youControl || "You control" : strings.userControl || "User control" };
+    if (takeoverRequested) return { tone: "warning", label: strings.waitingForUser || "Waiting for user input" };
     return { tone: stream.connected ? "success" : "warning", label: stream.connected ? strings.agentControl || "Agent control" : strings.connecting || "Connecting" };
-  }, [lease, state, stream.closed, stream.connected, stream.error, strings]);
+  }, [lease, state, stream.closed, stream.connected, stream.error, strings, takeoverRequested]);
   const run = async (name, operation) => {
     setPending(name);
     try {
@@ -763,10 +764,10 @@ function BrowserArtifact({ artifact }) {
             children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("svg", { width: "28", height: "34", viewBox: "0 0 28 34", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M2 2l19 15-9 2 5 10-5 2-5-10-5 6z" }) })
           }
         ) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__activity", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: `browser-artifact__activity ${interactive && action ? "has-action" : ""}`, children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__dot", "data-tone": status.tone, "aria-hidden": true }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sr-only", children: status.label }),
-          action ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: action }) : null
+          interactive && action ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: action }) : null
         ] })
       ]
     }
@@ -818,7 +819,7 @@ function BrowserArtifact({ artifact }) {
   ] });
 }
 
-// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/BrowserSettings.tsx
+// plugins/browser/web-src/BrowserSettings.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 function BrowserSettings({ surface }) {
   const host = runtime();
@@ -861,5 +862,5 @@ function BrowserSettings({ surface }) {
   ] });
 }
 
-// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/index.tsx
+// plugins/browser/web-src/index.tsx
 registerBrowserUi(BrowserArtifact, BrowserSettings, BrowserAccount);

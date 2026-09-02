@@ -71,8 +71,9 @@ describe('browser plugin UI', () => {
     expect(screen.getByText('example.com')).toBeInTheDocument();
     expect(screen.queryByText('https://example.com')).toBeNull();
     expect(screen.queryByRole('heading')).toBeNull();
-    expect((await screen.findAllByText('Clicking · Continue')).length).toBeGreaterThan(0);
-    // Control state is carried by the dot, and stays readable for assistive tech without a status row.
+    // No running commentary on the thumbnail: the state is a dot, and its label is for assistive tech.
+    expect(screen.queryByText('Clicking · Continue')).toBeNull();
+    expect(document.querySelector('.browser-artifact__activity.has-action')).toBeNull();
     expect(document.querySelector('.browser-artifact__dot')).toHaveAttribute('data-tone');
     expect(document.querySelector('.browser-artifact__activity .sr-only')?.textContent).toBeTruthy();
     // The agent's pointer is feedback for the surface you are working on, not for a 300px thumbnail.
@@ -89,6 +90,8 @@ describe('browser plugin UI', () => {
     expect(within(canvas).queryByRole('heading')).toBeNull();
     expect(within(canvas).getByRole('button', { name: strings.closeView })).toBeInTheDocument();
     expect(within(canvas).getByRole('button', { name: strings.closeSession })).toBeInTheDocument();
+    // The surface you work on is the one that gets the action copy and the agent's pointer.
+    expect(await within(canvas).findByText('Clicking · Continue')).toBeInTheDocument();
     await waitFor(() => expect(document.querySelectorAll('.browser-artifact__cursor').length).toBeGreaterThan(0));
     fireEvent.keyDown(canvas, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -97,7 +100,9 @@ describe('browser plugin UI', () => {
   it('keeps an agent-requested handoff claimable by the user', async () => {
     use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(requestedStreamBody, { headers: { 'content-type': 'text/event-stream' } })));
     mountArtifact();
-    expect(await screen.findByText(strings.waitingForUser)).toBeInTheDocument();
+    // A requested handoff is a state, so it reaches the thumbnail as the dot's tone and its sr-only label.
+    expect(await screen.findByText(strings.waitingForUser)).toHaveClass('sr-only');
+    await waitFor(() => expect(document.querySelector('.browser-artifact__dot')).toHaveAttribute('data-tone', 'warning'));
     expect(document.querySelector('.browser-artifact__waiting .spinner')).not.toBeNull();
     expect(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)).toBeEnabled();
     expect(screen.queryByText(strings.controlledElsewhere)).toBeNull();
