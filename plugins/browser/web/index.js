@@ -201,6 +201,13 @@ var Hand = createLucideIcon("Hand", [
   ]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/message-square-text.js
+var MessageSquareText = createLucideIcon("MessageSquareText", [
+  ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }],
+  ["path", { d: "M13 8H7", key: "14i4kc" }],
+  ["path", { d: "M17 12H7", key: "16if0g" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/monitor.js
 var Monitor = createLucideIcon("Monitor", [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
@@ -822,7 +829,10 @@ function BrowserArtifact({ artifact, narration }) {
       canvas(true),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: X, label: strings.closeView || "Close view", onClick: () => setExpanded(false), className: "browser-artifact__dismiss" }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__dock", children: [
-        speech ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "browser-artifact__narration", role: "status", "aria-live": "polite", "aria-atomic": "true", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__narration-text", children: speech }) }) : null,
+        speech ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "browser-artifact__narration", role: "status", "aria-live": "polite", "aria-atomic": "true", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(MessageSquareText, { className: "browser-artifact__narration-icon", size: 13, "aria-hidden": true }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__narration-text", children: speech })
+        ] }) : null,
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__controls", children: [
           lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]) }),

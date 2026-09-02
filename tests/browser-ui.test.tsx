@@ -196,6 +196,10 @@ describe('browser plugin UI', () => {
     const canvas = await screen.findByRole('dialog', { name: 'Example' });
     const bubble = within(canvas).getByText('Opening the booking portal.').closest('.browser-artifact__narration');
     expect(bubble).not.toBeNull();
+    // A mark, not a caption: the icon says whose words these are without spending a line on saying it.
+    const icon = bubble!.querySelector('.browser-artifact__narration-icon');
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
     expect(bubble).toHaveAttribute('aria-live', 'polite');
     expect(bubble).toHaveAttribute('role', 'status');
     expect(within(canvas).getByRole('button', { name: strings.closeSession })).toBeInTheDocument();

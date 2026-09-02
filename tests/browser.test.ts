@@ -371,6 +371,7 @@ describe('browser web artifact build', () => {
     expect(clamped).toContain('-webkit-line-clamp: 3');
     expect(clamped).toContain('overflow: hidden');
     expect(rule(css, '.browser-artifact__narration')).not.toContain('-webkit-line-clamp');
+    expect(rule(css, '.browser-artifact__narration-icon')).toContain('flex: none');
     expect(rule(css, '.browser-artifact__dock')).toContain('pointer-events: none');
     expect(rule(css, '.browser-artifact__controls')).toContain('pointer-events: auto');
   });

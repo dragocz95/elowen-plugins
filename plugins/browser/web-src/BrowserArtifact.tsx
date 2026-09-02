@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type WheelEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ArrowRight, Expand, Hand, Power, RotateCw, ShieldCheck, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Expand, Hand, MessageSquareText, Power, RotateCw, ShieldCheck, X, type LucideIcon } from 'lucide-react';
 import type { BrowserArtifactProps } from './runtime';
 import { apiError, jsonRequest, runtime } from './runtime';
 import { useBrowserStream } from './useBrowserStream';
@@ -362,6 +362,8 @@ export function BrowserArtifact({ artifact, narration }: BrowserArtifactProps) {
           <div className="browser-artifact__dock">
             {speech ? (
               <p className="browser-artifact__narration" role="status" aria-live="polite" aria-atomic="true">
+                {/* Whose words these are, in one mark rather than a line of copy explaining it. */}
+                <MessageSquareText className="browser-artifact__narration-icon" size={13} aria-hidden />
                 {/* The clamp lives on the inner box: a padded element clips its overflow at the PADDING
                     edge, so a third line paints into the bottom padding and is cut in half instead of
                     hidden. Padding out here, clamp in there. */}

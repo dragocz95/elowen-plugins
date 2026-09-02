@@ -288,7 +288,10 @@
    the transcript, which is still the thing behind the canvas — and never a pointer target: it sits over
    the page the user is clicking. */
 .browser-artifact__narration {
+  display: flex;
   max-width: 100%;
+  align-items: flex-start;
+  gap: .45rem;
   margin: 0;
   border-radius: var(--radius-md, .625rem);
   padding: .4rem .65rem;
@@ -300,7 +303,14 @@
   text-wrap: pretty;
   pointer-events: none;
 }
+/* The speaker's mark: quiet, aligned to the first line, and never competing with the words it labels. */
+.browser-artifact__narration-icon {
+  flex: none;
+  margin-top: .15rem;
+  color: var(--color-muted-foreground, #9d948e);
+}
 .browser-artifact__narration-text {
+  min-width: 0;
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
