@@ -133,6 +133,19 @@ describe('browser plugin contract', () => {
       expect(translation.fields?.privateNetworkAllowlist).toBeTruthy();
     }
   });
+
+  it('offers its runtime status inside the plugin, not as a world of its own in the menu', () => {
+    // The section reports whether managed Chrome can start. That is a property of the installed plugin,
+    // so it belongs where the plugin is installed and configured — a permanent seat in the main
+    // navigation would put it beside the assistant's actual products. The host reads this field; the
+    // requiresCore below is what guarantees a host that does, since an older one would list it as a page.
+    const root = join(import.meta.dirname, '..', 'plugins', 'browser');
+    const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
+      requiresCore: string; web: { settings: { id: string; placement?: string }[] };
+    };
+    expect(manifest.web.settings).toEqual([expect.objectContaining({ id: 'runtime', placement: 'pluginDetail' })]);
+    expect(manifest.requiresCore).toBe('0.28.26');
+  });
 });
 
 describe('browser ownership', () => {
