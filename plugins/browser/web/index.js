@@ -222,6 +222,18 @@ var Monitor = createLucideIcon("Monitor", [
   ["line", { x1: "12", x2: "12", y1: "17", y2: "21", key: "vw1qmm" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/plug-zap.js
+var PlugZap = createLucideIcon("PlugZap", [
+  [
+    "path",
+    { d: "M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z", key: "goz73y" }
+  ],
+  ["path", { d: "m2 22 3-3", key: "19mgm9" }],
+  ["path", { d: "M7.5 13.5 10 11", key: "7xgeeb" }],
+  ["path", { d: "M10.5 16.5 13 14", key: "10btkg" }],
+  ["path", { d: "m18 3-4 4h6l-4 4", key: "16psg9" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/power.js
 var Power = createLucideIcon("Power", [
   ["path", { d: "M12 2v10", key: "mnfbl" }],
@@ -897,43 +909,82 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
 
 // plugins/browser/web-src/BrowserSettings.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
+var TONE = {
+  ready: "success",
+  warning: "warning",
+  blocked: "danger"
+};
 function BrowserSettings({ surface }) {
   const host = runtime();
-  const { PluginPageHeader, DetailBlock, Badge, LoadingState, ErrorState } = host.components;
+  const { PluginPageHeader, DetailBlock, Badge, EntityList, EntityRow, LoadingState, ErrorState } = host.components;
   const strings = host.hooks.usePluginStrings("browser");
   const query = host.hooks.useQuery({
     queryKey: ["browser", "admin-status"],
     queryFn: () => runtime().api("/plugins/browser/api/admin-status"),
     refetchInterval: 1e4
   });
+  const say = (code, fallback) => strings[`dep_${code.replace(/\./g, "_")}`] || fallback;
+  const statusLabel = (status) => status === "ready" ? strings.depReady || "Ready" : status === "warning" ? strings.depAttention || "Attention" : strings.depBlocked || "Blocked";
+  const report = query.data?.dependencies;
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "space-y-4", children: [
     surface === "page" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PluginPageHeader, { title: strings.settingsTitle || "Browser runtime", description: strings.settingsDescription || "Live capacity and isolation status for managed Chrome sessions.", icon: Monitor }) : null,
-    query.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LoadingState, { variant: "block", height: "10rem" }) : query.isError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ErrorState, { message: apiError(query.error), onRetry: () => query.refetch() }) : query.data ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "grid gap-3 md:grid-cols-2", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DetailBlock, { icon: Activity, title: strings.liveCapacity || "Live capacity", hint: strings.liveCapacityHint || "Only counts active Chrome processes and tab sessions. Browser content remains private to its account.", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Badge, { tone: query.data.activeUsers >= query.data.maxActiveUsers ? "warning" : "success", children: [
-          query.data.activeUsers,
-          " / ",
-          query.data.maxActiveUsers,
-          " ",
-          strings.activeAccounts || "active accounts"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Badge, { tone: "muted", children: [
-          query.data.activeSessions,
-          " ",
-          strings.activeSessions || "tab sessions"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Badge, { tone: "muted", children: [
-          strings.perAccountLimit || "Per account",
-          ": ",
-          query.data.maxSessionsPerUser
-        ] })
-      ] }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DetailBlock, { icon: ShieldCheck, title: strings.isolationTitle || "Isolation", hint: strings.isolationHint || "Every account has a separate persistent profile and Chrome process. All traffic must cross the pinned enforcing proxy.", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: "success", children: strings.profileIsolation || "Per-account profiles" }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: "success", children: strings.proxyIsolation || "Pinned DNS proxy" }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: query.data.artifactsAvailable ? "success" : "warning", children: query.data.artifactsAvailable ? strings.chatReady || "Chat live view ready" : strings.chatUnavailable || "Chat live view unavailable" })
-      ] }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DetailBlock, { icon: Gauge, title: strings.limitsTitle || "Limits", hint: strings.limitsHint || "The sliders above are enforced before allocating Chrome, frames, viewers or input events.", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-sm text-muted-foreground", children: strings.limitsBody || "Idle and hard timeouts close sessions automatically. Stream frames use a bounded latest-frame queue and a global bitrate budget." }) })
+    query.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LoadingState, { variant: "block", height: "10rem" }) : query.isError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ErrorState, { message: apiError(query.error), onRetry: () => query.refetch() }) : query.data ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "space-y-3", children: [
+      report ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+        DetailBlock,
+        {
+          icon: PlugZap,
+          title: strings.depsTitle || "Dependencies",
+          hint: strings.depsHint || "Everything a managed browser session needs before it can start. Every check is read-only and never starts a browser.",
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { role: "status", className: "mb-2 flex flex-wrap items-center gap-2", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: TONE[report.status], children: statusLabel(report.status) }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "text-sm text-muted-foreground", children: [
+                report.ready,
+                " / ",
+                report.total,
+                " ",
+                strings.depsCounted || "dependencies ready"
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(EntityList, { className: "rounded-lg border border-border", children: report.checks.map((check) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(EntityRow, { interactive: false, className: "border-b border-border last:border-b-0 !py-2.5", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-wrap items-center justify-between gap-x-3 gap-y-1", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "min-w-0 truncate text-sm font-medium text-foreground", children: strings[`dep_label_${check.id.replace(/-/g, "_")}`] || check.label }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: TONE[check.status], children: statusLabel(check.status) })
+              ] }),
+              check.status !== "ready" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "mt-1 text-xs text-muted-foreground", children: say(check.code, check.detail) }) : null,
+              check.value ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "mt-1 break-all font-mono text-xs text-muted-foreground", children: check.value }) : null,
+              check.remediation ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "mt-1 text-xs text-foreground", children: say(`${check.code}.fix`, check.remediation) }) : null
+            ] }, check.id)) })
+          ]
+        }
+      ) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "grid gap-3 md:grid-cols-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DetailBlock, { icon: Activity, title: strings.liveCapacity || "Live capacity", hint: strings.liveCapacityHint || "Only counts active Chrome processes and tab sessions. Browser content remains private to its account.", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Badge, { tone: query.data.activeUsers >= query.data.maxActiveUsers ? "warning" : "success", children: [
+            query.data.activeUsers,
+            " / ",
+            query.data.maxActiveUsers,
+            " ",
+            strings.activeAccounts || "active accounts"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Badge, { tone: "muted", children: [
+            query.data.activeSessions,
+            " ",
+            strings.activeSessions || "tab sessions"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Badge, { tone: "muted", children: [
+            strings.perAccountLimit || "Per account",
+            ": ",
+            query.data.maxSessionsPerUser
+          ] })
+        ] }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DetailBlock, { icon: ShieldCheck, title: strings.isolationTitle || "Isolation", hint: strings.isolationHint || "Every account has a separate persistent profile and Chrome process. All traffic must cross the pinned enforcing proxy.", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: "success", children: strings.profileIsolation || "Per-account profiles" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: "success", children: strings.proxyIsolation || "Pinned DNS proxy" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: query.data.artifactsAvailable ? "success" : "warning", children: query.data.artifactsAvailable ? strings.chatReady || "Chat live view ready" : strings.chatUnavailable || "Chat live view unavailable" })
+        ] }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DetailBlock, { icon: Gauge, title: strings.limitsTitle || "Limits", hint: strings.limitsHint || "The sliders above are enforced before allocating Chrome, frames, viewers or input events.", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-sm text-muted-foreground", children: strings.limitsBody || "Idle and hard timeouts close sessions automatically. Stream frames use a bounded latest-frame queue and a global bitrate budget." }) })
+      ] })
     ] }) : null
   ] });
 }

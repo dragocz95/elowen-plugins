@@ -14,6 +14,10 @@ import {
 import { resolveConfig, type BrowserConfig } from '../plugins/browser/src/config.js';
 import { BrowserStore } from '../plugins/browser/src/store.js';
 import { BrowserPool } from '../plugins/browser/src/browser-launcher.js';
+import {
+  browserDependencyReport, browserReadiness,
+  type BrowserDependencyCheck, type BrowserDependencyReport, type BrowserDependencyStatus,
+} from '../plugins/browser/src/readiness.js';
 import { ScreencastHub, StreamBudget } from '../plugins/browser/src/screencast-hub.js';
 import { BrowserSession } from '../plugins/browser/src/browser-session.js';
 import { TabManager } from '../plugins/browser/src/tab-manager.js';
@@ -288,6 +292,126 @@ describe('browser process pool', () => {
     expect(pool.profilePath(1)).toBe(join(root, 'profiles', 'u-1'));
     expect(pool.profilePath(2)).toBe(join(root, 'profiles', 'u-2'));
     await pool.closeAll();
+  });
+});
+
+describe('browser dependency report', () => {
+  const chromeHost = (): string => {
+    // A real, executable file standing in for the browser binary: `detectChrome` resolves and X_OKs the
+    // path, so the check is exercised without a Chrome anywhere near the test.
+    const dir = mkdtempSync(join(tmpdir(), 'browser-chrome-'));
+    const binary = join(dir, 'chromium');
+    writeFileSync(binary, '#!/bin/sh\nexit 0\n');
+    chmodSync(binary, 0o755);
+    temporaryDirs.push(dir);
+    return binary;
+  };
+  const temporaryDirs: string[] = [];
+  const checkOf = (report: BrowserDependencyReport, id: BrowserDependencyCheck['id']): BrowserDependencyCheck =>
+    report.checks.find((check) => check.id === id)!;
+  /** Every verdict at once, so a classification change shows up as a diff rather than as one silent row. */
+  const classified = (report: BrowserDependencyReport): Record<string, BrowserDependencyStatus> =>
+    Object.fromEntries(report.checks.map((check) => [check.id, check.status]));
+  afterEach(() => {
+    for (const dir of temporaryDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  const input = (patch: Partial<Parameters<typeof browserDependencyReport>[0]> = {}, configPatch: Partial<BrowserConfig> = {}) => ({
+    config: () => config({ chromeExecutable: chromeHost(), ...configPatch }),
+    processFactory: { dependencyAvailable: async () => true, launch: async () => { throw new Error('not launched'); } },
+    proxyFactory: { safePinningAvailable: true, dependencyAvailable: async () => true, open: async () => { throw new Error('not opened'); }, closeAll: async () => {} },
+    artifacts: { available: true, open: async () => null, update: async () => {}, close: async () => {} },
+    storage: () => ({ ok: true, writable: true, private: true, name: 'profiles' }),
+    ...patch,
+  });
+
+  it('reports every dependency ready without touching Chrome, the proxy or the network', async () => {
+    let launched = 0;
+    let opened = 0;
+    const report = await browserDependencyReport(input({
+      processFactory: { dependencyAvailable: async () => true, launch: async () => { launched += 1; throw new Error('nope'); } },
+      proxyFactory: { safePinningAvailable: true, dependencyAvailable: async () => true, open: async () => { opened += 1; throw new Error('nope'); }, closeAll: async () => {} },
+    }));
+
+    expect(report.status).toBe('ready');
+    expect(report.ready).toBe(report.total);
+    expect(report.checks.map((check) => check.id)).toEqual([
+      'chrome', 'chrome-sandbox', 'browser-control', 'network-proxy', 'profile-storage', 'chat-artifacts',
+    ]);
+    // Opening a status page must never be the thing that allocates a browser or a proxy port.
+    expect(launched).toBe(0);
+    expect(opened).toBe(0);
+  });
+
+  it('blocks on what stops a session and only warns on what degrades one', async () => {
+    const missingChrome = await browserDependencyReport(input({}, { chromeExecutable: '/nonexistent/chrome' }));
+    expect(missingChrome.status).toBe('blocked');
+    expect(checkOf(missingChrome, 'chrome')).toMatchObject({ status: 'blocked', code: 'chrome.unusable' });
+    // A configured executable that is gone points at the setting, not at a package to install.
+    expect(checkOf(missingChrome, 'chrome').remediation).toContain('settings');
+
+    const noControl = await browserDependencyReport(input({ processFactory: { dependencyAvailable: async () => false, launch: async () => { throw new Error('nope'); } } }));
+    expect(checkOf(noControl, 'browser-control')).toMatchObject({ status: 'blocked', code: 'control.missing' });
+
+    const noPinning = await browserDependencyReport(input({ proxyFactory: { safePinningAvailable: false, open: async () => { throw new Error('nope'); }, closeAll: async () => {} } }));
+    expect(checkOf(noPinning, 'network-proxy')).toMatchObject({ status: 'blocked', code: 'proxy.unsupported' });
+
+    const noProxyModule = await browserDependencyReport(input({ proxyFactory: { safePinningAvailable: true, dependencyAvailable: async () => false, open: async () => { throw new Error('nope'); }, closeAll: async () => {} } }));
+    expect(checkOf(noProxyModule, 'network-proxy')).toMatchObject({ status: 'blocked', code: 'proxy.missing' });
+
+    // Sessions still run without the chat bridge — only the live card is missing, so this is not a block.
+    const noArtifacts = await browserDependencyReport(input({ artifacts: { available: false, open: async () => null, update: async () => {}, close: async () => {} } }));
+    expect(classified(noArtifacts)).toMatchObject({ 'chat-artifacts': 'warning', chrome: 'ready', 'network-proxy': 'ready' });
+    expect(checkOf(noArtifacts, 'chat-artifacts').code).toBe('artifacts.missing');
+    expect(noArtifacts.status).toBe('warning');
+    expect(noArtifacts.ready).toBe(noArtifacts.total - 1);
+  });
+
+  it('treats a probe that throws as unproven rather than leaking why', async () => {
+    const report = await browserDependencyReport(input({
+      processFactory: { dependencyAvailable: async () => { throw new Error('ENOENT /root/.npm/_cacache/index-v5/aa/bb'); }, launch: async () => { throw new Error('nope'); } },
+    }));
+    const control = checkOf(report, 'browser-control');
+    expect(control.status).toBe('blocked');
+    // The report carries a sentence an operator can act on, never the daemon's own error text.
+    expect(JSON.stringify(report)).not.toContain('ENOENT');
+    expect(JSON.stringify(report)).not.toContain('_cacache');
+    expect(control.remediation).toContain('puppeteer-core');
+  });
+
+  it('reports the profile root by state, never by path', async () => {
+    const report = await browserDependencyReport(input({
+      storage: () => ({ ok: false, writable: false, private: true, name: 'profiles' }),
+    }));
+    const storage = checkOf(report, 'profile-storage');
+    expect(storage).toMatchObject({ status: 'blocked', code: 'storage.unwritable' });
+    // Neither the data root nor a per-account profile path may appear on an admin page.
+    expect(storage.value).toBeUndefined();
+    expect(JSON.stringify(report)).not.toContain('/profiles');
+    expect(JSON.stringify(report)).not.toContain('u-1');
+
+    const exposed = await browserDependencyReport(input({ storage: () => ({ ok: false, writable: true, private: false, name: 'profiles' }) }));
+    expect(checkOf(exposed, 'profile-storage')).toMatchObject({ status: 'blocked', code: 'storage.exposed' });
+  });
+
+  it('leaves the host readiness line derived from the same verdicts', async () => {
+    const executable = chromeHost();
+    const ready = await browserReadiness(input({}, { chromeExecutable: executable }));
+    expect(ready).toMatchObject({ id: 'browser-runtime', ok: true });
+    expect(ready.detail).toContain(executable);
+    // The launcher never disables the sandbox, and the readiness line still says so.
+    expect(ready.detail).toContain('without sandbox-disabling flags');
+
+    const blocked = await browserReadiness(input({ processFactory: { dependencyAvailable: async () => false, launch: async () => { throw new Error('nope'); } } }));
+    expect(blocked.ok).toBe(false);
+    expect(blocked.detail).toContain('puppeteer-core');
+  });
+
+  it('surfaces the report on the admin status route only', () => {
+    const manifest = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'plugins', 'browser', 'elowen-plugin.json'), 'utf8')) as { provides: { apiRoutes: string[] } };
+    expect(manifest.provides.apiRoutes).toContain('admin-status');
+    const api = readFileSync(join(import.meta.dirname, '..', 'plugins', 'browser', 'src', 'api.ts'), 'utf8');
+    expect(api).toMatch(/path: 'admin-status', method: 'GET', access: 'admin'/);
   });
 });
 

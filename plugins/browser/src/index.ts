@@ -4,7 +4,7 @@ import { ElowenArtifactPublisher } from './artifact.js';
 import { BrowserPool, LinuxProcessInspector, PuppeteerCoreFactory } from './browser-launcher.js';
 import { resolveConfig } from './config.js';
 import { DynamicProxyChainAdapter, EnforcingProxyManager, type HostResolver, type ProxyChainPinnedAdapter } from './navigation-policy.js';
-import { browserReadiness } from './readiness.js';
+import { browserDependencyReport, browserReadiness } from './readiness.js';
 import { BrowserService } from './service.js';
 import { SessionRegistry } from './session-registry.js';
 import { BrowserStore } from './store.js';
@@ -49,9 +49,13 @@ export function register(ctx: PluginContext, deps: BrowserRegisterDeps = {}): vo
   const registry = new SessionRegistry({ config, store, pool, artifacts, processInspector, clock, logger: ctx.logger });
   const service = new BrowserService(registry);
 
+  // One input, two consumers: the host's readiness line and the plugin's own settings panel report the
+  // same dependency verdicts because they are the same computation.
+  const dependencyInput = { config, processFactory, proxyFactory, artifacts, storage: () => pool.storageStatus() };
+
   registerBrowserTools(ctx, registry);
-  registerBrowserApi(ctx, registry);
-  ctx.registerReadinessCheck(() => browserReadiness({ config, processFactory, proxyFactory, artifacts }));
+  registerBrowserApi(ctx, registry, () => browserDependencyReport(dependencyInput));
+  ctx.registerReadinessCheck(() => browserReadiness(dependencyInput));
   ctx.registerBootReconcile(() => registry.bootReconcile());
   const runtimeService = { name: 'browser-runtime', criticalStop: true, start: () => service.start(), stop: () => service.stop() };
   ctx.registerService(runtimeService);

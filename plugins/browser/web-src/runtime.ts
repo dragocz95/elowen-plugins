@@ -75,6 +75,11 @@ interface RuntimeComponents {
   ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
   EmptyState: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
   DetailBlock: ComponentType<{ icon: LucideIcon; title: string; hint?: string; children: ReactNode }>;
+  // The host's own list primitives: they carry the list/listitem semantics and the row rhythm every other
+  // register in the app uses, which is why the readiness panel is a list of host rows rather than a
+  // hand-drawn table.
+  EntityList: ComponentType<{ className?: string; children: ReactNode }>;
+  EntityRow: ComponentType<{ interactive?: boolean; selected?: boolean; busy?: boolean; className?: string; children: ReactNode }>;
   PluginPageHeader: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
 }
 

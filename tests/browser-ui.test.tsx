@@ -351,6 +351,79 @@ describe('browser plugin UI', () => {
     card.remove();
   });
 
+  const dependencyStatus = (dependencies: unknown) => http.get(
+    '/api/plugins/browser/api/admin-status',
+    () => HttpResponse.json({ activeUsers: 0, activeSessions: 0, maxActiveUsers: 4, maxSessionsPerUser: 2, artifactsAvailable: true, dependencies }),
+  );
+  const settings = () => {
+    const Wrapper = wrapper();
+    return render(<Wrapper><ToastProvider><BrowserSettings plugin="browser" params={{}} rest={[]} surface="page" /></ToastProvider></Wrapper>);
+  };
+
+  it('answers the readiness question at a glance, and stays quiet when everything is ready', async () => {
+    use(dependencyStatus({
+      status: 'ready',
+      ready: 2,
+      total: 2,
+      checks: [
+        { id: 'chrome', status: 'ready', label: 'Chrome or Chromium', code: 'chrome.detected', detail: 'Found a supported executable on this host.', value: '/usr/bin/chromium' },
+        { id: 'network-proxy', status: 'ready', label: 'Enforcing network proxy', code: 'proxy.ready', detail: 'proxy-chain is loadable and pins DNS per request.' },
+      ],
+    }));
+    settings();
+
+    // The verdict is a word, not only a colour, and the count says how far it got. It is a live region so
+    // a refresh that changes the verdict is announced rather than only repainted.
+    const summary = (await screen.findByText(`2 / 2 ${strings.depsCounted}`)).parentElement!;
+    expect(summary).toHaveAttribute('role', 'status');
+    expect(within(summary).getByText(strings.depReady)).toBeInTheDocument();
+
+    // A ready dependency says nothing beyond its badge: no explanation, no remediation, nothing to read.
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(screen.getByText(strings.dep_label_chrome)).toBeInTheDocument();
+    expect(screen.queryByText(strings.dep_proxy_ready ?? 'proxy-chain is loadable and pins DNS per request.')).toBeNull();
+    // …except a plain fact worth seeing.
+    expect(within(rows[0]!).getByText('/usr/bin/chromium')).toBeInTheDocument();
+  });
+
+  it('names the blocked dependency and the exact fix, in the reader\'s language', async () => {
+    use(dependencyStatus({
+      status: 'blocked',
+      ready: 1,
+      total: 3,
+      checks: [
+        { id: 'chrome', status: 'blocked', label: 'Chrome or Chromium', code: 'chrome.missing', detail: 'No supported Chrome or Chromium executable was found on this host.', remediation: 'Install Google Chrome or Chromium, or set the executable in this plugin\u2019s settings.' },
+        { id: 'chrome-sandbox', status: 'warning', label: 'Chrome sandbox', code: 'sandbox.unverified', detail: 'Neither user namespaces nor the setuid helper could be confirmed; the first managed launch remains the real check.', remediation: 'Allow unprivileged user namespaces on this host, or install the Chrome package that ships the setuid sandbox helper.' },
+        { id: 'chat-artifacts', status: 'ready', label: 'Live view in chat', code: 'artifacts.ready', detail: 'The host publishes the inline chat artifact bridge.' },
+      ],
+    }));
+    settings();
+
+    // The worst outcome is the verdict — a warning must not be reported as ready.
+    const summary = (await screen.findByText(`1 / 3 ${strings.depsCounted}`)).parentElement!;
+    expect(within(summary).getByText(strings.depBlocked)).toBeInTheDocument();
+
+    const rows = screen.getAllByRole('listitem');
+    expect(within(rows[0]!).getByText(strings.depBlocked)).toBeInTheDocument();
+    expect(within(rows[0]!).getByText(strings.dep_chrome_missing)).toBeInTheDocument();
+    expect(within(rows[0]!).getByText(strings.dep_chrome_missing_fix)).toBeInTheDocument();
+    // A warning is its own outcome: the session still runs, so it neither blocks nor passes silently.
+    expect(within(rows[1]!).getByText(strings.depAttention)).toBeInTheDocument();
+    expect(within(rows[1]!).getByText(strings.dep_sandbox_unverified_fix)).toBeInTheDocument();
+    expect(within(rows[2]!).getByText(strings.depReady)).toBeInTheDocument();
+  });
+
+  it('renders nothing about dependencies against a host that does not report them', async () => {
+    // The panel is additive: an older daemon answers the same route without the report, and the page
+    // keeps working instead of rendering an empty or half-built block.
+    use(dependencyStatus(undefined));
+    settings();
+    expect(await screen.findByText(`0 / 4 ${strings.activeAccounts}`)).toBeInTheDocument();
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(screen.queryByText(strings.depsTitle)).toBeNull();
+  });
+
   it('shows account profile state and runtime capacity without exposing page content', async () => {
     use(
       http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 1 })),

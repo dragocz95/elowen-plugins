@@ -31,7 +31,7 @@ function ownedSession(registry, req) {
 async function json(req) {
     return object(await req.json());
 }
-export function registerBrowserApi(ctx, registry) {
+export function registerBrowserApi(ctx, registry, dependencies) {
     ctx.registerApiRoute({
         path: 'profile', method: 'GET', access: 'user', handler: async (req) => {
             try {
@@ -172,7 +172,9 @@ export function registerBrowserApi(ctx, registry) {
         },
     });
     ctx.registerApiRoute({
-        path: 'admin-status', method: 'GET', access: 'admin', handler: async () => ({ body: registry.status() }),
+        // Admin-only, and deliberately a READ: an operator opening the status page must never be the thing
+        // that launches Chrome, opens a proxy or writes config.
+        path: 'admin-status', method: 'GET', access: 'admin', handler: async () => ({ body: { ...registry.status(), dependencies: await dependencies() } }),
     });
     ctx.registerApiRoute({
         path: 'admin-close', method: 'POST', access: 'admin', handler: async (req) => {

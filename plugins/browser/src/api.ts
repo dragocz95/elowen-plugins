@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { PluginApiRequest, PluginContext, PluginHttpResponse } from 'elowen/plugin-api';
 import { BrowserAccessError, requireApiUser } from './ownership.js';
+import type { BrowserDependencyReport } from './readiness.js';
 import { SessionRegistry } from './session-registry.js';
 import { parseUserInputEvents } from './input-controller.js';
 
@@ -31,7 +32,11 @@ async function json(req: PluginApiRequest): Promise<Record<string, unknown>> {
   return object(await req.json<unknown>());
 }
 
-export function registerBrowserApi(ctx: PluginContext, registry: SessionRegistry): void {
+export function registerBrowserApi(
+  ctx: PluginContext,
+  registry: SessionRegistry,
+  dependencies: () => Promise<BrowserDependencyReport>,
+): void {
   ctx.registerApiRoute({
     path: 'profile', method: 'GET', access: 'user', handler: async (req) => {
       try {
@@ -138,7 +143,9 @@ export function registerBrowserApi(ctx: PluginContext, registry: SessionRegistry
     },
   });
   ctx.registerApiRoute({
-    path: 'admin-status', method: 'GET', access: 'admin', handler: async () => ({ body: registry.status() }),
+    // Admin-only, and deliberately a READ: an operator opening the status page must never be the thing
+    // that launches Chrome, opens a proxy or writes config.
+    path: 'admin-status', method: 'GET', access: 'admin', handler: async () => ({ body: { ...registry.status(), dependencies: await dependencies() } }),
   });
   ctx.registerApiRoute({
     path: 'admin-close', method: 'POST', access: 'admin', handler: async (req) => {
