@@ -13,6 +13,22 @@ export function boundText(text: string, max: number): string {
   return `${text.slice(0, Math.max(0, max - TRUNCATION_MARK.length))}${TRUNCATION_MARK}`;
 }
 
+/** Cut `text` to `maxBytes` UTF-8 BYTES, never splitting a character.
+ *
+ *  A character budget is the wrong unit for a payload budget: one emoji is four bytes and one Czech
+ *  letter is two, so a 64 KiB limit counted in characters admits up to 256 KiB of body. `Buffer.slice`
+ *  gets the size right and the text wrong — it can cut a multi-byte sequence in half and leave a
+ *  replacement character where a letter was — so the cut is walked back to a character boundary. */
+export function boundBytes(text: string, maxBytes: number): { text: string; truncated: boolean; bytes: number } {
+  const buffer = Buffer.from(text, 'utf8');
+  if (buffer.byteLength <= maxBytes) return { text, truncated: false, bytes: buffer.byteLength };
+  const markBytes = Buffer.byteLength(TRUNCATION_MARK, 'utf8');
+  let end = Math.max(0, maxBytes - markBytes);
+  // Back off any continuation byte (10xxxxxx): those are the tail of a character whose head is behind us.
+  while (end > 0 && (buffer[end]! & 0xc0) === 0x80) end -= 1;
+  return { text: `${buffer.subarray(0, end).toString('utf8')}${TRUNCATION_MARK}`, truncated: true, bytes: buffer.byteLength };
+}
+
 /** A URL reduced to what identifies the resource: scheme, host, port, path.
  *
  *  The query string and the fragment are dropped rather than escaped — a session token, a signed download

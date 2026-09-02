@@ -40,6 +40,9 @@ const MAX_TRACE_BYTES = 8 * 1024 * 1024;
  *  that hangs must fail as a trace, while the session is still healthy enough to run the next tool. */
 const TRACE_START_TIMEOUT_MS = 5_000;
 const TRACE_DRAIN_TIMEOUT_MS = 10_000;
+/** Much shorter than the drain: this one runs inside a tab switch and inside `close()`, where nobody is
+ *  waiting for a measurement any more — only for the browser to stop holding a buffer for it. */
+const TRACE_ABANDON_TIMEOUT_MS = 1_500;
 const LONG_TASK_MS = 50;
 const SCRIPT_EVENTS = new Set(['EvaluateScript', 'FunctionCall', 'v8.run', 'v8.compile', 'RunMicrotasks']);
 const LAYOUT_EVENTS = new Set(['Layout', 'UpdateLayoutTree']);
@@ -233,13 +236,36 @@ export class TraceRecorder {
         }
     }
     /** End a trace nobody is going to stop: the tab moved, the session closed, the browser went away.
-     *  Best effort by design — the browser may already be gone, and a teardown that throws would leave the
-     *  process lock held for the rest of the daemon's life. */
+     *
+     *  `Tracing.end` is not the end of it. The trace was started with `ReturnAsStream`, so Chrome answers
+     *  by handing back a stream HANDLE, and a handle nobody reads and nobody closes is a buffer the browser
+     *  keeps for as long as it lives — which, on a tab switch, is the rest of the session. So this waits
+     *  briefly for the completion event and closes whatever handle it names.
+     *
+     *  Briefly, and fail-closed: a browser that is already gone will never send the event, and a teardown
+     *  that waited on it — or threw when it did not come — would hold the process-wide tracing lock for the
+     *  rest of the daemon's life. The lock is released either way. */
     async abandon() {
         const active = this.active;
-        if (active && this.cdp)
-            await this.cdp.send('Tracing.end').catch(() => { });
-        this.finish();
+        const cdp = this.cdp;
+        if (!active || !cdp) {
+            this.finish();
+            return;
+        }
+        const streamHandle = new Promise((resolve) => { this.complete = resolve; });
+        try {
+            await cdp.send('Tracing.end');
+            const handle = await withTimeout(streamHandle, TRACE_ABANDON_TIMEOUT_MS, 'abandoned trace did not complete');
+            if (handle)
+                await cdp.send('IO.close', { handle });
+        }
+        catch {
+            // Nothing here is worth failing a tab switch or a close over: the measurement was already lost the
+            // moment its tab went away, and the only thing that must survive is the release below.
+        }
+        finally {
+            this.finish();
+        }
     }
     detach() {
         if (this.cdp)

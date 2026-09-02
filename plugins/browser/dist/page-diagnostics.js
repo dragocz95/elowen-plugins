@@ -1,4 +1,4 @@
-import { boundText, isTextualMime, pickResponseHeaders, sanitizeUrl } from './redaction.js';
+import { boundBytes, boundText, isTextualMime, pickResponseHeaders, sanitizeUrl } from './redaction.js';
 /** What the page said and what the page fetched, collected as it happens.
  *
  *  Collection is continuous rather than on demand because the interesting event has almost always already
@@ -292,11 +292,9 @@ export class PageDiagnostics {
         // A server can label a body as text and still send it base64'd through CDP. Decoding it is fine —
         // the mime type already promised text — but the size cap applies to what the reader receives.
         const text = response.base64Encoded === true ? Buffer.from(raw, 'base64').toString('utf8') : raw;
-        const bytes = Buffer.byteLength(text, 'utf8');
-        return {
-            body: bytes > MAX_BODY_BYTES ? `${text.slice(0, MAX_BODY_BYTES)}…[truncated]` : text,
-            truncated: bytes > MAX_BODY_BYTES,
-            bytes,
-        };
+        // Bytes, not characters: the cap is a payload budget, and counting characters would let a body of
+        // accented text or emoji through at several times the size it claims to be.
+        const bounded = boundBytes(text, MAX_BODY_BYTES);
+        return { body: bounded.text, truncated: bounded.truncated, bytes: bounded.bytes };
     }
 }

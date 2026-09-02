@@ -19,8 +19,8 @@ import {
   type BrowserDependencyCheck, type BrowserDependencyReport, type BrowserDependencyStatus,
 } from '../plugins/browser/src/readiness.js';
 import { ScreencastHub, StreamBudget } from '../plugins/browser/src/screencast-hub.js';
-import { boundText, isTextualMime, pickResponseHeaders, sanitizeUrl } from '../plugins/browser/src/redaction.js';
-import { MAX_FULL_PAGE_CSS_PX, MAX_SCREENSHOT_BYTES } from '../plugins/browser/src/capture.js';
+import { boundBytes, boundText, isTextualMime, pickResponseHeaders, sanitizeUrl, UNTRUSTED_NOTE } from '../plugins/browser/src/redaction.js';
+import { MAX_CAPTURE_CSS_AREA, MAX_FULL_PAGE_CSS_PX, MAX_SCREENSHOT_BYTES } from '../plugins/browser/src/capture.js';
 import { CONSOLE_BUFFER_SIZE, MAX_BODY_BYTES } from '../plugins/browser/src/page-diagnostics.js';
 import { ProcessTraceLock, summarizeTraceEvents } from '../plugins/browser/src/performance-probe.js';
 import { BrowserSession } from '../plugins/browser/src/browser-session.js';
@@ -807,6 +807,13 @@ describe('browser diagnostics redaction', () => {
     expect(boundText('short', 20)).toBe('short');
     expect(boundText('x'.repeat(100), 50)).toHaveLength(50);
     expect(boundText('x'.repeat(100), 50).endsWith('…[truncated]')).toBe(true);
+    // A payload budget is bytes: 'ř' is two of them and an emoji is four, so a character count would let
+    // a body through at several times the size the cap claims to allow.
+    expect(boundBytes('ěščř', 100)).toEqual({ text: 'ěščř', truncated: false, bytes: 8 });
+    const cut = boundBytes('🙂'.repeat(10), 20);
+    expect(Buffer.byteLength(cut.text, 'utf8')).toBeLessThanOrEqual(20);
+    expect(cut).toMatchObject({ truncated: true, bytes: 40 });
+    expect(cut.text).not.toContain('\uFFFD'); // never half a character
     for (const mime of ['text/html', 'application/json', 'text/css; charset=utf-8', 'application/javascript', 'image/svg+xml']) {
       expect(isTextualMime(mime)).toBe(true);
     }
@@ -958,6 +965,33 @@ describe('browser diagnostics collector', () => {
     await session.close();
   });
 
+  it('counts the body in bytes, and never cuts a character in half doing it', async () => {
+    const { session, page } = await diagnosticSession();
+    page.cdp.emit('Network.requestWillBeSent', { requestId: 'r1', type: 'XHR', request: { url: 'https://api.example.com/me', method: 'GET' } });
+    page.cdp.emit('Network.responseReceived', { requestId: 'r1', response: { status: 200, mimeType: 'application/json' } });
+    await tick();
+
+    // Four bytes per character: counted as characters, this 68 KiB body would pass a 64 KiB cap with
+    // room to spare — the cap has to be a payload budget or it is not a budget at all.
+    const emoji = '🙂'.repeat(17_000);
+    expect(emoji.length).toBeLessThan(MAX_BODY_BYTES);
+    expect(Buffer.byteLength(emoji, 'utf8')).toBeGreaterThan(MAX_BODY_BYTES);
+    page.cdp.replies.set('Network.getResponseBody', { body: emoji, base64Encoded: false });
+    const cut = await session.networkRequest('r1', true);
+    expect(cut.body!.truncated).toBe(true);
+    expect(cut.body!.bytes).toBe(Buffer.byteLength(emoji, 'utf8'));
+    expect(Buffer.byteLength(cut.body!.text, 'utf8')).toBeLessThanOrEqual(MAX_BODY_BYTES);
+    // Slicing the buffer at the byte would leave the tail of a character behind as a replacement glyph.
+    expect(cut.body!.text).not.toContain('\uFFFD');
+    expect(cut.body!.text.replace('…[truncated]', '')).toMatch(/^(?:🙂)+$/u);
+
+    // A base64 transport does not change what the cap measures: the decoded text does.
+    page.cdp.replies.set('Network.getResponseBody', { body: Buffer.from('příliš žluťoučký kůň', 'utf8').toString('base64'), base64Encoded: true });
+    const decoded = await session.networkRequest('r1', true);
+    expect(decoded.body).toMatchObject({ text: 'příliš žluťoučký kůň', truncated: false, bytes: 29 });
+    await session.close();
+  });
+
   it('unbinds the old tab before detaching it, re-enables on the new one and keeps no cross-tab entries', async () => {
     const { session, page, browser, tabs, id } = await diagnosticSession();
     page.cdp.emit('Runtime.consoleAPICalled', { type: 'log', args: [{ type: 'string', value: 'first tab' }] });
@@ -1043,11 +1077,56 @@ describe('browser screenshots', () => {
       cssContentSize: { width: 1280, height: MAX_FULL_PAGE_CSS_PX + 1 },
     });
     // Scaling to fit would answer a different question than the caller asked, with no sign it had.
-    await expect(session.screenshot('fullPage', 'png', undefined)).rejects.toThrow(/beyond the 8000 pixel full-page limit/);
+    await expect(session.screenshot('fullPage', 'png', undefined)).rejects.toThrow(/beyond the 8000 pixel capture limit/);
     expect(page.cdp.calls.some((call) => call.method === 'Page.captureScreenshot')).toBe(false);
 
     page.cdp.replies.set('Page.captureScreenshot', { data: 'A'.repeat(Math.ceil((MAX_SCREENSHOT_BYTES + 1024) / 0.75)) });
     await expect(session.screenshot('viewport', 'png', undefined)).rejects.toThrow(/over the 1536 KiB limit/);
+    await session.close();
+  });
+
+  it('measures the work, not just each side of it', async () => {
+    const { session, page } = await screenshotSession();
+    // Both sides pass the per-side limit and the rasterizer still has to build 64 megapixels — a quarter
+    // of a gigabyte of bitmap — before any encoded byte exists for the byte cap to measure. The area is
+    // the budget that actually protects the operation.
+    page.cdp.replies.set('Page.getLayoutMetrics', {
+      cssLayoutViewport: { clientWidth: 1280, clientHeight: 800 },
+      cssContentSize: { width: MAX_FULL_PAGE_CSS_PX, height: MAX_FULL_PAGE_CSS_PX },
+    });
+    await expect(session.screenshot('fullPage', 'png', undefined)).rejects.toThrow(/over the 16 megapixel capture limit/);
+    expect(page.cdp.calls.some((call) => call.method === 'Page.captureScreenshot')).toBe(false);
+
+    // A tall full-width page is the ordinary case this cap must not cost anybody.
+    page.cdp.replies.set('Page.getLayoutMetrics', {
+      cssLayoutViewport: { clientWidth: 1280, clientHeight: 800 },
+      cssContentSize: { width: 1280, height: MAX_FULL_PAGE_CSS_PX },
+    });
+    expect(await session.screenshot('fullPage', 'jpeg', undefined)).toMatchObject({ width: 1280, height: 8000 });
+
+    // The same budget applies to an element: a canvas can be larger than the document around it. Both
+    // sides stay well inside the per-side limit, so what refuses this is the area and nothing else.
+    const side = Math.ceil(Math.sqrt(MAX_CAPTURE_CSS_AREA)) + 1000;
+    expect(side).toBeLessThan(MAX_FULL_PAGE_CSS_PX);
+    page.cdp.replies.set('DOM.getBoxModel', { model: { border: [0, 0, side, 0, side, side, 0, side] } });
+    await session.snapshot(false);
+    await expect(session.screenshot('element', 'png', 'e1')).rejects.toThrow(/over the 16 megapixel capture limit/);
+    await session.close();
+  });
+
+  it('refuses a page it could not measure instead of returning a one-pixel picture of it', async () => {
+    const { session, page } = await screenshotSession();
+    // captureScreenshot answers a 1×1 clip with a perfectly valid image, and a one-pixel PNG passed off
+    // as "the page" is worse than an error: evidence of nothing that looks like evidence of something.
+    page.cdp.replies.set('Page.getLayoutMetrics', {});
+    await expect(session.screenshot('viewport', 'png', undefined)).rejects.toThrow(/no measurable size/);
+    await expect(session.screenshot('fullPage', 'png', undefined)).rejects.toThrow(/no measurable size/);
+    page.cdp.replies.set('Page.getLayoutMetrics', {
+      cssLayoutViewport: { clientWidth: 0, clientHeight: 0 }, cssContentSize: { width: 1280, height: 0 },
+    });
+    await expect(session.screenshot('viewport', 'png', undefined)).rejects.toThrow(/no measurable size/);
+    await expect(session.screenshot('fullPage', 'png', undefined)).rejects.toThrow(/no measurable size/);
+    expect(page.cdp.calls.some((call) => call.method === 'Page.captureScreenshot')).toBe(false);
     await session.close();
   });
 });
@@ -1142,6 +1221,76 @@ describe('browser performance tracing', () => {
     lock.acquire('session-b');
     expect(lock.holder).toBe('session-b');
   });
+
+  async function tracingSession() {
+    const store = new BrowserStore(pluginDb());
+    const now = Date.now();
+    const id = 'session-tracing-00001';
+    store.createSession({
+      id, ownerUserId: 1, conversationId: 'brain-1', artifactRef: null, primaryTargetId: null,
+      state: 'creating', createdAt: now, updatedAt: now, lastActivityAt: now,
+      hardExpiresAt: now + 60_000, closedAt: null, closeReason: null,
+    });
+    const browser = new FakeBrowser();
+    const page = await browser.newPage() as FakePage;
+    const tabs = new TabManager(browser, () => 12, logger);
+    tabs.registerPrimary(id, page);
+    const traceLock = new ProcessTraceLock();
+    const session = await BrowserSession.create({
+      id, ownerUserId: 1, conversationId: 'brain-1', createdAt: now, hardExpiresAt: now + 60_000,
+      page, tabs, config: () => config(), store, artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
+      streamBudget: new StreamBudget(() => 10_000_000), traceLock,
+      clock: { now: () => Date.now(), sleep: async () => {} }, logger,
+      releasePage: async () => { await tabs.closeSession(id); }, forceCloseBrowser: async () => {}, onClosed: () => {},
+    });
+    return { session, page, browser, tabs, traceLock, id };
+  }
+
+  /** Chrome answering `Tracing.end` the way it does with transferMode ReturnAsStream: the command
+   *  resolves, and the payload arrives afterwards as a completion event naming a stream handle. */
+  const completesWithStream = (page: FakePage, handle: string) =>
+    page.cdp.replies.set('Tracing.end', () => {
+      setImmediate(() => page.cdp.emit('Tracing.tracingComplete', { stream: handle }));
+      return {};
+    });
+
+  it('closes the stream of a trace the tab switch abandoned, instead of leaving the browser holding it', async () => {
+    const { session, page, browser, tabs, traceLock, id } = await tracingSession();
+    completesWithStream(page, 'stream-tab-switch');
+    await session.startTrace();
+    expect(traceLock.holder).toBe(id);
+
+    const second = await browser.newPage() as FakePage;
+    await session.selectTab(tabs.registerPrimary(id, second), undefined);
+
+    // Ending the trace is only half of it: the handle Chrome hands back is a buffer it keeps until
+    // somebody closes it, and on a tab switch the browser is very much still alive to keep holding it.
+    expect(page.cdp.calls.some((call) => call.method === 'Tracing.end')).toBe(true);
+    expect(page.cdp.calls.find((call) => call.method === 'IO.close')?.params).toEqual({ handle: 'stream-tab-switch' });
+    expect(traceLock.holder).toBeNull();
+    expect(session.traceRunning).toBe(false);
+    // And the process is free for the new tab to record on.
+    completesWithStream(second, 'stream-second');
+    await session.startTrace();
+    expect(traceLock.holder).toBe(id);
+    await session.close();
+    expect(second.cdp.calls.find((call) => call.method === 'IO.close')?.params).toEqual({ handle: 'stream-second' });
+  });
+
+  it('releases the lock even when the completion never comes, so one dead browser cannot wedge the account', async () => {
+    const { session, page, traceLock, id } = await tracingSession();
+    // A browser that is going away answers `Tracing.end` and then says nothing more. Waiting on that
+    // event — or failing on it — would hold the process-wide lock for the rest of the daemon's life.
+    page.cdp.replies.set('Tracing.end', {});
+    await session.startTrace();
+    expect(traceLock.holder).toBe(id);
+
+    await session.close();
+    expect(traceLock.holder).toBeNull();
+    expect(session.traceRunning).toBe(false);
+    // Nothing was invented to close: no handle was ever named.
+    expect(page.cdp.calls.some((call) => call.method === 'IO.close')).toBe(false);
+  }, 10_000);
 });
 
 describe('browser diagnostics tools', () => {
@@ -1214,6 +1363,34 @@ describe('browser diagnostics tools', () => {
     // add up to a page nobody can use.
     expect(result.content[0].text.length).toBeLessThanOrEqual(16_384);
     expect(result.content[0].text.endsWith('…[truncated]')).toBe(true);
+    await session.close();
+  });
+
+  it('gives an explicitly requested body a block of its own, so 64 KiB means 64 KiB', async () => {
+    const { tool, session, page } = await toolStand();
+    const sessionId = 'session-tooling-000001';
+    page.cdp.emit('Network.requestWillBeSent', { requestId: 'r1', type: 'XHR', request: { url: 'https://api.example.com/me', method: 'GET' } });
+    page.cdp.emit('Network.responseReceived', { requestId: 'r1', response: { status: 200, mimeType: 'text/html' } });
+    await tick();
+    page.cdp.replies.set('Network.getResponseBody', { body: 'b'.repeat(40 * 1024), base64Encoded: false });
+
+    const detail = await tool('BrowserNetwork').execute('c', { sessionId, action: 'get', requestId: 'r1', includeBody: true }, undefined);
+    expect(detail.content.map((part: any) => part.type)).toEqual(['text', 'text']);
+    // Folded into the metadata JSON this body would have met the 16 KiB reply cap and come back at a
+    // quarter of what the tool promised. A limit that says 64 KiB and delivers 16 is worse than a
+    // smaller honest one.
+    const [metadata, body] = detail.content;
+    expect(metadata.text.length).toBeLessThanOrEqual(16_384);
+    expect(JSON.parse(metadata.text)).toMatchObject({ entry: { requestId: 'r1' }, body: { bytes: 40 * 1024, truncated: false } });
+    expect(body.text.length).toBeGreaterThan(16_384);
+    expect(Buffer.byteLength(body.text, 'utf8')).toBeLessThanOrEqual(65_536 + Buffer.byteLength(`${UNTRUSTED_NOTE}\n\n`, 'utf8'));
+    // The block is read on its own, so the warning has to be in it rather than in its neighbour.
+    expect(body.text.startsWith(UNTRUSTED_NOTE)).toBe(true);
+
+    // Without a body the ordinary reply cap still governs the one block there is.
+    const plain = await tool('BrowserNetwork').execute('c', { sessionId, action: 'get', requestId: 'r1' }, undefined);
+    expect(plain.content).toHaveLength(1);
+    expect(JSON.parse(plain.content[0].text).body).toBeUndefined();
     await session.close();
   });
 

@@ -243,7 +243,19 @@ export function registerBrowserTools(ctx, registry) {
                     if (!input.requestId)
                         throw new Error('requestId is required for the get action.');
                     const detail = await current.session.networkRequest(input.requestId, input.includeBody === true, signal);
-                    return untrustedResult({ sessionId: current.session.id, ...detail });
+                    if (!detail.body)
+                        return untrustedResult({ sessionId: current.session.id, entry: detail.entry });
+                    // The body travels in a block of its OWN. Folded into the metadata JSON it would be measured
+                    // against the 16 KiB reply cap and cut to a quarter of the 64 KiB the caller was promised —
+                    // a limit that says 64 KiB and delivers 16 is worse than a smaller honest one. Its own note
+                    // rides with it, because this block is what a later reader sees on its own.
+                    return {
+                        content: [
+                            { type: 'text', text: boundText(JSON.stringify({ untrusted: UNTRUSTED_NOTE, sessionId: current.session.id, entry: detail.entry, body: { bytes: detail.body.bytes, truncated: detail.body.truncated } }, null, 2), MAX_RESULT_TEXT) },
+                            { type: 'text', text: `${UNTRUSTED_NOTE}\n\n${detail.body.text}` },
+                        ],
+                        details: {},
+                    };
                 }
                 const result = await current.session.networkEntries({
                     filter: input.filter ?? 'all',

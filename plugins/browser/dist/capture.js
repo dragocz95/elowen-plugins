@@ -6,6 +6,12 @@
 /** A full-page capture is one image of an arbitrarily long document. Past this height the encode alone
  *  can outlive the operation deadline and the result is unreadable anyway. */
 export const MAX_FULL_PAGE_CSS_PX = 8000;
+/** …but a per-side limit is not a limit on the WORK. 8000×8000 satisfies both sides and is 64 megapixels,
+ *  a quarter of a gigabyte of raw bitmap before a single byte of the encoded result exists to be measured
+ *  — so the byte cap below never gets to fire, and the operation dies of memory or of its deadline
+ *  instead. The area is the real budget; 16 MP leaves a full-width page (1280×8000 ≈ 10 MP) comfortably
+ *  inside it while refusing the square monsters. */
+export const MAX_CAPTURE_CSS_AREA = 16_000_000;
 /** The image is base64'd into a model transcript, so its size is the reader's cost, not just ours. */
 export const MAX_SCREENSHOT_BYTES = 1_572_864; // 1.5 MiB
 const decodedBytes = (base64) => Math.floor(base64.length * 0.75);
@@ -38,23 +44,41 @@ async function capture(cdp, area, format, quality, clip, beyondViewport) {
         area,
     };
 }
+/** Refuse a capture before Chrome is asked to rasterize it, and refuse one whose size could not be
+ *  established at all.
+ *
+ *  A zero or missing dimension is the second case: `Page.captureScreenshot` with a 1×1 clip cheerfully
+ *  returns a valid image, and a one-pixel PNG passed off as "the page" is worse than an error — it is
+ *  evidence of nothing that looks like evidence of something. */
+function assertCapturable(subject, width, height) {
+    if (!(width > 0) || !(height > 0)) {
+        throw new Error(`${subject} reported no measurable size, so there is nothing to capture.`);
+    }
+    if (width > MAX_FULL_PAGE_CSS_PX || height > MAX_FULL_PAGE_CSS_PX) {
+        throw new Error(`${subject} is ${Math.round(width)}×${Math.round(height)} CSS pixels, beyond the ${MAX_FULL_PAGE_CSS_PX} pixel capture limit. `
+            + 'Capture the viewport, or an element, instead.');
+    }
+    if (width * height > MAX_CAPTURE_CSS_AREA) {
+        throw new Error(`${subject} is ${Math.round(width)}×${Math.round(height)} CSS pixels, `
+            + `over the ${Math.round(MAX_CAPTURE_CSS_AREA / 1_000_000)} megapixel capture limit. `
+            + 'Capture the viewport, or an element, instead.');
+    }
+}
 async function layoutMetrics(cdp) {
     return cdp.send('Page.getLayoutMetrics');
 }
 export async function captureViewport(cdp, format, quality) {
     const metrics = await layoutMetrics(cdp);
-    const width = Math.max(1, Math.round(metrics.cssLayoutViewport?.clientWidth ?? 0));
-    const height = Math.max(1, Math.round(metrics.cssLayoutViewport?.clientHeight ?? 0));
+    const width = Math.round(metrics.cssLayoutViewport?.clientWidth ?? 0);
+    const height = Math.round(metrics.cssLayoutViewport?.clientHeight ?? 0);
+    assertCapturable('The viewport', width, height);
     return capture(cdp, 'viewport', format, quality, { x: 0, y: 0, width, height, scale: 1 }, false);
 }
 export async function captureFullPage(cdp, format, quality) {
     const metrics = await layoutMetrics(cdp);
-    const width = Math.max(1, Math.round(metrics.cssContentSize?.width ?? 0));
-    const height = Math.max(1, Math.round(metrics.cssContentSize?.height ?? 0));
-    if (height > MAX_FULL_PAGE_CSS_PX || width > MAX_FULL_PAGE_CSS_PX) {
-        throw new Error(`The document is ${width}×${height} CSS pixels, beyond the ${MAX_FULL_PAGE_CSS_PX} pixel full-page limit. `
-            + 'Capture the viewport, or an element, instead.');
-    }
+    const width = Math.round(metrics.cssContentSize?.width ?? 0);
+    const height = Math.round(metrics.cssContentSize?.height ?? 0);
+    assertCapturable('The document', width, height);
     return capture(cdp, 'fullPage', format, quality, { x: 0, y: 0, width, height, scale: 1 }, true);
 }
 /** The element's border box, from the same box model the click path uses — so "the element the model can
@@ -74,9 +98,7 @@ export async function captureElement(cdp, element, format, quality) {
     const height = Math.max(...ys) - y;
     if (!(width > 0) || !(height > 0))
         throw new Error(`Element ${element.ref} has no visible box.`);
-    if (width > MAX_FULL_PAGE_CSS_PX || height > MAX_FULL_PAGE_CSS_PX) {
-        throw new Error(`Element ${element.ref} is ${Math.round(width)}×${Math.round(height)} CSS pixels, beyond the ${MAX_FULL_PAGE_CSS_PX} pixel capture limit.`);
-    }
+    assertCapturable(`Element ${element.ref}`, width, height);
     return capture(cdp, 'element', format, quality, { x, y, width, height, scale: 1 }, true);
 }
 /** The viewport JPEG `BrowserSnapshot` offers beside its accessibility tree. Same capture path as the
