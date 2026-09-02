@@ -50,6 +50,19 @@ const requestedStreamBody = [
   `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null })}\n\n`,
   `event: control\ndata: ${JSON.stringify({ state: 'agent', reason: 'requested' })}\n\n`,
 ].join('');
+/** The shape production actually delivered: a click reports where it landed, but the six `cursor` frames
+ *  of the approach never reached this viewer — it connected mid-move, or they were dropped. */
+const actionOnlyStreamBody = [
+  `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, cursor: null })}\n\n`,
+  `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
+  `event: action\ndata: ${JSON.stringify({ action: 'click', target: 'Continue', x: 320, y: 200 })}\n\n`,
+].join('');
+/** A viewer that opens the artifact between two agent moves: no live cursor event is coming, so the
+ *  opening frame replays where the agent left the pointer. */
+const lateViewerStreamBody = [
+  `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, cursor: { x: 960, y: 600 } })}\n\n`,
+  `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
+].join('');
 
 describe('browser plugin UI', () => {
   it('registers the chat artifact, settings and account surfaces on API 14', () => {
@@ -198,6 +211,33 @@ describe('browser plugin UI', () => {
     expect(canvas.querySelector('.browser-artifact__narration')).toBeNull();
     // The browser's own action status is a separate, shorter thing and stays.
     expect(await within(canvas).findByText('Clicking · Continue')).toBeInTheDocument();
+  });
+
+  it('places the agent pointer from the action itself when the cursor frames never arrive', async () => {
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(actionOnlyStreamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    const cursor = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>('.browser-artifact__cursor');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    // The action's own coordinates are the authoritative landing point, read as a fraction of the frame.
+    expect(cursor.style.left).toBe('25%');
+    expect(cursor.style.top).toBe('25%');
+  });
+
+  it('starts a late viewer from the pointer the agent left behind', async () => {
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(lateViewerStreamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    const cursor = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>('.browser-artifact__cursor');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(cursor.style.left).toBe('75%');
+    expect(cursor.style.top).toBe('75%');
   });
 
   it('shows account profile state and runtime capacity without exposing page content', async () => {

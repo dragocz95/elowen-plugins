@@ -31,6 +31,11 @@ export class BrowserSession {
     hardExpiryTimer = null;
     lastActivityAt;
     lastAction = null;
+    /** Where the agent's pointer was left, in viewport pixels. A live `cursor` event only reaches the
+     *  viewers connected while it is emitted, so a viewer that opens the artifact between two agent moves
+     *  has nothing to draw a pointer from — which is a session fact, not a per-connection one. Kept here so
+     *  the stream's opening frame can replay it. */
+    lastCursorValue = null;
     snapshotValue = null;
     artifactRef;
     screencast;
@@ -59,6 +64,10 @@ export class BrowserSession {
     get lastActivity() { return this.lastActivityAt; }
     get currentLease() {
         return this.lease ? { expiresAt: this.lease.expiresAt } : null;
+    }
+    /** The agent pointer a joining viewer should start from; null until the agent has moved it. */
+    get currentCursor() {
+        return this.lastCursorValue ? { ...this.lastCursorValue } : null;
     }
     async setArtifact(ref) {
         if (this.stateValue === 'closing' || this.stateValue === 'closed' || this.stateValue === 'error') {
@@ -491,6 +500,13 @@ export class BrowserSession {
         }));
     }
     emit(event) {
+        // Every agent pointer move and every action that has a position passes through here, so this is the
+        // one place that can remember where the pointer is without a second code path to keep in step.
+        const x = event.data.x;
+        const y = event.data.y;
+        if ((event.kind === 'cursor' || event.kind === 'action') && typeof x === 'number' && typeof y === 'number') {
+            this.lastCursorValue = { x, y };
+        }
         for (const listener of this.listeners.values())
             void listener(event).catch(() => { });
     }

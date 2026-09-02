@@ -85,10 +85,17 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
         const action = typeof data.action === 'string'
           ? { kind: data.action, ...(typeof data.target === 'string' ? { target: data.target } : {}) }
           : null;
+        // An action that reports WHERE it acted is itself a pointer position, and the authoritative one:
+        // the `cursor` events before a click are the animated approach, this is where it landed. Reading
+        // it means a viewer that missed those frames — because it connected mid-move, or because the
+        // stream dropped them — still has a pointer to draw instead of none.
+        const at = typeof data.x === 'number' && typeof data.y === 'number' ? { x: data.x, y: data.y } : null;
         setState((value) => ({
           ...value,
           action,
-          cursor: value.cursor && data.action === 'click' ? { ...value.cursor, clicking: true } : value.cursor,
+          cursor: at
+            ? { ...value.cursor, ...at, moving: false, clicking: data.action === 'click' }
+            : value.cursor && data.action === 'click' ? { ...value.cursor, clicking: true } : value.cursor,
         }));
         if (data.action === 'click') setTimeout(() => {
           if (generation.current !== current) return;
@@ -100,11 +107,17 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
         const lease = frame.event === 'session' ? object(data.lease) : null;
         const controlState = data.state === 'user' ? 'user' : 'agent';
         const rawExpiresAt = lease?.expiresAt ?? data.expiresAt;
+        // The opening frame replays where the agent left its pointer, so a viewer that joins between two
+        // agent moves starts with one rather than waiting for the next move to reveal it.
+        const seeded = object(data.cursor);
         setState((value) => ({
           ...value,
           connected: true,
           closed: false,
           error: null,
+          cursor: value.cursor ?? (typeof seeded?.x === 'number' && typeof seeded?.y === 'number'
+            ? { x: seeded.x, y: seeded.y, moving: false }
+            : null),
           control: {
             state: controlState,
             expiresAt: typeof rawExpiresAt === 'number' ? rawExpiresAt : undefined,

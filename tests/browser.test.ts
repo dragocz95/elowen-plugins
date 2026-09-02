@@ -525,4 +525,26 @@ describe('browser takeover state machine', () => {
     expect(events.at(-1)).toMatchObject({ kind: 'control', data: { state: 'agent', reason: 'cancelled' } });
     await session.close();
   });
+
+  it('remembers where the agent left its pointer, so a viewer that joins later still has one', async () => {
+    const { session, page, events } = await createSession();
+    // No agent action yet: there is nothing to place a pointer at, and the session says so rather than
+    // inventing a position.
+    expect(session.currentCursor).toBeNull();
+
+    await session.scroll(0, 400);
+    const viewport = { width: config().maxViewportWidth, height: config().viewportHeight };
+    const wheel = page.cdp.calls.find((call) => call.method === 'Input.dispatchMouseEvent' && (call.params as { type: string }).type === 'mouseWheel');
+    // A scroll used to be the one agent action a viewer could not place: the wheel is dispatched at the
+    // middle of the viewport, and now the event says so.
+    expect(events.at(-1)).toMatchObject({ kind: 'action', data: { action: 'scroll', x: viewport.width / 2, y: viewport.height / 2 } });
+    expect(wheel!.params).toMatchObject({ x: viewport.width / 2, y: viewport.height / 2 });
+
+    // THIS is what a late viewer reads out of the stream's opening frame. Live `cursor` events only ever
+    // reach the viewers that are already connected, so without it the artifact had no pointer to draw
+    // until the agent happened to move again.
+    expect(session.currentCursor).toEqual({ x: viewport.width / 2, y: viewport.height / 2 });
+    expect(session.currentCursor).not.toBe(session.currentCursor); // a copy: a viewer cannot move it
+    await session.close();
+  });
 });

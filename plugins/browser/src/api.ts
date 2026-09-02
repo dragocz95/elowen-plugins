@@ -70,7 +70,10 @@ export function registerBrowserApi(ctx: PluginContext, registry: SessionRegistry
         return {
           sse: async (send, signal) => {
             const subscriberId = randomBytes(18).toString('base64url');
-            await send(JSON.stringify({ id: session.id, state: session.state, lease: session.currentLease }), 'session');
+            // The opening frame carries the agent's pointer as well as the control state: a `cursor` event
+            // reaches only the viewers connected when it is emitted, so a viewer joining between two agent
+            // moves would otherwise have nothing to draw a pointer from until the agent moved again.
+            await send(JSON.stringify({ id: session.id, state: session.state, lease: session.currentLease, cursor: session.currentCursor }), 'session');
             let unsubscribeEvents: (() => void) | null = null;
             let unsubscribeFrames: (() => Promise<void>) | null = null;
             const heartbeat = setInterval(() => {

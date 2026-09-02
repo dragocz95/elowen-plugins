@@ -148,10 +148,13 @@ export class InputController {
         const viewport = this.viewport();
         const safeX = clamp(deltaX, -viewport.width * 4, viewport.width * 4);
         const safeY = clamp(deltaY, -viewport.height * 4, viewport.height * 4);
-        await this.cdp.send('Input.dispatchMouseEvent', {
-            type: 'mouseWheel', x: viewport.width / 2, y: viewport.height / 2, deltaX: safeX, deltaY: safeY,
-        });
-        this.emit({ kind: 'action', data: { action: 'scroll', deltaX: safeX, deltaY: safeY } });
+        const x = viewport.width / 2;
+        const y = viewport.height / 2;
+        await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: safeX, deltaY: safeY });
+        this.cursor = { x, y };
+        // The wheel IS dispatched at the middle of the viewport, so the action reports the point it acted on
+        // exactly as a click does. Without it a scroll was the one agent action a viewer could not place.
+        this.emit({ kind: 'action', data: { action: 'scroll', deltaX: safeX, deltaY: safeY, x, y } });
     }
     async dispatchUserBatch(events) {
         if (events.length === 0 || events.length > 50)

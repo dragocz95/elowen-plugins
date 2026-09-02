@@ -423,10 +423,11 @@ function useBrowserStream(path) {
       }
       if (frame.event === "action") {
         const action = typeof data.action === "string" ? { kind: data.action, ...typeof data.target === "string" ? { target: data.target } : {} } : null;
+        const at = typeof data.x === "number" && typeof data.y === "number" ? { x: data.x, y: data.y } : null;
         setState((value) => ({
           ...value,
           action,
-          cursor: value.cursor && data.action === "click" ? { ...value.cursor, clicking: true } : value.cursor
+          cursor: at ? { ...value.cursor, ...at, moving: false, clicking: data.action === "click" } : value.cursor && data.action === "click" ? { ...value.cursor, clicking: true } : value.cursor
         }));
         if (data.action === "click") setTimeout(() => {
           if (generation.current !== current) return;
@@ -438,11 +439,13 @@ function useBrowserStream(path) {
         const lease = frame.event === "session" ? object(data.lease) : null;
         const controlState = data.state === "user" ? "user" : "agent";
         const rawExpiresAt = lease?.expiresAt ?? data.expiresAt;
+        const seeded = object(data.cursor);
         setState((value) => ({
           ...value,
           connected: true,
           closed: false,
           error: null,
+          cursor: value.cursor ?? (typeof seeded?.x === "number" && typeof seeded?.y === "number" ? { x: seeded.x, y: seeded.y, moving: false } : null),
           control: {
             state: controlState,
             expiresAt: typeof rawExpiresAt === "number" ? rawExpiresAt : void 0,
