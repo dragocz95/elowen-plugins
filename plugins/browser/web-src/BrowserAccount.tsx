@@ -15,10 +15,11 @@ const bytes = (value: number): string => {
 };
 
 export function BrowserAccount({ surface }: PluginPageProps) {
-  const { PluginPageHeader, DetailBlock, Badge, Button, ConfirmDialog, LoadingState, ErrorState, EmptyState } = runtime().components;
-  const strings = runtime().hooks.usePluginStrings('browser');
-  const toast = runtime().hooks.useToast();
-  const client = runtime().hooks.useQueryClient();
+  const host = runtime();
+  const { PluginPageHeader, DetailBlock, Badge, Button, ConfirmDialog, LoadingState, ErrorState, EmptyState } = host.components;
+  const strings = host.hooks.usePluginStrings('browser');
+  const toast = host.hooks.useToast();
+  const client = host.hooks.useQueryClient();
   const [confirmClear, setConfirmClear] = useState(false);
   const profile = runtime().hooks.useQuery<ProfileStatus>({ queryKey: ['browser', 'profile'], queryFn: () => runtime().api('/plugins/browser/api/profile') });
   const sessions = runtime().hooks.useQuery<SessionsResponse>({ queryKey: ['browser', 'sessions'], queryFn: () => runtime().api('/plugins/browser/api/sessions'), refetchInterval: 5_000 });

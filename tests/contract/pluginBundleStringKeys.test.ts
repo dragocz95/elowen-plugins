@@ -28,6 +28,10 @@ const PLUGINS = join(registryRoot, 'plugins');
  *  that disappears fails as a stale entry, and a new computed read fails until it is declared. */
 const COMPUTED_READS: { file: string; keys: string[] }[] = [
   {
+    file: 'browser/web-src/BrowserArtifact.tsx',
+    keys: ['action_navigate', 'action_click', 'action_fill', 'action_key', 'action_scroll', 'action_paste'],
+  },
+  {
     file: 'cronjob/web-src/JobsSettings.tsx',
     keys: ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'],
   },

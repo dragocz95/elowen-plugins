@@ -13,6 +13,7 @@ type SurfaceContract = {
  * a small inventory rather than a heuristic that guesses whether a button is safe to debounce: operational
  * actions, credentials, uploads, source files and atomic multi-step forms remain explicit by design. */
 const SURFACES: readonly SurfaceContract[] = [
+  { path: 'plugins/browser/web-src/BrowserAccount.tsx', mode: 'explicit-save', reason: 'session lifecycle and confirmed destructive profile cleanup actions' },
   { path: 'plugins/cronjob/web-src/JobsSettings.tsx', mode: 'canonical' },
   { path: 'plugins/msteams/web-src/TeamsWorkspace.tsx', mode: 'canonical' },
   { path: 'plugins/editor/web-src/editor/ProjectEditor.tsx', mode: 'explicit-save', reason: 'source-file checkpoints and uploads' },

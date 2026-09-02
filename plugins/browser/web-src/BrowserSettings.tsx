@@ -11,9 +11,10 @@ interface RuntimeStatus {
 }
 
 export function BrowserSettings({ surface }: PluginPageProps) {
-  const { PluginPageHeader, DetailBlock, Badge, LoadingState, ErrorState } = runtime().components;
-  const strings = runtime().hooks.usePluginStrings('browser');
-  const query = runtime().hooks.useQuery<RuntimeStatus>({
+  const host = runtime();
+  const { PluginPageHeader, DetailBlock, Badge, LoadingState, ErrorState } = host.components;
+  const strings = host.hooks.usePluginStrings('browser');
+  const query = host.hooks.useQuery<RuntimeStatus>({
     queryKey: ['browser', 'admin-status'],
     queryFn: () => runtime().api('/plugins/browser/api/admin-status'),
     refetchInterval: 10_000,

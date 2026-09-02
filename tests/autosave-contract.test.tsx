@@ -25,11 +25,11 @@ const hostHookPath = join(coreRoot, 'web/lib/useAutoSaveStatus.ts');
 const coreUiKitTypesPath = join(coreRoot, 'packages/plugin-ui-kit/index.d.ts');
 const resolvedUiKitTypesPath = join(dirname(requireFromHere.resolve('elowen-plugin-ui-kit')), 'index.d.ts');
 if (!existsSync(hostHookPath) || !existsSync(coreUiKitTypesPath)) {
-  throw new Error(`[autosave-contract] ELOWEN_CORE_ROOT is not a source checkout with the API 12 files: ${coreRoot}`);
+  throw new Error(`[autosave-contract] ELOWEN_CORE_ROOT is not a source checkout with the API 13 files: ${coreRoot}`);
 }
 const coreUiKitTypes = readFileSync(coreUiKitTypesPath, 'utf8');
-if (!/PLUGIN_UI_API_VERSION:\s*12\b/.test(coreUiKitTypes)) {
-  throw new Error(`[autosave-contract] ELOWEN_CORE_ROOT does not expose plugin UI API 12: ${coreRoot}`);
+if (!/PLUGIN_UI_API_VERSION:\s*13\b/.test(coreUiKitTypes)) {
+  throw new Error(`[autosave-contract] ELOWEN_CORE_ROOT does not expose plugin UI API 13: ${coreRoot}`);
 }
 
 function hookBody(source: string, path: string): string {
@@ -48,7 +48,7 @@ afterEach(() => {
 });
 
 describe('registry auto-save ABI', () => {
-  it('uses the API 12 ui-kit declarations from the configured core', () => {
+  it('uses the API 13 ui-kit declarations from the configured core', () => {
     expect(readFileSync(resolvedUiKitTypesPath, 'utf8')).toBe(coreUiKitTypes);
   });
 

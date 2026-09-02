@@ -77,6 +77,9 @@
     font-size: var(--text-xs, 0.75rem);
     line-height: var(--tw-leading, var(--text-xs--line-height, calc(1 / 0.75)));
   }
+  .text-destructive {
+    color: var(--color-destructive, #e94d42);
+  }
   .text-foreground {
     color: var(--color-foreground, #f7f3f0);
   }

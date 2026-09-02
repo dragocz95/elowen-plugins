@@ -264,10 +264,11 @@ var bytes = (value) => {
   return `${(value / 1024 / 1024 / 1024).toFixed(2)} GiB`;
 };
 function BrowserAccount({ surface }) {
-  const { PluginPageHeader, DetailBlock, Badge, Button, ConfirmDialog, LoadingState, ErrorState, EmptyState } = runtime().components;
-  const strings = runtime().hooks.usePluginStrings("browser");
-  const toast = runtime().hooks.useToast();
-  const client = runtime().hooks.useQueryClient();
+  const host = runtime();
+  const { PluginPageHeader, DetailBlock, Badge, Button, ConfirmDialog, LoadingState, ErrorState, EmptyState } = host.components;
+  const strings = host.hooks.usePluginStrings("browser");
+  const toast = host.hooks.useToast();
+  const client = host.hooks.useQueryClient();
   const [confirmClear, setConfirmClear] = (0, import_react3.useState)(false);
   const profile = runtime().hooks.useQuery({ queryKey: ["browser", "profile"], queryFn: () => runtime().api("/plugins/browser/api/profile") });
   const sessions = runtime().hooks.useQuery({ queryKey: ["browser", "sessions"], queryFn: () => runtime().api("/plugins/browser/api/sessions"), refetchInterval: 5e3 });
@@ -490,9 +491,10 @@ var asData = (value) => {
 };
 var inputPath = (sessionId, action) => `/plugins/browser/api/${action}?sessionId=${encodeURIComponent(sessionId)}`;
 function BrowserArtifact({ artifact }) {
-  const { Button, IconButton, Badge, Modal, ModalBody, ModalFooter, ConfirmDialog } = runtime().components;
-  const strings = runtime().hooks.usePluginStrings("browser");
-  const toast = runtime().hooks.useToast();
+  const host = runtime();
+  const { Button, IconButton, Badge, Modal, ModalBody, ModalFooter, ConfirmDialog } = host.components;
+  const strings = host.hooks.usePluginStrings("browser");
+  const toast = host.hooks.useToast();
   const data = asData(artifact.data);
   const stream = useBrowserStream(artifact.media?.path);
   const [expanded, setExpanded] = (0, import_react5.useState)(false);
@@ -720,7 +722,7 @@ function BrowserArtifact({ artifact }) {
             ] }),
             viewport(true)
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalFooter, { status: stream.error ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-danger", children: stream.error }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: status.label }), children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalFooter, { status: stream.error ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-destructive", children: stream.error }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: status.label }), children: [
             state === "user" && lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "accent", icon: ShieldCheck, onClick: () => {
               void releaseControl();
             }, disabled: pending !== null, children: strings.returnToAgent || "Return to agent" }) : state === "user" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, disabled: true, children: strings.controlledElsewhere || "Controlled in another window" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "default", icon: Hand, onClick: () => {
@@ -752,9 +754,10 @@ function BrowserArtifact({ artifact }) {
 // plugins/browser/web-src/BrowserSettings.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 function BrowserSettings({ surface }) {
-  const { PluginPageHeader, DetailBlock, Badge, LoadingState, ErrorState } = runtime().components;
-  const strings = runtime().hooks.usePluginStrings("browser");
-  const query = runtime().hooks.useQuery({
+  const host = runtime();
+  const { PluginPageHeader, DetailBlock, Badge, LoadingState, ErrorState } = host.components;
+  const strings = host.hooks.usePluginStrings("browser");
+  const query = host.hooks.useQuery({
     queryKey: ["browser", "admin-status"],
     queryFn: () => runtime().api("/plugins/browser/api/admin-status"),
     refetchInterval: 1e4

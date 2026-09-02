@@ -29,9 +29,10 @@ const asData = (value: unknown): ArtifactData | null => {
 const inputPath = (sessionId: string, action: string): string => `/plugins/browser/api/${action}?sessionId=${encodeURIComponent(sessionId)}`;
 
 export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
-  const { Button, IconButton, Badge, Modal, ModalBody, ModalFooter, ConfirmDialog } = runtime().components;
-  const strings = runtime().hooks.usePluginStrings('browser');
-  const toast = runtime().hooks.useToast();
+  const host = runtime();
+  const { Button, IconButton, Badge, Modal, ModalBody, ModalFooter, ConfirmDialog } = host.components;
+  const strings = host.hooks.usePluginStrings('browser');
+  const toast = host.hooks.useToast();
   const data = asData(artifact.data);
   const stream = useBrowserStream(artifact.media?.path);
   const [expanded, setExpanded] = useState(false);
@@ -241,7 +242,7 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
             </div>
             {viewport(true)}
           </ModalBody>
-          <ModalFooter status={stream.error ? <span className="text-danger">{stream.error}</span> : <span>{status.label}</span>}>
+          <ModalFooter status={stream.error ? <span className="text-destructive">{stream.error}</span> : <span>{status.label}</span>}>
             {state === 'user' && lease ? <Button variant="accent" icon={ShieldCheck} onClick={() => { void releaseControl(); }} disabled={pending !== null}>{strings.returnToAgent || 'Return to agent'}</Button>
               : state === 'user' ? <Button variant="ghost" icon={Hand} disabled>{strings.controlledElsewhere || 'Controlled in another window'}</Button>
               : <Button variant="default" icon={Hand} onClick={() => { void takeControl(); }} disabled={pending !== null || stream.closed}>{strings.takeControl || 'Take control'}</Button>}
