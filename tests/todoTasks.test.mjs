@@ -394,6 +394,68 @@ test('TaskDelete and user API routes keep session tasks tenant-scoped and clear 
   assert.deepEqual((await route('GET', 'tasks').handler(request())).body, { tasks: [] });
 });
 
+test('PATCH task renames and re-owns a task, and refuses a patch it cannot apply', async (t) => {
+  const h = harness(t);
+  await h.tool('TaskCreate').execute('1', {
+    tasks: [{ subject: 'Inspect auth', description: 'Private API detail' }],
+  });
+
+  const patch = h.routes.find((item) => item.method === 'PATCH' && item.path === 'task');
+  assert.ok(patch);
+  const request = (body) => ({
+    auth: { userId: 7, admin: false, tokenScope: 'user' },
+    query: { session: 'brain-7-a' },
+    params: {},
+    json: async () => body,
+  });
+  const send = (body) => patch.handler(request({ taskId: '1', ...body }));
+
+  const renamed = await send({ subject: '  Inspect the auth flow  ', owner: 'Luna' });
+  assert.equal(renamed.status, 200);
+  // Unchanged response shape: the patched task plus the whole list.
+  assert.deepEqual(Object.keys(renamed.body).sort(), ['task', 'tasks']);
+  assert.equal(renamed.body.task.subject, 'Inspect the auth flow');
+  assert.equal(renamed.body.task.owner, 'Luna');
+  assert.equal(renamed.body.tasks[0].subject, 'Inspect the auth flow');
+
+  // Several fields land in one call, and the private description is untouched by any of them.
+  const both = await send({ subject: 'Audit the auth flow', status: 'completed' });
+  assert.equal(both.body.task.subject, 'Audit the auth flow');
+  assert.equal(both.body.task.status, 'completed');
+  assert.equal(both.body.task.description, 'Private API detail');
+
+  // An owner is cleared by null or by an empty string, and the row goes back to NULL rather than ''.
+  assert.equal((await send({ owner: null })).body.task.owner, undefined);
+  assert.equal(h.rawDb.prepare('SELECT owner FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').owner, null);
+  await send({ owner: 'Luna' });
+  assert.equal((await send({ owner: '' })).body.task.owner, undefined);
+
+  // Unknown keys are ignored rather than rejected, so a newer UI cannot fail the whole call…
+  const ignored = await send({ subject: 'Kept', priority: 'high' });
+  assert.equal(ignored.status, 200);
+  assert.equal(ignored.body.task.subject, 'Kept');
+
+  // …but a patch that names nothing this route can apply is refused instead of silently succeeding.
+  for (const [body, error] of [
+    [{}, 'nothing to update'],
+    [{ priority: 'high' }, 'nothing to update'],
+    [{ status: 'deleted' }, 'invalid task status'],
+    [{ subject: '   ' }, 'invalid task subject'],
+    [{ subject: 42 }, 'invalid task subject'],
+    [{ subject: 'x'.repeat(201) }, 'invalid task subject'],
+    [{ owner: 7 }, 'invalid task owner'],
+    [{ owner: 'o'.repeat(65) }, 'invalid task owner'],
+  ]) {
+    const refused = await send(body);
+    assert.equal(refused.status, 400, `${JSON.stringify(body)} rejected`);
+    assert.equal(refused.body.error, error);
+  }
+  // Nothing the route refused reached the store.
+  assert.equal((await send({ owner: 'Luna' })).body.task.subject, 'Kept');
+
+  assert.equal((await patch.handler(request({ taskId: '99', status: 'completed' }))).status, 404);
+});
+
 test('bulk clear removes the requested rows without resetting the conversation id counter', async (t) => {
   const h = harness(t);
   const create = h.tool('TaskCreate');

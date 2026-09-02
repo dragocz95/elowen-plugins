@@ -6,6 +6,13 @@ import { pushTaskCard, renderTaskContext } from './render.mjs';
 const TASK_STATUSES = ['pending', 'in_progress', 'completed'];
 const TASK_STATUS_SCHEMA = Type.Union(TASK_STATUSES.map((status) => Type.Literal(status)));
 
+/** Bounds for the values a USER may type over the HTTP routes. The model's own TaskUpdate is not capped
+ *  here: it writes a subject it composed, while these guard a text field in the browser. The numbers match
+ *  what the card can actually show — the host caps a card item at 200 characters and an owner at 64 — so a
+ *  value past them would be truncated on every surface that displays it anyway. */
+const MAX_SUBJECT = 200;
+const MAX_OWNER = 64;
+
 /** Three idle conversation turns leave enough time to inspect finished work without carrying it into a
  *  later topic indefinitely. New work clears an aged finished list immediately, before its first task lands. */
 export const COMPLETED_LIST_GRACE_TURNS = 3;
@@ -370,7 +377,9 @@ class TaskStore {
 
       this.updateTask.run(
         next.subject, next.description, next.activeForm ?? null, next.status,
-        next.owner ?? null, metadataToJson(next.metadata), next.startedAt ?? null, key, taskId,
+        // `owner || null`, not `?? null`: an empty owner is how a caller CLEARS one, and storing '' would
+        // leave a row that reads as owned by nobody yet is not NULL.
+        next.owner || null, metadataToJson(next.metadata), next.startedAt ?? null, key, taskId,
       );
       if (statusChange) this.setCompletedTurns.run(0, key);
 
@@ -471,6 +480,37 @@ function jsonRes(body, status = 200) {
   return { status, body };
 }
 
+/** Validate the body of PATCH task into a store patch, or into the message a 400 should carry.
+ *
+ *  Every field is optional and unknown keys are ignored, exactly as the TaskUpdate tool treats them, so a
+ *  newer UI sending a field this build does not know cannot fail the whole call. What IS refused is a
+ *  patch that names nothing to change: the store would reject it anyway, and a silent 200 would leave the
+ *  caller believing an unspelled field had been applied. */
+function routePatch(body) {
+  const source = body && typeof body === 'object' ? body : {};
+  const patch = {};
+
+  if (source.status !== undefined) {
+    if (!TASK_STATUSES.includes(source.status)) return { error: 'invalid task status' };
+    patch.status = source.status;
+  }
+  if (source.subject !== undefined) {
+    const subject = typeof source.subject === 'string' ? source.subject.trim() : '';
+    if (!subject || subject.length > MAX_SUBJECT) return { error: 'invalid task subject' };
+    patch.subject = subject;
+  }
+  if (source.owner !== undefined) {
+    // null and '' both mean "no owner"; the store writes an empty owner back as NULL.
+    if (source.owner !== null && typeof source.owner !== 'string') return { error: 'invalid task owner' };
+    const owner = source.owner === null ? '' : source.owner.trim();
+    if (owner.length > MAX_OWNER) return { error: 'invalid task owner' };
+    patch.owner = owner;
+  }
+
+  if (Object.keys(patch).length === 0) return { error: 'nothing to update' };
+  return { value: patch };
+}
+
 function apiListKey(req) {
   if (req.auth.tokenScope === 'agent' || !Number.isInteger(req.auth.userId)) return null;
   const sessionId = String(req.query.session ?? '').trim();
@@ -507,11 +547,11 @@ export function registerTaskMode(ctx, db) {
       if (resolved.error) return resolved.error;
       let body;
       try { body = await req.json(); } catch { return jsonRes({ error: 'invalid JSON' }, 400); }
-      const status = body?.status;
-      if (!TASK_STATUSES.includes(status)) return jsonRes({ error: 'invalid task status' }, 400);
+      const patch = routePatch(body);
+      if (patch.error) return jsonRes({ error: patch.error }, 400);
       try {
         const taskId = String(body?.taskId ?? '');
-        store.update(resolved.key, taskId, { status });
+        store.update(resolved.key, taskId, patch.value);
         return jsonRes({ task: store.get(resolved.key, taskId), tasks: store.list(resolved.key) });
       } catch (error) {
         const message = safeError(ctx, error);
