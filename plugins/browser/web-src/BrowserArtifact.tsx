@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type WheelEvent } from 'react';
-import { ArrowLeft, ArrowRight, Expand, Globe2, Hand, Monitor, RotateCw, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Expand, Globe2, Hand, RotateCw, ShieldCheck, X } from 'lucide-react';
 import type { BrowserArtifactProps } from './runtime';
 import { apiError, jsonRequest, runtime } from './runtime';
 import { useBrowserStream } from './useBrowserStream';
@@ -30,7 +30,7 @@ const inputPath = (sessionId: string, action: string): string => `/plugins/brows
 
 export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
   const host = runtime();
-  const { Button, IconButton, Badge, Modal, ModalBody, ModalFooter, ConfirmDialog } = host.components;
+  const { Button, IconButton, Badge, Modal, ModalBody, ModalFooter, ConfirmDialog, Spinner } = host.components;
   const strings = host.hooks.usePluginStrings('browser');
   const toast = host.hooks.useToast();
   const data = asData(artifact.data);
@@ -179,7 +179,10 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
       aria-label={strings.browserViewport || 'Live browser view'}
     >
       {frame ? <img src={`data:${frame.mimeType};base64,${frame.data}`} alt="" draggable={false} /> : (
-        <div className="browser-artifact__empty"><Monitor size={24} /><span>{stream.error || strings.waitingFrame || 'Waiting for the browser image…'}</span></div>
+        <div className="browser-artifact__empty" role="status" aria-live="polite">
+          <Spinner size="lg" />
+          <span>{stream.error || strings.waitingFrame || 'Waiting for the browser image…'}</span>
+        </div>
       )}
       {stream.cursor && frame ? (
         <span

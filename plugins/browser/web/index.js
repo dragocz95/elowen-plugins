@@ -495,7 +495,7 @@ var asData = (value) => {
 var inputPath = (sessionId, action) => `/plugins/browser/api/${action}?sessionId=${encodeURIComponent(sessionId)}`;
 function BrowserArtifact({ artifact }) {
   const host = runtime();
-  const { Button, IconButton, Badge, Modal, ModalBody, ModalFooter, ConfirmDialog } = host.components;
+  const { Button, IconButton, Badge, Modal, ModalBody, ModalFooter, ConfirmDialog, Spinner } = host.components;
   const strings = host.hooks.usePluginStrings("browser");
   const toast = host.hooks.useToast();
   const data = asData(artifact.data);
@@ -654,8 +654,8 @@ function BrowserArtifact({ artifact }) {
       onContextMenu: interactive && lease ? (event) => event.preventDefault() : void 0,
       "aria-label": strings.browserViewport || "Live browser view",
       children: [
-        frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { src: `data:${frame.mimeType};base64,${frame.data}`, alt: "", draggable: false }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__empty", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Monitor, { size: 24 }),
+        frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { src: `data:${frame.mimeType};base64,${frame.data}`, alt: "", draggable: false }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__empty", role: "status", "aria-live": "polite", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Spinner, { size: "lg" }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: stream.error || strings.waitingFrame || "Waiting for the browser image\u2026" })
         ] }),
         stream.cursor && frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(

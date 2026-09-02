@@ -73,6 +73,7 @@ interface RuntimeComponents {
     onConfirm(): unknown;
     onClose(): void;
   }>;
+  Spinner: ComponentType<{ size?: 'xs' | 'sm' | 'md' | 'lg'; label?: string }>;
   LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'kanban' | 'block'; height?: string }>;
   ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
   EmptyState: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;

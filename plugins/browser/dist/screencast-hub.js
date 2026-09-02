@@ -27,6 +27,7 @@ export class ScreencastHub {
     subscribers = new Map();
     started = false;
     closed = false;
+    latestFrame = null;
     quality;
     fps;
     consecutiveDrops = 0;
@@ -49,15 +50,20 @@ export class ScreencastHub {
             throw new Error('Browser screencast subscriber already exists.');
         if (this.subscribers.size >= this.config().maxViewersPerSession)
             throw new Error('Browser viewer limit reached.');
-        this.subscribers.set(id, { id, send, sending: false, latest: null, closed: false });
+        const subscriber = { id, send, sending: false, latest: null, closed: false };
+        this.subscribers.set(id, subscriber);
+        // Page.startScreencast only guarantees the initial frame to the viewer that started it. A second phone or
+        // tab joining a static page would otherwise wait forever for a paint that may never happen.
+        if (this.latestFrame)
+            this.enqueue(subscriber, this.latestFrame);
         if (!this.started)
             await this.start();
         return async () => {
-            const subscriber = this.subscribers.get(id);
-            if (!subscriber)
+            const current = this.subscribers.get(id);
+            if (!current)
                 return;
-            subscriber.closed = true;
-            subscriber.latest = null;
+            current.closed = true;
+            current.latest = null;
             this.subscribers.delete(id);
             if (this.subscribers.size === 0)
                 await this.stop();
@@ -69,6 +75,7 @@ export class ScreencastHub {
             await this.stop();
         this.cdp.off?.('Page.screencastFrame', this.onFrame);
         this.cdp = cdp;
+        this.latestFrame = null;
         cdp.on('Page.screencastFrame', this.onFrame);
         if (wasStarted && this.subscribers.size > 0)
             await this.start();
@@ -77,6 +84,7 @@ export class ScreencastHub {
         if (this.closed)
             return;
         this.closed = true;
+        this.latestFrame = null;
         for (const subscriber of this.subscribers.values()) {
             subscriber.closed = true;
             subscriber.latest = null;
@@ -128,6 +136,7 @@ export class ScreencastHub {
             height: Math.max(1, Math.round(payload.metadata?.deviceHeight ?? this.config().viewportHeight)),
             timestamp: Math.round((payload.metadata?.timestamp ?? Date.now() / 1000) * 1000),
         };
+        this.latestFrame = frame;
         for (const subscriber of this.subscribers.values())
             this.enqueue(subscriber, frame);
     }

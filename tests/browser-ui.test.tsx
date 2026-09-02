@@ -76,6 +76,7 @@ describe('browser plugin UI', () => {
     use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(requestedStreamBody, { headers: { 'content-type': 'text/event-stream' } })));
     mountArtifact();
     expect(await screen.findByText(strings.waitingForUser)).toBeInTheDocument();
+    expect(document.querySelector('.browser-artifact__empty .spinner')).not.toBeNull();
     expect(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)).toBeEnabled();
     expect(screen.queryByText(strings.controlledElsewhere)).toBeNull();
   });

@@ -1,3 +1,261 @@
+/* plugins/browser/web-src/browser.css */
+.browser-artifact {
+  overflow: hidden;
+  margin: .45rem 0 .7rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: .8rem;
+  background: hsl(var(--card));
+  box-shadow: 0 12px 30px -26px hsl(var(--foreground) / .55);
+}
+.browser-artifact__header,
+.browser-artifact__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .55rem .7rem;
+}
+.browser-artifact__header {
+  border-bottom: 1px solid hsl(var(--border));
+}
+.browser-artifact__footer {
+  border-top: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  font-size: .72rem;
+}
+.browser-artifact__footer > div,
+.browser-artifact__actions {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+.browser-artifact__identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: .55rem;
+}
+.browser-artifact__identity > div {
+  display: grid;
+  min-width: 0;
+  gap: .05rem;
+}
+.browser-artifact__identity strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: hsl(var(--foreground));
+  font-size: .78rem;
+  font-weight: 600;
+}
+.browser-artifact__identity span:not(.browser-artifact__icon) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: hsl(var(--muted-foreground));
+  font-size: .68rem;
+}
+.browser-artifact__icon {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  flex: none;
+  border-radius: .55rem;
+  background: hsl(var(--primary) / .1);
+  color: hsl(var(--primary));
+}
+.browser-artifact__preview {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  cursor: zoom-in;
+}
+.browser-artifact__viewport {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  place-items: center;
+  overflow: hidden;
+  outline: none;
+  background:
+    linear-gradient(
+      135deg,
+      hsl(var(--muted) / .82),
+      hsl(var(--background))),
+    hsl(var(--muted));
+  user-select: none;
+}
+.browser-artifact__viewport.is-interactive {
+  cursor: none;
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / .55);
+}
+.browser-artifact__viewport:focus-visible {
+  box-shadow: inset 0 0 0 2px hsl(var(--primary));
+}
+.browser-artifact__viewport img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.browser-artifact__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .7rem;
+  padding: 1rem;
+  color: hsl(var(--muted-foreground));
+  font-size: .75rem;
+  text-align: center;
+}
+.browser-artifact__cursor {
+  position: absolute;
+  z-index: 3;
+  width: 28px;
+  height: 34px;
+  transform: translate(-3px, -2px);
+  transition: left 90ms linear, top 90ms linear;
+  filter: drop-shadow(0 2px 4px hsl(var(--background) / .75));
+  pointer-events: none;
+}
+.browser-artifact__cursor path {
+  fill: hsl(var(--primary));
+  stroke: hsl(var(--background));
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+.browser-artifact__cursor::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid hsl(var(--primary));
+  border-radius: 999px;
+  opacity: 0;
+}
+.browser-artifact__cursor.is-clicking::after {
+  animation: browser-click-ring 420ms ease-out;
+}
+.browser-artifact__bubble {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: .65rem;
+  display: flex;
+  max-width: calc(100% - 1.3rem);
+  transform: translateX(-50%);
+  align-items: center;
+  gap: .45rem;
+  border: 1px solid hsl(var(--border) / .75);
+  border-radius: 999px;
+  padding: .34rem .65rem;
+  background: hsl(var(--background) / .88);
+  color: hsl(var(--foreground));
+  box-shadow: 0 8px 24px -12px hsl(var(--foreground) / .5);
+  backdrop-filter: blur(12px);
+  font-size: .69rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.browser-artifact__bubble span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.browser-artifact__pulse {
+  width: .42rem;
+  height: .42rem;
+  flex: none;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 0 4px hsl(var(--primary) / .12);
+}
+.browser-artifact__toolbar {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+.browser-artifact__address {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: .4rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: .55rem;
+  padding: .42rem .6rem;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / .45);
+  font-size: .72rem;
+}
+.browser-artifact__address span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browser-artifact__fallback {
+  margin: .5rem 0;
+  border-left: 2px solid hsl(var(--primary));
+  padding: .45rem .7rem;
+  white-space: pre-wrap;
+  color: hsl(var(--muted-foreground));
+  font-size: .75rem;
+}
+@keyframes browser-click-ring {
+  0% {
+    opacity: .9;
+    transform: scale(.45);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(3.4);
+  }
+}
+@media (max-width: 640px) {
+  .browser-artifact__header {
+    align-items: flex-start;
+    gap: .5rem;
+  }
+  .browser-artifact__identity {
+    flex: 1;
+  }
+  .browser-artifact__actions {
+    flex: none;
+  }
+  .browser-artifact__footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: .5rem;
+  }
+  .browser-artifact__footer > div {
+    width: 100%;
+  }
+  .browser-artifact__footer > div > button {
+    flex: 1;
+  }
+}
+@media (min-width: 900px) {
+  .browser-artifact__preview .browser-artifact__viewport {
+    max-height: 23rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-artifact__cursor {
+    transition: none;
+  }
+  .browser-artifact__cursor.is-clicking::after {
+    animation: none;
+  }
+}
 /*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
 @layer properties;
 @layer theme, base, components, utilities;

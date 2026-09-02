@@ -7,7 +7,7 @@
 // is checked in, so the installed JS and CSS can never quietly stop matching their source.
 //
 // Pass a plugin name to build just that one: `node scripts/build-web.mjs whatsapp`.
-import { readdirSync, existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildPluginUiBundle, buildPluginUiCss } from 'elowen-plugin-ui-kit/build';
@@ -30,8 +30,14 @@ for (const name of readdirSync(pluginsDir)) {
   // lockfile: the same source must produce the same bytes, or the drift check would fail on a dependency
   // bump rather than on a real change.
   const bundle = join(dir, 'web', 'index.js');
+  const stylesheet = join(dir, 'web', 'index.css');
+  // esbuild writes imported source CSS beside the JS bundle. Start clean so a plugin that removes its last
+  // CSS import cannot accidentally carry the previous build forward, then append the generated utility layer.
+  rmSync(stylesheet, { force: true });
   await buildPluginUiBundle({ entry, outfile: bundle, nodePaths: [join(root, 'node_modules')] });
-  await buildPluginUiCss({ bundle, outfile: join(dir, 'web', 'index.css') });
+  const authoredCss = existsSync(stylesheet) ? readFileSync(stylesheet, 'utf8') : '';
+  const utilityCss = await buildPluginUiCss({ bundle, outfile: stylesheet });
+  if (authoredCss.trim()) writeFileSync(stylesheet, `${authoredCss.trimEnd()}\n${utilityCss}`, 'utf8');
   console.log(`[build-web] ${name}: web-src → web/index.js + web/index.css`);
   built += 1;
 }

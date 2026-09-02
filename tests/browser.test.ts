@@ -291,6 +291,15 @@ describe('browser process pool', () => {
   });
 });
 
+describe('browser web artifact build', () => {
+  it('ships the authored responsive viewport styles alongside generated utilities', () => {
+    const css = readFileSync(join(import.meta.dirname, '..', 'plugins', 'browser', 'web', 'index.css'), 'utf8');
+    expect(css).toContain('.browser-artifact__viewport');
+    expect(css).toContain('.browser-artifact__empty');
+    expect(css).toContain('@media (max-width: 640px)');
+  });
+});
+
 describe('screencast hub', () => {
   it('ACKs every frame and keeps only the latest pending frame per subscriber', async () => {
     const cdp = new FakeCdp();
@@ -314,6 +323,27 @@ describe('screencast hub', () => {
     expect(delivered).toEqual(['one', 'three']);
     await unsubscribe();
     expect(cdp.calls.some((call) => call.method === 'Page.stopScreencast')).toBe(true);
+    await hub.close();
+  });
+
+  it('replays the latest frame to a viewer joining an already running static page', async () => {
+    const cdp = new FakeCdp();
+    const hub = new ScreencastHub(cdp, () => config({ maxViewersPerSession: 2 }), new StreamBudget(() => 10_000_000), logger);
+    const first: string[] = [];
+    const second: string[] = [];
+    const unsubscribeFirst = await hub.subscribe('viewer-1', async (frame) => { first.push(frame.data); });
+
+    cdp.emit('Page.screencastFrame', { sessionId: 1, data: 'static-page', metadata: { deviceWidth: 100, deviceHeight: 80 } });
+    await tick(); await tick();
+    expect(first).toEqual(['static-page']);
+
+    const unsubscribeSecond = await hub.subscribe('viewer-2', async (frame) => { second.push(frame.data); });
+    await tick(); await tick();
+    expect(second).toEqual(['static-page']);
+    expect(cdp.calls.filter((call) => call.method === 'Page.startScreencast')).toHaveLength(1);
+
+    await unsubscribeSecond();
+    await unsubscribeFirst();
     await hub.close();
   });
 });
