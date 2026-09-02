@@ -313,9 +313,9 @@ describe('screencast hub', () => {
       if (delivered.length === 1) await firstBlocked;
     });
     await expect(hub.subscribe('viewer-2', async () => {})).rejects.toThrow(/viewer limit/);
-    cdp.emit('Page.screencastFrame', { sessionId: 1, data: 'one', metadata: { deviceWidth: 100, deviceHeight: 80 } });
-    cdp.emit('Page.screencastFrame', { sessionId: 2, data: 'two', metadata: { deviceWidth: 100, deviceHeight: 80 } });
-    cdp.emit('Page.screencastFrame', { sessionId: 3, data: 'three', metadata: { deviceWidth: 100, deviceHeight: 80 } });
+    cdp.emit('Page.screencastFrame', { sessionId: 1, data: 'one', metadata: { deviceWidth: 100, deviceHeight: 80, timestamp: 1 } });
+    cdp.emit('Page.screencastFrame', { sessionId: 2, data: 'two', metadata: { deviceWidth: 100, deviceHeight: 80, timestamp: 1.05 } });
+    cdp.emit('Page.screencastFrame', { sessionId: 3, data: 'three', metadata: { deviceWidth: 100, deviceHeight: 80, timestamp: 1.2 } });
     await tick();
     releaseFirst();
     await tick(); await tick();
@@ -332,6 +332,7 @@ describe('screencast hub', () => {
     const first: string[] = [];
     const second: string[] = [];
     const unsubscribeFirst = await hub.subscribe('viewer-1', async (frame) => { first.push(frame.data); });
+    expect(cdp.calls.find((call) => call.method === 'Page.startScreencast')?.params?.everyNthFrame).toBe(1);
 
     cdp.emit('Page.screencastFrame', { sessionId: 1, data: 'static-page', metadata: { deviceWidth: 100, deviceHeight: 80 } });
     await tick(); await tick();

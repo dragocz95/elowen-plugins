@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { PuppeteerCoreFactory, detectChrome, installProxyAuthentication } from '../plugins/browser/src/browser-launcher.js';
 import { DynamicProxyChainAdapter, EnforcingProxyManager } from '../plugins/browser/src/navigation-policy.js';
 import { resolveConfig } from '../plugins/browser/src/config.js';
+import { ScreencastHub, StreamBudget } from '../plugins/browser/src/screencast-hub.js';
+import type { CDPSessionLike } from '../plugins/browser/src/types.js';
 
 const roots: string[] = [];
 let server: Server | null = null;
@@ -67,18 +69,21 @@ describe('browser real Chrome flow', () => {
       expect(await page.title()).toBe('Browser smoke');
       const cdp = await page.createCDPSession();
       await cdp.send('Page.enable');
-      const frame = new Promise<{ data: string; sessionId: number }>((resolve) => {
-        cdp.on('Page.screencastFrame', (raw) => resolve(raw as { data: string; sessionId: number }));
-      });
-      await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 960, maxHeight: 600, everyNthFrame: 1 });
-      await cdp.send('Page.reload');
+      const hub = new ScreencastHub(
+        cdp as unknown as CDPSessionLike,
+        config,
+        new StreamBudget(() => config().globalStreamBytesPerSecond),
+        logger,
+      );
+      let resolveFrame!: (frame: { data: string }) => void;
+      const frame = new Promise<{ data: string }>((resolve) => { resolveFrame = resolve; });
+      await hub.subscribe('static-page-viewer', async (captured) => { resolveFrame(captured); });
       const captured = await Promise.race([
         frame,
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no screencast frame')), 10_000)),
       ]);
       expect(captured.data.length).toBeGreaterThan(100);
-      await cdp.send('Page.screencastFrameAck', { sessionId: captured.sessionId });
-      await cdp.send('Page.stopScreencast');
+      await hub.close();
 
       await page.goto(`${pageUrl.url}alert`, { waitUntil: 'domcontentloaded', timeout: 5_000 });
       expect(await page.title()).toBe('Alert handled');
