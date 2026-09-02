@@ -75,11 +75,38 @@ interface RuntimeComponents {
   ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
   EmptyState: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
   DetailBlock: ComponentType<{ icon: LucideIcon; title: string; hint?: string; children: ReactNode }>;
-  // The host's own list primitives: they carry the list/listitem semantics and the row rhythm every other
-  // register in the app uses, which is why the readiness panel is a list of host rows rather than a
-  // hand-drawn table.
-  EntityList: ComponentType<{ className?: string; children: ReactNode }>;
-  EntityRow: ComponentType<{ interactive?: boolean; selected?: boolean; busy?: boolean; className?: string; children: ReactNode }>;
+  // The canonical settings anatomy (host web/components/ui/SettingsSurface.tsx), which is what every
+  // settings and account page in the app is built from — so this plugin's page needs no cards, no rows
+  // and no responsive rules of its own. Props mirror the host exactly.
+  SettingsDocument: ComponentType<{ children: ReactNode; className?: string }>;
+  SettingsGroup: ComponentType<{
+    title?: string;
+    description?: string;
+    icon?: LucideIcon;
+    actions?: ReactNode;
+    tone?: 'default' | 'danger';
+    density?: 'comfortable' | 'compact';
+    columns?: 1 | 2;
+    children?: ReactNode;
+    className?: string;
+  }>;
+  SettingsRow: ComponentType<{
+    label: string;
+    description?: string;
+    hint?: string;
+    icon?: LucideIcon;
+    iconNode?: ReactNode;
+    /** THE control of the record. `children` is the host's own alias for it. */
+    control?: ReactNode;
+    /** A SHORT trailing value that shares one line with the control. */
+    status?: ReactNode;
+    actions?: ReactNode;
+    /** `stack` gives the trailing side the row's full width — what a record needs when it carries more
+     *  than one value, which on a phone is the difference between readable and collapsed. */
+    trailingLayout?: 'inline' | 'stack';
+    children?: ReactNode;
+    className?: string;
+  }>;
   PluginPageHeader: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
 }
 

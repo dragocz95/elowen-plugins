@@ -79,42 +79,6 @@ export function detectChrome(explicit: string | null): string | null {
   return null;
 }
 
-/** What the kernel and the Chrome package offer the sandbox this launcher refuses to disable.
- *
- *  `namespaces` is the layer Chrome prefers; `setuidHelper` is the older `chrome-sandbox` binary it falls
- *  back to. Both are read from disk — nothing here starts a browser — and neither is conclusive: Chrome
- *  decides at launch, which is why an unprovable environment is reported as something to check rather
- *  than as a failure. */
-export interface ChromeSandboxSupport {
-  namespaces: boolean;
-  setuidHelper: boolean;
-}
-
-const readCount = (path: string): number | null => {
-  try {
-    const value = Number(readFileSync(path, 'utf8').trim());
-    return Number.isFinite(value) ? value : null;
-  } catch { return null; }
-};
-
-export function inspectChromeSandbox(executable: string | null): ChromeSandboxSupport {
-  // Debian keeps a separate switch for unprivileged user namespaces; everywhere else the count is the
-  // whole answer. A missing file means the kernel does not expose the knob, not that it is disabled.
-  const maxUserNamespaces = readCount('/proc/sys/user/max_user_namespaces');
-  const unprivilegedClone = readCount('/proc/sys/kernel/unprivileged_userns_clone');
-  const namespaces = (maxUserNamespaces === null || maxUserNamespaces > 0) && unprivilegedClone !== 0;
-  let setuidHelper = false;
-  if (executable) {
-    try {
-      const helper = join(dirname(executable), 'chrome-sandbox');
-      const stat = lstatSync(helper);
-      // Owned by root with the setuid bit — anything else is a file Chrome will refuse to use.
-      setuidHelper = stat.isFile() && stat.uid === 0 && (stat.mode & 0o4000) !== 0;
-    } catch { setuidHelper = false; }
-  }
-  return { namespaces, setuidHelper };
-}
-
 export class LinuxProcessInspector implements ProcessInspector {
   inspect(pid: number): ProcessSnapshot | null {
     try {
@@ -144,10 +108,14 @@ export class LinuxProcessInspector implements ProcessInspector {
 }
 
 export class PuppeteerCoreFactory implements BrowserProcessFactory {
+  /** Loadable AND usable: `launch()` below refuses a module without that export, so a probe that only
+   *  checked the import would report a dependency the very next launch rejects. */
   async dependencyAvailable(): Promise<boolean> {
     const moduleName = 'puppeteer-core';
-    try { await import(moduleName); return true; }
-    catch { return false; }
+    try {
+      const loaded = await import(moduleName) as { default?: { launch?: unknown }; launch?: unknown };
+      return typeof (loaded.default?.launch ?? loaded.launch) === 'function';
+    } catch { return false; }
   }
 
   async launch(options: {
@@ -237,22 +205,23 @@ export class BrowserPool {
    *  one condition every launch depends on and the one an operator can silently break later (a restored
    *  backup, a container remount, a chmod).
    *
-   *  Reports the state, never the location: the answer is `name`, the directory's own last segment, so an
-   *  admin can recognize it without the panel printing the data root, and never a per-account profile
-   *  path. Read-only — it stats, it does not repair. */
-  storageStatus(): { ok: boolean; writable: boolean; private: boolean; name: string } {
-    const name = basename(this.profilesRootReal);
+   *  One discriminated state rather than a set of booleans: a root that is GONE cannot also be judged
+   *  private or writable, and reading `private: false` off a failed stat is how a missing directory ends
+   *  up reported — and remediated — as a world-readable one. Reports the state, never the location.
+   *  Read-only: it stats, it does not repair. */
+  storageStatus(): { state: 'ready' | 'missing' | 'exposed' | 'unwritable' } {
+    let stat;
+    try { stat = lstatSync(this.profilesRoot); }
+    catch { return { state: 'missing' }; }
     try {
-      const stat = lstatSync(this.profilesRoot);
-      const intact = stat.isDirectory() && !stat.isSymbolicLink() && realpathSync(this.profilesRoot) === this.profilesRootReal;
-      const isPrivate = (stat.mode & 0o077) === 0;
-      let writable = false;
-      try { accessSync(this.profilesRootReal, constants.W_OK | constants.X_OK); writable = true; }
-      catch { writable = false; }
-      return { ok: intact && isPrivate && writable, writable, private: isPrivate, name };
-    } catch {
-      return { ok: false, writable: false, private: false, name };
-    }
+      if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(this.profilesRoot) !== this.profilesRootReal) {
+        return { state: 'missing' };
+      }
+    } catch { return { state: 'missing' }; }
+    if ((stat.mode & 0o077) !== 0) return { state: 'exposed' };
+    try { accessSync(this.profilesRootReal, constants.W_OK | constants.X_OK); }
+    catch { return { state: 'unwritable' }; }
+    return { state: 'ready' };
   }
 
   profilePath(userId: number): string {

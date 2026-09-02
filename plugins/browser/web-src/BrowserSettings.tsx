@@ -38,7 +38,7 @@ const TONE: Record<DependencyStatus, 'success' | 'warning' | 'danger'> = {
 
 export function BrowserSettings({ surface }: PluginPageProps) {
   const host = runtime();
-  const { PluginPageHeader, DetailBlock, Badge, EntityList, EntityRow, LoadingState, ErrorState } = host.components;
+  const { PluginPageHeader, SettingsDocument, SettingsGroup, SettingsRow, Badge, LoadingState, ErrorState } = host.components;
   const strings = host.hooks.usePluginStrings('browser');
   const query = host.hooks.useQuery<RuntimeStatus>({
     queryKey: ['browser', 'admin-status'],
@@ -61,66 +61,92 @@ export function BrowserSettings({ surface }: PluginPageProps) {
     <div className="space-y-4">
       {surface === 'page' ? <PluginPageHeader title={strings.settingsTitle || 'Browser runtime'} description={strings.settingsDescription || 'Live capacity and isolation status for managed Chrome sessions.'} icon={Monitor} /> : null}
       {query.isLoading ? <LoadingState variant="block" height="10rem" /> : query.isError ? <ErrorState message={apiError(query.error)} onRetry={() => query.refetch()} /> : query.data ? (
-        <div className="space-y-3">
+        <SettingsDocument>
           {report ? (
-            <DetailBlock
+            <SettingsGroup
               icon={PlugZap}
               title={strings.depsTitle || 'Dependencies'}
-              hint={strings.depsHint || 'Everything a managed browser session needs before it can start. Every check is read-only and never starts a browser.'}
+              // What the panel cannot prove belongs in the section's own words, not in a row wearing a
+              // green badge: the sandbox and the DevTools connection are settled by the first managed
+              // launch, and no read of this host can promise them in advance.
+              description={strings.depsHint || 'Everything a managed browser session needs before it can start. These checks only read: the sandbox and the DevTools connection are verified by the first managed launch.'}
+              actions={(
+                <div className="flex items-center gap-2" role="status">
+                  <Badge tone={TONE[report.status]}>{statusLabel(report.status)}</Badge>
+                  <span className="text-sm text-muted-foreground">
+                    {report.ready} / {report.total} {strings.depsCounted || 'dependencies ready'}
+                  </span>
+                </div>
+              )}
             >
-              {/* The verdict first, in words as well as tone, so a glance answers the whole question. */}
-              <div role="status" className="mb-2 flex flex-wrap items-center gap-2">
-                <Badge tone={TONE[report.status]}>{statusLabel(report.status)}</Badge>
-                <span className="text-sm text-muted-foreground">
-                  {report.ready} / {report.total} {strings.depsCounted || 'dependencies ready'}
-                </span>
-              </div>
-              <EntityList className="rounded-lg border border-border">
-                {report.checks.map((check) => (
-                  <EntityRow key={check.id} interactive={false} className="border-b border-border last:border-b-0 !py-2.5">
-                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                      <span className="min-w-0 truncate text-sm font-medium text-foreground">
-                        {strings[`dep_label_${check.id.replace(/-/g, '_')}`] || check.label}
-                      </span>
-                      <Badge tone={TONE[check.status]}>{statusLabel(check.status)}</Badge>
-                    </div>
-                    {/* A ready dependency says nothing beyond its badge — the panel stays quiet until
-                        something actually needs the reader. The one exception is a plain fact worth
-                        seeing, like which executable is in use. */}
-                    {check.status !== 'ready' ? (
-                      <p className="mt-1 text-xs text-muted-foreground">{say(check.code, check.detail)}</p>
-                    ) : null}
-                    {check.value ? (
-                      <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{check.value}</p>
-                    ) : null}
-                    {check.remediation ? (
-                      <p className="mt-1 text-xs text-foreground">{say(`${check.code}.fix`, check.remediation)}</p>
-                    ) : null}
-                  </EntityRow>
-                ))}
-              </EntityList>
-            </DetailBlock>
+              {report.checks.map((check) => {
+                const label = strings[`dep_label_${check.id.replace(/-/g, '_')}`] || check.label;
+                const badge = <Badge tone={TONE[check.status]}>{statusLabel(check.status)}</Badge>;
+                // A ready dependency is one line: its name, and the word Ready. Anything that needs the
+                // reader takes the row's full width instead of a phone's value column, and says what is
+                // wrong and what to do about it in the row itself rather than behind a tooltip.
+                if (check.status === 'ready') {
+                  return (
+                    <SettingsRow
+                      key={check.id}
+                      label={label}
+                      status={(
+                        <span className="flex items-center gap-2">
+                          {check.value ? <span className="text-xs text-muted-foreground">{check.value}</span> : null}
+                          {badge}
+                        </span>
+                      )}
+                    />
+                  );
+                }
+                return (
+                  <SettingsRow
+                    key={check.id}
+                    label={label}
+                    trailingLayout="stack"
+                    status={badge}
+                    control={(
+                      <div className="space-y-1 text-left">
+                        <p className="text-xs text-muted-foreground">{say(check.code, check.detail)}</p>
+                        {check.remediation ? <p className="text-xs text-foreground">{say(`${check.code}.fix`, check.remediation)}</p> : null}
+                      </div>
+                    )}
+                  />
+                );
+              })}
+            </SettingsGroup>
           ) : null}
-          <div className="grid gap-3 md:grid-cols-2">
-            <DetailBlock icon={Activity} title={strings.liveCapacity || 'Live capacity'} hint={strings.liveCapacityHint || 'Only counts active Chrome processes and tab sessions. Browser content remains private to its account.'}>
-              <div className="flex flex-wrap gap-2">
-                <Badge tone={query.data.activeUsers >= query.data.maxActiveUsers ? 'warning' : 'success'}>{query.data.activeUsers} / {query.data.maxActiveUsers} {strings.activeAccounts || 'active accounts'}</Badge>
-                <Badge tone="muted">{query.data.activeSessions} {strings.activeSessions || 'tab sessions'}</Badge>
-                <Badge tone="muted">{strings.perAccountLimit || 'Per account'}: {query.data.maxSessionsPerUser}</Badge>
-              </div>
-            </DetailBlock>
-            <DetailBlock icon={ShieldCheck} title={strings.isolationTitle || 'Isolation'} hint={strings.isolationHint || 'Every account has a separate persistent profile and Chrome process. All traffic must cross the pinned enforcing proxy.'}>
-              <div className="flex flex-wrap gap-2">
-                <Badge tone="success">{strings.profileIsolation || 'Per-account profiles'}</Badge>
-                <Badge tone="success">{strings.proxyIsolation || 'Pinned DNS proxy'}</Badge>
-                <Badge tone={query.data.artifactsAvailable ? 'success' : 'warning'}>{query.data.artifactsAvailable ? strings.chatReady || 'Chat live view ready' : strings.chatUnavailable || 'Chat live view unavailable'}</Badge>
-              </div>
-            </DetailBlock>
-            <DetailBlock icon={Gauge} title={strings.limitsTitle || 'Limits'} hint={strings.limitsHint || 'The sliders above are enforced before allocating Chrome, frames, viewers or input events.'}>
-              <p className="text-sm text-muted-foreground">{strings.limitsBody || 'Idle and hard timeouts close sessions automatically. Stream frames use a bounded latest-frame queue and a global bitrate budget.'}</p>
-            </DetailBlock>
-          </div>
-        </div>
+
+          <SettingsGroup
+            icon={Activity}
+            title={strings.liveCapacity || 'Live capacity'}
+            description={strings.liveCapacityHint || 'Only counts active Chrome processes and tab sessions. Browser content remains private to its account.'}
+          >
+            <SettingsRow
+              label={strings.activeAccounts || 'active accounts'}
+              status={<Badge tone={query.data.activeUsers >= query.data.maxActiveUsers ? 'warning' : 'success'}>{query.data.activeUsers} / {query.data.maxActiveUsers}</Badge>}
+            />
+            <SettingsRow label={strings.activeSessions || 'tab sessions'} status={<Badge tone="muted">{query.data.activeSessions}</Badge>} />
+            <SettingsRow label={strings.perAccountLimit || 'Per account'} status={<Badge tone="muted">{query.data.maxSessionsPerUser}</Badge>} />
+          </SettingsGroup>
+
+          <SettingsGroup
+            icon={ShieldCheck}
+            title={strings.isolationTitle || 'Isolation'}
+            description={strings.isolationHint || 'Every account has a separate persistent profile and Chrome process. All traffic must cross the pinned enforcing proxy.'}
+          >
+            <SettingsRow label={strings.profileIsolation || 'Per-account profiles'} status={<Badge tone="success">{strings.depReady || 'Ready'}</Badge>} />
+            <SettingsRow label={strings.proxyIsolation || 'Pinned DNS proxy'} status={<Badge tone="success">{strings.depReady || 'Ready'}</Badge>} />
+            <SettingsRow
+              label={strings.chatLiveView || 'Live view in chat'}
+              status={<Badge tone={query.data.artifactsAvailable ? 'success' : 'warning'}>{query.data.artifactsAvailable ? strings.chatReady || 'Chat live view ready' : strings.chatUnavailable || 'Chat live view unavailable'}</Badge>}
+            />
+          </SettingsGroup>
+
+          <SettingsGroup icon={Gauge} title={strings.limitsTitle || 'Limits'} description={strings.limitsHint || 'The sliders above are enforced before allocating Chrome, frames, viewers or input events.'}>
+            <SettingsRow label={strings.limitsBody || 'Idle and hard timeouts close sessions automatically. Stream frames use a bounded latest-frame queue and a global bitrate budget.'} />
+          </SettingsGroup>
+        </SettingsDocument>
       ) : null}
     </div>
   );

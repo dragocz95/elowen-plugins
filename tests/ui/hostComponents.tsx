@@ -59,9 +59,9 @@ export function Field({ label, htmlFor, children, hint }: { label: string; htmlF
   );
 }
 
-export function HelpTip({ children }: { children: ReactNode }) {
+export function HelpTip({ children, align = 'right' }: { children: ReactNode; align?: 'left' | 'right' }) {
   return (
-    <span className="help-tip">
+    <span className="help-tip" data-align={align}>
       <button type="button" aria-label="Help" title={typeof children === 'string' ? children : undefined}>?</button>
     </span>
   );
@@ -2077,9 +2077,9 @@ export function SettingsDocument({ children, className = '' }: { children: React
   return <div data-control-surface data-settings-document className={`control-surface-document settings-document ${className}`}>{children}</div>;
 }
 
-export function SettingsGroup({ title, description, icon: Icon, actions, tone = 'default', density = 'comfortable', children, className = '' }: {
+export function SettingsGroup({ title, description, icon: Icon, actions, tone = 'default', density = 'comfortable', columns = 1, children, className = '' }: {
   title?: string; description?: string; icon?: LucideIcon; actions?: ReactNode;
-  tone?: 'default' | 'danger'; density?: 'comfortable' | 'compact';
+  tone?: 'default' | 'danger'; density?: 'comfortable' | 'compact'; columns?: 1 | 2;
   children?: ReactNode; className?: string;
   /** Accepted and ignored: it opted a group out of the orbital rendering the host has since retired. */
   variant?: 'classic';
@@ -2098,26 +2098,45 @@ export function SettingsGroup({ title, description, icon: Icon, actions, tone = 
           {actions ? <div className="settings-group__actions">{actions}</div> : null}
         </header>
       ) : null}
-      {children ? <div className="settings-group__body">{children}</div> : null}
+      {children ? <div className="settings-group__body" data-columns={columns}>{children}</div> : null}
     </section>
   );
 }
 
-export function SettingsRow({ label, description, icon: Icon, status, actions, children, className = '' }: {
-  label: string; description?: string; icon?: LucideIcon; status?: ReactNode; actions?: ReactNode;
+/** Ported from web/components/ui/SettingsSurface.tsx. `control` is the canonical spelling of the record's
+ *  one control and `children` its alias; `trailingLayout="stack"` opts a record out of the single trailing
+ *  line, which is what a row carrying more than one value needs on a phone. */
+export function SettingsRow({ label, description, hint, icon: Icon, iconNode, control, status, actions, trailingLayout = 'inline', children, className = '' }: {
+  label: string; description?: string; hint?: string; icon?: LucideIcon; iconNode?: ReactNode;
+  control?: ReactNode; status?: ReactNode; actions?: ReactNode;
+  trailingLayout?: 'inline' | 'stack';
   children?: ReactNode; className?: string;
 }) {
+  const controlNode = control ?? children;
   return (
-    <div className={`settings-row ${className}`}>
+    <div className={`settings-row ${className}`} data-trailing={trailingLayout}>
       <div className="settings-row__label">
-        {Icon ? <span className="settings-row__icon" aria-hidden><Icon size={16} /></span> : null}
-        <div>
-          <span className="settings-row__title">{label}{description ? <HelpTip>{description}</HelpTip> : null}</span>
-          {status ? <div className="settings-row__status">{status}</div> : null}
+        {iconNode ? <span className="settings-row__icon" data-icon-kind="brand" aria-hidden>{iconNode}</span>
+          : Icon ? <span className="settings-row__icon" data-icon-kind="glyph" aria-hidden><Icon size={15} /></span> : null}
+        <div className="min-w-0">
+          <span className="settings-row__title">
+            <span>{label}</span>
+            {description || hint ? (
+              <HelpTip align="left">
+                {description ? <span className="block">{description}</span> : null}
+                {hint ? <span className={`block ${description ? 'mt-2' : ''}`}>{hint}</span> : null}
+              </HelpTip>
+            ) : null}
+          </span>
         </div>
       </div>
-      {children ? <div className="settings-row__control">{children}</div> : null}
-      {actions ? <div className="settings-row__actions">{actions}</div> : null}
+      {status || controlNode || actions ? (
+        <div className="settings-row__trailing">
+          {status ? <div className="settings-row__status">{status}</div> : null}
+          {controlNode ? <div className="settings-row__control">{controlNode}</div> : null}
+          {actions ? <div className="settings-row__actions">{actions}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import { EventEmitter } from 'node:events';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { PluginDb } from 'elowen/plugin-api';
 import { requireBrowserToolOwner } from '../plugins/browser/src/ownership.js';
 import {
@@ -296,11 +296,11 @@ describe('browser process pool', () => {
 });
 
 describe('browser dependency report', () => {
-  const chromeHost = (): string => {
+  const chromeHost = (name = 'chromium'): string => {
     // A real, executable file standing in for the browser binary: `detectChrome` resolves and X_OKs the
     // path, so the check is exercised without a Chrome anywhere near the test.
     const dir = mkdtempSync(join(tmpdir(), 'browser-chrome-'));
-    const binary = join(dir, 'chromium');
+    const binary = join(dir, name);
     writeFileSync(binary, '#!/bin/sh\nexit 0\n');
     chmodSync(binary, 0o755);
     temporaryDirs.push(dir);
@@ -321,7 +321,7 @@ describe('browser dependency report', () => {
     processFactory: { dependencyAvailable: async () => true, launch: async () => { throw new Error('not launched'); } },
     proxyFactory: { safePinningAvailable: true, dependencyAvailable: async () => true, open: async () => { throw new Error('not opened'); }, closeAll: async () => {} },
     artifacts: { available: true, open: async () => null, update: async () => {}, close: async () => {} },
-    storage: () => ({ ok: true, writable: true, private: true, name: 'profiles' }),
+    storage: () => ({ state: 'ready' as const }),
     ...patch,
   });
 
@@ -335,8 +335,11 @@ describe('browser dependency report', () => {
 
     expect(report.status).toBe('ready');
     expect(report.ready).toBe(report.total);
+    // Five things a session cannot start without, plus the one that only degrades it. There is no sandbox
+    // row: nothing this process can read proves a sandbox that AppArmor or a host policy may still refuse,
+    // and the panel says so in words instead of showing a green badge it cannot stand behind.
     expect(report.checks.map((check) => check.id)).toEqual([
-      'chrome', 'chrome-sandbox', 'browser-control', 'network-proxy', 'profile-storage', 'chat-artifacts',
+      'chrome', 'browser-control', 'network-proxy', 'profile-storage', 'chat-artifacts',
     ]);
     // Opening a status page must never be the thing that allocates a browser or a proxy port.
     expect(launched).toBe(0);
@@ -376,35 +379,68 @@ describe('browser dependency report', () => {
     // The report carries a sentence an operator can act on, never the daemon's own error text.
     expect(JSON.stringify(report)).not.toContain('ENOENT');
     expect(JSON.stringify(report)).not.toContain('_cacache');
-    expect(control.remediation).toContain('puppeteer-core');
+    // It still names the dependency that failed, and still sends the fix to the daemon runtime.
+    expect(control.detail).toContain('puppeteer-core');
+    expect(control.remediation).toContain('restart the daemon');
   });
 
-  it('reports the profile root by state, never by path', async () => {
-    const report = await browserDependencyReport(input({
-      storage: () => ({ ok: false, writable: false, private: true, name: 'profiles' }),
-    }));
-    const storage = checkOf(report, 'profile-storage');
-    expect(storage).toMatchObject({ status: 'blocked', code: 'storage.unwritable' });
+  it('tells the profile root states apart, so each one gets the fix for what happened', async () => {
+    const states = ['missing', 'exposed', 'unwritable'] as const;
+    const reports = await Promise.all(states.map((state) => browserDependencyReport(input({ storage: () => ({ state }) }))));
+    const rows = reports.map((report) => checkOf(report, 'profile-storage'));
+
+    expect(rows.map((row) => row.code)).toEqual(['storage.missing', 'storage.exposed', 'storage.unwritable']);
+    expect(rows.every((row) => row.status === 'blocked')).toBe(true);
+    // A root that is GONE must not be reported — or remediated — as a world-readable one.
+    expect(rows[0]!.remediation).toContain('Restore');
+    expect(rows[0]!.detail).not.toContain('readable beyond');
+    expect(rows[1]!.remediation).toContain('owner-only');
+    expect(rows[2]!.remediation).toContain('write access');
     // Neither the data root nor a per-account profile path may appear on an admin page.
-    expect(storage.value).toBeUndefined();
-    expect(JSON.stringify(report)).not.toContain('/profiles');
-    expect(JSON.stringify(report)).not.toContain('u-1');
-
-    const exposed = await browserDependencyReport(input({ storage: () => ({ ok: false, writable: true, private: false, name: 'profiles' }) }));
-    expect(checkOf(exposed, 'profile-storage')).toMatchObject({ status: 'blocked', code: 'storage.exposed' });
+    for (const row of rows) expect(row.value).toBeUndefined();
   });
 
-  it('leaves the host readiness line derived from the same verdicts', async () => {
-    const executable = chromeHost();
-    const ready = await browserReadiness(input({}, { chromeExecutable: executable }));
+  it('never puts the executable path in the report or in the shared readiness line', async () => {
+    // `/system/readiness` serves the same projection and answers during setup, so a path here is a path
+    // handed to an unauthenticated setup surface.
+    const secret = chromeHost('chrome');
+    const report = await browserDependencyReport(input({}, { chromeExecutable: secret }));
+    const readiness = await browserReadiness(input({}, { chromeExecutable: secret }));
+
+    expect(JSON.stringify(report)).not.toContain(secret);
+    expect(JSON.stringify(report)).not.toContain(dirname(secret));
+    expect(readiness.detail).not.toContain(secret);
+    expect(readiness.detail).not.toContain(dirname(secret));
+    // What is left is the browser's name, which is what an operator needs to recognize it.
+    expect(checkOf(report, 'chrome').value).toBe('chrome');
+    expect(readiness.detail).toContain('Browser: chrome');
+  });
+
+  it('leaves the host readiness line derived from the same verdicts, claiming no sandbox', async () => {
+    const ready = await browserReadiness(input());
     expect(ready).toMatchObject({ id: 'browser-runtime', ok: true });
-    expect(ready.detail).toContain(executable);
-    // The launcher never disables the sandbox, and the readiness line still says so.
-    expect(ready.detail).toContain('without sandbox-disabling flags');
+    // It states where the sandbox is actually settled instead of asserting one from a read of this host.
+    expect(ready.detail).toContain('verified by the first managed launch');
+    expect(ready.detail).not.toContain('sandbox-disabling');
 
     const blocked = await browserReadiness(input({ processFactory: { dependencyAvailable: async () => false, launch: async () => { throw new Error('nope'); } } }));
     expect(blocked.ok).toBe(false);
     expect(blocked.detail).toContain('puppeteer-core');
+  });
+
+  it('sends an operator to the daemon runtime, never to a dependency tree of the plugin\'s own', async () => {
+    const noControl = await browserDependencyReport(input({ processFactory: { dependencyAvailable: async () => false, launch: async () => { throw new Error('nope'); } } }));
+    const noProxy = await browserDependencyReport(input({ proxyFactory: { safePinningAvailable: true, dependencyAvailable: async () => false, open: async () => { throw new Error('nope'); }, closeAll: async () => {} } }));
+
+    for (const fix of [checkOf(noControl, 'browser-control').remediation!, checkOf(noProxy, 'network-proxy').remediation!]) {
+      // The plugin runs on the daemon's dependencies; installing a package beside it would leave a second,
+      // unmanaged copy that the next Elowen update does not touch.
+      expect(fix).toContain('restart the daemon');
+      expect(fix).toMatch(/reinstall or update Elowen/i);
+      expect(fix).not.toMatch(/npm install|install puppeteer-core|install proxy-chain/i);
+    }
+    // Nothing anywhere in the report may propose the flag that would turn the sandbox off.
+    expect(JSON.stringify([noControl, noProxy])).not.toContain('no-sandbox');
   });
 
   it('surfaces the report on the admin status route only', () => {

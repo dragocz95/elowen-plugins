@@ -360,31 +360,36 @@ describe('browser plugin UI', () => {
     return render(<Wrapper><ToastProvider><BrowserSettings plugin="browser" params={{}} rest={[]} surface="page" /></ToastProvider></Wrapper>);
   };
 
+  const readinessRows = (container: HTMLElement) =>
+    [...container.querySelectorAll<HTMLElement>('[data-settings-group]')][0]!.querySelectorAll<HTMLElement>('.settings-row');
+
   it('answers the readiness question at a glance, and stays quiet when everything is ready', async () => {
     use(dependencyStatus({
       status: 'ready',
       ready: 2,
       total: 2,
       checks: [
-        { id: 'chrome', status: 'ready', label: 'Chrome or Chromium', code: 'chrome.detected', detail: 'Found a supported executable on this host.', value: '/usr/bin/chromium' },
+        { id: 'chrome', status: 'ready', label: 'Chrome or Chromium', code: 'chrome.detected', detail: 'Found a supported executable on this host.', value: 'chromium' },
         { id: 'network-proxy', status: 'ready', label: 'Enforcing network proxy', code: 'proxy.ready', detail: 'proxy-chain is loadable and pins DNS per request.' },
       ],
     }));
-    settings();
+    const view = settings();
 
-    // The verdict is a word, not only a colour, and the count says how far it got. It is a live region so
-    // a refresh that changes the verdict is announced rather than only repainted.
+    // The verdict is a word, not only a colour, and the count says how far it got. It rides in the
+    // section header's own actions slot, as a live region so a refresh announces a change.
     const summary = (await screen.findByText(`2 / 2 ${strings.depsCounted}`)).parentElement!;
     expect(summary).toHaveAttribute('role', 'status');
     expect(within(summary).getByText(strings.depReady)).toBeInTheDocument();
+    expect(summary.closest('.settings-group__actions')).not.toBeNull();
 
-    // A ready dependency says nothing beyond its badge: no explanation, no remediation, nothing to read.
-    const rows = screen.getAllByRole('listitem');
+    // A ready dependency says nothing beyond its badge, and stays on the record's single trailing line.
+    const rows = readinessRows(view.container);
     expect(rows).toHaveLength(2);
     expect(screen.getByText(strings.dep_label_chrome)).toBeInTheDocument();
-    expect(screen.queryByText(strings.dep_proxy_ready ?? 'proxy-chain is loadable and pins DNS per request.')).toBeNull();
-    // …except a plain fact worth seeing.
-    expect(within(rows[0]!).getByText('/usr/bin/chromium')).toBeInTheDocument();
+    expect(rows[0]).toHaveAttribute('data-trailing', 'inline');
+    expect(screen.queryByText('proxy-chain is loadable and pins DNS per request.')).toBeNull();
+    // …except the browser's name, which is a fact worth seeing and is never its path.
+    expect(within(rows[0]!).getByText('chromium')).toBeInTheDocument();
   });
 
   it('names the blocked dependency and the exact fix, in the reader\'s language', async () => {
@@ -394,34 +399,56 @@ describe('browser plugin UI', () => {
       total: 3,
       checks: [
         { id: 'chrome', status: 'blocked', label: 'Chrome or Chromium', code: 'chrome.missing', detail: 'No supported Chrome or Chromium executable was found on this host.', remediation: 'Install Google Chrome or Chromium, or set the executable in this plugin\u2019s settings.' },
-        { id: 'chrome-sandbox', status: 'warning', label: 'Chrome sandbox', code: 'sandbox.unverified', detail: 'Neither user namespaces nor the setuid helper could be confirmed; the first managed launch remains the real check.', remediation: 'Allow unprivileged user namespaces on this host, or install the Chrome package that ships the setuid sandbox helper.' },
-        { id: 'chat-artifacts', status: 'ready', label: 'Live view in chat', code: 'artifacts.ready', detail: 'The host publishes the inline chat artifact bridge.' },
+        { id: 'chat-artifacts', status: 'warning', label: 'Live view in chat', code: 'artifacts.missing', detail: 'This host has no inline chat artifact bridge, so sessions run without a live card in chat.', remediation: 'Update Elowen to a release that publishes inline chat artifacts.' },
+        { id: 'profile-storage', status: 'ready', label: 'Profile storage', code: 'storage.ready', detail: 'The profile directory is private and writable.' },
       ],
     }));
-    settings();
+    const view = settings();
 
     // The worst outcome is the verdict — a warning must not be reported as ready.
     const summary = (await screen.findByText(`1 / 3 ${strings.depsCounted}`)).parentElement!;
     expect(within(summary).getByText(strings.depBlocked)).toBeInTheDocument();
 
-    const rows = screen.getAllByRole('listitem');
+    const rows = readinessRows(view.container);
     expect(within(rows[0]!).getByText(strings.depBlocked)).toBeInTheDocument();
+    // Detail and remediation are READ on the row, not hidden behind a tooltip, and the record takes the
+    // stacked trailing side so neither collapses into a phone's value column.
+    expect(rows[0]).toHaveAttribute('data-trailing', 'stack');
     expect(within(rows[0]!).getByText(strings.dep_chrome_missing)).toBeInTheDocument();
     expect(within(rows[0]!).getByText(strings.dep_chrome_missing_fix)).toBeInTheDocument();
+    expect(within(rows[0]!).queryByRole('button', { name: 'Help' })).toBeNull();
     // A warning is its own outcome: the session still runs, so it neither blocks nor passes silently.
     expect(within(rows[1]!).getByText(strings.depAttention)).toBeInTheDocument();
-    expect(within(rows[1]!).getByText(strings.dep_sandbox_unverified_fix)).toBeInTheDocument();
+    expect(within(rows[1]!).getByText(strings.dep_artifacts_missing_fix)).toBeInTheDocument();
     expect(within(rows[2]!).getByText(strings.depReady)).toBeInTheDocument();
+    expect(rows[2]).toHaveAttribute('data-trailing', 'inline');
+  });
+
+  it('claims no sandbox verdict it cannot stand behind', async () => {
+    use(dependencyStatus({
+      status: 'ready', ready: 1, total: 1,
+      checks: [{ id: 'chrome', status: 'ready', label: 'Chrome or Chromium', code: 'chrome.detected', detail: 'Found a supported executable on this host.', value: 'chromium' }],
+    }));
+    const view = settings();
+    await screen.findByText(`1 / 1 ${strings.depsCounted}`);
+
+    // A host policy can still refuse the launch, so there is no sandbox row wearing a green badge —
+    // the section says in words where the sandbox is actually settled.
+    expect(readinessRows(view.container)).toHaveLength(1);
+    expect(screen.getByText(strings.depsHint)).toBeInTheDocument();
+    expect(strings.depsHint).toContain('first managed launch');
+    expect(view.container.textContent).not.toContain('no-sandbox');
   });
 
   it('renders nothing about dependencies against a host that does not report them', async () => {
     // The panel is additive: an older daemon answers the same route without the report, and the page
     // keeps working instead of rendering an empty or half-built block.
     use(dependencyStatus(undefined));
-    settings();
-    expect(await screen.findByText(`0 / 4 ${strings.activeAccounts}`)).toBeInTheDocument();
-    expect(screen.queryByRole('list')).toBeNull();
+    const view = settings();
+    // The capacity, isolation and limits groups still render, so the page is intact without the report.
+    expect(await screen.findByText(strings.liveCapacity)).toBeInTheDocument();
     expect(screen.queryByText(strings.depsTitle)).toBeNull();
+    expect(view.container.querySelectorAll('[data-settings-group]')).toHaveLength(3);
   });
 
   it('shows account profile state and runtime capacity without exposing page content', async () => {
@@ -436,7 +463,9 @@ describe('browser plugin UI', () => {
     expect(screen.getByText('secret-sessi…')).toBeInTheDocument();
     view.unmount();
     render(<Wrapper><ToastProvider><BrowserSettings plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
-    expect(await screen.findByText(`1 / 4 ${strings.activeAccounts}`)).toBeInTheDocument();
+    // Capacity is a settings record too: the label names the figure, the badge carries it.
+    expect(await screen.findByText(strings.activeAccounts)).toBeInTheDocument();
+    expect(screen.getByText('1 / 4')).toBeInTheDocument();
     expect(screen.queryByText('https://example.com')).toBeNull();
   });
 });
