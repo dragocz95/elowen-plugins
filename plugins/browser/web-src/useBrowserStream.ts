@@ -90,7 +90,10 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
           action,
           cursor: value.cursor && data.action === 'click' ? { ...value.cursor, clicking: true } : value.cursor,
         }));
-        if (data.action === 'click') setTimeout(() => setState((value) => ({ ...value, cursor: value.cursor ? { ...value.cursor, clicking: false } : null })), 420);
+        if (data.action === 'click') setTimeout(() => {
+          if (generation.current !== current) return;
+          setState((value) => ({ ...value, cursor: value.cursor ? { ...value.cursor, clicking: false } : null }));
+        }, 420);
         return;
       }
       if (frame.event === 'control' || frame.event === 'session') {

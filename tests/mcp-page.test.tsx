@@ -49,7 +49,7 @@ describe('MCP bundle contract', () => {
   it('gates the manifest and built registration on plugin UI API 11', () => {
     const bundle = readFileSync(join(process.cwd(), 'plugins', 'mcp', 'web', 'index.js'), 'utf8');
     expect((manifest as { web: { requiresApiVersion: number } }).web.requiresApiVersion).toBe(11);
-    expect(window.ElowenUiRuntime?.apiVersion).toBe(12);
+    expect(window.ElowenUiRuntime?.apiVersion).toBe(13);
     expect(bundle).toMatch(/requiresApiVersion:\s*11/);
   });
 });
