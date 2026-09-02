@@ -49,20 +49,8 @@ interface RuntimeComponents {
   }>;
   IconButton: ComponentType<{ icon: LucideIcon; label: string; onClick?: () => void; variant?: 'default' | 'danger'; disabled?: boolean }>;
   Badge: ComponentType<{ tone?: 'default' | 'accent' | 'muted' | 'danger' | 'success' | 'warning'; children: ReactNode }>;
-  Modal: ComponentType<{
-    title: string;
-    description?: string;
-    onClose(): void;
-    size?: 'sm' | 'md' | 'lg' | 'xl';
-    icon?: LucideIcon;
-    headerActions?: ReactNode;
-    presentation?: 'auto' | 'center' | 'drawer' | 'sheet' | 'fullscreen';
-    intent?: 'inspect' | 'edit';
-    closeLabel?: string;
-    children: ReactNode;
-  }>;
-  ModalBody: ComponentType<{ children: ReactNode; gap?: 4 | 5 | 6 }>;
-  ModalFooter: ComponentType<{ children?: ReactNode; status?: ReactNode }>;
+  // No `Modal`: the artifact's expanded view is a borderless canvas, and every Modal presentation frames
+  // its content in a titled card. The plugin draws that surface itself (BrowserArtifact.CanvasOverlay).
   ConfirmDialog: ComponentType<{
     open: boolean;
     title: string;

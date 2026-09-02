@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type WheelEvent } from 'react';
-import { ArrowLeft, ArrowRight, Expand, Globe2, Hand, RotateCw, ShieldCheck, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type WheelEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, ArrowRight, Expand, Hand, Power, RotateCw, ShieldCheck, X } from 'lucide-react';
 import type { BrowserArtifactProps } from './runtime';
 import { apiError, jsonRequest, runtime } from './runtime';
 import { useBrowserStream } from './useBrowserStream';
@@ -28,9 +29,84 @@ const asData = (value: unknown): ArtifactData | null => {
 
 const inputPath = (sessionId: string, action: string): string => `/plugins/browser/api/${action}?sessionId=${encodeURIComponent(sessionId)}`;
 
+/** The site, not the address. A thumbnail this size has room for "example.com" and nothing after it, and
+ *  the full address is the one piece of page context the live image already shows. */
+const siteName = (url: string): string => {
+  try { return new URL(url).host || url; } catch { return url; }
+};
+
+/** The expanded canvas: the live browser raised over the page, with the transcript still visible around
+ *  it. The host `Modal` cannot draw this — every presentation frames its content in a titled card whose
+ *  header, body and footer are the surface, and here the image IS the surface — so the overlay contract
+ *  is rebuilt at its smallest honest size: a portal to <body>, a scrim that dismisses on a press that
+ *  BEGAN on it, Escape, a Tab loop inside the surface, and focus returned to the control that opened it.
+ *  Marking the rest of the document inert stays with the host's own overlay stack, which no plugin
+ *  bundle can reach; the trap and the scrim are what keep this surface modal without it. */
+function CanvasOverlay({ label, aspect, onClose, children }: { label: string; aspect: number | null; onClose: () => void; children: ReactNode }) {
+  const surface = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  /** Whether the press that is about to produce a click started on the scrim itself. */
+  const pressedScrim = useRef(false);
+
+  useEffect(() => {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    surface.current?.focus();
+    const { body } = document;
+    const overflow = body.style.overflow;
+    body.style.overflow = 'hidden';
+    return () => {
+      body.style.overflow = overflow;
+      opener.current?.focus();
+    };
+  }, []);
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    // While the user drives the session the canvas has already claimed every key for the remote page —
+    // Escape included, which is a key a web page may legitimately need. The way out is then the labelled
+    // close control or the scrim, exactly as it is in a remote desktop that has grabbed the keyboard.
+    if (event.defaultPrevented) return;
+    if (event.key === 'Escape') { event.stopPropagation(); onClose(); return; }
+    if (event.key !== 'Tab' || !surface.current) return;
+    const stops = Array.from(surface.current.querySelectorAll<HTMLElement>('button:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+    if (stops.length === 0) return;
+    const first = stops[0];
+    const last = stops[stops.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || active === surface.current)) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus(); }
+  };
+
+  return createPortal(
+    <div
+      className="browser-artifact__overlay"
+      onPointerDown={(event) => { pressedScrim.current = event.target === event.currentTarget; }}
+      onClick={(event) => {
+        if (event.target !== event.currentTarget || !pressedScrim.current) return;
+        pressedScrim.current = false;
+        onClose();
+      }}
+    >
+      <div
+        ref={surface}
+        className="browser-artifact__surface"
+        // The surface takes the shape of the stream, so the image never sits in its own letterbox.
+        style={aspect ? { '--browser-aspect': String(aspect) } as CSSProperties : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+      >
+        {children}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
   const host = runtime();
-  const { Button, IconButton, Badge, Modal, ModalBody, ModalFooter, ConfirmDialog, Spinner } = host.components;
+  const { Button, IconButton, ConfirmDialog, Spinner } = host.components;
   const strings = host.hooks.usePluginStrings('browser');
   const toast = host.hooks.useToast();
   const data = asData(artifact.data);
@@ -44,9 +120,14 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
   const sessionId = data?.browserSessionId ?? '';
   const title = data?.title || strings.sessionTitle || 'Browser session';
   const url = data?.url || '';
+  const site = url ? siteName(url) : '';
   const state = stream.closed ? 'closed' : lease || stream.control.state === 'user' || data?.state === 'user' ? 'user' : data?.state ?? 'agent';
   const takeoverRequested = stream.control.state === 'agent' && stream.control.reason === 'requested';
   const frame = stream.frame;
+  /** Both surfaces take the SHAPE of the live stream, so the canvas box and the image coincide — which is
+   *  also what keeps the pointer mapping honest, since a click is sent as a fraction of the canvas. */
+  const frameAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
+  const aspectStyle = frameAspect ? { '--browser-aspect': String(frameAspect) } as CSSProperties : undefined;
   const action = stream.action
     ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` · ${stream.action.target}` : ''}`
     : takeoverRequested ? strings.waitingForUser || 'Waiting for user input' : data?.lastAction;
@@ -164,9 +245,14 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
     void command([{ type: 'paste', text }]).catch((error) => toast.toast(apiError(error), 'error'));
   };
 
-  const viewport = (interactive: boolean) => (
+  /** The live image and the two marks that belong ON it: what the session is doing right now, and — on
+   *  the expanded canvas only — the agent's pointer. The thumbnail leaves the pointer out: at a third of
+   *  the width it is a 28px arrow over a 300px page, which reads as damage rather than as feedback. */
+  const canvas = (interactive: boolean) => (
     <div
-      className={`browser-artifact__viewport ${interactive && lease ? 'is-interactive' : ''}`}
+      className="browser-artifact__canvas"
+      data-interactive={interactive && lease ? 'true' : undefined}
+      role={interactive && lease ? 'application' : undefined}
       tabIndex={interactive && lease ? 0 : -1}
       onPointerMove={interactive ? onPointerMove : undefined}
       onPointerDown={interactive ? onPointerDown : undefined}
@@ -179,80 +265,66 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
       aria-label={strings.browserViewport || 'Live browser view'}
     >
       {frame ? <img src={`data:${frame.mimeType};base64,${frame.data}`} alt="" draggable={false} /> : (
-        <div className="browser-artifact__empty" role="status" aria-live="polite">
+        <div className="browser-artifact__waiting" role="status" aria-live="polite">
           <Spinner size="lg" />
           <span>{stream.error || strings.waitingFrame || 'Waiting for the browser image…'}</span>
         </div>
       )}
-      {stream.cursor && frame ? (
+      {interactive && stream.cursor && frame ? (
         <span
           className={`browser-artifact__cursor ${stream.cursor.clicking ? 'is-clicking' : ''}`}
           style={{ left: `${(stream.cursor.x / frame.width) * 100}%`, top: `${(stream.cursor.y / frame.height) * 100}%` }}
           aria-hidden
         ><svg width="28" height="34" viewBox="0 0 28 34"><path d="M2 2l19 15-9 2 5 10-5 2-5-10-5 6z" /></svg></span>
       ) : null}
-      <div className="browser-artifact__bubble">
-        <span className="browser-artifact__pulse" />
-        <span>{action || (state === 'user' ? strings.waitingForUser || 'Waiting for user input' : strings.agentWorking || 'The agent is working in the browser')}</span>
+      <div className="browser-artifact__activity">
+        <span className="browser-artifact__dot" data-tone={status.tone} aria-hidden />
+        <span className="sr-only">{status.label}</span>
+        {action ? <span className="truncate">{action}</span> : null}
       </div>
     </div>
   );
 
+  /** One control for who is driving, in the same shape on both surfaces. */
+  const controlAction = (): ReactNode => state === 'user' && lease
+    ? <Button variant="accent" icon={ShieldCheck} onClick={() => { void releaseControl(); }} disabled={pending !== null}>{strings.returnToAgent || 'Return to agent'}</Button>
+    : state === 'user'
+      ? <Button variant="ghost" icon={Hand} disabled>{strings.controlledElsewhere || 'Controlled in another window'}</Button>
+      : <Button variant="ghost" icon={Hand} onClick={() => { void takeControl(); }} disabled={pending !== null || stream.closed}>{strings.takeControl || 'Take control'}</Button>;
+
   if (!data) return <div className="browser-artifact__fallback">{artifact.fallback}</div>;
 
   return (
-    <section className="browser-artifact" aria-label={strings.sessionTitle || 'Browser session'}>
-      <header className="browser-artifact__header">
-        <div className="browser-artifact__identity">
-          <span className="browser-artifact__icon"><Globe2 size={15} /></span>
-          <div><strong>{title}</strong><span>{url || strings.noAddress || 'No address yet'}</span></div>
-        </div>
-        <div className="browser-artifact__actions">
-          <Badge tone={status.tone}>{status.label}</Badge>
-          <IconButton icon={Expand} label={strings.enlarge || 'Enlarge'} onClick={() => setExpanded(true)} />
-        </div>
-      </header>
-      <button type="button" className="browser-artifact__preview" onClick={() => setExpanded(true)} aria-label={strings.enlarge || 'Enlarge browser'}>
-        {viewport(false)}
+    <section className="browser-artifact" style={aspectStyle} aria-label={strings.sessionTitle || 'Browser session'}>
+      {/* The thumbnail is the control that opens the canvas: one target, no chrome around it. */}
+      <button type="button" className="browser-artifact__tile" onClick={() => setExpanded(true)} aria-label={strings.enlarge || 'Enlarge browser'}>
+        {canvas(false)}
+        <span className="browser-artifact__expand" aria-hidden><Expand size={13} /></span>
       </button>
-      <footer className="browser-artifact__footer">
-        <span>{stream.connected ? strings.live || 'Live' : strings.reconnecting || 'Reconnecting'}</span>
-        <div>
-          {state === 'user' && lease ? <Button variant="accent" icon={ShieldCheck} onClick={() => { void releaseControl(); }} disabled={pending !== null}>{strings.returnToAgent || 'Return to agent'}</Button>
-            : state === 'user' ? <Button variant="ghost" icon={Hand} disabled>{strings.controlledElsewhere || 'Controlled in another window'}</Button>
-            : <Button variant="ghost" icon={Hand} onClick={() => { void takeControl(); }} disabled={pending !== null || stream.closed}>{strings.takeControl || 'Take control'}</Button>}
-          <Button variant="ghost-danger" icon={X} onClick={() => setConfirmClose(true)} disabled={pending !== null || stream.closed}>{strings.closeSession || 'Close'}</Button>
-        </div>
-      </footer>
+      <div className="mt-1.5 flex items-center gap-2 text-caption text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate">{site || strings.noAddress || 'No address yet'}</span>
+        {controlAction()}
+      </div>
 
       {expanded ? (
-        <Modal
-          title={title}
-          description={url || undefined}
-          icon={Globe2}
-          size="xl"
-          presentation="center"
-          intent="edit"
-          closeLabel={strings.closeView || 'Close view'}
-          onClose={() => setExpanded(false)}
-          headerActions={<Badge tone={status.tone}>{status.label}</Badge>}
-        >
-          <ModalBody gap={4}>
-            <div className="browser-artifact__toolbar">
-              <IconButton icon={ArrowLeft} label={strings.back || 'Back'} onClick={() => shortcut('ArrowLeft', 'ArrowLeft', ['Alt'])} disabled={!lease} />
-              <IconButton icon={ArrowRight} label={strings.forward || 'Forward'} onClick={() => shortcut('ArrowRight', 'ArrowRight', ['Alt'])} disabled={!lease} />
-              <IconButton icon={RotateCw} label={strings.reload || 'Reload'} onClick={() => shortcut('r', 'KeyR', ['Control'])} disabled={!lease} />
-              <div className="browser-artifact__address"><ShieldCheck size={13} /><span>{url || strings.noAddress || 'No address yet'}</span></div>
-            </div>
-            {viewport(true)}
-          </ModalBody>
-          <ModalFooter status={stream.error ? <span className="text-destructive">{stream.error}</span> : <span>{status.label}</span>}>
-            {state === 'user' && lease ? <Button variant="accent" icon={ShieldCheck} onClick={() => { void releaseControl(); }} disabled={pending !== null}>{strings.returnToAgent || 'Return to agent'}</Button>
-              : state === 'user' ? <Button variant="ghost" icon={Hand} disabled>{strings.controlledElsewhere || 'Controlled in another window'}</Button>
-              : <Button variant="default" icon={Hand} onClick={() => { void takeControl(); }} disabled={pending !== null || stream.closed}>{strings.takeControl || 'Take control'}</Button>}
-            <Button variant="ghost-danger" icon={X} onClick={() => setConfirmClose(true)} disabled={pending !== null || stream.closed}>{strings.closeSession || 'Close session'}</Button>
-          </ModalFooter>
-        </Modal>
+        <CanvasOverlay label={title} aspect={frameAspect} onClose={() => setExpanded(false)}>
+          {canvas(true)}
+          <div className="browser-artifact__dismiss">
+            <IconButton icon={X} label={strings.closeView || 'Close view'} onClick={() => setExpanded(false)} />
+          </div>
+          <div className="browser-artifact__controls">
+            {lease ? (
+              <>
+                <IconButton icon={ArrowLeft} label={strings.back || 'Back'} onClick={() => shortcut('ArrowLeft', 'ArrowLeft', ['Alt'])} />
+                <IconButton icon={ArrowRight} label={strings.forward || 'Forward'} onClick={() => shortcut('ArrowRight', 'ArrowRight', ['Alt'])} />
+                <IconButton icon={RotateCw} label={strings.reload || 'Reload'} onClick={() => shortcut('r', 'KeyR', ['Control'])} />
+              </>
+            ) : null}
+            <span className="browser-artifact__site">{site || strings.noAddress || 'No address yet'}</span>
+            {controlAction()}
+            <IconButton icon={Power} label={strings.closeSession || 'Close session'} variant="danger" onClick={() => setConfirmClose(true)} disabled={pending !== null || stream.closed} />
+          </div>
+        </CanvasOverlay>
       ) : null}
 
       <ConfirmDialog

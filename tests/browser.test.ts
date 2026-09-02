@@ -292,11 +292,15 @@ describe('browser process pool', () => {
 });
 
 describe('browser web artifact build', () => {
-  it('ships the authored responsive viewport styles alongside generated utilities', () => {
+  it('ships the authored responsive canvas styles alongside generated utilities', () => {
     const css = readFileSync(join(import.meta.dirname, '..', 'plugins', 'browser', 'web', 'index.css'), 'utf8');
-    expect(css).toContain('.browser-artifact__viewport');
-    expect(css).toContain('.browser-artifact__empty');
-    expect(css).toContain('@media (max-width: 640px)');
+    expect(css).toContain('.browser-artifact__canvas');
+    expect(css).toContain('.browser-artifact__waiting');
+    expect(css).toContain('.browser-artifact__surface');
+    expect(css).toContain('@media (max-width: 767px)');
+    // The host defines `--color-*`, not shadcn's HSL triplets: a `hsl(var(--border))` here would be
+    // dropped at computed-value time and paint the artifact transparent.
+    expect(css).not.toContain('hsl(var(--');
   });
 });
 

@@ -28,40 +28,49 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// ../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
   }
 });
 
-// plugins/browser/web-src/BrowserAccount.tsx
+// node_modules/elowen-plugin-ui-kit/shims/react-dom.cjs
+var require_react_dom = __commonJS({
+  "node_modules/elowen-plugin-ui-kit/shims/react-dom.cjs"(exports, module) {
+    var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
+    if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
+    module.exports = runtime2.reactDom;
+  }
+});
+
+// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/BrowserAccount.tsx
 var import_react3 = __toESM(require_react(), 1);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
+// node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
+// node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -74,7 +83,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -106,7 +115,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -120,7 +129,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/activity.js
+// node_modules/lucide-react/dist/esm/icons/activity.js
 var Activity = createLucideIcon("Activity", [
   [
     "path",
@@ -131,26 +140,26 @@ var Activity = createLucideIcon("Activity", [
   ]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/arrow-left.js
+// node_modules/lucide-react/dist/esm/icons/arrow-left.js
 var ArrowLeft = createLucideIcon("ArrowLeft", [
   ["path", { d: "m12 19-7-7 7-7", key: "1l729n" }],
   ["path", { d: "M19 12H5", key: "x3x0zl" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/arrow-right.js
+// node_modules/lucide-react/dist/esm/icons/arrow-right.js
 var ArrowRight = createLucideIcon("ArrowRight", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/database.js
+// node_modules/lucide-react/dist/esm/icons/database.js
 var Database = createLucideIcon("Database", [
   ["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3", key: "msslwz" }],
   ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5", key: "1wlel7" }],
   ["path", { d: "M3 12A9 3 0 0 0 21 12", key: "mv7ke4" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/earth.js
+// node_modules/lucide-react/dist/esm/icons/earth.js
 var Earth = createLucideIcon("Earth", [
   ["path", { d: "M21.54 15H17a2 2 0 0 0-2 2v4.54", key: "1djwo0" }],
   [
@@ -164,7 +173,7 @@ var Earth = createLucideIcon("Earth", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/expand.js
+// node_modules/lucide-react/dist/esm/icons/expand.js
 var Expand = createLucideIcon("Expand", [
   ["path", { d: "m21 21-6-6m6 6v-4.8m0 4.8h-4.8", key: "1c15vz" }],
   ["path", { d: "M3 16.2V21m0 0h4.8M3 21l6-6", key: "1fsnz2" }],
@@ -172,13 +181,13 @@ var Expand = createLucideIcon("Expand", [
   ["path", { d: "M3 7.8V3m0 0h4.8M3 3l6 6", key: "u9ee12" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/gauge.js
+// node_modules/lucide-react/dist/esm/icons/gauge.js
 var Gauge = createLucideIcon("Gauge", [
   ["path", { d: "m12 14 4-4", key: "9kzdfg" }],
   ["path", { d: "M3.34 19a10 10 0 1 1 17.32 0", key: "19p75a" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/hand.js
+// node_modules/lucide-react/dist/esm/icons/hand.js
 var Hand = createLucideIcon("Hand", [
   ["path", { d: "M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2", key: "1fvzgz" }],
   ["path", { d: "M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2", key: "1kc0my" }],
@@ -192,20 +201,26 @@ var Hand = createLucideIcon("Hand", [
   ]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/monitor.js
+// node_modules/lucide-react/dist/esm/icons/monitor.js
 var Monitor = createLucideIcon("Monitor", [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
   ["line", { x1: "8", x2: "16", y1: "21", y2: "21", key: "1svkeh" }],
   ["line", { x1: "12", x2: "12", y1: "17", y2: "21", key: "vw1qmm" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/rotate-cw.js
+// node_modules/lucide-react/dist/esm/icons/power.js
+var Power = createLucideIcon("Power", [
+  ["path", { d: "M12 2v10", key: "mnfbl" }],
+  ["path", { d: "M18.4 6.6a9 9 0 1 1-12.77.04", key: "obofu9" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/rotate-cw.js
 var RotateCw = createLucideIcon("RotateCw", [
   ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", key: "1p45f6" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/shield-check.js
+// node_modules/lucide-react/dist/esm/icons/shield-check.js
 var ShieldCheck = createLucideIcon("ShieldCheck", [
   [
     "path",
@@ -217,7 +232,7 @@ var ShieldCheck = createLucideIcon("ShieldCheck", [
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/trash-2.js
+// node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
@@ -226,13 +241,13 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/x.js
+// node_modules/lucide-react/dist/esm/icons/x.js
 var X = createLucideIcon("X", [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ]);
 
-// plugins/browser/web-src/runtime.ts
+// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/runtime.ts
 function runtime() {
   const value = window.ElowenUiRuntime;
   if (!value) throw new Error("ElowenUiRuntime is not installed");
@@ -255,7 +270,7 @@ function jsonRequest(method, value) {
 }
 var apiError = (error) => runtime().utils.apiErrorMessage(error) || "Browser operation failed.";
 
-// plugins/browser/web-src/BrowserAccount.tsx
+// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/BrowserAccount.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var bytes = (value) => {
   if (value < 1024) return `${value} B`;
@@ -337,10 +352,11 @@ function BrowserAccount({ surface }) {
   ] });
 }
 
-// plugins/browser/web-src/BrowserArtifact.tsx
+// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/BrowserArtifact.tsx
 var import_react5 = __toESM(require_react(), 1);
+var import_react_dom = __toESM(require_react_dom(), 1);
 
-// plugins/browser/web-src/useBrowserStream.ts
+// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/useBrowserStream.ts
 var import_react4 = __toESM(require_react(), 1);
 var initialState = {
   frame: null,
@@ -478,7 +494,7 @@ function useBrowserStream(path) {
   return state;
 }
 
-// plugins/browser/web-src/BrowserArtifact.tsx
+// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/BrowserArtifact.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var asData = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -493,9 +509,84 @@ var asData = (value) => {
   };
 };
 var inputPath = (sessionId, action) => `/plugins/browser/api/${action}?sessionId=${encodeURIComponent(sessionId)}`;
+var siteName = (url) => {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+};
+function CanvasOverlay({ label, aspect, onClose, children }) {
+  const surface = (0, import_react5.useRef)(null);
+  const opener = (0, import_react5.useRef)(null);
+  const pressedScrim = (0, import_react5.useRef)(false);
+  (0, import_react5.useEffect)(() => {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    surface.current?.focus();
+    const { body } = document;
+    const overflow = body.style.overflow;
+    body.style.overflow = "hidden";
+    return () => {
+      body.style.overflow = overflow;
+      opener.current?.focus();
+    };
+  }, []);
+  const onKeyDown = (event) => {
+    if (event.defaultPrevented) return;
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab" || !surface.current) return;
+    const stops = Array.from(surface.current.querySelectorAll('button:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+    if (stops.length === 0) return;
+    const first = stops[0];
+    const last = stops[stops.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || active === surface.current)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+  return (0, import_react_dom.createPortal)(
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      "div",
+      {
+        className: "browser-artifact__overlay",
+        onPointerDown: (event) => {
+          pressedScrim.current = event.target === event.currentTarget;
+        },
+        onClick: (event) => {
+          if (event.target !== event.currentTarget || !pressedScrim.current) return;
+          pressedScrim.current = false;
+          onClose();
+        },
+        children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          "div",
+          {
+            ref: surface,
+            className: "browser-artifact__surface",
+            style: aspect ? { "--browser-aspect": String(aspect) } : void 0,
+            role: "dialog",
+            "aria-modal": "true",
+            "aria-label": label,
+            tabIndex: -1,
+            onKeyDown,
+            children
+          }
+        )
+      }
+    ),
+    document.body
+  );
+}
 function BrowserArtifact({ artifact }) {
   const host = runtime();
-  const { Button, IconButton, Badge, Modal, ModalBody, ModalFooter, ConfirmDialog, Spinner } = host.components;
+  const { Button, IconButton, ConfirmDialog, Spinner } = host.components;
   const strings = host.hooks.usePluginStrings("browser");
   const toast = host.hooks.useToast();
   const data = asData(artifact.data);
@@ -509,9 +600,12 @@ function BrowserArtifact({ artifact }) {
   const sessionId = data?.browserSessionId ?? "";
   const title = data?.title || strings.sessionTitle || "Browser session";
   const url = data?.url || "";
+  const site = url ? siteName(url) : "";
   const state = stream.closed ? "closed" : lease || stream.control.state === "user" || data?.state === "user" ? "user" : data?.state ?? "agent";
   const takeoverRequested = stream.control.state === "agent" && stream.control.reason === "requested";
   const frame = stream.frame;
+  const frameAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
+  const aspectStyle = frameAspect ? { "--browser-aspect": String(frameAspect) } : void 0;
   const action = stream.action ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` \xB7 ${stream.action.target}` : ""}` : takeoverRequested ? strings.waitingForUser || "Waiting for user input" : data?.lastAction;
   (0, import_react5.useEffect)(() => () => {
     if (pointerTimer.current) clearTimeout(pointerTimer.current);
@@ -639,10 +733,12 @@ function BrowserArtifact({ artifact }) {
     event.preventDefault();
     void command([{ type: "paste", text }]).catch((error) => toast.toast(apiError(error), "error"));
   };
-  const viewport = (interactive) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+  const canvas = (interactive) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
     "div",
     {
-      className: `browser-artifact__viewport ${interactive && lease ? "is-interactive" : ""}`,
+      className: "browser-artifact__canvas",
+      "data-interactive": interactive && lease ? "true" : void 0,
+      role: interactive && lease ? "application" : void 0,
       tabIndex: interactive && lease ? 0 : -1,
       onPointerMove: interactive ? onPointerMove : void 0,
       onPointerDown: interactive ? onPointerDown : void 0,
@@ -654,11 +750,11 @@ function BrowserArtifact({ artifact }) {
       onContextMenu: interactive && lease ? (event) => event.preventDefault() : void 0,
       "aria-label": strings.browserViewport || "Live browser view",
       children: [
-        frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { src: `data:${frame.mimeType};base64,${frame.data}`, alt: "", draggable: false }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__empty", role: "status", "aria-live": "polite", children: [
+        frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { src: `data:${frame.mimeType};base64,${frame.data}`, alt: "", draggable: false }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__waiting", role: "status", "aria-live": "polite", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Spinner, { size: "lg" }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: stream.error || strings.waitingFrame || "Waiting for the browser image\u2026" })
         ] }),
-        stream.cursor && frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        interactive && stream.cursor && frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           "span",
           {
             className: `browser-artifact__cursor ${stream.cursor.clicking ? "is-clicking" : ""}`,
@@ -667,76 +763,43 @@ function BrowserArtifact({ artifact }) {
             children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("svg", { width: "28", height: "34", viewBox: "0 0 28 34", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M2 2l19 15-9 2 5 10-5 2-5-10-5 6z" }) })
           }
         ) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__bubble", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__pulse" }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: action || (state === "user" ? strings.waitingForUser || "Waiting for user input" : strings.agentWorking || "The agent is working in the browser") })
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__activity", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__dot", "data-tone": status.tone, "aria-hidden": true }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sr-only", children: status.label }),
+          action ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: action }) : null
         ] })
       ]
     }
   );
+  const controlAction = () => state === "user" && lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "accent", icon: ShieldCheck, onClick: () => {
+    void releaseControl();
+  }, disabled: pending !== null, children: strings.returnToAgent || "Return to agent" }) : state === "user" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, disabled: true, children: strings.controlledElsewhere || "Controlled in another window" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, onClick: () => {
+    void takeControl();
+  }, disabled: pending !== null || stream.closed, children: strings.takeControl || "Take control" });
   if (!data) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "browser-artifact__fallback", children: artifact.fallback });
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "browser-artifact", "aria-label": strings.sessionTitle || "Browser session", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("header", { className: "browser-artifact__header", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__identity", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__icon", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Earth, { size: 15 }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: title }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: url || strings.noAddress || "No address yet" })
-        ] })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__actions", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: status.tone, children: status.label }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: Expand, label: strings.enlarge || "Enlarge", onClick: () => setExpanded(true) })
-      ] })
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "browser-artifact", style: aspectStyle, "aria-label": strings.sessionTitle || "Browser session", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", className: "browser-artifact__tile", onClick: () => setExpanded(true), "aria-label": strings.enlarge || "Enlarge browser", children: [
+      canvas(false),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__expand", "aria-hidden": true, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Expand, { size: 13 }) })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "browser-artifact__preview", onClick: () => setExpanded(true), "aria-label": strings.enlarge || "Enlarge browser", children: viewport(false) }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("footer", { className: "browser-artifact__footer", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: stream.connected ? strings.live || "Live" : strings.reconnecting || "Reconnecting" }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
-        state === "user" && lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "accent", icon: ShieldCheck, onClick: () => {
-          void releaseControl();
-        }, disabled: pending !== null, children: strings.returnToAgent || "Return to agent" }) : state === "user" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, disabled: true, children: strings.controlledElsewhere || "Controlled in another window" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, onClick: () => {
-          void takeControl();
-        }, disabled: pending !== null || stream.closed, children: strings.takeControl || "Take control" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost-danger", icon: X, onClick: () => setConfirmClose(true), disabled: pending !== null || stream.closed, children: strings.closeSession || "Close" })
-      ] })
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "mt-1.5 flex items-center gap-2 text-caption text-muted-foreground", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 flex-1 truncate", children: site || strings.noAddress || "No address yet" }),
+      controlAction()
     ] }),
-    expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-      Modal,
-      {
-        title,
-        description: url || void 0,
-        icon: Earth,
-        size: "xl",
-        presentation: "center",
-        intent: "edit",
-        closeLabel: strings.closeView || "Close view",
-        onClose: () => setExpanded(false),
-        headerActions: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: status.tone, children: status.label }),
-        children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalBody, { gap: 4, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__toolbar", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]), disabled: !lease }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => shortcut("ArrowRight", "ArrowRight", ["Alt"]), disabled: !lease }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => shortcut("r", "KeyR", ["Control"]), disabled: !lease }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__address", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ShieldCheck, { size: 13 }),
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: url || strings.noAddress || "No address yet" })
-              ] })
-            ] }),
-            viewport(true)
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalFooter, { status: stream.error ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-destructive", children: stream.error }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: status.label }), children: [
-            state === "user" && lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "accent", icon: ShieldCheck, onClick: () => {
-              void releaseControl();
-            }, disabled: pending !== null, children: strings.returnToAgent || "Return to agent" }) : state === "user" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, disabled: true, children: strings.controlledElsewhere || "Controlled in another window" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "default", icon: Hand, onClick: () => {
-              void takeControl();
-            }, disabled: pending !== null || stream.closed, children: strings.takeControl || "Take control" }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost-danger", icon: X, onClick: () => setConfirmClose(true), disabled: pending !== null || stream.closed, children: strings.closeSession || "Close session" })
-          ] })
-        ]
-      }
-    ) : null,
+    expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(CanvasOverlay, { label: title, aspect: frameAspect, onClose: () => setExpanded(false), children: [
+      canvas(true),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "browser-artifact__dismiss", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: X, label: strings.closeView || "Close view", onClick: () => setExpanded(false) }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__controls", children: [
+        lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]) }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => shortcut("ArrowRight", "ArrowRight", ["Alt"]) }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => shortcut("r", "KeyR", ["Control"]) })
+        ] }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__site", children: site || strings.noAddress || "No address yet" }),
+        controlAction(),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: Power, label: strings.closeSession || "Close session", variant: "danger", onClick: () => setConfirmClose(true), disabled: pending !== null || stream.closed })
+      ] })
+    ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
       ConfirmDialog,
       {
@@ -755,7 +818,7 @@ function BrowserArtifact({ artifact }) {
   ] });
 }
 
-// plugins/browser/web-src/BrowserSettings.tsx
+// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/BrowserSettings.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 function BrowserSettings({ surface }) {
   const host = runtime();
@@ -798,5 +861,5 @@ function BrowserSettings({ surface }) {
   ] });
 }
 
-// plugins/browser/web-src/index.tsx
+// ../.config/elowen/worktrees/browser-opus-redesign/plugins/browser/web-src/index.tsx
 registerBrowserUi(BrowserArtifact, BrowserSettings, BrowserAccount);

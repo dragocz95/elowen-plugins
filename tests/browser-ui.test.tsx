@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { ToastProvider, createWrapper } from './ui/hostHooks';
@@ -61,22 +61,44 @@ describe('browser plugin UI', () => {
     expect(registration.value.account.profile).toBe(BrowserAccount);
   });
 
-  it('renders live frames, cursor action and opens the enlarged modal', async () => {
+  it('renders the live session as one compact tile with no card chrome around it', async () => {
     use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
     mountArtifact();
-    expect(await screen.findByText('Example')).toBeInTheDocument();
     await waitFor(() => expect(document.querySelector('img[src="data:image/jpeg;base64,ZmFrZS1qcGVn"]')).not.toBeNull());
-    expect(await screen.findByText('Clicking · Continue')).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: strings.enlarge }).at(-1)!);
-    expect(await screen.findByRole('heading', { name: 'Example' })).toBeInTheDocument();
-    expect(document.querySelectorAll('.browser-artifact__cursor').length).toBeGreaterThan(0);
+    // The image IS the card: one control (the thumbnail itself) opens the canvas, and the only text
+    // beside it is the site and the current action.
+    expect(screen.getAllByRole('button', { name: strings.enlarge })).toHaveLength(1);
+    expect(screen.getByText('example.com')).toBeInTheDocument();
+    expect(screen.queryByText('https://example.com')).toBeNull();
+    expect(screen.queryByRole('heading')).toBeNull();
+    expect((await screen.findAllByText('Clicking · Continue')).length).toBeGreaterThan(0);
+    // Control state is carried by the dot, and stays readable for assistive tech without a status row.
+    expect(document.querySelector('.browser-artifact__dot')).toHaveAttribute('data-tone');
+    expect(document.querySelector('.browser-artifact__activity .sr-only')?.textContent).toBeTruthy();
+    // The agent's pointer is feedback for the surface you are working on, not for a 300px thumbnail.
+    expect(document.querySelector('.browser-artifact__cursor')).toBeNull();
+  });
+
+  it('expands into a borderless canvas that closes on Escape', async () => {
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    const canvas = await screen.findByRole('dialog', { name: 'Example' });
+    expect(canvas).toHaveAttribute('aria-modal', 'true');
+    // No dialog header, body or footer: the raised surface carries the image and floating controls only.
+    expect(within(canvas).queryByRole('heading')).toBeNull();
+    expect(within(canvas).getByRole('button', { name: strings.closeView })).toBeInTheDocument();
+    expect(within(canvas).getByRole('button', { name: strings.closeSession })).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelectorAll('.browser-artifact__cursor').length).toBeGreaterThan(0));
+    fireEvent.keyDown(canvas, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('keeps an agent-requested handoff claimable by the user', async () => {
     use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(requestedStreamBody, { headers: { 'content-type': 'text/event-stream' } })));
     mountArtifact();
     expect(await screen.findByText(strings.waitingForUser)).toBeInTheDocument();
-    expect(document.querySelector('.browser-artifact__empty .spinner')).not.toBeNull();
+    expect(document.querySelector('.browser-artifact__waiting .spinner')).not.toBeNull();
     expect(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)).toBeEnabled();
     expect(screen.queryByText(strings.controlledElsewhere)).toBeNull();
   });
@@ -92,8 +114,13 @@ describe('browser plugin UI', () => {
     );
     mountArtifact();
     fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    // Page navigation belongs to whoever is driving: nothing to show while the agent holds the session.
+    expect(screen.queryByRole('button', { name: strings.reload })).toBeNull();
     fireEvent.click(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)!);
     expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
+    for (const label of [strings.back, strings.forward, strings.reload]) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    }
     const viewport = screen.getAllByLabelText(strings.browserViewport).at(-1)!;
     vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400, toJSON: () => ({}) });
     fireEvent.pointerDown(viewport, { clientX: 320, clientY: 200, button: 0, pointerId: 1 });

@@ -1,47 +1,126 @@
+/* Authored styles for the browser artifact.
+ *
+ * Scope: the live image and everything drawn OVER it — the thumbnail, the raised canvas, the marks on
+ * the glass. Plain content flow around it (the caption line under the thumbnail) stays on Tailwind
+ * utilities in the component, so no rule here and no utility there ever answer for the same box.
+ *
+ * Tokens are the host's own `--color-*` / `--radius-*` / `--shadow-*` names, which the plugin UI kit
+ * mirrors from the app's theme so a plugin follows the active skin. They are read through var() with a
+ * literal fallback and never through shadcn-style `hsl(var(--border))` triplets: this host does not
+ * define those, and a declaration that references a missing custom property is dropped at computed-value
+ * time — which is how a card ends up transparent with a currentColor border. */
+
 .browser-artifact {
-  overflow: hidden;
-  margin: .45rem 0 .7rem;
-  border: 1px solid hsl(var(--border));
-  border-radius: .8rem;
-  background: hsl(var(--card));
-  box-shadow: 0 12px 30px -26px hsl(var(--foreground) / .55);
+  /* A live session is one object in the transcript, not a full-width panel. The cap is the thumbnail's
+     own width; a phone falls under it and the tile simply fills the column. */
+  max-width: 21rem;
+  margin: .4rem 0 .6rem;
 }
-.browser-artifact__header,
-.browser-artifact__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: .75rem;
-  padding: .55rem .7rem;
+
+.browser-artifact__tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-lg, .75rem);
+  padding: 0;
+  background: transparent;
+  cursor: zoom-in;
 }
-.browser-artifact__header { border-bottom: 1px solid hsl(var(--border)); }
-.browser-artifact__footer { border-top: 1px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); font-size: .72rem; }
-.browser-artifact__footer > div,
-.browser-artifact__actions { display: flex; align-items: center; gap: .35rem; }
-.browser-artifact__identity { display: flex; min-width: 0; align-items: center; gap: .55rem; }
-.browser-artifact__identity > div { display: grid; min-width: 0; gap: .05rem; }
-.browser-artifact__identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: hsl(var(--foreground)); font-size: .78rem; font-weight: 600; }
-.browser-artifact__identity span:not(.browser-artifact__icon) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: hsl(var(--muted-foreground)); font-size: .68rem; }
-.browser-artifact__icon { display: grid; width: 1.75rem; height: 1.75rem; place-items: center; flex: none; border-radius: .55rem; background: hsl(var(--primary) / .1); color: hsl(var(--primary)); }
-.browser-artifact__preview { display: block; width: 100%; border: 0; padding: 0; background: transparent; text-align: left; cursor: zoom-in; }
-.browser-artifact__viewport {
+.browser-artifact__tile:focus-visible { outline: 2px solid var(--color-primary, #ff5236); outline-offset: 2px; }
+.browser-artifact__tile .browser-artifact__canvas {
+  /* The stream's own shape (the component sets `--browser-aspect` from the live frame), capped so an
+     unusually tall page cannot grow a thumbnail into a panel. */
+  aspect-ratio: var(--browser-aspect, 1.6);
+  max-height: 14rem;
+  border: 1px solid var(--color-border, #242424);
+  border-radius: var(--radius-lg, .75rem);
+}
+/* The one hint that the thumbnail opens: quiet at rest, plain on hover or keyboard focus. */
+.browser-artifact__expand {
+  position: absolute;
+  z-index: 2;
+  top: .4rem;
+  right: .4rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  padding: .25rem;
+  background: color-mix(in srgb, var(--color-background, #000) 70%, transparent);
+  color: var(--color-muted-foreground, #9d948e);
+}
+.browser-artifact__tile:hover .browser-artifact__expand,
+.browser-artifact__tile:focus-visible .browser-artifact__expand { color: var(--color-foreground, #f7f3f0); }
+
+/* ── The canvas ──────────────────────────────────────────────────────────────────────────────────── */
+
+.browser-artifact__canvas {
   position: relative;
   isolation: isolate;
   display: grid;
   width: 100%;
-  aspect-ratio: 16 / 10;
   place-items: center;
   overflow: hidden;
-  outline: none;
-  background:
-    linear-gradient(135deg, hsl(var(--muted) / .82), hsl(var(--background))),
-    hsl(var(--muted));
+  /* An OUTLINE, not an inset shadow: the image fills this box edge to edge, and an inset shadow paints
+     under the content it is supposed to ring. Declared transparent here so only the colour changes. */
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  background: var(--color-muted, #0d0d0d);
   user-select: none;
 }
-.browser-artifact__viewport.is-interactive { cursor: none; box-shadow: inset 0 0 0 2px hsl(var(--primary) / .55); }
-.browser-artifact__viewport:focus-visible { box-shadow: inset 0 0 0 2px hsl(var(--primary)); }
-.browser-artifact__viewport img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
-.browser-artifact__empty { display: flex; flex-direction: column; align-items: center; gap: .7rem; padding: 1rem; color: hsl(var(--muted-foreground)); font-size: .75rem; text-align: center; }
+.browser-artifact__canvas img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+/* Driving the session hides the local pointer (the remote one is drawn on the image) and rings the glass,
+   so it is never ambiguous which window is taking the keystrokes. */
+.browser-artifact__canvas[data-interactive='true'] {
+  cursor: none;
+  outline-color: color-mix(in srgb, var(--color-primary, #ff5236) 55%, transparent);
+}
+.browser-artifact__canvas:focus-visible { outline-color: var(--color-primary, #ff5236); }
+.browser-artifact__waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .7rem;
+  padding: 1rem;
+  color: var(--color-muted-foreground, #9d948e);
+  font-size: var(--text-caption, .6875rem);
+  text-align: center;
+}
+
+/* ── Marks on the glass ──────────────────────────────────────────────────────────────────────────── */
+
+/* What the session is doing, where a browser would put its tab: top left, over the page chrome rather
+   than over the content the reader is following. */
+.browser-artifact__activity {
+  position: absolute;
+  z-index: 2;
+  top: .4rem;
+  left: .4rem;
+  display: flex;
+  max-width: calc(100% - 3rem);
+  align-items: center;
+  gap: .4rem;
+  border-radius: 999px;
+  padding: .22rem .55rem;
+  background: color-mix(in srgb, var(--color-background, #000) 78%, transparent);
+  color: var(--color-foreground, #f7f3f0);
+  backdrop-filter: blur(10px);
+  font-size: var(--text-caption, .6875rem);
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.browser-artifact__dot {
+  width: .4rem;
+  height: .4rem;
+  flex: none;
+  border-radius: 999px;
+  background: var(--color-success, #32c986);
+}
+.browser-artifact__dot[data-tone='accent'] { background: var(--color-primary, #ff5236); }
+.browser-artifact__dot[data-tone='warning'] { background: var(--color-warning, #edae49); }
+.browser-artifact__dot[data-tone='danger'] { background: var(--color-destructive, #e94d42); }
+.browser-artifact__dot[data-tone='muted'] { background: var(--color-muted-foreground, #9d948e); }
+
 .browser-artifact__cursor {
   position: absolute;
   z-index: 3;
@@ -49,10 +128,15 @@
   height: 34px;
   transform: translate(-3px, -2px);
   transition: left 90ms linear, top 90ms linear;
-  filter: drop-shadow(0 2px 4px hsl(var(--background) / .75));
+  filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--color-background, #000) 75%, transparent));
   pointer-events: none;
 }
-.browser-artifact__cursor path { fill: hsl(var(--primary)); stroke: hsl(var(--background)); stroke-width: 1.6; stroke-linejoin: round; }
+.browser-artifact__cursor path {
+  fill: var(--color-primary, #ff5236);
+  stroke: var(--color-background, #000);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
 .browser-artifact__cursor::after {
   content: '';
   position: absolute;
@@ -60,55 +144,122 @@
   top: 4px;
   width: 10px;
   height: 10px;
-  border: 2px solid hsl(var(--primary));
+  border: 2px solid var(--color-primary, #ff5236);
   border-radius: 999px;
   opacity: 0;
 }
 .browser-artifact__cursor.is-clicking::after { animation: browser-click-ring 420ms ease-out; }
-.browser-artifact__bubble {
-  position: absolute;
-  z-index: 2;
-  left: 50%;
-  bottom: .65rem;
-  display: flex;
-  max-width: calc(100% - 1.3rem);
-  transform: translateX(-50%);
-  align-items: center;
-  gap: .45rem;
-  border: 1px solid hsl(var(--border) / .75);
-  border-radius: 999px;
-  padding: .34rem .65rem;
-  background: hsl(var(--background) / .88);
-  color: hsl(var(--foreground));
-  box-shadow: 0 8px 24px -12px hsl(var(--foreground) / .5);
-  backdrop-filter: blur(12px);
-  font-size: .69rem;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.browser-artifact__bubble span:last-child { overflow: hidden; text-overflow: ellipsis; }
-.browser-artifact__pulse { width: .42rem; height: .42rem; flex: none; border-radius: 999px; background: hsl(var(--primary)); box-shadow: 0 0 0 4px hsl(var(--primary) / .12); }
-.browser-artifact__toolbar { display: flex; align-items: center; gap: .35rem; }
-.browser-artifact__address { display: flex; min-width: 0; flex: 1; align-items: center; gap: .4rem; border: 1px solid hsl(var(--border)); border-radius: .55rem; padding: .42rem .6rem; color: hsl(var(--muted-foreground)); background: hsl(var(--muted) / .45); font-size: .72rem; }
-.browser-artifact__address span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.browser-artifact__fallback { margin: .5rem 0; border-left: 2px solid hsl(var(--primary)); padding: .45rem .7rem; white-space: pre-wrap; color: hsl(var(--muted-foreground)); font-size: .75rem; }
 @keyframes browser-click-ring {
   0% { opacity: .9; transform: scale(.45); }
   100% { opacity: 0; transform: scale(3.4); }
 }
-@media (max-width: 640px) {
-  .browser-artifact__header { align-items: flex-start; gap: .5rem; }
-  .browser-artifact__identity { flex: 1; }
-  .browser-artifact__actions { flex: none; }
-  .browser-artifact__footer { align-items: stretch; flex-direction: column; gap: .5rem; }
-  .browser-artifact__footer > div { width: 100%; }
-  .browser-artifact__footer > div > button { flex: 1; }
+
+/* ── The expanded canvas ─────────────────────────────────────────────────────────────────────────── */
+
+/* The page stays visible around it on purpose: this is the same session, looked at closely, not a
+   different place. `--z-modal` is the app's one stacking order for a raised surface. */
+.browser-artifact__overlay {
+  position: fixed;
+  z-index: var(--z-modal, 100);
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding:
+    max(1rem, var(--safe-top, 0px)) max(1rem, var(--safe-right, 0px))
+    max(1rem, var(--safe-bottom, 0px)) max(1rem, var(--safe-left, 0px));
+  background: var(--color-scrim, rgb(0 0 0 / .7));
+  animation: browser-overlay-in 120ms ease-out both;
 }
-@media (min-width: 900px) {
-  .browser-artifact__preview .browser-artifact__viewport { max-height: 23rem; }
+/* Roughly three quarters of the window: big enough to work in, small enough that the conversation it
+   belongs to is still there behind it. It takes the SHAPE of the stream (the component sets
+   `--browser-aspect` from the live frame), so the surface is the image rather than a fixed box with
+   black bars down its sides. dvh, never vh — a mobile browser's collapsing toolbar makes vh taller than
+   the screen. */
+.browser-artifact__surface {
+  position: relative;
+  width: min(76vw, calc(76dvh * var(--browser-aspect, 1.6)), 100%);
+  max-height: 100%;
+  aspect-ratio: var(--browser-aspect, 1.6);
+  border: 1px solid var(--color-border, #242424);
+  border-radius: var(--radius-xl, 1rem);
+  overflow: hidden;
+  outline: none;
+  box-shadow: var(--shadow-raised, 0 22px 64px rgb(0 0 0 / .48));
 }
+.browser-artifact__surface .browser-artifact__canvas { height: 100%; }
+/* Same glass as the activity mark, because it sits over the page for the same reason: a bare icon is
+   invisible on a white site and lost on a dark one. */
+.browser-artifact__dismiss {
+  position: absolute;
+  z-index: 4;
+  top: .5rem;
+  right: .5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-background, #000) 78%, transparent);
+  backdrop-filter: blur(10px);
+}
+/* The working controls float over the image the way a remote viewer's do, so the canvas keeps every
+   pixel it has and the surface needs no footer. */
+.browser-artifact__controls {
+  position: absolute;
+  z-index: 4;
+  bottom: .75rem;
+  left: 50%;
+  display: flex;
+  max-width: calc(100% - 1.5rem);
+  transform: translateX(-50%);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: .25rem;
+  border: 1px solid var(--color-border, #242424);
+  border-radius: 999px;
+  padding: .25rem .4rem;
+  background: color-mix(in srgb, var(--color-background, #000) 86%, transparent);
+  backdrop-filter: blur(10px);
+}
+.browser-artifact__site {
+  min-width: 0;
+  max-width: 12rem;
+  overflow: hidden;
+  padding: 0 .35rem;
+  color: var(--color-muted-foreground, #9d948e);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption, .6875rem);
+}
+
+.browser-artifact__fallback {
+  margin: .5rem 0;
+  border-left: 2px solid var(--color-primary, #ff5236);
+  padding: .45rem .7rem;
+  color: var(--color-muted-foreground, #9d948e);
+  white-space: pre-wrap;
+  font-size: var(--text-caption, .6875rem);
+}
+
+@keyframes browser-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* A phone gives the canvas every pixel it can use — there is no context worth keeping visible around a
+   surface that would otherwise be 280px wide — and drops the framing, because an edge and a cast shadow
+   around a full-width image only say "card" again. The address leaves the controls with it: on a screen
+   this size the image needs the room, and the thumbnail's caption already names the site. */
+@media (max-width: 767px) {
+  .browser-artifact { max-width: none; }
+  .browser-artifact__overlay { padding: max(.5rem, var(--safe-top, 0px)) max(.5rem, var(--safe-right, 0px)) max(.5rem, var(--safe-bottom, 0px)) max(.5rem, var(--safe-left, 0px)); }
+  .browser-artifact__surface {
+    width: min(100%, calc(92dvh * var(--browser-aspect, 1.6)));
+    border: 0;
+    box-shadow: none;
+  }
+  .browser-artifact__site { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .browser-artifact__overlay { animation: none; }
   .browser-artifact__cursor { transition: none; }
   .browser-artifact__cursor.is-clicking::after { animation: none; }
 }
