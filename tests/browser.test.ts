@@ -372,6 +372,14 @@ describe('browser web artifact build', () => {
     expect(clamped).toContain('overflow: hidden');
     expect(rule(css, '.browser-artifact__narration')).not.toContain('-webkit-line-clamp');
     expect(rule(css, '.browser-artifact__narration-icon')).toContain('flex: none');
+    // The question is the one thing on the canvas that asks to be pressed, so it is the one thing that
+    // takes the pointer back and wears the accent rather than the narration's quiet glass.
+    const question = rule(css, '.browser-artifact__question');
+    expect(question).toContain('pointer-events: auto');
+    expect(question).toContain('cursor: pointer');
+    expect(question).toMatch(/border: 1px solid color-mix\(in srgb, var\(--color-primary/);
+    expect(rule(css, '.browser-artifact__question:focus-visible')).toContain('outline: 2px solid');
+    expect(rule(css, '.browser-artifact__narration')).not.toContain('--color-primary');
     expect(rule(css, '.browser-artifact__dock')).toContain('pointer-events: none');
     expect(rule(css, '.browser-artifact__controls')).toContain('pointer-events: auto');
   });

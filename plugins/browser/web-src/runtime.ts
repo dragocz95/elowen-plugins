@@ -22,6 +22,10 @@ export interface BrowserArtifactProps {
    *  by the host. The expanded canvas covers the transcript, so this is the only way the reply reaches a
    *  reader who is watching the browser. Optional because an older host sends nothing. */
   narration?: string;
+  /** Host API 15: set while the app is waiting on an answer. It carries no part of the question — the
+   *  host's own translated line and the way back to the card that owns answering — which is exactly what
+   *  the canvas needs: say a prompt is waiting, then get out of the way. */
+  pendingInput?: { label: string; reveal: () => void } | null;
 }
 
 interface QueryResult<T> { data?: T; isLoading: boolean; isError: boolean; error?: unknown; refetch(): void }
@@ -103,7 +107,7 @@ export function registerBrowserUi(
   account: ComponentType<PluginPageProps>,
 ): void {
   (window as HostWindow).__elowenRegisterPluginUi?.('browser', {
-    requiresApiVersion: 14,
+    requiresApiVersion: 15,
     chatArtifacts: { 'browser-session': artifact },
     settings: { runtime: settings },
     account: { profile: account },

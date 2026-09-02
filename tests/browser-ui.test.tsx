@@ -12,7 +12,7 @@ import { registerBrowserUi } from '../plugins/browser/web-src/runtime';
 ensurePluginUiRuntime();
 const strings = manifest.web.strings;
 setDefaults(
-  http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'browser', url: '/plugins/browser/web/index.js', cssUrl: '/plugins/browser/web/index.css', apiVersion: 14, nav: [], account: manifest.web.account, settings: manifest.web.settings, strings }])),
+  http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'browser', url: '/plugins/browser/web/index.js', cssUrl: '/plugins/browser/web/index.css', apiVersion: 15, nav: [], account: manifest.web.account, settings: manifest.web.settings, strings }])),
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: 'user', is_admin: true } })),
 );
 beforeAll(() => listen());
@@ -31,13 +31,19 @@ function wrapper() {
   const { wrapper: Wrapper } = createWrapper();
   return Wrapper;
 }
-function mountArtifact(narration?: string) {
+type Pending = { label: string; reveal: () => void } | null;
+function mountArtifact(narration?: string, pendingInput?: Pending) {
   const Wrapper = wrapper();
-  const show = (text?: string) => (
-    <Wrapper><ToastProvider><BrowserArtifact plugin="browser" artifact={artifact} narration={text} /></ToastProvider></Wrapper>
+  const show = (text?: string, pending?: Pending) => (
+    <Wrapper><ToastProvider>
+      <BrowserArtifact plugin="browser" artifact={artifact} narration={text} pendingInput={pending} />
+    </ToastProvider></Wrapper>
   );
-  const view = render(show(narration));
-  return Object.assign(view, { narrate: (text?: string) => view.rerender(show(text)) });
+  const view = render(show(narration, pendingInput));
+  return Object.assign(view, {
+    narrate: (text?: string) => view.rerender(show(text, pendingInput)),
+    ask: (pending: Pending) => view.rerender(show(narration, pending)),
+  });
 }
 
 const streamBody = [
@@ -65,14 +71,14 @@ const lateViewerStreamBody = [
 ].join('');
 
 describe('browser plugin UI', () => {
-  it('registers the chat artifact, settings and account surfaces on API 14', () => {
+  it('registers the chat artifact, settings and account surfaces on API 15', () => {
     let registration: any;
     const original = window.__elowenRegisterPluginUi;
     window.__elowenRegisterPluginUi = (name, value) => { registration = { name, value }; };
     registerBrowserUi(BrowserArtifact, BrowserSettings, BrowserAccount);
     window.__elowenRegisterPluginUi = original;
     expect(registration.name).toBe('browser');
-    expect(registration.value.requiresApiVersion).toBe(14);
+    expect(registration.value.requiresApiVersion).toBe(15);
     expect(registration.value.chatArtifacts['browser-session']).toBe(BrowserArtifact);
     expect(registration.value.settings.runtime).toBe(BrowserSettings);
     expect(registration.value.account.profile).toBe(BrowserAccount);
@@ -271,6 +277,35 @@ describe('browser plugin UI', () => {
     fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
     await waitFor(() => expect(document.querySelector('img[src^="data:image/jpeg"]')).not.toBeNull());
     expect(document.querySelector('.browser-artifact__cursor')).toBeNull();
+  });
+
+  it('says a question is waiting only on the expanded canvas, and gets out of the way when pressed', async () => {
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    const reveal = vi.fn();
+    const waiting = { label: 'The assistant is waiting for your choice', reveal };
+    const view = mountArtifact(undefined, waiting);
+    await screen.findByRole('button', { name: strings.enlarge });
+    // The thumbnail sits in the transcript, where the real question card is already visible below it.
+    expect(screen.queryByRole('button', { name: waiting.label })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: strings.enlarge }));
+    const canvas = await screen.findByRole('dialog', { name: 'Example' });
+    const alert = within(canvas).getByRole('button', { name: waiting.label });
+    expect(alert).toHaveClass('browser-artifact__question');
+    // Announced without a second copy of the words: one live region, the button's own label.
+    expect(canvas.querySelector('.sr-only[role="status"]')).toHaveTextContent(waiting.label);
+
+    // Pressing it does exactly two things: uncover the card, and put the reader in front of it.
+    fireEvent.click(alert);
+    expect(reveal).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    // Answered or withdrawn: nothing is left asking.
+    fireEvent.click(screen.getByRole('button', { name: strings.enlarge }));
+    view.ask(null);
+    const reopened = await screen.findByRole('dialog', { name: 'Example' });
+    expect(reopened.querySelector('.browser-artifact__question')).toBeNull();
+    expect(reopened.querySelector('.sr-only[role="status"]')).toHaveTextContent('');
   });
 
   it('shows account profile state and runtime capacity without exposing page content', async () => {

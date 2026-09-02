@@ -283,6 +283,34 @@
   pointer-events: auto;
 }
 
+/* Being ASKED something is not the same kind of event as being told something, so it does not look like
+   one: the narration is quiet glass a reader may ignore, and this is the app's accent, a real button, and
+   the only thing on the canvas that asks to be pressed. It sits between the words and the controls —
+   under the sentence it interrupts, and within reach of the thumb that will answer it.
+   Pressing it closes the canvas and calls the host's `reveal`, which puts the real question card back in
+   front of the reader; this surface deliberately cannot answer, only get out of the way. */
+.browser-artifact__question {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  gap: .45rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary, #ff5236) 55%, transparent);
+  border-radius: 999px;
+  padding: .4rem .8rem;
+  background: color-mix(in srgb, var(--color-primary, #ff5236) 16%, color-mix(in srgb, var(--color-background, #000) 86%, transparent));
+  color: var(--color-foreground, #f7f3f0);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  font-size: .75rem;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: left;
+  pointer-events: auto;
+}
+.browser-artifact__question svg { flex: none; color: var(--color-primary, #ff5236); }
+.browser-artifact__question:hover { border-color: var(--color-primary, #ff5236); }
+.browser-artifact__question:focus-visible { outline: 2px solid var(--color-primary, #ff5236); outline-offset: 2px; }
+
 /* What the agent is SAYING, over live footage: subtitles, which is the one place a reader already expects
    a voice to appear on top of a moving picture. Three lines at most — this is a glance at the reply, not
    the transcript, which is still the thing behind the canvas — and never a pointer target: it sits over
@@ -354,6 +382,9 @@
   /* Two lines on a phone: the canvas is short here, and a third line of subtitle starts covering the page
      it is describing. */
   .browser-artifact__narration { font-size: .7rem; }
+  /* A coarse pointer gets the platform's touch floor, and the label wraps to two lines rather than
+     stretching the dock wider than the canvas. */
+  .browser-artifact__question { min-height: var(--touch-target, 44px); font-size: .72rem; }
   .browser-artifact__narration-text { -webkit-line-clamp: 2; line-clamp: 2; }
 }
 

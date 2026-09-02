@@ -201,6 +201,13 @@ var Hand = createLucideIcon("Hand", [
   ]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/message-circle-question.js
+var MessageCircleQuestion = createLucideIcon("MessageCircleQuestion", [
+  ["path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z", key: "vv11sd" }],
+  ["path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3", key: "1u773s" }],
+  ["path", { d: "M12 17h.01", key: "p32p05" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/message-square-text.js
 var MessageSquareText = createLucideIcon("MessageSquareText", [
   ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }],
@@ -262,7 +269,7 @@ function runtime() {
 }
 function registerBrowserUi(artifact, settings, account) {
   window.__elowenRegisterPluginUi?.("browser", {
-    requiresApiVersion: 14,
+    requiresApiVersion: 15,
     chatArtifacts: { "browser-session": artifact },
     settings: { runtime: settings },
     account: { profile: account }
@@ -613,7 +620,7 @@ function CanvasOverlay({ label, aspect, onClose, children }) {
     document.body
   );
 }
-function BrowserArtifact({ artifact, narration }) {
+function BrowserArtifact({ artifact, narration, pendingInput }) {
   const host = runtime();
   const { Button, ConfirmDialog, Spinner } = host.components;
   const strings = host.hooks.usePluginStrings("browser");
@@ -633,6 +640,7 @@ function BrowserArtifact({ artifact, narration }) {
   const state = stream.closed ? "closed" : lease || stream.control.state === "user" || data?.state === "user" ? "user" : data?.state ?? "agent";
   const takeoverRequested = stream.control.state === "agent" && stream.control.reason === "requested";
   const speech = (narration ?? "").trim();
+  const waiting = pendingInput ?? null;
   const frame = stream.frame;
   const frameAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
   const aspectStyle = frameAspect ? { "--browser-aspect": String(frameAspect) } : void 0;
@@ -829,10 +837,26 @@ function BrowserArtifact({ artifact, narration }) {
       canvas(true),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: X, label: strings.closeView || "Close view", onClick: () => setExpanded(false), className: "browser-artifact__dismiss" }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__dock", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sr-only", role: "status", "aria-live": "polite", children: waiting ? waiting.label : "" }),
         speech ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "browser-artifact__narration", role: "status", "aria-live": "polite", "aria-atomic": "true", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(MessageSquareText, { className: "browser-artifact__narration-icon", size: 13, "aria-hidden": true }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__narration-text", children: speech })
         ] }) : null,
+        waiting ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+          "button",
+          {
+            type: "button",
+            className: "browser-artifact__question",
+            onClick: () => {
+              setExpanded(false);
+              waiting.reveal();
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(MessageCircleQuestion, { size: 15, "aria-hidden": true }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: waiting.label })
+            ]
+          }
+        ) : null,
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__controls", children: [
           lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]) }),

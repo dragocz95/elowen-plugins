@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type WheelEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ArrowRight, Expand, Hand, MessageSquareText, Power, RotateCw, ShieldCheck, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Expand, Hand, MessageCircleQuestion, MessageSquareText, Power, RotateCw, ShieldCheck, X, type LucideIcon } from 'lucide-react';
 import type { BrowserArtifactProps } from './runtime';
 import { apiError, jsonRequest, runtime } from './runtime';
 import { useBrowserStream } from './useBrowserStream';
@@ -128,7 +128,7 @@ function CanvasOverlay({ label, aspect, onClose, children }: { label: string; as
   );
 }
 
-export function BrowserArtifact({ artifact, narration }: BrowserArtifactProps) {
+export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserArtifactProps) {
   const host = runtime();
   const { Button, ConfirmDialog, Spinner } = host.components;
   const strings = host.hooks.usePluginStrings('browser');
@@ -151,6 +151,9 @@ export function BrowserArtifact({ artifact, narration }: BrowserArtifactProps) {
    *  so without this the reply streams on underneath it. The host already bounds and clears the string —
    *  the plugin only decides whether there is anything to show. */
   const speech = (narration ?? '').trim();
+  /** The app is waiting on an answer and this canvas is covering the card that takes it (host API 15).
+   *  Nothing about the question crosses the boundary — a line to show and a way back. */
+  const waiting = pendingInput ?? null;
   const frame = stream.frame;
   /** Both surfaces take the SHAPE of the live stream, so the canvas box and the image coincide — which is
    *  also what keeps the pointer mapping honest, since a click is sent as a fraction of the canvas. */
@@ -360,6 +363,9 @@ export function BrowserArtifact({ artifact, narration }: BrowserArtifactProps) {
               against a guessed offset of the other — which is what breaks first when the pill wraps on a
               phone. The column itself lets the pointer through; only the controls take it back. */}
           <div className="browser-artifact__dock">
+            {/* One persistent region, so a question that arrives while the canvas is already open is
+                announced rather than appearing silently behind it. */}
+            <span className="sr-only" role="status" aria-live="polite">{waiting ? waiting.label : ''}</span>
             {speech ? (
               <p className="browser-artifact__narration" role="status" aria-live="polite" aria-atomic="true">
                 {/* Whose words these are, in one mark rather than a line of copy explaining it. */}
@@ -369,6 +375,16 @@ export function BrowserArtifact({ artifact, narration }: BrowserArtifactProps) {
                     hidden. Padding out here, clamp in there. */}
                 <span className="browser-artifact__narration-text">{speech}</span>
               </p>
+            ) : null}
+            {waiting ? (
+              <button
+                type="button"
+                className="browser-artifact__question"
+                onClick={() => { setExpanded(false); waiting.reveal(); }}
+              >
+                <MessageCircleQuestion size={15} aria-hidden />
+                <span className="truncate">{waiting.label}</span>
+              </button>
             ) : null}
             <div className="browser-artifact__controls">
               {lease ? (

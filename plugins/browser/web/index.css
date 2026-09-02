@@ -253,6 +253,35 @@
   backdrop-filter: blur(10px);
   pointer-events: auto;
 }
+.browser-artifact__question {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  gap: .45rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary, #ff5236) 55%, transparent);
+  border-radius: 999px;
+  padding: .4rem .8rem;
+  background: color-mix(in srgb, var(--color-primary, #ff5236) 16%, color-mix(in srgb, var(--color-background, #000) 86%, transparent));
+  color: var(--color-foreground, #f7f3f0);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  font-size: .75rem;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: left;
+  pointer-events: auto;
+}
+.browser-artifact__question svg {
+  flex: none;
+  color: var(--color-primary, #ff5236);
+}
+.browser-artifact__question:hover {
+  border-color: var(--color-primary, #ff5236);
+}
+.browser-artifact__question:focus-visible {
+  outline: 2px solid var(--color-primary, #ff5236);
+  outline-offset: 2px;
+}
 .browser-artifact__narration {
   display: flex;
   max-width: 100%;
@@ -327,6 +356,10 @@
   }
   .browser-artifact__narration {
     font-size: .7rem;
+  }
+  .browser-artifact__question {
+    min-height: var(--touch-target, 44px);
+    font-size: .72rem;
   }
   .browser-artifact__narration-text {
     -webkit-line-clamp: 2;
