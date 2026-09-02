@@ -134,6 +134,25 @@ describe('browser plugin UI', () => {
     await waitFor(() => expect(calls.some((call) => call.path === 'release' && call.body.leaseId === 'lease-new')).toBe(true));
   });
 
+  it('leaves the user one pointer while they drive the session', async () => {
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-1', expiresAt: Date.now() + 120_000 })),
+      http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000 })),
+    );
+    mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    // The agent is driving: its arrow is the pointer on the canvas.
+    await waitFor(() => expect(document.querySelector('.browser-artifact__cursor')).not.toBeNull());
+
+    fireEvent.click(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)!);
+    expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
+    // Now YOU are: the streamed cursor reports where the agent points and stops moving, so it is
+    // withdrawn rather than left beside your own system pointer.
+    await waitFor(() => expect(document.querySelector('.browser-artifact__cursor')).toBeNull());
+    expect(screen.getAllByLabelText(strings.browserViewport).at(-1)).toHaveAttribute('data-interactive', 'true');
+  });
+
   it('shows account profile state and runtime capacity without exposing page content', async () => {
     use(
       http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 1 })),

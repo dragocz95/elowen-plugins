@@ -63,7 +63,7 @@
   pointer-events: none;
 }
 .browser-artifact__canvas[data-interactive=true] {
-  cursor: none;
+  cursor: default;
   outline-color: color-mix(in srgb, var(--color-primary, #ff5236) 55%, transparent);
 }
 .browser-artifact__canvas:focus-visible {

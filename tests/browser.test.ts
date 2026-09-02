@@ -335,6 +335,17 @@ describe('browser web artifact build', () => {
     expect(Number(veil![1])).toBeLessThanOrEqual(40);
     expect(Number(veil![1])).toBeGreaterThanOrEqual(30);
   });
+
+  it('never hides the pointer on a canvas the user is driving', () => {
+    const css = stylesheet();
+    // `cursor: none` here left a takeover with no pointer at all: the streamed cursor it was standing in
+    // for reports where the AGENT points, and stops the moment the user takes the session.
+    // The build normalizes the attribute selector's quotes away, so this names what it emits.
+    const driving = rule(css, '.browser-artifact__canvas[data-interactive=true]');
+    expect(driving).toContain('cursor: default');
+    expect(driving).not.toContain('cursor: none');
+    expect(css).not.toContain('cursor: none');
+  });
 });
 
 describe('screencast hub', () => {

@@ -75,10 +75,15 @@
   user-select: none;
 }
 .browser-artifact__canvas img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
-/* Driving the session hides the local pointer (the remote one is drawn on the image) and rings the glass,
-   so it is never ambiguous which window is taking the keystrokes. */
+/* Driving the session rings the glass, so it is never ambiguous which window is taking the keystrokes.
+   Your OWN pointer stays visible, and stays the arrow the system already draws: the canvas box and the
+   image coincide, so where that arrow sits IS the point being sent to the remote page. It was hidden here
+   once, on the theory that the streamed cursor stood in for it — but that cursor reports where the AGENT
+   is pointing and goes silent the moment you take over, so a takeover left the canvas with no pointer at
+   all. The agent's arrow is withdrawn during a takeover instead (BrowserArtifact), which is what keeps
+   this from being two pointers. */
 .browser-artifact__canvas[data-interactive='true'] {
-  cursor: none;
+  cursor: default;
   outline-color: color-mix(in srgb, var(--color-primary, #ff5236) 55%, transparent);
 }
 .browser-artifact__canvas:focus-visible { outline-color: var(--color-primary, #ff5236); }

@@ -755,7 +755,7 @@ function BrowserArtifact({ artifact }) {
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Spinner, { size: "lg" }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: stream.error || strings.waitingFrame || "Waiting for the browser image\u2026" })
         ] }),
-        interactive && stream.cursor && frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        interactive && !lease && stream.cursor && frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           "span",
           {
             className: `browser-artifact__cursor ${stream.cursor.clicking ? "is-clicking" : ""}`,

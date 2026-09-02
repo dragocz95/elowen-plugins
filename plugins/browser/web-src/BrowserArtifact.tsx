@@ -250,7 +250,11 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
 
   /** The live image and the two marks that belong ON it: what the session is doing right now, and — on
    *  the expanded canvas only — the agent's pointer. The thumbnail leaves the pointer out: at a third of
-   *  the width it is a 28px arrow over a 300px page, which reads as damage rather than as feedback. */
+   *  the width it is a 28px arrow over a 300px page, which reads as damage rather than as feedback.
+   *
+   *  The agent's pointer is also withdrawn the moment YOU take control. The stream only reports where the
+   *  AGENT is pointing, so during a takeover it is a stale arrow sitting wherever the agent left it —
+   *  next to your own pointer, which is now the one that matters. One session, one pointer. */
   const canvas = (interactive: boolean) => (
     <div
       className="browser-artifact__canvas"
@@ -273,7 +277,7 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
           <span>{stream.error || strings.waitingFrame || 'Waiting for the browser image…'}</span>
         </div>
       )}
-      {interactive && stream.cursor && frame ? (
+      {interactive && !lease && stream.cursor && frame ? (
         <span
           className={`browser-artifact__cursor ${stream.cursor.clicking ? 'is-clicking' : ''}`}
           style={{ left: `${(stream.cursor.x / frame.width) * 100}%`, top: `${(stream.cursor.y / frame.height) * 100}%` }}
