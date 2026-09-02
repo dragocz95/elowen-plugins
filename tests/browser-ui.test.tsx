@@ -308,6 +308,50 @@ describe('browser plugin UI', () => {
     expect(reopened.querySelector('.sr-only[role="status"]')).toHaveTextContent('');
   });
 
+  it('lets the canvas get out of the way before the host reveals the question', async () => {
+    // The overlay restores focus to whatever opened it when it unmounts. Revealing the card in the same
+    // breath as closing therefore focused the question and then had it yanked back to the thumbnail —
+    // the reader ended up staring at the tile they had just left. The reveal has to be LAST.
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    const card = document.createElement('button');
+    card.textContent = 'the real question card';
+    document.body.appendChild(card);
+
+    // What the host sees at the moment it is asked to reveal — the whole ordering contract in one record.
+    const observed: { dialogStillUp: boolean; activeAtCall: Element | null }[] = [];
+    const reveal = vi.fn(() => {
+      observed.push({
+        dialogStillUp: document.querySelector('[role="dialog"]') !== null,
+        activeAtCall: document.activeElement,
+      });
+      card.focus();
+    });
+    mountArtifact(undefined, { label: 'The assistant is waiting for your choice', reveal });
+
+    const tile = await screen.findByRole('button', { name: strings.enlarge });
+    fireEvent.click(tile);
+    const canvas = await screen.findByRole('dialog', { name: 'Example' });
+    fireEvent.click(within(canvas).getByRole('button', { name: 'The assistant is waiting for your choice' }));
+
+    await waitFor(() => expect(reveal).toHaveBeenCalledTimes(1));
+    // By the time the host was asked to reveal, the canvas had already gone AND its own focus restore had
+    // already run, so nothing is left afterwards to take focus off the question. (The restore lands on
+    // whatever was focused when the overlay opened; under jsdom a click does not focus the button it hits,
+    // so that is the body here — what matters is that it is not the card, and that it has already run.)
+    expect(screen.queryByRole('dialog')).toBeNull();
+    console.log('DEBUG observed:', JSON.stringify(observed.map((o) => ({ up: o.dialogStillUp, activeIsCard: o.activeAtCall === card }))));
+    expect(observed).toHaveLength(1);
+    expect(observed[0]!.dialogStillUp).toBe(false);
+    expect(observed[0]!.activeAtCall).not.toBe(card);
+    expect(tile.isConnected).toBe(true);
+
+    // A frame later — the earliest anything else could have interfered — the question still has it.
+    await new Promise((resolve) => { requestAnimationFrame(() => resolve(null)); });
+    expect(document.activeElement).toBe(card);
+
+    card.remove();
+  });
+
   it('shows account profile state and runtime capacity without exposing page content', async () => {
     use(
       http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 1 })),

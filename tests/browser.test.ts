@@ -360,6 +360,18 @@ describe('browser web artifact build', () => {
     expect(rule(css, '.browser-artifact__dismiss')).toMatch(/background: color-mix/);
   });
 
+  it('grows the canvas controls to a finger on a touch pointer', () => {
+    const css = stylesheet();
+    const coarse = css.slice(css.indexOf('@media (pointer: coarse)'));
+    expect(coarse.startsWith('@media (pointer: coarse)')).toBe(true);
+    // 28px is right beside a 13px caption and wrong under a fingertip, with a live page behind it.
+    expect(coarse).toMatch(/\.browser-artifact__icon \{[^}]*width: 2\.5rem/);
+    expect(coarse).toMatch(/\.browser-artifact__dismiss \{[^}]*width: 2\.5rem/);
+    // Keyed on the pointer, not the viewport: a touch laptop needs it, a narrow desktop window does not.
+    const phone = css.slice(css.indexOf('@media (max-width: 767px)'), css.indexOf('@media (pointer: coarse)'));
+    expect(phone).not.toContain('2.5rem');
+  });
+
   it('reads the narration without taking the pointer away from the page', () => {
     const css = stylesheet();
     // The subtitle is read, never clicked: the page underneath it is the pointer target, and so is

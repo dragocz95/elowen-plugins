@@ -141,6 +141,8 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const [lease, setLease] = useState<Lease | null>(null);
   const pointerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingMove = useRef<Record<string, unknown> | null>(null);
+  /** A host `reveal` waiting for this canvas to actually get out of the way — see the effect below. */
+  const pendingReveal = useRef<(() => void) | null>(null);
   const sessionId = data?.browserSessionId ?? '';
   const title = data?.title || strings.sessionTitle || 'Browser session';
   const url = data?.url || '';
@@ -179,6 +181,18 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   useEffect(() => {
     if (stream.control.state === 'agent') setLease(null);
   }, [stream.control.state]);
+  useEffect(() => {
+    // Handing the reader back to the question card is TWO moves in a fixed order, and running them in one
+    // go got the order wrong: `reveal` focused the card, and then the closing overlay's own cleanup —
+    // which restores focus to whatever opened it — pulled focus straight back to the thumbnail. So the
+    // canvas closes first and the reveal waits here: an effect keyed on `expanded` runs after React has
+    // flushed the unmounting overlay's cleanup, so the last thing to touch focus is the question.
+    if (expanded) return;
+    const reveal = pendingReveal.current;
+    if (!reveal) return;
+    pendingReveal.current = null;
+    reveal();
+  }, [expanded]);
   useEffect(() => {
     // A pointer move is batched for 50ms. Releasing (or losing) control inside that window would otherwise
     // fire it afterwards against a lease that no longer exists — a rejected request and a toast for a
@@ -380,7 +394,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
               <button
                 type="button"
                 className="browser-artifact__question"
-                onClick={() => { setExpanded(false); waiting.reveal(); }}
+                onClick={() => { pendingReveal.current = waiting.reveal; setExpanded(false); }}
               >
                 <MessageCircleQuestion size={15} aria-hidden />
                 <span className="truncate">{waiting.label}</span>

@@ -633,6 +633,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const [lease, setLease] = (0, import_react5.useState)(null);
   const pointerTimer = (0, import_react5.useRef)(null);
   const pendingMove = (0, import_react5.useRef)(null);
+  const pendingReveal = (0, import_react5.useRef)(null);
   const sessionId = data?.browserSessionId ?? "";
   const title = data?.title || strings.sessionTitle || "Browser session";
   const url = data?.url || "";
@@ -661,6 +662,13 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   (0, import_react5.useEffect)(() => {
     if (stream.control.state === "agent") setLease(null);
   }, [stream.control.state]);
+  (0, import_react5.useEffect)(() => {
+    if (expanded) return;
+    const reveal = pendingReveal.current;
+    if (!reveal) return;
+    pendingReveal.current = null;
+    reveal();
+  }, [expanded]);
   (0, import_react5.useEffect)(() => {
     if (lease) return;
     if (pointerTimer.current) {
@@ -848,8 +856,8 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
             type: "button",
             className: "browser-artifact__question",
             onClick: () => {
+              pendingReveal.current = waiting.reveal;
               setExpanded(false);
-              waiting.reveal();
             },
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(MessageCircleQuestion, { size: 15, "aria-hidden": true }),

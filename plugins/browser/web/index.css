@@ -366,6 +366,16 @@
     line-clamp: 2;
   }
 }
+@media (pointer: coarse) {
+  .browser-artifact__icon {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+  .browser-artifact__dismiss {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .browser-artifact__overlay {
     animation: none;

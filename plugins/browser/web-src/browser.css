@@ -388,6 +388,16 @@
   .browser-artifact__narration-text { -webkit-line-clamp: 2; line-clamp: 2; }
 }
 
+/* A finger is not a mouse pointer. The controls on the glass are sized for a cursor — 28px, which is the
+   right weight beside a 13px caption — and that is a miss waiting to happen on a touch screen, where the
+   nearest neighbour is 4px away and the thing behind them is a live page that reacts to being touched.
+   Keyed on the POINTER rather than the width: a touch laptop needs this and a narrow desktop window does
+   not. The pill keeps its layout — it already wraps — and simply grows with them. */
+@media (pointer: coarse) {
+  .browser-artifact__icon { width: 2.5rem; height: 2.5rem; }
+  .browser-artifact__dismiss { width: 2.5rem; height: 2.5rem; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .browser-artifact__overlay { animation: none; }
   .browser-artifact__cursor { transition: none; }
