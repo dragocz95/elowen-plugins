@@ -90,7 +90,8 @@ class FakeCdp extends EventEmitter implements CDPSessionLike {
     return {} as T;
   }
   off(event: string, listener: (payload: unknown) => void): this { return super.off(event, listener); }
-  async detach(): Promise<void> {}
+  detached = false;
+  async detach(): Promise<void> { this.detached = true; }
 }
 
 let targetSequence = 0;
@@ -1037,6 +1038,49 @@ describe('browser diagnostics collector', () => {
     await session.close();
   });
 
+  it('does not let a half-enabled tab write into the previous tab\'s history', async () => {
+    const { session, page, browser, tabs, id } = await diagnosticSession();
+    page.cdp.emit('Runtime.consoleAPICalled', { type: 'log', args: [{ type: 'string', value: 'first tab' }] });
+    await tick();
+
+    const second = await browser.newPage() as FakePage;
+    // Runtime comes up and starts delivering this tab's console; Network refuses. Had the collector bound
+    // its handlers before enabling, the message below would have been written into the OLD tab's buffer
+    // and the rollback would have restored a history somebody had already edited.
+    second.cdp.replies.set('Network.enable', () => {
+      second.cdp.emit('Runtime.consoleAPICalled', { type: 'error', args: [{ type: 'string', value: 'second tab noise' }] });
+      return new Error('Target closed');
+    });
+    await expect(session.selectTab(tabs.registerPrimary(id, second), undefined)).rejects.toThrow(/Target closed/);
+
+    expect((await session.consoleEntries({ limit: 10 })).entries.map((entry) => entry.text)).toEqual(['first tab']);
+    // The old session still owns the handlers; the new one never got any.
+    expect(second.cdp.eventNames()).toEqual([]);
+    page.cdp.emit('Runtime.consoleAPICalled', { type: 'log', args: [{ type: 'string', value: 'old tab still heard' }] });
+    await tick();
+    expect((await session.consoleEntries({ limit: 10 })).entries.map((entry) => entry.text)).toEqual(['first tab', 'old tab still heard']);
+    await session.close();
+  });
+
+  it('leaves the previous CDP session owning the screencast when a later step of the switch throws', async () => {
+    const { session, page, browser, tabs, id } = await diagnosticSession();
+    const second = await browser.newPage() as FakePage;
+    // The screencast and the input controller have already been moved when the collector's attach
+    // refuses. Registering their undo only after the move would leave nothing to put them back with.
+    second.cdp.replies.set('Log.enable', new Error('Target closed'));
+    await session.subscribeFrames('viewer-1', async () => {});
+    await expect(session.selectTab(tabs.registerPrimary(id, second), undefined)).rejects.toThrow(/Target closed/);
+
+    // Proof of ownership: a screencast frame is ACKed on the session the hub is actually bound to.
+    const acksOn = (target: FakePage) => target.cdp.calls.filter((call) => call.method === 'Page.screencastFrameAck').length;
+    const before = acksOn(page);
+    page.cdp.emit('Page.screencastFrame', { sessionId: 7, data: 'AAAA', metadata: { deviceWidth: 800, deviceHeight: 600 } });
+    await tick();
+    expect(acksOn(page)).toBe(before + 1);
+    expect(acksOn(second)).toBe(0);
+    await session.close();
+  });
+
   it('leaves no listener and no buffered evidence behind when the session closes', async () => {
     const { session, page } = await diagnosticSession();
     page.cdp.emit('Runtime.consoleAPICalled', { type: 'log', args: [{ type: 'string', value: 'x' }] });
@@ -1319,6 +1363,35 @@ describe('browser performance tracing', () => {
     // Nothing was invented to close: no handle was ever named.
     expect(page.cdp.calls.some((call) => call.method === 'IO.close')).toBe(false);
   }, 10_000);
+
+  it('stops a tab switch dead when abandoning its trace left the browser in an unknown state', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { session, page, browser, tabs, traceLock, id, forceCloseCalls } = await tracingSession();
+      page.cdp.replies.set('Tracing.end', {}); // ends, but never completes
+      await session.startTrace();
+      await session.subscribeFrames('viewer-1', async () => {});
+
+      const second = await browser.newPage() as FakePage;
+      const switching = session.selectTab(tabs.registerPrimary(id, second), undefined);
+      const assertion = expect(switching).rejects.toThrow(/being recycled/);
+      await vi.advanceTimersByTimeAsync(4_000);
+      await assertion;
+
+      // The browser this switch was moving INTO is the one being closed underneath it. Nothing may be
+      // carried over to it: not the screencast, not the input controller, not the collector.
+      expect(second.cdp.calls.some((call) => call.method === 'Page.startScreencast')).toBe(false);
+      expect(second.cdp.calls.some((call) => call.method === 'Runtime.enable')).toBe(false);
+      expect(second.cdp.eventNames()).toEqual([]);
+      expect(second.cdp.detached).toBe(true);
+
+      expect(traceLock.tainted).toBeTruthy();
+      expect(forceCloseCalls()).toBeGreaterThan(0);
+      await session.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('treats a start that timed out as unknown, not as a start that failed', async () => {
     // Only the timeouts are faked: the collector's own bookkeeping runs on setImmediate and must stay

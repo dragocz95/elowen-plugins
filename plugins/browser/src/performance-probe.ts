@@ -345,17 +345,19 @@ export class TraceRecorder {
    *  keeps for as long as it lives — which, on a tab switch, is the rest of the session. So this waits
    *  briefly for the completion event and closes whatever handle it names.
    *
-   *  Briefly, and it never throws: a tab switch and a close must complete either way. What differs is
-   *  what the lock is given back AS. An abandon that saw the trace end and closed its stream releases the
-   *  lock — the process is fine and its next tab may trace. An abandon that timed out did not observe
-   *  anything: Chrome may still be recording, may still hold the stream, and the only honest answer is
-   *  that this process can no longer be trusted to trace, which its owner is told so it can recycle it. */
-  async abandon(): Promise<void> {
+   *  Briefly, and it never throws: a close must complete either way, and a teardown that raised would
+   *  leave a session half torn down. It REPORTS instead. An abandon that saw the trace end and closed its
+   *  stream answers 'clean' — the process is fine and its next tab may trace. An abandon that timed out
+   *  observed nothing: Chrome may still be recording, may still hold the stream, so it answers 'unknown',
+   *  taints the lock and tells the owner to recycle the process. A caller that is still deciding what to
+   *  do next — a tab switch — has to read that answer and stop; a caller that is already tearing down
+   *  can ignore it, because the recycle is under way regardless. */
+  async abandon(): Promise<'clean' | 'unknown'> {
     const active = this.active;
     const cdp = this.cdp;
     if (!active || !cdp) {
       this.finish();
-      return;
+      return 'clean';
     }
     const streamHandle = new Promise<string | null>((resolve) => { this.complete = resolve; });
     try {
@@ -365,8 +367,10 @@ export class TraceRecorder {
         await withTimeout(cdp.send('IO.close', { handle }), TRACE_IO_CLOSE_TIMEOUT_MS, 'the abandoned trace stream could not be closed');
       }
       this.finish();
+      return 'clean';
     } catch (error) {
       this.taint(active.sessionId, error instanceof Error ? error.message : 'the abandoned trace did not complete');
+      return 'unknown';
     }
   }
 

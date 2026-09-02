@@ -155,27 +155,28 @@ export class PageDiagnostics {
    *  came up is the worst of both: it keeps that CDP session (and its page) alive through the handlers,
    *  and it answers later reads with a silence the caller cannot tell from a quiet page.
    *
-   *  So nothing is committed until the domains are up. The cdp pointer only advances on success, the
-   *  buffers are only cleared on success, and a failure disposes every listener this call registered and
-   *  raises. No event can have reached those listeners in the meantime: an unenabled domain emits none.
-   *  A caller that had a working session before can put this collector back on it with `rebind`. */
+   *  So the domains go up FIRST, on a session this collector is not yet listening to, and only a
+   *  complete success moves the listeners. Binding first and enabling afterwards looks equivalent and is
+   *  not: enabling `Runtime` starts delivering that tab's console immediately, so a partial success —
+   *  two domains up, the third refused — would already have written the new tab's messages into the
+   *  buffers of the old one, and the rollback would put back a history that had been edited. The cost is
+   *  the events between the last enable and the bind, which is a few milliseconds of a page that has not
+   *  been looked at yet; the alternative corrupts evidence somebody is going to read.
+   *
+   *  What follows the enables is synchronous and cannot fail halfway: unbind, bind, clear, commit. */
   async attach(cdp: CDPSessionLike): Promise<void> {
     if (this.closed) return;
+    // `allSettled`, not `all`: `all` rejects on the first failure while the others are still in flight,
+    // and the two still travelling would be enabling domains on a session nobody is going to listen to.
+    const results = await Promise.allSettled([
+      cdp.send('Runtime.enable'),
+      cdp.send('Log.enable'),
+      cdp.send('Network.enable', { maxTotalBufferSize: 10_485_760, maxResourceBufferSize: 1_048_576 }),
+    ]);
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure) throw failure.reason;
+    // Committed. Nothing below awaits, so the collector cannot be observed between two of these lines.
     this.bindAll(cdp);
-    try {
-      // `allSettled`, not `all`: `all` rejects on the first failure while the others are still in
-      // flight, so the rollback could run against a session two commands were still arriving on.
-      const results = await Promise.allSettled([
-        cdp.send('Runtime.enable'),
-        cdp.send('Log.enable'),
-        cdp.send('Network.enable', { maxTotalBufferSize: 10_485_760, maxResourceBufferSize: 1_048_576 }),
-      ]);
-      const failure = results.find((result) => result.status === 'rejected');
-      if (failure) throw failure.reason;
-    } catch (error) {
-      this.disposeListeners();
-      throw error;
-    }
     this.cdp = cdp;
     // Each tab is its own document, its own console and its own request ids. Carrying the previous tab's
     // entries across would attribute them to a page that never produced them, and a stale request id

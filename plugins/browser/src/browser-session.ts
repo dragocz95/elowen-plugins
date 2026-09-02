@@ -513,6 +513,11 @@ export class BrowserSession {
         // Order matters: end the trace while the CDP session can still carry the command, then drop
         // every listener, then detach. A trace left running would hold the account's process-wide lock
         // with no session left to stop it.
+        //
+        // The outcome is deliberately not read here. A close has nothing left to decide: an 'unknown'
+        // has already tainted the lock and asked for the process to be recycled, and turning that into a
+        // failure would abort the rest of THIS teardown — the listeners, the screencast, the page — over
+        // a recovery that is already under way.
         await this.tracer.abandon();
         this.tracer.detach();
         this.diagnostics.close();
@@ -562,19 +567,29 @@ export class BrowserSession {
         // A trace records the browser, but it was started from the tab that is going away and stopped
         // through its session. Ending it here costs a measurement nobody can collect any more; leaving it
         // running would hold the process-wide lock against every other tab until the session closes.
-        await this.tracer.abandon();
-        await this.screencast.replaceCdp(nextCdp);
+        //
+        // An abandon that could not establish what Chrome is doing has already condemned this browser
+        // process and asked for it to be recycled. Carrying on with the switch would move the screencast,
+        // the input controller and the collector onto a tab of a browser that is being closed underneath
+        // them — so the switch stops here and unwinds, and the caller is told why.
+        if (await this.tracer.abandon() === 'unknown') {
+          throw new Error('The browser is being recycled because its tracing state could not be established.');
+        }
+        // Every undo goes on the stack BEFORE the step that needs it. `replaceCdp` mutates the subsystem
+        // it is called on, so registering the restore afterwards leaves the one window where that
+        // subsystem is already on the new tab with nothing recorded to put it back.
         undo.push(() => this.screencast.replaceCdp(previousCdp));
-        this.input.replaceCdp(nextCdp);
+        await this.screencast.replaceCdp(nextCdp);
         undo.push(() => this.input.replaceCdp(previousCdp));
-        // The collector unbinds from the old session and rebinds to the new one BEFORE the old is
-        // detached: unsubscribing from a detached session is a silent no-op in some CDP transports, and
-        // the listeners would survive as the only thing still holding the old session alive.
-        // The undo goes on the stack BEFORE the step that needs it: `attach` lets go of the old session
-        // before it enables domains on the new one, so an attach that fails halfway has already left the
-        // collector bound to nothing. Registering the restore first is what covers that window.
+        this.input.replaceCdp(nextCdp);
+        // The collector rebinds to the new session BEFORE the old is detached: unsubscribing from a
+        // detached session is a silent no-op in some CDP transports, and the listeners would survive as
+        // the only thing still holding the old session alive.
         undo.push(() => this.diagnostics.rebind(previousCdp));
         await this.diagnostics.attach(nextCdp);
+        // Past this point nothing awaits and nothing throws: the tracer swap is two listener calls, and
+        // the detach below already swallows its own failure. A commit that cannot fail halfway is what
+        // lets the collector's own commit be the last risky step of the switch.
         undo.push(() => this.tracer.attach(previousCdp));
         this.tracer.attach(nextCdp);
         this.disposeCdpListeners();
