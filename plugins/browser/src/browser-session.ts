@@ -127,7 +127,7 @@ export class BrowserSession {
 
   private constructor(private readonly deps: BrowserSessionDeps) {
     this.diagnostics = new PageDiagnostics(() => deps.clock.now());
-    this.tracer = new TraceRecorder(deps.traceLock, () => deps.clock.now());
+    this.tracer = new TraceRecorder(deps.traceLock, () => deps.clock.now(), (reason) => this.recycleBrowser(reason));
     this.id = deps.id;
     this.ownerUserId = deps.ownerUserId;
     this.conversationId = deps.conversationId;
@@ -545,36 +545,57 @@ export class BrowserSession {
     // Held so the switch below, and the close above, can take it back off. A handler kept on a CDP
     // session the session no longer uses is the one reference that stops the old tab being collected.
     const disposeDialog = () => nextCdp.off('Page.javascriptDialogOpening', onDialog);
-    await Promise.all([
-      nextCdp.send('Accessibility.enable'),
-      nextCdp.send('DOM.enable'),
-      nextCdp.send('Page.enable'),
-      nextCdp.send('Browser.setDownloadBehavior', { behavior: 'deny' }),
-    ]);
-    if (this.cdp) {
-      // A trace records the browser, but it was started from the tab that is going away and stopped
-      // through its session. Ending it here costs a measurement nobody can collect any more; leaving it
-      // running would hold the process-wide lock against every other tab until the session closes.
-      await this.tracer.abandon();
-      await this.screencast.replaceCdp(nextCdp);
-      this.input.replaceCdp(nextCdp);
-      // The collector unbinds from the old session and rebinds to the new one BEFORE the old is
-      // detached: unsubscribing from a detached session is a silent no-op in some CDP transports, and
-      // the listeners would survive as the only thing still holding the old session alive.
-      await this.diagnostics.attach(nextCdp);
-      this.tracer.attach(nextCdp);
-      this.disposeCdpListeners();
-      await this.cdp.detach?.().catch(() => {});
-    } else {
-      this.screencast = new ScreencastHub(nextCdp, this.deps.config, this.deps.streamBudget, this.deps.logger);
-      this.input = new InputController(
-        nextCdp,
-        () => ({ width: this.deps.config().maxViewportWidth, height: this.deps.config().viewportHeight }),
-        (event) => this.emit(event),
-        new InputRateLimiter(() => this.deps.config().maxInputEventsPerSecond, () => this.deps.clock.now()),
-      );
-      await this.diagnostics.attach(nextCdp);
-      this.tracer.attach(nextCdp);
+    // Undo for everything already moved onto the new session, newest first. A tab switch touches four
+    // subsystems in sequence and any of them can fail against a target that is already going away; a
+    // half-switched session — screencast on the new tab, collector on neither, dialogs answered twice —
+    // is worse than a switch that simply did not happen, because nothing afterwards can tell.
+    const previousCdp: CDPSessionLike | undefined = this.cdp;
+    const undo: (() => void | Promise<void>)[] = [disposeDialog];
+    try {
+      await Promise.all([
+        nextCdp.send('Accessibility.enable'),
+        nextCdp.send('DOM.enable'),
+        nextCdp.send('Page.enable'),
+        nextCdp.send('Browser.setDownloadBehavior', { behavior: 'deny' }),
+      ]);
+      if (previousCdp) {
+        // A trace records the browser, but it was started from the tab that is going away and stopped
+        // through its session. Ending it here costs a measurement nobody can collect any more; leaving it
+        // running would hold the process-wide lock against every other tab until the session closes.
+        await this.tracer.abandon();
+        await this.screencast.replaceCdp(nextCdp);
+        undo.push(() => this.screencast.replaceCdp(previousCdp));
+        this.input.replaceCdp(nextCdp);
+        undo.push(() => this.input.replaceCdp(previousCdp));
+        // The collector unbinds from the old session and rebinds to the new one BEFORE the old is
+        // detached: unsubscribing from a detached session is a silent no-op in some CDP transports, and
+        // the listeners would survive as the only thing still holding the old session alive.
+        // The undo goes on the stack BEFORE the step that needs it: `attach` lets go of the old session
+        // before it enables domains on the new one, so an attach that fails halfway has already left the
+        // collector bound to nothing. Registering the restore first is what covers that window.
+        undo.push(() => this.diagnostics.rebind(previousCdp));
+        await this.diagnostics.attach(nextCdp);
+        undo.push(() => this.tracer.attach(previousCdp));
+        this.tracer.attach(nextCdp);
+        this.disposeCdpListeners();
+        await previousCdp.detach?.().catch(() => {});
+      } else {
+        this.screencast = new ScreencastHub(nextCdp, this.deps.config, this.deps.streamBudget, this.deps.logger);
+        this.input = new InputController(
+          nextCdp,
+          () => ({ width: this.deps.config().maxViewportWidth, height: this.deps.config().viewportHeight }),
+          (event) => this.emit(event),
+          new InputRateLimiter(() => this.deps.config().maxInputEventsPerSecond, () => this.deps.clock.now()),
+        );
+        undo.push(() => this.diagnostics.detach());
+        await this.diagnostics.attach(nextCdp);
+        undo.push(() => this.tracer.detach());
+        this.tracer.attach(nextCdp);
+      }
+    } catch (error) {
+      for (const step of undo.reverse()) await Promise.resolve().then(step).catch(() => {});
+      await nextCdp.detach?.().catch(() => {});
+      throw error;
     }
     this.page = page;
     this.cdp = nextCdp;
@@ -616,6 +637,29 @@ export class BrowserSession {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  /** Throw this browser process away, because something about it can no longer be established.
+   *
+   *  Used when tracing state becomes unknown: Chrome may still be recording a trace nobody holds, or
+   *  holding a stream nobody can close, and there is no command that answers "are you?". Recycling the
+   *  process is the only thing that makes the answer knowable again — the same recovery the 45 second
+   *  operation deadline already takes, for the same reason. Fire and forget: the caller is a teardown
+   *  path or a failing tool, and neither can wait for a browser to die. */
+  private recycleBrowser(reason: string): void {
+    this.deps.logger.warn(`browser session ${this.id} is being recycled: ${reason}`);
+    // The process is closed even when this session is ALREADY ending: the Chrome process outlives its
+    // sessions — the pool keeps it for the account's other tabs and for the close grace window — so a
+    // session that discovers the unknown state on its way out is still the only one in a position to say
+    // that this browser must not be reused. Only the session-level bookkeeping is skipped.
+    const alreadyEnding = this.stateValue === 'closing' || this.stateValue === 'closed' || this.stateValue === 'error';
+    if (!alreadyEnding) {
+      this.stateValue = 'error';
+      this.persist({ state: 'error' });
+    }
+    void this.deps.forceCloseBrowser().finally(() => {
+      if (!alreadyEnding) void this.close('trace_state_unknown');
+    });
   }
 
   private waitForTakeoverRelease(signal?: AbortSignal): Promise<void> {

@@ -9,23 +9,55 @@ import type { CDPSessionLike } from './types.js';
  *  from starting a trace in the same Chrome, the deadline that stops a forgotten trace from running until
  *  the session dies, and the teardown that ends it on a tab switch, a close, or a browser that went away. */
 
+/** Raised when the browser's tracing state can no longer be established: a command that timed out may
+ *  still land, a trace we believe ended may still be recording, a stream we could not close may still be
+ *  held. Distinct from an ordinary failure because the answer is different — this one is not retried, it
+ *  is recovered from by recycling the Chrome process. */
+export class TraceStateUnknownError extends Error {
+  constructor(readonly reason: string) {
+    super(`The browser's tracing state could not be established (${reason}). The browser session will be recycled.`);
+    this.name = 'TraceStateUnknownError';
+  }
+}
+
 /** Chrome runs ONE tracing session per browser process, so this is a property of the process, not of the
  *  page that asked. Owned by whoever owns the process (the pool) and handed to sessions as a capability:
  *  a lock living in the session would be one lock per tab over a resource there is one of. */
 export class ProcessTraceLock {
   private ownerId: string | null = null;
+  private taintReason: string | null = null;
 
   /** Reports who holds it, so the refusal can name the session instead of saying "busy". */
   get holder(): string | null { return this.ownerId; }
+  /** Why this process can no longer be trusted to trace, or null while it can. */
+  get tainted(): string | null { return this.taintReason; }
 
   acquire(sessionId: string): void {
+    // Tainted is terminal for this process. A command that timed out is not a command that failed: it
+    // may land a second later and leave Chrome recording with nobody who knows it. Handing the lock to
+    // the next caller would let them start a trace on top of one that may already exist, and read back a
+    // measurement of something else entirely. Only a new Chrome makes the state knowable again.
+    if (this.taintReason !== null) {
+      throw new Error(
+        `This account's browser can no longer be traced (${this.taintReason}). `
+        + 'It is being recycled; start a new browser session and try again.',
+      );
+    }
     if (this.ownerId !== null && this.ownerId !== sessionId) {
       throw new Error('A performance trace is already running for this account\'s browser. Stop it before starting another.');
     }
     this.ownerId = sessionId;
   }
 
+  /** Give the lock back after an outcome we could actually observe. */
   release(sessionId: string): void {
+    if (this.ownerId === sessionId) this.ownerId = null;
+  }
+
+  /** Give it back as UNUSABLE. The holder is cleared so nothing waits on it, but nobody else may take
+   *  it: the process itself is what has to go. */
+  taint(sessionId: string, reason: string): void {
+    if (this.taintReason === null) this.taintReason = reason;
     if (this.ownerId === sessionId) this.ownerId = null;
   }
 }
@@ -46,7 +78,9 @@ const MAX_TRACE_BYTES = 8 * 1024 * 1024;
 /** Deadlines of this module's own, deliberately far below the session's 45 second safety net: a trace
  *  that hangs must fail as a trace, while the session is still healthy enough to run the next tool. */
 const TRACE_START_TIMEOUT_MS = 5_000;
+const TRACE_END_TIMEOUT_MS = 5_000;
 const TRACE_DRAIN_TIMEOUT_MS = 10_000;
+const TRACE_IO_CLOSE_TIMEOUT_MS = 2_000;
 /** Much shorter than the drain: this one runs inside a tab switch and inside `close()`, where nobody is
  *  waiting for a measurement any more — only for the browser to stop holding a buffer for it. */
 const TRACE_ABANDON_TIMEOUT_MS = 1_500;
@@ -212,13 +246,37 @@ export class TraceRecorder {
   private complete: ((streamHandle: string | null) => void) | null = null;
   private readonly onComplete = (raw: unknown): void => {
     const handle = (raw as { stream?: unknown }).stream;
-    this.complete?.(typeof handle === 'string' ? handle : null);
+    const stream = typeof handle === 'string' ? handle : null;
+    const waiter = this.complete;
     this.complete = null;
+    if (waiter) {
+      waiter(stream);
+      return;
+    }
+    // The completion arrived after whoever was waiting for it gave up. The handle is still a live buffer
+    // in the browser, and there is no second event to remind us of it — so it is closed here, on the way
+    // past, or Chrome holds those bytes for the life of the process.
+    if (stream) void this.cdp?.send('IO.close', { handle: stream }).catch(() => {});
   };
 
-  constructor(private readonly lock: ProcessTraceLock, private readonly now: () => number) {}
+  /** `onStateUnknown` is told once, when this browser's tracing state stops being knowable. The recorder
+   *  cannot fix that itself: only the owner of the Chrome process can replace it. */
+  constructor(
+    private readonly lock: ProcessTraceLock,
+    private readonly now: () => number,
+    private readonly onStateUnknown: (reason: string) => void = () => {},
+  ) {}
 
   get running(): boolean { return this.active !== null; }
+
+  /** Mark the process unusable, tell its owner, and produce the error to raise. */
+  private taint(sessionId: string, reason: string): TraceStateUnknownError {
+    this.lock.taint(sessionId, reason);
+    this.active = null;
+    this.complete = null;
+    this.onStateUnknown(reason);
+    return new TraceStateUnknownError(reason);
+  }
 
   attach(cdp: CDPSessionLike): void {
     if (this.cdp) this.cdp.off('Tracing.tracingComplete', this.onComplete);
@@ -237,8 +295,11 @@ export class TraceRecorder {
         options: 'record-until-full',
       }), TRACE_START_TIMEOUT_MS, 'The browser did not start tracing in time.');
     } catch (error) {
-      this.lock.release(sessionId);
-      throw error;
+      // NOT a plain release. A `Tracing.start` that timed out has not necessarily failed — it may land a
+      // moment later and leave Chrome recording with nobody holding the other end. Freeing the lock here
+      // would let the next caller start a second trace on top of that one and read back a measurement of
+      // something else. The state is unknown, and only a new Chrome makes it knowable again.
+      throw this.taint(sessionId, error instanceof Error ? error.message : 'the trace could not be started');
     }
     this.active = { sessionId, startedAt: this.now() };
     return { startedAt: this.active.startedAt };
@@ -250,14 +311,30 @@ export class TraceRecorder {
     if (!this.cdp) throw new Error('Browser session is closed.');
     const cdp = this.cdp;
     const streamHandle = new Promise<string | null>((resolve) => { this.complete = resolve; });
+    let handle: string | null = null;
     try {
-      await cdp.send('Tracing.end');
-      const handle = await withTimeout(streamHandle, TRACE_DRAIN_TIMEOUT_MS, 'The browser did not finish the trace in time.');
-      if (!handle) return summarizeTraceEvents([], false);
-      const { text, truncated } = await withTimeout(readStream(cdp, handle), TRACE_DRAIN_TIMEOUT_MS, 'The trace could not be read in time.');
-      return summarizeTraceEvents(parseTraceEvents(text), truncated);
-    } finally {
+      // Every step gets a deadline of its own, all of them far below the session's 45 second net: a
+      // tracing command that hangs must fail as a trace while the session is still able to run the next
+      // tool, not take the whole session down with it.
+      await withTimeout(cdp.send('Tracing.end'), TRACE_END_TIMEOUT_MS, 'The browser did not accept the end of the trace in time.');
+      handle = await withTimeout(streamHandle, TRACE_DRAIN_TIMEOUT_MS, 'The browser did not finish the trace in time.');
+    } catch (error) {
+      // A trace we asked to end and did not see end may still be recording. Unknown, not failed.
+      throw this.taint(sessionId, error instanceof Error ? error.message : 'the trace could not be ended');
+    }
+    if (!handle) {
       this.finish();
+      return summarizeTraceEvents([], false);
+    }
+    try {
+      const { text, truncated } = await withTimeout(readStream(cdp, handle), TRACE_DRAIN_TIMEOUT_MS, 'The trace could not be read in time.');
+      const summary = summarizeTraceEvents(parseTraceEvents(text), truncated);
+      this.finish();
+      return summary;
+    } catch (error) {
+      // The trace ended, but its stream is in a state we cannot describe: a read that timed out leaves a
+      // handle we may or may not have closed, and a buffer the browser may still be holding.
+      throw this.taint(sessionId, error instanceof Error ? error.message : 'the trace could not be read');
     }
   }
 
@@ -268,9 +345,11 @@ export class TraceRecorder {
    *  keeps for as long as it lives — which, on a tab switch, is the rest of the session. So this waits
    *  briefly for the completion event and closes whatever handle it names.
    *
-   *  Briefly, and fail-closed: a browser that is already gone will never send the event, and a teardown
-   *  that waited on it — or threw when it did not come — would hold the process-wide tracing lock for the
-   *  rest of the daemon's life. The lock is released either way. */
+   *  Briefly, and it never throws: a tab switch and a close must complete either way. What differs is
+   *  what the lock is given back AS. An abandon that saw the trace end and closed its stream releases the
+   *  lock — the process is fine and its next tab may trace. An abandon that timed out did not observe
+   *  anything: Chrome may still be recording, may still hold the stream, and the only honest answer is
+   *  that this process can no longer be trusted to trace, which its owner is told so it can recycle it. */
   async abandon(): Promise<void> {
     const active = this.active;
     const cdp = this.cdp;
@@ -280,14 +359,14 @@ export class TraceRecorder {
     }
     const streamHandle = new Promise<string | null>((resolve) => { this.complete = resolve; });
     try {
-      await cdp.send('Tracing.end');
-      const handle = await withTimeout(streamHandle, TRACE_ABANDON_TIMEOUT_MS, 'abandoned trace did not complete');
-      if (handle) await cdp.send('IO.close', { handle });
-    } catch {
-      // Nothing here is worth failing a tab switch or a close over: the measurement was already lost the
-      // moment its tab went away, and the only thing that must survive is the release below.
-    } finally {
+      await withTimeout(cdp.send('Tracing.end'), TRACE_ABANDON_TIMEOUT_MS, 'the abandoned trace could not be ended');
+      const handle = await withTimeout(streamHandle, TRACE_ABANDON_TIMEOUT_MS, 'the abandoned trace did not complete');
+      if (handle) {
+        await withTimeout(cdp.send('IO.close', { handle }), TRACE_IO_CLOSE_TIMEOUT_MS, 'the abandoned trace stream could not be closed');
+      }
       this.finish();
+    } catch (error) {
+      this.taint(active.sessionId, error instanceof Error ? error.message : 'the abandoned trace did not complete');
     }
   }
 
@@ -322,7 +401,9 @@ async function readStream(cdp: CDPSessionLike, handle: string): Promise<{ text: 
       if (chunk.eof === true) break;
     }
   } finally {
-    await cdp.send('IO.close', { handle }).catch(() => {});
+    // A stream we could not close is a buffer the browser keeps, so this failure is not swallowed: it
+    // rides out of the `finally` and lands the caller in the same unknown state as an unfinished read.
+    await withTimeout(cdp.send('IO.close', { handle }), TRACE_IO_CLOSE_TIMEOUT_MS, 'the trace stream could not be closed');
   }
   return { text: chunks.join(''), truncated };
 }

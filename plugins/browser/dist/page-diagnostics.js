@@ -90,11 +90,37 @@ export class PageDiagnostics {
      *  reads from, so zeroing it does not make body retrieval safe, it makes it impossible, and the opt-in
      *  body detail this plugin offers would fail on every request instead of only on the ones a caller
      *  never asked about. Bounded is the honest position: Chrome holds at most this much, we hold none of
-     *  it, and nothing is copied out except the one body somebody explicitly asks for. */
+     *  it, and nothing is copied out except the one body somebody explicitly asks for.
+     *
+     *  All of it or none of it. Enabling a domain can fail — a tab that navigated away mid-attach, a target
+     *  that is already detaching — and a collector left holding listeners on a session whose domains never
+     *  came up is the worst of both: it keeps that CDP session (and its page) alive through the handlers,
+     *  and it answers later reads with a silence the caller cannot tell from a quiet page.
+     *
+     *  So nothing is committed until the domains are up. The cdp pointer only advances on success, the
+     *  buffers are only cleared on success, and a failure disposes every listener this call registered and
+     *  raises. No event can have reached those listeners in the meantime: an unenabled domain emits none.
+     *  A caller that had a working session before can put this collector back on it with `rebind`. */
     async attach(cdp) {
         if (this.closed)
             return;
-        this.disposeListeners();
+        this.bindAll(cdp);
+        try {
+            // `allSettled`, not `all`: `all` rejects on the first failure while the others are still in
+            // flight, so the rollback could run against a session two commands were still arriving on.
+            const results = await Promise.allSettled([
+                cdp.send('Runtime.enable'),
+                cdp.send('Log.enable'),
+                cdp.send('Network.enable', { maxTotalBufferSize: 10_485_760, maxResourceBufferSize: 1_048_576 }),
+            ]);
+            const failure = results.find((result) => result.status === 'rejected');
+            if (failure)
+                throw failure.reason;
+        }
+        catch (error) {
+            this.disposeListeners();
+            throw error;
+        }
         this.cdp = cdp;
         // Each tab is its own document, its own console and its own request ids. Carrying the previous tab's
         // entries across would attribute them to a page that never produced them, and a stale request id
@@ -102,6 +128,37 @@ export class PageDiagnostics {
         this.console.clear();
         this.network.clear();
         this.pending.clear();
+    }
+    /** Put the listeners back on a session this collector was already attached to.
+     *
+     *  No enables and no clearing: that session's domains were never turned off, so re-running `attach`
+     *  against it would send commands nobody needs and throw away the very entries the caller is falling
+     *  back to. This is the rollback path for an attach that failed on a DIFFERENT session. */
+    rebind(cdp) {
+        if (this.closed)
+            return;
+        this.bindAll(cdp);
+        this.cdp = cdp;
+    }
+    /** Let go of the current tab without ending the collector: no listeners, no cdp, no entries. Used to
+     *  roll a failed attach back to nothing rather than to a half-bound state. */
+    detach() {
+        this.disposeListeners();
+        this.cdp = null;
+        this.console.clear();
+        this.network.clear();
+        this.pending.clear();
+    }
+    /** Stop listening and forget everything, for good. Called from the session's own teardown, so a closed
+     *  session leaves no handler on a CDP object the garbage collector would otherwise keep alive. */
+    close() {
+        this.closed = true;
+        this.detach();
+    }
+    /** Registered listeners, for the test that asserts teardown actually tears down. */
+    get listenerCount() { return this.disposers.length; }
+    bindAll(cdp) {
+        this.disposeListeners();
         this.bind(cdp, 'Runtime.consoleAPICalled', (raw) => this.onConsoleApi(raw));
         this.bind(cdp, 'Runtime.exceptionThrown', (raw) => this.onException(raw));
         this.bind(cdp, 'Log.entryAdded', (raw) => this.onLogEntry(raw));
@@ -109,24 +166,7 @@ export class PageDiagnostics {
         this.bind(cdp, 'Network.responseReceived', (raw) => this.onResponse(raw));
         this.bind(cdp, 'Network.loadingFinished', (raw) => this.onFinished(raw));
         this.bind(cdp, 'Network.loadingFailed', (raw) => this.onFailed(raw));
-        await Promise.all([
-            cdp.send('Runtime.enable'),
-            cdp.send('Log.enable'),
-            cdp.send('Network.enable', { maxTotalBufferSize: 10_485_760, maxResourceBufferSize: 1_048_576 }),
-        ]);
     }
-    /** Stop listening and forget everything. Called from the session's own teardown, so a closed session
-     *  leaves no handler on a CDP object the garbage collector would otherwise keep alive through it. */
-    close() {
-        this.closed = true;
-        this.disposeListeners();
-        this.cdp = null;
-        this.console.clear();
-        this.network.clear();
-        this.pending.clear();
-    }
-    /** Registered listeners, for the test that asserts teardown actually tears down. */
-    get listenerCount() { return this.disposers.length; }
     bind(cdp, event, handler) {
         cdp.on(event, handler);
         this.disposers.push(() => cdp.off(event, handler));

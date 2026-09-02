@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { EventEmitter } from 'node:events';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -22,7 +22,7 @@ import { ScreencastHub, StreamBudget } from '../plugins/browser/src/screencast-h
 import { boundBytes, boundText, isTextualMime, pickResponseHeaders, sanitizeUrl, UNTRUSTED_NOTE } from '../plugins/browser/src/redaction.js';
 import { MAX_CAPTURE_CSS_AREA, MAX_FULL_PAGE_CSS_PX, MAX_SCREENSHOT_BYTES } from '../plugins/browser/src/capture.js';
 import { CONSOLE_BUFFER_SIZE, MAX_BODY_BYTES } from '../plugins/browser/src/page-diagnostics.js';
-import { ProcessTraceLock, summarizeTraceEvents } from '../plugins/browser/src/performance-probe.js';
+import { ProcessTraceLock, summarizeTraceEvents, TraceRecorder, TraceStateUnknownError } from '../plugins/browser/src/performance-probe.js';
 import { BrowserSession } from '../plugins/browser/src/browser-session.js';
 import { TabManager } from '../plugins/browser/src/tab-manager.js';
 import { UNAVAILABLE_ARTIFACT_PUBLISHER } from '../plugins/browser/src/artifact.js';
@@ -1015,6 +1015,28 @@ describe('browser diagnostics collector', () => {
     await session.close();
   });
 
+  it('leaves nothing bound when a domain refuses to enable', async () => {
+    const { session, page, browser, tabs, id } = await diagnosticSession();
+    page.cdp.emit('Runtime.consoleAPICalled', { type: 'log', args: [{ type: 'string', value: 'first tab' }] });
+    await tick();
+
+    const second = await browser.newPage() as FakePage;
+    // A tab that navigated away mid-attach, or a target already detaching. The collector must not be
+    // left holding handlers on a session whose domains never came up: those handlers keep the session
+    // and its page alive, and every later read answers with a silence nobody can tell from a quiet page.
+    second.cdp.replies.set('Log.enable', new Error('Target closed'));
+    const secondTabId = tabs.registerPrimary(id, second);
+    await expect(session.selectTab(secondTabId, undefined)).rejects.toThrow(/Target closed/);
+    expect(second.cdp.eventNames()).toEqual([]);
+
+    // And the switch did not half-happen: the session is still on the tab it was working from, with its
+    // evidence intact, rather than collecting on neither.
+    page.cdp.emit('Runtime.consoleAPICalled', { type: 'log', args: [{ type: 'string', value: 'still here' }] });
+    await tick();
+    expect((await session.consoleEntries({ limit: 10 })).entries.map((entry) => entry.text)).toEqual(['first tab', 'still here']);
+    await session.close();
+  });
+
   it('leaves no listener and no buffered evidence behind when the session closes', async () => {
     const { session, page } = await diagnosticSession();
     page.cdp.emit('Runtime.consoleAPICalled', { type: 'log', args: [{ type: 'string', value: 'x' }] });
@@ -1236,14 +1258,16 @@ describe('browser performance tracing', () => {
     const tabs = new TabManager(browser, () => 12, logger);
     tabs.registerPrimary(id, page);
     const traceLock = new ProcessTraceLock();
+    let forceClosed = 0;
     const session = await BrowserSession.create({
       id, ownerUserId: 1, conversationId: 'brain-1', createdAt: now, hardExpiresAt: now + 60_000,
       page, tabs, config: () => config(), store, artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
       streamBudget: new StreamBudget(() => 10_000_000), traceLock,
       clock: { now: () => Date.now(), sleep: async () => {} }, logger,
-      releasePage: async () => { await tabs.closeSession(id); }, forceCloseBrowser: async () => {}, onClosed: () => {},
+      releasePage: async () => { await tabs.closeSession(id); },
+      forceCloseBrowser: async () => { forceClosed += 1; }, onClosed: () => {},
     });
-    return { session, page, browser, tabs, traceLock, id };
+    return { session, page, browser, tabs, traceLock, id, forceCloseCalls: () => forceClosed };
   }
 
   /** Chrome answering `Tracing.end` the way it does with transferMode ReturnAsStream: the command
@@ -1277,20 +1301,82 @@ describe('browser performance tracing', () => {
     expect(second.cdp.calls.find((call) => call.method === 'IO.close')?.params).toEqual({ handle: 'stream-second' });
   });
 
-  it('releases the lock even when the completion never comes, so one dead browser cannot wedge the account', async () => {
-    const { session, page, traceLock, id } = await tracingSession();
-    // A browser that is going away answers `Tracing.end` and then says nothing more. Waiting on that
-    // event — or failing on it — would hold the process-wide lock for the rest of the daemon's life.
+  it('hands the lock back as unusable when the completion never comes, and recycles the browser', async () => {
+    const { session, page, traceLock, id, forceCloseCalls } = await tracingSession();
+    // A browser that is going away answers `Tracing.end` and then says nothing more. Nobody waits for
+    // that forever — but nobody may pretend it ended cleanly either: Chrome may still be recording.
     page.cdp.replies.set('Tracing.end', {});
     await session.startTrace();
     expect(traceLock.holder).toBe(id);
 
     await session.close();
-    expect(traceLock.holder).toBeNull();
     expect(session.traceRunning).toBe(false);
+    // Nobody is waiting on it, and nobody may take it: the process is what has to go.
+    expect(traceLock.holder).toBeNull();
+    expect(traceLock.tainted).toMatch(/did not complete/);
+    expect(() => traceLock.acquire('some-other-session')).toThrow(/no longer be traced/);
+    expect(forceCloseCalls()).toBeGreaterThan(0);
     // Nothing was invented to close: no handle was ever named.
     expect(page.cdp.calls.some((call) => call.method === 'IO.close')).toBe(false);
   }, 10_000);
+
+  it('treats a start that timed out as unknown, not as a start that failed', async () => {
+    // Only the timeouts are faked: the collector's own bookkeeping runs on setImmediate and must stay
+    // real, or the session under test never finishes attaching.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { session, page, traceLock, forceCloseCalls } = await tracingSession();
+      let landStart: (() => void) | undefined;
+      page.cdp.replies.set('Tracing.start', () => new Promise((resolve) => { landStart = () => resolve({}); }));
+
+      const started = session.startTrace();
+      const assertion = expect(started).rejects.toThrow(TraceStateUnknownError);
+      await vi.advanceTimersByTimeAsync(6_000);
+      await assertion;
+
+      // The command lands a moment later, exactly as feared: Chrome is now recording with nobody holding
+      // the other end. Releasing the lock would have let the next caller trace on top of it.
+      landStart!();
+      await tick();
+      expect(traceLock.tainted).toMatch(/did not start tracing in time/);
+      // No tab of this account's browser may trace again, whichever session asks.
+      expect(() => traceLock.acquire('some-other-session')).toThrow(/no longer be traced/);
+      // The one thing that makes the state knowable again is a new Chrome, so this session goes with it.
+      expect(forceCloseCalls()).toBeGreaterThan(0);
+      await session.close();
+      expect(session.state).toBe('closed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('closes a completion handle that arrives after everybody stopped waiting for it', async () => {
+    // Straight on the recorder: a session that hits this taints and takes its browser down with it, and
+    // the point here is the handle that arrives while the CDP session is still there to close it on.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const lock = new ProcessTraceLock();
+      const recorder = new TraceRecorder(lock, () => Date.now());
+      const cdp = new FakeCdp();
+      recorder.attach(cdp);
+      await recorder.start('session-late');
+      cdp.replies.set('Tracing.end', {}); // ends, but sends no completion in time
+
+      const stopped = recorder.stop('session-late');
+      const assertion = expect(stopped).rejects.toThrow(TraceStateUnknownError);
+      await vi.advanceTimersByTimeAsync(11_000);
+      await assertion;
+      expect(lock.tainted).toMatch(/did not finish the trace in time/);
+
+      // The late event is the only notice this handle will ever get; unclosed, the browser holds those
+      // bytes for the life of the process.
+      cdp.emit('Tracing.tracingComplete', { stream: 'stream-late' });
+      await tick();
+      expect(cdp.calls.find((call) => call.method === 'IO.close')?.params).toEqual({ handle: 'stream-late' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('browser diagnostics tools', () => {
@@ -1352,22 +1438,25 @@ describe('browser diagnostics tools', () => {
     await session.close();
   });
 
-  it('caps the whole answer, not just each row of it', async () => {
+  it('caps the whole answer in bytes, not just each row of it and not in characters', async () => {
     const { tool, session, page } = await toolStand();
+    // A console full of accented text is two bytes a character, so a character ceiling would let this
+    // reply out at twice the size it claims — and a diagnostic is mostly the page's own words.
     for (let index = 0; index < 120; index += 1) {
-      page.cdp.emit('Runtime.consoleAPICalled', { type: 'error', args: [{ type: 'string', value: `${index} ${'w'.repeat(400)}` }] });
+      page.cdp.emit('Runtime.consoleAPICalled', { type: 'error', args: [{ type: 'string', value: `${index} ${'ř'.repeat(400)}` }] });
     }
     await tick();
     const result = await tool('BrowserConsole').execute('call-1', { sessionId: 'session-tooling-000001', limit: 200 }, undefined);
-    // Every entry was already bounded; a reader's real budget is the reply, and 120 bounded rows still
-    // add up to a page nobody can use.
-    expect(result.content[0].text.length).toBeLessThanOrEqual(16_384);
-    expect(result.content[0].text.endsWith('…[truncated]')).toBe(true);
+    const text = result.content[0].text;
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(16_384);
+    expect(text.length).toBeLessThan(16_384); // proof it was measured in bytes, not characters
+    expect(text.endsWith('…[truncated]')).toBe(true);
+    expect(text).not.toContain('\uFFFD');
     await session.close();
   });
 
   it('gives an explicitly requested body a block of its own, so 64 KiB means 64 KiB', async () => {
-    const { tool, session, page } = await toolStand();
+    const { tools, tool, session, page } = await toolStand();
     const sessionId = 'session-tooling-000001';
     page.cdp.emit('Network.requestWillBeSent', { requestId: 'r1', type: 'XHR', request: { url: 'https://api.example.com/me', method: 'GET' } });
     page.cdp.emit('Network.responseReceived', { requestId: 'r1', response: { status: 200, mimeType: 'text/html' } });
@@ -1386,6 +1475,13 @@ describe('browser diagnostics tools', () => {
     expect(Buffer.byteLength(body.text, 'utf8')).toBeLessThanOrEqual(65_536 + Buffer.byteLength(`${UNTRUSTED_NOTE}\n\n`, 'utf8'));
     // The block is read on its own, so the warning has to be in it rather than in its neighbour.
     expect(body.text.startsWith(UNTRUSTED_NOTE)).toBe(true);
+    // The documented exception, and its outer bound: 16 KiB of metadata plus 64 KiB of body, and only
+    // because a caller asked for a body by name.
+    const total = detail.content.reduce((sum: number, part: any) => sum + Buffer.byteLength(part.text, 'utf8'), 0);
+    expect(total).toBeLessThanOrEqual(16_384 + 65_536 + Buffer.byteLength(`${UNTRUSTED_NOTE}\n\n`, 'utf8'));
+    // The parameter says what asking for it costs, because that is where the model decides.
+    const schema = (tools.find((entry: any) => entry.name === 'BrowserNetwork') as any).parameters.properties.includeBody;
+    expect(JSON.stringify(schema)).toMatch(/private data|sensitive/i);
 
     // Without a body the ordinary reply cap still governs the one block there is.
     const plain = await tool('BrowserNetwork').execute('c', { sessionId, action: 'get', requestId: 'r1' }, undefined);

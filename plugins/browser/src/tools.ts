@@ -2,19 +2,24 @@ import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import type { PluginContext } from 'elowen/plugin-api';
 import { CONSOLE_LEVELS } from './page-diagnostics.js';
-import { boundText, UNTRUSTED_NOTE } from './redaction.js';
+import { boundBytes, UNTRUSTED_NOTE } from './redaction.js';
 import { requireBrowserToolOwner } from './ownership.js';
 import { SessionRegistry } from './session-registry.js';
 import type { AccessibilitySnapshot } from './types.js';
 
-/** One ceiling over every diagnostic answer. Each collector bounds its own entries, but a reader's real
- *  budget is the whole reply, and thirty bounded rows still add up to a page nobody can use. */
-const MAX_RESULT_TEXT = 16_384;
+/** One ceiling over every diagnostic answer, in BYTES. Each collector bounds its own entries, but a
+ *  reader's real budget is the whole reply, and thirty bounded rows still add up to a page nobody can
+ *  use. Bytes rather than characters because a diagnostic is mostly the page's own words: a console full
+ *  of Czech or of emoji is two to four bytes a character, so a character count would quietly admit two to
+ *  four times the payload this number claims to allow. */
+const MAX_RESULT_BYTES = 16_384;
 
-const textResult = (value: unknown) => ({
-  content: [{ type: 'text' as const, text: boundText(typeof value === 'string' ? value : JSON.stringify(value, null, 2), MAX_RESULT_TEXT) }],
-  details: {},
+const boundedText = (value: unknown) => ({
+  type: 'text' as const,
+  text: boundBytes(typeof value === 'string' ? value : JSON.stringify(value, null, 2), MAX_RESULT_BYTES).text,
 });
+
+const textResult = (value: unknown) => ({ content: [boundedText(value)], details: {} });
 
 /** A result carrying the page's own words. The note travels WITH the data, in the same payload, because
  *  that is the only place a reader of the transcript will still see it. */
@@ -232,7 +237,7 @@ export function registerBrowserTools(ctx: PluginContext, registry: SessionRegist
         sessionId: sessionIdSchema,
         action: Type.Optional(Type.Union([Type.Literal('list'), Type.Literal('get'), Type.Literal('clear')])),
         requestId: Type.Optional(Type.String({ maxLength: 128, description: 'Required for action "get"' })),
-        includeBody: Type.Optional(Type.Boolean({ description: 'With action "get": also return the textual response body, up to 64 KiB' })),
+        includeBody: Type.Optional(Type.Boolean({ description: 'With action "get": also return the textual response body, up to 64 KiB. The body is whatever the page was served and may contain the account\'s own private data — personal records, message contents, anything the signed-in user can see. Ask for it only when the body is what you actually need to diagnose, never to browse.' })),
         filter: Type.Optional(Type.Union([Type.Literal('all'), Type.Literal('failed'), Type.Literal('errors'), Type.Literal('slow')])),
         urlContains: Type.Optional(Type.String({ maxLength: 200 })),
         resourceTypes: Type.Optional(Type.Array(Type.String({ maxLength: 32 }), { maxItems: 8 })),
@@ -252,13 +257,18 @@ export function registerBrowserTools(ctx: PluginContext, registry: SessionRegist
           if (!input.requestId) throw new Error('requestId is required for the get action.');
           const detail = await current.session.networkRequest(input.requestId, input.includeBody === true, signal);
           if (!detail.body) return untrustedResult({ sessionId: current.session.id, entry: detail.entry });
-          // The body travels in a block of its OWN. Folded into the metadata JSON it would be measured
-          // against the 16 KiB reply cap and cut to a quarter of the 64 KiB the caller was promised —
-          // a limit that says 64 KiB and delivers 16 is worse than a smaller honest one. Its own note
+          // The body travels in a block of its OWN, and is the ONE documented exception to the 16 KiB
+          // reply ceiling. Folded into the metadata JSON it would be measured against that ceiling and
+          // cut to a quarter of the 64 KiB the caller was promised — a limit that says 64 KiB and
+          // delivers 16 is worse than a smaller honest one. The two blocks together are therefore
+          // bounded at roughly 80 KiB, and only when a caller explicitly asked for a body. Its own note
           // rides with it, because this block is what a later reader sees on its own.
           return {
             content: [
-              { type: 'text' as const, text: boundText(JSON.stringify({ untrusted: UNTRUSTED_NOTE, sessionId: current.session.id, entry: detail.entry, body: { bytes: detail.body.bytes, truncated: detail.body.truncated } }, null, 2), MAX_RESULT_TEXT) },
+              boundedText({
+                untrusted: UNTRUSTED_NOTE, sessionId: current.session.id, entry: detail.entry,
+                body: { bytes: detail.body.bytes, truncated: detail.body.truncated },
+              }),
               { type: 'text' as const, text: `${UNTRUSTED_NOTE}\n\n${detail.body.text}` },
             ],
             details: {},
