@@ -31,20 +31,32 @@ function formatCoarseElapsed(ms) {
   return `${Math.floor(hours / 24)}d`;
 }
 
+/** The Todo panel, as every surface sees it.
+ *
+ *  `text` is the glued form and stays exactly as it always was: a chat platform posting a static message,
+ *  and any core older than structured card items, render that string and nothing else. `label`, `id`,
+ *  `owner` and `blockedBy` repeat the same information as separate fields, so a renderer that can lay the
+ *  row out — the web card, the CLI rail — places the id, the owner chip and the blocked marker itself
+ *  instead of parsing them back out of the text. Private description and metadata stay out of both. */
 export function pushTaskCard(ctx, tasks) {
   ctx.emitCard({
     id: 'todos',
     title: 'Todos',
     pinned: true,
     items: tasks.map((task) => {
+      // A completed blocker no longer blocks anyone, so only the unresolved ones are worth showing.
       const blockers = unresolvedBlockers(task, tasks);
       const blocked = blockers.length ? ` (blocked by ${blockers.map((id) => `#${id}`).join(', ')})` : '';
       const owner = task.owner ? ` — ${task.owner}` : '';
-      const text = task.status === 'in_progress' && task.activeForm ? task.activeForm : task.subject;
+      const label = task.status === 'in_progress' && task.activeForm ? task.activeForm : task.subject;
       return {
-        text: `#${task.id} ${text}${owner}${blocked}`,
+        text: `#${task.id} ${label}${owner}${blocked}`,
         status: task.status,
         ...(task.status === 'in_progress' && task.startedAt != null ? { startedAt: task.startedAt } : {}),
+        id: task.id,
+        label,
+        ...(task.owner ? { owner: task.owner } : {}),
+        ...(blockers.length ? { blockedBy: blockers } : {}),
       };
     }),
   });

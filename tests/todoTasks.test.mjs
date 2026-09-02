@@ -101,6 +101,24 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
   assert.match(h.cards.at(-1).items[1].text, /Luna/);
   assert.doesNotMatch(JSON.stringify(h.cards.at(-1)), /private-token|hidden-value|Deploy only/);
 
+  // The structured fields repeat what `text` glues together, so a renderer can lay the row out itself.
+  // `label` is the activeForm while the task runs, and the plain subject otherwise.
+  assert.deepEqual(h.cards.at(-1).items[0], {
+    text: '#1 Inspecting auth',
+    status: 'in_progress',
+    startedAt: h.cards.at(-1).items[0].startedAt,
+    id: '1',
+    label: 'Inspecting auth',
+  });
+  assert.deepEqual(h.cards.at(-1).items[1], {
+    text: '#2 Ship fix — Luna (blocked by #1)',
+    status: 'pending',
+    id: '2',
+    label: 'Ship fix',
+    owner: 'Luna',
+    blockedBy: ['1'],
+  });
+
   assert.deepEqual(json(await get.execute('6', { taskId: '1' })), {
     task: {
       id: '1', subject: 'Inspect auth', description: 'Check <private-token> handling',
@@ -283,17 +301,17 @@ test('in-progress tasks measure elapsed time from each status entry', async (t) 
 
   await create.execute('1', { tasks: [{ subject: 'Timed work', description: 'measure it', activeForm: 'Timing work' }] });
   assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, 100_000);
-  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Timing work', status: 'in_progress', startedAt: 100_000 });
+  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Timing work', status: 'in_progress', startedAt: 100_000, id: '1', label: 'Timing work' });
   assert.match(h.turnContext(), /status="in_progress"[^>]*elapsed="under 1m"/);
 
   now += 169_000;
   await list.execute('3', {});
-  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Timing work', status: 'in_progress', startedAt: 100_000 });
+  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Timing work', status: 'in_progress', startedAt: 100_000, id: '1', label: 'Timing work' });
   assert.match(h.turnContext(), /status="in_progress"[^>]*elapsed="2m"/);
 
   await update.execute('4', { taskId: '1', status: 'completed' });
   assert.equal(h.rawDb.prepare('SELECT started_at FROM p_todo_tasks WHERE list_key = ? AND id = 1').get('u7#brain-7-a').started_at, null);
-  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Timed work', status: 'completed' });
+  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Timed work', status: 'completed', id: '1', label: 'Timed work' });
 
   now = 500_000;
   await update.execute('5', { taskId: '1', status: 'in_progress' });
@@ -428,7 +446,7 @@ test('a completed task survives the next TaskCreate, on the card and as a usable
   await update.execute('2', { taskId: first, status: 'completed' });
   await create.execute('3', { tasks: [{ subject: 'Task B', description: 'second' }] });
 
-  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Task A', status: 'completed' });
+  assert.deepEqual(h.cards.at(-1).items[0], { text: '#1 Task A', status: 'completed', id: '1', label: 'Task A' });
   assert.equal(h.cards.at(-1).items[1].text, '#2 Task B');
   assert.equal(h.cards.at(-1).items[1].status, 'in_progress');
   assert.equal(typeof h.cards.at(-1).items[1].startedAt, 'number');
@@ -445,7 +463,7 @@ test('completion remains readable and a same-turn batch preserves every usable i
   await create.execute('1', { tasks: [{ subject: 'Task A', description: 'first' }] });
   await update.execute('2', { taskId: '1', status: 'completed' });
 
-  assert.deepEqual(h.cards.at(-1).items, [{ text: '#1 Task A', status: 'completed' }]);
+  assert.deepEqual(h.cards.at(-1).items, [{ text: '#1 Task A', status: 'completed', id: '1', label: 'Task A' }]);
   assert.equal(json(await get.execute('3', { taskId: '1' })).task.status, 'completed');
 
   // A steer enters the already-running model loop directly. It does not build a new turn context, so the
