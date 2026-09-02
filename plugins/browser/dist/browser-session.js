@@ -24,6 +24,7 @@ export class BrowserSession {
     cdp;
     queue = new SerialQueue();
     waiters = new Set();
+    takeoverWaiters = new Set();
     listeners = new Map();
     lease = null;
     leaseTimer = null;
@@ -199,15 +200,26 @@ export class BrowserSession {
             await this.waitForAgent(signal);
             return (await this.snapshot(false, signal)).snapshot;
         }
-        const claimed = await this.claimTakeover();
+        this.assertOpen();
+        this.touch('Waiting for user control');
+        this.emit({ kind: 'control', data: { state: 'agent', reason: 'requested' } });
+        const released = this.waitForTakeoverRelease(signal);
+        void released.catch(() => { });
         try {
-            await this.waitForAgent(signal);
+            await this.updateArtifact();
+            await released;
             return (await this.snapshot(false, signal)).snapshot;
         }
         catch (error) {
+            this.rejectTakeoverWaiters(error);
             await this.queue.run(async () => {
-                if (this.lease?.leaseId === claimed.leaseId)
+                if (this.stateValue === 'user' && this.lease)
                     await this.returnToAgent('aborted');
+                else if (this.stateValue === 'agent') {
+                    this.touch('Takeover request cancelled');
+                    this.emit({ kind: 'control', data: { state: 'agent', reason: 'cancelled' } });
+                    await this.updateArtifact();
+                }
             });
             throw error;
         }
@@ -244,7 +256,9 @@ export class BrowserSession {
             this.persist({ state: 'closing' });
             this.clearLeaseTimer();
             this.clearHardExpiryTimer();
-            this.rejectWaiters(new Error(`Browser session closed: ${reason}`));
+            const closeError = new Error(`Browser session closed: ${reason}`);
+            this.rejectWaiters(closeError);
+            this.rejectTakeoverWaiters(closeError);
             this.emit({ kind: 'closed', data: { reason } });
             try {
                 await this.screencast.close();
@@ -329,6 +343,19 @@ export class BrowserSession {
                 clearTimeout(timer);
         }
     }
+    waitForTakeoverRelease(signal) {
+        return new Promise((resolve, reject) => {
+            const waiter = { resolve, reject, signal };
+            if (signal) {
+                waiter.abort = () => {
+                    this.takeoverWaiters.delete(waiter);
+                    reject(signal.reason ?? new Error('Browser takeover request aborted.'));
+                };
+                signal.addEventListener('abort', waiter.abort, { once: true });
+            }
+            this.takeoverWaiters.add(waiter);
+        });
+    }
     waitForAgent(signal) {
         if (this.stateValue !== 'user')
             return Promise.resolve();
@@ -360,6 +387,22 @@ export class BrowserSession {
         }
         this.waiters.clear();
     }
+    resolveTakeoverWaiters() {
+        for (const waiter of this.takeoverWaiters) {
+            if (waiter.abort && waiter.signal)
+                waiter.signal.removeEventListener('abort', waiter.abort);
+            waiter.resolve();
+        }
+        this.takeoverWaiters.clear();
+    }
+    rejectTakeoverWaiters(error) {
+        for (const waiter of this.takeoverWaiters) {
+            if (waiter.abort && waiter.signal)
+                waiter.signal.removeEventListener('abort', waiter.abort);
+            waiter.reject(error);
+        }
+        this.takeoverWaiters.clear();
+    }
     requireLease(leaseId) {
         this.assertOpen();
         const lease = this.lease;
@@ -377,6 +420,7 @@ export class BrowserSession {
             this.stateValue = 'agent';
         this.persist({ state: this.stateValue });
         this.resolveWaiters();
+        this.resolveTakeoverWaiters();
         this.emit({ kind: 'control', data: { state: 'agent', reason } });
         await this.updateArtifact();
     }

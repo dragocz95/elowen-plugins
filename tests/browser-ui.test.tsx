@@ -42,6 +42,10 @@ const streamBody = [
   `event: cursor\ndata: ${JSON.stringify({ x: 640, y: 400, moving: false })}\n\n`,
   `event: action\ndata: ${JSON.stringify({ action: 'click', target: 'Continue', x: 640, y: 400 })}\n\n`,
 ].join('');
+const requestedStreamBody = [
+  `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null })}\n\n`,
+  `event: control\ndata: ${JSON.stringify({ state: 'agent', reason: 'requested' })}\n\n`,
+].join('');
 
 describe('browser plugin UI', () => {
   it('registers the chat artifact, settings and account surfaces on API 13', () => {
@@ -66,6 +70,14 @@ describe('browser plugin UI', () => {
     fireEvent.click(screen.getAllByRole('button', { name: strings.enlarge }).at(-1)!);
     expect(await screen.findByRole('heading', { name: 'Example' })).toBeInTheDocument();
     expect(document.querySelectorAll('.browser-artifact__cursor').length).toBeGreaterThan(0);
+  });
+
+  it('keeps an agent-requested handoff claimable by the user', async () => {
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(requestedStreamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    mountArtifact();
+    expect(await screen.findByText(strings.waitingForUser)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)).toBeEnabled();
+    expect(screen.queryByText(strings.controlledElsewhere)).toBeNull();
   });
 
   it('keeps takeover tokens local, sends user input and releases control', async () => {

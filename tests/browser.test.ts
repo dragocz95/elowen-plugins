@@ -384,8 +384,8 @@ describe('browser takeover state machine', () => {
     await session.close();
   });
 
-  it('serializes agent input behind takeover and abort returns control', async () => {
-    const { session, page } = await createSession();
+  it('serializes agent input behind takeover and lets the user claim an agent-requested handoff', async () => {
+    const { session, page, events } = await createSession();
     const lease = await session.claimTakeover();
     const pressing = session.pressKey('Enter', undefined);
     await tick();
@@ -395,12 +395,29 @@ describe('browser takeover state machine', () => {
     expect(page.cdp.calls.filter((call) => call.method === 'Input.dispatchKeyEvent')).toHaveLength(2);
 
     const controller = new AbortController();
-    const takeover = session.requestTakeoverForAgent(controller.signal);
+    let settled = false;
+    const takeover = session.requestTakeoverForAgent(controller.signal).finally(() => { settled = true; });
     await tick();
-    controller.abort(new Error('tool aborted'));
-    await expect(takeover).rejects.toThrow(/tool aborted/);
     expect(session.state).toBe('agent');
     expect(session.currentLease).toBeNull();
+    expect(settled).toBe(false);
+    expect(events.at(-1)).toMatchObject({ kind: 'control', data: { state: 'agent', reason: 'requested' } });
+    const userLease = await session.claimTakeover();
+    await tick();
+    expect(settled).toBe(false);
+    await session.releaseTakeover(userLease.leaseId);
+    await takeover;
+    expect(settled).toBe(true);
+    expect(session.state).toBe('agent');
+
+    const abortedController = new AbortController();
+    const aborted = session.requestTakeoverForAgent(abortedController.signal);
+    await tick();
+    abortedController.abort(new Error('tool aborted'));
+    await expect(aborted).rejects.toThrow(/tool aborted/);
+    expect(session.state).toBe('agent');
+    expect(session.currentLease).toBeNull();
+    expect(events.at(-1)).toMatchObject({ kind: 'control', data: { state: 'agent', reason: 'cancelled' } });
     await session.close();
   });
 });

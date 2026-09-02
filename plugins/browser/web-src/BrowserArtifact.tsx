@@ -45,10 +45,11 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
   const title = data?.title || strings.sessionTitle || 'Browser session';
   const url = data?.url || '';
   const state = stream.closed ? 'closed' : lease || stream.control.state === 'user' || data?.state === 'user' ? 'user' : data?.state ?? 'agent';
+  const takeoverRequested = stream.control.state === 'agent' && stream.control.reason === 'requested';
   const frame = stream.frame;
   const action = stream.action
     ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` · ${stream.action.target}` : ''}`
-    : data?.lastAction;
+    : takeoverRequested ? strings.waitingForUser || 'Waiting for user input' : data?.lastAction;
 
   useEffect(() => () => { if (pointerTimer.current) clearTimeout(pointerTimer.current); }, []);
   useEffect(() => {
