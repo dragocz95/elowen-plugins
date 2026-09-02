@@ -339,7 +339,6 @@ describe('browser plugin UI', () => {
     // whatever was focused when the overlay opened; under jsdom a click does not focus the button it hits,
     // so that is the body here — what matters is that it is not the card, and that it has already run.)
     expect(screen.queryByRole('dialog')).toBeNull();
-    console.log('DEBUG observed:', JSON.stringify(observed.map((o) => ({ up: o.dialogStillUp, activeIsCard: o.activeAtCall === card }))));
     expect(observed).toHaveLength(1);
     expect(observed[0]!.dialogStillUp).toBe(false);
     expect(observed[0]!.activeAtCall).not.toBe(card);
