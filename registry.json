@@ -3,7 +3,7 @@
   "plugins": [
     {
       "name": "browser",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "requiresCore": "0.28.25",
       "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, bounded live streaming, exclusive user takeover and a deny-by-default enforcing network boundary.",
       "category": "tools",

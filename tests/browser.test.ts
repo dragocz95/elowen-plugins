@@ -115,10 +115,10 @@ class FakeBrowser extends EventEmitter implements BrowserLike {
 const config = (patch: Partial<BrowserConfig> = {}): BrowserConfig => ({ ...resolveConfig({ browserCloseGraceSeconds: 0 }), ...patch });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.1.0, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.1.1, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as { version: string; userGrantable: boolean; entry: string; provides: { tools: string[]; apiRoutes: string[] } };
-    expect(manifest.version).toBe('0.1.0');
+    expect(manifest.version).toBe('0.1.1');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(11);
     expect(manifest.provides.apiRoutes).toHaveLength(11);
