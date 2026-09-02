@@ -81,7 +81,7 @@ export class ScreencastHub {
   async replaceCdp(cdp: CDPSessionLike): Promise<void> {
     const wasStarted = this.started;
     if (wasStarted) await this.stop();
-    this.cdp.off?.('Page.screencastFrame', this.onFrame);
+    this.cdp.off('Page.screencastFrame', this.onFrame);
     this.cdp = cdp;
     this.latestFrame = null;
     cdp.on('Page.screencastFrame', this.onFrame);
@@ -98,7 +98,7 @@ export class ScreencastHub {
     }
     this.subscribers.clear();
     await this.stop();
-    this.cdp.off?.('Page.screencastFrame', this.onFrame);
+    this.cdp.off('Page.screencastFrame', this.onFrame);
   }
 
   private async start(): Promise<void> {

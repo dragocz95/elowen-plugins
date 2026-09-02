@@ -1,9 +1,21 @@
 import { randomBytes } from 'node:crypto';
-import { captureAccessibilitySnapshot, captureModelScreenshot } from './accessibility.js';
+import { captureAccessibilitySnapshot } from './accessibility.js';
 import { artifactData, serializeArtifactRef } from './artifact.js';
+import {
+  captureElement, captureFullPage, captureModelScreenshot, captureViewport,
+  type CapturedImage, type ImageFormat,
+} from './capture.js';
 import type { BrowserConfig } from './config.js';
 import { InputController, InputRateLimiter, type UserInputEvent } from './input-controller.js';
 import { NavigationPolicy } from './navigation-policy.js';
+import {
+  PageDiagnostics, type ConsoleEntry, type ConsoleQuery, type NetworkEntry, type NetworkQuery,
+} from './page-diagnostics.js';
+import {
+  capturePerformanceMetrics, ProcessTraceLock, TraceRecorder,
+  type PerformanceMetrics, type TraceSummary,
+} from './performance-probe.js';
+import { boundText } from './redaction.js';
 import { ScreencastHub, StreamBudget } from './screencast-hub.js';
 import { BrowserStore } from './store.js';
 import type { TabManager } from './tab-manager.js';
@@ -11,6 +23,28 @@ import type {
   AccessibilitySnapshot, BrowserActionEvent, BrowserArtifactPublisher, BrowserArtifactRef, BrowserClock,
   BrowserLogger, BrowserSessionState, BrowserTabInfo, CDPSessionLike, PageLike, ScreencastFrame,
 } from './types.js';
+
+/** A JavaScript expression's result, as data. A page throwing is a legitimate answer to "what does this
+ *  expression evaluate to" — the tool failed only if it could not ask. */
+export interface EvaluateResult {
+  value?: string;
+  error?: { text: string; className?: string; line?: number; column?: number };
+  truncated: boolean;
+  durationMs: number;
+}
+
+/** The evaluate tool's own budget for a page's answer. Larger than a console argument because the caller
+ *  chose the expression and can aim it; small enough that a `document.body.innerHTML` on a heavy page
+ *  cannot spend a whole context window. */
+const MAX_EVALUATE_RESULT = 8192;
+
+/** A returned value as text. `returnByValue` already refused anything with a cycle, but a value the page
+ *  built to break JSON (a getter that throws, a BigInt) must not turn a diagnostic into an exception the
+ *  caller cannot tell apart from the page's own. */
+function safeJson(value: unknown): string {
+  try { return JSON.stringify(value, null, 2) ?? String(value); }
+  catch { return String(value); }
+}
 
 class SerialQueue {
   private tail: Promise<void> = Promise.resolve();
@@ -48,6 +82,9 @@ export interface BrowserSessionDeps {
   artifacts: BrowserArtifactPublisher;
   artifactRef?: BrowserArtifactRef | null;
   streamBudget: StreamBudget;
+  /** The tracing lock of the Chrome process this session's tab lives in. Chrome records one trace per
+   *  process, so the lock is the process owner's to hand out — a session cannot own what it shares. */
+  traceLock: ProcessTraceLock;
   clock: BrowserClock;
   logger: BrowserLogger;
   releasePage(): Promise<void>;
@@ -82,9 +119,15 @@ export class BrowserSession {
   private artifactRef: BrowserArtifactRef | null;
   private screencast!: ScreencastHub;
   private input!: InputController;
+  private readonly diagnostics: PageDiagnostics;
+  private readonly tracer: TraceRecorder;
+  /** Undo for the listeners this session put on the CURRENT tab's CDP session, in registration order. */
+  private disposeCdpListeners: () => void = () => {};
   private closedPromise: Promise<void> | null = null;
 
   private constructor(private readonly deps: BrowserSessionDeps) {
+    this.diagnostics = new PageDiagnostics(() => deps.clock.now());
+    this.tracer = new TraceRecorder(deps.traceLock, () => deps.clock.now());
     this.id = deps.id;
     this.ownerUserId = deps.ownerUserId;
     this.conversationId = deps.conversationId;
@@ -127,7 +170,7 @@ export class BrowserSession {
   async snapshot(includeScreenshot = false, signal?: AbortSignal): Promise<{ snapshot: AccessibilitySnapshot; screenshot?: string }> {
     return this.runAgentOperation(signal, async () => {
       const snapshot = await this.captureSnapshot();
-      const screenshot = includeScreenshot ? await captureModelScreenshot(this.page) : undefined;
+      const screenshot = includeScreenshot ? await captureModelScreenshot(this.cdp, this.deps.config().jpegQuality) : undefined;
       return screenshot ? { snapshot, screenshot } : { snapshot };
     });
   }
@@ -188,6 +231,151 @@ export class BrowserSession {
       if (this.deps.clock.now() >= deadline) throw new Error(`Timed out waiting for ${JSON.stringify(text)}.`);
       await this.deps.clock.sleep(250, signal);
     }
+  }
+
+  /** Every diagnostic below runs through `runAgentOperation`, exactly like a click: it waits out a user
+   *  takeover, queues behind other agent work on this session, refuses a closed one, and inherits the
+   *  45 second safety deadline. Reading the page while its owner is driving it would both report a state
+   *  the agent did not produce and contend for the CDP session the user's input is travelling on. */
+  async screenshot(
+    area: 'viewport' | 'fullPage' | 'element',
+    format: ImageFormat,
+    ref: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<CapturedImage> {
+    return this.runAgentOperation(signal, async () => {
+      const quality = this.deps.config().jpegQuality;
+      if (area === 'viewport') return captureViewport(this.cdp, format, quality);
+      if (area === 'fullPage') return captureFullPage(this.cdp, format, quality);
+      if (!ref) throw new Error('An element ref is required to capture an element.');
+      const snapshot = await this.ensureSnapshot();
+      const element = snapshot.elements.get(ref);
+      if (!element) throw new Error(`Accessibility element ${ref} was not found in the latest snapshot.`);
+      return captureElement(this.cdp, element, format, quality);
+    });
+  }
+
+  /** Run an expression in the page's MAIN world — the same world the browser's own console types into.
+   *
+   *  An isolated world would be the safer-sounding choice and the useless one: it shares the DOM but not
+   *  the page's globals, so every question worth asking a live application ("what is in the store", "why
+   *  is this handler not bound") comes back undefined. The expression can therefore read and change the
+   *  current origin, which is a deliberate product decision — it is the capability, not a side effect.
+   *
+   *  What stays bounded is what comes BACK: a serialized value, capped, with the page's own exception
+   *  returned as data rather than raised as a tool failure. No object handles are returned, so nothing
+   *  here hands out a reference into the page for a later call to dereference. */
+  async evaluate(expression: string, timeoutMs: number, awaitPromise: boolean, signal?: AbortSignal): Promise<EvaluateResult> {
+    return this.runAgentOperation(signal, async () => {
+      const startedAt = this.deps.clock.now();
+      const response = await this.cdp.send<{
+        result?: { type?: string; subtype?: string; value?: unknown; description?: string; unserializableValue?: string };
+        exceptionDetails?: { text?: string; lineNumber?: number; columnNumber?: number; exception?: { className?: string; description?: string } };
+      }>('Runtime.evaluate', {
+        expression,
+        returnByValue: true,
+        awaitPromise,
+        userGesture: false,
+        timeout: timeoutMs,
+        // The page owns this world; a throw here is the page's answer, and Chrome reports it in
+        // `exceptionDetails` rather than by failing the command.
+        silent: false,
+      });
+      const durationMs = Math.max(0, this.deps.clock.now() - startedAt);
+      if (response.exceptionDetails) {
+        const details = response.exceptionDetails;
+        return {
+          error: {
+            text: boundText(details.exception?.description ?? details.text ?? 'Uncaught exception', 2000),
+            ...(details.exception?.className ? { className: boundText(details.exception.className, 64) } : {}),
+            ...(typeof details.lineNumber === 'number' ? { line: details.lineNumber + 1 } : {}),
+            ...(typeof details.columnNumber === 'number' ? { column: details.columnNumber + 1 } : {}),
+          },
+          truncated: false,
+          durationMs,
+        };
+      }
+      const result = response.result ?? {};
+      const raw = result.unserializableValue
+        ?? (result.value === undefined
+          // `returnByValue` cannot serialize a DOM node or a function; Chrome sends a description
+          // instead, which is what a console would print. The object id it also sends is never read.
+          ? (result.subtype === 'null' ? 'null' : result.description ?? String(result.type ?? 'undefined'))
+          : typeof result.value === 'string' ? result.value : safeJson(result.value));
+      return {
+        value: boundText(raw, MAX_EVALUATE_RESULT),
+        truncated: raw.length > MAX_EVALUATE_RESULT,
+        durationMs,
+      };
+    });
+  }
+
+  async consoleEntries(query: ConsoleQuery, signal?: AbortSignal): Promise<{ entries: ConsoleEntry[]; dropped: number; buffered: number }> {
+    return this.runAgentOperation(signal, async () => this.diagnostics.consoleEntries(query));
+  }
+
+  async clearConsole(signal?: AbortSignal): Promise<void> {
+    return this.runAgentOperation(signal, async () => { this.diagnostics.clearConsole(); });
+  }
+
+  async networkEntries(query: NetworkQuery, signal?: AbortSignal) {
+    return this.runAgentOperation(signal, async () => this.diagnostics.networkEntries(query));
+  }
+
+  async clearNetwork(signal?: AbortSignal): Promise<void> {
+    return this.runAgentOperation(signal, async () => { this.diagnostics.clearNetwork(); });
+  }
+
+  /** One request in full, and its body only when the caller asked for one. */
+  async networkRequest(requestId: string, includeBody: boolean, signal?: AbortSignal): Promise<{
+    entry: NetworkEntry; body?: { text: string; truncated: boolean; bytes: number };
+  }> {
+    return this.runAgentOperation(signal, async () => {
+      const entry = this.diagnostics.request(requestId);
+      if (!entry) throw new Error('That request is not in this session\'s recent network buffer.');
+      if (!includeBody) return { entry };
+      const body = await this.diagnostics.responseBody(requestId, entry.mimeType);
+      return { entry, body: { text: body.body, truncated: body.truncated, bytes: body.bytes } };
+    });
+  }
+
+  async performanceMetrics(signal?: AbortSignal): Promise<PerformanceMetrics> {
+    return this.runAgentOperation(signal, () => capturePerformanceMetrics(this.cdp));
+  }
+
+  async startTrace(signal?: AbortSignal): Promise<{ startedAt: number }> {
+    return this.runAgentOperation(signal, () => this.tracer.start(this.id));
+  }
+
+  async stopTrace(signal?: AbortSignal): Promise<TraceSummary> {
+    return this.runAgentOperation(signal, () => this.tracer.stop(this.id));
+  }
+
+  get traceRunning(): boolean { return this.tracer.running; }
+
+  /** Everything a first look needs, gathered once: what the page IS, what it complained about, what it
+   *  failed to load, and how heavy it is. Composed from the same collectors the individual tools read, so
+   *  the audit can never disagree with the tool a reader checks it against. */
+  async audit(includeScreenshot: boolean, signal?: AbortSignal): Promise<{
+    title: string; url: string;
+    console: { entries: ConsoleEntry[]; dropped: number; buffered: number };
+    network: ReturnType<PageDiagnostics['networkEntries']>;
+    metrics: PerformanceMetrics;
+    image?: CapturedImage;
+  }> {
+    return this.runAgentOperation(signal, async () => {
+      const snapshot = await this.ensureSnapshot();
+      return {
+        title: snapshot.title,
+        url: snapshot.url,
+        console: this.diagnostics.consoleEntries({ levels: ['error', 'warning'], limit: 10 }),
+        network: this.diagnostics.networkEntries({ filter: 'errors', limit: 10 }),
+        metrics: await capturePerformanceMetrics(this.cdp),
+        ...(includeScreenshot
+          ? { image: await captureViewport(this.cdp, 'jpeg', this.deps.config().jpegQuality) }
+          : {}),
+      };
+    });
   }
 
   async tabs(): Promise<BrowserTabInfo[]> {
@@ -322,6 +510,13 @@ export class BrowserSession {
       this.rejectTakeoverWaiters(closeError);
       this.emit({ kind: 'closed', data: { reason } });
       try {
+        // Order matters: end the trace while the CDP session can still carry the command, then drop
+        // every listener, then detach. A trace left running would hold the account's process-wide lock
+        // with no session left to stop it.
+        await this.tracer.abandon();
+        this.tracer.detach();
+        this.diagnostics.close();
+        this.disposeCdpListeners();
         await this.screencast.close();
         this.listeners.clear();
         await this.cdp.detach?.().catch(() => {});
@@ -341,11 +536,15 @@ export class BrowserSession {
 
   private async attachPage(page: PageLike): Promise<void> {
     const nextCdp = await page.createCDPSession();
-    nextCdp.on('Page.javascriptDialogOpening', (raw) => {
+    const onDialog = (raw: unknown): void => {
       const type = (raw as { type?: unknown }).type;
       // Navigation requested by the agent must pass beforeunload; no browser tool can answer other dialogs.
       void nextCdp.send('Page.handleJavaScriptDialog', { accept: type === 'beforeunload' }).catch(() => {});
-    });
+    };
+    nextCdp.on('Page.javascriptDialogOpening', onDialog);
+    // Held so the switch below, and the close above, can take it back off. A handler kept on a CDP
+    // session the session no longer uses is the one reference that stops the old tab being collected.
+    const disposeDialog = () => nextCdp.off('Page.javascriptDialogOpening', onDialog);
     await Promise.all([
       nextCdp.send('Accessibility.enable'),
       nextCdp.send('DOM.enable'),
@@ -353,8 +552,18 @@ export class BrowserSession {
       nextCdp.send('Browser.setDownloadBehavior', { behavior: 'deny' }),
     ]);
     if (this.cdp) {
+      // A trace records the browser, but it was started from the tab that is going away and stopped
+      // through its session. Ending it here costs a measurement nobody can collect any more; leaving it
+      // running would hold the process-wide lock against every other tab until the session closes.
+      await this.tracer.abandon();
       await this.screencast.replaceCdp(nextCdp);
       this.input.replaceCdp(nextCdp);
+      // The collector unbinds from the old session and rebinds to the new one BEFORE the old is
+      // detached: unsubscribing from a detached session is a silent no-op in some CDP transports, and
+      // the listeners would survive as the only thing still holding the old session alive.
+      await this.diagnostics.attach(nextCdp);
+      this.tracer.attach(nextCdp);
+      this.disposeCdpListeners();
       await this.cdp.detach?.().catch(() => {});
     } else {
       this.screencast = new ScreencastHub(nextCdp, this.deps.config, this.deps.streamBudget, this.deps.logger);
@@ -364,9 +573,12 @@ export class BrowserSession {
         (event) => this.emit(event),
         new InputRateLimiter(() => this.deps.config().maxInputEventsPerSecond, () => this.deps.clock.now()),
       );
+      await this.diagnostics.attach(nextCdp);
+      this.tracer.attach(nextCdp);
     }
     this.page = page;
     this.cdp = nextCdp;
+    this.disposeCdpListeners = disposeDialog;
     this.snapshotValue = null;
   }
 

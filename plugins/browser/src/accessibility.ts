@@ -107,9 +107,3 @@ export async function elementCenter(cdp: CDPSessionLike, element: AxElementRef):
   const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
   return { x: xs.reduce((sum, value) => sum + value, 0) / 4, y: ys.reduce((sum, value) => sum + value, 0) / 4 };
 }
-
-export async function captureModelScreenshot(page: PageLike): Promise<string> {
-  if (!page.screenshot) throw new Error('Screenshots are not supported by this browser runtime.');
-  const value = await page.screenshot({ type: 'jpeg', quality: 70, encoding: 'base64', captureBeyondViewport: false });
-  return typeof value === 'string' ? value : Buffer.from(value).toString('base64');
-}

@@ -64,6 +64,7 @@ export class SessionRegistry {
                     store: this.deps.store,
                     artifacts: this.deps.artifacts,
                     streamBudget: this.streamBudget,
+                    traceLock: opened.traceLock,
                     clock: this.deps.clock,
                     logger: this.deps.logger,
                     releasePage: () => this.deps.pool.releasePage(input.ownerUserId, id),

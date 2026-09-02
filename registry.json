@@ -3,14 +3,14 @@
   "plugins": [
     {
       "name": "browser",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "requiresCore": "0.28.26",
       "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, bounded live streaming, exclusive user takeover and a deny-by-default enforcing network boundary.",
       "category": "tools",
       "author": "Elowen",
       "apiVersion": "1",
       "provides": {
-        "tools": 11,
+        "tools": 17,
         "apiRoutes": 11
       }
     },

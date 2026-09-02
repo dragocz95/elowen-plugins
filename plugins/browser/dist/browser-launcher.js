@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { accessSync, chmodSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
+import { ProcessTraceLock } from './performance-probe.js';
 import { TabManager } from './tab-manager.js';
 const proxyAuthSetups = new WeakMap();
 export async function installProxyAuthentication(page, proxy) {
@@ -241,7 +242,7 @@ export class BrowserPool {
             await page.goto('about:blank', { waitUntil: 'load', timeout: 15_000 });
             managed.tabs.registerPrimary(sessionId, page);
             managed.sessionIds.add(sessionId);
-            return { page, tabs: managed.tabs };
+            return { page, tabs: managed.tabs, traceLock: managed.traceLock };
         }
         catch (error) {
             if (managed.sessionIds.size === 0)
@@ -414,7 +415,10 @@ export class BrowserPool {
             await Promise.allSettled([browser.close(), proxy.close()]);
             throw new Error('The browser profile opened more Chrome targets than the configured account limit.');
         }
-        const managed = { userId, browser, proxy, tabs, profilePath, executablePath, sessionIds: new Set() };
+        const managed = {
+            userId, browser, proxy, tabs, profilePath, executablePath,
+            sessionIds: new Set(), traceLock: new ProcessTraceLock(),
+        };
         this.browsers.set(userId, managed);
         try {
             this.recordProcess(managed);

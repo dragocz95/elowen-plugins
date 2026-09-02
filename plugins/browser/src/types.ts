@@ -30,7 +30,11 @@ export interface BrowserArtifactPublisher {
 export interface CDPSessionLike {
   send<T = Record<string, unknown>>(method: string, params?: Record<string, unknown>): Promise<T>;
   on(event: string, listener: (payload: unknown) => void): void;
-  off?(event: string, listener: (payload: unknown) => void): void;
+  /** Required, not optional: the diagnostics collector subscribes to five CDP domains per tab and has to
+   *  prove it unsubscribed from all of them on a tab switch. An optional `off` turns that proof into a
+   *  silent no-op — the listeners stay, holding the previous tab's session alive. Puppeteer's CDPSession
+   *  is an EventEmitter, so every real implementation and every test double already has it. */
+  off(event: string, listener: (payload: unknown) => void): void;
   detach?(): Promise<void>;
 }
 
@@ -51,7 +55,6 @@ export interface PageLike {
   createCDPSession(): Promise<CDPSessionLike>;
   setViewport?(viewport: { width: number; height: number }): Promise<void>;
   authenticate?(credentials: { username: string; password: string }): Promise<void>;
-  screenshot?(options: Record<string, unknown>): Promise<string | Uint8Array>;
   target?(): BrowserTargetLike;
 }
 

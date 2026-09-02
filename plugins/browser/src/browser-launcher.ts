@@ -3,6 +3,7 @@ import { accessSync, chmodSync, constants, existsSync, lstatSync, mkdirSync, rea
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { BrowserConfig } from './config.js';
 import { BrowserStore } from './store.js';
+import { ProcessTraceLock } from './performance-probe.js';
 import { TabManager } from './tab-manager.js';
 import type {
   BrowserLike, BrowserLogger, BrowserProcessFactory, BrowserProxyFactory, ManagedProcessRecord,
@@ -166,11 +167,18 @@ interface UserBrowser {
   profilePath: string;
   executablePath: string;
   sessionIds: Set<string>;
+  /** Chrome records ONE trace per browser process, and this pool owns that process — so the mutual
+   *  exclusion lives here, beside the thing it protects, rather than once per tab that shares it. It is
+   *  created with the browser and forgotten with it, which is also what makes a trace left behind by a
+   *  crashed session harmless: the process it belonged to is gone, and so is its lock. */
+  traceLock: ProcessTraceLock;
 }
 
 export interface OpenedBrowserPage {
   page: PageLike;
   tabs: TabManager;
+  /** The tracing lock of the Chrome process this page lives in. */
+  traceLock: ProcessTraceLock;
 }
 
 export class BrowserPool {
@@ -259,7 +267,7 @@ export class BrowserPool {
       await page.goto('about:blank', { waitUntil: 'load', timeout: 15_000 });
       managed.tabs.registerPrimary(sessionId, page);
       managed.sessionIds.add(sessionId);
-      return { page, tabs: managed.tabs };
+      return { page, tabs: managed.tabs, traceLock: managed.traceLock };
     } catch (error) {
       if (managed.sessionIds.size === 0) await this.closeUser(userId);
       throw error;
@@ -405,7 +413,10 @@ export class BrowserPool {
       await Promise.allSettled([browser.close(), proxy.close()]);
       throw new Error('The browser profile opened more Chrome targets than the configured account limit.');
     }
-    const managed: UserBrowser = { userId, browser, proxy, tabs, profilePath, executablePath, sessionIds: new Set() };
+    const managed: UserBrowser = {
+      userId, browser, proxy, tabs, profilePath, executablePath,
+      sessionIds: new Set(), traceLock: new ProcessTraceLock(),
+    };
     this.browsers.set(userId, managed);
     try { this.recordProcess(managed); }
     catch (error) {
