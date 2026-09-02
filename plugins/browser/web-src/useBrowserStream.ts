@@ -77,6 +77,12 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
         }));
         return;
       }
+      if (frame.event === 'cursor' && data.cleared === true) {
+        // The page the pointer was on is gone (a navigation, another tab): drawing the old point over a
+        // new document would put the agent's arrow somewhere it has never been.
+        setState((value) => ({ ...value, cursor: null }));
+        return;
+      }
       if (frame.event === 'cursor' && typeof data.x === 'number' && typeof data.y === 'number') {
         setState((value) => ({ ...value, cursor: { x: data.x as number, y: data.y as number, moving: data.moving === true } }));
         return;

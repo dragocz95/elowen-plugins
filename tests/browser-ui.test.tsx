@@ -240,6 +240,35 @@ describe('browser plugin UI', () => {
     expect(cursor.style.top).toBe('75%');
   });
 
+  it('withdraws the agent pointer while anyone holds the session, not just this window', async () => {
+    // `control: user` with no lease of our own is the OTHER window driving. The streamed cursor still
+    // reports where the agent last pointed, and drawing it beside that person's pointer is the same
+    // two-pointer bug as a local takeover.
+    const foreignTakeover = [
+      `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, cursor: { x: 640, y: 400 } })}\n\n`,
+      `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
+      `event: control\ndata: ${JSON.stringify({ state: 'user' })}\n\n`,
+    ].join('');
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(foreignTakeover, { headers: { 'content-type': 'text/event-stream' } })));
+    mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: strings.controlledElsewhere }).length).toBeGreaterThan(0));
+    expect(document.querySelector('.browser-artifact__cursor')).toBeNull();
+  });
+
+  it('drops the agent pointer when the page it was on goes away', async () => {
+    const navigated = [
+      `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, cursor: { x: 640, y: 400 } })}\n\n`,
+      `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
+      `event: cursor\ndata: ${JSON.stringify({ cleared: true })}\n\n`,
+    ].join('');
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(navigated, { headers: { 'content-type': 'text/event-stream' } })));
+    mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    await waitFor(() => expect(document.querySelector('img[src^="data:image/jpeg"]')).not.toBeNull());
+    expect(document.querySelector('.browser-artifact__cursor')).toBeNull();
+  });
+
   it('shows account profile state and runtime capacity without exposing page content', async () => {
     use(
       http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 1 })),

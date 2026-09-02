@@ -64,6 +64,7 @@
 }
 .browser-artifact__canvas[data-interactive=true] {
   cursor: default;
+  touch-action: none;
   outline-color: color-mix(in srgb, var(--color-primary, #ff5236) 55%, transparent);
 }
 .browser-artifact__canvas:focus-visible {

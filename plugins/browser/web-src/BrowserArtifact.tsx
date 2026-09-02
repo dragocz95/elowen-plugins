@@ -176,6 +176,14 @@ export function BrowserArtifact({ artifact, narration }: BrowserArtifactProps) {
   useEffect(() => {
     if (stream.control.state === 'agent') setLease(null);
   }, [stream.control.state]);
+  useEffect(() => {
+    // A pointer move is batched for 50ms. Releasing (or losing) control inside that window would otherwise
+    // fire it afterwards against a lease that no longer exists — a rejected request and a toast for a
+    // gesture the user already finished.
+    if (lease) return;
+    if (pointerTimer.current) { clearTimeout(pointerTimer.current); pointerTimer.current = null; }
+    pendingMove.current = null;
+  }, [lease]);
 
   const status = useMemo(() => {
     if (stream.closed || state === 'closed') return { tone: 'muted' as const, label: strings.closed || 'Closed' };
@@ -280,9 +288,10 @@ export function BrowserArtifact({ artifact, narration }: BrowserArtifactProps) {
    *  the expanded canvas only — the agent's pointer. The thumbnail leaves the pointer out: at a third of
    *  the width it is a 28px arrow over a 300px page, which reads as damage rather than as feedback.
    *
-   *  The agent's pointer is also withdrawn the moment YOU take control. The stream only reports where the
-   *  AGENT is pointing, so during a takeover it is a stale arrow sitting wherever the agent left it —
-   *  next to your own pointer, which is now the one that matters. One session, one pointer. */
+   *  The agent's pointer is withdrawn whenever the session is under USER control — this window's takeover
+   *  or another one's. The stream only reports where the AGENT is pointing, so while a person is driving
+   *  it is a stale arrow sitting wherever the agent left it, beside the pointer that now matters. One
+   *  session, one pointer, whoever is holding it. */
   const canvas = (interactive: boolean) => (
     <div
       className="browser-artifact__canvas"
@@ -305,7 +314,7 @@ export function BrowserArtifact({ artifact, narration }: BrowserArtifactProps) {
           <span>{stream.error || strings.waitingFrame || 'Waiting for the browser image…'}</span>
         </div>
       )}
-      {interactive && !lease && stream.cursor && frame ? (
+      {interactive && state !== 'user' && stream.cursor && frame ? (
         <span
           className={`browser-artifact__cursor ${stream.cursor.clicking ? 'is-clicking' : ''}`}
           style={{ left: `${(stream.cursor.x / frame.width) * 100}%`, top: `${(stream.cursor.y / frame.height) * 100}%` }}

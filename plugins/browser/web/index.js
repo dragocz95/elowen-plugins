@@ -417,6 +417,10 @@ function useBrowserStream(path) {
         }));
         return;
       }
+      if (frame.event === "cursor" && data.cleared === true) {
+        setState((value) => ({ ...value, cursor: null }));
+        return;
+      }
       if (frame.event === "cursor" && typeof data.x === "number" && typeof data.y === "number") {
         setState((value) => ({ ...value, cursor: { x: data.x, y: data.y, moving: data.moving === true } }));
         return;
@@ -642,6 +646,14 @@ function BrowserArtifact({ artifact, narration }) {
   (0, import_react5.useEffect)(() => {
     if (stream.control.state === "agent") setLease(null);
   }, [stream.control.state]);
+  (0, import_react5.useEffect)(() => {
+    if (lease) return;
+    if (pointerTimer.current) {
+      clearTimeout(pointerTimer.current);
+      pointerTimer.current = null;
+    }
+    pendingMove.current = null;
+  }, [lease]);
   const status = (0, import_react5.useMemo)(() => {
     if (stream.closed || state === "closed") return { tone: "muted", label: strings.closed || "Closed" };
     if (stream.error) return { tone: "danger", label: strings.disconnected || "Disconnected" };
@@ -774,7 +786,7 @@ function BrowserArtifact({ artifact, narration }) {
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Spinner, { size: "lg" }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: stream.error || strings.waitingFrame || "Waiting for the browser image\u2026" })
         ] }),
-        interactive && !lease && stream.cursor && frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        interactive && state !== "user" && stream.cursor && frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           "span",
           {
             className: `browser-artifact__cursor ${stream.cursor.clicking ? "is-clicking" : ""}`,

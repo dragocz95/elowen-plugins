@@ -91,6 +91,7 @@ export class BrowserSession {
             const policy = new NavigationPolicy(this.deps.config().privateNetworkAllowlist);
             const validated = policy.validateUrl(url);
             await this.page.goto(validated.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 });
+            this.clearCursor();
             this.emit({ kind: 'action', data: { action: 'navigate', target: validated.hostname } });
             return this.finishMutation(`Navigated to ${validated.hostname}`);
         });
@@ -153,6 +154,7 @@ export class BrowserSession {
         return this.agentMutation(signal, async () => {
             const page = this.deps.tabs.select(this.id, tabId);
             await this.attachPage(page);
+            this.clearCursor();
             this.emit({ kind: 'tab', data: { action: 'select', tabId } });
             return this.finishMutation('Selected another browser tab');
         });
@@ -166,6 +168,7 @@ export class BrowserSession {
             if (!active)
                 throw new Error('The browser session has no active tab.');
             await this.attachPage(active);
+            this.clearCursor();
             this.emit({ kind: 'tab', data: { action: 'close', tabId } });
             return this.finishMutation('Closed a browser tab');
         });
@@ -498,6 +501,16 @@ export class BrowserSession {
             url: snapshot?.url ?? this.page.url(),
             lastAction: this.lastAction,
         }));
+    }
+    /** The pointer belonged to the page that just went away: a new document or another tab has its own
+     *  coordinate space, and keeping the old point would draw the arrow somewhere the agent never was.
+     *  Broadcast as well as remembered, so viewers already connected drop it too. */
+    clearCursor() {
+        if (!this.lastCursorValue)
+            return;
+        this.lastCursorValue = null;
+        for (const listener of this.listeners.values())
+            void listener({ kind: 'cursor', data: { cleared: true } }).catch(() => { });
     }
     emit(event) {
         // Every agent pointer move and every action that has a position passes through here, so this is the

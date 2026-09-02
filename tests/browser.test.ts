@@ -343,6 +343,8 @@ describe('browser web artifact build', () => {
     // The build normalizes the attribute selector's quotes away, so this names what it emits.
     const driving = rule(css, '.browser-artifact__canvas[data-interactive=true]');
     expect(driving).toContain('cursor: default');
+    // Without this a mobile UA claims the touch gesture and cancels the pointer stream mid-drag.
+    expect(driving).toContain('touch-action: none');
     expect(driving).not.toContain('cursor: none');
     expect(css).not.toContain('cursor: none');
   });
@@ -545,6 +547,12 @@ describe('browser takeover state machine', () => {
     // until the agent happened to move again.
     expect(session.currentCursor).toEqual({ x: viewport.width / 2, y: viewport.height / 2 });
     expect(session.currentCursor).not.toBe(session.currentCursor); // a copy: a viewer cannot move it
+
+    // A new document has its own coordinate space, so the remembered point is dropped rather than drawn
+    // over a page the agent has never pointed at — and viewers already connected are told so.
+    await session.navigate('https://example.com/next');
+    expect(session.currentCursor).toBeNull();
+    expect(events.some((event) => event.kind === 'cursor' && event.data.cleared === true)).toBe(true);
     await session.close();
   });
 });

@@ -84,6 +84,10 @@
    this from being two pointers. */
 .browser-artifact__canvas[data-interactive='true'] {
   cursor: default;
+  /* The gesture belongs to the remote page, not to the mobile browser: without this a touch scroll or a
+     pinch is claimed by the UA, which then cancels the pointer stream mid-drag (pointercancel) and the
+     remote page sees half a gesture. */
+  touch-action: none;
   outline-color: color-mix(in srgb, var(--color-primary, #ff5236) 55%, transparent);
 }
 .browser-artifact__canvas:focus-visible { outline-color: var(--color-primary, #ff5236); }
