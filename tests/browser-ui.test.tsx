@@ -12,7 +12,7 @@ import { registerBrowserUi } from '../plugins/browser/web-src/runtime';
 ensurePluginUiRuntime();
 const strings = manifest.web.strings;
 setDefaults(
-  http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'browser', url: '/plugins/browser/web/index.js', cssUrl: '/plugins/browser/web/index.css', apiVersion: 13, nav: [], account: manifest.web.account, settings: manifest.web.settings, strings }])),
+  http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'browser', url: '/plugins/browser/web/index.js', cssUrl: '/plugins/browser/web/index.css', apiVersion: 14, nav: [], account: manifest.web.account, settings: manifest.web.settings, strings }])),
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: 'user', is_admin: true } })),
 );
 beforeAll(() => listen());
@@ -31,9 +31,13 @@ function wrapper() {
   const { wrapper: Wrapper } = createWrapper();
   return Wrapper;
 }
-function mountArtifact() {
+function mountArtifact(narration?: string) {
   const Wrapper = wrapper();
-  return render(<Wrapper><ToastProvider><BrowserArtifact plugin="browser" artifact={artifact} /></ToastProvider></Wrapper>);
+  const show = (text?: string) => (
+    <Wrapper><ToastProvider><BrowserArtifact plugin="browser" artifact={artifact} narration={text} /></ToastProvider></Wrapper>
+  );
+  const view = render(show(narration));
+  return Object.assign(view, { narrate: (text?: string) => view.rerender(show(text)) });
 }
 
 const streamBody = [
@@ -48,14 +52,14 @@ const requestedStreamBody = [
 ].join('');
 
 describe('browser plugin UI', () => {
-  it('registers the chat artifact, settings and account surfaces on API 13', () => {
+  it('registers the chat artifact, settings and account surfaces on API 14', () => {
     let registration: any;
     const original = window.__elowenRegisterPluginUi;
     window.__elowenRegisterPluginUi = (name, value) => { registration = { name, value }; };
     registerBrowserUi(BrowserArtifact, BrowserSettings, BrowserAccount);
     window.__elowenRegisterPluginUi = original;
     expect(registration.name).toBe('browser');
-    expect(registration.value.requiresApiVersion).toBe(13);
+    expect(registration.value.requiresApiVersion).toBe(14);
     expect(registration.value.chatArtifacts['browser-session']).toBe(BrowserArtifact);
     expect(registration.value.settings.runtime).toBe(BrowserSettings);
     expect(registration.value.account.profile).toBe(BrowserAccount);
@@ -166,6 +170,34 @@ describe('browser plugin UI', () => {
     // withdrawn rather than left beside your own system pointer.
     await waitFor(() => expect(document.querySelector('.browser-artifact__cursor')).toBeNull());
     expect(screen.getAllByLabelText(strings.browserViewport).at(-1)).toHaveAttribute('data-interactive', 'true');
+  });
+
+  it('shows what the agent is saying inside the expanded canvas only, and clears with it', async () => {
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    const view = mountArtifact('Opening the booking portal.');
+    await screen.findByRole('button', { name: strings.enlarge });
+    // The transcript is right there under the thumbnail; repeating it in the tile would say it twice.
+    expect(screen.queryByText('Opening the booking portal.')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: strings.enlarge }));
+    const canvas = await screen.findByRole('dialog', { name: 'Example' });
+    const bubble = within(canvas).getByText('Opening the booking portal.').closest('.browser-artifact__narration');
+    expect(bubble).not.toBeNull();
+    expect(bubble).toHaveAttribute('aria-live', 'polite');
+    expect(bubble).toHaveAttribute('role', 'status');
+    expect(within(canvas).getByRole('button', { name: strings.closeSession })).toBeInTheDocument();
+
+    // Streaming replaces the line in place…
+    view.narrate('Opening the booking portal. The first free slot is Thursday.');
+    expect(within(canvas).getByText('Opening the booking portal. The first free slot is Thursday.')).toBeInTheDocument();
+
+    // …and an empty narration (a new user turn, or a host older than API 14) leaves no empty bubble.
+    view.narrate('   ');
+    expect(canvas.querySelector('.browser-artifact__narration')).toBeNull();
+    view.narrate(undefined);
+    expect(canvas.querySelector('.browser-artifact__narration')).toBeNull();
+    // The browser's own action status is a separate, shorter thing and stays.
+    expect(await within(canvas).findByText('Clicking · Continue')).toBeInTheDocument();
   });
 
   it('shows account profile state and runtime capacity without exposing page content', async () => {

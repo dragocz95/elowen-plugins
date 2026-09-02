@@ -167,7 +167,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 13,
+    "requiresApiVersion": 14,
     "account": [
       { "id": "profile", "label": "Browser", "icon": "Globe" }
     ],

@@ -206,6 +206,7 @@
   box-shadow: 0 10px 40px rgb(0 0 0 / .3);
 }
 .browser-artifact__surface .browser-artifact__canvas { height: 100%; }
+
 /* ONE control, one shape. A round ghost icon button: no edge of its own, so the only frame it can ever
    draw is the disc it is given when it stands alone on the image, and the only ring is the focus ring. */
 .browser-artifact__icon {
@@ -243,16 +244,29 @@
   backdrop-filter: blur(10px);
 }
 .browser-artifact__dismiss:hover:not(:disabled) { background: color-mix(in srgb, var(--color-background, #000) 90%, transparent); }
-/* The working controls float over the image the way a remote viewer's do, so the canvas keeps every
-   pixel it has and the surface needs no footer. */
-.browser-artifact__controls {
+
+/* The bottom column: what the agent is saying, then the controls. Absolutely placed ONCE, so the two
+   stack instead of each being pinned to a guessed offset — the arrangement that breaks the moment the
+   pill wraps on a phone. The column is transparent to the pointer; the pill takes it back, because a
+   click meant for the remote page must not land on empty layout. */
+.browser-artifact__dock {
   position: absolute;
   z-index: 4;
   bottom: .75rem;
   left: 50%;
   display: flex;
-  max-width: calc(100% - 1.5rem);
+  width: min(44rem, calc(100% - 1.5rem));
   transform: translateX(-50%);
+  flex-direction: column;
+  align-items: center;
+  gap: .4rem;
+  pointer-events: none;
+}
+/* The working controls float over the image the way a remote viewer's do, so the canvas keeps every
+   pixel it has and the surface needs no footer. */
+.browser-artifact__controls {
+  display: flex;
+  max-width: 100%;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
@@ -262,6 +276,32 @@
   padding: .25rem .4rem;
   background: color-mix(in srgb, var(--color-background, #000) 86%, transparent);
   backdrop-filter: blur(10px);
+  pointer-events: auto;
+}
+
+/* What the agent is SAYING, over live footage: subtitles, which is the one place a reader already expects
+   a voice to appear on top of a moving picture. Three lines at most — this is a glance at the reply, not
+   the transcript, which is still the thing behind the canvas — and never a pointer target: it sits over
+   the page the user is clicking. */
+.browser-artifact__narration {
+  max-width: 100%;
+  margin: 0;
+  border-radius: var(--radius-md, .625rem);
+  padding: .4rem .65rem;
+  background: color-mix(in srgb, var(--color-background, #000) 82%, transparent);
+  color: var(--color-foreground, #f7f3f0);
+  backdrop-filter: blur(10px);
+  font-size: .75rem;
+  line-height: 1.45;
+  text-wrap: pretty;
+  pointer-events: none;
+}
+.browser-artifact__narration-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
 }
 .browser-artifact__site {
   min-width: 0;
@@ -296,6 +336,11 @@
   .browser-artifact__overlay { padding: max(.5rem, var(--safe-top, 0px)) max(.5rem, var(--safe-right, 0px)) max(.5rem, var(--safe-bottom, 0px)) max(.5rem, var(--safe-left, 0px)); }
   .browser-artifact__surface { width: min(100%, calc(92dvh * var(--browser-aspect, 1.6))); }
   .browser-artifact__site { display: none; }
+  .browser-artifact__dock { width: calc(100% - 1rem); bottom: .5rem; }
+  /* Two lines on a phone: the canvas is short here, and a third line of subtitle starts covering the page
+     it is describing. */
+  .browser-artifact__narration { font-size: .7rem; }
+  .browser-artifact__narration-text { -webkit-line-clamp: 2; line-clamp: 2; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -18,6 +18,10 @@ export interface BrowserArtifactProps {
     createdAt: string;
     updatedAt: string;
   };
+  /** Host API 14: the assistant prose the transcript is rendering right now, already bounded and cleared
+   *  by the host. The expanded canvas covers the transcript, so this is the only way the reply reaches a
+   *  reader who is watching the browser. Optional because an older host sends nothing. */
+  narration?: string;
 }
 
 interface QueryResult<T> { data?: T; isLoading: boolean; isError: boolean; error?: unknown; refetch(): void }
@@ -99,7 +103,7 @@ export function registerBrowserUi(
   account: ComponentType<PluginPageProps>,
 ): void {
   (window as HostWindow).__elowenRegisterPluginUi?.('browser', {
-    requiresApiVersion: 13,
+    requiresApiVersion: 14,
     chatArtifacts: { 'browser-session': artifact },
     settings: { runtime: settings },
     account: { profile: account },

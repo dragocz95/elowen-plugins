@@ -128,7 +128,7 @@ function CanvasOverlay({ label, aspect, onClose, children }: { label: string; as
   );
 }
 
-export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
+export function BrowserArtifact({ artifact, narration }: BrowserArtifactProps) {
   const host = runtime();
   const { Button, ConfirmDialog, Spinner } = host.components;
   const strings = host.hooks.usePluginStrings('browser');
@@ -147,6 +147,10 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
   const site = url ? siteName(url) : '';
   const state = stream.closed ? 'closed' : lease || stream.control.state === 'user' || data?.state === 'user' ? 'user' : data?.state ?? 'agent';
   const takeoverRequested = stream.control.state === 'agent' && stream.control.reason === 'requested';
+  /** What the agent is SAYING while you watch it browse (host API 14). The canvas covers the transcript,
+   *  so without this the reply streams on underneath it. The host already bounds and clears the string —
+   *  the plugin only decides whether there is anything to show. */
+  const speech = (narration ?? '').trim();
   const frame = stream.frame;
   /** Both surfaces take the SHAPE of the live stream, so the canvas box and the image coincide — which is
    *  also what keeps the pointer mapping honest, since a click is sent as a fraction of the canvas. */
@@ -343,17 +347,30 @@ export function BrowserArtifact({ artifact }: BrowserArtifactProps) {
         <CanvasOverlay label={title} aspect={frameAspect} onClose={() => setExpanded(false)}>
           {canvas(true)}
           <GlassButton icon={X} label={strings.closeView || 'Close view'} onClick={() => setExpanded(false)} className="browser-artifact__dismiss" />
-          <div className="browser-artifact__controls">
-            {lease ? (
-              <>
-                <GlassButton icon={ArrowLeft} label={strings.back || 'Back'} onClick={() => shortcut('ArrowLeft', 'ArrowLeft', ['Alt'])} />
-                <GlassButton icon={ArrowRight} label={strings.forward || 'Forward'} onClick={() => shortcut('ArrowRight', 'ArrowRight', ['Alt'])} />
-                <GlassButton icon={RotateCw} label={strings.reload || 'Reload'} onClick={() => shortcut('r', 'KeyR', ['Control'])} />
-              </>
+          {/* One bottom column, so the narration and the controls stack without either one being placed
+              against a guessed offset of the other — which is what breaks first when the pill wraps on a
+              phone. The column itself lets the pointer through; only the controls take it back. */}
+          <div className="browser-artifact__dock">
+            {speech ? (
+              <p className="browser-artifact__narration" role="status" aria-live="polite" aria-atomic="true">
+                {/* The clamp lives on the inner box: a padded element clips its overflow at the PADDING
+                    edge, so a third line paints into the bottom padding and is cut in half instead of
+                    hidden. Padding out here, clamp in there. */}
+                <span className="browser-artifact__narration-text">{speech}</span>
+              </p>
             ) : null}
-            <span className="browser-artifact__site">{site || strings.noAddress || 'No address yet'}</span>
-            {controlAction()}
-            <GlassButton icon={Power} label={strings.closeSession || 'Close session'} tone="danger" onClick={() => setConfirmClose(true)} disabled={pending !== null || stream.closed} />
+            <div className="browser-artifact__controls">
+              {lease ? (
+                <>
+                  <GlassButton icon={ArrowLeft} label={strings.back || 'Back'} onClick={() => shortcut('ArrowLeft', 'ArrowLeft', ['Alt'])} />
+                  <GlassButton icon={ArrowRight} label={strings.forward || 'Forward'} onClick={() => shortcut('ArrowRight', 'ArrowRight', ['Alt'])} />
+                  <GlassButton icon={RotateCw} label={strings.reload || 'Reload'} onClick={() => shortcut('r', 'KeyR', ['Control'])} />
+                </>
+              ) : null}
+              <span className="browser-artifact__site">{site || strings.noAddress || 'No address yet'}</span>
+              {controlAction()}
+              <GlassButton icon={Power} label={strings.closeSession || 'Close session'} tone="danger" onClick={() => setConfirmClose(true)} disabled={pending !== null || stream.closed} />
+            </div>
           </div>
         </CanvasOverlay>
       ) : null}

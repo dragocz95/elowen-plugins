@@ -255,7 +255,7 @@ function runtime() {
 }
 function registerBrowserUi(artifact, settings, account) {
   window.__elowenRegisterPluginUi?.("browser", {
-    requiresApiVersion: 13,
+    requiresApiVersion: 14,
     chatArtifacts: { "browser-session": artifact },
     settings: { runtime: settings },
     account: { profile: account }
@@ -599,7 +599,7 @@ function CanvasOverlay({ label, aspect, onClose, children }) {
     document.body
   );
 }
-function BrowserArtifact({ artifact }) {
+function BrowserArtifact({ artifact, narration }) {
   const host = runtime();
   const { Button, ConfirmDialog, Spinner } = host.components;
   const strings = host.hooks.usePluginStrings("browser");
@@ -618,6 +618,7 @@ function BrowserArtifact({ artifact }) {
   const site = url ? siteName(url) : "";
   const state = stream.closed ? "closed" : lease || stream.control.state === "user" || data?.state === "user" ? "user" : data?.state ?? "agent";
   const takeoverRequested = stream.control.state === "agent" && stream.control.reason === "requested";
+  const speech = (narration ?? "").trim();
   const frame = stream.frame;
   const frameAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
   const aspectStyle = frameAspect ? { "--browser-aspect": String(frameAspect) } : void 0;
@@ -805,15 +806,18 @@ function BrowserArtifact({ artifact }) {
     expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(CanvasOverlay, { label: title, aspect: frameAspect, onClose: () => setExpanded(false), children: [
       canvas(true),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: X, label: strings.closeView || "Close view", onClick: () => setExpanded(false), className: "browser-artifact__dismiss" }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__controls", children: [
-        lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]) }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => shortcut("ArrowRight", "ArrowRight", ["Alt"]) }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => shortcut("r", "KeyR", ["Control"]) })
-        ] }) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__site", children: site || strings.noAddress || "No address yet" }),
-        controlAction(),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: Power, label: strings.closeSession || "Close session", tone: "danger", onClick: () => setConfirmClose(true), disabled: pending !== null || stream.closed })
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__dock", children: [
+        speech ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "browser-artifact__narration", role: "status", "aria-live": "polite", "aria-atomic": "true", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__narration-text", children: speech }) }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__controls", children: [
+          lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]) }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => shortcut("ArrowRight", "ArrowRight", ["Alt"]) }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => shortcut("r", "KeyR", ["Control"]) })
+          ] }) : null,
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__site", children: site || strings.noAddress || "No address yet" }),
+          controlAction(),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: Power, label: strings.closeSession || "Close session", tone: "danger", onClick: () => setConfirmClose(true), disabled: pending !== null || stream.closed })
+        ] })
       ] })
     ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(

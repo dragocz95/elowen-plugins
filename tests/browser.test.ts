@@ -336,6 +336,17 @@ describe('browser web artifact build', () => {
     expect(Number(veil![1])).toBeGreaterThanOrEqual(30);
   });
 
+  it('never hides the pointer on a canvas the user is driving', () => {
+    const css = stylesheet();
+    // `cursor: none` here left a takeover with no pointer at all: the streamed cursor it was standing in
+    // for reports where the AGENT points, and stops the moment the user takes the session.
+    // The build normalizes the attribute selector's quotes away, so this names what it emits.
+    const driving = rule(css, '.browser-artifact__canvas[data-interactive=true]');
+    expect(driving).toContain('cursor: default');
+    expect(driving).not.toContain('cursor: none');
+    expect(css).not.toContain('cursor: none');
+  });
+
   it('gives a control on the canvas one glass disc and no border of its own', () => {
     const css = stylesheet();
     const icon = rule(css, '.browser-artifact__icon');
@@ -347,15 +358,19 @@ describe('browser web artifact build', () => {
     expect(rule(css, '.browser-artifact__dismiss')).toMatch(/background: color-mix/);
   });
 
-  it('never hides the pointer on a canvas the user is driving', () => {
+  it('reads the narration without taking the pointer away from the page', () => {
     const css = stylesheet();
-    // `cursor: none` here left a takeover with no pointer at all: the streamed cursor it was standing in
-    // for reports where the AGENT points, and stops the moment the user takes the session.
-    // The build normalizes the attribute selector's quotes away, so this names what it emits.
-    const driving = rule(css, '.browser-artifact__canvas[data-interactive=true]');
-    expect(driving).toContain('cursor: default');
-    expect(driving).not.toContain('cursor: none');
-    expect(css).not.toContain('cursor: none');
+    // The subtitle is read, never clicked: the page underneath it is the pointer target, and so is
+    // everything in the bottom column except the controls themselves.
+    expect(rule(css, '.browser-artifact__narration')).toContain('pointer-events: none');
+    // The clamp is on the INNER box: a padded element clips at its padding edge, which left a third line
+    // painting into the padding, cut in half rather than hidden.
+    const clamped = rule(css, '.browser-artifact__narration-text');
+    expect(clamped).toContain('-webkit-line-clamp: 3');
+    expect(clamped).toContain('overflow: hidden');
+    expect(rule(css, '.browser-artifact__narration')).not.toContain('-webkit-line-clamp');
+    expect(rule(css, '.browser-artifact__dock')).toContain('pointer-events: none');
+    expect(rule(css, '.browser-artifact__controls')).toContain('pointer-events: auto');
   });
 });
 
