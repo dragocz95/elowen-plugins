@@ -132,6 +132,31 @@ describe('cronjob JobsSettings — manual run', () => {
     expect(await screen.findByText(strings.runQueued)).toBeInTheDocument();
   });
 
+  it('does not autosave scheduler state refreshed after a manual run', async () => {
+    let serverJob = job({ revision: 4, lastResult: 'previous result' });
+    const writes: unknown[] = [];
+    use(
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([serverJob])),
+      http.post('/api/plugins/cronjob/jobs/:id/run', () => {
+        serverJob = { ...serverJob, revision: 5, lastRun: '2026-09-03T09:04:47.891Z', lastResult: 'manual run started' };
+        return HttpResponse.json({ ok: true }, { status: 202 });
+      }),
+      http.put('/api/plugins/cronjob/jobs/:id', async ({ request }) => {
+        writes.push(await request.json());
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await openRow('digest');
+
+    fireEvent.click(screen.getByRole('button', { name: strings.runNow }));
+    expect(await screen.findByText('manual run started', {}, { timeout: 2000 })).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    expect(writes).toEqual([]);
+  });
+
   it('does not offer a manual run for a one-shot wake-up', async () => {
     await mountWith([job({ runAt: '2026-09-01T12:00:00.000Z' })]);
     expect(screen.getByRole('button', { name: strings.runNow })).toBeDisabled();

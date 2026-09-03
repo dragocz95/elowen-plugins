@@ -283,6 +283,9 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const [draft, setDraft] = useState<CronJob>(job);
   const [confirming, setConfirming] = useState(false);
   const [runPending, setRunPending] = useState(false);
+  /** Only user edits advance this value. Scheduler stamps and API refreshes may replace the clean draft,
+   *  but they must never look like another edit and send the same job back in an endless PUT/refetch loop. */
+  const [editVersion, setEditVersion] = useState(0);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   /** Edits this row has not persisted yet. Only a clean row adopts a server change. */
@@ -302,7 +305,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const isSavable = (j: CronJob): boolean =>
     j.name.trim() !== '' && j.prompt.trim() !== '' && (j.runAt ? true : utils.isValidSchedule(j.schedule));
 
-  const autosave = hooks.useAutoSaveStatus([draft], async () => {
+  const autosave = hooks.useAutoSaveStatus([editVersion], async () => {
     if (deleted.current) return;
     const sent = draftRef.current;
     const { owner: _owner, expectedRevision: _expectedRevision, ...payload } = sent;
@@ -333,6 +336,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const patch = (p: Partial<CronJob>) => {
     dirty.current = true;
     setDraft((cur) => ({ ...cur, ...p }));
+    setEditVersion((version) => version + 1);
   };
 
   const runNow = async () => {
