@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { createConnection, createServer } from 'node:net';
 import type { PluginDb } from 'elowen/plugin-api';
 import { requireBrowserToolOwner } from '../plugins/browser/src/ownership.js';
 import {
@@ -27,7 +28,7 @@ import { BrowserSession } from '../plugins/browser/src/browser-session.js';
 import { InputController, InputRateLimiter } from '../plugins/browser/src/input-controller.js';
 import { readPageFavicon } from '../plugins/browser/src/page-favicon.js';
 import { TabManager } from '../plugins/browser/src/tab-manager.js';
-import { UNAVAILABLE_ARTIFACT_PUBLISHER } from '../plugins/browser/src/artifact.js';
+import { artifactData, UNAVAILABLE_ARTIFACT_PUBLISHER } from '../plugins/browser/src/artifact.js';
 import { registerBrowserApi } from '../plugins/browser/src/api.js';
 import { registerBrowserTools } from '../plugins/browser/src/tools.js';
 import type {
@@ -104,10 +105,14 @@ class FakePage implements PageLike {
   private currentUrl = 'about:blank';
   private closed = false;
   credentials: { username: string; password: string } | null = null;
+  readonly historyActions: string[] = [];
   readonly id = `target-${++targetSequence}`;
   url(): string { return this.currentUrl; }
   async title(): Promise<string> { return 'Test page'; }
   async goto(url: string): Promise<void> { this.currentUrl = url; }
+  async goBack(): Promise<void> { this.historyActions.push('back'); }
+  async goForward(): Promise<void> { this.historyActions.push('forward'); }
+  async reload(): Promise<void> { this.historyActions.push('reload'); }
   async close(): Promise<void> { this.closed = true; }
   isClosed(): boolean { return this.closed; }
   async createCDPSession(): Promise<CDPSessionLike> { return this.cdp; }
@@ -166,11 +171,29 @@ describe('browser input controller', () => {
     await input.pressKey('!', undefined);
     await input.pressKey('a', ['Control']);
     await input.pressKey('Enter', undefined);
+    await input.dispatchUserBatch([
+      { type: 'key', action: 'down', key: 'Shift', code: 'ShiftLeft', modifiers: ['Shift'] },
+      { type: 'key', action: 'up', key: 'Shift', code: 'ShiftLeft', modifiers: [] },
+    ]);
     const downs = cdp.calls.filter((call) => call.method === 'Input.dispatchKeyEvent' && call.params?.type === 'keyDown').map((call) => call.params);
     expect(downs[0]).toMatchObject({ key: '!', text: '!' });
     expect(downs[1]).toMatchObject({ key: 'a', code: 'KeyA', modifiers: 2, commands: ['selectAll'], windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65 });
     expect(downs[1]).not.toHaveProperty('text');
     expect(downs[2]).toMatchObject({ key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+    expect(downs[3]).toMatchObject({ key: 'Shift', code: 'ShiftLeft', modifiers: 8, windowsVirtualKeyCode: 16, nativeVirtualKeyCode: 16 });
+  });
+});
+
+describe('browser artifact projection', () => {
+  it('bounds every artifact string and drops an oversized favicon without corrupting it', () => {
+    const data = artifactData({
+      browserSessionId: 'session-1', state: 'agent', title: 't'.repeat(2_000), url: `https://example.com/${'u'.repeat(4_000)}`,
+      favicon: `data:image/png;base64,${'a'.repeat(5_000)}`, lastAction: 'a'.repeat(2_000),
+    });
+    expect(data.title.length).toBeLessThanOrEqual(512);
+    expect(data.url.length).toBeLessThanOrEqual(2_048);
+    expect(data.lastAction!.length).toBeLessThanOrEqual(512);
+    expect(data.favicon).toBeNull();
   });
 });
 
@@ -204,13 +227,14 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.2.4, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.2.7, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as { version: string; userGrantable: boolean; entry: string; provides: { tools: string[]; apiRoutes: string[] } };
-    expect(manifest.version).toBe('0.2.4');
+    expect(manifest.version).toBe('0.2.7');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
-    expect(manifest.provides.apiRoutes).toHaveLength(11);
+    expect(manifest.provides.apiRoutes).toHaveLength(12);
+    expect(manifest.provides.apiRoutes).toContain('navigation');
     expect(existsSync(join(root, manifest.entry))).toBe(true);
     const launcherSource = readFileSync(join(root, 'src', 'browser-launcher.ts'), 'utf8');
     expect(launcherSource).toContain('--proxy-bypass-list=<-loopback>');
@@ -292,14 +316,16 @@ describe('browser network policy', () => {
     await expect(new NavigationPolicy([]).resolve('http://[::ffff:127.0.0.1]')).rejects.toThrow(/blocked network/);
     await expect(new NavigationPolicy([]).resolve('http://[::ffff:10.0.0.1]')).rejects.toThrow(/blocked network/);
     await expect(new NavigationPolicy([]).resolve('http://[::ffff:169.254.169.254]')).rejects.toThrow(/blocked network/);
+    await expect(new NavigationPolicy([], { resolve: async () => [{ address: '::ffff:127.0.0.1', family: 6 }] }).resolve('https://example.com'))
+      .rejects.toThrow(/blocked network/);
     await expect(new NavigationPolicy([]).resolve('http://169.254.169.254/latest/meta-data')).rejects.toThrow(/blocked network/);
     expect(() => new NavigationPolicy([]).validateUrl('file:///etc/passwd')).toThrow(/Only http and https/);
   });
 
   it('allows only explicit private host or CIDR exceptions', async () => {
     const resolver: HostResolver = { resolve: async () => [{ address: '10.20.30.40', family: 4 }] };
-    await expect(new NavigationPolicy(['dev.internal'], resolver).resolve('https://dev.internal')).resolves.toMatchObject({ address: '10.20.30.40' });
-    await expect(new NavigationPolicy(['10.20.0.0/16'], resolver).resolve('https://other.internal')).resolves.toMatchObject({ address: '10.20.30.40' });
+    await expect(new NavigationPolicy(['dev.internal'], resolver).resolve('https://dev.internal')).resolves.toMatchObject({ addresses: [{ address: '10.20.30.40', family: 4 }] });
+    await expect(new NavigationPolicy(['10.20.0.0/16'], resolver).resolve('https://other.internal')).resolves.toMatchObject({ addresses: [{ address: '10.20.30.40', family: 4 }] });
     await expect(new NavigationPolicy(['10.21.0.0/16'], resolver).resolve('https://other.internal')).rejects.toThrow(/blocked network/);
   });
 
@@ -314,7 +340,10 @@ describe('browser network policy', () => {
       async close(): Promise<void> {}
     }
     const adapter = new DynamicProxyChainAdapter(async () => ({ Server: FakeProxyServer as any }));
-    let addresses = [{ address: '93.184.216.34', family: 4 as const }];
+    let addresses = [
+      { address: '2001:4860:4860::8888', family: 6 as const },
+      { address: '93.184.216.34', family: 4 as const },
+    ];
     const policy = new NavigationPolicy([], { resolve: async () => addresses });
     const server = await adapter.createServer({
       username: 'browser-user', password: 'secret', maxConcurrency: 2, requestsPerMinute: 20,
@@ -324,18 +353,68 @@ describe('browser network policy', () => {
     const prepared = await prepare({
       username: 'browser-user', password: 'secret', hostname: 'example.com', port: 443, isHttp: false, connectionId: 'c1',
     });
-    expect(prepared.ipFamily).toBe(4);
+    expect(prepared.ipFamily).toBeUndefined();
     addresses = [{ address: '10.0.0.8', family: 4 }];
     await expect(policy.resolve('https://example.com')).rejects.toThrow(/blocked network/);
-    const lookup = (hostname: string) => new Promise<{ address: string; family: number }>((resolve, reject) => {
-      prepared.dnsLookup!(hostname, {}, (error, address, family) => {
+    const lookup = (hostname: string, options: Record<string, unknown> = {}) => new Promise<unknown>((resolve, reject) => {
+      prepared.dnsLookup!(hostname, options, (error, address, family) => {
         if (error) reject(error);
-        else resolve({ address: address as string, family: family! });
+        else resolve(options.all === true ? address : { address: address as string, family: family! });
       });
     });
-    await expect(lookup('example.com')).resolves.toEqual({ address: '93.184.216.34', family: 4 });
+    await expect(lookup('example.com', { all: true })).resolves.toEqual([
+      { address: '2001:4860:4860::8888', family: 6 },
+      { address: '93.184.216.34', family: 4 },
+    ]);
+    await expect(lookup('example.com', { family: 4 })).resolves.toEqual({ address: '93.184.216.34', family: 4 });
     await expect(lookup('other.example.com')).rejects.toMatchObject({ code: 'ENOTFOUND' });
     await server.close();
+  });
+
+  it('falls back to another approved address without resolving again', async () => {
+    let prepare!: (request: ProxyChainPrepareRequest) => Promise<ProxyChainPrepareResult>;
+    class FakeProxyServer implements ProxyChainServerLike {
+      port = 3211;
+      constructor(options: { prepareRequestFunction(request: ProxyChainPrepareRequest): Promise<ProxyChainPrepareResult> }) {
+        prepare = options.prepareRequestFunction;
+      }
+      async listen(): Promise<void> {}
+      async close(): Promise<void> {}
+    }
+    let resolutions = 0;
+    const policy = new NavigationPolicy(['dev.internal'], { resolve: async () => {
+      resolutions += 1;
+      return [{ address: '::1', family: 6 }, { address: '127.0.0.1', family: 4 }];
+    } });
+    const adapter = new DynamicProxyChainAdapter(async () => ({ Server: FakeProxyServer as any }));
+    const proxy = await adapter.createServer({
+      username: 'browser-user', password: 'secret', maxConcurrency: 2, requestsPerMinute: 20,
+      resolve: (url) => policy.resolve(url),
+    });
+    const prepared = await prepare({
+      username: 'browser-user', password: 'secret', hostname: 'dev.internal', port: 443, isHttp: false, connectionId: 'c1',
+    });
+    const target = createServer();
+    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve));
+    const port = (target.address() as { port: number }).port;
+    await new Promise<void>((resolve, reject) => {
+      const socket = createConnection({
+        host: 'dev.internal', port, lookup: prepared.dnsLookup!, autoSelectFamily: true,
+      }, () => { socket.destroy(); resolve(); });
+      socket.once('error', reject);
+    });
+    expect(resolutions).toBe(1);
+    await new Promise<void>((resolve, reject) => target.close((error) => error ? reject(error) : resolve()));
+    await proxy.close();
+  });
+
+  it('validates every DNS answer before bounding the pinned fallback set', async () => {
+    const addresses = [
+      ...Array.from({ length: 6 }, (_, index) => ({ address: `93.184.216.${index + 1}`, family: 4 as const })),
+      { address: '10.0.0.8', family: 4 as const },
+    ];
+    await expect(new NavigationPolicy([], { resolve: async () => addresses }).resolve('https://example.com'))
+      .rejects.toThrow(/blocked network/);
   });
 });
 
@@ -780,15 +859,125 @@ describe('browser takeover state machine', () => {
     await session.close();
   });
 
+  it('renews a takeover while a slow history navigation owns the serial queue', async () => {
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    let finishNavigation!: () => void;
+    page.goBack = () => new Promise<void>((resolve) => { finishNavigation = resolve; });
+    const navigating = session.dispatchUserNavigation(lease.leaseId, 'back');
+    await tick();
+    await expect(session.heartbeat(lease.leaseId)).resolves.toMatchObject({ controlRevision: lease.controlRevision });
+    finishNavigation();
+    await navigating;
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('bounds loader probes when CDP stops answering during history navigation', async () => {
+    vi.useFakeTimers();
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    page.cdp.replies.set('Page.getFrameTree', () => new Promise(() => {}));
+    const navigating = session.dispatchUserNavigation(lease.leaseId, 'back');
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(navigating).resolves.toBeUndefined();
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('does not publish a successful action when history navigation never committed', async () => {
+    const updates: any[] = [];
+    const artifacts: BrowserArtifactPublisher = {
+      available: true, open: async () => null, update: async (_ref, data) => { updates.push(data); }, close: async () => {},
+    };
+    const { session, page } = await createSession(artifacts);
+    await session.setArtifact({ version: 1, artifactId: 'artifact-1', token: 'token-1', sessionId: 'brain-1' });
+    const lease = await session.claimTakeover();
+    page.cdp.replies.set('Page.getFrameTree', { frameTree: { frame: { loaderId: 'same-loader' } } });
+    page.goBack = async () => { throw new Error('Navigation failed'); };
+    await expect(session.dispatchUserNavigation(lease.leaseId, 'back')).rejects.toThrow(/Navigation failed/);
+    expect(page.cdp.calls.some((call) => call.method === 'Page.stopLoading')).toBe(true);
+    expect(updates.at(-1)?.lastAction).not.toBe('Navigated back');
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('recycles the browser when a timed-out navigation cannot be cancelled safely', async () => {
+    vi.useFakeTimers();
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    page.cdp.replies.set('Page.getFrameTree', { frameTree: { frame: { loaderId: 'same-loader' } } });
+    page.cdp.replies.set('Page.stopLoading', () => new Promise(() => {}));
+    page.goBack = async () => { throw new Error('Navigation timeout'); };
+    const navigating = session.dispatchUserNavigation(lease.leaseId, 'back');
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(navigating).rejects.toThrow(/state is unknown.*recycled/i);
+  });
+
+  it('recognizes a commit that races with cancellation after a navigation timeout', async () => {
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    page.cdp.replies.set('Page.getFrameTree', { frameTree: { frame: { loaderId: 'same-loader' } } });
+    page.cdp.replies.set('Page.stopLoading', async () => { await page.goto('https://late.example/'); });
+    page.goBack = async () => { throw new Error('Navigation timeout'); };
+    await expect(session.dispatchUserNavigation(lease.leaseId, 'back')).resolves.toBeUndefined();
+    expect(page.url()).toBe('https://late.example/');
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('refreshes session state when history committed before its wait condition timed out', async () => {
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    let frameReads = 0;
+    page.cdp.replies.set('Page.getFrameTree', () => ({ frameTree: { frame: { loaderId: `loader-${++frameReads}` } } }));
+    page.goBack = async () => { await page.goto('https://previous.example/'); throw new Error('Navigation timeout'); };
+    await expect(session.dispatchUserNavigation(lease.leaseId, 'back')).resolves.toBeUndefined();
+    expect(page.url()).toBe('https://previous.example/');
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('uses real page history for takeover navigation controls', async () => {
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    await session.dispatchUserNavigation(lease.leaseId, 'back');
+    await session.dispatchUserNavigation(lease.leaseId, 'forward');
+    await session.dispatchUserNavigation(lease.leaseId, 'reload');
+    expect(page.historyActions).toEqual(['back', 'forward', 'reload']);
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('keeps takeover successful when its cosmetic artifact update fails', async () => {
+    const artifacts: BrowserArtifactPublisher = {
+      available: true,
+      open: async () => null,
+      update: async () => { throw new Error('artifact data string exceeds 4096 characters'); },
+      close: async () => {},
+    };
+    const { session } = await createSession(artifacts);
+    await session.setArtifact({ version: 1, artifactId: 'artifact-1', token: 'token-1', sessionId: 'brain-1' });
+    const lease = await session.claimTakeover();
+    expect(session.state).toBe('user');
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
   it('rejects concurrent claims and keeps stale leases unable to heartbeat or release without broadcasting the token', async () => {
     const { session, events } = await createSession();
     const first = await session.claimTakeover();
+    expect(first.controlRevision).toBe(1);
     expect(session.currentLease).toEqual({ expiresAt: first.expiresAt });
-    expect(events.at(-1)).toMatchObject({ kind: 'control', data: { state: 'user', expiresAt: first.expiresAt } });
+    expect(session.controlRevision).toBe(1);
+    expect(events.at(-1)).toMatchObject({ kind: 'control', data: { state: 'user', expiresAt: first.expiresAt, controlRevision: 1 } });
     expect(events.at(-1).data).not.toHaveProperty('leaseId');
     await expect(session.claimTakeover()).rejects.toThrow(/already under user control/);
     await session.releaseTakeover(first.leaseId);
+    expect(session.controlRevision).toBe(2);
+    expect(events.at(-1)).toMatchObject({ kind: 'control', data: { state: 'agent', reason: 'released', controlRevision: 2 } });
     const second = await session.claimTakeover();
+    expect(second.controlRevision).toBe(3);
     expect(first.leaseId).not.toBe(second.leaseId);
     await expect(session.heartbeat(first.leaseId)).rejects.toThrow(/stale or invalid/);
     await expect(session.releaseTakeover(first.leaseId)).rejects.toThrow(/stale or invalid/);

@@ -3,7 +3,7 @@
   "plugins": [
     {
       "name": "browser",
-      "version": "0.2.4",
+      "version": "0.2.7",
       "requiresCore": "0.28.27",
       "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, bounded live streaming, exclusive user takeover and a deny-by-default enforcing network boundary.",
       "category": "tools",
@@ -17,7 +17,7 @@
     {
       "name": "codebase",
       "version": "0.1.3",
-      "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings → Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",
+      "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings \u2192 Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",
       "category": "tools",
       "author": "Elowen",
       "apiVersion": "1",
@@ -104,7 +104,7 @@
     {
       "name": "lsp",
       "version": "0.1.0",
-      "description": "Language-server code intelligence: type-check an edit the moment it lands (LspDiagnostics), jump to a definition, find every reference, read a hover signature and list document or workspace symbols — all answered by the real language server for the file, not a text search. Elowen drives the servers it knows (TypeScript, Pyright, gopls, rust-analyzer, clangd, …) and can install the npm-based ones into its own prefix. Disabling it stops every language server and withdraws the tools.",
+      "description": "Language-server code intelligence: type-check an edit the moment it lands (LspDiagnostics), jump to a definition, find every reference, read a hover signature and list document or workspace symbols \u2014 all answered by the real language server for the file, not a text search. Elowen drives the servers it knows (TypeScript, Pyright, gopls, rust-analyzer, clangd, \u2026) and can install the npm-based ones into its own prefix. Disabling it stops every language server and withdraws the tools.",
       "category": "tools",
       "author": "Elowen",
       "apiVersion": "1",
@@ -117,7 +117,7 @@
       "name": "mcp",
       "version": "0.1.7",
       "requiresCore": "0.28.24",
-      "description": "Connect external MCP servers to the assistant’s tools.",
+      "description": "Connect external MCP servers to the assistant\u2019s tools.",
       "category": "tools",
       "author": "Elowen",
       "apiVersion": "1",

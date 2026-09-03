@@ -47,7 +47,7 @@ function mountArtifact(narration?: string, pendingInput?: Pending) {
 }
 
 const streamBody = [
-  `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null })}\n\n`,
+  `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0, favicon: 'data:image/png;base64,aGVsbG8=' })}\n\n`,
   `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
   `event: cursor\ndata: ${JSON.stringify({ x: 640, y: 400, moving: false })}\n\n`,
   `event: action\ndata: ${JSON.stringify({ action: 'click', target: 'Continue', x: 640, y: 400 })}\n\n`,
@@ -104,6 +104,27 @@ describe('browser plugin UI', () => {
     expect(document.querySelector('.browser-artifact__cursor')).toBeNull();
   });
 
+  it('clears a stale artifact favicon when the live session has none', async () => {
+    const noFaviconBody = `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0, favicon: null })}\n\n`;
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(noFaviconBody, { headers: { 'content-type': 'text/event-stream' } })));
+    mountArtifact();
+    await waitFor(() => expect(document.querySelector('.browser-artifact__site-icon')).toBeNull());
+  });
+
+  it('uses the favicon delivered by the live stream when artifact data cannot carry it', async () => {
+    const favicon = 'data:image/png;base64,c3RyZWFtZWQ=';
+    const body = [
+      `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0, favicon: null })}\n\n`,
+      `event: favicon\ndata: ${JSON.stringify({ favicon })}\n\n`,
+      `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
+    ].join('');
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(body, { headers: { 'content-type': 'text/event-stream' } })));
+    const noFavicon = { ...artifact, data: { ...artifact.data, favicon: null } };
+    const Wrapper = wrapper();
+    render(<Wrapper><ToastProvider><BrowserArtifact plugin="browser" artifact={noFavicon} /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(document.querySelector(`img[src="${favicon}"]`)).not.toBeNull());
+  });
+
   it('expands into a borderless canvas that closes on Escape', async () => {
     use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
     mountArtifact();
@@ -156,9 +177,10 @@ describe('browser plugin UI', () => {
     const calls: { path: string; body: any }[] = [];
     use(
       http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
-      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-new', expiresAt: Date.now() + 120_000 })),
+      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-new', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
       http.post('/api/plugins/browser/api/input', async ({ request }) => { calls.push({ path: 'input', body: await request.json() }); return HttpResponse.json({ accepted: 1 }); }),
       http.post('/api/plugins/browser/api/release', async ({ request }) => { calls.push({ path: 'release', body: await request.json() }); return HttpResponse.json({ released: true }); }),
+      http.post('/api/plugins/browser/api/navigation', async ({ request }) => { calls.push({ path: 'navigation', body: await request.json() }); return HttpResponse.json({ navigated: 'back' }); }),
       http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000 })),
     );
     mountArtifact();
@@ -170,12 +192,43 @@ describe('browser plugin UI', () => {
     for (const label of [strings.back, strings.forward, strings.reload]) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
+    fireEvent.click(screen.getByRole('button', { name: strings.back }));
+    await waitFor(() => expect(calls.some((call) => call.path === 'navigation' && call.body.action === 'back' && call.body.leaseId === 'lease-new')).toBe(true));
     const viewport = screen.getAllByLabelText(strings.browserViewport).at(-1)!;
     vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400, toJSON: () => ({}) });
     fireEvent.pointerDown(viewport, { clientX: 320, clientY: 200, button: 0, pointerId: 1 });
     await waitFor(() => expect(calls.some((call) => call.path === 'input' && call.body.leaseId === 'lease-new')).toBe(true));
     fireEvent.click(screen.getAllByRole('button', { name: strings.returnToAgent }).at(-1)!);
     await waitFor(() => expect(calls.some((call) => call.path === 'release' && call.body.leaseId === 'lease-new')).toBe(true));
+  });
+
+  it('keeps a local takeover through a transient heartbeat failure', async () => {
+    let heartbeatCalls = 0;
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(((handler: TimerHandler) => {
+      queueMicrotask(() => { if (typeof handler === 'function') handler(); });
+      return 1 as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval);
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-heartbeat', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
+      http.post('/api/plugins/browser/api/heartbeat', () => { heartbeatCalls += 1; return HttpResponse.json({ error: 'temporary' }, { status: 503 }); }),
+    );
+    mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    fireEvent.click(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)!);
+    expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
+    await waitFor(() => expect(heartbeatCalls).toBe(1));
+    expect(screen.getAllByText(strings.youControl).length).toBeGreaterThan(0);
+    expect(screen.queryByText(strings.controlledElsewhere)).toBeNull();
+  });
+
+  it('uses the connected stream instead of stale artifact control state', async () => {
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    const staleArtifact = { ...artifact, data: { ...artifact.data, state: 'user' as const } };
+    const Wrapper = wrapper();
+    render(<Wrapper><ToastProvider><BrowserArtifact plugin="browser" artifact={staleArtifact} /></ToastProvider></Wrapper>);
+    expect((await screen.findAllByRole('button', { name: strings.takeControl })).length).toBeGreaterThan(0);
+    expect(screen.queryByText(strings.controlledElsewhere)).toBeNull();
   });
 
   it('leaves the user one pointer while they drive the session', async () => {

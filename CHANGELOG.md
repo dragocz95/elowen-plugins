@@ -1,5 +1,17 @@
 # Changelog
 
+## browser 0.2.7 - 2026-09-03
+
+- Stream page favicons and use real history navigation in the takeover toolbar
+
+## browser 0.2.6 - 2026-09-03
+
+- Keep cosmetic artifact limits from breaking browser takeover
+
+## browser 0.2.5 - 2026-09-03
+
+- Keep takeover ownership stable and fall back across approved proxy addresses
+
 ## msteams 0.7.0 - 2026-09-03
 
 - Address Outlook mail folders by name

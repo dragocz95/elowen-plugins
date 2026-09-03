@@ -387,9 +387,11 @@ var import_react4 = __toESM(require_react(), 1);
 var initialState = {
   frame: null,
   cursor: null,
-  control: { state: "agent" },
+  favicon: null,
+  control: { state: "agent", controlRevision: 0 },
   action: null,
   connected: false,
+  hasControlSnapshot: false,
   closed: false,
   error: null
 };
@@ -443,6 +445,13 @@ function useBrowserStream(path) {
         }));
         return;
       }
+      if (frame.event === "favicon") {
+        if (data.favicon === null) setState((value) => ({ ...value, favicon: null }));
+        else if (typeof data.favicon === "string" && data.favicon.length <= 40 * 1024 && /^data:image\//i.test(data.favicon)) {
+          setState((value) => ({ ...value, favicon: data.favicon }));
+        }
+        return;
+      }
       if (frame.event === "cursor" && data.cleared === true) {
         setState((value) => ({ ...value, cursor: null }));
         return;
@@ -469,19 +478,27 @@ function useBrowserStream(path) {
         const lease = frame.event === "session" ? object(data.lease) : null;
         const controlState = data.state === "user" ? "user" : "agent";
         const rawExpiresAt = lease?.expiresAt ?? data.expiresAt;
+        const rawRevision = data.controlRevision;
         const seeded = object(data.cursor);
-        setState((value) => ({
-          ...value,
-          connected: true,
-          closed: false,
-          error: null,
-          cursor: value.cursor ?? (typeof seeded?.x === "number" && typeof seeded?.y === "number" ? { x: seeded.x, y: seeded.y, moving: false } : null),
-          control: {
-            state: controlState,
-            expiresAt: typeof rawExpiresAt === "number" ? rawExpiresAt : void 0,
-            reason: typeof data.reason === "string" ? data.reason : void 0
-          }
-        }));
+        setState((value) => {
+          const controlRevision = typeof rawRevision === "number" ? rawRevision : value.control.controlRevision;
+          if (controlRevision < value.control.controlRevision) return value;
+          return {
+            ...value,
+            connected: true,
+            hasControlSnapshot: true,
+            closed: false,
+            error: null,
+            cursor: value.cursor ?? (typeof seeded?.x === "number" && typeof seeded?.y === "number" ? { x: seeded.x, y: seeded.y, moving: false } : null),
+            favicon: data.favicon === null ? null : typeof data.favicon === "string" && data.favicon.length <= 40 * 1024 && /^data:image\//i.test(data.favicon) ? data.favicon : value.favicon,
+            control: {
+              state: controlState,
+              expiresAt: typeof rawExpiresAt === "number" ? rawExpiresAt : void 0,
+              reason: typeof data.reason === "string" ? data.reason : void 0,
+              controlRevision
+            }
+          };
+        });
         return;
       }
       if (frame.event === "closed") {
@@ -654,7 +671,8 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const title = data?.title || strings.sessionTitle || "Browser session";
   const url = data?.url || "";
   const site = url ? siteName(url) : "";
-  const state = stream.closed ? "closed" : lease || stream.control.state === "user" || data?.state === "user" ? "user" : data?.state ?? "agent";
+  const favicon = stream.hasControlSnapshot ? stream.favicon : data?.favicon;
+  const state = stream.closed ? "closed" : lease ? "user" : stream.hasControlSnapshot ? stream.control.state : data?.state ?? "agent";
   const takeoverRequested = stream.control.state === "agent" && stream.control.reason === "requested";
   const speech = (narration ?? "").trim();
   const visibleSpeech = speechHidden ? "" : speech;
@@ -694,13 +712,18 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
       void runtime().api(inputPath(sessionId, "heartbeat"), jsonRequest("POST", { leaseId: lease.leaseId })).then((value) => {
         const next = value;
         if (typeof next.expiresAt === "number") setLease((current) => current?.leaseId === lease.leaseId ? { ...current, expiresAt: next.expiresAt } : current);
-      }).catch(() => setLease((current) => current?.leaseId === lease.leaseId ? null : current));
+      }).catch(() => {
+      });
     }, 2e4);
     return () => clearInterval(interval);
   }, [lease, sessionId]);
   (0, import_react5.useEffect)(() => {
-    if (stream.control.state === "agent") setLease(null);
-  }, [stream.control.state]);
+    if (!lease) return;
+    const controlRevision = stream.control.controlRevision;
+    if (controlRevision > lease.controlRevision || controlRevision === lease.controlRevision && stream.control.state === "agent") {
+      setLease((current) => current?.leaseId === lease.leaseId ? null : current);
+    }
+  }, [lease, stream.control.controlRevision, stream.control.state]);
   (0, import_react5.useEffect)(() => {
     if (expanded) return;
     const reveal = pendingReveal.current;
@@ -754,11 +777,9 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
     if (!lease || events.length === 0) return;
     await runtime().api(inputPath(sessionId, "input"), jsonRequest("POST", { leaseId: lease.leaseId, events }));
   };
-  const shortcut = (key, code, modifiers = []) => {
-    void command([
-      { type: "key", action: "down", key, code, modifiers },
-      { type: "key", action: "up", key, code, modifiers }
-    ]).catch((error) => toast.toast(apiError(error), "error"));
+  const navigate = (action2) => {
+    if (!lease) return;
+    void run("navigation", () => runtime().api(inputPath(sessionId, "navigation"), jsonRequest("POST", { leaseId: lease.leaseId, action: action2 })));
   };
   const pointerEvent = (event, actionName) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -871,7 +892,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
     void takeControl();
   }, disabled: pending !== null || stream.closed, children: strings.takeControl || "Take control" });
   const siteLabel = (className = "") => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: `browser-artifact__site ${className}`.trim(), children: [
-    data?.favicon ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { className: "browser-artifact__site-icon", src: data.favicon, alt: "" }) : null,
+    favicon ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { className: "browser-artifact__site-icon", src: favicon, alt: "" }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__site-text", children: site || strings.noAddress || "No address yet" })
   ] });
   if (!data) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "browser-artifact__fallback", children: artifact.fallback });
@@ -929,9 +950,9 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
             ) : null,
             /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__controls", children: [
               lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]) }),
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => shortcut("ArrowRight", "ArrowRight", ["Alt"]) }),
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => shortcut("r", "KeyR", ["Control"]) })
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => navigate("back"), disabled: pending !== null }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => navigate("forward"), disabled: pending !== null }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => navigate("reload"), disabled: pending !== null })
               ] }) : null,
               siteLabel(),
               controlAction(),

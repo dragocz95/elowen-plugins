@@ -1,13 +1,15 @@
 {
   "name": "browser",
-  "version": "0.2.4",
+  "version": "0.2.7",
   "apiVersion": "1",
   "requiresCore": "0.28.27",
   "description": "Persistent private browser automation for linked Elowen accounts. Each account gets its own Chrome profile and process with multiple tab sessions, accessibility-first typed actions, bounded live screencast streaming, exclusive user takeover, authenticated account-owned API routes, and a deny-by-default enforcing network proxy boundary.",
   "entry": "dist/index.js",
   "userGrantable": true,
   "capabilities": {
-    "reads": ["db"],
+    "reads": [
+      "db"
+    ],
     "network": true
   },
   "provides": {
@@ -39,13 +41,21 @@
       "heartbeat",
       "release",
       "input",
+      "navigation",
       "close",
       "admin-status",
       "admin-close"
     ]
   },
-  "planSafe": ["BrowserSnapshot", "BrowserTabs", "BrowserScreenshot", "BrowserAudit"],
-  "icons": { "Browser*": "🌐" },
+  "planSafe": [
+    "BrowserSnapshot",
+    "BrowserTabs",
+    "BrowserScreenshot",
+    "BrowserAudit"
+  ],
+  "icons": {
+    "Browser*": "\ud83c\udf10"
+  },
   "configSchema": [
     {
       "key": "runtime",
@@ -69,7 +79,10 @@
       "max": 20,
       "step": 1,
       "default": 4,
-      "display": { "control": "slider", "unit": "accounts" },
+      "display": {
+        "control": "slider",
+        "unit": "accounts"
+      },
       "hint": "Maximum number of account-owned Chrome processes running at once."
     },
     {
@@ -80,10 +93,17 @@
       "max": 8,
       "step": 1,
       "default": 2,
-      "display": { "control": "slider", "unit": "tabs" },
+      "display": {
+        "control": "slider",
+        "unit": "tabs"
+      },
       "hint": "Maximum number of browser tab sessions one account may keep open in its Chrome process."
     },
-    { "key": "timeouts", "label": "Timeouts", "type": "section" },
+    {
+      "key": "timeouts",
+      "label": "Timeouts",
+      "type": "section"
+    },
     {
       "key": "idleTimeoutMinutes",
       "label": "Idle timeout",
@@ -92,7 +112,10 @@
       "max": 60,
       "step": 1,
       "default": 10,
-      "display": { "control": "slider", "unit": "min" },
+      "display": {
+        "control": "slider",
+        "unit": "min"
+      },
       "hint": "Close a browser session after this long without agent, user or viewer activity."
     },
     {
@@ -103,7 +126,10 @@
       "max": 240,
       "step": 5,
       "default": 60,
-      "display": { "control": "slider", "unit": "min" },
+      "display": {
+        "control": "slider",
+        "unit": "min"
+      },
       "hint": "Absolute lifetime of one browser session, including time under user control."
     },
     {
@@ -114,19 +140,115 @@
       "max": 120,
       "step": 5,
       "default": 15,
-      "display": { "control": "slider", "unit": "s" },
+      "display": {
+        "control": "slider",
+        "unit": "s"
+      },
       "advanced": true,
       "hint": "How long an account's Chrome process remains available after its last tab closes. The profile stays on disk."
     },
-    { "key": "streaming", "label": "Live view", "type": "section" },
-    { "key": "webFps", "label": "Web frames per second", "type": "number", "min": 1, "max": 15, "step": 1, "default": 8, "display": { "control": "slider", "unit": "fps" } },
-    { "key": "cliFps", "label": "CLI frames per second", "type": "number", "min": 1, "max": 5, "step": 1, "default": 2, "display": { "control": "slider", "unit": "fps" } },
-    { "key": "jpegQuality", "label": "JPEG quality", "type": "number", "min": 40, "max": 90, "step": 5, "default": 70, "display": { "control": "slider", "unit": "%" } },
-    { "key": "maxViewportWidth", "label": "Maximum viewport width", "type": "number", "min": 800, "max": 1920, "step": 80, "default": 1280, "display": { "control": "slider", "unit": "px" } },
-    { "key": "maxViewersPerSession", "label": "Viewers per session", "type": "number", "min": 1, "max": 5, "step": 1, "default": 2, "display": { "control": "slider", "unit": "viewers" } },
-    { "key": "globalStreamMegabits", "label": "Global stream budget", "type": "number", "min": 2, "max": 50, "step": 1, "default": 12, "display": { "control": "slider", "unit": "Mbit/s" } },
-    { "key": "maxFrameKilobytes", "label": "Largest frame", "type": "number", "min": 100, "max": 2000, "step": 50, "default": 750, "display": { "control": "slider", "unit": "KiB" }, "advanced": true },
-    { "key": "control", "label": "Control", "type": "section" },
+    {
+      "key": "streaming",
+      "label": "Live view",
+      "type": "section"
+    },
+    {
+      "key": "webFps",
+      "label": "Web frames per second",
+      "type": "number",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 8,
+      "display": {
+        "control": "slider",
+        "unit": "fps"
+      }
+    },
+    {
+      "key": "cliFps",
+      "label": "CLI frames per second",
+      "type": "number",
+      "min": 1,
+      "max": 5,
+      "step": 1,
+      "default": 2,
+      "display": {
+        "control": "slider",
+        "unit": "fps"
+      }
+    },
+    {
+      "key": "jpegQuality",
+      "label": "JPEG quality",
+      "type": "number",
+      "min": 40,
+      "max": 90,
+      "step": 5,
+      "default": 70,
+      "display": {
+        "control": "slider",
+        "unit": "%"
+      }
+    },
+    {
+      "key": "maxViewportWidth",
+      "label": "Maximum viewport width",
+      "type": "number",
+      "min": 800,
+      "max": 1920,
+      "step": 80,
+      "default": 1280,
+      "display": {
+        "control": "slider",
+        "unit": "px"
+      }
+    },
+    {
+      "key": "maxViewersPerSession",
+      "label": "Viewers per session",
+      "type": "number",
+      "min": 1,
+      "max": 5,
+      "step": 1,
+      "default": 2,
+      "display": {
+        "control": "slider",
+        "unit": "viewers"
+      }
+    },
+    {
+      "key": "globalStreamMegabits",
+      "label": "Global stream budget",
+      "type": "number",
+      "min": 2,
+      "max": 50,
+      "step": 1,
+      "default": 12,
+      "display": {
+        "control": "slider",
+        "unit": "Mbit/s"
+      }
+    },
+    {
+      "key": "maxFrameKilobytes",
+      "label": "Largest frame",
+      "type": "number",
+      "min": 100,
+      "max": 2000,
+      "step": 50,
+      "default": 750,
+      "display": {
+        "control": "slider",
+        "unit": "KiB"
+      },
+      "advanced": true
+    },
+    {
+      "key": "control",
+      "label": "Control",
+      "type": "section"
+    },
     {
       "key": "takeoverLeaseSeconds",
       "label": "Takeover lease",
@@ -135,12 +257,44 @@
       "max": 600,
       "step": 30,
       "default": 120,
-      "display": { "control": "slider", "unit": "s" },
+      "display": {
+        "control": "slider",
+        "unit": "s"
+      },
       "hint": "User control must heartbeat within this lease. A stale modal cannot extend or release a newer lease."
     },
-    { "key": "maxInputEventsPerSecond", "label": "Input events per second", "type": "number", "min": 10, "max": 240, "step": 10, "default": 60, "display": { "control": "slider", "unit": "events/s" }, "advanced": true },
-    { "key": "resourceLimits", "label": "Resource limits", "type": "section" },
-    { "key": "maxChromeRssMb", "label": "Chrome RSS per account", "type": "number", "min": 256, "max": 2048, "step": 64, "default": 768, "display": { "control": "slider", "unit": "MB" } },
+    {
+      "key": "maxInputEventsPerSecond",
+      "label": "Input events per second",
+      "type": "number",
+      "min": 10,
+      "max": 240,
+      "step": 10,
+      "default": 60,
+      "display": {
+        "control": "slider",
+        "unit": "events/s"
+      },
+      "advanced": true
+    },
+    {
+      "key": "resourceLimits",
+      "label": "Resource limits",
+      "type": "section"
+    },
+    {
+      "key": "maxChromeRssMb",
+      "label": "Chrome RSS per account",
+      "type": "number",
+      "min": 256,
+      "max": 2048,
+      "step": 64,
+      "default": 768,
+      "display": {
+        "control": "slider",
+        "unit": "MB"
+      }
+    },
     {
       "key": "maxTargetsPerUser",
       "label": "Chrome targets per account",
@@ -149,7 +303,10 @@
       "max": 32,
       "step": 1,
       "default": 12,
-      "display": { "control": "slider", "unit": "targets" },
+      "display": {
+        "control": "slider",
+        "unit": "targets"
+      },
       "hint": "Includes pages, popups, workers and other Chrome targets. New targets over the limit are closed."
     },
     {
@@ -158,8 +315,34 @@
       "type": "section",
       "hint": "All Chrome traffic must pass through a loopback proxy that resolves, approves and pins the destination address before dialing."
     },
-    { "key": "proxyConcurrency", "label": "Proxy concurrency", "type": "number", "min": 1, "max": 200, "step": 1, "default": 24, "display": { "control": "slider", "unit": "connections" }, "advanced": true },
-    { "key": "proxyRequestsPerMinute", "label": "Proxy requests per minute", "type": "number", "min": 30, "max": 6000, "step": 30, "default": 600, "display": { "control": "slider", "unit": "requests" }, "advanced": true },
+    {
+      "key": "proxyConcurrency",
+      "label": "Proxy concurrency",
+      "type": "number",
+      "min": 1,
+      "max": 200,
+      "step": 1,
+      "default": 24,
+      "display": {
+        "control": "slider",
+        "unit": "connections"
+      },
+      "advanced": true
+    },
+    {
+      "key": "proxyRequestsPerMinute",
+      "label": "Proxy requests per minute",
+      "type": "number",
+      "min": 30,
+      "max": 6000,
+      "step": 30,
+      "default": 600,
+      "display": {
+        "control": "slider",
+        "unit": "requests"
+      },
+      "advanced": true
+    },
     {
       "key": "privateNetworkAllowlist",
       "label": "Private network allowlist",
@@ -175,10 +358,19 @@
     "css": "web/index.css",
     "requiresApiVersion": 15,
     "account": [
-      { "id": "profile", "label": "Browser", "icon": "Globe" }
+      {
+        "id": "profile",
+        "label": "Browser",
+        "icon": "Globe"
+      }
     ],
     "settings": [
-      { "id": "runtime", "label": "Status", "icon": "Activity", "placement": "pluginDetail" }
+      {
+        "id": "runtime",
+        "label": "Status",
+        "icon": "Activity",
+        "placement": "pluginDetail"
+      }
     ],
     "strings": {
       "sessionTitle": "Browser session",
@@ -199,7 +391,7 @@
       "enlarge": "Enlarge browser",
       "closeView": "Close view",
       "dismissNarration": "Dismiss agent message",
-      "waitingFrame": "Waiting for the browser image…",
+      "waitingFrame": "Waiting for the browser image\u2026",
       "browserViewport": "Live browser view",
       "waitingForUser": "Waiting for user input",
       "noAddress": "No address yet",
@@ -241,13 +433,13 @@
       "dep_label_profile_storage": "Profile storage",
       "dep_label_chat_artifacts": "Live view in chat",
       "dep_chrome_missing": "No supported Chrome or Chromium executable was found on this host.",
-      "dep_chrome_missing_fix": "Install Google Chrome or Chromium, or set the executable in this plugin’s settings.",
+      "dep_chrome_missing_fix": "Install Google Chrome or Chromium, or set the executable in this plugin\u2019s settings.",
       "dep_chrome_unusable": "The configured executable is missing or cannot be executed by the daemon account.",
-      "dep_chrome_unusable_fix": "Correct the Chrome executable in this plugin’s settings, or clear it to detect one automatically.",
+      "dep_chrome_unusable_fix": "Correct the Chrome executable in this plugin\u2019s settings, or clear it to detect one automatically.",
       "dep_control_missing": "puppeteer-core is missing from the daemon runtime, or does not expose launch().",
-      "dep_control_missing_fix": "The plugin shares the Elowen daemon’s runtime dependencies: reinstall or update Elowen with its runtime dependencies, then restart the daemon.",
+      "dep_control_missing_fix": "The plugin shares the Elowen daemon\u2019s runtime dependencies: reinstall or update Elowen with its runtime dependencies, then restart the daemon.",
       "dep_proxy_missing": "proxy-chain 3.0 cannot be loaded, so browser launch is refused.",
-      "dep_proxy_missing_fix": "The plugin shares the Elowen daemon’s runtime dependencies: reinstall or update Elowen with its runtime dependencies, then restart the daemon.",
+      "dep_proxy_missing_fix": "The plugin shares the Elowen daemon\u2019s runtime dependencies: reinstall or update Elowen with its runtime dependencies, then restart the daemon.",
       "dep_proxy_unsupported": "The proxy adapter cannot pin DNS per request, so browser launch is refused.",
       "dep_proxy_unsupported_fix": "Restore the bundled proxy adapter; a browser session may only reach a host the navigation policy resolved.",
       "dep_storage_unwritable": "The profile directory cannot be written by the daemon account.",

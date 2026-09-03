@@ -60,7 +60,7 @@ const MODIFIERS = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
 const BUTTONS = new Set(['left', 'middle', 'right']);
 const SAFE_NAMED_KEYS = new Set([
     'Enter', 'Tab', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-    'Home', 'End', 'PageUp', 'PageDown', 'Space', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
+    'Home', 'End', 'PageUp', 'PageDown', 'Space', 'Alt', 'Control', 'Meta', 'Shift', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
 ]);
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 function modifierMask(modifiers) {
@@ -78,18 +78,21 @@ function validateKey(key) {
         return key === 'Space' ? ' ' : key;
     throw new Error(`Unsupported key: ${key}`);
 }
+const MODIFIER_CODES = { Alt: 'AltLeft', Control: 'ControlLeft', Meta: 'MetaLeft', Shift: 'ShiftLeft' };
 const inferredCode = (key) => {
     if (/^[a-z]$/i.test(key))
         return `Key${key.toUpperCase()}`;
     if (/^[0-9]$/.test(key))
         return `Digit${key}`;
+    if (MODIFIER_CODES[key])
+        return MODIFIER_CODES[key];
     if (SAFE_NAMED_KEYS.has(key))
         return key;
     return undefined;
 };
 const NAMED_VIRTUAL_KEYS = {
-    Backspace: 8, Tab: 9, Enter: 13, Escape: 27, Space: 32, PageUp: 33, PageDown: 34,
-    End: 35, Home: 36, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46,
+    Backspace: 8, Tab: 9, Enter: 13, Shift: 16, Control: 17, Alt: 18, Escape: 27, Space: 32, PageUp: 33, PageDown: 34,
+    End: 35, Home: 36, Meta: 91, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46,
     F1: 112, F2: 113, F3: 114, F4: 115, F5: 116, F6: 117,
     F7: 118, F8: 119, F9: 120, F10: 121, F11: 122, F12: 123,
 };

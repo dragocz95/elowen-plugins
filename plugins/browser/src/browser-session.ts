@@ -107,6 +107,8 @@ export class BrowserSession {
   private readonly takeoverWaiters = new Set<AgentWaiter>();
   private readonly listeners = new Map<string, (event: BrowserActionEvent) => Promise<void>>();
   private lease: ControlLease | null = null;
+  private controlRevisionValue = 0;
+  private controlReasonValue: string | null = null;
   private leaseTimer: NodeJS.Timeout | null = null;
   private hardExpiryTimer: NodeJS.Timeout | null = null;
   private lastActivityAt: number;
@@ -156,10 +158,13 @@ export class BrowserSession {
   get currentLease(): { expiresAt: number } | null {
     return this.lease ? { expiresAt: this.lease.expiresAt } : null;
   }
+  get controlRevision(): number { return this.controlRevisionValue; }
+  get controlReason(): string | null { return this.controlReasonValue; }
   /** The agent pointer a joining viewer should start from; null until the agent has moved it. */
   get currentCursor(): { x: number; y: number } | null {
     return this.lastCursorValue ? { ...this.lastCursorValue } : null;
   }
+  get currentFavicon(): string | null { return this.faviconDataUrl; }
 
   async setArtifact(ref: BrowserArtifactRef | null): Promise<void> {
     if (this.stateValue === 'closing' || this.stateValue === 'closed' || this.stateValue === 'error') {
@@ -416,11 +421,13 @@ export class BrowserSession {
     });
   }
 
-  claimTakeover(): Promise<{ leaseId: string; expiresAt: number }> {
+  claimTakeover(): Promise<{ leaseId: string; expiresAt: number; controlRevision: number }> {
     return this.queue.run(async () => {
       this.assertOpen();
       if (this.lease && this.lease.expiresAt > this.deps.clock.now()) throw new Error('Browser is already under user control.');
       const now = this.deps.clock.now();
+      const controlRevision = ++this.controlRevisionValue;
+      this.controlReasonValue = null;
       this.lease = {
         leaseId: randomBytes(24).toString('base64url'),
         claimedAt: now,
@@ -432,20 +439,20 @@ export class BrowserSession {
       this.persist({ state: 'user' });
       // The lease id is returned only to the claimant. Broadcasting it would let an older modal adopt and
       // release a newer claim, defeating the generation guarantee the opaque token exists to provide.
-      this.emit({ kind: 'control', data: { state: 'user', expiresAt: this.lease.expiresAt } });
+      this.emit({ kind: 'control', data: { state: 'user', expiresAt: this.lease.expiresAt, controlRevision } });
       await this.updateArtifact();
-      return { leaseId: this.lease.leaseId, expiresAt: this.lease.expiresAt };
+      return { leaseId: this.lease.leaseId, expiresAt: this.lease.expiresAt, controlRevision };
     });
   }
 
-  heartbeat(leaseId: string): Promise<{ expiresAt: number }> {
-    return this.queue.run(async () => {
-      const lease = this.requireLease(leaseId);
-      lease.expiresAt = Math.min(this.deps.clock.now() + this.deps.config().takeoverLeaseMs, this.hardExpiresAt);
-      this.scheduleLeaseExpiry();
-      this.touch();
-      return { expiresAt: lease.expiresAt };
-    });
+  async heartbeat(leaseId: string): Promise<{ expiresAt: number; controlRevision: number }> {
+    // Navigation deliberately owns the serial queue until Chrome settles. A heartbeat is only a lease
+    // renewal and must not wait behind that network operation, or a slow page can expire its own driver.
+    const lease = this.requireLease(leaseId);
+    lease.expiresAt = Math.min(this.deps.clock.now() + this.deps.config().takeoverLeaseMs, this.hardExpiresAt);
+    this.scheduleLeaseExpiry();
+    this.touch();
+    return { expiresAt: lease.expiresAt, controlRevision: this.controlRevisionValue };
   }
 
   releaseTakeover(leaseId: string): Promise<void> {
@@ -459,7 +466,9 @@ export class BrowserSession {
     }
     this.assertOpen();
     this.touch('Waiting for user control');
-    this.emit({ kind: 'control', data: { state: 'agent', reason: 'requested' } });
+    this.controlReasonValue = 'requested';
+    const controlRevision = ++this.controlRevisionValue;
+    this.emit({ kind: 'control', data: { state: 'agent', reason: this.controlReasonValue, controlRevision } });
     const released = this.waitForTakeoverRelease(signal);
     void released.catch(() => {});
     try {
@@ -472,7 +481,9 @@ export class BrowserSession {
         if (this.stateValue === 'user' && this.lease) await this.returnToAgent('aborted');
         else if (this.stateValue === 'agent') {
           this.touch('Takeover request cancelled');
-          this.emit({ kind: 'control', data: { state: 'agent', reason: 'cancelled' } });
+          this.controlReasonValue = 'cancelled';
+          const controlRevision = ++this.controlRevisionValue;
+          this.emit({ kind: 'control', data: { state: 'agent', reason: this.controlReasonValue, controlRevision } });
           await this.updateArtifact();
         }
       });
@@ -486,6 +497,49 @@ export class BrowserSession {
       await this.input.dispatchUserBatch(events);
       this.snapshotValue = null;
       this.touch('User input');
+    });
+  }
+
+  dispatchUserNavigation(leaseId: string, action: 'back' | 'forward' | 'reload'): Promise<void> {
+    return this.queue.run(async () => {
+      this.requireLease(leaseId);
+      const options = { waitUntil: 'domcontentloaded', timeout: 30_000 };
+      const beforeUrl = this.page.url();
+      const beforeLoader = await this.mainFrameLoaderId();
+      let navigationError: unknown = null;
+      try {
+        if (action === 'back') {
+          if (!this.page.goBack) throw new Error('Browser history navigation is unavailable.');
+          await this.page.goBack(options);
+        } else if (action === 'forward') {
+          if (!this.page.goForward) throw new Error('Browser history navigation is unavailable.');
+          await this.page.goForward(options);
+        } else {
+          if (!this.page.reload) throw new Error('Browser page reload is unavailable.');
+          await this.page.reload(options);
+        }
+      } catch (error) {
+        navigationError = error;
+      }
+      let afterLoader = await this.mainFrameLoaderId();
+      let committed = this.page.url() !== beforeUrl || (!!beforeLoader && !!afterLoader && beforeLoader !== afterLoader);
+      if (navigationError && !committed) {
+        // Puppeteer's timeout does not cancel the renderer navigation. Stop it before reporting failure,
+        // then re-check the committed document after Chrome acknowledges the cancellation.
+        if (!await this.stopLoading()) {
+          this.recycleBrowser('navigation cancellation could not be confirmed', 'navigation_state_unknown');
+          throw new Error('Browser navigation state is unknown; the browser is being recycled.');
+        }
+        afterLoader = await this.mainFrameLoaderId();
+        committed = this.page.url() !== beforeUrl || (!!beforeLoader && !!afterLoader && beforeLoader !== afterLoader);
+      }
+      this.clearCursor();
+      if (navigationError && !committed) {
+        this.snapshotValue = null;
+        this.touch();
+        throw navigationError;
+      }
+      await this.finishMutation(action === 'reload' ? 'Reloaded the page' : `Navigated ${action}`);
     });
   }
 
@@ -671,7 +725,7 @@ export class BrowserSession {
    *  process is the only thing that makes the answer knowable again — the same recovery the 45 second
    *  operation deadline already takes, for the same reason. Fire and forget: the caller is a teardown
    *  path or a failing tool, and neither can wait for a browser to die. */
-  private recycleBrowser(reason: string): void {
+  private recycleBrowser(reason: string, closeReason = 'trace_state_unknown'): void {
     this.deps.logger.warn(`browser session ${this.id} is being recycled: ${reason}`);
     // The process is closed even when this session is ALREADY ending: the Chrome process outlives its
     // sessions — the pool keeps it for the account's other tabs and for the close grace window — so a
@@ -683,7 +737,7 @@ export class BrowserSession {
       this.persist({ state: 'error' });
     }
     void this.deps.forceCloseBrowser().finally(() => {
-      if (!alreadyEnding) void this.close('trace_state_unknown');
+      if (!alreadyEnding) void this.close(closeReason);
     });
   }
 
@@ -757,6 +811,8 @@ export class BrowserSession {
   }
 
   private async returnToAgent(reason: string): Promise<void> {
+    const controlRevision = ++this.controlRevisionValue;
+    this.controlReasonValue = reason;
     this.lease = null;
     this.clearLeaseTimer();
     this.snapshotValue = null;
@@ -764,7 +820,7 @@ export class BrowserSession {
     this.persist({ state: this.stateValue });
     this.resolveWaiters();
     this.resolveTakeoverWaiters();
-    this.emit({ kind: 'control', data: { state: 'agent', reason } });
+    this.emit({ kind: 'control', data: { state: 'agent', reason, controlRevision } });
     await this.updateArtifact();
   }
 
@@ -775,7 +831,9 @@ export class BrowserSession {
     const delay = Math.max(0, this.lease!.expiresAt - this.deps.clock.now());
     this.leaseTimer = setTimeout(() => {
       void this.queue.run(async () => {
-        if (this.lease?.leaseId === leaseId) await this.returnToAgent('expired');
+        if (this.lease?.leaseId !== leaseId) return;
+        if (this.lease.expiresAt <= this.deps.clock.now()) await this.returnToAgent('expired');
+        else this.scheduleLeaseExpiry();
       });
     }, delay);
     this.leaseTimer.unref();
@@ -797,6 +855,37 @@ export class BrowserSession {
   private clearHardExpiryTimer(): void {
     if (this.hardExpiryTimer) clearTimeout(this.hardExpiryTimer);
     this.hardExpiryTimer = null;
+  }
+
+  private async stopLoading(): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      return await Promise.race([
+        this.cdp.send('Page.stopLoading').then(() => true).catch(() => false),
+        new Promise<false>((resolve) => {
+          timer = setTimeout(() => resolve(false), 1_000);
+          timer.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private async mainFrameLoaderId(): Promise<string | null> {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const tree = await Promise.race([
+        this.cdp.send<{ frameTree?: { frame?: { loaderId?: string } } }>('Page.getFrameTree').catch(() => ({ frameTree: undefined })),
+        new Promise<{ frameTree?: undefined }>((resolve) => {
+          timer = setTimeout(() => resolve({ frameTree: undefined }), 1_000);
+          timer.unref?.();
+        }),
+      ]);
+      return typeof tree.frameTree?.frame?.loaderId === 'string' ? tree.frameTree.frame.loaderId : null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private async captureSnapshot(): Promise<AccessibilitySnapshot> {
@@ -835,17 +924,22 @@ export class BrowserSession {
     if (this.faviconPageUrl !== url) {
       this.faviconPageUrl = url;
       this.faviconDataUrl = null;
+      this.emit({ kind: 'favicon', data: { favicon: null } });
       this.faviconGeneration += 1;
       refreshFavicon = true;
     }
-    await this.deps.artifacts.update(this.artifactRef, artifactData({
-      browserSessionId: this.id,
-      state: this.stateValue,
-      title,
-      url,
-      favicon: this.faviconDataUrl,
-      lastAction: this.lastAction,
-    }));
+    try {
+      await this.deps.artifacts.update(this.artifactRef, artifactData({
+        browserSessionId: this.id,
+        state: this.stateValue,
+        title,
+        url,
+        favicon: this.faviconDataUrl,
+        lastAction: this.lastAction,
+      }));
+    } catch (error) {
+      this.deps.logger.warn(`browser artifact update failed for session ${this.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     if (refreshFavicon) this.refreshFavicon(url, this.faviconGeneration, this.cdp);
   }
 
@@ -858,6 +952,7 @@ export class BrowserSession {
       const ref = this.artifactRef;
       if (!ref) return;
       this.faviconDataUrl = favicon;
+      this.emit({ kind: 'favicon', data: { favicon } });
       await this.deps.artifacts.update(ref, artifactData({
         browserSessionId: this.id,
         state: this.stateValue,

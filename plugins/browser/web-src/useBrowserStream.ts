@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 
 interface BrowserFrame { data: string; mimeType: string; width: number; height: number; timestamp: number }
 interface BrowserCursor { x: number; y: number; moving?: boolean; clicking?: boolean }
-interface BrowserControl { state: 'agent' | 'user'; leaseId?: string; expiresAt?: number; reason?: string }
+interface BrowserControl { state: 'agent' | 'user'; expiresAt?: number; reason?: string; controlRevision: number }
 interface BrowserAction { kind: string; target?: string }
 export interface BrowserStreamState {
   frame: BrowserFrame | null;
   cursor: BrowserCursor | null;
+  favicon: string | null;
   control: BrowserControl;
   action: BrowserAction | null;
   connected: boolean;
+  hasControlSnapshot: boolean;
   closed: boolean;
   error: string | null;
 }
@@ -17,9 +19,11 @@ export interface BrowserStreamState {
 const initialState: BrowserStreamState = {
   frame: null,
   cursor: null,
-  control: { state: 'agent' },
+  favicon: null,
+  control: { state: 'agent', controlRevision: 0 },
   action: null,
   connected: false,
+  hasControlSnapshot: false,
   closed: false,
   error: null,
 };
@@ -77,6 +81,13 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
         }));
         return;
       }
+      if (frame.event === 'favicon') {
+        if (data.favicon === null) setState((value) => ({ ...value, favicon: null }));
+        else if (typeof data.favicon === 'string' && data.favicon.length <= 40 * 1024 && /^data:image\//i.test(data.favicon)) {
+          setState((value) => ({ ...value, favicon: data.favicon as string }));
+        }
+        return;
+      }
       if (frame.event === 'cursor' && data.cleared === true) {
         // The page the pointer was on is gone (a navigation, another tab): drawing the old point over a
         // new document would put the agent's arrow somewhere it has never been.
@@ -113,23 +124,35 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
         const lease = frame.event === 'session' ? object(data.lease) : null;
         const controlState = data.state === 'user' ? 'user' : 'agent';
         const rawExpiresAt = lease?.expiresAt ?? data.expiresAt;
+        const rawRevision = data.controlRevision;
         // The opening frame replays where the agent left its pointer, so a viewer that joins between two
         // agent moves starts with one rather than waiting for the next move to reveal it.
         const seeded = object(data.cursor);
-        setState((value) => ({
-          ...value,
-          connected: true,
-          closed: false,
-          error: null,
-          cursor: value.cursor ?? (typeof seeded?.x === 'number' && typeof seeded?.y === 'number'
-            ? { x: seeded.x, y: seeded.y, moving: false }
-            : null),
-          control: {
-            state: controlState,
-            expiresAt: typeof rawExpiresAt === 'number' ? rawExpiresAt : undefined,
-            reason: typeof data.reason === 'string' ? data.reason : undefined,
-          },
-        }));
+        setState((value) => {
+          const controlRevision = typeof rawRevision === 'number' ? rawRevision : value.control.controlRevision;
+          if (controlRevision < value.control.controlRevision) return value;
+          return {
+            ...value,
+            connected: true,
+            hasControlSnapshot: true,
+            closed: false,
+            error: null,
+            cursor: value.cursor ?? (typeof seeded?.x === 'number' && typeof seeded?.y === 'number'
+              ? { x: seeded.x, y: seeded.y, moving: false }
+              : null),
+            favicon: data.favicon === null
+              ? null
+              : typeof data.favicon === 'string' && data.favicon.length <= 40 * 1024 && /^data:image\//i.test(data.favicon)
+                ? data.favicon
+                : value.favicon,
+            control: {
+              state: controlState,
+              expiresAt: typeof rawExpiresAt === 'number' ? rawExpiresAt : undefined,
+              reason: typeof data.reason === 'string' ? data.reason : undefined,
+              controlRevision,
+            },
+          };
+        });
         return;
       }
       if (frame.event === 'closed') {

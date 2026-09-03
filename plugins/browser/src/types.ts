@@ -51,6 +51,9 @@ export interface PageLike {
   url(): string;
   title(): Promise<string>;
   goto(url: string, options?: Record<string, unknown>): Promise<unknown>;
+  goBack?(options?: Record<string, unknown>): Promise<unknown>;
+  goForward?(options?: Record<string, unknown>): Promise<unknown>;
+  reload?(options?: Record<string, unknown>): Promise<unknown>;
   close(options?: Record<string, unknown>): Promise<void>;
   isClosed?(): boolean;
   createCDPSession(): Promise<CDPSessionLike>;
@@ -162,7 +165,7 @@ export interface ScreencastFrame {
 }
 
 export interface BrowserActionEvent {
-  kind: 'cursor' | 'action' | 'control' | 'tab' | 'closed';
+  kind: 'cursor' | 'action' | 'control' | 'favicon' | 'tab' | 'closed';
   data: Record<string, unknown>;
 }
 

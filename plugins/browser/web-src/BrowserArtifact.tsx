@@ -13,7 +13,7 @@ interface ArtifactData {
   favicon: string | null;
   lastAction: string | null;
 }
-interface Lease { leaseId: string; expiresAt: number }
+interface Lease { leaseId: string; expiresAt: number; controlRevision: number }
 
 const NARRATION_VISIBLE_MS = 10_000;
 
@@ -153,7 +153,8 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const title = data?.title || strings.sessionTitle || 'Browser session';
   const url = data?.url || '';
   const site = url ? siteName(url) : '';
-  const state = stream.closed ? 'closed' : lease || stream.control.state === 'user' || data?.state === 'user' ? 'user' : data?.state ?? 'agent';
+  const favicon = stream.hasControlSnapshot ? stream.favicon : data?.favicon;
+  const state = stream.closed ? 'closed' : lease ? 'user' : stream.hasControlSnapshot ? stream.control.state : data?.state ?? 'agent';
   const takeoverRequested = stream.control.state === 'agent' && stream.control.reason === 'requested';
   /** What the agent is SAYING while you watch it browse (host API 14). The canvas covers the transcript,
    *  so without this the reply streams on underneath it. The host already bounds and clears the string —
@@ -198,13 +199,17 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
           const next = value as { expiresAt?: number };
           if (typeof next.expiresAt === 'number') setLease((current) => current?.leaseId === lease.leaseId ? { ...current, expiresAt: next.expiresAt! } : current);
         })
-        .catch(() => setLease((current) => current?.leaseId === lease.leaseId ? null : current));
+        .catch(() => {});
     }, 20_000);
     return () => clearInterval(interval);
   }, [lease, sessionId]);
   useEffect(() => {
-    if (stream.control.state === 'agent') setLease(null);
-  }, [stream.control.state]);
+    if (!lease) return;
+    const controlRevision = stream.control.controlRevision;
+    if (controlRevision > lease.controlRevision || (controlRevision === lease.controlRevision && stream.control.state === 'agent')) {
+      setLease((current) => current?.leaseId === lease.leaseId ? null : current);
+    }
+  }, [lease, stream.control.controlRevision, stream.control.state]);
   useEffect(() => {
     // Handing the reader back to the question card is TWO moves in a fixed order, and running them in one
     // go got the order wrong: `reveal` focused the card, and then the closing overlay's own cleanup —
@@ -260,11 +265,9 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
     if (!lease || events.length === 0) return;
     await runtime().api(inputPath(sessionId, 'input'), jsonRequest('POST', { leaseId: lease.leaseId, events }));
   };
-  const shortcut = (key: string, code: string, modifiers: string[] = []): void => {
-    void command([
-      { type: 'key', action: 'down', key, code, modifiers },
-      { type: 'key', action: 'up', key, code, modifiers },
-    ]).catch((error) => toast.toast(apiError(error), 'error'));
+  const navigate = (action: 'back' | 'forward' | 'reload'): void => {
+    if (!lease) return;
+    void run('navigation', () => runtime().api(inputPath(sessionId, 'navigation'), jsonRequest('POST', { leaseId: lease.leaseId, action })));
   };
 
   const pointerEvent = (event: PointerEvent<HTMLDivElement>, actionName: 'move' | 'down' | 'up'): Record<string, unknown> => {
@@ -380,7 +383,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
       : <Button variant="ghost" icon={Hand} onClick={() => { void takeControl(); }} disabled={pending !== null || stream.closed}>{strings.takeControl || 'Take control'}</Button>;
   const siteLabel = (className = ''): ReactNode => (
     <span className={`browser-artifact__site ${className}`.trim()}>
-      {data?.favicon ? <img className="browser-artifact__site-icon" src={data.favicon} alt="" /> : null}
+      {favicon ? <img className="browser-artifact__site-icon" src={favicon} alt="" /> : null}
       <span className="browser-artifact__site-text">{site || strings.noAddress || 'No address yet'}</span>
     </span>
   );
@@ -448,9 +451,9 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
             <div className="browser-artifact__controls">
               {lease ? (
                 <>
-                  <GlassButton icon={ArrowLeft} label={strings.back || 'Back'} onClick={() => shortcut('ArrowLeft', 'ArrowLeft', ['Alt'])} />
-                  <GlassButton icon={ArrowRight} label={strings.forward || 'Forward'} onClick={() => shortcut('ArrowRight', 'ArrowRight', ['Alt'])} />
-                  <GlassButton icon={RotateCw} label={strings.reload || 'Reload'} onClick={() => shortcut('r', 'KeyR', ['Control'])} />
+                  <GlassButton icon={ArrowLeft} label={strings.back || 'Back'} onClick={() => navigate('back')} disabled={pending !== null} />
+                  <GlassButton icon={ArrowRight} label={strings.forward || 'Forward'} onClick={() => navigate('forward')} disabled={pending !== null} />
+                  <GlassButton icon={RotateCw} label={strings.reload || 'Reload'} onClick={() => navigate('reload')} disabled={pending !== null} />
                 </>
               ) : null}
               {siteLabel()}

@@ -1,3 +1,9 @@
+import { boundText } from './redaction.js';
+const MAX_ARTIFACT_TITLE = 512;
+const MAX_ARTIFACT_URL = 2_048;
+const MAX_ARTIFACT_FAVICON = 4_096;
+const MAX_ARTIFACT_ACTION = 512;
+const MAX_ARTIFACT_FALLBACK = 2_000;
 const artifactPayload = (data) => ({
     browserSessionId: data.browserSessionId,
     state: data.state,
@@ -9,7 +15,7 @@ const artifactPayload = (data) => ({
 const fallbackText = (data) => {
     const state = data.state === 'user' ? 'User control' : data.state === 'agent' ? 'Agent control' : data.state;
     const location = data.title || data.url || 'Browser session';
-    return `${location}\n${state}${data.lastAction ? ` · ${data.lastAction}` : ''}`;
+    return boundText(`${location}\n${state}${data.lastAction ? ` · ${data.lastAction}` : ''}`, MAX_ARTIFACT_FALLBACK);
 };
 export class ElowenArtifactPublisher {
     context;
@@ -60,10 +66,10 @@ export function artifactData(input) {
     return {
         browserSessionId: input.browserSessionId,
         state: input.state,
-        title: input.title ?? '',
-        url: input.url ?? '',
-        favicon: input.favicon ?? null,
-        lastAction: input.lastAction ?? null,
+        title: boundText(input.title ?? '', MAX_ARTIFACT_TITLE),
+        url: boundText(input.url ?? '', MAX_ARTIFACT_URL),
+        favicon: input.favicon && input.favicon.length <= MAX_ARTIFACT_FAVICON ? input.favicon : null,
+        lastAction: input.lastAction ? boundText(input.lastAction, MAX_ARTIFACT_ACTION) : null,
     };
 }
 export function parseArtifactRef(value) {

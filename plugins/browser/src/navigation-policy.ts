@@ -12,7 +12,7 @@ export class NavigationPolicyError extends Error {
   }
 }
 
-interface ResolvedAddress {
+export interface ResolvedAddress {
   address: string;
   family: 4 | 6;
 }
@@ -30,8 +30,7 @@ export interface PinnedTarget {
   url: URL;
   hostname: string;
   port: number;
-  address: string;
-  family: 4 | 6;
+  addresses: readonly ResolvedAddress[];
 }
 
 interface ParsedCidr {
@@ -40,6 +39,7 @@ interface ParsedCidr {
   network: bigint;
 }
 
+const MAX_PINNED_ADDRESSES_PER_FAMILY = 4;
 const BLOCKED_PORTS = new Set([22, 25, 111, 135, 137, 138, 139, 445, 2375, 2376, 3306, 5432, 6379, 9200, 11211]);
 const BLOCKED_HOSTS = new Set(['localhost', 'localhost.localdomain', 'metadata.google.internal', 'instance-data', 'instance-data.ec2.internal']);
 const METADATA_ADDRESSES = new Set(['169.254.169.254', '100.100.100.200', 'fd00:ec2::254']);
@@ -197,21 +197,31 @@ export class NavigationPolicy {
     const literal = ipValue(hostname);
     const addresses = literal ? [{ address: hostname, family: literal.family }] : await this.resolver.resolve(hostname);
     if (addresses.length === 0) throw new NavigationPolicyError('The destination hostname did not resolve.');
-    const unique = [...new Map(addresses.map((entry) => [entry.address, entry])).values()];
-    for (const entry of unique) {
-      if (!ipValue(entry.address)) throw new NavigationPolicyError('The resolver returned an invalid address.');
-      const blocked = METADATA_ADDRESSES.has(entry.address.toLowerCase()) || BLOCKED_CIDRS.some((cidr) => inCidr(entry.address, cidr));
-      if (blocked && !this.allowlist.permits(hostname, entry.address)) {
+    const unique = new Map<string, ResolvedAddress>();
+    for (const entry of addresses) {
+      const address = mappedIpv4Address(entry.address) ?? entry.address.toLowerCase();
+      const parsed = ipValue(address);
+      if (!parsed) throw new NavigationPolicyError('The resolver returned an invalid address.');
+      if (unique.has(address)) continue;
+      const blocked = METADATA_ADDRESSES.has(address) || BLOCKED_CIDRS.some((cidr) => inCidr(address, cidr));
+      if (blocked && !this.allowlist.permits(hostname, address)) {
         throw new NavigationPolicyError('The destination resolves to a blocked network address.');
       }
+      unique.set(address, { address, family: parsed.family });
     }
-    const selected = unique[0]!;
+    const validated = [...unique.values()];
+    const counts = new Map<4 | 6, number>([[4, 0], [6, 0]]);
+    const pinned = validated.filter((entry) => {
+      const count = counts.get(entry.family) ?? 0;
+      if (count >= MAX_PINNED_ADDRESSES_PER_FAMILY) return false;
+      counts.set(entry.family, count + 1);
+      return true;
+    });
     return {
       url,
       hostname,
       port: url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80,
-      address: selected.address,
-      family: selected.family,
+      addresses: pinned.map((entry) => ({ ...entry })),
     };
   }
 }
@@ -239,9 +249,17 @@ function createPinnedDnsLookup(target: PinnedTarget): PinnedDnsLookup {
       return;
     }
     queueMicrotask(() => {
-      const all = !!options && typeof options === 'object' && (options as { all?: unknown }).all === true;
-      if (all) callback(null, [{ address: target.address, family: target.family }]);
-      else callback(null, target.address, target.family);
+      const lookupOptions = options && typeof options === 'object' ? options as { all?: unknown; family?: unknown } : {};
+      const family = lookupOptions.family === 4 || lookupOptions.family === 6 ? lookupOptions.family : null;
+      const candidates = family ? target.addresses.filter((entry) => entry.family === family) : target.addresses;
+      if (candidates.length === 0) {
+        const error = new Error('Proxy DNS lookup found no approved address for the requested family.') as NodeJS.ErrnoException;
+        error.code = 'ENOTFOUND';
+        callback(error);
+        return;
+      }
+      if (lookupOptions.all === true) callback(null, candidates.map((entry) => ({ ...entry })));
+      else callback(null, candidates[0]!.address, candidates[0]!.family);
     });
   };
 }
@@ -350,7 +368,6 @@ export class DynamicProxyChainAdapter implements ProxyChainPinnedAdapter {
         return {
           requestAuthentication: false,
           dnsLookup: createPinnedDnsLookup(target),
-          ipFamily: target.family,
         };
       },
     });
