@@ -230,4 +230,25 @@ describe('GitHub plugin UI', () => {
     expect(screen.getByDisplayValue('base')).toBeInTheDocument();
     expect(screen.getByDisplayValue('fork')).toBeInTheDocument();
   });
+
+  // The plugin's per-account settings get their own entry in the host's Account rail. The rail titles it
+  // from `userConfigLabel`, and before this plugin declared one it fell back to the manifest description —
+  // so a Czech Account page carried "Account-scoped GitHub CLI device authentication for repository
+  // mappings, secure Sandbox branch publishing, ..." as a menu title.
+  it('names its per-account settings in two words, in every locale it ships', async () => {
+    expect(manifest.userConfigLabel).toBe('GitHub');
+    // Short enough to be a menu entry at all: the failure being closed was a whole sentence in the rail.
+    expect(manifest.userConfigLabel.length).toBeLessThanOrEqual(24);
+    expect(manifest.userConfigLabel).not.toBe(manifest.description);
+
+    for (const locale of ['cs', 'sk'] as const) {
+      const translation = (await import(`../plugins/github/i18n/${locale}.json`, { with: { type: 'json' } })).default as {
+        userConfigLabel?: string; description?: string;
+      };
+      // Translated outright rather than inherited, so no English reaches a locale the plugin covers.
+      expect(translation.userConfigLabel).toBe('GitHub');
+      expect(translation.description).toBeTruthy();
+      expect(translation.description).not.toBe(manifest.description);
+    }
+  });
 });

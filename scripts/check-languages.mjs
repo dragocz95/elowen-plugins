@@ -53,7 +53,7 @@ for (const name of pluginNames) {
     }
 
     for (const key of Object.keys(i18n)) {
-      if (!['description', 'fields', 'web'].includes(key)) {
+      if (!['description', 'userConfigLabel', 'fields', 'web'].includes(key)) {
         errors.push(`plugin ${name} (${locale}): unknown top-level key "${key}"`);
       }
     }
@@ -63,6 +63,16 @@ for (const name of pluginNames) {
     }
     if (hasText(i18n.description) && !hasText(manifest.description)) {
       errors.push(`plugin ${name} (${locale}): description has no matching manifest description`);
+    }
+
+    // The short name the host's Account rail shows for this plugin's per-account settings. It is a menu
+    // entry, so a locale that leaves it untranslated shows English in an otherwise Czech rail — the same
+    // parity every other user-facing manifest string is held to.
+    if (hasText(manifest.userConfigLabel) && !hasText(i18n.userConfigLabel)) {
+      errors.push(`plugin ${name} (${locale}): missing userConfigLabel translation`);
+    }
+    if (hasText(i18n.userConfigLabel) && !hasText(manifest.userConfigLabel)) {
+      errors.push(`plugin ${name} (${locale}): userConfigLabel has no matching manifest userConfigLabel`);
     }
 
     for (const [key, override] of Object.entries(i18n.fields ?? {})) {
