@@ -33,6 +33,12 @@ export class StreamBudget {
   }
 }
 
+/** Thrown when a session already has as many viewers as it is allowed to fan out to. It is a
+ *  condition of the room, not a fault of the caller, and the stream route reports it as such. */
+export class ViewerLimitError extends Error {
+  constructor() { super('Browser viewer limit reached.'); this.name = 'ViewerLimitError'; }
+}
+
 export class ScreencastHub {
   private readonly subscribers = new Map<string, Subscriber>();
   private started = false;
@@ -61,7 +67,7 @@ export class ScreencastHub {
   async subscribe(id: string, send: (frame: ScreencastFrame) => Promise<void>): Promise<() => Promise<void>> {
     if (this.closed) throw new Error('Browser screencast is closed.');
     if (this.subscribers.has(id)) throw new Error('Browser screencast subscriber already exists.');
-    if (this.subscribers.size >= this.config().maxViewersPerSession) throw new Error('Browser viewer limit reached.');
+    if (this.subscribers.size >= this.config().maxViewersPerSession) throw new ViewerLimitError();
     const subscriber: Subscriber = { id, send, sending: false, latest: null, closed: false };
     this.subscribers.set(id, subscriber);
     // Page.startScreencast only guarantees the initial frame to the viewer that started it. A second phone or

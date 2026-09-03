@@ -13,7 +13,7 @@ interface ArtifactData {
   favicon: string | null;
   lastAction: string | null;
 }
-interface Lease { leaseId: string; expiresAt: number }
+interface Lease { leaseId: string; expiresAt: number; controlRevision: number }
 
 const NARRATION_VISIBLE_MS = 10_000;
 
@@ -32,6 +32,28 @@ const asData = (value: unknown): ArtifactData | null => {
 };
 
 const inputPath = (sessionId: string, action: string): string => `/plugins/browser/api/${action}?sessionId=${encodeURIComponent(sessionId)}`;
+
+/** The takeover lease belongs to this TAB, not to one mount of the card. The card is remounted whenever
+ *  the transcript re-renders it — a plugin listing refresh, a reload — and a lease held only in component
+ *  state died with the mount while the server kept honouring it: the same person was then told the
+ *  session was controlled "in another window" until the orphaned lease expired. sessionStorage is
+ *  per-tab, so a second tab still cannot adopt it — which is the guarantee the opaque token exists for. */
+const leaseStorageKey = (sessionId: string): string => `elowen.browser.lease.${sessionId}`;
+const rememberedLease = (sessionId: string): Lease | null => {
+  try {
+    const raw = window.sessionStorage.getItem(leaseStorageKey(sessionId));
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<Lease>;
+    if (typeof value.leaseId !== 'string' || typeof value.expiresAt !== 'number' || typeof value.controlRevision !== 'number') return null;
+    return value.expiresAt > Date.now() ? { leaseId: value.leaseId, expiresAt: value.expiresAt, controlRevision: value.controlRevision } : null;
+  } catch { return null; }
+};
+const rememberLease = (sessionId: string, lease: Lease | null): void => {
+  try {
+    if (lease) window.sessionStorage.setItem(leaseStorageKey(sessionId), JSON.stringify(lease));
+    else window.sessionStorage.removeItem(leaseStorageKey(sessionId));
+  } catch { /* storage denied: the lease then lives only as long as this mount, as before */ }
+};
 
 /** The site, not the address. A thumbnail this size has room for "example.com" and nothing after it, and
  *  the full address is the one piece of page context the live image already shows. */
@@ -142,18 +164,25 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const [expanded, setExpanded] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
-  const [lease, setLease] = useState<Lease | null>(null);
+  const initialSessionId = data?.browserSessionId ?? '';
+  const [lease, setLease] = useState<Lease | null>(() => (initialSessionId ? rememberedLease(initialSessionId) : null));
+  /** A lease this mount adopted rather than claimed: it is checked with the server at once, below. */
+  const adoptedLease = useRef<string | null>(lease?.leaseId ?? null);
   const [speechHidden, setSpeechHidden] = useState(false);
   const pointerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speechTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingMove = useRef<Record<string, unknown> | null>(null);
+  /** The transcript anchor. On a wide screen this element is lifted out of the flow and docked above the
+   *  composer, which is why the surface has to be told how much room it takes. */
+  const anchor = useRef<HTMLElement>(null);
   /** A host `reveal` waiting for this canvas to actually get out of the way — see the effect below. */
   const pendingReveal = useRef<(() => void) | null>(null);
   const sessionId = data?.browserSessionId ?? '';
   const title = data?.title || strings.sessionTitle || 'Browser session';
   const url = data?.url || '';
   const site = url ? siteName(url) : '';
-  const state = stream.closed ? 'closed' : lease || stream.control.state === 'user' || data?.state === 'user' ? 'user' : data?.state ?? 'agent';
+  const favicon = stream.hasControlSnapshot ? stream.favicon : data?.favicon;
+  const state = stream.closed ? 'closed' : lease ? 'user' : stream.hasControlSnapshot ? stream.control.state : data?.state ?? 'agent';
   const takeoverRequested = stream.control.state === 'agent' && stream.control.reason === 'requested';
   /** What the agent is SAYING while you watch it browse (host API 14). The canvas covers the transcript,
    *  so without this the reply streams on underneath it. The host already bounds and clears the string —
@@ -190,21 +219,35 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
       if (speechTimer.current) { clearTimeout(speechTimer.current); speechTimer.current = null; }
     };
   }, [speech, speechHidden]);
+  useEffect(() => { if (sessionId) rememberLease(sessionId, lease); }, [lease, sessionId]);
   useEffect(() => {
     if (!lease) return;
-    const interval = setInterval(() => {
+    const beat = (adopted: boolean): void => {
       void runtime().api(inputPath(sessionId, 'heartbeat'), jsonRequest('POST', { leaseId: lease.leaseId }))
         .then((value) => {
           const next = value as { expiresAt?: number };
           if (typeof next.expiresAt === 'number') setLease((current) => current?.leaseId === lease.leaseId ? { ...current, expiresAt: next.expiresAt! } : current);
         })
-        .catch(() => setLease((current) => current?.leaseId === lease.leaseId ? null : current));
-    }, 20_000);
+        .catch(() => {
+          // A transient failure must not drop a live takeover — but a remembered lease the server no
+          // longer recognises is exactly that: no longer ours.
+          if (adopted) setLease((current) => current?.leaseId === lease.leaseId ? null : current);
+        });
+    };
+    if (adoptedLease.current === lease.leaseId) {
+      adoptedLease.current = null;
+      beat(true);
+    }
+    const interval = setInterval(() => beat(false), 20_000);
     return () => clearInterval(interval);
   }, [lease, sessionId]);
   useEffect(() => {
-    if (stream.control.state === 'agent') setLease(null);
-  }, [stream.control.state]);
+    if (!lease) return;
+    const controlRevision = stream.control.controlRevision;
+    if (controlRevision > lease.controlRevision || (controlRevision === lease.controlRevision && stream.control.state === 'agent')) {
+      setLease((current) => current?.leaseId === lease.leaseId ? null : current);
+    }
+  }, [lease, stream.control.controlRevision, stream.control.state]);
   useEffect(() => {
     // Handing the reader back to the question card is TWO moves in a fixed order, and running them in one
     // go got the order wrong: `reveal` focused the card, and then the closing overlay's own cleanup —
@@ -218,6 +261,30 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
     reveal();
   }, [expanded]);
   useEffect(() => {
+    // Docked, this card floats over the end of the transcript, so the last turns ran underneath it and
+    // their text was simply hidden. Publishing the measured height lets the transcript reserve exactly
+    // that much at its end — measured rather than assumed, because the tile takes the live stream's
+    // aspect ratio and a guess would be wrong on the first page with an unusual shape.
+    const node = anchor.current;
+    const surface = node?.closest<HTMLElement>('.chat-surface-full');
+    if (!node || !surface) return;
+    const docked = window.matchMedia('(min-width: 768px)');
+    const publish = (): void => {
+      // Expanded, the canvas is portalled to <body> and this anchor is hidden: it occupies nothing.
+      if (!docked.matches || expanded) surface.style.removeProperty('--chat-dock-height');
+      else surface.style.setProperty('--chat-dock-height', `${Math.ceil(node.getBoundingClientRect().height)}px`);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(node);
+    docked.addEventListener('change', publish);
+    return () => {
+      observer.disconnect();
+      docked.removeEventListener('change', publish);
+      surface.style.removeProperty('--chat-dock-height');
+    };
+  }, [expanded]);
+  useEffect(() => {
     // A pointer move is batched for 50ms. Releasing (or losing) control inside that window would otherwise
     // fire it afterwards against a lease that no longer exists — a rejected request and a toast for a
     // gesture the user already finished.
@@ -228,13 +295,14 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
 
   const status = useMemo(() => {
     if (stream.closed || state === 'closed') return { tone: 'muted' as const, label: strings.closed || 'Closed' };
+    if (stream.rejected === 'viewer_limit') return { tone: 'warning' as const, label: strings.viewerLimit || 'Too many viewers' };
     if (stream.error) return { tone: 'danger' as const, label: strings.disconnected || 'Disconnected' };
     if (state === 'user') return { tone: 'accent' as const, label: lease ? strings.youControl || 'You control' : strings.userControl || 'User control' };
     // A handoff the agent asked for is a STATE, not a passing action: the thumbnail carries no action
     // copy, so this is what turns its dot amber and tells a screen reader why the button is waiting.
     if (takeoverRequested) return { tone: 'warning' as const, label: strings.waitingForUser || 'Waiting for user input' };
     return { tone: stream.connected ? 'success' as const : 'warning' as const, label: stream.connected ? strings.agentControl || 'Agent control' : strings.connecting || 'Connecting' };
-  }, [lease, state, stream.closed, stream.connected, stream.error, strings, takeoverRequested]);
+  }, [lease, state, stream.closed, stream.connected, stream.error, stream.rejected, strings, takeoverRequested]);
 
   const run = async <T,>(name: string, operation: () => Promise<T>): Promise<T | undefined> => {
     setPending(name);
@@ -260,11 +328,9 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
     if (!lease || events.length === 0) return;
     await runtime().api(inputPath(sessionId, 'input'), jsonRequest('POST', { leaseId: lease.leaseId, events }));
   };
-  const shortcut = (key: string, code: string, modifiers: string[] = []): void => {
-    void command([
-      { type: 'key', action: 'down', key, code, modifiers },
-      { type: 'key', action: 'up', key, code, modifiers },
-    ]).catch((error) => toast.toast(apiError(error), 'error'));
+  const navigate = (action: 'back' | 'forward' | 'reload'): void => {
+    if (!lease) return;
+    void run('navigation', () => runtime().api(inputPath(sessionId, 'navigation'), jsonRequest('POST', { leaseId: lease.leaseId, action })));
   };
 
   const pointerEvent = (event: PointerEvent<HTMLDivElement>, actionName: 'move' | 'down' | 'up'): Record<string, unknown> => {
@@ -380,7 +446,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
       : <Button variant="ghost" icon={Hand} onClick={() => { void takeControl(); }} disabled={pending !== null || stream.closed}>{strings.takeControl || 'Take control'}</Button>;
   const siteLabel = (className = ''): ReactNode => (
     <span className={`browser-artifact__site ${className}`.trim()}>
-      {data?.favicon ? <img className="browser-artifact__site-icon" src={data.favicon} alt="" /> : null}
+      {favicon ? <img className="browser-artifact__site-icon" src={favicon} alt="" /> : null}
       <span className="browser-artifact__site-text">{site || strings.noAddress || 'No address yet'}</span>
     </span>
   );
@@ -389,6 +455,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
 
   return (
     <section
+      ref={anchor}
       className="browser-artifact"
       style={aspectStyle}
       data-expanded={expanded ? 'true' : undefined}
@@ -448,9 +515,9 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
             <div className="browser-artifact__controls">
               {lease ? (
                 <>
-                  <GlassButton icon={ArrowLeft} label={strings.back || 'Back'} onClick={() => shortcut('ArrowLeft', 'ArrowLeft', ['Alt'])} />
-                  <GlassButton icon={ArrowRight} label={strings.forward || 'Forward'} onClick={() => shortcut('ArrowRight', 'ArrowRight', ['Alt'])} />
-                  <GlassButton icon={RotateCw} label={strings.reload || 'Reload'} onClick={() => shortcut('r', 'KeyR', ['Control'])} />
+                  <GlassButton icon={ArrowLeft} label={strings.back || 'Back'} onClick={() => navigate('back')} disabled={pending !== null} />
+                  <GlassButton icon={ArrowRight} label={strings.forward || 'Forward'} onClick={() => navigate('forward')} disabled={pending !== null} />
+                  <GlassButton icon={RotateCw} label={strings.reload || 'Reload'} onClick={() => navigate('reload')} disabled={pending !== null} />
                 </>
               ) : null}
               {siteLabel()}

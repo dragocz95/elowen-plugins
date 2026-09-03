@@ -49,7 +49,7 @@ function mountArtifact(narration?: string, pendingInput?: Pending) {
 }
 
 const streamBody = [
-  `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null })}\n\n`,
+  `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0, favicon: 'data:image/png;base64,aGVsbG8=' })}\n\n`,
   `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
   `event: cursor\ndata: ${JSON.stringify({ x: 640, y: 400, moving: false })}\n\n`,
   `event: action\ndata: ${JSON.stringify({ action: 'click', target: 'Continue', x: 640, y: 400 })}\n\n`,
@@ -106,6 +106,55 @@ describe('browser plugin UI', () => {
     expect(document.querySelector('.browser-artifact__cursor')).toBeNull();
   });
 
+  it('reserves transcript room for the docked live view instead of covering the text', async () => {
+    // Docked above the composer the card is out of the flow, so the newest turns ran underneath it and
+    // their text was hidden rather than wrapped. The surface is told how tall the card is.
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    const listeners: (() => void)[] = [];
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: true, media: query,
+      addEventListener: (_: string, fn: () => void) => { listeners.push(fn); },
+      removeEventListener: () => {},
+    }));
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    const surface = document.createElement('div');
+    surface.className = 'chat-surface-full';
+    document.body.appendChild(surface);
+    const Wrapper = wrapper();
+    const view = render(
+      <Wrapper><ToastProvider><BrowserArtifact plugin="browser" artifact={artifact} /></ToastProvider></Wrapper>,
+      { container: surface },
+    );
+
+    await waitFor(() => expect(surface.style.getPropertyValue('--chat-dock-height')).not.toBe(''));
+    // Unmounting must hand the space back, or a closed session would leave a permanent gap.
+    view.unmount();
+    expect(surface.style.getPropertyValue('--chat-dock-height')).toBe('');
+    surface.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it('clears a stale artifact favicon when the live session has none', async () => {
+    const noFaviconBody = `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0, favicon: null })}\n\n`;
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(noFaviconBody, { headers: { 'content-type': 'text/event-stream' } })));
+    mountArtifact();
+    await waitFor(() => expect(document.querySelector('.browser-artifact__site-icon')).toBeNull());
+  });
+
+  it('uses the favicon delivered by the live stream when artifact data cannot carry it', async () => {
+    const favicon = 'data:image/png;base64,c3RyZWFtZWQ=';
+    const body = [
+      `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0, favicon: null })}\n\n`,
+      `event: favicon\ndata: ${JSON.stringify({ favicon })}\n\n`,
+      `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
+    ].join('');
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(body, { headers: { 'content-type': 'text/event-stream' } })));
+    const noFavicon = { ...artifact, data: { ...artifact.data, favicon: null } };
+    const Wrapper = wrapper();
+    render(<Wrapper><ToastProvider><BrowserArtifact plugin="browser" artifact={noFavicon} /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(document.querySelector(`img[src="${favicon}"]`)).not.toBeNull());
+  });
+
   it('expands into a borderless canvas that closes on Escape', async () => {
     use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
     mountArtifact();
@@ -158,9 +207,10 @@ describe('browser plugin UI', () => {
     const calls: { path: string; body: any }[] = [];
     use(
       http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
-      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-new', expiresAt: Date.now() + 120_000 })),
+      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-new', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
       http.post('/api/plugins/browser/api/input', async ({ request }) => { calls.push({ path: 'input', body: await request.json() }); return HttpResponse.json({ accepted: 1 }); }),
       http.post('/api/plugins/browser/api/release', async ({ request }) => { calls.push({ path: 'release', body: await request.json() }); return HttpResponse.json({ released: true }); }),
+      http.post('/api/plugins/browser/api/navigation', async ({ request }) => { calls.push({ path: 'navigation', body: await request.json() }); return HttpResponse.json({ navigated: 'back' }); }),
       http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000 })),
     );
     mountArtifact();
@@ -172,12 +222,98 @@ describe('browser plugin UI', () => {
     for (const label of [strings.back, strings.forward, strings.reload]) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
+    fireEvent.click(screen.getByRole('button', { name: strings.back }));
+    await waitFor(() => expect(calls.some((call) => call.path === 'navigation' && call.body.action === 'back' && call.body.leaseId === 'lease-new')).toBe(true));
     const viewport = screen.getAllByLabelText(strings.browserViewport).at(-1)!;
     vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400, toJSON: () => ({}) });
     fireEvent.pointerDown(viewport, { clientX: 320, clientY: 200, button: 0, pointerId: 1 });
     await waitFor(() => expect(calls.some((call) => call.path === 'input' && call.body.leaseId === 'lease-new')).toBe(true));
     fireEvent.click(screen.getAllByRole('button', { name: strings.returnToAgent }).at(-1)!);
     await waitFor(() => expect(calls.some((call) => call.path === 'release' && call.body.leaseId === 'lease-new')).toBe(true));
+  });
+
+  it('keeps your takeover through a remount of the card, and lets it go once the server has', async () => {
+    // Production: a person took control, the transcript re-rendered the card (a plugin listing refresh,
+    // a reload), and the same person was told the session was "controlled in another window" — for the
+    // two minutes it took the orphaned lease to expire. The lease belongs to the TAB, not to one mount.
+    const userStreamBody = [
+      `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'user', lease: { expiresAt: Date.now() + 120_000 }, controlRevision: 1 })}\n\n`,
+      `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
+    ].join('');
+    let heartbeats = 0;
+    let serverHoldsLease = false;
+    const released: string[] = [];
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(serverHoldsLease ? userStreamBody : streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/takeover', () => { serverHoldsLease = true; return HttpResponse.json({ leaseId: 'lease-tab', expiresAt: Date.now() + 120_000, controlRevision: 1 }); }),
+      http.post('/api/plugins/browser/api/heartbeat', () => { heartbeats += 1; return serverHoldsLease ? HttpResponse.json({ expiresAt: Date.now() + 120_000, controlRevision: 1 }) : HttpResponse.json({ error: 'Browser control lease is stale or invalid.' }, { status: 400 }); }),
+      http.post('/api/plugins/browser/api/release', async ({ request }) => { released.push(((await request.json()) as { leaseId: string }).leaseId); serverHoldsLease = false; return HttpResponse.json({ released: true }); }),
+    );
+    const first = mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.takeControl }));
+    expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
+    first.unmount();
+
+    // A fresh mount of the same session, exactly as the transcript would do it.
+    const second = mountArtifact();
+    expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: strings.controlledElsewhere })).toBeNull();
+    // Adopting a remembered lease checks it with the server at once, not twenty seconds later.
+    await waitFor(() => expect(heartbeats).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole('button', { name: strings.returnToAgent }));
+    await waitFor(() => expect(released).toEqual(['lease-tab']));
+    second.unmount();
+
+    // Released means forgotten: a third mount must not resurrect it.
+    mountArtifact();
+    expect(await screen.findByRole('button', { name: strings.takeControl })).toBeInTheDocument();
+    expect(screen.queryByText(strings.youControl)).toBeNull();
+  });
+
+  it('keeps a local takeover through a transient heartbeat failure', async () => {
+    let heartbeatCalls = 0;
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(((handler: TimerHandler) => {
+      queueMicrotask(() => { if (typeof handler === 'function') handler(); });
+      return 1 as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval);
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-heartbeat', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
+      http.post('/api/plugins/browser/api/heartbeat', () => { heartbeatCalls += 1; return HttpResponse.json({ error: 'temporary' }, { status: 503 }); }),
+    );
+    mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    fireEvent.click(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)!);
+    expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
+    await waitFor(() => expect(heartbeatCalls).toBe(1));
+    expect(screen.getAllByText(strings.youControl).length).toBeGreaterThan(0);
+    expect(screen.queryByText(strings.controlledElsewhere)).toBeNull();
+  });
+
+  it('uses the connected stream instead of stale artifact control state', async () => {
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    const staleArtifact = { ...artifact, data: { ...artifact.data, state: 'user' as const } };
+    const Wrapper = wrapper();
+    render(<Wrapper><ToastProvider><BrowserArtifact plugin="browser" artifact={staleArtifact} /></ToastProvider></Wrapper>);
+    expect((await screen.findAllByRole('button', { name: strings.takeControl })).length).toBeGreaterThan(0);
+    expect(screen.queryByText(strings.controlledElsewhere)).toBeNull();
+  });
+
+  it('says the room is full instead of pretending to be connected when the stream is refused', async () => {
+    // What production did: the opening snapshot arrived, the stream ended, and the card read
+    // "Agent control" with an image that never came — while the viewer reconnected every half second.
+    const refusedStreamBody = [
+      `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0 })}\n\n`,
+      `event: rejected\ndata: ${JSON.stringify({ reason: 'viewer_limit', message: 'Browser viewer limit reached.' })}\n\n`,
+    ].join('');
+    let attempts = 0;
+    use(http.get('/api/plugins/browser/api/stream', () => { attempts += 1; return new HttpResponse(refusedStreamBody, { headers: { 'content-type': 'text/event-stream' } }); }));
+    mountArtifact();
+    expect((await screen.findAllByText(strings.viewerLimit)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(strings.agentControl)).toBeNull();
+    // Gentle retry: a full room does not change in half a second.
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(attempts).toBe(1);
   });
 
   it('leaves the user one pointer while they drive the session', async () => {

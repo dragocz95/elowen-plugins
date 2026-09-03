@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { createConnection, createServer } from 'node:net';
 import type { PluginDb } from 'elowen/plugin-api';
 import { requireBrowserToolOwner } from '../plugins/browser/src/ownership.js';
 import {
@@ -18,7 +19,7 @@ import {
   browserDependencyReport, browserReadiness,
   type BrowserDependencyCheck, type BrowserDependencyReport, type BrowserDependencyStatus,
 } from '../plugins/browser/src/readiness.js';
-import { ScreencastHub, StreamBudget } from '../plugins/browser/src/screencast-hub.js';
+import { ScreencastHub, StreamBudget, ViewerLimitError } from '../plugins/browser/src/screencast-hub.js';
 import { boundBytes, boundText, isTextualMime, pickResponseHeaders, sanitizeUrl, UNTRUSTED_NOTE } from '../plugins/browser/src/redaction.js';
 import { MAX_CAPTURE_CSS_AREA, MAX_FULL_PAGE_CSS_PX, MAX_SCREENSHOT_BYTES } from '../plugins/browser/src/capture.js';
 import { CONSOLE_BUFFER_SIZE, MAX_BODY_BYTES } from '../plugins/browser/src/page-diagnostics.js';
@@ -27,7 +28,7 @@ import { BrowserSession } from '../plugins/browser/src/browser-session.js';
 import { InputController, InputRateLimiter } from '../plugins/browser/src/input-controller.js';
 import { readPageFavicon } from '../plugins/browser/src/page-favicon.js';
 import { TabManager } from '../plugins/browser/src/tab-manager.js';
-import { UNAVAILABLE_ARTIFACT_PUBLISHER } from '../plugins/browser/src/artifact.js';
+import { artifactData, UNAVAILABLE_ARTIFACT_PUBLISHER } from '../plugins/browser/src/artifact.js';
 import { registerBrowserApi } from '../plugins/browser/src/api.js';
 import { registerBrowserTools } from '../plugins/browser/src/tools.js';
 import type {
@@ -104,10 +105,14 @@ class FakePage implements PageLike {
   private currentUrl = 'about:blank';
   private closed = false;
   credentials: { username: string; password: string } | null = null;
+  readonly historyActions: string[] = [];
   readonly id = `target-${++targetSequence}`;
   url(): string { return this.currentUrl; }
   async title(): Promise<string> { return 'Test page'; }
   async goto(url: string): Promise<void> { this.currentUrl = url; }
+  async goBack(): Promise<void> { this.historyActions.push('back'); }
+  async goForward(): Promise<void> { this.historyActions.push('forward'); }
+  async reload(): Promise<void> { this.historyActions.push('reload'); }
   async close(): Promise<void> { this.closed = true; }
   isClosed(): boolean { return this.closed; }
   async createCDPSession(): Promise<CDPSessionLike> { return this.cdp; }
@@ -166,11 +171,29 @@ describe('browser input controller', () => {
     await input.pressKey('!', undefined);
     await input.pressKey('a', ['Control']);
     await input.pressKey('Enter', undefined);
+    await input.dispatchUserBatch([
+      { type: 'key', action: 'down', key: 'Shift', code: 'ShiftLeft', modifiers: ['Shift'] },
+      { type: 'key', action: 'up', key: 'Shift', code: 'ShiftLeft', modifiers: [] },
+    ]);
     const downs = cdp.calls.filter((call) => call.method === 'Input.dispatchKeyEvent' && call.params?.type === 'keyDown').map((call) => call.params);
     expect(downs[0]).toMatchObject({ key: '!', text: '!' });
     expect(downs[1]).toMatchObject({ key: 'a', code: 'KeyA', modifiers: 2, commands: ['selectAll'], windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65 });
     expect(downs[1]).not.toHaveProperty('text');
     expect(downs[2]).toMatchObject({ key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+    expect(downs[3]).toMatchObject({ key: 'Shift', code: 'ShiftLeft', modifiers: 8, windowsVirtualKeyCode: 16, nativeVirtualKeyCode: 16 });
+  });
+});
+
+describe('browser artifact projection', () => {
+  it('bounds every artifact string and drops an oversized favicon without corrupting it', () => {
+    const data = artifactData({
+      browserSessionId: 'session-1', state: 'agent', title: 't'.repeat(2_000), url: `https://example.com/${'u'.repeat(4_000)}`,
+      favicon: `data:image/png;base64,${'a'.repeat(5_000)}`, lastAction: 'a'.repeat(2_000),
+    });
+    expect(data.title.length).toBeLessThanOrEqual(512);
+    expect(data.url.length).toBeLessThanOrEqual(2_048);
+    expect(data.lastAction!.length).toBeLessThanOrEqual(512);
+    expect(data.favicon).toBeNull();
   });
 });
 
@@ -182,15 +205,65 @@ describe('managed page favicon', () => {
     return cdp;
   };
 
-  it('accepts only a bounded image data URL from an isolated managed-page world', async () => {
-    const cdp = faviconCdp();
-    cdp.replies.set('Runtime.evaluate', { result: { type: 'string', value: 'data:image/png;base64,aGVsbG8=' } });
-    await expect(readPageFavicon(cdp)).resolves.toBe('data:image/png;base64,aGVsbG8=');
-    expect(cdp.calls.at(-1)).toMatchObject({ method: 'Runtime.evaluate', params: { contextId: 42, awaitPromise: true, returnByValue: true } });
-    expect(String(cdp.calls.at(-1)?.params?.expression)).toContain("credentials: 'omit'");
+  const iconBytes = Buffer.from('icon-bytes').toString('base64');
+  const streamOnce = (cdp: FakeCdp, data = iconBytes) => {
+    let served = false;
+    cdp.replies.set('IO.read', () => (served ? { eof: true } : ((served = true), { data, base64Encoded: true, eof: false })));
+  };
 
-    cdp.replies.set('Runtime.evaluate', { result: { type: 'string', value: 'data:text/html;base64,aGVsbG8=' } });
+  it('fetches the icon over CDP, so a cross-origin favicon still resolves', async () => {
+    // Reading the bytes with fetch() inside the page fails on every site that serves icons from another
+    // origin without CORS — seznam.cz serves them from d32-a.sdn.cz — which left the session with no
+    // favicon at all. CDP is not bound by the page's CORS policy, but still uses this account's Chrome.
+    const cdp = faviconCdp();
+    cdp.replies.set('Runtime.evaluate', { result: { value: ['https://cdn.example.com/favicon-32.png'] } });
+    cdp.replies.set('Network.loadNetworkResource', {
+      resource: { success: true, stream: 'stream-1', httpStatusCode: 200, headers: { 'Content-Type': 'image/png' } },
+    });
+    streamOnce(cdp);
+    await expect(readPageFavicon(cdp)).resolves.toBe(`data:image/png;base64,${iconBytes}`);
+    const load = cdp.calls.find((call) => call.method === 'Network.loadNetworkResource');
+    expect(load?.params).toMatchObject({ frameId: 'frame-1', url: 'https://cdn.example.com/favicon-32.png' });
+    expect(cdp.calls.some((call) => call.method === 'IO.close')).toBe(true);
+  });
+
+  it('publishes nothing for a resource that is not a usable image', async () => {
+    const notAnImage = faviconCdp();
+    notAnImage.replies.set('Runtime.evaluate', { result: { value: ['https://cdn.example.com/icon'] } });
+    notAnImage.replies.set('Network.loadNetworkResource', {
+      resource: { success: true, stream: 'stream-1', httpStatusCode: 200, headers: { 'content-type': 'text/html' } },
+    });
+    await expect(readPageFavicon(notAnImage)).resolves.toBeNull();
+    expect(notAnImage.calls.some((call) => call.method === 'IO.close')).toBe(true);
+
+    const oversized = faviconCdp();
+    oversized.replies.set('Runtime.evaluate', { result: { value: ['https://cdn.example.com/huge.png'] } });
+    oversized.replies.set('Network.loadNetworkResource', {
+      resource: { success: true, stream: 'stream-2', httpStatusCode: 200, headers: { 'content-type': 'image/png' } },
+    });
+    // A truncated icon is not a smaller icon, it is a corrupt one, so the budget refuses rather than cuts.
+    oversized.replies.set('IO.read', () => ({ data: Buffer.alloc(32 * 1024).toString('base64'), base64Encoded: true, eof: false }));
+    await expect(readPageFavicon(oversized)).resolves.toBeNull();
+
+    const refused = faviconCdp();
+    refused.replies.set('Runtime.evaluate', { result: { value: ['file:///etc/passwd', 'https://cdn.example.com/missing.png'] } });
+    refused.replies.set('Network.loadNetworkResource', { resource: { success: true, stream: 's', httpStatusCode: 404, headers: {} } });
+    await expect(readPageFavicon(refused)).resolves.toBeNull();
+    // The file: candidate is dropped before it ever reaches the loader.
+    expect(refused.calls.filter((call) => call.method === 'Network.loadNetworkResource')).toHaveLength(1);
+  });
+
+  it('gives up on an icon stream that never reports the end', async () => {
+    const cdp = faviconCdp();
+    cdp.replies.set('Runtime.evaluate', { result: { value: ['https://cdn.example.com/icon.png'] } });
+    cdp.replies.set('Network.loadNetworkResource', {
+      resource: { success: true, stream: 's', httpStatusCode: 200, headers: { 'content-type': 'image/png' } },
+    });
+    // The host timeout abandons the WAIT, not the loop, so the read itself has to stop on its own.
+    cdp.replies.set('IO.read', () => ({ data: '', eof: false }));
     await expect(readPageFavicon(cdp)).resolves.toBeNull();
+    expect(cdp.calls.filter((call) => call.method === 'IO.read').length).toBeLessThanOrEqual(6);
+    expect(cdp.calls.some((call) => call.method === 'IO.close')).toBe(true);
   });
 
   it('stops waiting on CDP from the host side', async () => {
@@ -198,19 +271,20 @@ describe('managed page favicon', () => {
     const cdp = faviconCdp();
     cdp.replies.set('Runtime.evaluate', () => new Promise(() => {}));
     const pending = readPageFavicon(cdp);
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     await expect(pending).resolves.toBeNull();
   });
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.2.5, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.2.10, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as { version: string; userGrantable: boolean; entry: string; provides: { tools: string[]; apiRoutes: string[] } };
-    expect(manifest.version).toBe('0.2.5');
+    expect(manifest.version).toBe('0.2.10');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
-    expect(manifest.provides.apiRoutes).toHaveLength(11);
+    expect(manifest.provides.apiRoutes).toHaveLength(12);
+    expect(manifest.provides.apiRoutes).toContain('navigation');
     expect(existsSync(join(root, manifest.entry))).toBe(true);
     const launcherSource = readFileSync(join(root, 'src', 'browser-launcher.ts'), 'utf8');
     expect(launcherSource).toContain('--proxy-bypass-list=<-loopback>');
@@ -283,6 +357,34 @@ describe('browser tool and API denial behavior', () => {
   });
 });
 
+describe('browser live view stream', () => {
+  it('names a refused viewer on the wire instead of ending the stream in silence', async () => {
+    const routes: any[] = [];
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const ctx = { registerApiRoute: (route: unknown) => routes.push(route), logger };
+    const session = {
+      id: 'session-1', state: 'agent', currentLease: null, controlRevision: 0, controlReason: null, currentCursor: null, currentFavicon: null,
+      viewerActivity: vi.fn(),
+      subscribeEvents: async () => () => {},
+      subscribeFrames: async () => { throw new ViewerLimitError(); },
+    };
+    registerBrowserApi(ctx as any, { getOwned: () => session } as any);
+    const route = routes.find((item) => item.path === 'stream' && item.method === 'GET');
+    const response = await route.handler({
+      auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [] },
+      query: { sessionId: 'session-1' }, params: {}, method: 'GET', path: '', headers: {},
+      body: async () => Buffer.alloc(0), json: async () => ({}),
+    });
+    const sent: { event: string; data: any }[] = [];
+    await expect(response.sse(async (data: string, event: string) => { sent.push({ event, data: JSON.parse(data) }); }, new AbortController().signal))
+      .rejects.toBeInstanceOf(ViewerLimitError);
+    expect(sent.map((item) => item.event)).toEqual(['session', 'rejected']);
+    expect(sent[1].data).toEqual({ reason: 'viewer_limit', message: 'Browser viewer limit reached.' });
+    // Expected condition of the room, not a fault: it must not page anyone through the warn log.
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+});
+
 describe('browser network policy', () => {
   it('denies private, loopback, metadata and mixed DNS answers', async () => {
     const resolver: HostResolver = { resolve: async () => [{ address: '93.184.216.34', family: 4 }, { address: '10.0.0.8', family: 4 }] };
@@ -292,14 +394,16 @@ describe('browser network policy', () => {
     await expect(new NavigationPolicy([]).resolve('http://[::ffff:127.0.0.1]')).rejects.toThrow(/blocked network/);
     await expect(new NavigationPolicy([]).resolve('http://[::ffff:10.0.0.1]')).rejects.toThrow(/blocked network/);
     await expect(new NavigationPolicy([]).resolve('http://[::ffff:169.254.169.254]')).rejects.toThrow(/blocked network/);
+    await expect(new NavigationPolicy([], { resolve: async () => [{ address: '::ffff:127.0.0.1', family: 6 }] }).resolve('https://example.com'))
+      .rejects.toThrow(/blocked network/);
     await expect(new NavigationPolicy([]).resolve('http://169.254.169.254/latest/meta-data')).rejects.toThrow(/blocked network/);
     expect(() => new NavigationPolicy([]).validateUrl('file:///etc/passwd')).toThrow(/Only http and https/);
   });
 
   it('allows only explicit private host or CIDR exceptions', async () => {
     const resolver: HostResolver = { resolve: async () => [{ address: '10.20.30.40', family: 4 }] };
-    await expect(new NavigationPolicy(['dev.internal'], resolver).resolve('https://dev.internal')).resolves.toMatchObject({ address: '10.20.30.40' });
-    await expect(new NavigationPolicy(['10.20.0.0/16'], resolver).resolve('https://other.internal')).resolves.toMatchObject({ address: '10.20.30.40' });
+    await expect(new NavigationPolicy(['dev.internal'], resolver).resolve('https://dev.internal')).resolves.toMatchObject({ addresses: [{ address: '10.20.30.40', family: 4 }] });
+    await expect(new NavigationPolicy(['10.20.0.0/16'], resolver).resolve('https://other.internal')).resolves.toMatchObject({ addresses: [{ address: '10.20.30.40', family: 4 }] });
     await expect(new NavigationPolicy(['10.21.0.0/16'], resolver).resolve('https://other.internal')).rejects.toThrow(/blocked network/);
   });
 
@@ -314,7 +418,10 @@ describe('browser network policy', () => {
       async close(): Promise<void> {}
     }
     const adapter = new DynamicProxyChainAdapter(async () => ({ Server: FakeProxyServer as any }));
-    let addresses = [{ address: '93.184.216.34', family: 4 as const }];
+    let addresses = [
+      { address: '2001:4860:4860::8888', family: 6 as const },
+      { address: '93.184.216.34', family: 4 as const },
+    ];
     const policy = new NavigationPolicy([], { resolve: async () => addresses });
     const server = await adapter.createServer({
       username: 'browser-user', password: 'secret', maxConcurrency: 2, requestsPerMinute: 20,
@@ -324,18 +431,68 @@ describe('browser network policy', () => {
     const prepared = await prepare({
       username: 'browser-user', password: 'secret', hostname: 'example.com', port: 443, isHttp: false, connectionId: 'c1',
     });
-    expect(prepared.ipFamily).toBe(4);
+    expect(prepared.ipFamily).toBeUndefined();
     addresses = [{ address: '10.0.0.8', family: 4 }];
     await expect(policy.resolve('https://example.com')).rejects.toThrow(/blocked network/);
-    const lookup = (hostname: string) => new Promise<{ address: string; family: number }>((resolve, reject) => {
-      prepared.dnsLookup!(hostname, {}, (error, address, family) => {
+    const lookup = (hostname: string, options: Record<string, unknown> = {}) => new Promise<unknown>((resolve, reject) => {
+      prepared.dnsLookup!(hostname, options, (error, address, family) => {
         if (error) reject(error);
-        else resolve({ address: address as string, family: family! });
+        else resolve(options.all === true ? address : { address: address as string, family: family! });
       });
     });
-    await expect(lookup('example.com')).resolves.toEqual({ address: '93.184.216.34', family: 4 });
+    await expect(lookup('example.com', { all: true })).resolves.toEqual([
+      { address: '2001:4860:4860::8888', family: 6 },
+      { address: '93.184.216.34', family: 4 },
+    ]);
+    await expect(lookup('example.com', { family: 4 })).resolves.toEqual({ address: '93.184.216.34', family: 4 });
     await expect(lookup('other.example.com')).rejects.toMatchObject({ code: 'ENOTFOUND' });
     await server.close();
+  });
+
+  it('falls back to another approved address without resolving again', async () => {
+    let prepare!: (request: ProxyChainPrepareRequest) => Promise<ProxyChainPrepareResult>;
+    class FakeProxyServer implements ProxyChainServerLike {
+      port = 3211;
+      constructor(options: { prepareRequestFunction(request: ProxyChainPrepareRequest): Promise<ProxyChainPrepareResult> }) {
+        prepare = options.prepareRequestFunction;
+      }
+      async listen(): Promise<void> {}
+      async close(): Promise<void> {}
+    }
+    let resolutions = 0;
+    const policy = new NavigationPolicy(['dev.internal'], { resolve: async () => {
+      resolutions += 1;
+      return [{ address: '::1', family: 6 }, { address: '127.0.0.1', family: 4 }];
+    } });
+    const adapter = new DynamicProxyChainAdapter(async () => ({ Server: FakeProxyServer as any }));
+    const proxy = await adapter.createServer({
+      username: 'browser-user', password: 'secret', maxConcurrency: 2, requestsPerMinute: 20,
+      resolve: (url) => policy.resolve(url),
+    });
+    const prepared = await prepare({
+      username: 'browser-user', password: 'secret', hostname: 'dev.internal', port: 443, isHttp: false, connectionId: 'c1',
+    });
+    const target = createServer();
+    await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve));
+    const port = (target.address() as { port: number }).port;
+    await new Promise<void>((resolve, reject) => {
+      const socket = createConnection({
+        host: 'dev.internal', port, lookup: prepared.dnsLookup!, autoSelectFamily: true,
+      }, () => { socket.destroy(); resolve(); });
+      socket.once('error', reject);
+    });
+    expect(resolutions).toBe(1);
+    await new Promise<void>((resolve, reject) => target.close((error) => error ? reject(error) : resolve()));
+    await proxy.close();
+  });
+
+  it('validates every DNS answer before bounding the pinned fallback set', async () => {
+    const addresses = [
+      ...Array.from({ length: 6 }, (_, index) => ({ address: `93.184.216.${index + 1}`, family: 4 as const })),
+      { address: '10.0.0.8', family: 4 as const },
+    ];
+    await expect(new NavigationPolicy([], { resolve: async () => addresses }).resolve('https://example.com'))
+      .rejects.toThrow(/blocked network/);
   });
 });
 
@@ -780,15 +937,317 @@ describe('browser takeover state machine', () => {
     await session.close();
   });
 
+  /** Hold the serial queue on a navigation that never finishes, and report when it is actually held.
+   *  A literal address keeps the navigation policy off DNS, so the queue is held by the goto alone. */
+  function wedgeQueueOnNavigation(session: BrowserSession, page: FakePage) {
+    let releaseGoto: (() => void) | null = null;
+    // Releasing runs the real goto, so the page ends up on the new document exactly as it would in
+    // production. A double that only resolved would hide any bug about which document is current.
+    const landOn = page.goto.bind(page);
+    const held = new Promise<void>((reachedGoto) => {
+      page.goto = (url: string) => new Promise<void>((resolve) => {
+        releaseGoto = () => { void landOn(url).then(() => resolve()); };
+        reachedGoto();
+      });
+    });
+    const navigation = session.navigate('http://93.184.216.34/');
+    void navigation.catch(() => {});
+    return { held, navigation, release: () => releaseGoto?.() };
+  }
+
+  it('hands control over immediately while an agent navigation is still running', async () => {
+    const { session, page } = await createSession();
+    const wedged = wedgeQueueOnNavigation(session, page);
+    await wedged.held;
+    // Awaiting this at all is the assertion: while the navigation holds the serial queue, a claim that
+    // queued behind it could only resolve after the goto, so this would hang instead of returning.
+    const lease = await session.claimTakeover();
+    expect(session.state).toBe('user');
+    expect(lease.controlRevision).toBe(1);
+    wedged.release();
+    await wedged.navigation.catch(() => {});
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('answers a session read while a stuck user input holds the serial queue', async () => {
+    // Seen in production: with the session under user control, GET /session hung for over thirty
+    // seconds and came back the instant the lease expired. A read of the tab list is not page work
+    // and must not queue behind whatever the page is doing.
+    vi.useFakeTimers();
+    try {
+      const { session, page } = await createSession();
+      const lease = await session.claimTakeover();
+      page.cdp.replies.set('Input.dispatchMouseEvent', () => new Promise(() => {}));
+      const stuck = session.dispatchUserInput(lease.leaseId, [{ type: 'pointer', action: 'move', x: 1, y: 1, surfaceWidth: 10, surfaceHeight: 10 }]);
+      void stuck.catch(() => {});
+      await vi.advanceTimersByTimeAsync(0);
+      let tabs: unknown[] | null = null;
+      void session.tabs().then((value) => { tabs = value; });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(tabs).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await session.releaseTakeover(lease.leaseId);
+      await session.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up on a user input that cannot even start behind a stuck sibling', async () => {
+    // Every batch is bounded once it RUNS, but a batch waiting its turn had no bound at all: a page
+    // that stopped acknowledging input turned each click into ten more seconds of backlog, and the
+    // HTTP request for the newest click simply hung. The wait to start is bounded too, and a batch
+    // abandoned while waiting must not run late once the queue frees up.
+    vi.useFakeTimers();
+    try {
+      const { session, page } = await createSession();
+      const lease = await session.claimTakeover();
+      let dispatched = 0;
+      page.cdp.replies.set('Input.dispatchMouseEvent', () => { dispatched += 1; return new Promise(() => {}); });
+      const move = { type: 'pointer' as const, action: 'move' as const, x: 1, y: 1, surfaceWidth: 10, surfaceHeight: 10 };
+      const first = session.dispatchUserInput(lease.leaseId, [move]);
+      void first.catch(() => {});
+      await vi.advanceTimersByTimeAsync(0);
+      const second = session.dispatchUserInput(lease.leaseId, [move]);
+      void second.catch(() => {});
+      const third = session.dispatchUserInput(lease.leaseId, [move]);
+      void third.catch(() => {});
+      // t=10s: the first batch hits its running deadline and frees the queue; the second gets its turn
+      // and sticks the same way. t=15s: both later batches pass their delivery bound. t=20s: the queue
+      // frees again — and the third, abandoned five seconds earlier, must not run into Chrome now.
+      await vi.advanceTimersByTimeAsync(30_000);
+      await expect(first).rejects.toThrow(/not acknowledged/i);
+      await expect(second).rejects.toThrow(/could not be delivered in time/i);
+      await expect(third).rejects.toThrow(/could not be delivered in time/i);
+      expect(dispatched).toBe(2);
+      // Thirty seconds also outlived the test lease, so the session is already back with the agent.
+      expect(session.state).toBe('agent');
+      await session.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('records every change of control with its reason', async () => {
+    // Control moved three times in production without a line in any log, which is why the third
+    // claim could never be attributed. Transitions are the audit trail of who is driving.
+    const info = vi.spyOn(logger, 'info');
+    const { session } = await createSession();
+    const lease = await session.claimTakeover();
+    await session.releaseTakeover(lease.leaseId);
+    const lines = info.mock.calls.map((call) => String(call[0]));
+    info.mockRestore();
+    expect(lines.some((line) => /session-1234567890/.test(line) && /control.*user/i.test(line) && /revision 1/.test(line))).toBe(true);
+    expect(lines.some((line) => /session-1234567890/.test(line) && /control.*agent/i.test(line) && /released/.test(line) && /revision 2/.test(line))).toBe(true);
+    await session.close();
+  });
+
+  it('drops the rest of an abandoned input batch once control has moved on', async () => {
+    // A batch stuck on an unacknowledged CDP command is abandoned by its deadline but keeps running.
+    // Its remaining events must not land after the person has already handed the session back.
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    let dispatched = 0;
+    let releaseFirstKey!: () => void;
+    page.cdp.replies.set('Input.dispatchKeyEvent', () => {
+      dispatched += 1;
+      return dispatched === 1 ? new Promise((resolve) => { releaseFirstKey = () => resolve({}); }) : {};
+    });
+    const typing = session.dispatchUserInput(lease.leaseId, [
+      { type: 'key', action: 'down', key: 'a' },
+      { type: 'key', action: 'down', key: 'b' },
+    ]);
+    await tick();
+    await session.releaseTakeover(lease.leaseId);
+    releaseFirstKey();
+    await expect(typing).rejects.toThrow(/superseded/i);
+    expect(dispatched).toBe(1);
+    await session.close();
+  });
+
+  it('refuses user input aimed at a document the agent has since replaced', async () => {
+    // Control is handed over instantly, so a click can be made while an agent navigation still owns the
+    // queue. Delivering it afterwards would apply those coordinates to a page the person never saw.
+    const { session, page } = await createSession();
+    const wedged = wedgeQueueOnNavigation(session, page);
+    await wedged.held;
+    const lease = await session.claimTakeover();
+    const clicking = session.dispatchUserInput(lease.leaseId, [
+      { type: 'pointer', action: 'down', x: 10, y: 10, surfaceWidth: 100, surfaceHeight: 100 },
+    ]);
+    // Let the click record the document it was aimed at, exactly as it does when a person clicks what
+    // is on screen; only then does the agent's navigation land.
+    await tick();
+    wedged.release();
+    await expect(clicking).rejects.toThrow(/page changed/i);
+    await wedged.navigation.catch(() => {});
+    await session.close();
+  });
+
+  it('fails an agent turn that is cancelled while a takeover holds the session', async () => {
+    // The production report: the agent was working, the user pressed "take control", and the turn was
+    // cancelled in that same moment. The agent operation then reached waitForAgent a SECOND time with a
+    // signal that had already fired, parked on an abort event that can never arrive again, and hung.
+    const { session, page } = await createSession();
+    const wedged = wedgeQueueOnNavigation(session, page);
+    await wedged.held;
+    const controller = new AbortController();
+    const second = session.snapshot(false, controller.signal);
+    await tick();
+    const lease = await session.claimTakeover();
+    controller.abort(new Error('turn aborted'));
+    wedged.release();
+    await expect(second).rejects.toThrow(/turn aborted/);
+    await wedged.navigation.catch(() => {});
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('closes a session whose queue is wedged by a call that never settles', async () => {
+    const { session, page } = await createSession();
+    const wedged = wedgeQueueOnNavigation(session, page);
+    await wedged.held;
+    vi.useFakeTimers();
+    const closing = session.close('user_closed');
+    await vi.advanceTimersByTimeAsync(20_000);
+    await closing;
+    expect(session.state).toBe('closed');
+  });
+
+  it('expires an abandoned lease even while user input holds the queue', async () => {
+    vi.useFakeTimers();
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    const dispatched = new Promise<void>((reached) => {
+      page.cdp.replies.set('Input.dispatchKeyEvent', () => { reached(); return new Promise(() => {}); });
+    });
+    void session.dispatchUserInput(lease.leaseId, [{ type: 'key', action: 'down', key: 'a' }]).catch(() => {});
+    await dispatched;
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect(session.state).toBe('agent');
+    await session.close();
+  });
+
+  it('renews a takeover while a slow history navigation owns the serial queue', async () => {
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    let finishNavigation!: () => void;
+    page.goBack = () => new Promise<void>((resolve) => { finishNavigation = resolve; });
+    const navigating = session.dispatchUserNavigation(lease.leaseId, 'back');
+    await tick();
+    await expect(session.heartbeat(lease.leaseId)).resolves.toMatchObject({ controlRevision: lease.controlRevision });
+    finishNavigation();
+    await navigating;
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('bounds loader probes when CDP stops answering during history navigation', async () => {
+    vi.useFakeTimers();
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    page.cdp.replies.set('Page.getFrameTree', () => new Promise(() => {}));
+    const navigating = session.dispatchUserNavigation(lease.leaseId, 'back');
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(navigating).resolves.toBeUndefined();
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('does not publish a successful action when history navigation never committed', async () => {
+    const updates: any[] = [];
+    const artifacts: BrowserArtifactPublisher = {
+      available: true, open: async () => null, update: async (_ref, data) => { updates.push(data); }, close: async () => {},
+    };
+    const { session, page } = await createSession(artifacts);
+    await session.setArtifact({ version: 1, artifactId: 'artifact-1', token: 'token-1', sessionId: 'brain-1' });
+    const lease = await session.claimTakeover();
+    page.cdp.replies.set('Page.getFrameTree', { frameTree: { frame: { loaderId: 'same-loader' } } });
+    page.goBack = async () => { throw new Error('Navigation failed'); };
+    await expect(session.dispatchUserNavigation(lease.leaseId, 'back')).rejects.toThrow(/Navigation failed/);
+    expect(page.cdp.calls.some((call) => call.method === 'Page.stopLoading')).toBe(true);
+    expect(updates.at(-1)?.lastAction).not.toBe('Navigated back');
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('recycles the browser when a timed-out navigation cannot be cancelled safely', async () => {
+    vi.useFakeTimers();
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    page.cdp.replies.set('Page.getFrameTree', { frameTree: { frame: { loaderId: 'same-loader' } } });
+    page.cdp.replies.set('Page.stopLoading', () => new Promise(() => {}));
+    page.goBack = async () => { throw new Error('Navigation timeout'); };
+    const navigating = session.dispatchUserNavigation(lease.leaseId, 'back');
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(navigating).rejects.toThrow(/state is unknown.*recycled/i);
+  });
+
+  it('recognizes a commit that races with cancellation after a navigation timeout', async () => {
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    page.cdp.replies.set('Page.getFrameTree', { frameTree: { frame: { loaderId: 'same-loader' } } });
+    page.cdp.replies.set('Page.stopLoading', async () => { await page.goto('https://late.example/'); });
+    page.goBack = async () => { throw new Error('Navigation timeout'); };
+    await expect(session.dispatchUserNavigation(lease.leaseId, 'back')).resolves.toBeUndefined();
+    expect(page.url()).toBe('https://late.example/');
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('refreshes session state when history committed before its wait condition timed out', async () => {
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    let frameReads = 0;
+    page.cdp.replies.set('Page.getFrameTree', () => ({ frameTree: { frame: { loaderId: `loader-${++frameReads}` } } }));
+    page.goBack = async () => { await page.goto('https://previous.example/'); throw new Error('Navigation timeout'); };
+    await expect(session.dispatchUserNavigation(lease.leaseId, 'back')).resolves.toBeUndefined();
+    expect(page.url()).toBe('https://previous.example/');
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('uses real page history for takeover navigation controls', async () => {
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    await session.dispatchUserNavigation(lease.leaseId, 'back');
+    await session.dispatchUserNavigation(lease.leaseId, 'forward');
+    await session.dispatchUserNavigation(lease.leaseId, 'reload');
+    expect(page.historyActions).toEqual(['back', 'forward', 'reload']);
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('keeps takeover successful when its cosmetic artifact update fails', async () => {
+    const artifacts: BrowserArtifactPublisher = {
+      available: true,
+      open: async () => null,
+      update: async () => { throw new Error('artifact data string exceeds 4096 characters'); },
+      close: async () => {},
+    };
+    const { session } = await createSession(artifacts);
+    await session.setArtifact({ version: 1, artifactId: 'artifact-1', token: 'token-1', sessionId: 'brain-1' });
+    const lease = await session.claimTakeover();
+    expect(session.state).toBe('user');
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
   it('rejects concurrent claims and keeps stale leases unable to heartbeat or release without broadcasting the token', async () => {
     const { session, events } = await createSession();
     const first = await session.claimTakeover();
+    expect(first.controlRevision).toBe(1);
     expect(session.currentLease).toEqual({ expiresAt: first.expiresAt });
-    expect(events.at(-1)).toMatchObject({ kind: 'control', data: { state: 'user', expiresAt: first.expiresAt } });
+    expect(session.controlRevision).toBe(1);
+    expect(events.at(-1)).toMatchObject({ kind: 'control', data: { state: 'user', expiresAt: first.expiresAt, controlRevision: 1 } });
     expect(events.at(-1).data).not.toHaveProperty('leaseId');
     await expect(session.claimTakeover()).rejects.toThrow(/already under user control/);
     await session.releaseTakeover(first.leaseId);
+    expect(session.controlRevision).toBe(2);
+    expect(events.at(-1)).toMatchObject({ kind: 'control', data: { state: 'agent', reason: 'released', controlRevision: 2 } });
     const second = await session.claimTakeover();
+    expect(second.controlRevision).toBe(3);
     expect(first.leaseId).not.toBe(second.leaseId);
     await expect(session.heartbeat(first.leaseId)).rejects.toThrow(/stale or invalid/);
     await expect(session.releaseTakeover(first.leaseId)).rejects.toThrow(/stale or invalid/);

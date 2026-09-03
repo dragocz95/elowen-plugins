@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { BrowserAccessError, requireApiUser } from './ownership.js';
 import { parseUserInputEvents } from './input-controller.js';
+import { ViewerLimitError } from './screencast-hub.js';
 const object = (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value))
         throw new BrowserAccessError('A JSON object is required.', 400);
@@ -59,7 +60,7 @@ export function registerBrowserApi(ctx, registry, dependencies) {
             try {
                 const userId = requireApiUser(req.auth);
                 const live = registry.listOwned(userId);
-                return { body: { live: live.map((session) => ({ id: session.id, state: session.state, lease: session.currentLease })), history: registry.durableSessions(userId) } };
+                return { body: { live: live.map((session) => ({ id: session.id, state: session.state, lease: session.currentLease, controlRevision: session.controlRevision, reason: session.controlReason })), history: registry.durableSessions(userId) } };
             }
             catch (error) {
                 return responseError(error);
@@ -70,7 +71,7 @@ export function registerBrowserApi(ctx, registry, dependencies) {
         path: 'session', method: 'GET', access: 'user', handler: async (req) => {
             try {
                 const session = ownedSession(registry, req);
-                return { body: { id: session.id, state: session.state, lease: session.currentLease, tabs: await session.tabs() } };
+                return { body: { id: session.id, state: session.state, lease: session.currentLease, controlRevision: session.controlRevision, reason: session.controlReason, tabs: await session.tabs() } };
             }
             catch (error) {
                 return responseError(error);
@@ -84,10 +85,6 @@ export function registerBrowserApi(ctx, registry, dependencies) {
                 return {
                     sse: async (send, signal) => {
                         const subscriberId = randomBytes(18).toString('base64url');
-                        // The opening frame carries the agent's pointer as well as the control state: a `cursor` event
-                        // reaches only the viewers connected when it is emitted, so a viewer joining between two agent
-                        // moves would otherwise have nothing to draw a pointer from until the agent moved again.
-                        await send(JSON.stringify({ id: session.id, state: session.state, lease: session.currentLease, cursor: session.currentCursor }), 'session');
                         let unsubscribeEvents = null;
                         let unsubscribeFrames = null;
                         const heartbeat = setInterval(() => {
@@ -97,9 +94,29 @@ export function registerBrowserApi(ctx, registry, dependencies) {
                         heartbeat.unref();
                         try {
                             unsubscribeEvents = await session.subscribeEvents(subscriberId, async (event) => send(JSON.stringify(event.data), event.kind));
+                            // Subscribe first, then seed the stream. A concurrent control change may arrive before this
+                            // snapshot, but its higher revision makes the older snapshot harmless to the client.
+                            await send(JSON.stringify({
+                                id: session.id, state: session.state, lease: session.currentLease,
+                                controlRevision: session.controlRevision, reason: session.controlReason, cursor: session.currentCursor, favicon: session.currentFavicon,
+                            }), 'session');
                             unsubscribeFrames = await session.subscribeFrames(subscriberId, async (frame) => send(JSON.stringify(frame), 'frame'));
                             if (!signal.aborted)
                                 await new Promise((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+                        }
+                        catch (error) {
+                            // The 200 and the opening snapshot are already on the wire, so this cannot become an HTTP
+                            // error — and a stream that ends right after its snapshot is indistinguishable, from the
+                            // client's side, from a viewer that simply left. Every client then reconnects into the same
+                            // silent failure. So the refusal is SAID: the client shows it and backs off instead of
+                            // believing it is connected to a stream that will never carry a frame.
+                            const message = error instanceof Error ? error.message : String(error);
+                            const reason = error instanceof ViewerLimitError ? 'viewer_limit' : 'stream_failed';
+                            await send(JSON.stringify({ reason, message }), 'rejected').catch(() => { });
+                            // A full room is reported to the viewer it concerns; only a real failure pages the operator.
+                            if (reason === 'stream_failed')
+                                ctx.logger.warn(`browser live view stream for ${session.id} failed: ${message}`);
+                            throw error;
                         }
                         finally {
                             clearInterval(heartbeat);
@@ -154,6 +171,21 @@ export function registerBrowserApi(ctx, registry, dependencies) {
                 const events = parseUserInputEvents(body.events);
                 await ownedSession(registry, req).dispatchUserInput(requiredString(body.leaseId, 'leaseId', 256), events);
                 return { body: { accepted: events.length } };
+            }
+            catch (error) {
+                return responseError(error);
+            }
+        },
+    });
+    ctx.registerApiRoute({
+        path: 'navigation', method: 'POST', access: 'user', handler: async (req) => {
+            try {
+                const body = await json(req);
+                const action = requiredString(body.action, 'action', 16);
+                if (action !== 'back' && action !== 'forward' && action !== 'reload')
+                    throw new BrowserAccessError('Browser navigation action is invalid.', 400);
+                await ownedSession(registry, req).dispatchUserNavigation(requiredString(body.leaseId, 'leaseId', 256), action);
+                return { body: { navigated: action } };
             }
             catch (error) {
                 return responseError(error);

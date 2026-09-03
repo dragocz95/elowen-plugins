@@ -456,11 +456,14 @@ var import_react4 = __toESM(require_react(), 1);
 var initialState = {
   frame: null,
   cursor: null,
-  control: { state: "agent" },
+  favicon: null,
+  control: { state: "agent", controlRevision: 0 },
   action: null,
   connected: false,
+  hasControlSnapshot: false,
   closed: false,
-  error: null
+  error: null,
+  rejected: null
 };
 function parseSse(buffer) {
   const frames = [];
@@ -488,6 +491,7 @@ function useBrowserStream(path) {
     const controller = new AbortController();
     let retry = 500;
     let terminal = false;
+    let rejected = null;
     const apply = (frame) => {
       let raw;
       try {
@@ -510,6 +514,13 @@ function useBrowserStream(path) {
           connected: true,
           error: null
         }));
+        return;
+      }
+      if (frame.event === "favicon") {
+        if (data.favicon === null) setState((value) => ({ ...value, favicon: null }));
+        else if (typeof data.favicon === "string" && data.favicon.length <= 40 * 1024 && /^data:image\//i.test(data.favicon)) {
+          setState((value) => ({ ...value, favicon: data.favicon }));
+        }
         return;
       }
       if (frame.event === "cursor" && data.cleared === true) {
@@ -538,19 +549,32 @@ function useBrowserStream(path) {
         const lease = frame.event === "session" ? object(data.lease) : null;
         const controlState = data.state === "user" ? "user" : "agent";
         const rawExpiresAt = lease?.expiresAt ?? data.expiresAt;
+        const rawRevision = data.controlRevision;
         const seeded = object(data.cursor);
-        setState((value) => ({
-          ...value,
-          connected: true,
-          closed: false,
-          error: null,
-          cursor: value.cursor ?? (typeof seeded?.x === "number" && typeof seeded?.y === "number" ? { x: seeded.x, y: seeded.y, moving: false } : null),
-          control: {
-            state: controlState,
-            expiresAt: typeof rawExpiresAt === "number" ? rawExpiresAt : void 0,
-            reason: typeof data.reason === "string" ? data.reason : void 0
-          }
-        }));
+        setState((value) => {
+          const controlRevision = typeof rawRevision === "number" ? rawRevision : value.control.controlRevision;
+          if (controlRevision < value.control.controlRevision) return value;
+          return {
+            ...value,
+            connected: true,
+            hasControlSnapshot: true,
+            closed: false,
+            error: null,
+            cursor: value.cursor ?? (typeof seeded?.x === "number" && typeof seeded?.y === "number" ? { x: seeded.x, y: seeded.y, moving: false } : null),
+            favicon: data.favicon === null ? null : typeof data.favicon === "string" && data.favicon.length <= 40 * 1024 && /^data:image\//i.test(data.favicon) ? data.favicon : value.favicon,
+            control: {
+              state: controlState,
+              expiresAt: typeof rawExpiresAt === "number" ? rawExpiresAt : void 0,
+              reason: typeof data.reason === "string" ? data.reason : void 0,
+              controlRevision
+            }
+          };
+        });
+        return;
+      }
+      if (frame.event === "rejected") {
+        rejected = data.reason === "viewer_limit" ? "viewer_limit" : "stream_failed";
+        setState((value) => ({ ...value, connected: false, rejected, error: typeof data.message === "string" ? data.message : null }));
         return;
       }
       if (frame.event === "closed") {
@@ -564,7 +588,8 @@ function useBrowserStream(path) {
           const response = await fetch(`/api${path}`, { credentials: "same-origin", signal: controller.signal });
           if (!response.ok || !response.body) throw new Error(`Browser stream returned ${response.status}`);
           retry = 500;
-          setState((value) => ({ ...value, connected: true, error: null }));
+          rejected = null;
+          setState((value) => ({ ...value, connected: true, error: null, rejected: null }));
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let buffer = "";
@@ -582,8 +607,9 @@ function useBrowserStream(path) {
           if (controller.signal.aborted) return;
           setState((value) => ({ ...value, connected: false, error: error instanceof Error ? error.message : String(error) }));
         }
+        if (rejected) retry = Math.max(retry, 1e4);
         await new Promise((resolve) => setTimeout(resolve, retry));
-        retry = Math.min(5e3, retry * 2);
+        retry = Math.min(rejected ? 3e4 : 5e3, retry * 2);
       }
     };
     setState(initialState);
@@ -613,6 +639,25 @@ var asData = (value) => {
   };
 };
 var inputPath = (sessionId, action) => `/plugins/browser/api/${action}?sessionId=${encodeURIComponent(sessionId)}`;
+var leaseStorageKey = (sessionId) => `elowen.browser.lease.${sessionId}`;
+var rememberedLease = (sessionId) => {
+  try {
+    const raw = window.sessionStorage.getItem(leaseStorageKey(sessionId));
+    if (!raw) return null;
+    const value = JSON.parse(raw);
+    if (typeof value.leaseId !== "string" || typeof value.expiresAt !== "number" || typeof value.controlRevision !== "number") return null;
+    return value.expiresAt > Date.now() ? { leaseId: value.leaseId, expiresAt: value.expiresAt, controlRevision: value.controlRevision } : null;
+  } catch {
+    return null;
+  }
+};
+var rememberLease = (sessionId, lease) => {
+  try {
+    if (lease) window.sessionStorage.setItem(leaseStorageKey(sessionId), JSON.stringify(lease));
+    else window.sessionStorage.removeItem(leaseStorageKey(sessionId));
+  } catch {
+  }
+};
 var siteName = (url) => {
   try {
     return new URL(url).host || url;
@@ -713,17 +758,21 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const [expanded, setExpanded] = (0, import_react5.useState)(false);
   const [confirmClose, setConfirmClose] = (0, import_react5.useState)(false);
   const [pending, setPending] = (0, import_react5.useState)(null);
-  const [lease, setLease] = (0, import_react5.useState)(null);
+  const initialSessionId = data?.browserSessionId ?? "";
+  const [lease, setLease] = (0, import_react5.useState)(() => initialSessionId ? rememberedLease(initialSessionId) : null);
+  const adoptedLease = (0, import_react5.useRef)(lease?.leaseId ?? null);
   const [speechHidden, setSpeechHidden] = (0, import_react5.useState)(false);
   const pointerTimer = (0, import_react5.useRef)(null);
   const speechTimer = (0, import_react5.useRef)(null);
   const pendingMove = (0, import_react5.useRef)(null);
+  const anchor = (0, import_react5.useRef)(null);
   const pendingReveal = (0, import_react5.useRef)(null);
   const sessionId = data?.browserSessionId ?? "";
   const title = data?.title || strings.sessionTitle || "Browser session";
   const url = data?.url || "";
   const site = url ? siteName(url) : "";
-  const state = stream.closed ? "closed" : lease || stream.control.state === "user" || data?.state === "user" ? "user" : data?.state ?? "agent";
+  const favicon = stream.hasControlSnapshot ? stream.favicon : data?.favicon;
+  const state = stream.closed ? "closed" : lease ? "user" : stream.hasControlSnapshot ? stream.control.state : data?.state ?? "agent";
   const takeoverRequested = stream.control.state === "agent" && stream.control.reason === "requested";
   const speech = (narration ?? "").trim();
   const visibleSpeech = speechHidden ? "" : speech;
@@ -758,24 +807,57 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
     };
   }, [speech, speechHidden]);
   (0, import_react5.useEffect)(() => {
+    if (sessionId) rememberLease(sessionId, lease);
+  }, [lease, sessionId]);
+  (0, import_react5.useEffect)(() => {
     if (!lease) return;
-    const interval = setInterval(() => {
+    const beat = (adopted) => {
       void runtime().api(inputPath(sessionId, "heartbeat"), jsonRequest("POST", { leaseId: lease.leaseId })).then((value) => {
         const next = value;
         if (typeof next.expiresAt === "number") setLease((current) => current?.leaseId === lease.leaseId ? { ...current, expiresAt: next.expiresAt } : current);
-      }).catch(() => setLease((current) => current?.leaseId === lease.leaseId ? null : current));
-    }, 2e4);
+      }).catch(() => {
+        if (adopted) setLease((current) => current?.leaseId === lease.leaseId ? null : current);
+      });
+    };
+    if (adoptedLease.current === lease.leaseId) {
+      adoptedLease.current = null;
+      beat(true);
+    }
+    const interval = setInterval(() => beat(false), 2e4);
     return () => clearInterval(interval);
   }, [lease, sessionId]);
   (0, import_react5.useEffect)(() => {
-    if (stream.control.state === "agent") setLease(null);
-  }, [stream.control.state]);
+    if (!lease) return;
+    const controlRevision = stream.control.controlRevision;
+    if (controlRevision > lease.controlRevision || controlRevision === lease.controlRevision && stream.control.state === "agent") {
+      setLease((current) => current?.leaseId === lease.leaseId ? null : current);
+    }
+  }, [lease, stream.control.controlRevision, stream.control.state]);
   (0, import_react5.useEffect)(() => {
     if (expanded) return;
     const reveal = pendingReveal.current;
     if (!reveal) return;
     pendingReveal.current = null;
     reveal();
+  }, [expanded]);
+  (0, import_react5.useEffect)(() => {
+    const node = anchor.current;
+    const surface = node?.closest(".chat-surface-full");
+    if (!node || !surface) return;
+    const docked = window.matchMedia("(min-width: 768px)");
+    const publish = () => {
+      if (!docked.matches || expanded) surface.style.removeProperty("--chat-dock-height");
+      else surface.style.setProperty("--chat-dock-height", `${Math.ceil(node.getBoundingClientRect().height)}px`);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(node);
+    docked.addEventListener("change", publish);
+    return () => {
+      observer.disconnect();
+      docked.removeEventListener("change", publish);
+      surface.style.removeProperty("--chat-dock-height");
+    };
   }, [expanded]);
   (0, import_react5.useEffect)(() => {
     if (lease) return;
@@ -787,11 +869,12 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   }, [lease]);
   const status = (0, import_react5.useMemo)(() => {
     if (stream.closed || state === "closed") return { tone: "muted", label: strings.closed || "Closed" };
+    if (stream.rejected === "viewer_limit") return { tone: "warning", label: strings.viewerLimit || "Too many viewers" };
     if (stream.error) return { tone: "danger", label: strings.disconnected || "Disconnected" };
     if (state === "user") return { tone: "accent", label: lease ? strings.youControl || "You control" : strings.userControl || "User control" };
     if (takeoverRequested) return { tone: "warning", label: strings.waitingForUser || "Waiting for user input" };
     return { tone: stream.connected ? "success" : "warning", label: stream.connected ? strings.agentControl || "Agent control" : strings.connecting || "Connecting" };
-  }, [lease, state, stream.closed, stream.connected, stream.error, strings, takeoverRequested]);
+  }, [lease, state, stream.closed, stream.connected, stream.error, stream.rejected, strings, takeoverRequested]);
   const run = async (name, operation) => {
     setPending(name);
     try {
@@ -823,11 +906,9 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
     if (!lease || events.length === 0) return;
     await runtime().api(inputPath(sessionId, "input"), jsonRequest("POST", { leaseId: lease.leaseId, events }));
   };
-  const shortcut = (key, code, modifiers = []) => {
-    void command([
-      { type: "key", action: "down", key, code, modifiers },
-      { type: "key", action: "up", key, code, modifiers }
-    ]).catch((error) => toast.toast(apiError(error), "error"));
+  const navigate = (action2) => {
+    if (!lease) return;
+    void run("navigation", () => runtime().api(inputPath(sessionId, "navigation"), jsonRequest("POST", { leaseId: lease.leaseId, action: action2 })));
   };
   const pointerEvent = (event, actionName) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -940,13 +1021,14 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
     void takeControl();
   }, disabled: pending !== null || stream.closed, children: strings.takeControl || "Take control" });
   const siteLabel = (className = "") => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: `browser-artifact__site ${className}`.trim(), children: [
-    data?.favicon ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { className: "browser-artifact__site-icon", src: data.favicon, alt: "" }) : null,
+    favicon ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { className: "browser-artifact__site-icon", src: favicon, alt: "" }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__site-text", children: site || strings.noAddress || "No address yet" })
   ] });
   if (!data) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "browser-artifact__fallback", children: artifact.fallback });
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
     "section",
     {
+      ref: anchor,
       className: "browser-artifact",
       style: aspectStyle,
       "data-expanded": expanded ? "true" : void 0,
@@ -998,9 +1080,9 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
             ) : null,
             /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__controls", children: [
               lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]) }),
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => shortcut("ArrowRight", "ArrowRight", ["Alt"]) }),
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => shortcut("r", "KeyR", ["Control"]) })
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => navigate("back"), disabled: pending !== null }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => navigate("forward"), disabled: pending !== null }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => navigate("reload"), disabled: pending !== null })
               ] }) : null,
               siteLabel(),
               controlAction(),

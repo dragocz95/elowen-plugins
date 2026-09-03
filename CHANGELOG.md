@@ -1,6 +1,6 @@
 # Changelog
 
-## browser 0.2.5 - 2026-09-03
+## browser 0.2.10 - 2026-09-03
 
 - Rebuild the account browser profile panel on the host's settings rows so it reads as the same surface as Models, Memory and Terminal
 
@@ -11,6 +11,27 @@
 ## github 0.1.12 - 2026-09-03
 
 - Publish the connected GitHub identity to sibling plugins so a Sandbox shell starts already authenticated
+
+## browser 0.2.9 - 2026-09-03
+
+- Tell a viewer the session is full instead of ending its stream in silence, and let one person watch from the web, the CLI and a phone at once
+- Keep a takeover through a re-render or reload of the card, bound every user input from the moment it is queued, answer the session read without waiting on the page, and log each change of control
+
+## browser 0.2.8 - 2026-09-03
+
+- Let a person take control instantly and recover a session whose queue is stuck
+
+## browser 0.2.7 - 2026-09-03
+
+- Stream page favicons and use real history navigation in the takeover toolbar
+
+## browser 0.2.6 - 2026-09-03
+
+- Keep cosmetic artifact limits from breaking browser takeover
+
+## browser 0.2.5 - 2026-09-03
+
+- Keep takeover ownership stable and fall back across approved proxy addresses
 
 ## msteams 0.7.0 - 2026-09-03
 
