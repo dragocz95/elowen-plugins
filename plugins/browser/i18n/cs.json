@@ -39,6 +39,7 @@
       "settingsDescription": "Aktuální kapacita a stav izolace spravovaných relací Chrome.",
       "closed": "Ukončeno",
       "disconnected": "Odpojeno",
+      "viewerLimit": "Příliš mnoho diváků",
       "connecting": "Připojování",
       "agentControl": "Ovládá agent",
       "userControl": "Ovládá uživatel",

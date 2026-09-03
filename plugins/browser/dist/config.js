@@ -23,7 +23,7 @@ export function resolveConfig(raw) {
         maxViewportWidth: width,
         viewportHeight: Math.max(500, Math.round(width * 0.625)),
         takeoverLeaseMs: bounded(raw.takeoverLeaseSeconds, 120, 30, 600) * 1000,
-        maxViewersPerSession: bounded(raw.maxViewersPerSession, 2, 1, 5),
+        maxViewersPerSession: bounded(raw.maxViewersPerSession, 4, 1, 8),
         globalStreamBytesPerSecond: bounded(raw.globalStreamMegabits, 12, 2, 50) * 125_000,
         maxFrameBytes: bounded(raw.maxFrameKilobytes, 750, 100, 2000) * 1024,
         maxChromeRssBytesPerUser: bounded(raw.maxChromeRssMb, 768, 256, 2048) * 1048576,

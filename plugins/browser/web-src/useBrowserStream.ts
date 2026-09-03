@@ -14,6 +14,9 @@ export interface BrowserStreamState {
   hasControlSnapshot: boolean;
   closed: boolean;
   error: string | null;
+  /** The server named why it would not carry frames to this viewer. `viewer_limit` means the room is
+   *  full — another viewer leaving frees it — so it is shown as a state, not as a broken connection. */
+  rejected: 'viewer_limit' | 'stream_failed' | null;
 }
 
 const initialState: BrowserStreamState = {
@@ -26,6 +29,7 @@ const initialState: BrowserStreamState = {
   hasControlSnapshot: false,
   closed: false,
   error: null,
+  rejected: null,
 };
 
 interface SseFrame { event: string; data: string }
@@ -60,6 +64,7 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
     const controller = new AbortController();
     let retry = 500;
     let terminal = false;
+    let rejected: BrowserStreamState['rejected'] = null;
 
     const apply = (frame: SseFrame): void => {
       let raw: unknown;
@@ -155,6 +160,14 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
         });
         return;
       }
+      if (frame.event === 'rejected') {
+        // The stream ends right after this. Remembering the refusal keeps the card from claiming a live
+        // connection off the opening snapshot alone, and lets the reconnect below back off instead of
+        // hammering a full room every half second.
+        rejected = data.reason === 'viewer_limit' ? 'viewer_limit' : 'stream_failed';
+        setState((value) => ({ ...value, connected: false, rejected, error: typeof data.message === 'string' ? data.message : null }));
+        return;
+      }
       if (frame.event === 'closed') {
         terminal = true;
         setState((value) => ({ ...value, connected: false, closed: true }));
@@ -167,7 +180,8 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
           const response = await fetch(`/api${path}`, { credentials: 'same-origin', signal: controller.signal });
           if (!response.ok || !response.body) throw new Error(`Browser stream returned ${response.status}`);
           retry = 500;
-          setState((value) => ({ ...value, connected: true, error: null }));
+          rejected = null;
+          setState((value) => ({ ...value, connected: true, error: null, rejected: null }));
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let buffer = '';
@@ -185,8 +199,10 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
           if (controller.signal.aborted) return;
           setState((value) => ({ ...value, connected: false, error: error instanceof Error ? error.message : String(error) }));
         }
+        // A full room does not change in half a second; a refused viewer polls it far more gently.
+        if (rejected) retry = Math.max(retry, 10_000);
         await new Promise((resolve) => setTimeout(resolve, retry));
-        retry = Math.min(5_000, retry * 2);
+        retry = Math.min(rejected ? 30_000 : 5_000, retry * 2);
       }
     };
 

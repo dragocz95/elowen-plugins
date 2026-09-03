@@ -19,7 +19,7 @@ import {
   browserDependencyReport, browserReadiness,
   type BrowserDependencyCheck, type BrowserDependencyReport, type BrowserDependencyStatus,
 } from '../plugins/browser/src/readiness.js';
-import { ScreencastHub, StreamBudget } from '../plugins/browser/src/screencast-hub.js';
+import { ScreencastHub, StreamBudget, ViewerLimitError } from '../plugins/browser/src/screencast-hub.js';
 import { boundBytes, boundText, isTextualMime, pickResponseHeaders, sanitizeUrl, UNTRUSTED_NOTE } from '../plugins/browser/src/redaction.js';
 import { MAX_CAPTURE_CSS_AREA, MAX_FULL_PAGE_CSS_PX, MAX_SCREENSHOT_BYTES } from '../plugins/browser/src/capture.js';
 import { CONSOLE_BUFFER_SIZE, MAX_BODY_BYTES } from '../plugins/browser/src/page-diagnostics.js';
@@ -354,6 +354,34 @@ describe('browser tool and API denial behavior', () => {
     });
     expect(response.status).toBe(404);
     expect(response.body).toEqual({ error: 'Browser session not found.' });
+  });
+});
+
+describe('browser live view stream', () => {
+  it('names a refused viewer on the wire instead of ending the stream in silence', async () => {
+    const routes: any[] = [];
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const ctx = { registerApiRoute: (route: unknown) => routes.push(route), logger };
+    const session = {
+      id: 'session-1', state: 'agent', currentLease: null, controlRevision: 0, controlReason: null, currentCursor: null, currentFavicon: null,
+      viewerActivity: vi.fn(),
+      subscribeEvents: async () => () => {},
+      subscribeFrames: async () => { throw new ViewerLimitError(); },
+    };
+    registerBrowserApi(ctx as any, { getOwned: () => session } as any);
+    const route = routes.find((item) => item.path === 'stream' && item.method === 'GET');
+    const response = await route.handler({
+      auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [] },
+      query: { sessionId: 'session-1' }, params: {}, method: 'GET', path: '', headers: {},
+      body: async () => Buffer.alloc(0), json: async () => ({}),
+    });
+    const sent: { event: string; data: any }[] = [];
+    await expect(response.sse(async (data: string, event: string) => { sent.push({ event, data: JSON.parse(data) }); }, new AbortController().signal))
+      .rejects.toBeInstanceOf(ViewerLimitError);
+    expect(sent.map((item) => item.event)).toEqual(['session', 'rejected']);
+    expect(sent[1].data).toEqual({ reason: 'viewer_limit', message: 'Browser viewer limit reached.' });
+    // Expected condition of the room, not a fault: it must not page anyone through the warn log.
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });
 

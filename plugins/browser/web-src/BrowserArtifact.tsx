@@ -260,13 +260,14 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
 
   const status = useMemo(() => {
     if (stream.closed || state === 'closed') return { tone: 'muted' as const, label: strings.closed || 'Closed' };
+    if (stream.rejected === 'viewer_limit') return { tone: 'warning' as const, label: strings.viewerLimit || 'Too many viewers' };
     if (stream.error) return { tone: 'danger' as const, label: strings.disconnected || 'Disconnected' };
     if (state === 'user') return { tone: 'accent' as const, label: lease ? strings.youControl || 'You control' : strings.userControl || 'User control' };
     // A handoff the agent asked for is a STATE, not a passing action: the thumbnail carries no action
     // copy, so this is what turns its dot amber and tells a screen reader why the button is waiting.
     if (takeoverRequested) return { tone: 'warning' as const, label: strings.waitingForUser || 'Waiting for user input' };
     return { tone: stream.connected ? 'success' as const : 'warning' as const, label: stream.connected ? strings.agentControl || 'Agent control' : strings.connecting || 'Connecting' };
-  }, [lease, state, stream.closed, stream.connected, stream.error, strings, takeoverRequested]);
+  }, [lease, state, stream.closed, stream.connected, stream.error, stream.rejected, strings, takeoverRequested]);
 
   const run = async <T,>(name: string, operation: () => Promise<T>): Promise<T | undefined> => {
     setPending(name);

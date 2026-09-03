@@ -1,5 +1,9 @@
 # Changelog
 
+## browser 0.2.9 - 2026-09-03
+
+- Tell a viewer the session is full instead of ending its stream in silence, and let one person watch from the web, the CLI and a phone at once
+
 ## browser 0.2.8 - 2026-09-03
 
 - Let a person take control instantly and recover a session whose queue is stuck

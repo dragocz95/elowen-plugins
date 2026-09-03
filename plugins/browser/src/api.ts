@@ -4,6 +4,7 @@ import { BrowserAccessError, requireApiUser } from './ownership.js';
 import type { BrowserDependencyReport } from './readiness.js';
 import { SessionRegistry } from './session-registry.js';
 import { parseUserInputEvents } from './input-controller.js';
+import { ViewerLimitError } from './screencast-hub.js';
 
 const object = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BrowserAccessError('A JSON object is required.', 400);
@@ -92,6 +93,18 @@ export function registerBrowserApi(
               }), 'session');
               unsubscribeFrames = await session.subscribeFrames(subscriberId, async (frame) => send(JSON.stringify(frame), 'frame'));
               if (!signal.aborted) await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+            } catch (error) {
+              // The 200 and the opening snapshot are already on the wire, so this cannot become an HTTP
+              // error — and a stream that ends right after its snapshot is indistinguishable, from the
+              // client's side, from a viewer that simply left. Every client then reconnects into the same
+              // silent failure. So the refusal is SAID: the client shows it and backs off instead of
+              // believing it is connected to a stream that will never carry a frame.
+              const message = error instanceof Error ? error.message : String(error);
+              const reason = error instanceof ViewerLimitError ? 'viewer_limit' : 'stream_failed';
+              await send(JSON.stringify({ reason, message }), 'rejected').catch(() => {});
+              // A full room is reported to the viewer it concerns; only a real failure pages the operator.
+              if (reason === 'stream_failed') ctx.logger.warn(`browser live view stream for ${session.id} failed: ${message}`);
+              throw error;
             } finally {
               clearInterval(heartbeat);
               unsubscribeEvents?.();

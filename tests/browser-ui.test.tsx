@@ -259,6 +259,23 @@ describe('browser plugin UI', () => {
     expect(screen.queryByText(strings.controlledElsewhere)).toBeNull();
   });
 
+  it('says the room is full instead of pretending to be connected when the stream is refused', async () => {
+    // What production did: the opening snapshot arrived, the stream ended, and the card read
+    // "Agent control" with an image that never came — while the viewer reconnected every half second.
+    const refusedStreamBody = [
+      `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0 })}\n\n`,
+      `event: rejected\ndata: ${JSON.stringify({ reason: 'viewer_limit', message: 'Browser viewer limit reached.' })}\n\n`,
+    ].join('');
+    let attempts = 0;
+    use(http.get('/api/plugins/browser/api/stream', () => { attempts += 1; return new HttpResponse(refusedStreamBody, { headers: { 'content-type': 'text/event-stream' } }); }));
+    mountArtifact();
+    expect((await screen.findAllByText(strings.viewerLimit)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(strings.agentControl)).toBeNull();
+    // Gentle retry: a full room does not change in half a second.
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(attempts).toBe(1);
+  });
+
   it('leaves the user one pointer while they drive the session', async () => {
     use(
       http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),

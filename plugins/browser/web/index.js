@@ -393,7 +393,8 @@ var initialState = {
   connected: false,
   hasControlSnapshot: false,
   closed: false,
-  error: null
+  error: null,
+  rejected: null
 };
 function parseSse(buffer) {
   const frames = [];
@@ -421,6 +422,7 @@ function useBrowserStream(path) {
     const controller = new AbortController();
     let retry = 500;
     let terminal = false;
+    let rejected = null;
     const apply = (frame) => {
       let raw;
       try {
@@ -501,6 +503,11 @@ function useBrowserStream(path) {
         });
         return;
       }
+      if (frame.event === "rejected") {
+        rejected = data.reason === "viewer_limit" ? "viewer_limit" : "stream_failed";
+        setState((value) => ({ ...value, connected: false, rejected, error: typeof data.message === "string" ? data.message : null }));
+        return;
+      }
       if (frame.event === "closed") {
         terminal = true;
         setState((value) => ({ ...value, connected: false, closed: true }));
@@ -512,7 +519,8 @@ function useBrowserStream(path) {
           const response = await fetch(`/api${path}`, { credentials: "same-origin", signal: controller.signal });
           if (!response.ok || !response.body) throw new Error(`Browser stream returned ${response.status}`);
           retry = 500;
-          setState((value) => ({ ...value, connected: true, error: null }));
+          rejected = null;
+          setState((value) => ({ ...value, connected: true, error: null, rejected: null }));
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let buffer = "";
@@ -530,8 +538,9 @@ function useBrowserStream(path) {
           if (controller.signal.aborted) return;
           setState((value) => ({ ...value, connected: false, error: error instanceof Error ? error.message : String(error) }));
         }
+        if (rejected) retry = Math.max(retry, 1e4);
         await new Promise((resolve) => setTimeout(resolve, retry));
-        retry = Math.min(5e3, retry * 2);
+        retry = Math.min(rejected ? 3e4 : 5e3, retry * 2);
       }
     };
     setState(initialState);
@@ -761,11 +770,12 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   }, [lease]);
   const status = (0, import_react5.useMemo)(() => {
     if (stream.closed || state === "closed") return { tone: "muted", label: strings.closed || "Closed" };
+    if (stream.rejected === "viewer_limit") return { tone: "warning", label: strings.viewerLimit || "Too many viewers" };
     if (stream.error) return { tone: "danger", label: strings.disconnected || "Disconnected" };
     if (state === "user") return { tone: "accent", label: lease ? strings.youControl || "You control" : strings.userControl || "User control" };
     if (takeoverRequested) return { tone: "warning", label: strings.waitingForUser || "Waiting for user input" };
     return { tone: stream.connected ? "success" : "warning", label: stream.connected ? strings.agentControl || "Agent control" : strings.connecting || "Connecting" };
-  }, [lease, state, stream.closed, stream.connected, stream.error, strings, takeoverRequested]);
+  }, [lease, state, stream.closed, stream.connected, stream.error, stream.rejected, strings, takeoverRequested]);
   const run = async (name, operation) => {
     setPending(name);
     try {
