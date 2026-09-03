@@ -5,7 +5,7 @@ import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
 export const DEVICE_LOGIN_ARGS = [
-  'auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--skip-ssh-key', '--insecure-storage',
+  'auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--skip-ssh-key', '--insecure-storage', '--scopes', 'workflow',
 ] as const;
 export const TOKEN_ARGS = ['auth', 'token', '--hostname', 'github.com'] as const;
 const VERSION_ARGS = ['--version'] as const;

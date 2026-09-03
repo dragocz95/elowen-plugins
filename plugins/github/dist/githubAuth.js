@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { spawn as nodeSpawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 export const DEVICE_LOGIN_ARGS = [
-    'auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--skip-ssh-key', '--insecure-storage',
+    'auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--skip-ssh-key', '--insecure-storage', '--scopes', 'workflow',
 ];
 export const TOKEN_ARGS = ['auth', 'token', '--hostname', 'github.com'];
 const VERSION_ARGS = ['--version'];
