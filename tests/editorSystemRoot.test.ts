@@ -6,7 +6,7 @@
  *  in open mode every caller is an admin and a 403 could never be observed. The first account created is
  *  the instance admin; the second is an ordinary member. */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +22,7 @@ import { EventBus } from 'elowen/dist/api/sse.js';
 import { FakeClock } from 'elowen/dist/shared/clock.js';
 import { safeProjectPath } from 'elowen/dist/integrations/projectFiles.js';
 import type { PluginHostWiring } from 'elowen/dist/plugins/registry.js';
-import { listProjectFiles, safeSystemPath } from '../plugins/editor/src/files.js';
+import { deleteProjectEntry, listProjectFiles, safeSystemPath, writeProjectFile } from '../plugins/editor/src/files.js';
 import { SYSTEM_PROJECT_ID } from '../plugins/editor/src/systemRoot.js';
 
 const pluginsDir = join(fileURLToPath(new URL('..', import.meta.url)), 'plugins');
@@ -74,6 +74,10 @@ describe('editor system root', () => {
     const paths = tree.map((node) => node.path);
     expect(paths).toContain('var');
     expect(paths).toContain('etc');
+    expect(paths).not.toContain('dev');
+    expect(paths).not.toContain('proc');
+    expect(paths).not.toContain('run');
+    expect(paths).not.toContain('sys');
     expect(tree.find((node) => node.path === 'var')?.type).toBe('dir');
     // ONE level and not one more. Two levels below `/` is already tens of thousands of entries, so a
     // listing that started descending here would not be slow, it would be unusable.
@@ -117,6 +121,7 @@ describe('editor system root', () => {
       `/projects/${SYSTEM_PROJECT_ID}/changed`,
       '/projects/-1.0/files',
       '/projects/-01/files',
+      '/projects/%2D1/files',
     ]) {
       const res = await get(path, memberToken);
       expect([path, res.status]).toEqual([path, 403]);
@@ -186,6 +191,13 @@ describe('system path guard', () => {
     // the containment check the host's own guard performs.
     expect(() => safeSystemPath('/var/www', 'x')).toThrow(/invalid path/);
   });
+
+  it('keeps kernel virtual filesystems out of an editor running on the synchronous daemon thread', () => {
+    for (const path of ['dev/null', 'proc/self/environ', 'run/systemd', 'sys/kernel']) {
+      expect(() => safeSystemPath('/', path)).toThrow(/virtual filesystem/);
+    }
+    expect(safeSystemPath('/', 'etc/hostname')).toBe('/etc/hostname');
+  });
 });
 
 describe('listing tolerance', () => {
@@ -214,6 +226,19 @@ describe('listing tolerance', () => {
     expect(paths).not.toContain(join('locked', 'inside.txt'));
   });
 
+  it('does not present or overwrite a device target as an editable regular file', () => {
+    symlinkSync('/dev/null', join(root, 'device'));
+    writeFileSync(join(root, 'regular.txt'), 'ok');
+    const paths = listProjectFiles(root).map((node) => node.path);
+    expect(paths).toContain('regular.txt');
+    expect(paths).not.toContain('device');
+    const safe = (base: string, rel: string) => join(base, rel);
+    expect(() => writeProjectFile(safe, root, 'device', 'nope')).toThrow(/unsupported file type/);
+    expect(() => deleteProjectEntry(safe, root, 'device')).not.toThrow();
+    // Deleting the symlink is safe; the device target itself remains untouched.
+    expect(existsSync('/dev/null')).toBe(true);
+  });
+
   it('shows a symlinked directory as a directory, and does not follow one that escapes the root', () => {
     const outside = mkdtempSync(join(tmpdir(), 'elowen-outside-'));
     writeFileSync(join(outside, 'secret.txt'), 'SECRET');
@@ -236,6 +261,7 @@ describe('listing tolerance', () => {
       // Following the escaping link would spell out, to somebody who may reach nothing but this
       // project, the names of files outside it.
       expect(paths).not.toContain(join('outward', 'secret.txt'));
+      expect(listProjectFiles(root, 0, join(root, 'outward'))).toEqual([]);
     } finally {
       rmSync(outside, { recursive: true, force: true });
     }

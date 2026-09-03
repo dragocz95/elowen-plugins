@@ -1,4 +1,4 @@
-import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -15,6 +15,10 @@ const MAX_FILE = 2 * 1024 * 1024;
 const MAX_RANGE_BYTES = 8 * 1024 * 1024;
 const MAX_OFFICE_OUTPUT_BYTES = MAX_BUFFERED_BYTES;
 const MAX_OFFICE_CONVERSIONS = 2;
+/** Kernel-backed trees are not ordinary files. Traversing their self/root symlinks can reproduce the
+ * whole filesystem indefinitely across lazy requests; writing a device, FIFO or proc node can block the
+ * daemon's synchronous thread. The System editor is for persisted host files, not kernel interfaces. */
+const VIRTUAL_SYSTEM_ROOTS = ['/dev', '/proc', '/run', '/sys'];
 let activeOfficeConversions = 0;
 /** A refusal the operator is meant to read — "already exists", "source does not exist". Only these
  *  messages travel to the client: a raw fs error carries the absolute server path of the project (and
@@ -36,7 +40,11 @@ export function safeSystemPath(root, rel) {
     // root would silently drop the containment check the host guard performs.
     if (!isSystemRoot(root))
         throw new EditorFileError('invalid path');
-    return resolve(SYSTEM_ROOT, rel);
+    const absolute = resolve(SYSTEM_ROOT, rel);
+    if (VIRTUAL_SYSTEM_ROOTS.some((blocked) => absolute === blocked || absolute.startsWith(`${blocked}${sep}`))) {
+        throw new EditorFileError('virtual filesystem paths are unavailable');
+    }
+    return absolute;
 }
 /** Flat listing of a tree, with every path relative to `root`.
  *
@@ -61,7 +69,10 @@ export function listProjectFiles(root, maxDepth = 8, from) {
     const seen = new Set();
     const start = from ?? resolvedRoot;
     try {
-        seen.add(realpathSync(start));
+        const realStart = realpathSync(start);
+        if (!inside(realStart))
+            return [];
+        seen.add(realStart);
     }
     catch {
         return [];
@@ -80,19 +91,19 @@ export function listProjectFiles(root, maxDepth = 8, from) {
                 continue;
             const abs = join(dir, entry.name);
             const path = relative(resolvedRoot, abs);
-            // `readdirSync` reports a symlink as neither a file nor a directory, so a link to a folder used to
-            // be listed as a file carrying the folder's size — which is most of the top of a Linux root
-            // (/bin, /lib, /sbin). Classify it by what it points at instead; a dangling link has no answer and
-            // is dropped along with everything else this process cannot stat.
-            let directory = entry.isDirectory();
-            if (!directory && entry.isSymbolicLink()) {
-                try {
-                    directory = statSync(abs).isDirectory();
-                }
-                catch {
-                    continue;
-                }
+            if (isSystemRoot(resolvedRoot) && VIRTUAL_SYSTEM_ROOTS.includes(`/${path.split(sep)[0]}`))
+                continue;
+            // Classify by the resolved target so directory symlinks such as /bin remain browsable, but expose
+            // ONLY regular files and directories. Sockets, FIFOs and devices are kernel interfaces, not files
+            // an editor can safely read or overwrite.
+            let target;
+            try {
+                target = statSync(abs);
             }
+            catch {
+                continue;
+            }
+            const directory = target.isDirectory();
             if (directory) {
                 out.push({ path, type: 'dir' });
                 if (depth >= maxDepth)
@@ -111,22 +122,38 @@ export function listProjectFiles(root, maxDepth = 8, from) {
                 seen.add(real);
                 visit(abs, depth + 1);
             }
-            else {
-                // The daemon user cannot read everything under a system root. An entry it cannot stat costs that
-                // entry, never the rest of the directory.
-                let size;
-                try {
-                    size = statSync(abs).size;
-                }
-                catch {
-                    continue;
-                }
-                out.push({ path, type: 'file', size });
+            else if (target.isFile()) {
+                out.push({ path, type: 'file', size: target.size });
             }
         }
     };
     visit(start, 0);
     return out;
+}
+function assertWritableFile(abs) {
+    if (!existsSync(abs))
+        return;
+    let target;
+    try {
+        target = statSync(abs);
+    }
+    catch {
+        throw new EditorFileError('unsupported file type');
+    }
+    if (!target.isFile())
+        throw new EditorFileError('unsupported file type');
+}
+function assertMovableEntry(abs) {
+    let entry;
+    try {
+        entry = lstatSync(abs);
+    }
+    catch {
+        throw new EditorFileError('source does not exist');
+    }
+    if (!entry.isFile() && !entry.isDirectory() && !entry.isSymbolicLink()) {
+        throw new EditorFileError('unsupported file type');
+    }
 }
 export function readProjectFile(safe, root, rel) {
     const abs = safe(root, rel);
@@ -137,6 +164,7 @@ export function readProjectFile(safe, root, rel) {
 }
 export function writeProjectFile(safe, root, rel, content) {
     const abs = safe(root, rel, true);
+    assertWritableFile(abs);
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, content, 'utf8');
 }
@@ -235,9 +263,11 @@ export function uploadProjectChunk(safe, root, rel, bytes, offset, final, overwr
     if (offset + bytes.length > MAX_BUFFERED_BYTES)
         throw new EditorFileError('file too large');
     const abs = safe(root, rel, true);
+    assertWritableFile(abs);
     // The temp lives beside the target so it lands on the same filesystem — a rename across devices is
     // not atomic, and the whole point of the temp is that the move either happened or did not.
     const temp = `${abs}${UPLOAD_SUFFIX}`;
+    assertWritableFile(temp);
     // Refuse an unintended overwrite at the START, before a large upload spends time on the wire, and
     // again at the END, because the file may have appeared in between.
     if (!overwrite && existsSync(abs))
@@ -268,13 +298,13 @@ export function deleteProjectEntry(safe, root, rel) {
     const abs = safe(root, rel, true);
     if (abs === projectRoot)
         throw new EditorFileError('cannot delete project root');
+    assertMovableEntry(abs);
     rmSync(abs, { recursive: true, force: true });
 }
 export function renameProjectEntry(safe, root, from, to) {
     const src = safe(root, from, true);
     const dst = safe(root, to, true);
-    if (!existsSync(src))
-        throw new EditorFileError('source does not exist');
+    assertMovableEntry(src);
     if (existsSync(dst))
         throw new EditorFileError('target already exists');
     mkdirSync(dirname(dst), { recursive: true });
@@ -283,8 +313,7 @@ export function renameProjectEntry(safe, root, from, to) {
 export function copyProjectEntry(safe, root, from, to) {
     const src = safe(root, from, true);
     const dst = safe(root, to, true);
-    if (!existsSync(src))
-        throw new EditorFileError('source does not exist');
+    assertMovableEntry(src);
     if (existsSync(dst))
         throw new EditorFileError('target already exists');
     mkdirSync(dirname(dst), { recursive: true });
@@ -299,7 +328,14 @@ const gitRoot = (root) => realpathSync(root);
  *  and not spawning it is a firmer guarantee than any GIT_CEILING_DIRECTORIES, because there is no
  *  discovery left to escape upward. It also keeps a stray `/.git` from turning the whole filesystem into
  *  a repository the editor reports on. */
-const gitUsable = (root) => !isSystemRoot(root);
+const gitUsable = (root) => {
+    try {
+        return !isSystemRoot(realpathSync(root));
+    }
+    catch {
+        return false;
+    }
+};
 export async function projectChangedFiles(root) {
     if (!gitUsable(root))
         return [];

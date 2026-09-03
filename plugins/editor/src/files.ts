@@ -1,4 +1,4 @@
-import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -16,6 +16,10 @@ const MAX_FILE = 2 * 1024 * 1024;
 const MAX_RANGE_BYTES = 8 * 1024 * 1024;
 const MAX_OFFICE_OUTPUT_BYTES = MAX_BUFFERED_BYTES;
 const MAX_OFFICE_CONVERSIONS = 2;
+/** Kernel-backed trees are not ordinary files. Traversing their self/root symlinks can reproduce the
+ * whole filesystem indefinitely across lazy requests; writing a device, FIFO or proc node can block the
+ * daemon's synchronous thread. The System editor is for persisted host files, not kernel interfaces. */
+const VIRTUAL_SYSTEM_ROOTS = ['/dev', '/proc', '/run', '/sys'];
 let activeOfficeConversions = 0;
 
 export interface FileNode { path: string; type: 'file' | 'dir'; size?: number }
@@ -41,7 +45,11 @@ export function safeSystemPath(root: string, rel: string): string {
   // Defensive, not decorative: this guard is only correct BECAUSE the root is `/`. Handing it any other
   // root would silently drop the containment check the host guard performs.
   if (!isSystemRoot(root)) throw new EditorFileError('invalid path');
-  return resolve(SYSTEM_ROOT, rel);
+  const absolute = resolve(SYSTEM_ROOT, rel);
+  if (VIRTUAL_SYSTEM_ROOTS.some((blocked) => absolute === blocked || absolute.startsWith(`${blocked}${sep}`))) {
+    throw new EditorFileError('virtual filesystem paths are unavailable');
+  }
+  return absolute;
 }
 
 /** Flat listing of a tree, with every path relative to `root`.
@@ -61,7 +69,11 @@ export function listProjectFiles(root: string, maxDepth = 8, from?: string): Fil
   // walk would list the same subtree once per level left in the depth budget.
   const seen = new Set<string>();
   const start = from ?? resolvedRoot;
-  try { seen.add(realpathSync(start)); } catch { return []; }
+  try {
+    const realStart = realpathSync(start);
+    if (!inside(realStart)) return [];
+    seen.add(realStart);
+  } catch { return []; }
   const visit = (dir: string, depth: number) => {
     let entries;
     try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
@@ -70,14 +82,13 @@ export function listProjectFiles(root: string, maxDepth = 8, from?: string): Fil
       if (IGNORE.has(entry.name) || entry.name.endsWith(UPLOAD_SUFFIX)) continue;
       const abs = join(dir, entry.name);
       const path = relative(resolvedRoot, abs);
-      // `readdirSync` reports a symlink as neither a file nor a directory, so a link to a folder used to
-      // be listed as a file carrying the folder's size — which is most of the top of a Linux root
-      // (/bin, /lib, /sbin). Classify it by what it points at instead; a dangling link has no answer and
-      // is dropped along with everything else this process cannot stat.
-      let directory = entry.isDirectory();
-      if (!directory && entry.isSymbolicLink()) {
-        try { directory = statSync(abs).isDirectory(); } catch { continue; }
-      }
+      if (isSystemRoot(resolvedRoot) && VIRTUAL_SYSTEM_ROOTS.includes(`/${path.split(sep)[0]}`)) continue;
+      // Classify by the resolved target so directory symlinks such as /bin remain browsable, but expose
+      // ONLY regular files and directories. Sockets, FIFOs and devices are kernel interfaces, not files
+      // an editor can safely read or overwrite.
+      let target;
+      try { target = statSync(abs); } catch { continue; }
+      const directory = target.isDirectory();
       if (directory) {
         out.push({ path, type: 'dir' });
         if (depth >= maxDepth) continue;
@@ -88,17 +99,28 @@ export function listProjectFiles(root: string, maxDepth = 8, from?: string): Fil
         if (!inside(real) || seen.has(real)) continue;
         seen.add(real);
         visit(abs, depth + 1);
-      } else {
-        // The daemon user cannot read everything under a system root. An entry it cannot stat costs that
-        // entry, never the rest of the directory.
-        let size: number;
-        try { size = statSync(abs).size; } catch { continue; }
-        out.push({ path, type: 'file', size });
+      } else if (target.isFile()) {
+        out.push({ path, type: 'file', size: target.size });
       }
     }
   };
   visit(start, 0);
   return out;
+}
+
+function assertWritableFile(abs: string): void {
+  if (!existsSync(abs)) return;
+  let target;
+  try { target = statSync(abs); } catch { throw new EditorFileError('unsupported file type'); }
+  if (!target.isFile()) throw new EditorFileError('unsupported file type');
+}
+
+function assertMovableEntry(abs: string): void {
+  let entry;
+  try { entry = lstatSync(abs); } catch { throw new EditorFileError('source does not exist'); }
+  if (!entry.isFile() && !entry.isDirectory() && !entry.isSymbolicLink()) {
+    throw new EditorFileError('unsupported file type');
+  }
 }
 
 export function readProjectFile(safe: SafePath, root: string, rel: string): { content: string; truncated: boolean } {
@@ -110,6 +132,7 @@ export function readProjectFile(safe: SafePath, root: string, rel: string): { co
 
 export function writeProjectFile(safe: SafePath, root: string, rel: string, content: string): void {
   const abs = safe(root, rel, true);
+  assertWritableFile(abs);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, content, 'utf8');
 }
@@ -201,9 +224,11 @@ export function uploadProjectChunk(
   // What the editor hands back on download it will also accept, so the ceiling is the same one.
   if (offset + bytes.length > MAX_BUFFERED_BYTES) throw new EditorFileError('file too large');
   const abs = safe(root, rel, true);
+  assertWritableFile(abs);
   // The temp lives beside the target so it lands on the same filesystem — a rename across devices is
   // not atomic, and the whole point of the temp is that the move either happened or did not.
   const temp = `${abs}${UPLOAD_SUFFIX}`;
+  assertWritableFile(temp);
   // Refuse an unintended overwrite at the START, before a large upload spends time on the wire, and
   // again at the END, because the file may have appeared in between.
   if (!overwrite && existsSync(abs)) throw new EditorFileError('already exists');
@@ -228,13 +253,14 @@ export function deleteProjectEntry(safe: SafePath, root: string, rel: string): v
   const projectRoot = realpathSync(root);
   const abs = safe(root, rel, true);
   if (abs === projectRoot) throw new EditorFileError('cannot delete project root');
+  assertMovableEntry(abs);
   rmSync(abs, { recursive: true, force: true });
 }
 
 export function renameProjectEntry(safe: SafePath, root: string, from: string, to: string): void {
   const src = safe(root, from, true);
   const dst = safe(root, to, true);
-  if (!existsSync(src)) throw new EditorFileError('source does not exist');
+  assertMovableEntry(src);
   if (existsSync(dst)) throw new EditorFileError('target already exists');
   mkdirSync(dirname(dst), { recursive: true });
   renameSync(src, dst);
@@ -243,7 +269,7 @@ export function renameProjectEntry(safe: SafePath, root: string, from: string, t
 export function copyProjectEntry(safe: SafePath, root: string, from: string, to: string): void {
   const src = safe(root, from, true);
   const dst = safe(root, to, true);
-  if (!existsSync(src)) throw new EditorFileError('source does not exist');
+  assertMovableEntry(src);
   if (existsSync(dst)) throw new EditorFileError('target already exists');
   mkdirSync(dirname(dst), { recursive: true });
   cpSync(src, dst, { recursive: true });
@@ -258,7 +284,10 @@ const gitRoot = (root: string) => realpathSync(root);
  *  and not spawning it is a firmer guarantee than any GIT_CEILING_DIRECTORIES, because there is no
  *  discovery left to escape upward. It also keeps a stray `/.git` from turning the whole filesystem into
  *  a repository the editor reports on. */
-const gitUsable = (root: string) => !isSystemRoot(root);
+const gitUsable = (root: string) => {
+  try { return !isSystemRoot(realpathSync(root)); }
+  catch { return false; }
+};
 export async function projectChangedFiles(root: string): Promise<string[]> {
   if (!gitUsable(root)) return [];
   try {
