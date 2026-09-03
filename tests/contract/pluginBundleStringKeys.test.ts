@@ -32,6 +32,18 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
     keys: ['action_navigate', 'action_click', 'action_fill', 'action_key', 'action_scroll', 'action_paste'],
   },
   {
+    file: 'browser/web-src/BrowserSettings.tsx',
+    keys: [
+      'dep_label_chrome', 'dep_label_browser_control', 'dep_label_network_proxy',
+      'dep_label_profile_storage', 'dep_label_chat_artifacts',
+      'dep_chrome_missing', 'dep_chrome_missing_fix', 'dep_chrome_unusable', 'dep_chrome_unusable_fix',
+      'dep_control_missing', 'dep_control_missing_fix',
+      'dep_proxy_missing', 'dep_proxy_missing_fix', 'dep_proxy_unsupported', 'dep_proxy_unsupported_fix',
+      'dep_storage_unwritable', 'dep_storage_unwritable_fix', 'dep_storage_exposed', 'dep_storage_exposed_fix',
+      'dep_storage_missing', 'dep_storage_missing_fix', 'dep_artifacts_missing', 'dep_artifacts_missing_fix',
+    ],
+  },
+  {
     file: 'cronjob/web-src/JobsSettings.tsx',
     keys: ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'],
   },
