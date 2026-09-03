@@ -1,21 +1,35 @@
 import type { PluginApiRequest, PluginContext, PluginHttpResponse } from 'elowen/dist/plugins/api.js';
+import type { SafePath } from './files.js';
 import {
   EditorFileError,
   copyProjectEntry, createProjectDir, createProjectFile, deleteProjectEntry, listProjectFiles,
   projectChangedFiles, projectCommitDiff, projectCommitFileDiff, projectCommitFiles, projectCommitLog,
   convertOfficeToPdf, OfficePreviewError, projectFileAtHead, projectFileDiff, projectFileSize, projectWorkingDiff,
-  readProjectByteRange, readProjectBytes, readProjectFile, renameProjectEntry, uploadProjectChunk, writeProjectFile,
+  readProjectByteRange, readProjectBytes, readProjectFile, renameProjectEntry, safeSystemPath, uploadProjectChunk, writeProjectFile,
 } from './files.js';
 import { baseName, mimeTypeOf, MAX_UPLOAD_CHUNK_BYTES } from './fileTypes.js';
+import { SYSTEM_LIST_DEPTH, SYSTEM_PROJECT_ID, SYSTEM_ROOT } from './systemRoot.js';
 
-function projectFor(ctx: PluginContext, req: PluginApiRequest): { path: string } | PluginHttpResponse {
+/** The root one request operates on. `system` is deliberately NOT derived from `path`: it is the record
+ *  that this request came through the reserved id and cleared the admin check. A project row registered
+ *  at `/` must not pick up the system root's relaxed path guard just by matching the string — that would
+ *  hand the whole filesystem to whoever is assigned to that project. */
+interface EditorRoot { path: string; system: boolean }
+
+function projectFor(ctx: PluginContext, req: PluginApiRequest): EditorRoot | PluginHttpResponse {
   const id = Number(req.params.id);
+  // The system root is an administrator capability and nothing else. Guessing the reserved id buys a
+  // caller the same refusal as guessing a project they were never assigned — and it is checked BEFORE
+  // the store lookup, because no project row backs it.
+  if (id === SYSTEM_PROJECT_ID) {
+    return req.auth.admin ? { path: SYSTEM_ROOT, system: true } : { status: 403, body: { error: 'forbidden' } };
+  }
   if (!Number.isSafeInteger(id) || id <= 0) return { status: 404, body: { error: 'project not found' } };
   if (req.auth.accessibleProjects === null ? !req.auth.admin : !req.auth.accessibleProjects.includes(id)) return { status: 403, body: { error: 'forbidden' } };
   const project = ctx.host.stores().projects.get(id);
-  return project ? project : { status: 404, body: { error: 'project not found' } };
+  return project ? { path: project.path, system: false } : { status: 404, body: { error: 'project not found' } };
 }
-function isResponse(value: { path: string } | PluginHttpResponse): value is PluginHttpResponse { return !('path' in value); }
+function isResponse(value: EditorRoot | PluginHttpResponse): value is PluginHttpResponse { return !('path' in value); }
 async function body(req: PluginApiRequest): Promise<Record<string, unknown> | null> {
   const value = await req.json<unknown>().catch(() => null);
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -43,25 +57,38 @@ function byteRange(value: string, size: number): { start: number; end: number } 
 }
 
 export function registerEditorApi(ctx: PluginContext): void {
-  const safe = ctx.host.projectFiles().safe;
-  const route = (rootMount: string, method: string, handler: (req: PluginApiRequest, project: { path: string }) => Promise<PluginHttpResponse> | PluginHttpResponse) => {
+  const hostSafe = ctx.host.projectFiles().safe;
+  /** Which path guard confines this request. The host's own cannot serve `/` — see `safeSystemPath` —
+   *  and every route is handed the guard for the root it actually resolved, rather than one captured for
+   *  the whole registration, so a system request and a project request are each confined by the rule
+   *  that is correct for it. */
+  const guardFor = (root: EditorRoot): SafePath => (root.system ? safeSystemPath : hostSafe);
+  const route = (rootMount: string, method: string, handler: (req: PluginApiRequest, project: EditorRoot, safe: SafePath) => Promise<PluginHttpResponse> | PluginHttpResponse) => {
     ctx.registerApiRoute({ rootMount, path: '', method, access: 'user', handler: async (req) => {
       if (req.path !== '') return { status: 404, body: { error: 'not found' } };
       const project = projectFor(ctx, req);
-      return isResponse(project) ? project : handler(req, project);
+      return isResponse(project) ? project : handler(req, project, guardFor(project));
     } });
   };
-  route('/projects/:id/files', 'GET', (_req, project) => ({ body: listProjectFiles(project.path) }));
-  route('/projects/:id/file', 'GET', (req, project) => {
+  // `?path` lists ONE directory instead of the whole tree, confined by the same guard as every other
+  // file operation. The system root is served that way and only that way: walking the server filesystem
+  // eagerly is not a slow listing, it is an impossible one.
+  route('/projects/:id/files', 'GET', (req, project, safe) => {
+    const from = requiredString(req.query.path);
+    try {
+      return { body: listProjectFiles(project.path, project.system ? SYSTEM_LIST_DEPTH : undefined, from ? safe(project.path, from) : undefined) };
+    } catch (error) { return fileError(error); }
+  });
+  route('/projects/:id/file', 'GET', (req, project, safe) => {
     const path = requiredString(req.query.path); if (!path) return { status: 400, body: { error: 'path required' } };
     try { return { body: readProjectFile(safe, project.path, path) }; } catch (error) { return fileError(error); }
   });
-  route('/projects/:id/file', 'PUT', async (req, project) => {
+  route('/projects/:id/file', 'PUT', async (req, project, safe) => {
     const input = await body(req); const path = requiredString(input?.path); const content = typeof input?.content === 'string' ? input.content : null;
     if (!path || content === null) return { status: 400, body: { error: 'path and content required' } };
     try { writeProjectFile(safe, project.path, path, content); return { body: { ok: true } }; } catch (error) { return fileError(error); }
   });
-  route('/projects/:id/upload', 'PUT', async (req, project) => {
+  route('/projects/:id/upload', 'PUT', async (req, project, safe) => {
     const path = requiredString(req.query.path);
     if (!path) return { status: 400, body: { error: 'path required' } };
     const offset = Number(req.query.offset ?? '0');
@@ -76,7 +103,7 @@ export function registerEditorApi(ctx: PluginContext): void {
       return { body: { ok: true, ...result } };
     } catch (error) { return fileError(error); }
   });
-  route('/projects/:id/raw', 'GET', (req, project) => {
+  route('/projects/:id/raw', 'GET', (req, project, safe) => {
     const path = requiredString(req.query.path); if (!path) return { status: 400, body: { error: 'path required' } };
     try {
       const size = projectFileSize(safe, project.path, path);
@@ -108,7 +135,7 @@ export function registerEditorApi(ctx: PluginContext): void {
       return { body: new Uint8Array(bytes), headers: { ...commonHeaders, 'content-length': String(bytes.length) } };
     } catch (error) { return fileError(error); }
   });
-  route('/projects/:id/office-preview', 'GET', async (req, project) => {
+  route('/projects/:id/office-preview', 'GET', async (req, project, safe) => {
     const path = requiredString(req.query.path); if (!path) return { status: 400, body: { error: 'path required' } };
     try {
       const bytes = await convertOfficeToPdf(safe, project.path, path);
@@ -118,18 +145,18 @@ export function registerEditorApi(ctx: PluginContext): void {
       return fileError(error);
     }
   });
-  const onePath = (rootMount: string, operation: (projectPath: string, path: string) => Promise<unknown> | unknown, field: string) => route(rootMount, 'GET', async (req, project) => {
+  const onePath = (rootMount: string, operation: (safe: SafePath, projectPath: string, path: string) => Promise<unknown> | unknown, field: string) => route(rootMount, 'GET', async (req, project, safe) => {
     const path = requiredString(req.query.path); if (!path) return { status: 400, body: { error: 'path required' } };
-    try { return { body: { [field]: await operation(project.path, path) } }; } catch (error) { return fileError(error); }
+    try { return { body: { [field]: await operation(safe, project.path, path) } }; } catch (error) { return fileError(error); }
   });
-  route('/projects/:id/new-file', 'POST', async (req, project) => { const input = await body(req); const path = requiredString(input?.path); if (!path) return { status: 400, body: { error: 'path required' } }; try { createProjectFile(safe, project.path, path); return { body: { ok: true } }; } catch (error) { return fileError(error); } });
-  route('/projects/:id/dir', 'POST', async (req, project) => { const input = await body(req); const path = requiredString(input?.path); if (!path) return { status: 400, body: { error: 'path required' } }; try { createProjectDir(safe, project.path, path); return { body: { ok: true } }; } catch (error) { return fileError(error); } });
-  for (const [mount, operation] of [['/projects/:id/rename', renameProjectEntry], ['/projects/:id/copy', copyProjectEntry]] as const) route(mount, 'POST', async (req, project) => { const input = await body(req); const from = requiredString(input?.from); const to = requiredString(input?.to); if (!from || !to) return { status: 400, body: { error: 'from and to required' } }; try { operation(safe, project.path, from, to); return { body: { ok: true } }; } catch (error) { return fileError(error); } });
-  route('/projects/:id/entry', 'DELETE', (req, project) => { const path = requiredString(req.query.path); if (!path) return { status: 400, body: { error: 'path required' } }; try { deleteProjectEntry(safe, project.path, path); return { body: { ok: true } }; } catch (error) { return fileError(error); } });
-  onePath('/projects/:id/diff', (root, path) => projectFileDiff(safe, root, path), 'diff');
-  onePath('/projects/:id/head', (root, path) => projectFileAtHead(safe, root, path), 'content');
+  route('/projects/:id/new-file', 'POST', async (req, project, safe) => { const input = await body(req); const path = requiredString(input?.path); if (!path) return { status: 400, body: { error: 'path required' } }; try { createProjectFile(safe, project.path, path); return { body: { ok: true } }; } catch (error) { return fileError(error); } });
+  route('/projects/:id/dir', 'POST', async (req, project, safe) => { const input = await body(req); const path = requiredString(input?.path); if (!path) return { status: 400, body: { error: 'path required' } }; try { createProjectDir(safe, project.path, path); return { body: { ok: true } }; } catch (error) { return fileError(error); } });
+  for (const [mount, operation] of [['/projects/:id/rename', renameProjectEntry], ['/projects/:id/copy', copyProjectEntry]] as const) route(mount, 'POST', async (req, project, safe) => { const input = await body(req); const from = requiredString(input?.from); const to = requiredString(input?.to); if (!from || !to) return { status: 400, body: { error: 'from and to required' } }; try { operation(safe, project.path, from, to); return { body: { ok: true } }; } catch (error) { return fileError(error); } });
+  route('/projects/:id/entry', 'DELETE', (req, project, safe) => { const path = requiredString(req.query.path); if (!path) return { status: 400, body: { error: 'path required' } }; try { deleteProjectEntry(safe, project.path, path); return { body: { ok: true } }; } catch (error) { return fileError(error); } });
+  onePath('/projects/:id/diff', projectFileDiff, 'diff');
+  onePath('/projects/:id/head', projectFileAtHead, 'content');
   route('/projects/:id/commit/:hash', 'GET', async (req, project) => ({ body: { diff: await projectCommitDiff(project.path, req.params.hash ?? ''), files: await projectCommitFiles(project.path, req.params.hash ?? '') } }));
-  route('/projects/:id/commit/:hash/diff', 'GET', async (req, project) => { const path = requiredString(req.query.path); if (!path) return { status: 400, body: { error: 'path required' } }; try { return { body: { diff: await projectCommitFileDiff(safe, project.path, req.params.hash ?? '', path) } }; } catch (error) { return fileError(error); } });
+  route('/projects/:id/commit/:hash/diff', 'GET', async (req, project, safe) => { const path = requiredString(req.query.path); if (!path) return { status: 400, body: { error: 'path required' } }; try { return { body: { diff: await projectCommitFileDiff(safe, project.path, req.params.hash ?? '', path) } }; } catch (error) { return fileError(error); } });
   // `?limit` is clamped to [1,500] with a fallback of 30 — the contract the core route had. Clamping
   // rather than rejecting keeps a nonsense value (0, -5, 0.5) returning the newest commit instead of
   // silently falling back to a full page of them.

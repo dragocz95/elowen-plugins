@@ -11,6 +11,8 @@ type MutationResult<T> = {
 interface Project { id: number; slug: string; path: string; notes: string; pr_enabled: boolean | null }
 export interface FileNode { path: string; type: 'file' | 'dir'; size?: number }
 type Dict = Record<string, Record<string, string>>;
+/** Only what the editor asks of the signed-in account: whether it may reach the system root. */
+interface Me { user: { id: number; username: string; is_admin: boolean } }
 
 /** The host publishes its components as an untyped record, so this list is what stops the bundle from
  *  reaching for a primitive the runtime does not carry — a name that is not here is a build error
@@ -21,7 +23,7 @@ interface EditorComponents {
   Field: AnyComponent; Input: AnyComponent; LoadingState: AnyComponent;
   Modal: AnyComponent; ModalBody: AnyComponent; ModalFooter: AnyComponent;
   ModuleHeader: AnyComponent; MotionLayoutItem: AnyComponent; MotionPresence: AnyComponent;
-  PatchView: AnyComponent; ProjectFilterPills: AnyComponent;
+  PatchView: AnyComponent; ProjectFilterPills: AnyComponent; SelectMenu: AnyComponent;
   ControlSurfaceDocument: AnyComponent;
   WorkspacePage: AnyComponent; WorkspaceHero: AnyComponent; WorkspaceTakeover: AnyComponent;
 }
@@ -32,6 +34,9 @@ interface EditorRuntime {
     useTranslation(): { t: Dict };
     usePluginStrings(plugin: string): Record<string, string>;
     useToast(): { toast(message: string, tone?: 'ok' | 'error'): void };
+    /** The signed-in account. The editor reads it for one decision: only an admin is offered the
+     *  system root, and the daemon refuses the reserved id for everyone else regardless. */
+    useMe(): QueryResult<Me>;
     useProjects(): QueryResult<Project[]>;
     useProjectFiles(id: number | null): QueryResult<FileNode[]>;
     useProjectFile(id: number | null, path: string | null): QueryResult<{ content: string; truncated: boolean }>;
@@ -49,6 +54,8 @@ interface EditorRuntime {
     useMobile(): boolean;
     /** The persisted project filter the built-in workspaces share, keyed by storage key. */
     useProjectFilter(storageKey: string): { selectedProject: number | 'all'; setProject(value: number | 'all'): void };
+    /** A localStorage-backed choice, validated on restore because the slot is user-writable. */
+    usePersistentState<T extends string>(key: string, fallback: T, allowed: readonly T[] | ((value: string) => boolean)): [T, (value: T) => void];
     /** Height that makes the surface reach the bottom of the window; undefined until measured. */
     useFillHeight(ref: { current: HTMLElement | null }, minPx?: number): number | undefined;
   };
@@ -60,6 +67,9 @@ interface EditorRuntime {
     /** Which of those tables matches the app's current design — a skin may run the UI light. */
     editorTheme(): string;
   };
+  /** Same-origin JSON call against the daemon through the BFF. The editor uses it for the one read the
+   *  host publishes no hook for: listing a single directory of the system root. */
+  api(path: string, init?: RequestInit): Promise<unknown>;
   navigate(href: string): void;
 }
 

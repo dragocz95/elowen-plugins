@@ -1,14 +1,23 @@
 import { useRef, useState } from 'react';
-import { Code2 } from 'lucide-react';
+import { Code2, HardDrive } from 'lucide-react';
 import { runtime } from './runtime';
 import { ProjectEditor } from './editor/ProjectEditor';
+import { SYSTEM_PROJECT_ID } from '../src/systemRoot';
 
-const { useProjects, usePluginStrings, useProjectFilter, useFillHeight, useMobile } = runtime().hooks;
+const { useProjects, usePluginStrings, useProjectFilter, useFillHeight, useMobile, useMe, usePersistentState } = runtime().hooks;
 const {
-  ModuleHeader, EmptyState, WorkspacePage, WorkspaceHero, ProjectFilterPills,
+  ModuleHeader, EmptyState, WorkspacePage, WorkspaceHero, ProjectFilterPills, SelectMenu,
   MotionPresence, MotionLayoutItem,
 } = runtime().components;
 const { navigate } = runtime();
+
+/** Remembers the system root across reloads. It cannot ride in the shared project filter: that slot
+ *  accepts `'all'` or a run of digits and clamps anything the project list does not contain, and the
+ *  system root is neither a project nor a positive id. */
+const SYSTEM_KEY = 'elowen.editor.systemRoot';
+const SYSTEM_CHOICES = ['on', 'off'] as const;
+/** The dropdown value for the system entry — a non-numeric string, so it can never be read as an id. */
+const SYSTEM_OPTION = 'system';
 
 /** A deep link from Projects or the Timeline opens one project — and optionally one commit or the
  *  working tree — instead of the remembered filter. */
@@ -29,15 +38,42 @@ export function EditorPage() {
   const s = usePluginStrings('editor');
   const mobile = useMobile();
   const projects = useProjects();
+  const me = useMe();
   const surfaceRef = useRef<HTMLDivElement>(null);
   const fillHeight = useFillHeight(surfaceRef);
   const { selectedProject, setProject } = useProjectFilter('elowen.editor.project');
+  const [systemChoice, setSystemChoice] = usePersistentState<typeof SYSTEM_CHOICES[number]>(SYSTEM_KEY, 'off', SYSTEM_CHOICES);
   const [link] = useState(linkTarget);
   const list = projects.data ?? [];
+  // Only an administrator is offered the system root. This is presentation, not the gate: the daemon
+  // refuses the reserved id for every other account whether or not the entry was ever shown.
+  const admin = me.data?.user.is_admin === true;
+  const system = admin && systemChoice === 'on';
   const filtered = selectedProject === 'all' ? (list[0]?.id ?? null) : selectedProject;
   // A deep link wins over the remembered filter, but only while its project is one this user can see.
-  const projectId = link.project != null && list.some((item) => item.id === link.project) ? link.project : filtered;
+  const linked = link.project != null && list.some((item) => item.id === link.project) ? link.project : filtered;
+  const projectId = system ? SYSTEM_PROJECT_ID : linked;
   const project = list.find((item) => item.id === projectId) ?? null;
+  const chooseProject = (next: number | 'all') => { setSystemChoice('off'); setProject(next); };
+
+  // An administrator picks from a list the shared pills cannot express: they are built from the project
+  // query alone and hide themselves below two projects, so the system root would be unreachable exactly
+  // where it is most useful — an instance with one project, or none. Everyone else keeps the shared
+  // control unchanged.
+  const picker = admin ? (
+    <SelectMenu
+      label={s.project}
+      value={system ? SYSTEM_OPTION : String(projectId ?? '')}
+      onChange={(next: string) => (next === SYSTEM_OPTION ? setSystemChoice('on') : chooseProject(Number(next)))}
+      options={[
+        { value: SYSTEM_OPTION, label: s.systemRoot, icon: <HardDrive size={14} /> },
+        ...list.map((item) => ({ value: String(item.id), label: item.slug })),
+      ]}
+      className="min-w-[9.5rem]"
+    />
+  ) : (
+    <ProjectFilterPills value={projectId ?? 'all'} onChange={setProject} includeAll={false} variant="dropdown" />
+  );
 
   // On mobile the editor auto-fullscreens and covers the app nav, so without a way out it traps the
   // user. Give it an onClose that leaves the editor back to the app (history if any, else the
@@ -54,8 +90,10 @@ export function EditorPage() {
           eyebrow={s.workspaceEyebrow}
           title={s.title}
           icon={Code2}
-          status={project ? <span className="workspace-status">{s.workspaceReady.replace('{project}', project.slug)}</span> : undefined}
-          action={<ProjectFilterPills value={projectId ?? 'all'} onChange={setProject} includeAll={false} variant="dropdown" />}
+          status={project || system
+            ? <span className="workspace-status">{s.workspaceReady.replace('{project}', system ? s.systemRoot : (project?.slug ?? ''))}</span>
+            : undefined}
+          action={picker}
         />
         {/* The editor is sized to the window rather than to a fixed 70dvh: on a tall screen that left a
             band of dead space under it, and on a short one it pushed the page past the fold and wrapped

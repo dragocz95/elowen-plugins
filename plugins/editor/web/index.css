@@ -158,6 +158,9 @@
   .min-w-0 {
     min-width: 0px;
   }
+  .min-w-\[9\.5rem\] {
+    min-width: 9.5rem;
+  }
   .min-w-full {
     min-width: 100%;
   }
