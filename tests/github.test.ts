@@ -205,7 +205,7 @@ describe('GitHub plugin', () => {
     expect(env.env).not.toHaveProperty('GITHUB_TOKEN');
     expect(env.env).not.toHaveProperty('XDG_CONFIG_HOME');
     expect(env.env).not.toHaveProperty('HTTPS_PROXY');
-    expect(DEVICE_LOGIN_ARGS).toEqual(['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--skip-ssh-key', '--insecure-storage']);
+    expect(DEVICE_LOGIN_ARGS).toEqual(['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--skip-ssh-key', '--insecure-storage', '--scopes', 'workflow']);
     expect(TOKEN_ARGS).toEqual(['auth', 'token', '--hostname', 'github.com']);
   });
 
@@ -277,7 +277,7 @@ describe('GitHub plugin', () => {
 
   it('declares device auth without App setup or callback routes', () => {
     expect(manifest.userGrantable).not.toBe(true);
-    expect(manifest.version).toBe('0.1.13');
+    expect(manifest.version).toBe('0.1.14');
     // 8, and no longer "nice to have". The floor stayed at 4 while `placement` was the only new thing,
     // because the HOST reads that off the manifest and an older one just falls back to a rail section.
     // The bundle CALLS `LinkedAccountRow` and `SummaryChip` (7), and the pull-request register now also

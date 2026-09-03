@@ -4,6 +4,10 @@
 
 - Rebuild the account browser profile panel on the host's settings rows so it reads as the same surface as Models, Memory and Terminal
 
+## github 0.1.14 - 2026-09-03
+
+- Request the GitHub `workflow` scope during device login so authenticated Sandbox Git can publish branches that update Actions workflows
+
 ## github 0.1.13 - 2026-09-03
 
 - Name the personal GitHub settings entry "GitHub" instead of the plugin's whole description
