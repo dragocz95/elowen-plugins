@@ -23,7 +23,7 @@ const artifact = {
   id: 'browser:session-1', plugin: 'browser', sessionId: 'brain-1', toolCallId: 'tool-1', view: 'browser-session',
   fallback: 'Browser session', expiresAt: new Date(Date.now() + 60_000).toISOString(), status: 'open' as const,
   createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-  data: { browserSessionId: 'session-1', state: 'agent', title: 'Example', url: 'https://example.com', lastAction: null },
+  data: { browserSessionId: 'session-1', state: 'agent', title: 'Example', url: 'https://example.com', favicon: 'data:image/png;base64,aGVsbG8=', lastAction: null },
   media: { transport: 'sse' as const, path: '/plugins/browser/api/stream?sessionId=session-1' },
 };
 
@@ -92,6 +92,7 @@ describe('browser plugin UI', () => {
     // beside it is the site and the current action.
     expect(screen.getAllByRole('button', { name: strings.enlarge })).toHaveLength(1);
     expect(screen.getByText('example.com')).toBeInTheDocument();
+    expect(document.querySelector('.browser-artifact__site-icon')).toHaveAttribute('src', 'data:image/png;base64,aGVsbG8=');
     expect(screen.queryByText('https://example.com')).toBeNull();
     expect(screen.queryByRole('heading')).toBeNull();
     // No running commentary on the thumbnail: the state is a dot, and its label is for assistive tech.

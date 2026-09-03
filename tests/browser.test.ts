@@ -24,6 +24,8 @@ import { MAX_CAPTURE_CSS_AREA, MAX_FULL_PAGE_CSS_PX, MAX_SCREENSHOT_BYTES } from
 import { CONSOLE_BUFFER_SIZE, MAX_BODY_BYTES } from '../plugins/browser/src/page-diagnostics.js';
 import { ProcessTraceLock, summarizeTraceEvents, TraceRecorder, TraceStateUnknownError } from '../plugins/browser/src/performance-probe.js';
 import { BrowserSession } from '../plugins/browser/src/browser-session.js';
+import { InputController, InputRateLimiter } from '../plugins/browser/src/input-controller.js';
+import { readPageFavicon } from '../plugins/browser/src/page-favicon.js';
 import { TabManager } from '../plugins/browser/src/tab-manager.js';
 import { UNAVAILABLE_ARTIFACT_PUBLISHER } from '../plugins/browser/src/artifact.js';
 import { registerBrowserApi } from '../plugins/browser/src/api.js';
@@ -136,11 +138,49 @@ class FakeBrowser extends EventEmitter implements BrowserLike {
 
 const config = (patch: Partial<BrowserConfig> = {}): BrowserConfig => ({ ...resolveConfig({ browserCloseGraceSeconds: 0 }), ...patch });
 
+describe('browser input controller', () => {
+  const textbox = { ref: 'e1', backendNodeId: 7, role: 'textbox', name: 'Name', interactive: true, disabled: false };
+  const controller = (cdp: FakeCdp) => new InputController(cdp, () => ({ width: 1280, height: 800 }), () => {}, new InputRateLimiter(() => 100));
+
+  it('selects the existing value before a fill inserts the replacement', async () => {
+    const cdp = new FakeCdp();
+    await controller(cdp).fill(textbox, 'replacement');
+    expect(cdp.calls).toEqual(expect.arrayContaining([
+      { method: 'DOM.focus', params: { backendNodeId: 7 } },
+      { method: 'Input.dispatchKeyEvent', params: expect.objectContaining({ type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 2, commands: ['selectAll'] }) },
+      { method: 'Input.insertText', params: { text: 'replacement' } },
+    ]));
+  });
+
+  it('types printable keys and gives shortcuts a real code and editing command', async () => {
+    const cdp = new FakeCdp();
+    const input = controller(cdp);
+    await input.pressKey('!', undefined);
+    await input.pressKey('a', ['Control']);
+    const downs = cdp.calls.filter((call) => call.method === 'Input.dispatchKeyEvent' && call.params?.type === 'keyDown').map((call) => call.params);
+    expect(downs[0]).toMatchObject({ key: '!', text: '!' });
+    expect(downs[1]).toMatchObject({ key: 'a', code: 'KeyA', modifiers: 2, commands: ['selectAll'] });
+    expect(downs[1]).not.toHaveProperty('text');
+  });
+});
+
+describe('managed page favicon', () => {
+  it('accepts only a bounded image data URL returned by the managed page', async () => {
+    const cdp = new FakeCdp();
+    cdp.replies.set('Runtime.evaluate', { result: { type: 'string', value: 'data:image/png;base64,aGVsbG8=' } });
+    await expect(readPageFavicon(cdp)).resolves.toBe('data:image/png;base64,aGVsbG8=');
+    expect(cdp.calls.at(-1)).toMatchObject({ method: 'Runtime.evaluate', params: { awaitPromise: true, returnByValue: true } });
+
+    cdp.replies.set('Runtime.evaluate', { result: { type: 'string', value: 'data:text/html;base64,aGVsbG8=' } });
+    await expect(readPageFavicon(cdp)).resolves.toBeNull();
+  });
+});
+
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.2.3, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.2.4, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as { version: string; userGrantable: boolean; entry: string; provides: { tools: string[]; apiRoutes: string[] } };
-    expect(manifest.version).toBe('0.2.3');
+    expect(manifest.version).toBe('0.2.4');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
     expect(manifest.provides.apiRoutes).toHaveLength(11);
@@ -515,6 +555,7 @@ describe('browser web artifact build', () => {
     expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact__tile \.browser-artifact__canvas \{[^}]*aspect-ratio: var\(--browser-aspect/);
     // Floating framing must never become a crop: the page is fitted into the monitor, not cut down to it.
     expect(rule(css, '.browser-artifact__canvas img')).toContain('object-fit: contain');
+    expect(rule(css, '.browser-artifact__site-icon')).toContain('object-fit: contain');
     expect(rule(css, '.browser-artifact')).toContain('max-width: 20rem');
     expect(rule(css, '.browser-artifact[data-expanded=true]')).toContain('opacity: 0');
   });
@@ -682,6 +723,13 @@ describe('browser takeover state machine', () => {
     await session.close();
   });
 
+  it('refuses a private destination before Chrome navigates to a proxy error page', async () => {
+    const { session, page } = await createSession();
+    await expect(session.navigate('http://127.0.0.1:4400/health')).rejects.toThrow(/blocked network|private|loopback/i);
+    expect(page.url()).toBe('about:blank');
+    await session.close();
+  });
+
   it('rejects concurrent claims and keeps stale leases unable to heartbeat or release without broadcasting the token', async () => {
     const { session, events } = await createSession();
     const first = await session.claimTakeover();
@@ -773,7 +821,7 @@ describe('browser takeover state machine', () => {
 
     // A new document has its own coordinate space, so the remembered point is dropped rather than drawn
     // over a page the agent has never pointed at — and viewers already connected are told so.
-    await session.navigate('https://example.com/next');
+    await session.navigate('https://93.184.216.34/next');
     expect(session.currentCursor).toBeNull();
     expect(events.some((event) => event.kind === 'cursor' && event.data.cleared === true)).toBe(true);
     await session.close();

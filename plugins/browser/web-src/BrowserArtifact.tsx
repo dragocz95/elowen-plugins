@@ -10,6 +10,7 @@ interface ArtifactData {
   state: 'creating' | 'agent' | 'user' | 'closing' | 'closed' | 'error';
   title: string;
   url: string;
+  favicon: string | null;
   lastAction: string | null;
 }
 interface Lease { leaseId: string; expiresAt: number }
@@ -25,6 +26,7 @@ const asData = (value: unknown): ArtifactData | null => {
     state: raw.state ?? 'agent',
     title: typeof raw.title === 'string' ? raw.title : '',
     url: typeof raw.url === 'string' ? raw.url : '',
+    favicon: typeof raw.favicon === 'string' && raw.favicon.length <= 40 * 1024 && /^data:image\//i.test(raw.favicon) ? raw.favicon : null,
     lastAction: typeof raw.lastAction === 'string' ? raw.lastAction : null,
   };
 };
@@ -376,6 +378,12 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
     : state === 'user'
       ? <Button variant="ghost" icon={Hand} disabled>{strings.controlledElsewhere || 'Controlled in another window'}</Button>
       : <Button variant="ghost" icon={Hand} onClick={() => { void takeControl(); }} disabled={pending !== null || stream.closed}>{strings.takeControl || 'Take control'}</Button>;
+  const siteLabel = (): ReactNode => (
+    <span className="browser-artifact__site">
+      {data?.favicon ? <img className="browser-artifact__site-icon" src={data.favicon} alt="" /> : null}
+      <span className="browser-artifact__site-text">{site || strings.noAddress || 'No address yet'}</span>
+    </span>
+  );
 
   if (!data) return <div className="browser-artifact__fallback">{artifact.fallback}</div>;
 
@@ -393,7 +401,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
         <span className="browser-artifact__expand" aria-hidden><Expand size={13} /></span>
       </button>
       <div className="mt-1.5 flex items-center gap-2 text-caption text-muted-foreground">
-        <span className="min-w-0 flex-1 truncate">{site || strings.noAddress || 'No address yet'}</span>
+        <span className="min-w-0 flex-1">{siteLabel()}</span>
         {controlAction()}
       </div>
 
@@ -445,7 +453,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
                   <GlassButton icon={RotateCw} label={strings.reload || 'Reload'} onClick={() => shortcut('r', 'KeyR', ['Control'])} />
                 </>
               ) : null}
-              <span className="browser-artifact__site">{site || strings.noAddress || 'No address yet'}</span>
+              {siteLabel()}
               {controlAction()}
               <GlassButton icon={Power} label={strings.closeSession || 'Close session'} tone="danger" onClick={() => setConfirmClose(true)} disabled={pending !== null || stream.closed} />
             </div>

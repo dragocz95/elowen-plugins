@@ -4,6 +4,7 @@ import { artifactData, serializeArtifactRef } from './artifact.js';
 import { captureElement, captureFullPage, captureModelScreenshot, captureViewport, } from './capture.js';
 import { InputController, InputRateLimiter } from './input-controller.js';
 import { NavigationPolicy } from './navigation-policy.js';
+import { readPageFavicon } from './page-favicon.js';
 import { PageDiagnostics, } from './page-diagnostics.js';
 import { capturePerformanceMetrics, TraceRecorder, } from './performance-probe.js';
 import { boundText } from './redaction.js';
@@ -56,6 +57,8 @@ export class BrowserSession {
      *  the stream's opening frame can replay it. */
     lastCursorValue = null;
     snapshotValue = null;
+    faviconPageUrl = null;
+    faviconDataUrl = null;
     artifactRef;
     screencast;
     input;
@@ -115,6 +118,9 @@ export class BrowserSession {
         return this.agentMutation(signal, async () => {
             const policy = new NavigationPolicy(this.deps.config().privateNetworkAllowlist);
             const validated = policy.validateUrl(url);
+            // The proxy enforces this again at dial time. Resolving here is for the caller: a blocked literal or
+            // DNS answer must be a clear tool refusal, not a successful navigation to the proxy's generic 500 page.
+            await policy.resolve(validated.toString());
             await this.page.goto(validated.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 });
             this.clearCursor();
             this.emit({ kind: 'action', data: { action: 'navigate', target: validated.hostname } });
@@ -526,6 +532,8 @@ export class BrowserSession {
         this.cdp = nextCdp;
         this.disposeCdpListeners = disposeDialog;
         this.snapshotValue = null;
+        this.faviconPageUrl = null;
+        this.faviconDataUrl = null;
     }
     agentMutation(signal, operation) {
         return this.runAgentOperation(signal, operation);
@@ -727,11 +735,17 @@ export class BrowserSession {
     async updateArtifact(snapshot = this.snapshotValue) {
         if (!this.artifactRef)
             return;
+        const url = snapshot?.url ?? this.page.url();
+        if (this.faviconPageUrl !== url) {
+            this.faviconPageUrl = url;
+            this.faviconDataUrl = await readPageFavicon(this.cdp).catch(() => null);
+        }
         await this.deps.artifacts.update(this.artifactRef, artifactData({
             browserSessionId: this.id,
             state: this.stateValue,
             title: snapshot?.title ?? await this.page.title().catch(() => ''),
-            url: snapshot?.url ?? this.page.url(),
+            url,
+            favicon: this.faviconDataUrl,
             lastAction: this.lastAction,
         }));
     }

@@ -539,6 +539,7 @@ var asData = (value) => {
     state: raw.state ?? "agent",
     title: typeof raw.title === "string" ? raw.title : "",
     url: typeof raw.url === "string" ? raw.url : "",
+    favicon: typeof raw.favicon === "string" && raw.favicon.length <= 40 * 1024 && /^data:image\//i.test(raw.favicon) ? raw.favicon : null,
     lastAction: typeof raw.lastAction === "string" ? raw.lastAction : null
   };
 };
@@ -869,6 +870,10 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   }, disabled: pending !== null, children: strings.returnToAgent || "Return to agent" }) : state === "user" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, disabled: true, children: strings.controlledElsewhere || "Controlled in another window" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, onClick: () => {
     void takeControl();
   }, disabled: pending !== null || stream.closed, children: strings.takeControl || "Take control" });
+  const siteLabel = () => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "browser-artifact__site", children: [
+    data?.favicon ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { className: "browser-artifact__site-icon", src: data.favicon, alt: "" }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__site-text", children: site || strings.noAddress || "No address yet" })
+  ] });
   if (!data) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "browser-artifact__fallback", children: artifact.fallback });
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
     "section",
@@ -884,7 +889,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__expand", "aria-hidden": true, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Expand, { size: 13 }) })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "mt-1.5 flex items-center gap-2 text-caption text-muted-foreground", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 flex-1 truncate", children: site || strings.noAddress || "No address yet" }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 flex-1", children: siteLabel() }),
           controlAction()
         ] }),
         expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(CanvasOverlay, { label: title, aspect: frameAspect, onClose: () => setExpanded(false), children: [
@@ -928,7 +933,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
                 /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => shortcut("ArrowRight", "ArrowRight", ["Alt"]) }),
                 /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => shortcut("r", "KeyR", ["Control"]) })
               ] }) : null,
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__site", children: site || strings.noAddress || "No address yet" }),
+              siteLabel(),
               controlAction(),
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: Power, label: strings.closeSession || "Close session", tone: "danger", onClick: () => setConfirmClose(true), disabled: pending !== null || stream.closed })
             ] })

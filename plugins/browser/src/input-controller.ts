@@ -80,6 +80,25 @@ function validateKey(key: string): string {
   throw new Error(`Unsupported key: ${key}`);
 }
 
+const inferredCode = (key: string): string | undefined => {
+  if (/^[a-z]$/i.test(key)) return `Key${key.toUpperCase()}`;
+  if (/^[0-9]$/.test(key)) return `Digit${key}`;
+  if (SAFE_NAMED_KEYS.has(key)) return key;
+  return undefined;
+};
+
+function keyDownParams(key: string, normalized: string, modifiers: readonly string[] | undefined, code?: string): Record<string, unknown> {
+  const mask = modifierMask(modifiers);
+  const commandKey = modifiers?.some((modifier) => modifier === 'Control' || modifier === 'Meta') === true;
+  const insertsText = normalized.length === 1 && !modifiers?.some((modifier) => modifier === 'Alt' || modifier === 'Control' || modifier === 'Meta');
+  return {
+    type: 'keyDown', key: normalized, modifiers: mask,
+    ...(code || inferredCode(key) ? { code: code || inferredCode(key) } : {}),
+    ...(insertsText ? { text: normalized } : {}),
+    ...(commandKey && normalized.toLowerCase() === 'a' ? { commands: ['selectAll'] } : {}),
+  };
+}
+
 export class InputRateLimiter {
   private windowStartedAt = 0;
   private count = 0;
@@ -130,7 +149,7 @@ export class InputController {
     }
     if (value.length > 20_000) throw new Error('Browser fill value is too large.');
     await this.cdp.send('DOM.focus', { backendNodeId: requireDomNode(element) });
-    await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 2 });
+    await this.cdp.send('Input.dispatchKeyEvent', keyDownParams('a', 'a', ['Control'], 'KeyA'));
     await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', modifiers: 2 });
     await this.cdp.send('Input.insertText', { text: value });
     this.emit({ kind: 'action', data: { action: 'fill', target: element.name || element.role } });
@@ -139,8 +158,9 @@ export class InputController {
   async pressKey(key: string, modifiers?: string[]): Promise<void> {
     const normalized = validateKey(key);
     const mask = modifierMask(modifiers);
-    await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: normalized, modifiers: mask });
-    await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: normalized, modifiers: mask });
+    const code = inferredCode(key);
+    await this.cdp.send('Input.dispatchKeyEvent', keyDownParams(key, normalized, modifiers, code));
+    await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: normalized, modifiers: mask, ...(code ? { code } : {}) });
     this.emit({ kind: 'action', data: { action: 'key', key: normalized, modifiers: modifiers ?? [] } });
   }
 
@@ -172,9 +192,10 @@ export class InputController {
     }
     if (event.type === 'key') {
       const key = validateKey(event.key);
-      await this.cdp.send('Input.dispatchKeyEvent', {
-        type: event.action === 'down' ? 'keyDown' : 'keyUp', key, code: event.code, modifiers: modifierMask(event.modifiers),
-      });
+      const code = event.code || inferredCode(event.key);
+      await this.cdp.send('Input.dispatchKeyEvent', event.action === 'down'
+        ? keyDownParams(event.key, key, event.modifiers, code)
+        : { type: 'keyUp', key, ...(code ? { code } : {}), modifiers: modifierMask(event.modifiers) });
       return;
     }
     const viewport = this.viewport();

@@ -6,6 +6,7 @@ const artifactPayload = (data: BrowserArtifactData): Record<string, string | nul
   state: data.state,
   title: data.title,
   url: data.url,
+  favicon: data.favicon,
   lastAction: data.lastAction,
 });
 
@@ -71,6 +72,7 @@ export function artifactData(input: {
   state: BrowserArtifactData['state'];
   title?: string;
   url?: string;
+  favicon?: string | null;
   lastAction?: string | null;
 }): BrowserArtifactData {
   return {
@@ -78,6 +80,7 @@ export function artifactData(input: {
     state: input.state,
     title: input.title ?? '',
     url: input.url ?? '',
+    favicon: input.favicon ?? null,
     lastAction: input.lastAction ?? null,
   };
 }

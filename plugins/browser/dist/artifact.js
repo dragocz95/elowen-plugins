@@ -3,6 +3,7 @@ const artifactPayload = (data) => ({
     state: data.state,
     title: data.title,
     url: data.url,
+    favicon: data.favicon,
     lastAction: data.lastAction,
 });
 const fallbackText = (data) => {
@@ -61,6 +62,7 @@ export function artifactData(input) {
         state: input.state,
         title: input.title ?? '',
         url: input.url ?? '',
+        favicon: input.favicon ?? null,
         lastAction: input.lastAction ?? null,
     };
 }

@@ -12,6 +12,7 @@ export interface BrowserArtifactData {
   state: BrowserSessionState;
   title: string;
   url: string;
+  favicon: string | null;
   lastAction: string | null;
 }
 
