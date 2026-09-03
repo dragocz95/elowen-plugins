@@ -1532,7 +1532,11 @@ const PROJECT_PREVIEW = 5;
 /** The shared project filter: "All projects" plus one entry per accessible project, hidden entirely
  *  when the workspace has fewer than two (no choice to make). The host owns the value and persists it.
  *  Two shapes, both in production: a `role="group"` of toggle pills, and a `role="menu"` dropdown whose
- *  options are `menuitemradio` — the pages moved here use the dropdown. */
+ *  options are `menuitemradio` — the pages moved here use the dropdown.
+ *
+ *  Its copy comes from `t.common`, as it does in the host. It used to read a `t.tasks` section that the
+ *  narrowed dictionary no longer carries, so every render threw on an undefined section — invisible
+ *  until the editor page's own suite became the first thing in this repository to mount it. */
 export function ProjectFilterPills({ value, onChange, includeAll = true, variant = 'pills' }: {
   value: number | 'all'; onChange: (v: number | 'all') => void; includeAll?: boolean; variant?: 'pills' | 'dropdown';
 }) {
@@ -1560,19 +1564,19 @@ export function ProjectFilterPills({ value, onChange, includeAll = true, variant
           type="button"
           aria-haspopup="menu"
           aria-expanded={open}
-          aria-label={t.tasks.filterProjectsAria}
+          aria-label={t.common.filterProjectsAria}
           onClick={() => setOpen((current) => !current)}
         >
           <FolderGit2 size={13} aria-hidden />
-          <span>{selected?.slug ?? t.tasks.filterAllProjects}</span>
+          <span>{selected?.slug ?? t.common.filterAllProjects}</span>
           <ChevronDown size={13} aria-hidden />
         </button>
         {open ? (
-          <div role="menu" aria-label={t.tasks.filterProjectsAria}>
+          <div role="menu" aria-label={t.common.filterProjectsAria}>
             {includeAll ? (
               <button type="button" role="menuitemradio" aria-checked={value === 'all'} onClick={() => choose('all')}>
                 <FolderGit2 size={14} aria-hidden />
-                <span>{t.tasks.filterAllProjects}</span>
+                <span>{t.common.filterAllProjects}</span>
                 {value === 'all' ? <Check size={15} aria-hidden /> : null}
               </button>
             ) : null}
@@ -1597,10 +1601,10 @@ export function ProjectFilterPills({ value, onChange, includeAll = true, variant
   // reshuffle the row.
   const visible = selectedProject && !head.some((p) => p.id === selectedProject.id) ? [...head, selectedProject] : head;
   return (
-    <div role="group" aria-label={t.tasks.filterProjectsAria}>
+    <div role="group" aria-label={t.common.filterProjectsAria}>
       {includeAll ? (
         <button type="button" aria-pressed={value === 'all'} onClick={() => onChange('all')}>
-          <FolderGit2 size={13} aria-hidden />{t.tasks.filterAllProjects}
+          <FolderGit2 size={13} aria-hidden />{t.common.filterAllProjects}
         </button>
       ) : null}
       {visible.map((p) => (
