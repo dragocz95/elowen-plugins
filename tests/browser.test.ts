@@ -277,10 +277,10 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.2.8, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.2.9, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as { version: string; userGrantable: boolean; entry: string; provides: { tools: string[]; apiRoutes: string[] } };
-    expect(manifest.version).toBe('0.2.8');
+    expect(manifest.version).toBe('0.2.9');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
     expect(manifest.provides.apiRoutes).toHaveLength(12);
@@ -967,6 +967,79 @@ describe('browser takeover state machine', () => {
     wedged.release();
     await wedged.navigation.catch(() => {});
     await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('answers a session read while a stuck user input holds the serial queue', async () => {
+    // Seen in production: with the session under user control, GET /session hung for over thirty
+    // seconds and came back the instant the lease expired. A read of the tab list is not page work
+    // and must not queue behind whatever the page is doing.
+    vi.useFakeTimers();
+    try {
+      const { session, page } = await createSession();
+      const lease = await session.claimTakeover();
+      page.cdp.replies.set('Input.dispatchMouseEvent', () => new Promise(() => {}));
+      const stuck = session.dispatchUserInput(lease.leaseId, [{ type: 'pointer', action: 'move', x: 1, y: 1, surfaceWidth: 10, surfaceHeight: 10 }]);
+      void stuck.catch(() => {});
+      await vi.advanceTimersByTimeAsync(0);
+      let tabs: unknown[] | null = null;
+      void session.tabs().then((value) => { tabs = value; });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(tabs).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await session.releaseTakeover(lease.leaseId);
+      await session.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up on a user input that cannot even start behind a stuck sibling', async () => {
+    // Every batch is bounded once it RUNS, but a batch waiting its turn had no bound at all: a page
+    // that stopped acknowledging input turned each click into ten more seconds of backlog, and the
+    // HTTP request for the newest click simply hung. The wait to start is bounded too, and a batch
+    // abandoned while waiting must not run late once the queue frees up.
+    vi.useFakeTimers();
+    try {
+      const { session, page } = await createSession();
+      const lease = await session.claimTakeover();
+      let dispatched = 0;
+      page.cdp.replies.set('Input.dispatchMouseEvent', () => { dispatched += 1; return new Promise(() => {}); });
+      const move = { type: 'pointer' as const, action: 'move' as const, x: 1, y: 1, surfaceWidth: 10, surfaceHeight: 10 };
+      const first = session.dispatchUserInput(lease.leaseId, [move]);
+      void first.catch(() => {});
+      await vi.advanceTimersByTimeAsync(0);
+      const second = session.dispatchUserInput(lease.leaseId, [move]);
+      void second.catch(() => {});
+      const third = session.dispatchUserInput(lease.leaseId, [move]);
+      void third.catch(() => {});
+      // t=10s: the first batch hits its running deadline and frees the queue; the second gets its turn
+      // and sticks the same way. t=15s: both later batches pass their delivery bound. t=20s: the queue
+      // frees again — and the third, abandoned five seconds earlier, must not run into Chrome now.
+      await vi.advanceTimersByTimeAsync(30_000);
+      await expect(first).rejects.toThrow(/not acknowledged/i);
+      await expect(second).rejects.toThrow(/could not be delivered in time/i);
+      await expect(third).rejects.toThrow(/could not be delivered in time/i);
+      expect(dispatched).toBe(2);
+      // Thirty seconds also outlived the test lease, so the session is already back with the agent.
+      expect(session.state).toBe('agent');
+      await session.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('records every change of control with its reason', async () => {
+    // Control moved three times in production without a line in any log, which is why the third
+    // claim could never be attributed. Transitions are the audit trail of who is driving.
+    const info = vi.spyOn(logger, 'info');
+    const { session } = await createSession();
+    const lease = await session.claimTakeover();
+    await session.releaseTakeover(lease.leaseId);
+    const lines = info.mock.calls.map((call) => String(call[0]));
+    info.mockRestore();
+    expect(lines.some((line) => /session-1234567890/.test(line) && /control.*user/i.test(line) && /revision 1/.test(line))).toBe(true);
+    expect(lines.some((line) => /session-1234567890/.test(line) && /control.*agent/i.test(line) && /released/.test(line) && /revision 2/.test(line))).toBe(true);
     await session.close();
   });
 

@@ -30,6 +30,9 @@ function safeJson(value) {
  *  fires. Everything a PERSON drives needs the opposite: free the caller — and with it the serial queue
  *  slot — while leaving the session alive, because a wedged CDP call must not make "take control",
  *  "release" or "close" unreachable. The abandoned work still runs; only the waiting stops. */
+/** How long a user input batch may take in total, waiting for the queue included. Longer than the
+ *  10s a running batch gets, so a batch queued behind one stuck sibling still gets its own turn. */
+const USER_INPUT_DELIVERY_MS = 15_000;
 async function withDeadline(work, ms, message) {
     let timer = null;
     try {
@@ -330,7 +333,11 @@ export class BrowserSession {
         });
     }
     async tabs() {
-        return this.queue.run(async () => { this.assertOpen(); return this.deps.tabs.list(this.id); });
+        // A read for the session panel, deliberately OFF the serial queue: it does no page work, and
+        // queued behind one it made GET /session hang for as long as a stuck input or navigation held
+        // the queue — in production, until the takeover lease expired.
+        this.assertOpen();
+        return withDeadline(this.deps.tabs.list(this.id), 2_000, 'Browser tab list did not answer in time.');
     }
     async agentTabs(signal) {
         return this.runAgentOperation(signal, () => this.deps.tabs.list(this.id));
@@ -379,6 +386,7 @@ export class BrowserSession {
         };
         this.stateValue = 'user';
         this.scheduleLeaseExpiry();
+        this.deps.logger.info(`browser session ${this.id} control → user (revision ${controlRevision}, lease until ${new Date(this.lease.expiresAt).toISOString()})`);
         this.touch('User took control');
         this.persist({ state: 'user' });
         // The lease id is returned only to the claimant. Broadcasting it would let an older modal adopt and
@@ -445,7 +453,14 @@ export class BrowserSession {
         // trip, so a URL sampled before it could already be older than the answer that follows.
         const actedOnLoader = await this.mainFrameLoaderId();
         const actedOnUrl = this.page.url();
-        return this.queue.run(async () => {
+        // The batch is bounded once it runs (below), but its wait for the queue was not: a page that
+        // stopped acknowledging input turned every further click into ten more seconds of backlog, and
+        // the request for the newest one simply hung. So the whole delivery is bounded from here, and a
+        // batch abandoned while waiting must not run into Chrome once the queue frees up.
+        let abandoned = false;
+        const delivery = this.queue.run(async () => {
+            if (abandoned)
+                throw new Error('Browser input was abandoned before it could start.');
             this.requireLease(leaseId);
             // Both must still hold. The loader id catches a reload or a repeat navigation, which replace the
             // document without changing the address; the URL catches the case where the probe cannot answer,
@@ -466,6 +481,14 @@ export class BrowserSession {
             this.snapshotValue = null;
             this.touch('User input');
         });
+        void delivery.catch(() => { });
+        try {
+            return await withDeadline(delivery, USER_INPUT_DELIVERY_MS, 'Browser input could not be delivered in time.');
+        }
+        catch (error) {
+            abandoned = true;
+            throw error;
+        }
     }
     dispatchUserNavigation(leaseId, action) {
         return this.queue.run(async () => {
@@ -823,6 +846,7 @@ export class BrowserSession {
         if (this.stateValue !== 'closing' && this.stateValue !== 'closed' && this.stateValue !== 'error')
             this.stateValue = 'agent';
         this.persist({ state: this.stateValue });
+        this.deps.logger.info(`browser session ${this.id} control → agent (${reason}, revision ${controlRevision})`);
         this.resolveWaiters();
         this.resolveTakeoverWaiters();
         this.emit({ kind: 'control', data: { state: 'agent', reason, controlRevision } });

@@ -3,6 +3,7 @@
 ## browser 0.2.9 - 2026-09-03
 
 - Tell a viewer the session is full instead of ending its stream in silence, and let one person watch from the web, the CLI and a phone at once
+- Keep a takeover through a re-render or reload of the card, bound every user input from the moment it is queued, answer the session read without waiting on the page, and log each change of control
 
 ## browser 0.2.8 - 2026-09-03
 

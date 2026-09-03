@@ -33,6 +33,28 @@ const asData = (value: unknown): ArtifactData | null => {
 
 const inputPath = (sessionId: string, action: string): string => `/plugins/browser/api/${action}?sessionId=${encodeURIComponent(sessionId)}`;
 
+/** The takeover lease belongs to this TAB, not to one mount of the card. The card is remounted whenever
+ *  the transcript re-renders it — a plugin listing refresh, a reload — and a lease held only in component
+ *  state died with the mount while the server kept honouring it: the same person was then told the
+ *  session was controlled "in another window" until the orphaned lease expired. sessionStorage is
+ *  per-tab, so a second tab still cannot adopt it — which is the guarantee the opaque token exists for. */
+const leaseStorageKey = (sessionId: string): string => `elowen.browser.lease.${sessionId}`;
+const rememberedLease = (sessionId: string): Lease | null => {
+  try {
+    const raw = window.sessionStorage.getItem(leaseStorageKey(sessionId));
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<Lease>;
+    if (typeof value.leaseId !== 'string' || typeof value.expiresAt !== 'number' || typeof value.controlRevision !== 'number') return null;
+    return value.expiresAt > Date.now() ? { leaseId: value.leaseId, expiresAt: value.expiresAt, controlRevision: value.controlRevision } : null;
+  } catch { return null; }
+};
+const rememberLease = (sessionId: string, lease: Lease | null): void => {
+  try {
+    if (lease) window.sessionStorage.setItem(leaseStorageKey(sessionId), JSON.stringify(lease));
+    else window.sessionStorage.removeItem(leaseStorageKey(sessionId));
+  } catch { /* storage denied: the lease then lives only as long as this mount, as before */ }
+};
+
 /** The site, not the address. A thumbnail this size has room for "example.com" and nothing after it, and
  *  the full address is the one piece of page context the live image already shows. */
 const siteName = (url: string): string => {
@@ -142,7 +164,10 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const [expanded, setExpanded] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
-  const [lease, setLease] = useState<Lease | null>(null);
+  const initialSessionId = data?.browserSessionId ?? '';
+  const [lease, setLease] = useState<Lease | null>(() => (initialSessionId ? rememberedLease(initialSessionId) : null));
+  /** A lease this mount adopted rather than claimed: it is checked with the server at once, below. */
+  const adoptedLease = useRef<string | null>(lease?.leaseId ?? null);
   const [speechHidden, setSpeechHidden] = useState(false);
   const pointerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speechTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -194,16 +219,26 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
       if (speechTimer.current) { clearTimeout(speechTimer.current); speechTimer.current = null; }
     };
   }, [speech, speechHidden]);
+  useEffect(() => { if (sessionId) rememberLease(sessionId, lease); }, [lease, sessionId]);
   useEffect(() => {
     if (!lease) return;
-    const interval = setInterval(() => {
+    const beat = (adopted: boolean): void => {
       void runtime().api(inputPath(sessionId, 'heartbeat'), jsonRequest('POST', { leaseId: lease.leaseId }))
         .then((value) => {
           const next = value as { expiresAt?: number };
           if (typeof next.expiresAt === 'number') setLease((current) => current?.leaseId === lease.leaseId ? { ...current, expiresAt: next.expiresAt! } : current);
         })
-        .catch(() => {});
-    }, 20_000);
+        .catch(() => {
+          // A transient failure must not drop a live takeover — but a remembered lease the server no
+          // longer recognises is exactly that: no longer ours.
+          if (adopted) setLease((current) => current?.leaseId === lease.leaseId ? null : current);
+        });
+    };
+    if (adoptedLease.current === lease.leaseId) {
+      adoptedLease.current = null;
+      beat(true);
+    }
+    const interval = setInterval(() => beat(false), 20_000);
     return () => clearInterval(interval);
   }, [lease, sessionId]);
   useEffect(() => {

@@ -570,6 +570,25 @@ var asData = (value) => {
   };
 };
 var inputPath = (sessionId, action) => `/plugins/browser/api/${action}?sessionId=${encodeURIComponent(sessionId)}`;
+var leaseStorageKey = (sessionId) => `elowen.browser.lease.${sessionId}`;
+var rememberedLease = (sessionId) => {
+  try {
+    const raw = window.sessionStorage.getItem(leaseStorageKey(sessionId));
+    if (!raw) return null;
+    const value = JSON.parse(raw);
+    if (typeof value.leaseId !== "string" || typeof value.expiresAt !== "number" || typeof value.controlRevision !== "number") return null;
+    return value.expiresAt > Date.now() ? { leaseId: value.leaseId, expiresAt: value.expiresAt, controlRevision: value.controlRevision } : null;
+  } catch {
+    return null;
+  }
+};
+var rememberLease = (sessionId, lease) => {
+  try {
+    if (lease) window.sessionStorage.setItem(leaseStorageKey(sessionId), JSON.stringify(lease));
+    else window.sessionStorage.removeItem(leaseStorageKey(sessionId));
+  } catch {
+  }
+};
 var siteName = (url) => {
   try {
     return new URL(url).host || url;
@@ -670,7 +689,9 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const [expanded, setExpanded] = (0, import_react5.useState)(false);
   const [confirmClose, setConfirmClose] = (0, import_react5.useState)(false);
   const [pending, setPending] = (0, import_react5.useState)(null);
-  const [lease, setLease] = (0, import_react5.useState)(null);
+  const initialSessionId = data?.browserSessionId ?? "";
+  const [lease, setLease] = (0, import_react5.useState)(() => initialSessionId ? rememberedLease(initialSessionId) : null);
+  const adoptedLease = (0, import_react5.useRef)(lease?.leaseId ?? null);
   const [speechHidden, setSpeechHidden] = (0, import_react5.useState)(false);
   const pointerTimer = (0, import_react5.useRef)(null);
   const speechTimer = (0, import_react5.useRef)(null);
@@ -717,14 +738,23 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
     };
   }, [speech, speechHidden]);
   (0, import_react5.useEffect)(() => {
+    if (sessionId) rememberLease(sessionId, lease);
+  }, [lease, sessionId]);
+  (0, import_react5.useEffect)(() => {
     if (!lease) return;
-    const interval = setInterval(() => {
+    const beat = (adopted) => {
       void runtime().api(inputPath(sessionId, "heartbeat"), jsonRequest("POST", { leaseId: lease.leaseId })).then((value) => {
         const next = value;
         if (typeof next.expiresAt === "number") setLease((current) => current?.leaseId === lease.leaseId ? { ...current, expiresAt: next.expiresAt } : current);
       }).catch(() => {
+        if (adopted) setLease((current) => current?.leaseId === lease.leaseId ? null : current);
       });
-    }, 2e4);
+    };
+    if (adoptedLease.current === lease.leaseId) {
+      adoptedLease.current = null;
+      beat(true);
+    }
+    const interval = setInterval(() => beat(false), 2e4);
     return () => clearInterval(interval);
   }, [lease, sessionId]);
   (0, import_react5.useEffect)(() => {

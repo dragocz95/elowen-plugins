@@ -230,6 +230,44 @@ describe('browser plugin UI', () => {
     await waitFor(() => expect(calls.some((call) => call.path === 'release' && call.body.leaseId === 'lease-new')).toBe(true));
   });
 
+  it('keeps your takeover through a remount of the card, and lets it go once the server has', async () => {
+    // Production: a person took control, the transcript re-rendered the card (a plugin listing refresh,
+    // a reload), and the same person was told the session was "controlled in another window" — for the
+    // two minutes it took the orphaned lease to expire. The lease belongs to the TAB, not to one mount.
+    const userStreamBody = [
+      `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'user', lease: { expiresAt: Date.now() + 120_000 }, controlRevision: 1 })}\n\n`,
+      `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
+    ].join('');
+    let heartbeats = 0;
+    let serverHoldsLease = false;
+    const released: string[] = [];
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(serverHoldsLease ? userStreamBody : streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/takeover', () => { serverHoldsLease = true; return HttpResponse.json({ leaseId: 'lease-tab', expiresAt: Date.now() + 120_000, controlRevision: 1 }); }),
+      http.post('/api/plugins/browser/api/heartbeat', () => { heartbeats += 1; return serverHoldsLease ? HttpResponse.json({ expiresAt: Date.now() + 120_000, controlRevision: 1 }) : HttpResponse.json({ error: 'Browser control lease is stale or invalid.' }, { status: 400 }); }),
+      http.post('/api/plugins/browser/api/release', async ({ request }) => { released.push(((await request.json()) as { leaseId: string }).leaseId); serverHoldsLease = false; return HttpResponse.json({ released: true }); }),
+    );
+    const first = mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.takeControl }));
+    expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
+    first.unmount();
+
+    // A fresh mount of the same session, exactly as the transcript would do it.
+    const second = mountArtifact();
+    expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: strings.controlledElsewhere })).toBeNull();
+    // Adopting a remembered lease checks it with the server at once, not twenty seconds later.
+    await waitFor(() => expect(heartbeats).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole('button', { name: strings.returnToAgent }));
+    await waitFor(() => expect(released).toEqual(['lease-tab']));
+    second.unmount();
+
+    // Released means forgotten: a third mount must not resurrect it.
+    mountArtifact();
+    expect(await screen.findByRole('button', { name: strings.takeControl })).toBeInTheDocument();
+    expect(screen.queryByText(strings.youControl)).toBeNull();
+  });
+
   it('keeps a local takeover through a transient heartbeat failure', async () => {
     let heartbeatCalls = 0;
     vi.spyOn(globalThis, 'setInterval').mockImplementation(((handler: TimerHandler) => {
