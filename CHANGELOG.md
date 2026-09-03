@@ -1,5 +1,9 @@
 # Changelog
 
+## browser 0.2.8 - 2026-09-03
+
+- Let a person take control instantly and recover a session whose queue is stuck
+
 ## browser 0.2.7 - 2026-09-03
 
 - Stream page favicons and use real history navigation in the takeover toolbar

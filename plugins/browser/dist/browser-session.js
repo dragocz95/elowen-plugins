@@ -24,6 +24,28 @@ function safeJson(value) {
         return String(value);
     }
 }
+/** Bound a wait without touching session state.
+ *
+ *  `runBoundedOperation` below is the AGENT's deadline and deliberately recycles the browser when it
+ *  fires. Everything a PERSON drives needs the opposite: free the caller — and with it the serial queue
+ *  slot — while leaving the session alive, because a wedged CDP call must not make "take control",
+ *  "release" or "close" unreachable. The abandoned work still runs; only the waiting stops. */
+async function withDeadline(work, ms, message) {
+    let timer = null;
+    try {
+        return await Promise.race([
+            work,
+            new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error(message)), ms);
+                timer.unref?.();
+            }),
+        ]);
+    }
+    finally {
+        if (timer)
+            clearTimeout(timer);
+    }
+}
 class SerialQueue {
     tail = Promise.resolve();
     run(operation) {
@@ -49,6 +71,9 @@ export class BrowserSession {
     lease = null;
     controlRevisionValue = 0;
     controlReasonValue = null;
+    /** Bumped whenever previously accepted user input stops being meaningful: control changed hands, the
+     *  document was replaced, or the session is closing. Anything still mid-flight checks it and stops. */
+    inputEpochValue = 0;
     leaseTimer = null;
     hardExpiryTimer = null;
     lastActivityAt;
@@ -333,29 +358,36 @@ export class BrowserSession {
             return this.finishMutation('Closed a browser tab');
         });
     }
-    claimTakeover() {
-        return this.queue.run(async () => {
-            this.assertOpen();
-            if (this.lease && this.lease.expiresAt > this.deps.clock.now())
-                throw new Error('Browser is already under user control.');
-            const now = this.deps.clock.now();
-            const controlRevision = ++this.controlRevisionValue;
-            this.controlReasonValue = null;
-            this.lease = {
-                leaseId: randomBytes(24).toString('base64url'),
-                claimedAt: now,
-                expiresAt: Math.min(now + this.deps.config().takeoverLeaseMs, this.hardExpiresAt),
-            };
-            this.stateValue = 'user';
-            this.scheduleLeaseExpiry();
-            this.touch('User took control');
-            this.persist({ state: 'user' });
-            // The lease id is returned only to the claimant. Broadcasting it would let an older modal adopt and
-            // release a newer claim, defeating the generation guarantee the opaque token exists to provide.
-            this.emit({ kind: 'control', data: { state: 'user', expiresAt: this.lease.expiresAt, controlRevision } });
-            await this.updateArtifact();
-            return { leaseId: this.lease.leaseId, expiresAt: this.lease.expiresAt, controlRevision };
-        });
+    /** Hand the session to the person asking for it, NOW.
+     *
+     *  This deliberately does not enter the serial queue. Claiming control changes session state; it
+     *  performs no browser I/O, and queueing it behind an agent operation meant a click during a 30s
+     *  `page.goto` left the request hanging for as long as that navigation took — with nothing in the
+     *  HTTP path to bound it. The agent operation already in flight is unaffected: every agent turn
+     *  re-checks `stateValue` inside the queue and steps aside once it sees `user`. */
+    async claimTakeover() {
+        this.assertOpen();
+        if (this.lease && this.lease.expiresAt > this.deps.clock.now())
+            throw new Error('Browser is already under user control.');
+        const now = this.deps.clock.now();
+        const controlRevision = ++this.controlRevisionValue;
+        this.controlReasonValue = null;
+        this.lease = {
+            leaseId: randomBytes(24).toString('base64url'),
+            claimedAt: now,
+            expiresAt: Math.min(now + this.deps.config().takeoverLeaseMs, this.hardExpiresAt),
+        };
+        this.stateValue = 'user';
+        this.scheduleLeaseExpiry();
+        this.touch('User took control');
+        this.persist({ state: 'user' });
+        // The lease id is returned only to the claimant. Broadcasting it would let an older modal adopt and
+        // release a newer claim, defeating the generation guarantee the opaque token exists to provide.
+        this.emit({ kind: 'control', data: { state: 'user', expiresAt: this.lease.expiresAt, controlRevision } });
+        // The artifact is a cosmetic projection. Awaiting it here would put page I/O back on the path that
+        // must stay instant, so it runs beside the claim and can only ever be late, never blocking.
+        void this.updateArtifact().catch(() => { });
+        return { leaseId: this.lease.leaseId, expiresAt: this.lease.expiresAt, controlRevision };
     }
     async heartbeat(leaseId) {
         // Navigation deliberately owns the serial queue until Chrome settles. A heartbeat is only a lease
@@ -366,8 +398,11 @@ export class BrowserSession {
         this.touch();
         return { expiresAt: lease.expiresAt, controlRevision: this.controlRevisionValue };
     }
-    releaseTakeover(leaseId) {
-        return this.queue.run(async () => { this.requireLease(leaseId); await this.returnToAgent('released'); });
+    async releaseTakeover(leaseId) {
+        // Off the queue for the same reason as the claim: giving control back is how a person escapes a
+        // session whose queue is held by something that is not answering.
+        this.requireLease(leaseId);
+        await this.returnToAgent('released');
     }
     async requestTakeoverForAgent(signal) {
         if (this.stateValue === 'user') {
@@ -402,10 +437,32 @@ export class BrowserSession {
             throw error;
         }
     }
-    dispatchUserInput(leaseId, events) {
+    async dispatchUserInput(leaseId, events) {
+        // Which document the person was looking at when they acted. Control is now handed over instantly,
+        // so an agent navigation can still hold the queue: without this the click would be delivered after
+        // that navigation finished, landing at those coordinates on a page the user never saw.
+        // Identify the document this input was aimed at, and read the URL LAST: the loader probe is a round
+        // trip, so a URL sampled before it could already be older than the answer that follows.
+        const actedOnLoader = await this.mainFrameLoaderId();
+        const actedOnUrl = this.page.url();
         return this.queue.run(async () => {
             this.requireLease(leaseId);
-            await this.input.dispatchUserBatch(events);
+            // Both must still hold. The loader id catches a reload or a repeat navigation, which replace the
+            // document without changing the address; the URL catches the case where the probe cannot answer,
+            // and is required either way so a fresh loader id can never vouch for a page that moved.
+            const currentLoader = await this.mainFrameLoaderId();
+            const sameLoader = !actedOnLoader || !currentLoader || actedOnLoader === currentLoader;
+            if (!sameLoader || this.page.url() !== actedOnUrl) {
+                throw new Error('The page changed before this input could be delivered.');
+            }
+            const epoch = this.inputEpochValue;
+            await withDeadline(this.input.dispatchUserBatch(events, () => {
+                if (this.inputEpochValue !== epoch)
+                    throw new Error('Browser input was superseded before it finished.');
+            }), 10_000, 'Browser input was not acknowledged in time.');
+            // Known limit: the single event that blew this deadline is already inside Chrome and CDP offers
+            // no way to recall it, so it may still be applied late. The epoch above stops every event AFTER
+            // it, which is what keeps a stuck batch from replaying a whole gesture into the wrong page.
             this.snapshotValue = null;
             this.touch('User input');
         });
@@ -449,6 +506,7 @@ export class BrowserSession {
                 afterLoader = await this.mainFrameLoaderId();
                 committed = this.page.url() !== beforeUrl || (!!beforeLoader && !!afterLoader && beforeLoader !== afterLoader);
             }
+            this.inputEpochValue += 1;
             this.clearCursor();
             if (navigationError && !committed) {
                 this.snapshotValue = null;
@@ -475,7 +533,23 @@ export class BrowserSession {
     close(reason = 'closed') {
         if (this.closedPromise)
             return this.closedPromise;
-        this.closedPromise = this.queue.run(async () => {
+        // Mark the intent SYNCHRONOUSLY. The drain below is bounded and teardown proceeds without the
+        // queue, so anything queued from this moment on must already fail `assertOpen` rather than reach a
+        // page that is being detached.
+        if (this.stateValue !== 'closed')
+            this.stateValue = 'closing';
+        this.inputEpochValue += 1;
+        this.closedPromise = this.closeSession(reason);
+        return this.closedPromise;
+    }
+    /** Tear the session down, waiting only briefly for an orderly turn.
+     *
+     *  A close that queues unconditionally cannot end a session whose queue is held by a CDP call that
+     *  never settles — and that is the one case where closing is the only remaining recovery. So the
+     *  orderly slot is requested with a deadline, and teardown proceeds either way. */
+    async closeSession(reason) {
+        await withDeadline(this.queue.run(async () => { }), 5_000, 'queue drain timed out').catch(() => { });
+        return (async () => {
             if (this.stateValue === 'closed')
                 return;
             this.stateValue = 'closing';
@@ -487,22 +561,29 @@ export class BrowserSession {
             this.rejectTakeoverWaiters(closeError);
             this.emit({ kind: 'closed', data: { reason } });
             try {
-                // Order matters: end the trace while the CDP session can still carry the command, then drop
-                // every listener, then detach. A trace left running would hold the account's process-wide lock
-                // with no session left to stop it.
-                //
-                // The outcome is deliberately not read here. A close has nothing left to decide: an 'unknown'
-                // has already tainted the lock and asked for the process to be recycled, and turning that into a
-                // failure would abort the rest of THIS teardown — the listeners, the screencast, the page — over
-                // a recovery that is already under way.
-                await this.tracer.abandon();
-                this.tracer.detach();
-                this.diagnostics.close();
-                this.disposeCdpListeners();
-                await this.screencast.close();
-                this.listeners.clear();
-                await this.cdp.detach?.().catch(() => { });
-                await this.deps.releasePage();
+                // Teardown talks to a browser that may already be unresponsive — that is often WHY we are
+                // closing — so it is bounded and best effort. The `finally` below is what must always run.
+                await withDeadline((async () => {
+                    // Order matters: end the trace while the CDP session can still carry the command, then drop
+                    // every listener, then detach. A trace left running would hold the account's process-wide lock
+                    // with no session left to stop it.
+                    //
+                    // The outcome is deliberately not read here. A close has nothing left to decide: an 'unknown'
+                    // has already tainted the lock and asked for the process to be recycled, and turning that into a
+                    // failure would abort the rest of THIS teardown — the listeners, the screencast, the page — over
+                    // a recovery that is already under way.
+                    await this.tracer.abandon();
+                    this.tracer.detach();
+                    this.diagnostics.close();
+                    this.disposeCdpListeners();
+                    await this.screencast.close();
+                    this.listeners.clear();
+                    await this.cdp.detach?.().catch(() => { });
+                    await this.deps.releasePage();
+                })(), 10_000, 'Browser teardown timed out.');
+            }
+            catch (error) {
+                this.deps.logger.warn(`browser session ${this.id} teardown was incomplete: ${error instanceof Error ? error.message : String(error)}`);
             }
             finally {
                 this.stateValue = reason === 'browser_error' ? 'error' : 'closed';
@@ -514,8 +595,7 @@ export class BrowserSession {
                 if (this.artifactRef)
                     await this.deps.artifacts.close(this.artifactRef).catch(() => { });
             }
-        });
-        return this.closedPromise;
+        })();
     }
     async attachPage(page) {
         const nextCdp = await page.createCDPSession();
@@ -658,6 +738,8 @@ export class BrowserSession {
         });
     }
     waitForTakeoverRelease(signal) {
+        if (signal?.aborted)
+            return Promise.reject(signal.reason ?? new Error('Browser takeover request aborted.'));
         return new Promise((resolve, reject) => {
             const waiter = { resolve, reject, signal };
             if (signal) {
@@ -673,6 +755,11 @@ export class BrowserSession {
     waitForAgent(signal) {
         if (this.stateValue !== 'user')
             return Promise.resolve();
+        // An abort that already fired never emits its event again, so parking on it here waited forever.
+        // The retry loop in runAgentOperation reaches this a SECOND time after a takeover, which is exactly
+        // when a cancelled turn arrives — the path that left a tool hanging with no deadline above it.
+        if (signal?.aborted)
+            return Promise.reject(signal.reason ?? new Error('Browser action aborted while waiting for user control.'));
         return new Promise((resolve, reject) => {
             const waiter = { resolve, reject, signal };
             if (signal) {
@@ -728,6 +815,7 @@ export class BrowserSession {
     }
     async returnToAgent(reason) {
         const controlRevision = ++this.controlRevisionValue;
+        this.inputEpochValue += 1;
         this.controlReasonValue = reason;
         this.lease = null;
         this.clearLeaseTimer();
@@ -747,14 +835,14 @@ export class BrowserSession {
             return;
         const delay = Math.max(0, this.lease.expiresAt - this.deps.clock.now());
         this.leaseTimer = setTimeout(() => {
-            void this.queue.run(async () => {
-                if (this.lease?.leaseId !== leaseId)
-                    return;
-                if (this.lease.expiresAt <= this.deps.clock.now())
-                    await this.returnToAgent('expired');
-                else
-                    this.scheduleLeaseExpiry();
-            });
+            // Expiry returns an abandoned session to the agent. Running it through the serial queue made the
+            // recovery depend on the queue draining — precisely what fails when a session is stuck.
+            if (this.lease?.leaseId !== leaseId)
+                return;
+            if (this.lease.expiresAt <= this.deps.clock.now())
+                void this.returnToAgent('expired').catch(() => { });
+            else
+                this.scheduleLeaseExpiry();
         }, delay);
         this.leaseTimer.unref();
     }
@@ -836,7 +924,7 @@ export class BrowserSession {
         if (!this.artifactRef)
             return;
         const url = snapshot?.url ?? this.page.url();
-        const title = snapshot?.title ?? await this.page.title().catch(() => '');
+        const title = snapshot?.title ?? await withDeadline(this.page.title(), 2_000, 'title read timed out').catch(() => '');
         let refreshFavicon = false;
         if (this.faviconPageUrl !== url) {
             this.faviconPageUrl = url;

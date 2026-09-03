@@ -1,14 +1,22 @@
 const MAX_FAVICON_BYTES = 24 * 1024;
-const MAX_DATA_URL_CHARS = 40 * 1024;
-const HOST_TIMEOUT_MS = 3_000;
+const HOST_TIMEOUT_MS = 5_000;
+const MAX_CANDIDATES = 4;
+const READ_CHUNK = 8 * 1024;
+/** Enough reads to cover the byte budget, and no more. A stream that keeps answering without ever
+ *  setting `eof` would otherwise spin forever: the host timeout below abandons the WAIT, not the loop. */
+const MAX_READS = Math.ceil(MAX_FAVICON_BYTES / READ_CHUNK) + 2;
 /**
- * Read one small favicon through the managed page itself. The fetch therefore follows the browser's
- * enforcing proxy and account profile; the main Elowen page never contacts the visited site directly.
- * An isolated world keeps page code from replacing fetch/timers, while the host timeout keeps a broken
- * renderer or CDP transport from holding the session queue.
+ * Collect candidate icon URLs from the managed page.
+ *
+ * The page world is used for reading hrefs and nothing else. Fetching the bytes here — which is what
+ * this did originally — fails on every site that serves its icons from another origin without CORS:
+ * seznam.cz points at `d32-a.sdn.cz`, so `fetch` in the page correctly rejected with `TypeError: Failed
+ * to fetch` and the session simply never had a favicon. The bytes are therefore fetched over CDP below,
+ * which is not subject to the page's CORS policy but still travels the account's own Chrome and its
+ * enforcing proxy.
  */
-const FAVICON_EXPRESSION = `
-(async () => {
+const CANDIDATES_EXPRESSION = `
+(() => {
   const links = Array.from(document.querySelectorAll('link[rel]'))
     .filter((link) => String(link.rel || '').toLowerCase().split(/\\s+/).includes('icon'))
     .map((link) => link.href)
@@ -16,26 +24,79 @@ const FAVICON_EXPRESSION = `
     .slice(0, 3);
   let fallback = '';
   try { fallback = new URL('/favicon.ico', location.href).href; } catch {}
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 2000);
-  try {
-    for (const url of Array.from(new Set([...links, fallback])).filter(Boolean)) {
-      try {
-        const response = await fetch(url, { credentials: 'omit', cache: 'no-store', signal: controller.signal });
-        if (!response.ok) continue;
-        const blob = await response.blob();
-        if (!blob.type.toLowerCase().startsWith('image/') || blob.size < 1 || blob.size > ${MAX_FAVICON_BYTES}) continue;
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        let binary = '';
-        for (let offset = 0; offset < bytes.length; offset += 8192) {
-          binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
-        }
-        return 'data:' + blob.type + ';base64,' + btoa(binary);
-      } catch {}
+  return Array.from(new Set([...links, fallback])).filter(Boolean).slice(0, ${MAX_CANDIDATES});
+})()`;
+/** Only http(s) candidates are followed. A page can put anything in `link[rel=icon]`, and neither a
+ *  `file:` nor a `data:` URL should be handed to the loader as if the page had earned it. */
+function usableCandidate(value) {
+    if (typeof value !== 'string' || !value)
+        return null;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+    }
+    catch {
+        return null;
+    }
+}
+function imageMime(headers) {
+    for (const [name, value] of Object.entries(headers ?? {})) {
+        if (name.toLowerCase() !== 'content-type')
+            continue;
+        const mime = String(value).split(';')[0]?.trim().toLowerCase() ?? '';
+        return mime.startsWith('image/') ? mime : null;
     }
     return null;
-  } finally { clearTimeout(timer); }
-})()`;
+}
+/** Drain one CDP IO stream into base64, refusing anything over the byte budget rather than truncating
+ *  it: half an icon is not a smaller icon, it is a corrupt one. The handle is always closed. */
+async function readStream(cdp, handle) {
+    const chunks = [];
+    let total = 0;
+    try {
+        let complete = false;
+        for (let read = 0; read < MAX_READS && !complete; read += 1) {
+            const chunk = await cdp.send('IO.read', {
+                handle, size: READ_CHUNK,
+            });
+            if (typeof chunk.data === 'string' && chunk.data) {
+                const buffer = Buffer.from(chunk.data, chunk.base64Encoded ? 'base64' : 'utf8');
+                total += buffer.byteLength;
+                if (total > MAX_FAVICON_BYTES)
+                    return null;
+                chunks.push(buffer);
+            }
+            complete = chunk.eof === true;
+        }
+        if (!complete)
+            return null;
+    }
+    finally {
+        await cdp.send('IO.close', { handle }).catch(() => { });
+    }
+    return total > 0 ? Buffer.concat(chunks).toString('base64') : null;
+}
+async function loadIcon(cdp, frameId, url) {
+    const response = await cdp.send('Network.loadNetworkResource', {
+        frameId,
+        url,
+        options: { disableCache: true, includeCredentials: false },
+    });
+    const resource = response.resource;
+    if (!resource?.success || !resource.stream)
+        return null;
+    if (resource.httpStatusCode !== undefined && (resource.httpStatusCode < 200 || resource.httpStatusCode > 299)) {
+        await cdp.send('IO.close', { handle: resource.stream }).catch(() => { });
+        return null;
+    }
+    const mime = imageMime(resource.headers);
+    if (!mime) {
+        await cdp.send('IO.close', { handle: resource.stream }).catch(() => { });
+        return null;
+    }
+    const base64 = await readStream(cdp, resource.stream);
+    return base64 ? `data:${mime};base64,${base64}` : null;
+}
 async function readInIsolatedWorld(cdp) {
     const tree = await cdp.send('Page.getFrameTree');
     const frameId = tree.frameTree?.frame?.id;
@@ -49,15 +110,18 @@ async function readInIsolatedWorld(cdp) {
     if (!Number.isSafeInteger(world.executionContextId))
         return null;
     const response = await cdp.send('Runtime.evaluate', {
-        expression: FAVICON_EXPRESSION,
+        expression: CANDIDATES_EXPRESSION,
         contextId: world.executionContextId,
-        awaitPromise: true,
         returnByValue: true,
     });
-    const value = response.result?.value;
-    if (typeof value !== 'string' || value.length > MAX_DATA_URL_CHARS)
-        return null;
-    return /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i.test(value) ? value : null;
+    const raw = response.result?.value;
+    const candidates = (Array.isArray(raw) ? raw : []).map(usableCandidate).filter((url) => !!url);
+    for (const url of candidates.slice(0, MAX_CANDIDATES)) {
+        const icon = await loadIcon(cdp, frameId, url).catch(() => null);
+        if (icon)
+            return icon;
+    }
+    return null;
 }
 export async function readPageFavicon(cdp) {
     let timer = null;

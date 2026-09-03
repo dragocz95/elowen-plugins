@@ -207,12 +207,18 @@ export class InputController {
         // exactly as a click does. Without it a scroll was the one agent action a viewer could not place.
         this.emit({ kind: 'action', data: { action: 'scroll', deltaX: safeX, deltaY: safeY, x, y } });
     }
-    async dispatchUserBatch(events) {
+    /** `stillValid` is checked before EVERY event, not just once. A batch whose first event is stuck on an
+     *  unacknowledged CDP command can be abandoned by its caller's deadline while still running here;
+     *  without this the remaining events would land later — after a release, a navigation or a close —
+     *  in a page or a control state that no longer belongs to whoever sent them. */
+    async dispatchUserBatch(events, stillValid = () => { }) {
         if (events.length === 0 || events.length > 50)
             throw new Error('Browser input batches must contain 1 to 50 events.');
         this.limiter.consume(events.length);
-        for (const event of events)
+        for (const event of events) {
+            stillValid();
             await this.dispatchUserEvent(event);
+        }
     }
     async dispatchUserEvent(event) {
         if (event.type === 'paste') {

@@ -205,15 +205,65 @@ describe('managed page favicon', () => {
     return cdp;
   };
 
-  it('accepts only a bounded image data URL from an isolated managed-page world', async () => {
-    const cdp = faviconCdp();
-    cdp.replies.set('Runtime.evaluate', { result: { type: 'string', value: 'data:image/png;base64,aGVsbG8=' } });
-    await expect(readPageFavicon(cdp)).resolves.toBe('data:image/png;base64,aGVsbG8=');
-    expect(cdp.calls.at(-1)).toMatchObject({ method: 'Runtime.evaluate', params: { contextId: 42, awaitPromise: true, returnByValue: true } });
-    expect(String(cdp.calls.at(-1)?.params?.expression)).toContain("credentials: 'omit'");
+  const iconBytes = Buffer.from('icon-bytes').toString('base64');
+  const streamOnce = (cdp: FakeCdp, data = iconBytes) => {
+    let served = false;
+    cdp.replies.set('IO.read', () => (served ? { eof: true } : ((served = true), { data, base64Encoded: true, eof: false })));
+  };
 
-    cdp.replies.set('Runtime.evaluate', { result: { type: 'string', value: 'data:text/html;base64,aGVsbG8=' } });
+  it('fetches the icon over CDP, so a cross-origin favicon still resolves', async () => {
+    // Reading the bytes with fetch() inside the page fails on every site that serves icons from another
+    // origin without CORS — seznam.cz serves them from d32-a.sdn.cz — which left the session with no
+    // favicon at all. CDP is not bound by the page's CORS policy, but still uses this account's Chrome.
+    const cdp = faviconCdp();
+    cdp.replies.set('Runtime.evaluate', { result: { value: ['https://cdn.example.com/favicon-32.png'] } });
+    cdp.replies.set('Network.loadNetworkResource', {
+      resource: { success: true, stream: 'stream-1', httpStatusCode: 200, headers: { 'Content-Type': 'image/png' } },
+    });
+    streamOnce(cdp);
+    await expect(readPageFavicon(cdp)).resolves.toBe(`data:image/png;base64,${iconBytes}`);
+    const load = cdp.calls.find((call) => call.method === 'Network.loadNetworkResource');
+    expect(load?.params).toMatchObject({ frameId: 'frame-1', url: 'https://cdn.example.com/favicon-32.png' });
+    expect(cdp.calls.some((call) => call.method === 'IO.close')).toBe(true);
+  });
+
+  it('publishes nothing for a resource that is not a usable image', async () => {
+    const notAnImage = faviconCdp();
+    notAnImage.replies.set('Runtime.evaluate', { result: { value: ['https://cdn.example.com/icon'] } });
+    notAnImage.replies.set('Network.loadNetworkResource', {
+      resource: { success: true, stream: 'stream-1', httpStatusCode: 200, headers: { 'content-type': 'text/html' } },
+    });
+    await expect(readPageFavicon(notAnImage)).resolves.toBeNull();
+    expect(notAnImage.calls.some((call) => call.method === 'IO.close')).toBe(true);
+
+    const oversized = faviconCdp();
+    oversized.replies.set('Runtime.evaluate', { result: { value: ['https://cdn.example.com/huge.png'] } });
+    oversized.replies.set('Network.loadNetworkResource', {
+      resource: { success: true, stream: 'stream-2', httpStatusCode: 200, headers: { 'content-type': 'image/png' } },
+    });
+    // A truncated icon is not a smaller icon, it is a corrupt one, so the budget refuses rather than cuts.
+    oversized.replies.set('IO.read', () => ({ data: Buffer.alloc(32 * 1024).toString('base64'), base64Encoded: true, eof: false }));
+    await expect(readPageFavicon(oversized)).resolves.toBeNull();
+
+    const refused = faviconCdp();
+    refused.replies.set('Runtime.evaluate', { result: { value: ['file:///etc/passwd', 'https://cdn.example.com/missing.png'] } });
+    refused.replies.set('Network.loadNetworkResource', { resource: { success: true, stream: 's', httpStatusCode: 404, headers: {} } });
+    await expect(readPageFavicon(refused)).resolves.toBeNull();
+    // The file: candidate is dropped before it ever reaches the loader.
+    expect(refused.calls.filter((call) => call.method === 'Network.loadNetworkResource')).toHaveLength(1);
+  });
+
+  it('gives up on an icon stream that never reports the end', async () => {
+    const cdp = faviconCdp();
+    cdp.replies.set('Runtime.evaluate', { result: { value: ['https://cdn.example.com/icon.png'] } });
+    cdp.replies.set('Network.loadNetworkResource', {
+      resource: { success: true, stream: 's', httpStatusCode: 200, headers: { 'content-type': 'image/png' } },
+    });
+    // The host timeout abandons the WAIT, not the loop, so the read itself has to stop on its own.
+    cdp.replies.set('IO.read', () => ({ data: '', eof: false }));
     await expect(readPageFavicon(cdp)).resolves.toBeNull();
+    expect(cdp.calls.filter((call) => call.method === 'IO.read').length).toBeLessThanOrEqual(6);
+    expect(cdp.calls.some((call) => call.method === 'IO.close')).toBe(true);
   });
 
   it('stops waiting on CDP from the host side', async () => {
@@ -221,16 +271,16 @@ describe('managed page favicon', () => {
     const cdp = faviconCdp();
     cdp.replies.set('Runtime.evaluate', () => new Promise(() => {}));
     const pending = readPageFavicon(cdp);
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     await expect(pending).resolves.toBeNull();
   });
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.2.7, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.2.8, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as { version: string; userGrantable: boolean; entry: string; provides: { tools: string[]; apiRoutes: string[] } };
-    expect(manifest.version).toBe('0.2.7');
+    expect(manifest.version).toBe('0.2.8');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
     expect(manifest.provides.apiRoutes).toHaveLength(12);
@@ -856,6 +906,125 @@ describe('browser takeover state machine', () => {
     await session.setArtifact({ version: 1, artifactId: 'artifact-1', token: 'token-1', sessionId: 'brain-1' });
     expect(updates).toHaveLength(1);
     expect(updates[0]).toMatchObject({ favicon: null });
+    await session.close();
+  });
+
+  /** Hold the serial queue on a navigation that never finishes, and report when it is actually held.
+   *  A literal address keeps the navigation policy off DNS, so the queue is held by the goto alone. */
+  function wedgeQueueOnNavigation(session: BrowserSession, page: FakePage) {
+    let releaseGoto: (() => void) | null = null;
+    // Releasing runs the real goto, so the page ends up on the new document exactly as it would in
+    // production. A double that only resolved would hide any bug about which document is current.
+    const landOn = page.goto.bind(page);
+    const held = new Promise<void>((reachedGoto) => {
+      page.goto = (url: string) => new Promise<void>((resolve) => {
+        releaseGoto = () => { void landOn(url).then(() => resolve()); };
+        reachedGoto();
+      });
+    });
+    const navigation = session.navigate('http://93.184.216.34/');
+    void navigation.catch(() => {});
+    return { held, navigation, release: () => releaseGoto?.() };
+  }
+
+  it('hands control over immediately while an agent navigation is still running', async () => {
+    const { session, page } = await createSession();
+    const wedged = wedgeQueueOnNavigation(session, page);
+    await wedged.held;
+    // Awaiting this at all is the assertion: while the navigation holds the serial queue, a claim that
+    // queued behind it could only resolve after the goto, so this would hang instead of returning.
+    const lease = await session.claimTakeover();
+    expect(session.state).toBe('user');
+    expect(lease.controlRevision).toBe(1);
+    wedged.release();
+    await wedged.navigation.catch(() => {});
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('drops the rest of an abandoned input batch once control has moved on', async () => {
+    // A batch stuck on an unacknowledged CDP command is abandoned by its deadline but keeps running.
+    // Its remaining events must not land after the person has already handed the session back.
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    let dispatched = 0;
+    let releaseFirstKey!: () => void;
+    page.cdp.replies.set('Input.dispatchKeyEvent', () => {
+      dispatched += 1;
+      return dispatched === 1 ? new Promise((resolve) => { releaseFirstKey = () => resolve({}); }) : {};
+    });
+    const typing = session.dispatchUserInput(lease.leaseId, [
+      { type: 'key', action: 'down', key: 'a' },
+      { type: 'key', action: 'down', key: 'b' },
+    ]);
+    await tick();
+    await session.releaseTakeover(lease.leaseId);
+    releaseFirstKey();
+    await expect(typing).rejects.toThrow(/superseded/i);
+    expect(dispatched).toBe(1);
+    await session.close();
+  });
+
+  it('refuses user input aimed at a document the agent has since replaced', async () => {
+    // Control is handed over instantly, so a click can be made while an agent navigation still owns the
+    // queue. Delivering it afterwards would apply those coordinates to a page the person never saw.
+    const { session, page } = await createSession();
+    const wedged = wedgeQueueOnNavigation(session, page);
+    await wedged.held;
+    const lease = await session.claimTakeover();
+    const clicking = session.dispatchUserInput(lease.leaseId, [
+      { type: 'pointer', action: 'down', x: 10, y: 10, surfaceWidth: 100, surfaceHeight: 100 },
+    ]);
+    // Let the click record the document it was aimed at, exactly as it does when a person clicks what
+    // is on screen; only then does the agent's navigation land.
+    await tick();
+    wedged.release();
+    await expect(clicking).rejects.toThrow(/page changed/i);
+    await wedged.navigation.catch(() => {});
+    await session.close();
+  });
+
+  it('fails an agent turn that is cancelled while a takeover holds the session', async () => {
+    // The production report: the agent was working, the user pressed "take control", and the turn was
+    // cancelled in that same moment. The agent operation then reached waitForAgent a SECOND time with a
+    // signal that had already fired, parked on an abort event that can never arrive again, and hung.
+    const { session, page } = await createSession();
+    const wedged = wedgeQueueOnNavigation(session, page);
+    await wedged.held;
+    const controller = new AbortController();
+    const second = session.snapshot(false, controller.signal);
+    await tick();
+    const lease = await session.claimTakeover();
+    controller.abort(new Error('turn aborted'));
+    wedged.release();
+    await expect(second).rejects.toThrow(/turn aborted/);
+    await wedged.navigation.catch(() => {});
+    await session.releaseTakeover(lease.leaseId);
+    await session.close();
+  });
+
+  it('closes a session whose queue is wedged by a call that never settles', async () => {
+    const { session, page } = await createSession();
+    const wedged = wedgeQueueOnNavigation(session, page);
+    await wedged.held;
+    vi.useFakeTimers();
+    const closing = session.close('user_closed');
+    await vi.advanceTimersByTimeAsync(20_000);
+    await closing;
+    expect(session.state).toBe('closed');
+  });
+
+  it('expires an abandoned lease even while user input holds the queue', async () => {
+    vi.useFakeTimers();
+    const { session, page } = await createSession();
+    const lease = await session.claimTakeover();
+    const dispatched = new Promise<void>((reached) => {
+      page.cdp.replies.set('Input.dispatchKeyEvent', () => { reached(); return new Promise(() => {}); });
+    });
+    void session.dispatchUserInput(lease.leaseId, [{ type: 'key', action: 'down', key: 'a' }]).catch(() => {});
+    await dispatched;
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect(session.state).toBe('agent');
     await session.close();
   });
 

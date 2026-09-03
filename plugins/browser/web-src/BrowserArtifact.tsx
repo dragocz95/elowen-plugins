@@ -147,6 +147,9 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const pointerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speechTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingMove = useRef<Record<string, unknown> | null>(null);
+  /** The transcript anchor. On a wide screen this element is lifted out of the flow and docked above the
+   *  composer, which is why the surface has to be told how much room it takes. */
+  const anchor = useRef<HTMLElement>(null);
   /** A host `reveal` waiting for this canvas to actually get out of the way — see the effect below. */
   const pendingReveal = useRef<(() => void) | null>(null);
   const sessionId = data?.browserSessionId ?? '';
@@ -221,6 +224,30 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
     if (!reveal) return;
     pendingReveal.current = null;
     reveal();
+  }, [expanded]);
+  useEffect(() => {
+    // Docked, this card floats over the end of the transcript, so the last turns ran underneath it and
+    // their text was simply hidden. Publishing the measured height lets the transcript reserve exactly
+    // that much at its end — measured rather than assumed, because the tile takes the live stream's
+    // aspect ratio and a guess would be wrong on the first page with an unusual shape.
+    const node = anchor.current;
+    const surface = node?.closest<HTMLElement>('.chat-surface-full');
+    if (!node || !surface) return;
+    const docked = window.matchMedia('(min-width: 768px)');
+    const publish = (): void => {
+      // Expanded, the canvas is portalled to <body> and this anchor is hidden: it occupies nothing.
+      if (!docked.matches || expanded) surface.style.removeProperty('--chat-dock-height');
+      else surface.style.setProperty('--chat-dock-height', `${Math.ceil(node.getBoundingClientRect().height)}px`);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(node);
+    docked.addEventListener('change', publish);
+    return () => {
+      observer.disconnect();
+      docked.removeEventListener('change', publish);
+      surface.style.removeProperty('--chat-dock-height');
+    };
   }, [expanded]);
   useEffect(() => {
     // A pointer move is batched for 50ms. Releasing (or losing) control inside that window would otherwise
@@ -392,6 +419,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
 
   return (
     <section
+      ref={anchor}
       className="browser-artifact"
       style={aspectStyle}
       data-expanded={expanded ? 'true' : undefined}

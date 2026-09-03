@@ -666,6 +666,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const pointerTimer = (0, import_react5.useRef)(null);
   const speechTimer = (0, import_react5.useRef)(null);
   const pendingMove = (0, import_react5.useRef)(null);
+  const anchor = (0, import_react5.useRef)(null);
   const pendingReveal = (0, import_react5.useRef)(null);
   const sessionId = data?.browserSessionId ?? "";
   const title = data?.title || strings.sessionTitle || "Browser session";
@@ -730,6 +731,25 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
     if (!reveal) return;
     pendingReveal.current = null;
     reveal();
+  }, [expanded]);
+  (0, import_react5.useEffect)(() => {
+    const node = anchor.current;
+    const surface = node?.closest(".chat-surface-full");
+    if (!node || !surface) return;
+    const docked = window.matchMedia("(min-width: 768px)");
+    const publish = () => {
+      if (!docked.matches || expanded) surface.style.removeProperty("--chat-dock-height");
+      else surface.style.setProperty("--chat-dock-height", `${Math.ceil(node.getBoundingClientRect().height)}px`);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(node);
+    docked.addEventListener("change", publish);
+    return () => {
+      observer.disconnect();
+      docked.removeEventListener("change", publish);
+      surface.style.removeProperty("--chat-dock-height");
+    };
   }, [expanded]);
   (0, import_react5.useEffect)(() => {
     if (lease) return;
@@ -899,6 +919,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
     "section",
     {
+      ref: anchor,
       className: "browser-artifact",
       style: aspectStyle,
       "data-expanded": expanded ? "true" : void 0,

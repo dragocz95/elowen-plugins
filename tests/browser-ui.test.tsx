@@ -104,6 +104,34 @@ describe('browser plugin UI', () => {
     expect(document.querySelector('.browser-artifact__cursor')).toBeNull();
   });
 
+  it('reserves transcript room for the docked live view instead of covering the text', async () => {
+    // Docked above the composer the card is out of the flow, so the newest turns ran underneath it and
+    // their text was hidden rather than wrapped. The surface is told how tall the card is.
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    const listeners: (() => void)[] = [];
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: true, media: query,
+      addEventListener: (_: string, fn: () => void) => { listeners.push(fn); },
+      removeEventListener: () => {},
+    }));
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    const surface = document.createElement('div');
+    surface.className = 'chat-surface-full';
+    document.body.appendChild(surface);
+    const Wrapper = wrapper();
+    const view = render(
+      <Wrapper><ToastProvider><BrowserArtifact plugin="browser" artifact={artifact} /></ToastProvider></Wrapper>,
+      { container: surface },
+    );
+
+    await waitFor(() => expect(surface.style.getPropertyValue('--chat-dock-height')).not.toBe(''));
+    // Unmounting must hand the space back, or a closed session would leave a permanent gap.
+    view.unmount();
+    expect(surface.style.getPropertyValue('--chat-dock-height')).toBe('');
+    surface.remove();
+    vi.unstubAllGlobals();
+  });
+
   it('clears a stale artifact favicon when the live session has none', async () => {
     const noFaviconBody = `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0, favicon: null })}\n\n`;
     use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(noFaviconBody, { headers: { 'content-type': 'text/event-stream' } })));
