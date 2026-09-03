@@ -30,7 +30,7 @@
   },
   "web": {
     "account": { "profile": "Prehliadač" },
-    "settings": { "runtime": "Stav behového prostredia" },
+    "settings": { "runtime": "Stav" },
     "strings": {
       "sessionTitle": "Relácia prehliadača",
       "accountTitle": "Profil prehliadača",
