@@ -638,14 +638,27 @@ export class GitHubService {
         const workspace = sandbox.activeWorkspace({ sessionId, projectId });
         if (!workspace)
             throw new GitHubPluginError('active_workspace_required', 409, 'Select an active Sandbox workspace for this conversation and project.');
+        // Core 0.28.29 exposes `workspaceId`; the registry's minimum-compatible core type still called the
+        // same field `id`. Normalize at this one ABI boundary instead of casting the whole control result —
+        // either runtime shape works while old registry node_modules can still typecheck the release.
+        const compatible = workspace;
+        const workspaceId = compatible.workspaceId ?? compatible.id;
+        if (!workspaceId)
+            throw new GitHubPluginError('active_workspace_required', 409, 'The active Sandbox workspace has no identity.');
+        const normalizedWorkspace = {
+            workspaceId,
+            path: workspace.path,
+            branch: workspace.branch,
+            baseRef: workspace.baseRef,
+        };
         const mapping = this.requireMapping(userId, projectId);
         const [head, base] = await Promise.all([
-            this.ctx.host.git().projectHead(workspace.path),
+            this.ctx.host.git().projectHead(normalizedWorkspace.path),
             this.withToken(userId, (token) => this.client.repository(token, mapping.baseOwner, mapping.baseName)),
         ]);
         if (!head)
             throw new GitHubPluginError('publish_requires_commit', 409, 'Commit at least one change before publishing the branch.');
-        return { workspace, mapping, base, head };
+        return { workspace: normalizedWorkspace, mapping, base, head };
     }
     async validatedMappings(userId, token) {
         const validated = [];
