@@ -1,3 +1,4 @@
+import { requireDomNode } from './accessibility.js';
 /** Screenshots, through one code path.
  *
  *  All three areas are `Page.captureScreenshot` with a different clip, rather than a viewport helper here
@@ -82,10 +83,14 @@ export async function captureFullPage(cdp, format, quality) {
     return capture(cdp, 'fullPage', format, quality, { x: 0, y: 0, width, height, scale: 1 }, true);
 }
 /** The element's border box, from the same box model the click path uses — so "the element the model can
- *  see" and "the element the model can click" are the same rectangle, resolved the same way. */
+ *  see" and "the element the model can click" are the same rectangle, resolved the same way.
+ *
+ *  Any ref the snapshot printed is fair game here, interactive or not: photographing a heading is a
+ *  perfectly ordinary thing to want, and it is the DOM node that decides whether there is a box, not the
+ *  role. Only a node the accessibility tree computed without one is refused, and it is told why. */
 export async function captureElement(cdp, element, format, quality) {
     const response = await cdp.send('DOM.getBoxModel', {
-        backendNodeId: element.backendNodeId,
+        backendNodeId: requireDomNode(element),
     });
     const quad = response.model?.border ?? response.model?.content;
     if (!quad || quad.length < 8)

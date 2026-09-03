@@ -77,6 +77,11 @@ const TRACE_IO_CLOSE_TIMEOUT_MS = 2_000;
 /** Much shorter than the drain: this one runs inside a tab switch and inside `close()`, where nobody is
  *  waiting for a measurement any more — only for the browser to stop holding a buffer for it. */
 const TRACE_ABANDON_TIMEOUT_MS = 1_500;
+/** How far the events' own span may exceed the measured run before it is treated as nonsense rather than
+ *  as jitter. Generous on purpose: a trace starts recording marginally before `Tracing.start` returns and
+ *  keeps a little past `Tracing.end`, so a few hundred milliseconds over is ordinary. Days are not. */
+const EVENT_SPAN_TOLERANCE_MS = 500;
+const EVENT_SPAN_TOLERANCE_FACTOR = 1.5;
 const LONG_TASK_MS = 50;
 const SCRIPT_EVENTS = new Set(['EvaluateScript', 'FunctionCall', 'v8.run', 'v8.compile', 'RunMicrotasks']);
 const LAYOUT_EVENTS = new Set(['Layout', 'UpdateLayoutTree']);
@@ -86,8 +91,14 @@ const PAINT_EVENTS = new Set(['Paint', 'PaintImage', 'CompositeLayers', 'Rasteri
  *
  *  Pure, and separate from the transport, because this is the part worth testing: the raw trace never
  *  leaves the daemon — it is megabytes of internal Chrome vocabulary that would bury the answer — so this
- *  aggregate IS the diagnostic, and it has to be right without a browser in the room. */
-export function summarizeTraceEvents(events, truncated) {
+ *  aggregate IS the diagnostic, and it has to be right without a browser in the room.
+ *
+ *  `elapsedMs` is measured by the caller across the actual run and IS the duration. It is not derived
+ *  from the events, because a trace file is not one clock: metadata records carry `ts: 0`, and process,
+ *  thread and clock-sync records are stamped in domains of their own. Taking min/max across all of them
+ *  turned a three second trace into thirty-two days — the totals underneath were right the whole time,
+ *  which is exactly what made the number believable. */
+export function summarizeTraceEvents(events, truncated, elapsedMs) {
     const byName = new Map();
     const totals = { scriptMs: 0, layoutMs: 0, styleMs: 0, paintMs: 0 };
     let longTasks = 0;
@@ -97,9 +108,11 @@ export function summarizeTraceEvents(events, truncated) {
     for (const event of events) {
         // Complete events ('X') carry a duration; the begin/end and instant phases would double-count.
         const ms = event.ph === 'X' && typeof event.dur === 'number' ? event.dur / 1000 : 0;
-        if (typeof event.ts === 'number') {
+        // Metadata ('M') is not timed — Chrome stamps it 0 — and a non-positive timestamp anywhere else is
+        // not a moment either. Either one dragged the start of the span back to the epoch.
+        if (event.ph !== 'M' && typeof event.ts === 'number' && Number.isFinite(event.ts) && event.ts > 0) {
             first = Math.min(first, event.ts);
-            last = Math.max(last, event.ts + (event.dur ?? 0));
+            last = Math.max(last, event.ts + (typeof event.dur === 'number' && event.dur > 0 ? event.dur : 0));
         }
         const name = event.name ?? 'unknown';
         if (ms > 0) {
@@ -122,10 +135,18 @@ export function summarizeTraceEvents(events, truncated) {
         }
     }
     const round = (value) => Math.round(value * 10) / 10;
+    const duration = round(Math.max(0, elapsedMs));
+    // The events' own span is offered only when it agrees with the run we measured. A span that disagrees
+    // is evidence the timestamps came from more than one clock, and a reader given both numbers has no way
+    // to tell which one lied — so the unverifiable one is left out rather than shown beside the real one.
+    const rawSpan = Number.isFinite(first) && last > first ? (last - first) / 1000 : null;
+    const spanCeiling = duration * EVENT_SPAN_TOLERANCE_FACTOR + EVENT_SPAN_TOLERANCE_MS;
+    const eventSpanMs = rawSpan !== null && rawSpan <= spanCeiling ? round(rawSpan) : null;
     return {
-        durationMs: Number.isFinite(first) ? round((last - first) / 1000) : 0,
+        durationMs: duration,
         events: events.length,
         truncated,
+        ...(eventSpanMs !== null ? { eventSpanMs } : {}),
         longTasks: { count: longTasks, longestMs: round(longestMs) },
         totals: {
             scriptMs: round(totals.scriptMs), layoutMs: round(totals.layoutMs),
@@ -211,6 +232,7 @@ export class TraceRecorder {
     lock;
     now;
     onStateUnknown;
+    monotonic;
     cdp = null;
     active = null;
     complete = null;
@@ -230,11 +252,16 @@ export class TraceRecorder {
             void this.cdp?.send('IO.close', { handle: stream }).catch(() => { });
     };
     /** `onStateUnknown` is told once, when this browser's tracing state stops being knowable. The recorder
-     *  cannot fix that itself: only the owner of the Chrome process can replace it. */
-    constructor(lock, now, onStateUnknown = () => { }) {
+     *  cannot fix that itself: only the owner of the Chrome process can replace it.
+     *
+     *  `monotonic` measures how long a trace ran. Separate from `now` — the session's wall clock, which
+     *  timestamps when it started — because an NTP correction between start and stop would otherwise be
+     *  reported as time the page spent doing something. */
+    constructor(lock, now, onStateUnknown = () => { }, monotonic = () => performance.now()) {
         this.lock = lock;
         this.now = now;
         this.onStateUnknown = onStateUnknown;
+        this.monotonic = monotonic;
     }
     get running() { return this.active !== null; }
     /** Mark the process unusable, tell its owner, and produce the error to raise. */
@@ -271,7 +298,7 @@ export class TraceRecorder {
             // something else. The state is unknown, and only a new Chrome makes it knowable again.
             throw this.taint(sessionId, error instanceof Error ? error.message : 'the trace could not be started');
         }
-        this.active = { sessionId, startedAt: this.now() };
+        this.active = { sessionId, startedAt: this.now(), startedAtMonotonic: this.monotonic() };
         return { startedAt: this.active.startedAt };
     }
     async stop(sessionId) {
@@ -296,11 +323,12 @@ export class TraceRecorder {
         }
         if (!handle) {
             this.finish();
-            return summarizeTraceEvents([], false);
+            // Chrome recorded nothing, but the trace still RAN for as long as it ran.
+            return summarizeTraceEvents([], false, this.monotonic() - active.startedAtMonotonic);
         }
         try {
             const { text, truncated } = await withTimeout(readStream(cdp, handle), TRACE_DRAIN_TIMEOUT_MS, 'The trace could not be read in time.');
-            const summary = summarizeTraceEvents(parseTraceEvents(text), truncated);
+            const summary = summarizeTraceEvents(parseTraceEvents(text), truncated, this.monotonic() - active.startedAtMonotonic);
             this.finish();
             return summary;
         }

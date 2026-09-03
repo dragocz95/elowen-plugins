@@ -137,10 +137,10 @@ class FakeBrowser extends EventEmitter implements BrowserLike {
 const config = (patch: Partial<BrowserConfig> = {}): BrowserConfig => ({ ...resolveConfig({ browserCloseGraceSeconds: 0 }), ...patch });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.2.0, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.2.1, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as { version: string; userGrantable: boolean; entry: string; provides: { tools: string[]; apiRoutes: string[] } };
-    expect(manifest.version).toBe('0.2.0');
+    expect(manifest.version).toBe('0.2.1');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
     expect(manifest.provides.apiRoutes).toHaveLength(11);
@@ -166,7 +166,7 @@ describe('browser plugin contract', () => {
       requiresCore: string; web: { settings: { id: string; placement?: string }[] };
     };
     expect(manifest.web.settings).toEqual([expect.objectContaining({ id: 'runtime', placement: 'pluginDetail' })]);
-    expect(manifest.requiresCore).toBe('0.28.26');
+    expect(manifest.requiresCore).toBe('0.28.27');
   });
 });
 
@@ -1265,12 +1265,71 @@ describe('browser performance tracing', () => {
       { name: 'Paint', ph: 'X', ts: 60_000, dur: 3_000 },
       // Begin/end phases would double-count what the complete events above already carry.
       { name: 'RunTask', ph: 'B', ts: 70_000 },
-    ], false);
+    ], false, 130);
     expect(summary.longTasks).toEqual({ count: 1, longestMs: 80 });
     expect(summary.totals).toEqual({ scriptMs: 40, layoutMs: 12, styleMs: 0, paintMs: 3 });
     expect(summary.topEvents[0]).toEqual({ name: 'RunTask', count: 2, totalMs: 100 });
     expect(summary.events).toBe(6);
-    expect(summary.durationMs).toBe(119);
+    // The measured run is the duration; the events' own span agrees with it here, so it is offered too.
+    expect(summary.durationMs).toBe(130);
+    expect(summary.eventSpanMs).toBe(119);
+  });
+
+  it('reports a three second trace as three seconds, whatever clocks its events were stamped by', () => {
+    // Reproduction from production: startTrace, ~3 s of work, stopTrace answered durationMs
+    // 2811511975.5 — thirty-two days — while the totals underneath were right, which is exactly what
+    // made the number believable. A trace file is not one clock: metadata records are stamped 0, and
+    // process, thread and clock-sync records live in domains of their own, so min/max across all of them
+    // measures the distance between two clocks rather than the length of the trace.
+    const summary = summarizeTraceEvents([
+      { name: 'process_name', ph: 'M', ts: 0 },
+      { name: 'thread_name', ph: 'M', ts: 0 },
+      { name: 'clock_sync', ph: 'I', ts: -1 },
+      { name: 'RunTask', ph: 'X', ts: 2_811_511_975_500, dur: 14_800 },
+      { name: 'EvaluateScript', ph: 'X', ts: 2_811_511_990_300, dur: 14_800 },
+      { name: 'Paint', ph: 'X', ts: 2_811_514_975_500, dur: 3_000 },
+    ], false, 3_004);
+
+    expect(summary.durationMs).toBe(3_004);
+    expect(summary.durationMs).toBeLessThan(10_000);
+    expect(summary.totals.scriptMs).toBe(14.8); // the totals were never the broken part
+    // The events' own span here is three seconds and agrees, so it survives the check beside it.
+    expect(summary.eventSpanMs).toBeCloseTo(3_003, 0);
+  });
+
+  it('offers no event span at all when the timestamps cannot be reconciled with the run', () => {
+    // One event still carries the epoch-based stamp of another clock domain. A reader handed both a real
+    // duration and a thirty-two day span has no way to tell which one lied, so the unverifiable number
+    // is left out rather than printed next to the real one.
+    const summary = summarizeTraceEvents([
+      { name: 'RunTask', ph: 'X', ts: 12_000, dur: 5_000 },
+      { name: 'Paint', ph: 'X', ts: 2_811_511_975_500, dur: 1_000 },
+    ], false, 3_000);
+    expect(summary.durationMs).toBe(3_000);
+    expect(summary.eventSpanMs).toBeUndefined();
+    expect(Object.keys(summary)).not.toContain('eventSpanMs');
+    expect(summary.totals.paintMs).toBe(1);
+  });
+
+  it('measures the run on a clock of its own, not on the wall clock the session reads', () => {
+    const lock = new ProcessTraceLock();
+    let monotonic = 1_000;
+    // The session's wall clock jumps backwards mid-trace, as an NTP correction does. Reported as
+    // duration, that becomes time the page supposedly spent doing something.
+    const wall = [1_757_000_000_000, 1_756_999_997_000];
+    const recorder = new TraceRecorder(lock, () => wall.shift() ?? 0, () => {}, () => monotonic);
+    const cdp = new FakeCdp();
+    recorder.attach(cdp);
+    cdp.replies.set('Tracing.end', () => {
+      setImmediate(() => cdp.emit('Tracing.tracingComplete', {}));
+      return {};
+    });
+    return (async () => {
+      await recorder.start('session-clock');
+      monotonic += 3_000;
+      const summary = await recorder.stop('session-clock');
+      expect(summary.durationMs).toBe(3_000);
+    })();
   });
 
   it('lets one trace run per browser process and names who holds it', () => {
@@ -1629,5 +1688,125 @@ describe('browser diagnostics tools', () => {
     // Closing has to end it at the browser too: a recording nobody can stop keeps costing the process.
     expect(page.cdp.calls.some((call) => call.method === 'Tracing.end')).toBe(true);
     expect(session.traceRunning).toBe(false);
+  });
+});
+
+describe('browser element refs', () => {
+  /** example.com, as the accessibility tree actually reports it: a heading and a link that both have DOM
+   *  nodes, a root web area that does not, and a marker the tree computed rather than rendered. */
+  const EXAMPLE_TREE = {
+    nodes: [
+      { nodeId: 'root', role: { value: 'RootWebArea' }, name: { value: 'Example Domain' }, childIds: ['heading', 'link', 'marker'] },
+      { nodeId: 'heading', role: { value: 'heading' }, name: { value: 'Example Domain' }, backendDOMNodeId: 11 },
+      { nodeId: 'link', role: { value: 'link' }, name: { value: 'Learn more' }, backendDOMNodeId: 13 },
+      { nodeId: 'marker', role: { value: 'ListMarker' }, name: { value: '\u2022' } },
+    ],
+  };
+  const BOXES: Record<number, number[]> = {
+    11: [8, 30, 608, 30, 608, 67, 8, 67], // heading: 600 x 37
+    13: [8, 120, 99, 120, 99, 139, 8, 139], // link: 91 x 19
+  };
+
+  async function examplePage() {
+    const store = new BrowserStore(pluginDb());
+    const now = Date.now();
+    const id = 'session-element-000001';
+    store.createSession({
+      id, ownerUserId: 1, conversationId: 'brain-1', artifactRef: null, primaryTargetId: null,
+      state: 'creating', createdAt: now, updatedAt: now, lastActivityAt: now,
+      hardExpiresAt: now + 60_000, closedAt: null, closeReason: null,
+    });
+    const browser = new FakeBrowser();
+    const page = await browser.newPage() as FakePage;
+    const tabs = new TabManager(browser, () => 12, logger);
+    tabs.registerPrimary(id, page);
+    page.cdp.replies.set('Accessibility.getFullAXTree', EXAMPLE_TREE);
+    page.cdp.replies.set('DOM.getBoxModel', (params) => {
+      const quad = BOXES[Number((params as { backendNodeId?: number }).backendNodeId)];
+      return quad ? { model: { border: quad } } : new Error('Could not compute box model.');
+    });
+    const session = await BrowserSession.create({
+      id, ownerUserId: 1, conversationId: 'brain-1', createdAt: now, hardExpiresAt: now + 60_000,
+      page, tabs, config: () => config(), store, artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
+      streamBudget: new StreamBudget(() => 10_000_000), traceLock: new ProcessTraceLock(),
+      clock: { now: () => Date.now(), sleep: async () => {} }, logger,
+      releasePage: async () => { await tabs.closeSession(id); }, forceCloseBrowser: async () => {}, onClosed: () => {},
+    });
+    return { session, page };
+  }
+
+  it('captures any ref the snapshot printed, whether or not it takes input', async () => {
+    const { session, page } = await examplePage();
+    const { snapshot } = await session.snapshot(false);
+    // Reproduction from production: the snapshot offered both of these, and only the link could be
+    // photographed — the heading answered "was not found in the latest snapshot" twice.
+    expect(snapshot.text).toContain('[e1] heading "Example Domain"');
+    expect(snapshot.text).toContain('[e2] link "Learn more"');
+
+    const heading = await session.screenshot('element', 'png', 'e1');
+    expect(heading).toMatchObject({ area: 'element', width: 600, height: 37 });
+    expect(page.cdp.calls.at(-2)).toMatchObject({ method: 'DOM.getBoxModel', params: { backendNodeId: 11 } });
+
+    const link = await session.screenshot('element', 'png', 'e2');
+    expect(link).toMatchObject({ area: 'element', width: 91, height: 19 });
+    await session.close();
+  });
+
+  it('refuses a node the tree computed without a DOM element, and says that is why', async () => {
+    const { session, page } = await examplePage();
+    const { snapshot } = await session.snapshot(false);
+    expect(snapshot.text).toContain('[e0] RootWebArea');
+    expect(snapshot.text).toContain('[e3] ListMarker');
+
+    // Addressable, printed, and genuinely not photographable — which is a different answer from "no such
+    // ref", and the only one that tells the reader not to try again.
+    const before = page.cdp.calls.filter((call) => call.method === 'DOM.getBoxModel').length;
+    await expect(session.screenshot('element', 'png', 'e3')).rejects.toThrow(/computed ListMarker with no DOM element behind it/);
+    await expect(session.screenshot('element', 'png', 'e0')).rejects.toThrow(/no DOM element behind it/);
+    expect(page.cdp.calls.filter((call) => call.method === 'DOM.getBoxModel')).toHaveLength(before);
+    await session.close();
+  });
+
+  it('still refuses to drive a ref that takes no input, naming the role rather than the ref', async () => {
+    const { session } = await examplePage();
+    await session.snapshot(false);
+    // Being photographable must not have made a heading clickable: that is a request the page cannot
+    // honour, not a ref that does not exist.
+    await expect(session.click('e1')).rejects.toThrow(/heading, which does not take input/);
+    // `fill` refuses one step earlier, on the role that cannot hold a value at all.
+    await expect(session.fill('e1', 'text')).rejects.toThrow(/is not fillable/);
+    await expect(session.click('e3')).rejects.toThrow(/does not take input/);
+    // The link is unaffected.
+    await expect(session.click('e2')).resolves.toBeDefined();
+    await session.close();
+  });
+
+  it('keeps the heading capturable across the new snapshot a mutation forces', async () => {
+    const { session } = await examplePage();
+    await session.snapshot(false);
+    expect(await session.screenshot('element', 'png', 'e1')).toMatchObject({ width: 600 });
+
+    // A click invalidates the snapshot; the next capture resolves e1 against the fresh tree rather than
+    // against a map built when the page looked different.
+    await session.click('e2');
+    expect(await session.screenshot('element', 'png', 'e1')).toMatchObject({ width: 600, height: 37 });
+    await session.close();
+  });
+
+  it('reports a ref the current snapshot does not contain as exactly that', async () => {
+    const { session, page } = await examplePage();
+    await session.snapshot(false);
+    // The page changes and the tree is renumbered: e2 is now the only element left.
+    page.cdp.replies.set('Accessibility.getFullAXTree', {
+      nodes: [
+        { nodeId: 'root', role: { value: 'RootWebArea' }, name: { value: 'Example Domain' }, childIds: ['link'] },
+        { nodeId: 'link', role: { value: 'link' }, name: { value: 'Learn more' }, backendDOMNodeId: 13 },
+      ],
+    });
+    await session.click('e2'); // invalidates, re-snapshots against the smaller tree
+
+    await expect(session.screenshot('element', 'png', 'e3')).rejects.toThrow(/e3 was not found in the latest snapshot/);
+    expect(await session.screenshot('element', 'png', 'e1')).toMatchObject({ width: 91, height: 19 });
+    await session.close();
   });
 });

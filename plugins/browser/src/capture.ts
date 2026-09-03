@@ -1,3 +1,4 @@
+import { requireDomNode } from './accessibility.js';
 import type { AxElementRef, CDPSessionLike } from './types.js';
 
 /** Screenshots, through one code path.
@@ -122,7 +123,11 @@ export async function captureFullPage(cdp: CDPSessionLike, format: ImageFormat, 
 }
 
 /** The element's border box, from the same box model the click path uses — so "the element the model can
- *  see" and "the element the model can click" are the same rectangle, resolved the same way. */
+ *  see" and "the element the model can click" are the same rectangle, resolved the same way.
+ *
+ *  Any ref the snapshot printed is fair game here, interactive or not: photographing a heading is a
+ *  perfectly ordinary thing to want, and it is the DOM node that decides whether there is a box, not the
+ *  role. Only a node the accessibility tree computed without one is refused, and it is told why. */
 export async function captureElement(
   cdp: CDPSessionLike,
   element: AxElementRef,
@@ -130,7 +135,7 @@ export async function captureElement(
   quality: number,
 ): Promise<CapturedImage> {
   const response = await cdp.send<{ model?: { border?: number[]; content?: number[] } }>('DOM.getBoxModel', {
-    backendNodeId: element.backendNodeId,
+    backendNodeId: requireDomNode(element),
   });
   const quad = response.model?.border ?? response.model?.content;
   if (!quad || quad.length < 8) throw new Error(`Element ${element.ref} has no visible box.`);

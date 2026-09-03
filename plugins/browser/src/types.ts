@@ -122,9 +122,15 @@ export interface ProcessInspector {
 
 export interface AxElementRef {
   ref: string;
-  backendNodeId: number;
+  /** The DOM node behind this accessibility node, or null when there is none. Parts of an accessibility
+   *  tree are computed rather than rendered — the root web area, a generated list marker — and those have
+   *  no box to click or to photograph. Recording them as null is what lets a refusal say WHY. */
+  backendNodeId: number | null;
   role: string;
   name: string;
+  /** Whether this element takes input. Everything the snapshot printed is addressable — a heading can be
+   *  photographed like anything else — but only an interactive element can be clicked or filled. */
+  interactive: boolean;
   disabled: boolean;
 }
 

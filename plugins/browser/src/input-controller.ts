@@ -1,5 +1,5 @@
 import type { AxElementRef, BrowserActionEvent, CDPSessionLike } from './types.js';
-import { elementCenter } from './accessibility.js';
+import { elementCenter, requireDomNode } from './accessibility.js';
 
 export type UserInputEvent =
   | { type: 'pointer'; action: 'move' | 'down' | 'up'; x: number; y: number; surfaceWidth: number; surfaceHeight: number; button?: 'left' | 'middle' | 'right'; modifiers?: string[] }
@@ -129,7 +129,7 @@ export class InputController {
       throw new Error(`Element ${element.ref} is not fillable.`);
     }
     if (value.length > 20_000) throw new Error('Browser fill value is too large.');
-    await this.cdp.send('DOM.focus', { backendNodeId: element.backendNodeId });
+    await this.cdp.send('DOM.focus', { backendNodeId: requireDomNode(element) });
     await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 2 });
     await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', modifiers: 2 });
     await this.cdp.send('Input.insertText', { text: value });

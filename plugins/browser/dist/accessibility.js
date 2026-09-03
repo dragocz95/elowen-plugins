@@ -55,15 +55,19 @@ export async function captureAccessibilitySnapshot(cdp, page, options = {}) {
             if (chars + line.length + 1 <= maxChars) {
                 lines.push(line);
                 chars += line.length + 1;
-                if (interactive && Number.isSafeInteger(node.backendDOMNodeId)) {
-                    elements.set(ref, {
-                        ref,
-                        backendNodeId: node.backendDOMNodeId,
-                        role,
-                        name,
-                        disabled: states.includes('disabled'),
-                    });
-                }
+                // EVERY ref the snapshot printed goes in the map, not only the ones that can be clicked. The
+                // text is the contract: a reader offered `[e1] heading "Example Domain"` has been told that e1
+                // names something, and answering a later question about it with "not found" describes a snapshot
+                // that does not exist. What each ref supports is recorded on the entry instead, so a refusal can
+                // name the actual reason — not interactive, or no DOM node at all.
+                elements.set(ref, {
+                    ref,
+                    backendNodeId: Number.isSafeInteger(node.backendDOMNodeId) ? node.backendDOMNodeId : null,
+                    role,
+                    name,
+                    interactive,
+                    disabled: states.includes('disabled'),
+                });
                 emitted += 1;
             }
         }
@@ -82,11 +86,28 @@ export async function captureAccessibilitySnapshot(cdp, page, options = {}) {
         capturedAt: options.now ?? Date.now(),
     };
 }
+/** The DOM node behind a ref, or the reason there is none.
+ *
+ *  An accessibility tree is not a copy of the DOM: a root web area, a generated marker and a few other
+ *  computed nodes exist only in the tree. They are still worth printing — they give the reader structure
+ *  — but there is nothing on screen to measure, and saying so beats a generic failure. */
+export function requireDomNode(element) {
+    if (element.backendNodeId === null) {
+        throw new Error(`Element ${element.ref} is a computed ${element.role} with no DOM element behind it, so it has no box on screen.`);
+    }
+    return element.backendNodeId;
+}
 export async function elementCenter(cdp, element) {
+    // Addressable is not the same as operable. Every ref the snapshot printed can be looked at; only an
+    // interactive one can be driven, and a click on a heading is a request that cannot be honoured rather
+    // than a ref that does not exist.
+    if (!element.interactive) {
+        throw new Error(`Element ${element.ref} is a ${element.role}, which does not take input. Only interactive elements can be clicked or filled.`);
+    }
     if (element.disabled)
         throw new Error(`Element ${element.ref} is disabled.`);
     const response = await cdp.send('DOM.getBoxModel', {
-        backendNodeId: element.backendNodeId,
+        backendNodeId: requireDomNode(element),
     });
     const quad = response.model?.border ?? response.model?.content;
     if (!quad || quad.length < 8)

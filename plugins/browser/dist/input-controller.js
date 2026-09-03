@@ -1,4 +1,4 @@
-import { elementCenter } from './accessibility.js';
+import { elementCenter, requireDomNode } from './accessibility.js';
 const inputObject = (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value))
         throw new Error('Browser input event must be an object.');
@@ -131,7 +131,7 @@ export class InputController {
         }
         if (value.length > 20_000)
             throw new Error('Browser fill value is too large.');
-        await this.cdp.send('DOM.focus', { backendNodeId: element.backendNodeId });
+        await this.cdp.send('DOM.focus', { backendNodeId: requireDomNode(element) });
         await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 2 });
         await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', modifiers: 2 });
         await this.cdp.send('Input.insertText', { text: value });
