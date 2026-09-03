@@ -1,8 +1,10 @@
 import { useMemo, useRef, useState, useEffect, type MouseEvent } from 'react';
-import { File as FileIcon, Save, Code2, GitCompare, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft, Upload, Download, Type, AlignLeft, Map as MapIcon, Check } from 'lucide-react';
+import { File as FileIcon, Save, Code2, GitCompare, HardDrive, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft, Upload, Download, Type, AlignLeft, Map as MapIcon, Check } from 'lucide-react';
 import { runtime } from '../runtime';
 import { buildTree, parentDir, joinPath, copyName, fileKindOf, baseName, langOf, type TreeNode } from './helpers';
 import { MAX_BUFFERED_BYTES, MAX_MEDIA_PREVIEW_BYTES, MAX_OFFICE_BYTES } from '../../src/fileTypes';
+import { SYSTEM_PROJECT_ID, SYSTEM_ROOT } from '../../src/systemRoot';
+import { useSystemDirs } from './systemTree';
 import { FileTree } from './FileTree';
 import { PromptDialog, ConfirmDialog } from './dialogs';
 import { EditorPane, type CursorState } from './EditorPane';
@@ -49,7 +51,15 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const s = usePluginStrings('editor');
   const { t } = useTranslation();
   const { toast } = useToast();
+  // The system root is the whole server filesystem behind a reserved project id (admin only — the
+  // daemon, not this flag, is what refuses it to anyone else). It is browsed one directory at a time and
+  // has no repository behind it, so the git views are not offered.
+  const system = projectId === SYSTEM_PROJECT_ID;
   const files = useProjectFiles(projectId);
+  // Bumped after every file operation so the opened levels are read again: react-query refetches the
+  // root listing on its own, but it knows nothing about the levels below it.
+  const [treeEpoch, setTreeEpoch] = useState(0);
+  const bumpTree = () => setTreeEpoch((n) => n + 1);
   const [selected, setSelected] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [commit] = useState<string | null>(initialCommit ?? null);
@@ -114,19 +124,31 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     });
   };
 
-  const commitData = useProjectCommit(projectId, commit);
-  const changesData = useProjectChanges(projectId, working);
-  const commitFileDiff = useProjectCommitFileDiff(projectId, commit, commit ? selected : null);
+  // Every git read is disabled under the system root rather than left to answer empty: `/` is not a
+  // repository, and a query per panel would spend a request each to be told so.
+  const gitId = system ? null : projectId;
+  const commitData = useProjectCommit(gitId, commit);
+  const changesData = useProjectChanges(gitId, working);
+  const commitFileDiff = useProjectCommitFileDiff(gitId, commit, commit ? selected : null);
   // Keep the raw query value (stable ref) out of the memo deps; default to [] inside the callback so a
   // fresh `?? []` doesn't change the deps on every render.
-  const workingChanged = useProjectChanged(projectId).data?.changed;
+  const workingChanged = useProjectChanged(gitId).data?.changed;
   // In commit mode highlight the files that commit touched; otherwise the uncommitted working set.
   const changedSet = useMemo(
     () => new Set(commit ? (commitData.data?.files ?? []) : (workingChanged ?? [])),
     [commit, commitData.data?.files, workingChanged],
   );
 
-  const selectedFile = selected ? files.data?.find((node) => node.type === 'file' && node.path === selected) : undefined;
+  // The root listing plus every level opened under it (system root only; a project arrives whole).
+  const systemDirs = useSystemDirs(projectId, system, expanded, treeEpoch);
+  const nodes = useMemo(() => {
+    if (!system) return files.data ?? [];
+    const byPath = new Map((files.data ?? []).map((node) => [node.path, node]));
+    for (const node of systemDirs) byPath.set(node.path, node);
+    return [...byPath.values()];
+  }, [system, files.data, systemDirs]);
+
+  const selectedFile = selected ? nodes.find((node) => node.type === 'file' && node.path === selected) : undefined;
   const fileKind = selected ? fileKindOf(selected) : null;
   const textFile = fileKind === 'text' || fileKind === 'markdown' || fileKind === 'csv';
   const fileData = useProjectFile(projectId, textFile ? selected : null);
@@ -137,17 +159,17 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const copy = useCopyProjectEntry();
   const del = useDeleteProjectEntry();
 
-  const tree = useMemo(() => buildTree(files.data ?? []), [files.data]);
+  const tree = useMemo(() => buildTree(nodes), [nodes]);
   const serverContent = fileData.data?.content ?? '';
   const draft = selected != null ? drafts[selected] : undefined;
   const value = draft ?? serverContent;
   const dirty = selected != null && dirtyPaths.has(selected);
   const previewableText = fileKind === 'markdown' || fileKind === 'csv';
   const editable = selected != null && textFile && !commit && !working;
-  const effTab: Tab = tab === 'preview' && !previewableText ? 'edit' : tab;
+  const effTab: Tab = (tab === 'preview' && !previewableText) || (tab === 'diff' && system) ? 'edit' : tab;
   const fileSize = selectedFile?.size ?? 0;
 
-  const headData = useProjectFileAtHead(projectId, selected, editable && effTab === 'diff');
+  const headData = useProjectFileAtHead(gitId, selected, editable && effTab === 'diff');
 
   const openFile = (p: string) => { setSelected(p); setOpenTabs((tabs) => (tabs.includes(p) ? tabs : [...tabs, p])); setTab(fileKindOf(p) === 'csv' ? 'preview' : 'edit'); };
   // In commit mode, picking a file shows its diff within that commit (read-only); else open the file.
@@ -278,6 +300,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
       if (done > 0) {
         // The tree is a query, and nothing else knows the project gained a file.
         files.refetch();
+        bumpTree();
         expandPath(dir);
         toast(s.uploaded.replace('{count}', String(done)));
       }
@@ -296,23 +319,23 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     if (!dialog) return;
     if (dialog.kind === 'newFile') {
       const path = joinPath(dialog.dir, val);
-      newFile.mutate({ id: projectId, path }, { onSuccess: () => { expandPath(dialog.dir); openFile(path); toast(s.fileCreated.replace('{path}', path)); }, onError: err });
+      newFile.mutate({ id: projectId, path }, { onSuccess: () => { bumpTree(); expandPath(dialog.dir); openFile(path); toast(s.fileCreated.replace('{path}', path)); }, onError: err });
     } else if (dialog.kind === 'newFolder') {
       const path = joinPath(dialog.dir, val);
-      newDir.mutate({ id: projectId, path }, { onSuccess: () => { expandPath(path); toast(s.folderCreated.replace('{path}', path)); }, onError: err });
+      newDir.mutate({ id: projectId, path }, { onSuccess: () => { bumpTree(); expandPath(path); toast(s.folderCreated.replace('{path}', path)); }, onError: err });
     } else if (dialog.kind === 'rename') {
       const to = joinPath(parentDir(dialog.target), val);
-      rename.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => { remapPath(dialog.target, to); toast(s.renamed.replace('{path}', to)); }, onError: err });
+      rename.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => { bumpTree(); remapPath(dialog.target, to); toast(s.renamed.replace('{path}', to)); }, onError: err });
     } else if (dialog.kind === 'duplicate') {
       const to = joinPath(parentDir(dialog.target), val);
-      copy.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => { toast(s.duplicated.replace('{path}', to)); }, onError: err });
+      copy.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => { bumpTree(); toast(s.duplicated.replace('{path}', to)); }, onError: err });
     }
     setDialog(null);
   };
   const confirmDelete = () => {
     if (dialog?.kind !== 'delete') return;
     const path = dialog.target;
-    del.mutate({ id: projectId, path }, { onSuccess: () => { forgetPath(path); toast(s.deleted.replace('{path}', path)); }, onError: err });
+    del.mutate({ id: projectId, path }, { onSuccess: () => { bumpTree(); forgetPath(path); toast(s.deleted.replace('{path}', path)); }, onError: err });
     setDialog(null);
   };
 
@@ -397,7 +420,8 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         options={[
           { id: 'edit' as Tab, label: s.tabEdit, icon: Code2 },
           ...(previewableText ? [{ id: 'preview' as Tab, label: s.tabPreview, icon: Eye }] : []),
-          { id: 'diff' as Tab, label: s.tabDiff, icon: GitCompare },
+          // Nothing to diff against under the system root — there is no HEAD behind `/`.
+          ...(system ? [] : [{ id: 'diff' as Tab, label: s.tabDiff, icon: GitCompare }]),
         ]}
       />
       <Button variant="accent" icon={Save} disabled={!dirty || write.isPending} onClick={save}>{t.common.save}</Button>
@@ -430,6 +454,15 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
             <span className="text-sm font-semibold text-foreground">{s.editorTitle}</span>
           </>
         )}
+        {/* Under the system root a path relative to the project is a path relative to nothing the user
+            can see, so the header carries the absolute one — which is also the only place the root
+            itself is named once a file is open. */}
+        {system ? (
+          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={SYSTEM_ROOT + (selected ?? '')}>
+            <HardDrive size={11} className="mr-1 inline shrink-0 text-primary" aria-hidden />
+            {SYSTEM_ROOT + (selected ?? '')}
+          </span>
+        ) : null}
         {working ? <span className="truncate font-mono text-xs text-warning"><GitCompare size={11} className="mr-1 inline" aria-hidden />{s.workingChanges}</span>
           : commit ? <button type="button" onClick={() => setSelected(null)} disabled={!selected} title={selected ? s.viewCommit : undefined} className="overlay-menu-item flex min-w-0 items-center truncate font-mono text-xs text-primary transition-colors enabled:hover:text-primary-hot disabled:cursor-default"><GitCompare size={11} className="mr-1 inline shrink-0" aria-hidden /><span className="truncate">{s.commitLabel} {commit.slice(0, 8)}{selected ? ` · ${selected}` : ''}</span></button>
           : null}

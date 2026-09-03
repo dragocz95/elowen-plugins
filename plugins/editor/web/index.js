@@ -28,38 +28,38 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
   }
 });
 
-// node_modules/papaparse/papaparse.min.js
+// ../../../../elowen-plugins/node_modules/papaparse/papaparse.min.js
 var require_papaparse_min = __commonJS({
-  "node_modules/papaparse/papaparse.min.js"(exports, module) {
+  "../../../../elowen-plugins/node_modules/papaparse/papaparse.min.js"(exports, module) {
     ((e, t) => {
       "function" == typeof define && define.amd ? define([], t) : "object" == typeof module && "undefined" != typeof exports ? module.exports = t() : e.Papa = t();
     })(exports, function r() {
       var n = "undefined" != typeof self ? self : "undefined" != typeof window ? window : void 0 !== n ? n : {};
       var s = !n.document && !!n.postMessage, a = n.IS_PAPA_WORKER || false, o = {}, h2 = 0, w = {};
-      function q2(e) {
+      function P2(e) {
         return 65279 === e.charCodeAt(0) ? e.slice(1) : e;
       }
       function u(e) {
         this._handle = null, this._finished = false, this._completed = false, this._halted = false, this._input = null, this._baseIndex = 0, this._partialLine = "", this._rowCount = 0, this._start = 0, this._nextChunk = null, this.isFirstChunk = true, this._completeResults = { data: [], errors: [], meta: {} }, function(e2) {
-          var t = v3(e2);
+          var t = b2(e2);
           t.chunkSize = parseInt(t.chunkSize), e2.step || e2.chunk || (t.chunkSize = null);
           this._handle = new i(t), (this._handle.streamer = this)._config = t;
         }.call(this, e), this.parseChunk = function(t, e2) {
@@ -95,7 +95,7 @@ var require_papaparse_min = __commonJS({
         }, this._readChunk = function() {
           if (this._finished) this._chunkLoaded();
           else {
-            if (r2 = new XMLHttpRequest(), this._config.withCredentials && (r2.withCredentials = this._config.withCredentials), s || (r2.onload = m2(this._chunkLoaded, this), r2.onerror = m2(this._chunkError, this)), r2.ontimeout = m2(this._chunkTimeout, this), r2.open(this._config.downloadRequestBody ? "POST" : "GET", this._input, !s), this._config.downloadTimeout && !s && (r2.timeout = this._config.downloadTimeout), this._config.downloadRequestHeaders) {
+            if (r2 = new XMLHttpRequest(), this._config.withCredentials && (r2.withCredentials = this._config.withCredentials), s || (r2.onload = m2(this._chunkLoaded, this), r2.onerror = m2(this._chunkError, this)), r2.open(this._config.downloadRequestBody ? "POST" : "GET", this._input, !s), this._config.downloadRequestHeaders) {
               var e2, t = this._config.downloadRequestHeaders;
               for (e2 in t) r2.setRequestHeader(e2, t[e2]);
             }
@@ -113,8 +113,6 @@ var require_papaparse_min = __commonJS({
         }, this._chunkError = function(e2) {
           e2 = r2.statusText || e2;
           this._sendError(new Error(e2));
-        }, this._chunkTimeout = function() {
-          this._chunkError("Request timed out after " + this._config.downloadTimeout + "ms");
         };
       }
       function l4(e) {
@@ -178,8 +176,8 @@ var require_papaparse_min = __commonJS({
           if (p2 && a2 && (k3("Delimiter", "UndetectableDelimiter", "Unable to auto-detect delimiting character; defaulted to '" + w.DefaultDelimiter + "'"), a2 = false), m3.skipEmptyLines && (p2.data = p2.data.filter(function(e3) {
             return !y2(e3);
           })), g2()) {
-            let t3 = function(e3) {
-              c2.push(e3);
+            let t3 = function(e3, t4) {
+              e3 = P2(e3), U2(m3.transformHeader) && (e3 = m3.transformHeader(e3, t4)), c2.push(e3);
             };
             var t2 = t3;
             if (p2) if (Array.isArray(p2.data[0])) {
@@ -216,12 +214,12 @@ var require_papaparse_min = __commonJS({
             var s3, a3, o3, h4;
             n3 = n3 || [",", "	", "|", ";", w.RECORD_SEP, w.UNIT_SEP];
             for (var u3 = 0; u3 < n3.length; u3++) {
-              for (var d3, l6 = n3[u3], f4 = 0, c3 = 0, p3 = 0, _5 = (o3 = void 0, new E({ comments: r4, delimiter: l6, newline: t3, preview: 10 }).parse(e3)), g3 = 0; g3 < _5.data.length; g3++) i4 && y2(_5.data[g3]) ? p3++ : (d3 = _5.data[g3].length, c3 += d3, void 0 === o3 ? o3 = d3 : 0 < d3 && (f4 += Math.abs(d3 - o3), o3 = d3));
+              for (var d3, l6 = n3[u3], f4 = 0, c3 = 0, p3 = 0, _5 = (o3 = void 0, new E2({ comments: r4, delimiter: l6, newline: t3, preview: 10 }).parse(e3)), g3 = 0; g3 < _5.data.length; g3++) i4 && y2(_5.data[g3]) ? p3++ : (d3 = _5.data[g3].length, c3 += d3, void 0 === o3 ? o3 = d3 : 0 < d3 && (f4 += Math.abs(d3 - o3), o3 = d3));
               0 < _5.data.length && (c3 /= _5.data.length - p3), 1.99 < c3 && (void 0 === a3 || f4 < a3 || f4 === a3 && h4 < c3) && (a3 = f4, s3 = l6, h4 = c3);
             }
             return { successful: !!(m3.delimiter = s3), bestDelimiter: s3 };
-          })(e2, m3.newline, m3.skipEmptyLines, m3.comments, m3.delimitersToGuess)).successful ? m3.delimiter = r3.bestDelimiter : (a2 = true, m3.delimiter = w.DefaultDelimiter), p2.meta.delimiter = m3.delimiter), v3(m3));
-          return r3.header = g2(), m3.preview && m3.header && r3.preview++, n2 = e2, s2 = new E(r3), p2 = s2.parse(n2, t2, i3), _4(), f3 ? { meta: { paused: true } } : p2 || { meta: { paused: false } };
+          })(e2, m3.newline, m3.skipEmptyLines, m3.comments, m3.delimitersToGuess)).successful ? m3.delimiter = r3.bestDelimiter : (a2 = true, m3.delimiter = w.DefaultDelimiter), p2.meta.delimiter = m3.delimiter), b2(m3));
+          return m3.preview && m3.header && r3.preview++, n2 = e2, s2 = new E2(r3), p2 = s2.parse(n2, t2, i3), _4(), f3 ? { meta: { paused: true } } : p2 || { meta: { paused: false } };
         }, this.paused = function() {
           return f3;
         }, this.pause = function() {
@@ -234,86 +232,86 @@ var require_papaparse_min = __commonJS({
           e = true, s2.abort(), p2.meta.aborted = true, U2(m3.complete) && m3.complete(p2), n2 = "";
         }, this.guessLineEndings = function(e2, t2) {
           e2 = e2.substring(0, 1048576);
-          var t2 = new RegExp(P2(t2) + "([^]*?)" + P2(t2), "gm"), i3 = (e2 = e2.replace(t2, "")).split("\r"), t2 = e2.split("\n"), e2 = 1 < t2.length && t2[0].length < i3[0].length;
+          var t2 = new RegExp(q2(t2) + "([^]*?)" + q2(t2), "gm"), i3 = (e2 = e2.replace(t2, "")).split("\r"), t2 = e2.split("\n"), e2 = 1 < t2.length && t2[0].length < i3[0].length;
           if (1 === i3.length || e2) return "\n";
           for (var r3 = 0, n3 = 0; n3 < i3.length; n3++) "\n" === i3[n3][0] && r3++;
           return r3 >= i3.length / 2 ? "\r\n" : "\r";
         };
       }
-      function P2(e) {
+      function q2(e) {
         return e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       }
-      function E(C3) {
-        var S3 = (C3 = C3 || {}).delimiter, O = C3.newline, x2 = C3.comments, T2 = C3.step, I2 = C3.preview, A2 = C3.fastMode, D2 = null, L2 = false, F2 = null == C3.quoteChar ? '"' : C3.quoteChar, z2 = F2;
+      function E2(C3) {
+        var S3 = (C3 = C3 || {}).delimiter, O2 = C3.newline, x2 = C3.comments, I2 = C3.step, A2 = C3.preview, T = C3.fastMode, D2 = null, L2 = false, F2 = null == C3.quoteChar ? '"' : C3.quoteChar, z2 = F2;
         if (void 0 !== C3.escapeChar && (z2 = C3.escapeChar), ("string" != typeof S3 || -1 < w.BAD_DELIMITERS.indexOf(S3)) && (S3 = ","), x2 === S3) throw new Error("Comment character same as delimiter");
-        true === x2 ? x2 = "#" : ("string" != typeof x2 || -1 < w.BAD_DELIMITERS.indexOf(x2)) && (x2 = false), "\n" !== O && "\r" !== O && "\r\n" !== O && (O = "\n");
-        var M2 = 0, j2 = false;
+        true === x2 ? x2 = "#" : ("string" != typeof x2 || -1 < w.BAD_DELIMITERS.indexOf(x2)) && (x2 = false), "\n" !== O2 && "\r" !== O2 && "\r\n" !== O2 && (O2 = "\n");
+        var M = 0, j2 = false;
         this.parse = function(i2, t, r2) {
           if ("string" != typeof i2) throw new Error("Input must be a string");
-          var n2 = i2.length, e = S3.length, s2 = O.length, a2 = x2.length, o2 = U2(T2), h3 = [], u2 = [], d2 = [], l5 = M2 = 0;
-          if (!i2) return b2();
-          if (A2 || false !== A2 && -1 === i2.indexOf(F2)) {
-            for (var f3 = i2.split(O), c2 = 0; c2 < f3.length; c2++) {
-              if (d2 = f3[c2], M2 += d2.length, c2 !== f3.length - 1) M2 += O.length;
-              else if (r2) return b2();
+          var n2 = i2.length, e = S3.length, s2 = O2.length, a2 = x2.length, o2 = U2(I2), h3 = [], u2 = [], d2 = [], l5 = M = 0;
+          if (!i2) return v3();
+          if (T || false !== T && -1 === i2.indexOf(F2)) {
+            for (var f3 = i2.split(O2), c2 = 0; c2 < f3.length; c2++) {
+              if (d2 = f3[c2], M += d2.length, c2 !== f3.length - 1) M += O2.length;
+              else if (r2) return v3();
               if (!x2 || d2.substring(0, a2) !== x2) {
                 if (o2) {
-                  if (h3 = [], k3(d2.split(S3)), R2(), j2) return b2();
+                  if (h3 = [], k3(d2.split(S3)), R2(), j2) return v3();
                 } else k3(d2.split(S3));
-                if (I2 && I2 <= c2) return h3 = h3.slice(0, I2), b2(true);
+                if (A2 && A2 <= c2) return h3 = h3.slice(0, A2), v3(true);
               }
             }
-            return b2();
+            return v3();
           }
-          for (var p2 = i2.indexOf(S3, M2), _4 = i2.indexOf(O, M2), g2 = new RegExp(P2(z2) + P2(F2), "g"), m3 = i2.indexOf(F2, M2); ; ) if (i2[M2] === F2) for (m3 = M2, M2++; ; ) {
-            if (-1 === (m3 = i2.indexOf(F2, m3 + 1))) return r2 || u2.push({ type: "Quotes", code: "MissingQuotes", message: "Quoted field unterminated", row: h3.length, index: M2 }), E2();
-            if (m3 === n2 - 1) return E2(i2.substring(M2, m3).replace(g2, F2));
+          for (var p2 = i2.indexOf(S3, M), _4 = i2.indexOf(O2, M), g2 = new RegExp(q2(z2) + q2(F2), "g"), m3 = i2.indexOf(F2, M); ; ) if (i2[M] === F2) for (m3 = M, M++; ; ) {
+            if (-1 === (m3 = i2.indexOf(F2, m3 + 1))) return r2 || u2.push({ type: "Quotes", code: "MissingQuotes", message: "Quoted field unterminated", row: h3.length, index: M }), E3();
+            if (m3 === n2 - 1) return E3(i2.substring(M, m3).replace(g2, F2));
             if (F2 === z2 && i2[m3 + 1] === z2) m3++;
             else if (F2 === z2 || 0 === m3 || i2[m3 - 1] !== z2) {
               -1 !== p2 && p2 < m3 + 1 && (p2 = i2.indexOf(S3, m3 + 1));
-              var y2 = w2(-1 === (_4 = -1 !== _4 && _4 < m3 + 1 ? i2.indexOf(O, m3 + 1) : _4) ? p2 : Math.min(p2, _4));
+              var y2 = w2(-1 === (_4 = -1 !== _4 && _4 < m3 + 1 ? i2.indexOf(O2, m3 + 1) : _4) ? p2 : Math.min(p2, _4));
               if (i2.substr(m3 + 1 + y2, e) === S3) {
-                d2.push(i2.substring(M2, m3).replace(g2, F2)), i2[M2 = m3 + 1 + y2 + e] !== F2 && (m3 = i2.indexOf(F2, M2)), p2 = i2.indexOf(S3, M2), _4 = i2.indexOf(O, M2);
+                d2.push(i2.substring(M, m3).replace(g2, F2)), i2[M = m3 + 1 + y2 + e] !== F2 && (m3 = i2.indexOf(F2, M)), p2 = i2.indexOf(S3, M), _4 = i2.indexOf(O2, M);
                 break;
               }
               y2 = w2(_4);
-              if (i2.substring(m3 + 1 + y2, m3 + 1 + y2 + s2) === O) {
-                if (d2.push(i2.substring(M2, m3).replace(g2, F2)), v4(m3 + 1 + y2 + s2), p2 = i2.indexOf(S3, M2), m3 = i2.indexOf(F2, M2), o2 && (R2(), j2)) return b2();
-                if (I2 && h3.length >= I2) return b2(true);
+              if (i2.substring(m3 + 1 + y2, m3 + 1 + y2 + s2) === O2) {
+                if (d2.push(i2.substring(M, m3).replace(g2, F2)), b3(m3 + 1 + y2 + s2), p2 = i2.indexOf(S3, M), m3 = i2.indexOf(F2, M), o2 && (R2(), j2)) return v3();
+                if (A2 && h3.length >= A2) return v3(true);
                 break;
               }
-              u2.push({ type: "Quotes", code: "InvalidQuotes", message: "Trailing quote on quoted field is malformed", row: h3.length, index: M2 }), m3++;
+              u2.push({ type: "Quotes", code: "InvalidQuotes", message: "Trailing quote on quoted field is malformed", row: h3.length, index: M }), m3++;
             }
           }
-          else if (x2 && 0 === d2.length && i2.substring(M2, M2 + a2) === x2) {
-            if (-1 === _4) return b2();
-            M2 = _4 + s2, _4 = i2.indexOf(O, M2), p2 = i2.indexOf(S3, M2);
-          } else if (-1 !== p2 && (p2 < _4 || -1 === _4)) d2.push(i2.substring(M2, p2)), M2 = p2 + e, p2 = i2.indexOf(S3, M2);
+          else if (x2 && 0 === d2.length && i2.substring(M, M + a2) === x2) {
+            if (-1 === _4) return v3();
+            M = _4 + s2, _4 = i2.indexOf(O2, M), p2 = i2.indexOf(S3, M);
+          } else if (-1 !== p2 && (p2 < _4 || -1 === _4)) d2.push(i2.substring(M, p2)), M = p2 + e, p2 = i2.indexOf(S3, M);
           else {
             if (-1 === _4) break;
-            if (d2.push(i2.substring(M2, _4)), v4(_4 + s2), o2 && (R2(), j2)) return b2();
-            if (I2 && h3.length >= I2) return b2(true);
+            if (d2.push(i2.substring(M, _4)), b3(_4 + s2), o2 && (R2(), j2)) return v3();
+            if (A2 && h3.length >= A2) return v3(true);
           }
-          return E2();
+          return E3();
           function k3(e2) {
-            h3.push(e2), l5 = M2;
+            h3.push(e2), l5 = M;
           }
           function w2(e2) {
             var t2 = 0;
             return t2 = -1 !== e2 && (e2 = i2.substring(m3 + 1, e2)) && "" === e2.trim() ? e2.length : t2;
           }
-          function E2(e2) {
-            return r2 || (void 0 === e2 && (e2 = i2.substring(M2)), d2.push(e2), M2 = n2, k3(d2), o2 && R2()), b2();
+          function E3(e2) {
+            return r2 || (void 0 === e2 && (e2 = i2.substring(M)), d2.push(e2), M = n2, k3(d2), o2 && R2()), v3();
           }
-          function v4(e2) {
-            M2 = e2, k3(d2), d2 = [], _4 = i2.indexOf(O, M2);
+          function b3(e2) {
+            M = e2, k3(d2), d2 = [], _4 = i2.indexOf(O2, M);
           }
-          function b2(e2) {
+          function v3(e2) {
             if (C3.header && !t && h3.length && !L2) {
               var s3 = h3[0], a3 = /* @__PURE__ */ Object.create(null), o3 = new Set(s3);
               let n3 = false;
               for (let r3 = 0; r3 < s3.length; r3++) {
-                let i3 = q2(s3[r3]);
+                let i3 = P2(s3[r3]);
                 if (a3[i3 = U2(C3.transformHeader) ? C3.transformHeader(i3, r3) : i3]) {
                   let e3, t2 = a3[i3];
                   for (; e3 = i3 + "_" + t2, t2++, o3.has(e3); ) ;
@@ -323,15 +321,15 @@ var require_papaparse_min = __commonJS({
               }
               n3 && console.warn("Duplicate headers found and renamed."), L2 = true;
             }
-            return { data: h3, errors: u2, meta: { delimiter: S3, linebreak: O, aborted: j2, truncated: !!e2, cursor: l5 + (t || 0), renamedHeaders: D2 } };
+            return { data: h3, errors: u2, meta: { delimiter: S3, linebreak: O2, aborted: j2, truncated: !!e2, cursor: l5 + (t || 0), renamedHeaders: D2 } };
           }
           function R2() {
-            T2(b2()), h3 = [], u2 = [];
+            I2(v3()), h3 = [], u2 = [];
           }
         }, this.abort = function() {
           j2 = true;
         }, this.getCharIndex = function() {
-          return M2;
+          return M;
         };
       }
       function p(e) {
@@ -355,10 +353,10 @@ var require_papaparse_min = __commonJS({
       function g() {
         throw new Error("Not implemented.");
       }
-      function v3(e) {
+      function b2(e) {
         if ("object" != typeof e || null === e) return e;
         var t, i2 = Array.isArray(e) ? [] : {};
-        for (t in e) i2[t] = v3(e[t]);
+        for (t in e) i2[t] = b2(e[t]);
         return i2;
       }
       function m2(e, t) {
@@ -372,12 +370,7 @@ var require_papaparse_min = __commonJS({
       return w.parse = function(e, t) {
         var i2 = (t = t || {}).dynamicTyping || false;
         U2(i2) && (t.dynamicTypingFunction = i2, i2 = {});
-        if (t.dynamicTyping = i2, t.transform = !!U2(t.transform) && t.transform, void 0 !== t.downloadTimeout) {
-          var i2 = parseInt(t.downloadTimeout);
-          if (isNaN(i2)) throw new Error("Config downloadTimeout value (" + t.downloadTimeout + ") not parsable by parseInt(val).");
-          t.downloadTimeout = i2;
-        }
-        if (!t.worker || !w.WORKERS_SUPPORTED) return i2 = null, w.NODE_STREAM_INPUT, "string" == typeof e ? (e = q2(e), i2 = new (t.download ? d : f2)(t)) : true === e.readable && U2(e.read) && U2(e.on) ? i2 = new c(t) : (n.File && e instanceof File || e instanceof Object) && (i2 = new l4(t)), i2.stream(e);
+        if (t.dynamicTyping = i2, t.transform = !!U2(t.transform) && t.transform, !t.worker || !w.WORKERS_SUPPORTED) return i2 = null, w.NODE_STREAM_INPUT, "string" == typeof e ? (e = P2(e), i2 = new (t.download ? d : f2)(t)) : true === e.readable && U2(e.read) && U2(e.on) ? i2 = new c(t) : (n.File && e instanceof File || e instanceof Object) && (i2 = new l4(t)), i2.stream(e);
         (i2 = (() => {
           var e2;
           return !!w.WORKERS_SUPPORTED && (e2 = (() => {
@@ -396,7 +389,7 @@ var require_papaparse_min = __commonJS({
             }
             void 0 !== t.escapeChar && (o2 = t.escapeChar + a2), t.escapeFormulae instanceof RegExp ? h3 = t.escapeFormulae : "boolean" == typeof t.escapeFormulae && t.escapeFormulae && (h3 = /^[=+\-@\t\r].*$/);
           }
-        })(), new RegExp(P2(a2), "g"));
+        })(), new RegExp(q2(a2), "g"));
         "string" == typeof e && (e = JSON.parse(e));
         if (Array.isArray(e)) {
           if (!e.length || Array.isArray(e[0])) return n2(null, e, i2);
@@ -436,7 +429,7 @@ var require_papaparse_min = __commonJS({
             return false;
           })(r3, w.BAD_DELIMITERS) || -1 < r3.indexOf(m3) || -1 < i3.indexOf(a2) || " " === r3.charAt(0) || " " === r3.charAt(r3.length - 1)) ? a2 + r3 + a2 : r3);
         }
-      }, w.RECORD_SEP = String.fromCharCode(30), w.UNIT_SEP = String.fromCharCode(31), w.BYTE_ORDER_MARK = "\uFEFF", w.BAD_DELIMITERS = ["\r", "\n", '"', w.BYTE_ORDER_MARK], w.WORKERS_SUPPORTED = !s && !!n.Worker, w.NODE_STREAM_INPUT = 1, w.LocalChunkSize = 10485760, w.RemoteChunkSize = 5242880, w.DefaultDelimiter = ",", w.Parser = E, w.ParserHandle = i, w.NetworkStreamer = d, w.FileStreamer = l4, w.StringStreamer = f2, w.ReadableStreamStreamer = c, a && (n.onmessage = function(e) {
+      }, w.RECORD_SEP = String.fromCharCode(30), w.UNIT_SEP = String.fromCharCode(31), w.BYTE_ORDER_MARK = "\uFEFF", w.BAD_DELIMITERS = ["\r", "\n", '"', w.BYTE_ORDER_MARK], w.WORKERS_SUPPORTED = !s && !!n.Worker, w.NODE_STREAM_INPUT = 1, w.LocalChunkSize = 10485760, w.RemoteChunkSize = 5242880, w.DefaultDelimiter = ",", w.Parser = E2, w.ParserHandle = i, w.NetworkStreamer = d, w.FileStreamer = l4, w.StringStreamer = f2, w.ReadableStreamStreamer = c, a && (n.onmessage = function(e) {
         e = e.data;
         void 0 === w.WORKER_ID && e && (w.WORKER_ID = e.workerId);
         "string" == typeof e.input ? n.postMessage({ workerId: w.WORKER_ID, results: w.parse(e.input, e.config), finished: true }) : (n.File && e.input instanceof File || e.input instanceof Object) && (e = w.parse(e.input, e.config)) && n.postMessage({ workerId: w.WORKER_ID, results: e, finished: true });
@@ -456,21 +449,21 @@ function registerEditorUi(registration) {
 }
 
 // plugins/editor/web-src/EditorPage.tsx
-var import_react22 = __toESM(require_react(), 1);
+var import_react23 = __toESM(require_react(), 1);
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index2, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index2;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -483,7 +476,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -515,7 +508,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -529,27 +522,27 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/align-left.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/align-left.js
 var AlignLeft = createLucideIcon("AlignLeft", [
   ["path", { d: "M15 12H3", key: "6jk70r" }],
   ["path", { d: "M17 18H3", key: "1amg6g" }],
   ["path", { d: "M21 6H3", key: "1jwq7v" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/check.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/check.js
 var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
 
-// node_modules/lucide-react/dist/esm/icons/chevron-right.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/chevron-right.js
 var ChevronRight = createLucideIcon("ChevronRight", [
   ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/circle.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/circle.js
 var Circle = createLucideIcon("Circle", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/clipboard-copy.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/clipboard-copy.js
 var ClipboardCopy = createLucideIcon("ClipboardCopy", [
   ["rect", { width: "8", height: "4", x: "8", y: "2", rx: "1", ry: "1", key: "tgr4d6" }],
   ["path", { d: "M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2", key: "4jdomd" }],
@@ -558,27 +551,27 @@ var ClipboardCopy = createLucideIcon("ClipboardCopy", [
   ["path", { d: "m15 10-4 4 4 4", key: "5dvupr" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/code-xml.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/code-xml.js
 var CodeXml = createLucideIcon("CodeXml", [
   ["path", { d: "m18 16 4-4-4-4", key: "1inbqp" }],
   ["path", { d: "m6 8-4 4 4 4", key: "15zrgr" }],
   ["path", { d: "m14.5 4-5 16", key: "e7oirm" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/copy.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/copy.js
 var Copy = createLucideIcon("Copy", [
   ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2", key: "17jyea" }],
   ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/download.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/download.js
 var Download = createLucideIcon("Download", [
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
   ["polyline", { points: "7 10 12 15 17 10", key: "2ggqvy" }],
   ["line", { x1: "12", x2: "12", y1: "15", y2: "3", key: "1vk2je" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/eye.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/eye.js
 var Eye = createLucideIcon("Eye", [
   [
     "path",
@@ -590,7 +583,7 @@ var Eye = createLucideIcon("Eye", [
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/file-plus.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/file-plus.js
 var FilePlus = createLucideIcon("FilePlus", [
   ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "1rqfz7" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
@@ -598,13 +591,13 @@ var FilePlus = createLucideIcon("FilePlus", [
   ["path", { d: "M12 18v-6", key: "17g6i2" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/file.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/file.js
 var File2 = createLucideIcon("File", [
   ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "1rqfz7" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/folder-open.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/folder-open.js
 var FolderOpen = createLucideIcon("FolderOpen", [
   [
     "path",
@@ -615,7 +608,7 @@ var FolderOpen = createLucideIcon("FolderOpen", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/folder-plus.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/folder-plus.js
 var FolderPlus = createLucideIcon("FolderPlus", [
   ["path", { d: "M12 10v6", key: "1bos4e" }],
   ["path", { d: "M9 13h6", key: "1uhe8q" }],
@@ -628,7 +621,7 @@ var FolderPlus = createLucideIcon("FolderPlus", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/folder.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/folder.js
 var Folder = createLucideIcon("Folder", [
   [
     "path",
@@ -639,7 +632,7 @@ var Folder = createLucideIcon("Folder", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/git-compare.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/git-compare.js
 var GitCompare = createLucideIcon("GitCompare", [
   ["circle", { cx: "18", cy: "18", r: "3", key: "1xkwt0" }],
   ["circle", { cx: "6", cy: "6", r: "3", key: "1lh9wr" }],
@@ -647,7 +640,21 @@ var GitCompare = createLucideIcon("GitCompare", [
   ["path", { d: "M11 18H8a2 2 0 0 1-2-2V9", key: "19pyzm" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/map.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/hard-drive.js
+var HardDrive = createLucideIcon("HardDrive", [
+  ["line", { x1: "22", x2: "2", y1: "12", y2: "12", key: "1y58io" }],
+  [
+    "path",
+    {
+      d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z",
+      key: "oot6mr"
+    }
+  ],
+  ["line", { x1: "6", x2: "6.01", y1: "16", y2: "16", key: "sgf278" }],
+  ["line", { x1: "10", x2: "10.01", y1: "16", y2: "16", key: "1l4acy" }]
+]);
+
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/map.js
 var Map2 = createLucideIcon("Map", [
   [
     "path",
@@ -660,7 +667,7 @@ var Map2 = createLucideIcon("Map", [
   ["path", { d: "M9 3.236v15", key: "1uimfh" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/maximize-2.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/maximize-2.js
 var Maximize2 = createLucideIcon("Maximize2", [
   ["polyline", { points: "15 3 21 3 21 9", key: "mznyad" }],
   ["polyline", { points: "9 21 3 21 3 15", key: "1avn1i" }],
@@ -668,7 +675,7 @@ var Maximize2 = createLucideIcon("Maximize2", [
   ["line", { x1: "3", x2: "10", y1: "21", y2: "14", key: "1atl0r" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/minimize-2.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/minimize-2.js
 var Minimize2 = createLucideIcon("Minimize2", [
   ["polyline", { points: "4 14 10 14 10 20", key: "11kfnr" }],
   ["polyline", { points: "20 10 14 10 14 4", key: "rlmsce" }],
@@ -676,13 +683,13 @@ var Minimize2 = createLucideIcon("Minimize2", [
   ["line", { x1: "3", x2: "10", y1: "21", y2: "14", key: "1atl0r" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/panel-left.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/panel-left.js
 var PanelLeft = createLucideIcon("PanelLeft", [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
   ["path", { d: "M9 3v18", key: "fh3hqa" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/pencil.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/pencil.js
 var Pencil = createLucideIcon("Pencil", [
   [
     "path",
@@ -694,7 +701,7 @@ var Pencil = createLucideIcon("Pencil", [
   ["path", { d: "m15 5 4 4", key: "1mk7zo" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/save.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/save.js
 var Save = createLucideIcon("Save", [
   [
     "path",
@@ -707,7 +714,7 @@ var Save = createLucideIcon("Save", [
   ["path", { d: "M7 3v4a1 1 0 0 0 1 1h7", key: "t51u73" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/trash-2.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
@@ -716,21 +723,21 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/type.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/type.js
 var Type = createLucideIcon("Type", [
   ["polyline", { points: "4 7 4 4 20 4 20 7", key: "1nosan" }],
   ["line", { x1: "9", x2: "15", y1: "20", y2: "20", key: "swin9y" }],
   ["line", { x1: "12", x2: "12", y1: "4", y2: "20", key: "1tx1rr" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/upload.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/upload.js
 var Upload = createLucideIcon("Upload", [
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
   ["polyline", { points: "17 8 12 3 7 8", key: "t8dd8p" }],
   ["line", { x1: "12", x2: "12", y1: "3", y2: "15", key: "widbto" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/wrap-text.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/wrap-text.js
 var WrapText = createLucideIcon("WrapText", [
   ["line", { x1: "3", x2: "21", y1: "6", y2: "6", key: "4m8b97" }],
   ["path", { d: "M3 12h15a3 3 0 1 1 0 6h-4", key: "1cl7v7" }],
@@ -738,14 +745,14 @@ var WrapText = createLucideIcon("WrapText", [
   ["line", { x1: "3", x2: "10", y1: "18", y2: "18", key: "1h33wv" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/x.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/x.js
 var X = createLucideIcon("X", [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ]);
 
 // plugins/editor/web-src/editor/ProjectEditor.tsx
-var import_react21 = __toESM(require_react(), 1);
+var import_react22 = __toESM(require_react(), 1);
 
 // plugins/editor/src/fileTypes.ts
 var MAX_BUFFERED_BYTES = 50 * 1024 * 1024;
@@ -944,6 +951,40 @@ function copyName(path) {
   return joinPath(parentDir(path), `${dot > 0 ? base.slice(0, dot) : base} copy${dot > 0 ? base.slice(dot) : ""}`);
 }
 
+// plugins/editor/src/systemRoot.ts
+var SYSTEM_PROJECT_ID = -1;
+var SYSTEM_ROOT = "/";
+
+// plugins/editor/web-src/editor/systemTree.ts
+var import_react3 = __toESM(require_react(), 1);
+function useSystemDirs(projectId, enabled, expanded, epoch) {
+  const [levels, setLevels] = (0, import_react3.useState)({});
+  const requested = (0, import_react3.useRef)(/* @__PURE__ */ new Set());
+  const generation = (0, import_react3.useRef)(0);
+  (0, import_react3.useEffect)(() => {
+    generation.current += 1;
+    requested.current = /* @__PURE__ */ new Set();
+    setLevels({});
+  }, [projectId, enabled, epoch]);
+  (0, import_react3.useEffect)(() => {
+    if (!enabled) return;
+    const mine = generation.current;
+    for (const dir of expanded) {
+      if (requested.current.has(dir)) continue;
+      requested.current.add(dir);
+      void (async () => {
+        try {
+          const nodes = await runtime().api(`/projects/${projectId}/files?path=${encodeURIComponent(dir)}`);
+          if (generation.current !== mine) return;
+          setLevels((current) => ({ ...current, [dir]: nodes }));
+        } catch {
+        }
+      })();
+    }
+  }, [projectId, enabled, expanded, epoch]);
+  return (0, import_react3.useMemo)(() => Object.values(levels).flat(), [levels]);
+}
+
 // plugins/editor/web-src/editor/FileTree.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 function TreeRow({ node, depth, expanded, onToggle, selected, onSelect, changed, onContextMenu }) {
@@ -981,13 +1022,13 @@ function FileTree({ tree, expanded, onToggle, selected, onSelect, changed, onCon
 }
 
 // plugins/editor/web-src/editor/dialogs.tsx
-var import_react3 = __toESM(require_react(), 1);
+var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var { Modal, ModalBody, ModalFooter, Button, Input, Field } = runtime().components;
 var { useTranslation } = runtime().hooks;
 function PromptDialog({ title, label, initialValue, confirmLabel, icon, onConfirm, onCancel }) {
   const { t } = useTranslation();
-  const [value, setValue] = (0, import_react3.useState)(initialValue);
+  const [value, setValue] = (0, import_react4.useState)(initialValue);
   const trimmed = value.trim();
   const valid = trimmed.length > 0 && trimmed !== initialValue.trim();
   const submit = () => {
@@ -1024,9 +1065,9 @@ function ConfirmDialog({ title, message, confirmLabel, danger, icon, onConfirm, 
 }
 
 // plugins/editor/web-src/editor/EditorPane.tsx
-var import_react16 = __toESM(require_react(), 1);
+var import_react17 = __toESM(require_react(), 1);
 
-// node_modules/@monaco-editor/loader/lib/es/_virtual/_rollupPluginBabelHelpers.js
+// ../../../../elowen-plugins/node_modules/@monaco-editor/loader/lib/es/_virtual/_rollupPluginBabelHelpers.js
 function _arrayLikeToArray(r, a) {
   (null == a || a > r.length) && (a = r.length);
   for (var e = 0, n = Array(a); e < a; e++) n[e] = r[e];
@@ -1129,7 +1170,7 @@ function _unsupportedIterableToArray(r, a) {
   }
 }
 
-// node_modules/state-local/lib/es/state-local.js
+// ../../../../elowen-plugins/node_modules/state-local/lib/es/state-local.js
 function _defineProperty2(obj, key, value) {
   if (key in obj) {
     Object.defineProperty(obj, key, {
@@ -1291,14 +1332,14 @@ var index = {
 };
 var state_local_default = index;
 
-// node_modules/@monaco-editor/loader/lib/es/config/index.js
+// ../../../../elowen-plugins/node_modules/@monaco-editor/loader/lib/es/config/index.js
 var config = {
   paths: {
     vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs"
   }
 };
 
-// node_modules/@monaco-editor/loader/lib/es/utils/curry.js
+// ../../../../elowen-plugins/node_modules/@monaco-editor/loader/lib/es/utils/curry.js
 function curry2(fn) {
   return function curried() {
     var _this = this;
@@ -1314,12 +1355,12 @@ function curry2(fn) {
   };
 }
 
-// node_modules/@monaco-editor/loader/lib/es/utils/isObject.js
+// ../../../../elowen-plugins/node_modules/@monaco-editor/loader/lib/es/utils/isObject.js
 function isObject2(value) {
   return {}.toString.call(value).includes("Object");
 }
 
-// node_modules/@monaco-editor/loader/lib/es/validators/index.js
+// ../../../../elowen-plugins/node_modules/@monaco-editor/loader/lib/es/validators/index.js
 function validateConfig(config3) {
   if (!config3) errorHandler2("configIsRequired");
   if (!isObject2(config3)) errorHandler2("configType");
@@ -1350,7 +1391,7 @@ var validators2 = {
   config: validateConfig
 };
 
-// node_modules/@monaco-editor/loader/lib/es/utils/compose.js
+// ../../../../elowen-plugins/node_modules/@monaco-editor/loader/lib/es/utils/compose.js
 var compose2 = function compose3() {
   for (var _len = arguments.length, fns = new Array(_len), _key = 0; _key < _len; _key++) {
     fns[_key] = arguments[_key];
@@ -1362,7 +1403,7 @@ var compose2 = function compose3() {
   };
 };
 
-// node_modules/@monaco-editor/loader/lib/es/utils/deepMerge.js
+// ../../../../elowen-plugins/node_modules/@monaco-editor/loader/lib/es/utils/deepMerge.js
 function merge(target, source) {
   Object.keys(source).forEach(function(key) {
     if (source[key] instanceof Object) {
@@ -1374,7 +1415,7 @@ function merge(target, source) {
   return _objectSpread2(_objectSpread2({}, target), source);
 }
 
-// node_modules/@monaco-editor/loader/lib/es/utils/makeCancelable.js
+// ../../../../elowen-plugins/node_modules/@monaco-editor/loader/lib/es/utils/makeCancelable.js
 var CANCELATION_MESSAGE = {
   type: "cancelation",
   msg: "operation is manually canceled"
@@ -1392,7 +1433,7 @@ function makeCancelable(promise) {
   }, wrappedPromise;
 }
 
-// node_modules/@monaco-editor/loader/lib/es/loader/index.js
+// ../../../../elowen-plugins/node_modules/@monaco-editor/loader/lib/es/loader/index.js
 var _excluded = ["monaco"];
 var _state$create = state_local_default.create({
   config,
@@ -1505,8 +1546,7 @@ var loader = {
   __getMonacoInstance
 };
 
-// node_modules/@monaco-editor/react/dist/index.mjs
-var import_react4 = __toESM(require_react(), 1);
+// ../../../../elowen-plugins/node_modules/@monaco-editor/react/dist/index.mjs
 var import_react5 = __toESM(require_react(), 1);
 var import_react6 = __toESM(require_react(), 1);
 var import_react7 = __toESM(require_react(), 1);
@@ -1517,27 +1557,28 @@ var import_react11 = __toESM(require_react(), 1);
 var import_react12 = __toESM(require_react(), 1);
 var import_react13 = __toESM(require_react(), 1);
 var import_react14 = __toESM(require_react(), 1);
+var import_react15 = __toESM(require_react(), 1);
 var le = { wrapper: { display: "flex", position: "relative", textAlign: "initial" }, fullWidth: { width: "100%" }, hide: { display: "none" } };
 var v = le;
 var ae = { container: { display: "flex", height: "100%", width: "100%", justifyContent: "center", alignItems: "center" } };
 var Y = ae;
 function Me({ children: e }) {
-  return import_react8.default.createElement("div", { style: Y.container }, e);
+  return import_react9.default.createElement("div", { style: Y.container }, e);
 }
 var Z = Me;
 var $ = Z;
-function Ee({ width: e, height: r, isEditorReady: n, loading: t, _ref: a, className: m2, wrapperProps: E }) {
-  return import_react7.default.createElement("section", { style: { ...v.wrapper, width: e, height: r }, ...E }, !n && import_react7.default.createElement($, null, t), import_react7.default.createElement("div", { ref: a, style: { ...v.fullWidth, ...!n && v.hide }, className: m2 }));
+function Ee({ width: e, height: r, isEditorReady: n, loading: t, _ref: a, className: m2, wrapperProps: E2 }) {
+  return import_react8.default.createElement("section", { style: { ...v.wrapper, width: e, height: r }, ...E2 }, !n && import_react8.default.createElement($, null, t), import_react8.default.createElement("div", { ref: a, style: { ...v.fullWidth, ...!n && v.hide }, className: m2 }));
 }
 var ee = Ee;
-var H = (0, import_react6.memo)(ee);
+var H = (0, import_react7.memo)(ee);
 function Ce(e) {
-  (0, import_react9.useEffect)(e, []);
+  (0, import_react10.useEffect)(e, []);
 }
 var k = Ce;
 function he(e, r, n = true) {
-  let t = (0, import_react10.useRef)(true);
-  (0, import_react10.useEffect)(t.current || !n ? () => {
+  let t = (0, import_react11.useRef)(true);
+  (0, import_react11.useEffect)(t.current || !n ? () => {
     t.current = false;
   } : e, r);
 }
@@ -1556,8 +1597,8 @@ function be(e, r, n, t) {
 function te(e, r) {
   return e.Uri.parse(r);
 }
-function Oe({ original: e, modified: r, language: n, originalLanguage: t, modifiedLanguage: a, originalModelPath: m2, modifiedModelPath: E, keepCurrentOriginalModel: g = false, keepCurrentModifiedModel: N = false, theme: x2 = "light", loading: P2 = "Loading...", options: y2 = {}, height: V2 = "100%", width: z2 = "100%", className: F2, wrapperProps: j2 = {}, beforeMount: A2 = D, onMount: q2 = D }) {
-  let [M2, O] = (0, import_react5.useState)(false), [T2, s] = (0, import_react5.useState)(true), u = (0, import_react5.useRef)(null), c = (0, import_react5.useRef)(null), w = (0, import_react5.useRef)(null), d = (0, import_react5.useRef)(q2), o = (0, import_react5.useRef)(A2), b2 = (0, import_react5.useRef)(false);
+function Oe({ original: e, modified: r, language: n, originalLanguage: t, modifiedLanguage: a, originalModelPath: m2, modifiedModelPath: E2, keepCurrentOriginalModel: g = false, keepCurrentModifiedModel: N = false, theme: x2 = "light", loading: P2 = "Loading...", options: y2 = {}, height: V2 = "100%", width: z2 = "100%", className: F2, wrapperProps: j2 = {}, beforeMount: A2 = D, onMount: q2 = D }) {
+  let [M, O2] = (0, import_react6.useState)(false), [T, s] = (0, import_react6.useState)(true), u = (0, import_react6.useRef)(null), c = (0, import_react6.useRef)(null), w = (0, import_react6.useRef)(null), d = (0, import_react6.useRef)(q2), o = (0, import_react6.useRef)(A2), b2 = (0, import_react6.useRef)(false);
   k(() => {
     let i = loader.init();
     return i.then((f2) => (c.current = f2) && s(false)).catch((f2) => f2?.type !== "cancelation" && console.error("Monaco initialization: error:", f2)), () => u.current ? I2() : i.cancel();
@@ -1566,55 +1607,55 @@ function Oe({ original: e, modified: r, language: n, originalLanguage: t, modifi
       let i = u.current.getOriginalEditor(), f2 = h(c.current, e || "", t || n || "text", m2 || "");
       f2 !== i.getModel() && i.setModel(f2);
     }
-  }, [m2], M2), l(() => {
+  }, [m2], M), l(() => {
     if (u.current && c.current) {
-      let i = u.current.getModifiedEditor(), f2 = h(c.current, r || "", a || n || "text", E || "");
+      let i = u.current.getModifiedEditor(), f2 = h(c.current, r || "", a || n || "text", E2 || "");
       f2 !== i.getModel() && i.setModel(f2);
     }
-  }, [E], M2), l(() => {
+  }, [E2], M), l(() => {
     let i = u.current.getModifiedEditor();
     i.getOption(c.current.editor.EditorOption.readOnly) ? i.setValue(r || "") : r !== i.getValue() && (i.executeEdits("", [{ range: i.getModel().getFullModelRange(), text: r || "", forceMoveMarkers: true }]), i.pushUndoStop());
-  }, [r], M2), l(() => {
+  }, [r], M), l(() => {
     u.current?.getModel()?.original.setValue(e || "");
-  }, [e], M2), l(() => {
+  }, [e], M), l(() => {
     let { original: i, modified: f2 } = u.current.getModel();
     c.current.editor.setModelLanguage(i, t || n || "text"), c.current.editor.setModelLanguage(f2, a || n || "text");
-  }, [n, t, a], M2), l(() => {
+  }, [n, t, a], M), l(() => {
     c.current?.editor.setTheme(x2);
-  }, [x2], M2), l(() => {
+  }, [x2], M), l(() => {
     u.current?.updateOptions(y2);
-  }, [y2], M2);
-  let L2 = (0, import_react5.useCallback)(() => {
+  }, [y2], M);
+  let L2 = (0, import_react6.useCallback)(() => {
     if (!c.current) return;
     o.current(c.current);
-    let i = h(c.current, e || "", t || n || "text", m2 || ""), f2 = h(c.current, r || "", a || n || "text", E || "");
+    let i = h(c.current, e || "", t || n || "text", m2 || ""), f2 = h(c.current, r || "", a || n || "text", E2 || "");
     u.current?.setModel({ original: i, modified: f2 });
-  }, [n, r, a, e, t, m2, E]), U2 = (0, import_react5.useCallback)(() => {
-    !b2.current && w.current && (u.current = c.current.editor.createDiffEditor(w.current, { automaticLayout: true, ...y2 }), L2(), c.current?.editor.setTheme(x2), O(true), b2.current = true);
+  }, [n, r, a, e, t, m2, E2]), U2 = (0, import_react6.useCallback)(() => {
+    !b2.current && w.current && (u.current = c.current.editor.createDiffEditor(w.current, { automaticLayout: true, ...y2 }), L2(), c.current?.editor.setTheme(x2), O2(true), b2.current = true);
   }, [y2, x2, L2]);
-  (0, import_react5.useEffect)(() => {
-    M2 && d.current(u.current, c.current);
-  }, [M2]), (0, import_react5.useEffect)(() => {
-    !T2 && !M2 && U2();
-  }, [T2, M2, U2]);
+  (0, import_react6.useEffect)(() => {
+    M && d.current(u.current, c.current);
+  }, [M]), (0, import_react6.useEffect)(() => {
+    !T && !M && U2();
+  }, [T, M, U2]);
   function I2() {
     let i = u.current?.getModel();
     g || i?.original?.dispose(), N || i?.modified?.dispose(), u.current?.dispose();
   }
-  return import_react5.default.createElement(H, { width: z2, height: V2, isEditorReady: M2, loading: P2, _ref: w, className: F2, wrapperProps: j2 });
+  return import_react6.default.createElement(H, { width: z2, height: V2, isEditorReady: M, loading: P2, _ref: w, className: F2, wrapperProps: j2 });
 }
 var ie = Oe;
-var we = (0, import_react4.memo)(ie);
+var we = (0, import_react5.memo)(ie);
 function He(e) {
-  let r = (0, import_react14.useRef)();
-  return (0, import_react14.useEffect)(() => {
+  let r = (0, import_react15.useRef)();
+  return (0, import_react15.useEffect)(() => {
     r.current = e;
   }, [e]), r.current;
 }
 var se = He;
 var _ = /* @__PURE__ */ new Map();
-function Ve({ defaultValue: e, defaultLanguage: r, defaultPath: n, value: t, language: a, path: m2, theme: E = "light", line: g, loading: N = "Loading...", options: x2 = {}, overrideServices: P2 = {}, saveViewState: y2 = true, keepCurrentModel: V2 = false, width: z2 = "100%", height: F2 = "100%", className: j2, wrapperProps: A2 = {}, beforeMount: q2 = D, onMount: M2 = D, onChange: O, onValidate: T2 = D }) {
-  let [s, u] = (0, import_react13.useState)(false), [c, w] = (0, import_react13.useState)(true), d = (0, import_react13.useRef)(null), o = (0, import_react13.useRef)(null), b2 = (0, import_react13.useRef)(null), L2 = (0, import_react13.useRef)(M2), U2 = (0, import_react13.useRef)(q2), I2 = (0, import_react13.useRef)(), i = (0, import_react13.useRef)(t), f2 = se(m2), Q2 = (0, import_react13.useRef)(false), B2 = (0, import_react13.useRef)(false);
+function Ve({ defaultValue: e, defaultLanguage: r, defaultPath: n, value: t, language: a, path: m2, theme: E2 = "light", line: g, loading: N = "Loading...", options: x2 = {}, overrideServices: P2 = {}, saveViewState: y2 = true, keepCurrentModel: V2 = false, width: z2 = "100%", height: F2 = "100%", className: j2, wrapperProps: A2 = {}, beforeMount: q2 = D, onMount: M = D, onChange: O2, onValidate: T = D }) {
+  let [s, u] = (0, import_react14.useState)(false), [c, w] = (0, import_react14.useState)(true), d = (0, import_react14.useRef)(null), o = (0, import_react14.useRef)(null), b2 = (0, import_react14.useRef)(null), L2 = (0, import_react14.useRef)(M), U2 = (0, import_react14.useRef)(q2), I2 = (0, import_react14.useRef)(), i = (0, import_react14.useRef)(t), f2 = se(m2), Q2 = (0, import_react14.useRef)(false), B2 = (0, import_react14.useRef)(false);
   k(() => {
     let p = loader.init();
     return p.then((R2) => (d.current = R2) && w(false)).catch((R2) => R2?.type !== "cancelation" && console.error("Monaco initialization: error:", R2)), () => o.current ? pe2() : p.cancel();
@@ -1631,30 +1672,30 @@ function Ve({ defaultValue: e, defaultLanguage: r, defaultPath: n, value: t, lan
   }, [a], s), l(() => {
     g !== void 0 && o.current?.revealLine(g);
   }, [g], s), l(() => {
-    d.current?.editor.setTheme(E);
-  }, [E], s);
-  let X3 = (0, import_react13.useCallback)(() => {
+    d.current?.editor.setTheme(E2);
+  }, [E2], s);
+  let X3 = (0, import_react14.useCallback)(() => {
     if (!(!b2.current || !d.current) && !Q2.current) {
       U2.current(d.current);
       let p = m2 || n, R2 = h(d.current, t || e || "", r || a || "", p || "");
-      o.current = d.current?.editor.create(b2.current, { model: R2, automaticLayout: true, ...x2 }, P2), y2 && o.current.restoreViewState(_.get(p)), d.current.editor.setTheme(E), g !== void 0 && o.current.revealLine(g), u(true), Q2.current = true;
+      o.current = d.current?.editor.create(b2.current, { model: R2, automaticLayout: true, ...x2 }, P2), y2 && o.current.restoreViewState(_.get(p)), d.current.editor.setTheme(E2), g !== void 0 && o.current.revealLine(g), u(true), Q2.current = true;
     }
-  }, [e, r, n, t, a, m2, x2, P2, y2, E, g]);
-  (0, import_react13.useEffect)(() => {
+  }, [e, r, n, t, a, m2, x2, P2, y2, E2, g]);
+  (0, import_react14.useEffect)(() => {
     s && L2.current(o.current, d.current);
-  }, [s]), (0, import_react13.useEffect)(() => {
+  }, [s]), (0, import_react14.useEffect)(() => {
     !c && !s && X3();
-  }, [c, s, X3]), i.current = t, (0, import_react13.useEffect)(() => {
-    s && O && (I2.current?.dispose(), I2.current = o.current?.onDidChangeModelContent((p) => {
-      B2.current || O(o.current.getValue(), p);
+  }, [c, s, X3]), i.current = t, (0, import_react14.useEffect)(() => {
+    s && O2 && (I2.current?.dispose(), I2.current = o.current?.onDidChangeModelContent((p) => {
+      B2.current || O2(o.current.getValue(), p);
     }));
-  }, [s, O]), (0, import_react13.useEffect)(() => {
+  }, [s, O2]), (0, import_react14.useEffect)(() => {
     if (s) {
       let p = d.current.editor.onDidChangeMarkers((R2) => {
         let G2 = o.current.getModel()?.uri;
         if (G2 && R2.find((J2) => J2.path === G2.path)) {
           let J2 = d.current.editor.getModelMarkers({ resource: G2 });
-          T2?.(J2);
+          T?.(J2);
         }
       });
       return () => {
@@ -1663,14 +1704,14 @@ function Ve({ defaultValue: e, defaultLanguage: r, defaultPath: n, value: t, lan
     }
     return () => {
     };
-  }, [s, T2]);
+  }, [s, T]);
   function pe2() {
     I2.current?.dispose(), V2 ? y2 && _.set(m2, o.current.saveViewState()) : o.current.getModel()?.dispose(), o.current.dispose();
   }
-  return import_react13.default.createElement(H, { width: z2, height: F2, isEditorReady: s, loading: N, _ref: b2, className: j2, wrapperProps: A2 });
+  return import_react14.default.createElement(H, { width: z2, height: F2, isEditorReady: s, loading: N, _ref: b2, className: j2, wrapperProps: A2 });
 }
 var fe = Ve;
-var de = (0, import_react12.memo)(fe);
+var de = (0, import_react13.memo)(fe);
 var Ft = de;
 
 // plugins/editor/web-src/editor/monacoLoader.ts
@@ -1749,9 +1790,9 @@ function diffOptions(prefs) {
 // plugins/editor/web-src/editor/EditorPane.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 function EditorPane({ path, value, onChange, onSave, prefs, onCursor }) {
-  const saveRef = (0, import_react16.useRef)(onSave);
+  const saveRef = (0, import_react17.useRef)(onSave);
   saveRef.current = onSave;
-  const cursorRef = (0, import_react16.useRef)(onCursor);
+  const cursorRef = (0, import_react17.useRef)(onCursor);
   cursorRef.current = onCursor;
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
     Ft,
@@ -1926,18 +1967,18 @@ async function uploadFile(projectId, path, file, options) {
 var DIVIDER = "divider";
 
 // plugins/editor/web-src/editor/MarkdownPreview.tsx
-var import_react17 = __toESM(require_react(), 1);
+var import_react18 = __toESM(require_react(), 1);
 
-// node_modules/marked/lib/marked.esm.js
-function A() {
+// ../../../../elowen-plugins/node_modules/marked/lib/marked.esm.js
+function C2() {
   return { async: false, breaks: false, extensions: null, gfm: true, hooks: null, pedantic: false, renderer: null, silent: false, tokenizer: null, walkTokens: null };
 }
-var R = A();
+var R = C2();
 function j(l4) {
   R = l4;
 }
 var z = { exec: () => null };
-function I(l4) {
+function A(l4) {
   let e = [];
   return (t) => {
     let n = Math.max(0, Math.min(3, t - 1)), s = e[n];
@@ -1951,15 +1992,15 @@ function k2(l4, e = "") {
   }, getRegex: () => new RegExp(t, e) };
   return n;
 }
-var Oe2 = ((l4 = "") => {
+var Te2 = ((l4 = "") => {
   try {
     return !!new RegExp("(?<=1)(?<!1)" + l4);
   } catch {
     return false;
   }
 })();
-var m = { codeRemoveIndent: /^(?: {1,4}| {0,3}\t)/gm, outputLinkReplace: /\\([\[\]])/g, indentCodeCompensation: /^(\s+)(?:```)/, beginningSpace: /^\s+/, endingHash: /#$/, startingSpaceChar: /^ /, endingSpaceChar: / $/, nonSpaceChar: /[^ ]/, newLineCharGlobal: /\n/g, tabCharGlobal: /\t/g, multipleSpaceGlobal: /\s+/g, blankLine: /^[ \t]*$/, doubleBlankLine: /\n[ \t]*\n[ \t]*$/, blockquoteStart: /^ {0,3}>/, blockquoteSetextReplace: /\n {0,3}((?:=+|-+) *)(?=\n|$)/g, blockquoteSetextReplace2: /^ {0,3}>[ \t]?/gm, listReplaceNesting: /^ {1,4}(?=( {4})*[^ ])/g, listIsTask: /^\[[ xX]\] +\S/, listReplaceTask: /^\[[ xX]\] +/, listTaskCheckbox: /\[[ xX]\]/, anyLine: /\n.*\n/, hrefBrackets: /^<(.*)>$/, tableDelimiter: /[:|]/, tableAlignChars: /^\||\| *$/g, tableRowBlankLine: /\n[ \t]*$/, tableAlignRight: /^ *-+: *$/, tableAlignCenter: /^ *:-+: *$/, tableAlignLeft: /^ *:-+ *$/, startATag: /^<a /i, endATag: /^<\/a>/i, startPreScriptTag: /^<(pre|code|kbd|script)(\s|>)/i, endPreScriptTag: /^<\/(pre|code|kbd|script)(\s|>)/i, startAngleBracket: /^</, endAngleBracket: />$/, pedanticHrefTitle: /^([^'"]*[^\s])\s+(['"])(.*)\2/, unicodeAlphaNumeric: /[\p{L}\p{N}]/u, escapeTest: /[&<>"']/, escapeReplace: /[&<>"']/g, escapeTestNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/, escapeReplaceNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/g, caret: /(^|[^\[])\^/g, percentDecode: /%25/g, findPipe: /\|/g, splitPipe: / \|/, slashPipe: /\\\|/g, carriageReturn: /\r\n|\r/g, spaceLine: /^ +$/gm, notSpaceStart: /^\S*/, endingNewline: /\n$/, listItemRegex: (l4) => new RegExp(`^( {0,3}${l4})((?:[	 ][^\\n]*)?(?:\\n|$))`), nextBulletRegex: I((l4) => new RegExp(`^ {0,${l4}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)), hrRegex: I((l4) => new RegExp(`^ {0,${l4}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`)), fencesBeginRegex: I((l4) => new RegExp(`^ {0,${l4}}(?:\`\`\`|~~~)`)), headingBeginRegex: I((l4) => new RegExp(`^ {0,${l4}}#`)), htmlBeginRegex: I((l4) => new RegExp(`^ {0,${l4}}<(?:[a-z].*>|!--)`, "i")), blockquoteBeginRegex: I((l4) => new RegExp(`^ {0,${l4}}>`)) };
-var Te2 = /^(?:[ \t]*(?:\n|$))+/;
+var m = { codeRemoveIndent: /^(?: {1,4}| {0,3}\t)/gm, outputLinkReplace: /\\([\[\]])/g, indentCodeCompensation: /^(\s+)(?:```)/, beginningSpace: /^\s+/, endingHash: /#$/, startingSpaceChar: /^ /, endingSpaceChar: / $/, nonSpaceChar: /[^ ]/, newLineCharGlobal: /\n/g, tabCharGlobal: /\t/g, multipleSpaceGlobal: /\s+/g, blankLine: /^[ \t]*$/, doubleBlankLine: /\n[ \t]*\n[ \t]*$/, blockquoteStart: /^ {0,3}>/, blockquoteSetextReplace: /\n {0,3}((?:=+|-+) *)(?=\n|$)/g, blockquoteSetextReplace2: /^ {0,3}>[ \t]?/gm, listReplaceNesting: /^ {1,4}(?=( {4})*[^ ])/g, listIsTask: /^\[[ xX]\] +\S/, listReplaceTask: /^\[[ xX]\] +/, listTaskCheckbox: /\[[ xX]\]/, anyLine: /\n.*\n/, hrefBrackets: /^<(.*)>$/, tableDelimiter: /[:|]/, tableAlignChars: /^\||\| *$/g, tableRowBlankLine: /\n[ \t]*$/, tableAlignRight: /^ *-+: *$/, tableAlignCenter: /^ *:-+: *$/, tableAlignLeft: /^ *:-+ *$/, startATag: /^<a /i, endATag: /^<\/a>/i, startPreScriptTag: /^<(pre|code|kbd|script)(\s|>)/i, endPreScriptTag: /^<\/(pre|code|kbd|script)(\s|>)/i, startAngleBracket: /^</, endAngleBracket: />$/, pedanticHrefTitle: /^([^'"]*[^\s])\s+(['"])(.*)\2/, unicodeAlphaNumeric: /[\p{L}\p{N}]/u, escapeTest: /[&<>"']/, escapeReplace: /[&<>"']/g, escapeTestNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/, escapeReplaceNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/g, caret: /(^|[^\[])\^/g, percentDecode: /%25/g, findPipe: /\|/g, splitPipe: / \|/, slashPipe: /\\\|/g, carriageReturn: /\r\n|\r/g, spaceLine: /^ +$/gm, notSpaceStart: /^\S*/, endingNewline: /\n$/, listItemRegex: (l4) => new RegExp(`^( {0,3}${l4})((?:[	 ][^\\n]*)?(?:\\n|$))`), nextBulletRegex: A((l4) => new RegExp(`^ {0,${l4}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)), hrRegex: A((l4) => new RegExp(`^ {0,${l4}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`)), fencesBeginRegex: A((l4) => new RegExp(`^ {0,${l4}}(?:\`\`\`|~~~)`)), headingBeginRegex: A((l4) => new RegExp(`^ {0,${l4}}#`)), htmlBeginRegex: A((l4) => new RegExp(`^ {0,${l4}}<(?:[a-z].*>|!--)`, "i")), blockquoteBeginRegex: A((l4) => new RegExp(`^ {0,${l4}}>`)) };
+var Oe2 = /^(?:[ \t]*(?:\n|$))+/;
 var we2 = /^((?: {4}| {0,3}\t)[^\n]+(?:\n(?:[ \t]*(?:\n|$))*)?)+/;
 var ye2 = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/;
 var q = /^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/;
@@ -1975,64 +2016,64 @@ var $e = k2(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n
 var Le = k2(/^(bull)([ \t][^\n]*?)?(?:\n|$)/).replace(/bull/g, U).getRegex();
 var Q = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
 var X2 = /<!--(?:-?>|[\s\S]*?(?:-->|$))/;
-var Ee2 = k2("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n*|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>[^\\n]*\\n*|$)|<![A-Z][\\s\\S]*?(?:>[^\\n]*\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>[^\\n]*\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", X2).replace("tag", Q).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex();
-var le2 = (l4) => k2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", l4).replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
+var Me2 = k2("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n*|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>[^\\n]*\\n*|$)|<![A-Z][\\s\\S]*?(?:>[^\\n]*\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>[^\\n]*\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", X2).replace("tag", Q).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex();
+var le2 = (l4) => k2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~~~)[^\\n]*\\n").replace("list", l4).replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
 var ze2 = le2(/ {0,3}(?:[*+-]|1[.)])[ \t]+[^ \t\n]/);
-var Me2 = le2(/ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|\n|$)/);
-var Ae = k2(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", Me2).getRegex();
-var J = { blockquote: Ae, code: we2, def: $e, fences: ye2, heading: Pe, hr: q, html: Ee2, lheading: ae2, list: Le, newline: Te2, paragraph: ze2, table: z, text: _e2 };
-var se2 = k2("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
-var Ie2 = { ...J, lheading: Se, table: se2, paragraph: k2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", se2).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]+[^ \\t\\n]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex() };
-var Ce2 = { ...J, html: k2(`^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:"[^"]*"|'[^']*'|\\s[^'"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))`).replace("comment", X2).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(), def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/, heading: /^(#{1,6})(.*)(?:\n+|$)/, fences: z, lheading: /^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/, paragraph: k2(K2).replace("hr", q).replace("heading", ` *#{1,6} *[^
+var Ee2 = le2(/ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|\n|$)/);
+var Ce2 = k2(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", Ee2).getRegex();
+var J = { blockquote: Ce2, code: we2, def: $e, fences: ye2, heading: Pe, hr: q, html: Me2, lheading: ae2, list: Le, newline: Oe2, paragraph: ze2, table: z, text: _e2 };
+var se2 = k2("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~~~)[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex();
+var Ae = { ...J, lheading: Se, table: se2, paragraph: k2(K2).replace("hr", q).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", se2).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~~~)[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]+[^ \\t\\n]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Q).getRegex() };
+var Ie2 = { ...J, html: k2(`^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:"[^"]*"|'[^']*'|\\s[^'"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))`).replace("comment", X2).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(), def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/, heading: /^(#{1,6})(.*)(?:\n+|$)/, fences: z, lheading: /^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/, paragraph: k2(K2).replace("hr", q).replace("heading", ` *#{1,6} *[^
 ]`).replace("lheading", ae2).replace("|table", "").replace("blockquote", " {0,3}>").replace("|fences", "").replace("|list", "").replace("|html", "").replace("|tag", "").getRegex() };
 var Be = /^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/;
 var De2 = /^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/;
-var ue2 = /^( {2,}|\\)\n(?!\s*$)/;
+var pe = /^( {2,}|\\)\n(?!\s*$)/;
 var qe = /^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/;
 var _2 = /[\p{P}\p{S}]/u;
-var C2 = /[\s\p{P}\p{S}]/u;
+var I = /[\s\p{P}\p{S}]/u;
 var v2 = /[^\s\p{P}\p{S}]/u;
-var ve2 = k2(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, C2).getRegex();
+var ve2 = k2(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, I).getRegex();
 var He2 = /[\p{Pi}\p{Ps}"']/u;
-var pe = /(?!~)[\p{P}\p{S}]/u;
+var ue2 = /(?!~)[\p{P}\p{S}]/u;
 var Ze = /(?!~)[\s\p{P}\p{S}]/u;
 var Ge = /(?:[^\s\p{P}\p{S}]|~)/u;
-var Qe = k2(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", Oe2 ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex();
+var Qe = k2(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", Te2 ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex();
 var ce = /^(?:\*+(?:((?!\*)punct)|([^\s*]))?)|^_+(?:((?!_)punct)|([^\s_]))?/;
 var Ne = k2(ce, "u").replace(/punct/g, _2).getRegex();
-var je = k2(ce, "u").replace(/punct/g, pe).getRegex();
+var je = k2(ce, "u").replace(/punct/g, ue2).getRegex();
 var Fe = /^(?:\*+(?:((?!\*)(?!openQuote)punct)|([^\s*]))?)|^_+(?:((?!_)(?!openQuote)punct)|([^\s_]))?/;
 var Ue2 = k2(Fe, "u").replace(/openQuote/g, He2).replace(/punct/g, _2).getRegex();
 var he2 = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)punctSpace(\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|notPunctSpace(\\*+)(?=notPunctSpace)";
-var Ke = k2(he2, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
-var We2 = k2(he2, "gu").replace(/notPunctSpace/g, Ge).replace(/punctSpace/g, Ze).replace(/punct/g, pe).getRegex();
+var Ke = k2(he2, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I).replace(/punct/g, _2).getRegex();
+var We2 = k2(he2, "gu").replace(/notPunctSpace/g, Ge).replace(/punctSpace/g, Ze).replace(/punct/g, ue2).getRegex();
 var Xe = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)[\\s](\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|(?:(?!\\*)punct|notPunctSpace)(\\*+)(?!\\*)(?=notPunctSpace)";
-var Je = k2(Xe, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
-var Ve2 = k2("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
+var Je = k2(Xe, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I).replace(/punct/g, _2).getRegex();
+var Ve2 = k2("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I).replace(/punct/g, _2).getRegex();
 var Ye = "^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)[\\s](_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)|(?:(?!_)punct|notPunctSpace)(_+)(?!_)(?=notPunctSpace)";
-var et = k2(Ye, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
+var et = k2(Ye, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I).replace(/punct/g, _2).getRegex();
 var tt = k2(/^~~?(?:((?!~)punct)|[^\s~])/, "u").replace(/punct/g, _2).getRegex();
 var nt = "^[^~]+(?=[^~])|(?!~)punct(~~?)(?=[\\s]|$)|notPunctSpace(~~?)(?!~)(?=punctSpace|$)|(?!~)punctSpace(~~?)(?=notPunctSpace)|[\\s](~~?)(?!~)(?=punct)|(?!~)punct(~~?)(?!~)(?=punct)|notPunctSpace(~~?)(?=notPunctSpace)";
-var rt = k2(nt, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, C2).replace(/punct/g, _2).getRegex();
+var rt = k2(nt, "gu").replace(/notPunctSpace/g, v2).replace(/punctSpace/g, I).replace(/punct/g, _2).getRegex();
 var st = k2(/\\(punct)/, "gu").replace(/punct/g, _2).getRegex();
 var it = k2(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex();
 var ot = k2(X2).replace("(?:-->|$)", "-->").getRegex();
 var at = k2("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", ot).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex();
 var G = /(?:\[(?:\\[\s\S]|[^\[\]\\])*\]|\\[\s\S]|`+(?!`)[^`]*?`+(?!`)|``+(?=\])|[^\[\]\\`])*?/;
 var lt = k2(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)(title))?\s*\)/).replace("label", G).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]+|(?=\))/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex();
-var ke2 = k2(/^!?\[(label)\]\[(ref)\]/).replace("label", G).replace("ref", W2).getRegex();
-var de2 = k2(/^!?\[(ref)\](?:\[\])?/).replace("ref", W2).getRegex();
-var ut = k2("reflink|nolink(?!\\()", "g").replace("reflink", ke2).replace("nolink", de2).getRegex();
+var de2 = k2(/^!?\[(label)\]\[(ref)\]/).replace("label", G).replace("ref", W2).getRegex();
+var ke2 = k2(/^!?\[(ref)\](?:\[\])?/).replace("ref", W2).getRegex();
+var pt = k2("reflink|nolink(?!\\()", "g").replace("reflink", de2).replace("nolink", ke2).getRegex();
 var ie2 = /[hH][tT][tT][pP][sS]?|[fF][tT][pP]/;
-var V = { _backpedal: z, anyPunctuation: st, autolink: it, blockSkip: Qe, br: ue2, code: De2, del: z, delLDelim: z, delRDelim: z, emStrongLDelim: Ne, emStrongRDelimAst: Ke, emStrongRDelimUnd: Ve2, escape: Be, link: lt, nolink: de2, punctuation: ve2, reflink: ke2, reflinkSearch: ut, tag: at, text: qe, url: z };
-var pt = { ...V, emStrongLDelim: Ue2, emStrongRDelimAst: Je, emStrongRDelimUnd: et, link: k2(/^!?\[(label)\]\((.*?)\)/).replace("label", G).getRegex(), reflink: k2(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", G).getRegex() };
+var V = { _backpedal: z, anyPunctuation: st, autolink: it, blockSkip: Qe, br: pe, code: De2, del: z, delLDelim: z, delRDelim: z, emStrongLDelim: Ne, emStrongRDelimAst: Ke, emStrongRDelimUnd: Ve2, escape: Be, link: lt, nolink: ke2, punctuation: ve2, reflink: de2, reflinkSearch: pt, tag: at, text: qe, url: z };
+var ut = { ...V, emStrongLDelim: Ue2, emStrongRDelimAst: Je, emStrongRDelimUnd: et, link: k2(/^!?\[(label)\]\((.*?)\)/).replace("label", G).getRegex(), reflink: k2(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", G).getRegex() };
 var F = { ...V, emStrongRDelimAst: We2, emStrongLDelim: je, delLDelim: tt, delRDelim: rt, url: k2(/^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("protocol", ie2).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(), _backpedal: /(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/, del: /^(~~?)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/, text: k2(/^(`+|~+|[^`~])(?:(?=[`~])|(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/).replace("protocol", ie2).getRegex() };
-var ct = { ...F, br: k2(ue2).replace("{2,}", "*").getRegex(), text: k2(F.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex() };
-var H2 = { normal: J, gfm: Ie2, pedantic: Ce2 };
-var B = { normal: V, gfm: F, breaks: ct, pedantic: pt };
+var ct = { ...F, br: k2(pe).replace("{2,}", "*").getRegex(), text: k2(F.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex() };
+var H2 = { normal: J, gfm: Ae, pedantic: Ie2 };
+var B = { normal: V, gfm: F, breaks: ct, pedantic: ut };
 var ht = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 var ge2 = (l4) => ht[l4];
-function T(l4, e) {
+function O(l4, e) {
   if (e) {
     if (m.escapeTest.test(l4)) return l4.replace(m.escapeReplace, ge2);
   } else if (m.escapeTestNoEncode.test(l4)) return l4.replace(m.escapeReplaceNoEncode, ge2);
@@ -2048,9 +2089,9 @@ function Y2(l4) {
 }
 function ee2(l4, e) {
   let t = l4.replace(m.findPipe, (r, i, o) => {
-    let u = false, a = i;
-    for (; --a >= 0 && o[a] === "\\"; ) u = !u;
-    return u ? "|" : " |";
+    let p = false, a = i;
+    for (; --a >= 0 && o[a] === "\\"; ) p = !p;
+    return p ? "|" : " |";
   }), n = t.split(m.splitPipe), s = 0;
   if (n[0].trim() || n.shift(), n.length > 0 && !n.at(-1)?.trim() && n.pop(), e) if (n.length > e) n.splice(e);
   else for (; n.length < e; ) n.push("");
@@ -2093,21 +2134,12 @@ function me2(l4, e = 0) {
   return n;
 }
 function xe2(l4, e, t, n, s) {
-  let r = e.href, i = e.title || null, o = l4[1].replace(s.other.outputLinkReplace, "$1"), u = l4[0].charAt(0) === "!";
+  let r = e.href, i = e.title || null, o = l4[1].replace(s.other.outputLinkReplace, "$1");
   n.state.inLink = true;
-  let a = n.state.linkEmitted, p = n.state.inRawBlock;
-  n.state.linkEmitted = false;
-  let c = n.inlineTokens(o), h2 = n.state.linkEmitted;
-  if (n.state.linkEmitted = a, n.state.inLink = false, !u) {
-    if (h2) {
-      n.state.inRawBlock = p;
-      return;
-    }
-    n.state.linkEmitted = true;
-  }
-  return { type: u ? "image" : "link", raw: t, href: r, title: i, text: o, tokens: c };
+  let p = { type: l4[0].charAt(0) === "!" ? "image" : "link", raw: t, href: r, title: i, text: o, tokens: n.inlineTokens(o) };
+  return n.state.inLink = false, p;
 }
-function kt(l4, e, t) {
+function dt(l4, e, t) {
   let n = l4.match(t.other.indentCodeCompensation);
   if (n === null) return e;
   let s = n[1];
@@ -2141,7 +2173,7 @@ var y = class {
   fences(e) {
     let t = this.rules.block.fences.exec(e);
     if (t) {
-      let n = t[0], s = kt(n, t[3] || "", this.rules);
+      let n = t[0], s = dt(n, t[3] || "", this.rules);
       return { type: "code", raw: n, lang: t[2] ? t[2].trim().replace(this.rules.inline.anyPunctuation, "$1") : t[2], text: s };
     }
   }
@@ -2169,33 +2201,33 @@ var y = class {
 `).split(`
 `), s = "", r = "", i = [];
       for (; n.length > 0; ) {
-        let o = false, u = [], a;
-        for (a = 0; a < n.length; a++) if (this.rules.other.blockquoteStart.test(n[a])) u.push(n[a]), o = true;
-        else if (!o) u.push(n[a]);
+        let o = false, p = [], a;
+        for (a = 0; a < n.length; a++) if (this.rules.other.blockquoteStart.test(n[a])) p.push(n[a]), o = true;
+        else if (!o) p.push(n[a]);
         else break;
         n = n.slice(a);
-        let p = u.join(`
-`), c = p.replace(this.rules.other.blockquoteSetextReplace, `
+        let u = p.join(`
+`), c = u.replace(this.rules.other.blockquoteSetextReplace, `
     $1`).replace(this.rules.other.blockquoteSetextReplace2, "");
         s = s ? `${s}
-${p}` : p, r = r ? `${r}
+${u}` : u, r = r ? `${r}
 ${c}` : c;
         let h2 = this.lexer.state.top;
         if (this.lexer.state.top = true, this.lexer.blockTokens(c, i, true), this.lexer.state.top = h2, n.length === 0) break;
         let d = i.at(-1);
         if (d?.type === "code") break;
         if (d?.type === "blockquote") {
-          let O = d, g = n.join(`
-`), w = O.raw + `
-` + g.replace(this.rules.other.blockquoteSetextReplace2, ""), E = this.blockquote(w);
-          i[i.length - 1] = E, s = `${s}
-${g}`, r = r.substring(0, r.length - O.text.length) + E.text;
+          let T = d, g = n.join(`
+`), w = T.raw + `
+` + g.replace(this.rules.other.blockquoteSetextReplace2, ""), M = this.blockquote(w);
+          i[i.length - 1] = M, s = `${s}
+${g}`, r = r.substring(0, r.length - T.text.length) + M.text;
           break;
         } else if (d?.type === "list") {
-          let O = d, g = O.raw + `
+          let T = d, g = T.raw + `
 ` + n.join(`
 `), w = this.list(g);
-          i[i.length - 1] = w, s = s.substring(0, s.length - d.raw.length) + w.raw, r = r.substring(0, r.length - O.raw.length) + w.raw, n = g.substring(i.at(-1).raw.length).split(`
+          i[i.length - 1] = w, s = s.substring(0, s.length - d.raw.length) + w.raw, r = r.substring(0, r.length - T.raw.length) + w.raw, n = g.substring(i.at(-1).raw.length).split(`
 `);
           continue;
         }
@@ -2210,44 +2242,41 @@ ${g}`, r = r.substring(0, r.length - O.text.length) + E.text;
       n = s ? `\\d{1,9}\\${n.slice(-1)}` : `\\${n}`, this.options.pedantic && (n = s ? n : "[*+-]");
       let i = this.rules.other.listItemRegex(n), o = false;
       for (; e; ) {
-        let a = false, p = "", c = "";
+        let a = false, u = "", c = "";
         if (!(t = i.exec(e)) || this.rules.block.hr.test(e)) break;
-        p = t[0], e = e.substring(p.length);
+        u = t[0], e = e.substring(u.length);
         let h2 = me2(t[2].split(`
 `, 1)[0], t[1].length), d = e.split(`
-`, 1)[0], O = !h2.trim(), g = 0;
-        if (this.options.pedantic ? (g = 2, c = h2.trimStart()) : O ? g = t[1].length + 1 : (g = h2.search(this.rules.other.nonSpaceChar), g = g > 4 ? 1 : g, c = h2.slice(g), g += t[1].length), O && this.rules.other.blankLine.test(d) && (p += d + `
+`, 1)[0], T = !h2.trim(), g = 0;
+        if (this.options.pedantic ? (g = 2, c = h2.trimStart()) : T ? g = t[1].length + 1 : (g = h2.search(this.rules.other.nonSpaceChar), g = g > 4 ? 1 : g, c = h2.slice(g), g += t[1].length), T && this.rules.other.blankLine.test(d) && (u += d + `
 `, e = e.substring(d.length + 1), a = true), !a) {
-          let w = this.rules.other.nextBulletRegex(g), E = this.rules.other.hrRegex(g), ne2 = this.rules.other.fencesBeginRegex(g), re2 = this.rules.other.headingBeginRegex(g), be2 = this.rules.other.htmlBeginRegex(g), Re2 = this.rules.other.blockquoteBeginRegex(g);
+          let w = this.rules.other.nextBulletRegex(g), M = this.rules.other.hrRegex(g), ne2 = this.rules.other.fencesBeginRegex(g), re2 = this.rules.other.headingBeginRegex(g), be2 = this.rules.other.htmlBeginRegex(g), Re2 = this.rules.other.blockquoteBeginRegex(g);
           for (; e; ) {
             let N = e.split(`
 `, 1)[0], D2;
-            if (d = N, this.options.pedantic ? (d = d.replace(this.rules.other.listReplaceNesting, "  "), D2 = d) : D2 = d.replace(this.rules.other.tabCharGlobal, "    "), ne2.test(d) || re2.test(d) || be2.test(d) || Re2.test(d) || w.test(d) || E.test(d)) break;
+            if (d = N, this.options.pedantic ? (d = d.replace(this.rules.other.listReplaceNesting, "  "), D2 = d) : D2 = d.replace(this.rules.other.tabCharGlobal, "    "), ne2.test(d) || re2.test(d) || be2.test(d) || Re2.test(d) || w.test(d) || M.test(d)) break;
             if (D2.search(this.rules.other.nonSpaceChar) >= g || !d.trim()) c += `
 ` + D2.slice(g);
             else {
-              if (O || h2.replace(this.rules.other.tabCharGlobal, "    ").search(this.rules.other.nonSpaceChar) >= 4 || ne2.test(h2) || re2.test(h2) || E.test(h2)) break;
+              if (T || h2.replace(this.rules.other.tabCharGlobal, "    ").search(this.rules.other.nonSpaceChar) >= 4 || ne2.test(h2) || re2.test(h2) || M.test(h2)) break;
               c += `
 ` + d;
             }
-            O = !d.trim(), p += N + `
+            T = !d.trim(), u += N + `
 `, e = e.substring(N.length + 1), h2 = D2.slice(g);
           }
         }
-        r.loose || (o ? r.loose = true : this.rules.other.doubleBlankLine.test(p) && (o = true)), r.items.push({ type: "list_item", raw: p, task: !!this.options.gfm && this.rules.other.listIsTask.test(c), loose: false, text: c, tokens: [] }), r.raw += p;
+        r.loose || (o ? r.loose = true : this.rules.other.doubleBlankLine.test(u) && (o = true)), r.items.push({ type: "list_item", raw: u, task: !!this.options.gfm && this.rules.other.listIsTask.test(c), loose: false, text: c, tokens: [] }), r.raw += u;
       }
-      let u = r.items.at(-1);
-      if (u) u.raw = u.raw.trimEnd(), u.text = u.text.trimEnd();
+      let p = r.items.at(-1);
+      if (p) p.raw = p.raw.trimEnd(), p.text = p.text.trimEnd();
       else return;
       r.raw = r.raw.trimEnd();
-      for (let a of r.items) if (this.lexer.state.top = false, a.tokens = this.lexer.blockTokens(a.text, []), !r.loose) {
-        let p = a.tokens.filter((h2) => h2.type === "space"), c = p.length > 0 && p.some((h2) => this.rules.other.anyLine.test(h2.raw));
-        r.loose = c;
-      }
       for (let a of r.items) {
-        let p = a.tokens[0];
-        if (a.task && (p?.type === "text" || p?.type === "paragraph")) {
-          a.text = a.text.replace(this.rules.other.listReplaceTask, ""), p.raw = p.raw.replace(this.rules.other.listReplaceTask, ""), p.text = p.text.replace(this.rules.other.listReplaceTask, "");
+        this.lexer.state.top = false, a.tokens = this.lexer.blockTokens(a.text, []);
+        let u = a.tokens[0];
+        if (a.task && (u?.type === "text" || u?.type === "paragraph")) {
+          a.text = a.text.replace(this.rules.other.listReplaceTask, ""), u.raw = u.raw.replace(this.rules.other.listReplaceTask, ""), u.text = u.text.replace(this.rules.other.listReplaceTask, "");
           for (let h2 = this.lexer.inlineQueue.length - 1; h2 >= 0; h2--) if (this.rules.other.listIsTask.test(this.lexer.inlineQueue[h2].src)) {
             this.lexer.inlineQueue[h2].src = this.lexer.inlineQueue[h2].src.replace(this.rules.other.listReplaceTask, "");
             break;
@@ -2258,10 +2287,14 @@ ${g}`, r = r.substring(0, r.length - O.text.length) + E.text;
             a.checked = h2.checked, r.loose ? a.tokens[0] && ["paragraph", "text"].includes(a.tokens[0].type) && "tokens" in a.tokens[0] && a.tokens[0].tokens ? (a.tokens[0].raw = h2.raw + a.tokens[0].raw, a.tokens[0].text = h2.raw + a.tokens[0].text, a.tokens[0].tokens.unshift(h2)) : a.tokens.unshift({ type: "paragraph", raw: h2.raw, text: h2.raw, tokens: [h2] }) : a.tokens.unshift(h2);
           }
         } else a.task && (a.task = false);
+        if (!r.loose) {
+          let c = a.tokens.filter((d) => d.type === "space"), h2 = c.length > 0 && c.some((d) => this.rules.other.anyLine.test(d.raw));
+          r.loose = h2;
+        }
       }
       if (r.loose) for (let a of r.items) {
         a.loose = true;
-        for (let p of a.tokens) p.type === "text" && (p.type = "paragraph");
+        for (let u of a.tokens) u.type === "text" && (u.type = "paragraph");
       }
       return r;
     }
@@ -2290,7 +2323,7 @@ ${g}`, r = r.substring(0, r.length - O.text.length) + E.text;
     if (n.length === s.length) {
       for (let o of s) this.rules.other.tableAlignRight.test(o) ? i.align.push("right") : this.rules.other.tableAlignCenter.test(o) ? i.align.push("center") : this.rules.other.tableAlignLeft.test(o) ? i.align.push("left") : i.align.push(null);
       for (let o = 0; o < n.length; o++) i.header.push({ text: n[o], tokens: this.lexer.inline(n[o]), header: true, align: i.align[o] });
-      for (let o of r) i.rows.push(ee2(o, i.header.length).map((u, a) => ({ text: u, tokens: this.lexer.inline(u), header: false, align: i.align[a] })));
+      for (let o of r) i.rows.push(ee2(o, i.header.length).map((p, a) => ({ text: p, tokens: this.lexer.inline(p), header: false, align: i.align[a] })));
       return i;
     }
   }
@@ -2334,8 +2367,8 @@ ${g}`, r = r.substring(0, r.length - O.text.length) + E.text;
         let i = fe2(t[2], "()");
         if (i === -2) return;
         if (i > -1) {
-          let u = (t[0].indexOf("!") === 0 ? 5 : 4) + t[1].length + i;
-          t[2] = t[2].substring(0, i), t[0] = t[0].substring(0, u).trim(), t[3] = "";
+          let p = (t[0].indexOf("!") === 0 ? 5 : 4) + t[1].length + i;
+          t[2] = t[2].substring(0, i), t[0] = t[0].substring(0, p).trim(), t[3] = "";
         }
       }
       let s = t[2], r = "";
@@ -2361,25 +2394,25 @@ ${g}`, r = r.substring(0, r.length - O.text.length) + E.text;
     let s = this.rules.inline.emStrongLDelim.exec(e);
     if (!s || !s[1] && !s[2] && !s[3] && !s[4] || s[4] && n.match(this.rules.other.unicodeAlphaNumeric)) return;
     if (!(s[1] || s[3] || "") || !n || this.rules.inline.punctuation.exec(n)) {
-      let i = [...s[0]].length - 1, o, u, a = i, p = 0, c = s[0][0], h2 = n === c, d = c === "*" ? this.rules.inline.emStrongRDelimAst : this.rules.inline.emStrongRDelimUnd;
+      let i = [...s[0]].length - 1, o, p, a = i, u = 0, c = s[0][0], h2 = n === c, d = c === "*" ? this.rules.inline.emStrongRDelimAst : this.rules.inline.emStrongRDelimUnd;
       for (d.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = d.exec(t)) !== null; ) {
         if (o = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !o) continue;
-        if (u = [...o].length, s[3] || s[4]) {
-          a += u;
+        if (p = [...o].length, s[3] || s[4]) {
+          a += p;
           continue;
         } else if (s[5] || s[6]) {
-          if (i % 3 && !((i + u) % 3)) {
-            p += u;
+          if (i % 3 && !((i + p) % 3)) {
+            u += p;
             continue;
           }
           if (h2) break;
         }
-        if (a -= u, a > 0) continue;
-        u = Math.min(u, u + a + p);
-        let O = [...s[0]][0].length, g = e.slice(0, i + s.index + O + u);
-        if (Math.min(i, u) % 2) {
-          let E = g.slice(1, -1);
-          return { type: "em", raw: g, text: E, tokens: this.lexer.inlineTokens(E) };
+        if (a -= p, a > 0) continue;
+        p = Math.min(p, p + a + u);
+        let T = [...s[0]][0].length, g = e.slice(0, i + s.index + T + p);
+        if (Math.min(i, p) % 2) {
+          let M = g.slice(1, -1);
+          return { type: "em", raw: g, text: M, tokens: this.lexer.inlineTokens(M) };
         }
         let w = g.slice(2, -2);
         return { type: "strong", raw: g, text: w, tokens: this.lexer.inlineTokens(w) };
@@ -2401,16 +2434,16 @@ ${g}`, r = r.substring(0, r.length - O.text.length) + E.text;
     let s = this.rules.inline.delLDelim.exec(e);
     if (!s) return;
     if (!(s[1] || "") || !n || this.rules.inline.punctuation.exec(n)) {
-      let i = [...s[0]].length - 1, o, u, a = i, p = this.rules.inline.delRDelim;
-      for (p.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = p.exec(t)) !== null; ) {
-        if (o = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !o || (u = [...o].length, u !== i)) continue;
+      let i = [...s[0]].length - 1, o, p, a = i, u = this.rules.inline.delRDelim;
+      for (u.lastIndex = 0, t = t.slice(-1 * e.length + i); (s = u.exec(t)) !== null; ) {
+        if (o = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !o || (p = [...o].length, p !== i)) continue;
         if (s[3] || s[4]) {
-          a += u;
+          a += p;
           continue;
         }
-        if (a -= u, a > 0) continue;
-        u = Math.min(u, u + a);
-        let c = [...s[0]][0].length, h2 = e.slice(0, i + s.index + c + u), d = h2.slice(i, -i);
+        if (a -= p, a > 0) continue;
+        p = Math.min(p, p + a);
+        let c = [...s[0]][0].length, h2 = e.slice(0, i + s.index + c + p), d = h2.slice(i, -i);
         return { type: "del", raw: h2, text: d, tokens: this.lexer.inlineTokens(d) };
       }
     }
@@ -2452,7 +2485,7 @@ var x = class l2 {
   inlineQueue;
   tokenizer;
   constructor(e) {
-    this.tokens = [], this.tokens.links = /* @__PURE__ */ Object.create(null), this.options = e || R, this.options.tokenizer = this.options.tokenizer || new y(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = { inLink: false, inRawBlock: false, linkEmitted: false, top: true };
+    this.tokens = [], this.tokens.links = /* @__PURE__ */ Object.create(null), this.options = e || R, this.options.tokenizer = this.options.tokenizer || new y(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = { inLink: false, inRawBlock: false, top: true };
     let t = { other: m, block: H2.normal, inline: B.normal };
     this.options.pedantic ? (t.block = H2.pedantic, t.inline = B.pedantic) : this.options.gfm && (t.block = H2.gfm, this.options.breaks ? t.inline = B.breaks : t.inline = B.gfm), this.tokenizer.rules = t;
   }
@@ -2544,9 +2577,9 @@ var x = class l2 {
       }
       let i = e;
       if (this.options.extensions?.startBlock) {
-        let o = 1 / 0, u = e.slice(1), a;
-        this.options.extensions.startBlock.forEach((p) => {
-          a = p.call({ lexer: this }, u), typeof a == "number" && a >= 0 && (o = Math.min(o, a));
+        let o = 1 / 0, p = e.slice(1), a;
+        this.options.extensions.startBlock.forEach((u) => {
+          a = u.call({ lexer: this }, p), typeof a == "number" && a >= 0 && (o = Math.min(o, a));
         }), o < 1 / 0 && o >= 0 && (i = e.substring(0, o + 1));
       }
       if (this.state.top && (r = this.tokenizer.paragraph(i))) {
@@ -2576,34 +2609,16 @@ var x = class l2 {
   inline(e, t = []) {
     return this.inlineQueue.push({ src: e, tokens: t }), t;
   }
-  linkInText(e) {
-    if (!e.includes("[")) return false;
-    let t = this.tokenizer.rules.inline.link;
-    for (let n of e.matchAll(this.tokenizer.rules.inline.blockSkip)) if (t.test(n[0]) && e.charAt(n.index - 1) !== "!") return true;
-    for (let n of e.matchAll(this.tokenizer.rules.inline.reflinkSearch)) {
-      let s = n[0], r = s.lastIndexOf("[");
-      if (!(s.charAt(0) === "!" || !Object.hasOwn(this.tokens.links, s.slice(r + 1, -1))) && !(r > 1 && this.linkInText(s.slice(1, r - 1)))) return true;
-    }
-    return false;
-  }
   inlineTokens(e, t = []) {
     this.tokenizer.lexer = this;
     let n = e;
-    if (this.tokens.links && e.includes("[")) {
-      let o = this.tokenizer.rules.inline.reflinkSearch, u = (a) => {
-        let p = a.lastIndexOf("[");
-        if (!Object.hasOwn(this.tokens.links, a.slice(p + 1, -1))) return a;
-        if (p > 1 && a.charAt(0) !== "!") {
-          let c = a.slice(1, p - 1);
-          if (this.linkInText(c)) return "[" + c.replace(o, u) + "][" + "a".repeat(a.length - p - 2) + "]";
-        }
-        return "[" + "a".repeat(a.length - 2) + "]";
-      };
-      n = n.replace(o, u);
+    if (this.tokens.links) {
+      let o = Object.keys(this.tokens.links);
+      o.length > 0 && (n = n.replace(this.tokenizer.rules.inline.reflinkSearch, (p) => o.includes(p.slice(p.lastIndexOf("[") + 1, -1)) ? "[" + "a".repeat(p.length - 2) + "]" : p));
     }
-    n = n.replace(this.tokenizer.rules.inline.anyPunctuation, (o) => "+".repeat(o.length)), n = n.replace(this.tokenizer.rules.inline.blockSkip, (o, u, a) => {
-      let p = a ? a.length : 0;
-      return o.slice(0, p) + "[" + "a".repeat(o.length - p - 2) + "]";
+    n = n.replace(this.tokenizer.rules.inline.anyPunctuation, "++"), n = n.replace(this.tokenizer.rules.inline.blockSkip, (o, p, a) => {
+      let u = a ? a.length : 0;
+      return o.slice(0, u) + "[" + "a".repeat(o.length - u - 2) + "]";
     }), n = this.options.hooks?.emStrongMask?.call({ lexer: this }, n) ?? n;
     let s = false, r = "", i = 1 / 0;
     for (; e; ) {
@@ -2657,14 +2672,14 @@ var x = class l2 {
         e = e.substring(o.raw.length), t.push(o);
         continue;
       }
-      let u = e;
+      let p = e;
       if (this.options.extensions?.startInline) {
-        let a = 1 / 0, p = e.slice(1), c;
+        let a = 1 / 0, u = e.slice(1), c;
         this.options.extensions.startInline.forEach((h2) => {
-          c = h2.call({ lexer: this }, p), typeof c == "number" && c >= 0 && (a = Math.min(a, c));
-        }), a < 1 / 0 && a >= 0 && (u = e.substring(0, a + 1));
+          c = h2.call({ lexer: this }, u), typeof c == "number" && c >= 0 && (a = Math.min(a, c));
+        }), a < 1 / 0 && a >= 0 && (p = e.substring(0, a + 1));
       }
-      if (o = this.tokenizer.inlineText(u)) {
+      if (o = this.tokenizer.inlineText(p)) {
         e = e.substring(o.raw.length), o.raw.slice(-1) !== "_" && (r = o.raw.slice(-1)), s = true;
         let a = t.at(-1);
         a?.type === "text" ? (a.raw += o.raw, a.text += o.text) : t.push(o);
@@ -2695,8 +2710,8 @@ var P = class {
   code({ text: e, lang: t, escaped: n }) {
     let s = (t || "").match(m.notSpaceStart)?.[0], r = e.replace(m.endingNewline, "") + `
 `;
-    return s ? '<pre><code class="language-' + T(s) + '">' + (n ? r : T(r, true)) + `</code></pre>
-` : "<pre><code>" + (n ? r : T(r, true)) + `</code></pre>
+    return s ? '<pre><code class="language-' + O(s) + '">' + (n ? r : O(r, true)) + `</code></pre>
+` : "<pre><code>" + (n ? r : O(r, true)) + `</code></pre>
 `;
   }
   blockquote({ tokens: e }) {
@@ -2721,8 +2736,8 @@ ${this.parser.parse(e)}</blockquote>
   list(e) {
     let t = e.ordered, n = e.start, s = "";
     for (let o = 0; o < e.items.length; o++) {
-      let u = e.items[o];
-      s += this.listitem(u);
+      let p = e.items[o];
+      s += this.listitem(p);
     }
     let r = t ? "ol" : "ul", i = t && n !== 1 ? ' start="' + n + '"' : "";
     return "<" + r + i + `>
@@ -2774,7 +2789,7 @@ ${e}</tr>
     return `<em>${this.parser.parseInline(e)}</em>`;
   }
   codespan({ text: e }) {
-    return `<code>${T(e, true)}</code>`;
+    return `<code>${O(e, true)}</code>`;
   }
   br(e) {
     return "<br>";
@@ -2787,18 +2802,18 @@ ${e}</tr>
     if (r === null) return s;
     e = r;
     let i = '<a href="' + e + '"';
-    return t && (i += ' title="' + T(t) + '"'), i += ">" + s + "</a>", i;
+    return t && (i += ' title="' + O(t) + '"'), i += ">" + s + "</a>", i;
   }
   image({ href: e, title: t, text: n, tokens: s }) {
     s && (n = this.parser.parseInline(s, this.parser.textRenderer));
     let r = Y2(e);
-    if (r === null) return T(n);
+    if (r === null) return O(n);
     e = r;
-    let i = `<img src="${e}" alt="${T(n)}"`;
-    return t && (i += ` title="${T(t)}"`), i += ">", i;
+    let i = `<img src="${e}" alt="${O(n)}"`;
+    return t && (i += ` title="${O(t)}"`), i += ">", i;
   }
   text(e) {
-    return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : T(e.text);
+    return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : O(e.text);
   }
 };
 var L = class {
@@ -3013,7 +3028,7 @@ var S2 = class {
   }
 };
 var Z2 = class {
-  defaults = A();
+  defaults = C2();
   options = this.setOptions;
   parse = this.parseMarkdown(true);
   parseInline = this.parseMarkdown(false);
@@ -3059,8 +3074,8 @@ var Z2 = class {
         if ("renderer" in r) {
           let i = t.renderers[r.name];
           i ? t.renderers[r.name] = function(...o) {
-            let u = r.renderer.apply(this, o);
-            return u === false && (u = i.apply(this, o)), u;
+            let p = r.renderer.apply(this, o);
+            return p === false && (p = i.apply(this, o)), p;
           } : t.renderers[r.name] = r.renderer;
         }
         if ("tokenizer" in r) {
@@ -3074,10 +3089,10 @@ var Z2 = class {
         for (let i in n.renderer) {
           if (!(i in r)) throw new Error(`renderer '${i}' does not exist`);
           if (["options", "parser"].includes(i)) continue;
-          let o = i, u = n.renderer[o], a = r[o];
-          r[o] = (...p) => {
-            let c = u.apply(r, p);
-            return c === false && (c = a.apply(r, p)), c || "";
+          let o = i, p = n.renderer[o], a = r[o];
+          r[o] = (...u) => {
+            let c = p.apply(r, u);
+            return c === false && (c = a.apply(r, u)), c || "";
           };
         }
         s.renderer = r;
@@ -3087,10 +3102,10 @@ var Z2 = class {
         for (let i in n.tokenizer) {
           if (!(i in r)) throw new Error(`tokenizer '${i}' does not exist`);
           if (["options", "rules", "lexer"].includes(i)) continue;
-          let o = i, u = n.tokenizer[o], a = r[o];
-          r[o] = (...p) => {
-            let c = u.apply(r, p);
-            return c === false && (c = a.apply(r, p)), c;
+          let o = i, p = n.tokenizer[o], a = r[o];
+          r[o] = (...u) => {
+            let c = p.apply(r, u);
+            return c === false && (c = a.apply(r, u)), c;
           };
         }
         s.tokenizer = r;
@@ -3100,21 +3115,21 @@ var Z2 = class {
         for (let i in n.hooks) {
           if (!(i in r)) throw new Error(`hook '${i}' does not exist`);
           if (["options", "block"].includes(i)) continue;
-          let o = i, u = n.hooks[o], a = r[o];
-          S2.passThroughHooks.has(i) ? r[o] = (p) => {
+          let o = i, p = n.hooks[o], a = r[o];
+          S2.passThroughHooks.has(i) ? r[o] = (u) => {
             if (this.defaults.async && S2.passThroughHooksRespectAsync.has(i)) return (async () => {
-              let h2 = await u.call(r, p);
+              let h2 = await p.call(r, u);
               return a.call(r, h2);
             })();
-            let c = u.call(r, p);
+            let c = p.call(r, u);
             return a.call(r, c);
-          } : r[o] = (...p) => {
+          } : r[o] = (...u) => {
             if (this.defaults.async) return (async () => {
-              let h2 = await u.apply(r, p);
-              return h2 === false && (h2 = await a.apply(r, p)), h2;
+              let h2 = await p.apply(r, u);
+              return h2 === false && (h2 = await a.apply(r, u)), h2;
             })();
-            let c = u.apply(r, p);
-            return c === false && (c = a.apply(r, p)), c;
+            let c = p.apply(r, u);
+            return c === false && (c = a.apply(r, u)), c;
           };
         }
         s.hooks = r;
@@ -3122,8 +3137,8 @@ var Z2 = class {
       if (n.walkTokens) {
         let r = this.defaults.walkTokens, i = n.walkTokens;
         s.walkTokens = function(o) {
-          let u = [];
-          return u.push(i.call(this, o)), r && (u = u.concat(r.call(this, o))), u;
+          let p = [];
+          return p.push(i.call(this, o)), r && (p = p.concat(r.call(this, o))), p;
         };
       }
       this.defaults = { ...this.defaults, ...s };
@@ -3145,7 +3160,7 @@ var Z2 = class {
       if (typeof n > "u" || n === null) return o(new Error("marked(): input parameter is undefined or null"));
       if (typeof n != "string") return o(new Error("marked(): input parameter is of type " + Object.prototype.toString.call(n) + ", string expected"));
       if (i.hooks && (i.hooks.options = i, i.hooks.block = e), i.async) return (async () => {
-        let u = i.hooks ? await i.hooks.preprocess(n) : n, p = await (i.hooks ? await i.hooks.provideLexer(e) : e ? x.lex : x.lexInline)(u, i), c = i.hooks ? await i.hooks.processAllTokens(p) : p;
+        let p = i.hooks ? await i.hooks.preprocess(n) : n, u = await (i.hooks ? await i.hooks.provideLexer(e) : e ? x.lex : x.lexInline)(p, i), c = i.hooks ? await i.hooks.processAllTokens(u) : u;
         i.walkTokens && await Promise.all(this.walkTokens(c, i.walkTokens));
         let d = await (i.hooks ? await i.hooks.provideParser(e) : e ? b.parse : b.parseInline)(c, i);
         return i.hooks ? await i.hooks.postprocess(d) : d;
@@ -3156,8 +3171,8 @@ var Z2 = class {
         i.hooks && (a = i.hooks.processAllTokens(a)), i.walkTokens && this.walkTokens(a, i.walkTokens);
         let c = (i.hooks ? i.hooks.provideParser(e) : e ? b.parse : b.parseInline)(a, i);
         return i.hooks && (c = i.hooks.postprocess(c)), c;
-      } catch (u) {
-        return o(u);
+      } catch (p) {
+        return o(p);
       }
     };
   }
@@ -3165,7 +3180,7 @@ var Z2 = class {
     return (n) => {
       if (n.message += `
 Please report this to https://github.com/markedjs/marked.`, e) {
-        let s = "<p>An error occurred:</p><pre>" + T(n.message + "", true) + "</pre>";
+        let s = "<p>An error occurred:</p><pre>" + O(n.message + "", true) + "</pre>";
         return t ? Promise.resolve(s) : s;
       }
       if (t) return Promise.reject(n);
@@ -3173,23 +3188,23 @@ Please report this to https://github.com/markedjs/marked.`, e) {
     };
   }
 };
-var M = new Z2();
+var E = new Z2();
 function f(l4, e) {
-  return M.parse(l4, e);
+  return E.parse(l4, e);
 }
 f.options = f.setOptions = function(l4) {
-  return M.setOptions(l4), f.defaults = M.defaults, j(f.defaults), f;
+  return E.setOptions(l4), f.defaults = E.defaults, j(f.defaults), f;
 };
-f.getDefaults = A;
+f.getDefaults = C2;
 f.defaults = R;
-function dt(...l4) {
-  return M.use(...l4), f.defaults = M.defaults, j(f.defaults), f;
+function kt(...l4) {
+  return E.use(...l4), f.defaults = E.defaults, j(f.defaults), f;
 }
-f.use = dt;
+f.use = kt;
 f.walkTokens = function(l4, e) {
-  return M.walkTokens(l4, e);
+  return E.walkTokens(l4, e);
 };
-f.parseInline = M.parseInline;
+f.parseInline = E.parseInline;
 f.Parser = b;
 f.parser = b.parse;
 f.Renderer = P;
@@ -3204,9 +3219,9 @@ var rn = f.setOptions;
 var sn = f.walkTokens;
 var on = f.parseInline;
 var ln = b.parse;
-var un = x.lex;
+var pn = x.lex;
 
-// node_modules/dompurify/dist/purify.es.mjs
+// ../../../../elowen-plugins/node_modules/dompurify/dist/purify.es.mjs
 function _arrayLikeToArray2(r, a) {
   (null == a || a > r.length) && (a = r.length);
   for (var e = 0, n = Array(a); e < a; e++) n[e] = r[e];
@@ -3447,7 +3462,7 @@ var mathMl$1 = freeze(["math", "menclose", "merror", "mfenced", "mfrac", "mglyph
 var mathMlDisallowed = freeze(["maction", "maligngroup", "malignmark", "mlongdiv", "mscarries", "mscarry", "msgroup", "mstack", "msline", "msrow", "semantics", "annotation", "annotation-xml", "mprescripts", "none"]);
 var text = freeze(["#text"]);
 var html = freeze(["accept", "action", "align", "alt", "autocapitalize", "autocomplete", "autopictureinpicture", "autoplay", "background", "bgcolor", "border", "capture", "cellpadding", "cellspacing", "checked", "cite", "class", "clear", "color", "cols", "colspan", "command", "commandfor", "controls", "controlslist", "coords", "crossorigin", "datetime", "decoding", "default", "dir", "disabled", "disablepictureinpicture", "disableremoteplayback", "download", "draggable", "enctype", "enterkeyhint", "exportparts", "face", "for", "headers", "height", "hidden", "high", "href", "hreflang", "id", "inert", "inputmode", "integrity", "ismap", "kind", "label", "lang", "list", "loading", "loop", "low", "max", "maxlength", "media", "method", "min", "minlength", "multiple", "muted", "name", "nonce", "noshade", "novalidate", "nowrap", "open", "optimum", "part", "pattern", "placeholder", "playsinline", "popover", "popovertarget", "popovertargetaction", "poster", "preload", "pubdate", "radiogroup", "readonly", "rel", "required", "rev", "reversed", "role", "rows", "rowspan", "spellcheck", "scope", "selected", "shape", "size", "sizes", "slot", "span", "srclang", "start", "src", "srcset", "step", "style", "summary", "tabindex", "title", "translate", "type", "usemap", "valign", "value", "width", "wrap", "xmlns"]);
-var svg = freeze(["accent-height", "accumulate", "additive", "alignment-baseline", "amplitude", "ascent", "attributename", "attributetype", "azimuth", "basefrequency", "baseline-shift", "begin", "bias", "by", "class", "clip", "clippathunits", "clip-path", "clip-rule", "color", "color-interpolation", "color-interpolation-filters", "color-profile", "color-rendering", "cx", "cy", "d", "dx", "dy", "diffuseconstant", "direction", "display", "divisor", "dominant-baseline", "dur", "edgemode", "elevation", "end", "exponent", "fill", "fill-opacity", "fill-rule", "filter", "filterunits", "flood-color", "flood-opacity", "font-family", "font-size", "font-size-adjust", "font-stretch", "font-style", "font-variant", "font-weight", "fx", "fy", "g1", "g2", "glyph-name", "glyphref", "gradientunits", "gradienttransform", "height", "href", "id", "image-rendering", "in", "in2", "intercept", "k", "k1", "k2", "k3", "k4", "kerning", "keypoints", "keysplines", "keytimes", "lang", "lengthadjust", "letter-spacing", "kernelmatrix", "kernelunitlength", "lighting-color", "local", "marker-end", "marker-mid", "marker-start", "markerheight", "markerunits", "markerwidth", "maskcontentunits", "maskunits", "max", "mask", "mask-type", "media", "method", "mode", "min", "name", "numoctaves", "offset", "operator", "opacity", "order", "orient", "orientation", "origin", "overflow", "paint-order", "path", "pathlength", "patterncontentunits", "patterntransform", "patternunits", "pointer-events", "points", "preservealpha", "preserveaspectratio", "primitiveunits", "r", "rx", "ry", "radius", "refx", "refy", "repeatcount", "repeatdur", "restart", "result", "rotate", "scale", "seed", "shape-rendering", "slope", "specularconstant", "specularexponent", "spreadmethod", "startoffset", "stddeviation", "stitchtiles", "stop-color", "stop-opacity", "stroke-dasharray", "stroke-dashoffset", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-opacity", "stroke", "stroke-width", "style", "surfacescale", "systemlanguage", "tabindex", "tablevalues", "targetx", "targety", "transform", "transform-origin", "text-anchor", "text-decoration", "text-orientation", "text-rendering", "textlength", "type", "u1", "u2", "unicode", "values", "vector-effect", "viewbox", "visibility", "version", "vert-adv-y", "vert-origin-x", "vert-origin-y", "width", "word-spacing", "wrap", "writing-mode", "xchannelselector", "ychannelselector", "x", "x1", "x2", "xmlns", "y", "y1", "y2", "z", "zoomandpan"]);
+var svg = freeze(["accent-height", "accumulate", "additive", "alignment-baseline", "amplitude", "ascent", "attributename", "attributetype", "azimuth", "basefrequency", "baseline-shift", "begin", "bias", "by", "class", "clip", "clippathunits", "clip-path", "clip-rule", "color", "color-interpolation", "color-interpolation-filters", "color-profile", "color-rendering", "cx", "cy", "d", "dx", "dy", "diffuseconstant", "direction", "display", "divisor", "dominant-baseline", "dur", "edgemode", "elevation", "end", "exponent", "fill", "fill-opacity", "fill-rule", "filter", "filterunits", "flood-color", "flood-opacity", "font-family", "font-size", "font-size-adjust", "font-stretch", "font-style", "font-variant", "font-weight", "fx", "fy", "g1", "g2", "glyph-name", "glyphref", "gradientunits", "gradienttransform", "height", "href", "id", "image-rendering", "in", "in2", "intercept", "k", "k1", "k2", "k3", "k4", "kerning", "keypoints", "keysplines", "keytimes", "lang", "lengthadjust", "letter-spacing", "kernelmatrix", "kernelunitlength", "lighting-color", "local", "marker-end", "marker-mid", "marker-start", "markerheight", "markerunits", "markerwidth", "maskcontentunits", "maskunits", "max", "mask", "mask-type", "media", "method", "mode", "min", "name", "numoctaves", "offset", "operator", "opacity", "order", "orient", "orientation", "origin", "overflow", "paint-order", "path", "pathlength", "patterncontentunits", "patterntransform", "patternunits", "points", "preservealpha", "preserveaspectratio", "primitiveunits", "r", "rx", "ry", "radius", "refx", "refy", "repeatcount", "repeatdur", "restart", "result", "rotate", "scale", "seed", "shape-rendering", "slope", "specularconstant", "specularexponent", "spreadmethod", "startoffset", "stddeviation", "stitchtiles", "stop-color", "stop-opacity", "stroke-dasharray", "stroke-dashoffset", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-opacity", "stroke", "stroke-width", "style", "surfacescale", "systemlanguage", "tabindex", "tablevalues", "targetx", "targety", "transform", "transform-origin", "text-anchor", "text-decoration", "text-orientation", "text-rendering", "textlength", "type", "u1", "u2", "unicode", "values", "viewbox", "visibility", "version", "vert-adv-y", "vert-origin-x", "vert-origin-y", "width", "word-spacing", "wrap", "writing-mode", "xchannelselector", "ychannelselector", "x", "x1", "x2", "xmlns", "y", "y1", "y2", "z", "zoomandpan"]);
 var mathMl = freeze(["accent", "accentunder", "align", "bevelled", "close", "columnalign", "columnlines", "columnspacing", "columnspan", "denomalign", "depth", "dir", "display", "displaystyle", "encoding", "fence", "frame", "height", "href", "id", "largeop", "length", "linethickness", "lquote", "lspace", "mathbackground", "mathcolor", "mathsize", "mathvariant", "maxsize", "minsize", "movablelimits", "notation", "numalign", "open", "rowalign", "rowlines", "rowspacing", "rowspan", "rspace", "rquote", "scriptlevel", "scriptminsize", "scriptsizemultiplier", "selection", "separator", "separators", "stretchy", "subscriptshift", "supscriptshift", "symmetric", "voffset", "width", "xmlns"]);
 var xml = freeze(["xlink:href", "xml:id", "xlink:title", "xml:space", "xmlns:xlink"]);
 var MUSTACHE_EXPR = seal(/{{[\w\W]*|^[\w\W]*}}/g);
@@ -3487,15 +3502,6 @@ var NODE_TYPE = {
   notation: 12
   // Deprecated
 };
-var LITERAL_TEXT_ELEMENT_NAMES = ["style", "script", "xmp", "iframe", "noembed", "noframes", "plaintext", "noscript"];
-var LITERAL_TEXT_ELEMENTS = freeze(addToSet({}, LITERAL_TEXT_ELEMENT_NAMES));
-var LITERAL_TEXT_CLOSE = (function() {
-  const map = {};
-  arrayForEach(LITERAL_TEXT_ELEMENT_NAMES, (name) => {
-    map[name] = seal(new RegExp("</" + name + "(?=[\\t\\n\\f\\r />])", "i"));
-  });
-  return freeze(map);
-})();
 var getGlobal = function getGlobal2() {
   return typeof window === "undefined" ? null : window;
 };
@@ -3539,14 +3545,10 @@ var _createHooksMap = function _createHooksMap2() {
 var _resolveSetOption = function _resolveSetOption2(cfg, key, fallback, options) {
   return objectHasOwnProperty(cfg, key) && arrayIsArray(cfg[key]) ? addToSet(options.base ? clone(options.base) : {}, cfg[key], options.transform) : fallback;
 };
-var _resolveObjectOption = function _resolveObjectOption2(cfg, key, makeFallback) {
-  const value = objectHasOwnProperty(cfg, key) ? cfg[key] : void 0;
-  return value && typeof value === "object" ? clone(value) : makeFallback();
-};
 function createDOMPurify() {
   let window2 = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : getGlobal();
   const DOMPurify = (root) => createDOMPurify(root);
-  DOMPurify.version = "3.4.14";
+  DOMPurify.version = "3.4.13";
   DOMPurify.removed = [];
   if (!window2 || !window2.document || window2.document.nodeType !== NODE_TYPE.document || !window2.Element) {
     DOMPurify.isSupported = false;
@@ -3571,12 +3573,6 @@ function createDOMPurify() {
   const getNodeType = Node && Node.prototype ? lookupGetter(Node.prototype, "nodeType") : null;
   const getNodeName = Node && Node.prototype ? lookupGetter(Node.prototype, "nodeName") : null;
   const getOwnerDocument = Node && Node.prototype ? lookupGetter(Node.prototype, "ownerDocument") : null;
-  const _readNodeType = function _readNodeType2(node) {
-    return getNodeType ? getNodeType(node) : node.nodeType;
-  };
-  const _readNodeName = function _readNodeName2(node) {
-    return getNodeName ? getNodeName(node) : node.nodeName;
-  };
   if (typeof HTMLTemplateElement === "function") {
     const template = document2.createElement("template");
     if (template.content && template.content.ownerDocument) {
@@ -3803,19 +3799,9 @@ function createDOMPurify() {
     IN_PLACE = cfg.IN_PLACE || false;
     IS_ALLOWED_URI$1 = isRegex(cfg.ALLOWED_URI_REGEXP) ? cfg.ALLOWED_URI_REGEXP : IS_ALLOWED_URI;
     NAMESPACE = typeof cfg.NAMESPACE === "string" ? cfg.NAMESPACE : HTML_NAMESPACE;
-    MATHML_TEXT_INTEGRATION_POINTS = _resolveObjectOption(
-      cfg,
-      "MATHML_TEXT_INTEGRATION_POINTS",
-      () => addToSet({}, DEFAULT_MATHML_TEXT_INTEGRATION_POINTS)
-      // Default built-in map
-    );
-    HTML_INTEGRATION_POINTS = _resolveObjectOption(
-      cfg,
-      "HTML_INTEGRATION_POINTS",
-      () => addToSet({}, DEFAULT_HTML_INTEGRATION_POINTS)
-      // Default built-in map
-    );
-    const customElementHandling = _resolveObjectOption(cfg, "CUSTOM_ELEMENT_HANDLING", () => create2(null));
+    MATHML_TEXT_INTEGRATION_POINTS = objectHasOwnProperty(cfg, "MATHML_TEXT_INTEGRATION_POINTS") && cfg.MATHML_TEXT_INTEGRATION_POINTS && typeof cfg.MATHML_TEXT_INTEGRATION_POINTS === "object" ? clone(cfg.MATHML_TEXT_INTEGRATION_POINTS) : addToSet({}, DEFAULT_MATHML_TEXT_INTEGRATION_POINTS);
+    HTML_INTEGRATION_POINTS = objectHasOwnProperty(cfg, "HTML_INTEGRATION_POINTS") && cfg.HTML_INTEGRATION_POINTS && typeof cfg.HTML_INTEGRATION_POINTS === "object" ? clone(cfg.HTML_INTEGRATION_POINTS) : addToSet({}, DEFAULT_HTML_INTEGRATION_POINTS);
+    const customElementHandling = objectHasOwnProperty(cfg, "CUSTOM_ELEMENT_HANDLING") && cfg.CUSTOM_ELEMENT_HANDLING && typeof cfg.CUSTOM_ELEMENT_HANDLING === "object" ? clone(cfg.CUSTOM_ELEMENT_HANDLING) : create2(null);
     CUSTOM_ELEMENT_HANDLING = create2(null);
     if (objectHasOwnProperty(customElementHandling, "tagNameCheck") && isRegexOrFunction(customElementHandling.tagNameCheck)) {
       CUSTOM_ELEMENT_HANDLING.tagNameCheck = customElementHandling.tagNameCheck;
@@ -3877,6 +3863,15 @@ function createDOMPurify() {
         }
         addToSet(ALLOWED_ATTR, cfg.ADD_ATTR, transformCaseFunc);
       }
+    }
+    if (objectHasOwnProperty(cfg, "ADD_URI_SAFE_ATTR") && arrayIsArray(cfg.ADD_URI_SAFE_ATTR)) {
+      addToSet(URI_SAFE_ATTRIBUTES, cfg.ADD_URI_SAFE_ATTR, transformCaseFunc);
+    }
+    if (objectHasOwnProperty(cfg, "FORBID_CONTENTS") && arrayIsArray(cfg.FORBID_CONTENTS)) {
+      if (FORBID_CONTENTS === DEFAULT_FORBID_CONTENTS) {
+        FORBID_CONTENTS = clone(FORBID_CONTENTS);
+      }
+      addToSet(FORBID_CONTENTS, cfg.FORBID_CONTENTS, transformCaseFunc);
     }
     if (objectHasOwnProperty(cfg, "ADD_FORBID_CONTENTS") && arrayIsArray(cfg.ADD_FORBID_CONTENTS)) {
       if (FORBID_CONTENTS === DEFAULT_FORBID_CONTENTS) {
@@ -3994,16 +3989,6 @@ function createDOMPurify() {
       }
     }
   };
-  const _stripAttributeNode = function _stripAttributeNode2(element, attribute, name) {
-    try {
-      element.removeAttributeNode(attribute);
-    } catch (_3) {
-      try {
-        element.removeAttribute(name);
-      } catch (_4) {
-      }
-    }
-  };
   const _neutralizeRoot = function _neutralizeRoot2(root) {
     _neutralizeSubtree(root);
     const childNodes = getChildNodes(root);
@@ -4025,35 +4010,27 @@ function createDOMPurify() {
         const attribute = attributes[i];
         const name = attribute && attribute.name;
         if (typeof name === "string") {
-          _stripAttributeNode(root, attribute, name);
+          try {
+            root.removeAttribute(name);
+          } catch (_3) {
+          }
         }
       }
     }
   };
-  const _removeAttribute = function _removeAttribute2(name, element, attr) {
-    if (!attr) {
-      try {
-        attr = element.getAttributeNode(name);
-      } catch (_3) {
-        attr = null;
-      }
-    }
-    arrayPush(DOMPurify.removed, {
-      attribute: attr || null,
-      from: element
-    });
+  const _removeAttribute = function _removeAttribute2(name, element) {
     try {
-      if (attr) {
-        element.removeAttributeNode(attr);
-      } else {
-        element.removeAttribute(name);
-      }
+      arrayPush(DOMPurify.removed, {
+        attribute: element.getAttributeNode(name),
+        from: element
+      });
     } catch (_3) {
-      try {
-        element.removeAttribute(name);
-      } catch (_4) {
-      }
+      arrayPush(DOMPurify.removed, {
+        attribute: null,
+        from: element
+      });
     }
+    element.removeAttribute(name);
     if (name === "is") {
       if (RETURN_DOM || RETURN_DOM_FRAGMENT) {
         try {
@@ -4079,14 +4056,17 @@ function createDOMPurify() {
       if (typeof name !== "string" || ALLOWED_ATTR[transformCaseFunc(name)]) {
         continue;
       }
-      _stripAttributeNode(element, attribute, name);
+      try {
+        element.removeAttribute(name);
+      } catch (_3) {
+      }
     }
   };
   const _neutralizeSubtree = function _neutralizeSubtree2(root) {
     const stack = [root];
     while (stack.length > 0) {
       const node = stack.pop();
-      const nodeType = _readNodeType(node);
+      const nodeType = getNodeType ? getNodeType(node) : node.nodeType;
       if (nodeType === NODE_TYPE.element) {
         _stripDisallowedAttributes(node);
       }
@@ -4098,15 +4078,6 @@ function createDOMPurify() {
       }
     }
   };
-  const _isPatchLinkageAttribute = function _isPatchLinkageAttribute2(lcName, lcTag) {
-    if (!SAFE_FOR_XML) {
-      return false;
-    }
-    if (lcName === "patchsrc") {
-      return true;
-    }
-    return lcName === "for" && lcTag !== "label" && lcTag !== "output";
-  };
   const _neutralizePatchLinkage = function _neutralizePatchLinkage2(root) {
     if (!SAFE_FOR_XML) {
       return;
@@ -4114,7 +4085,7 @@ function createDOMPurify() {
     const stack = [root];
     while (stack.length > 0) {
       const node = stack.pop();
-      const nodeType = _readNodeType(node);
+      const nodeType = getNodeType ? getNodeType(node) : node.nodeType;
       if (nodeType === NODE_TYPE.processingInstruction || nodeType === NODE_TYPE.comment && regExpTest(COMMENT_MARKUP_PROBE, node.data)) {
         try {
           remove(node);
@@ -4124,12 +4095,12 @@ function createDOMPurify() {
       }
       if (nodeType === NODE_TYPE.element) {
         const element = node;
-        const lcTag = transformCaseFunc(_readNodeName(node));
+        const lcTag = transformCaseFunc(getNodeName ? getNodeName(node) : node.nodeName);
         try {
           if (element.hasAttribute && element.hasAttribute("patchsrc")) {
             element.removeAttribute("patchsrc");
           }
-          if (element.hasAttribute && element.hasAttribute("for") && _isPatchLinkageAttribute("for", lcTag)) {
+          if (element.hasAttribute && element.hasAttribute("for") && lcTag !== "label" && lcTag !== "output") {
             element.removeAttribute("for");
           }
         } catch (_3) {
@@ -4284,7 +4255,7 @@ function createDOMPurify() {
     if (SAFE_FOR_XML && currentNode.hasChildNodes() && !_isNode(currentNode.firstElementChild) && regExpTest(ELEMENT_MARKUP_PROBE, currentNode.textContent) && regExpTest(ELEMENT_MARKUP_PROBE, currentNode.innerHTML)) {
       return true;
     }
-    if (SAFE_FOR_XML && currentNode.namespaceURI === HTML_NAMESPACE && LITERAL_TEXT_ELEMENTS[tagName] && (_isNode(currentNode.firstElementChild) || typeof currentNode.textContent === "string" && regExpTest(LITERAL_TEXT_CLOSE[tagName], currentNode.textContent))) {
+    if (SAFE_FOR_XML && currentNode.namespaceURI === HTML_NAMESPACE && tagName === "style" && _isNode(currentNode.firstElementChild)) {
       return true;
     }
     if (currentNode.nodeType === NODE_TYPE.processingInstruction) {
@@ -4295,21 +4266,14 @@ function createDOMPurify() {
     }
     return false;
   };
-  const _matchesNameCheck = function _matchesNameCheck2(check, name) {
-    if (check instanceof RegExp) {
-      return regExpTest(check, name);
-    }
-    if (check instanceof Function) {
-      for (var _len = arguments.length, args = new Array(_len > 2 ? _len - 2 : 0), _key = 2; _key < _len; _key++) {
-        args[_key - 2] = arguments[_key];
-      }
-      return Boolean(check(name, ...args));
-    }
-    return false;
-  };
   const _sanitizeDisallowedNode = function _sanitizeDisallowedNode2(currentNode, tagName, root) {
-    if (!FORBID_TAGS[tagName] && _isBasicCustomElement(tagName) && _matchesNameCheck(CUSTOM_ELEMENT_HANDLING.tagNameCheck, tagName)) {
-      return false;
+    if (!FORBID_TAGS[tagName] && _isBasicCustomElement(tagName)) {
+      if (CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof RegExp && regExpTest(CUSTOM_ELEMENT_HANDLING.tagNameCheck, tagName)) {
+        return false;
+      }
+      if (CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof Function && CUSTOM_ELEMENT_HANDLING.tagNameCheck(tagName)) {
+        return false;
+      }
     }
     if (KEEP_CONTENT && !FORBID_CONTENTS[tagName]) {
       const parentNode = getParentNode(currentNode);
@@ -4331,31 +4295,28 @@ function createDOMPurify() {
     }
     return set === defaultSet || set === setConfigSet ? clone(set) : set;
   };
-  const _handleHookDetachedNode = function _handleHookDetachedNode2(currentNode, root) {
-    if (currentNode === root || getParentNode(currentNode) !== null) {
-      return false;
-    }
-    if (IN_PLACE) {
-      _neutralizeSubtree(currentNode);
-    }
-    return true;
-  };
   const _sanitizeElements = function _sanitizeElements2(currentNode, root) {
     _executeHooks(hooks2.beforeSanitizeElements, currentNode, null);
-    if (_handleHookDetachedNode(currentNode, root)) {
+    if (currentNode !== root && getParentNode(currentNode) === null) {
+      if (IN_PLACE) {
+        _neutralizeSubtree(currentNode);
+      }
       return true;
     }
     if (_isClobbered(currentNode)) {
       _forceRemove(currentNode);
       return true;
     }
-    const tagName = transformCaseFunc(_readNodeName(currentNode));
+    const tagName = transformCaseFunc(getNodeName ? getNodeName(currentNode) : currentNode.nodeName);
     ALLOWED_TAGS = _forkSharedAllowlist(hooks2.uponSanitizeElement, ALLOWED_TAGS, DEFAULT_ALLOWED_TAGS, SET_CONFIG_ALLOWED_TAGS);
     _executeHooks(hooks2.uponSanitizeElement, currentNode, {
       tagName,
       allowedTags: ALLOWED_TAGS
     });
-    if (_handleHookDetachedNode(currentNode, root)) {
+    if (currentNode !== root && getParentNode(currentNode) === null) {
+      if (IN_PLACE) {
+        _neutralizeSubtree(currentNode);
+      }
       return true;
     }
     if (_isUnsafeNode(currentNode, tagName)) {
@@ -4369,7 +4330,7 @@ function createDOMPurify() {
       }
       return removed;
     }
-    const nt2 = _readNodeType(currentNode);
+    const nt2 = getNodeType ? getNodeType(currentNode) : currentNode.nodeType;
     if (nt2 === NODE_TYPE.element && !_checkValidNamespace(currentNode)) {
       _forceRemove(currentNode);
       return true;
@@ -4394,43 +4355,38 @@ function createDOMPurify() {
     if (FORBID_ATTR[lcName]) {
       return false;
     }
-    if (_isPatchLinkageAttribute(lcName, lcTag)) {
+    if (SAFE_FOR_XML && lcName === "patchsrc") {
+      return false;
+    }
+    if (SAFE_FOR_XML && lcName === "for" && lcTag !== "label" && lcTag !== "output") {
       return false;
     }
     if (SANITIZE_DOM && (lcName === "id" || lcName === "name") && (value in document2 || value in formElement)) {
       return false;
     }
     const nameIsPermitted = ALLOWED_ATTR[lcName] || EXTRA_ELEMENT_HANDLING.attributeCheck instanceof Function && EXTRA_ELEMENT_HANDLING.attributeCheck(lcName, lcTag);
-    if (ALLOW_DATA_ATTR && regExpTest(DATA_ATTR$1, lcName)) {
-      return true;
-    }
-    if (ALLOW_ARIA_ATTR && regExpTest(ARIA_ATTR$1, lcName)) {
-      return true;
-    }
-    if (!nameIsPermitted) {
-      return (
-        // Condition a) covers a basically valid custom element tag name whose
-        // tag passes the configured tagNameCheck and whose attribute name
-        // passes the configured attributeNameCheck ...
-        _isBasicCustomElement(lcTag) && _matchesNameCheck(CUSTOM_ELEMENT_HANDLING.tagNameCheck, lcTag) && _matchesNameCheck(CUSTOM_ELEMENT_HANDLING.attributeNameCheck, lcName, lcTag) || // Condition b) covers an `is` attribute whose value passes the
-        // configured tagNameCheck while customized built-in elements are
-        // allowed.
-        lcName === "is" && CUSTOM_ELEMENT_HANDLING.allowCustomizedBuiltInElements && _matchesNameCheck(CUSTOM_ELEMENT_HANDLING.tagNameCheck, value)
-      );
-    }
-    if (URI_SAFE_ATTRIBUTES[lcName]) {
-      return true;
-    }
-    if (regExpTest(IS_ALLOWED_URI$1, stringReplace(value, ATTR_WHITESPACE$1, ""))) {
-      return true;
-    }
-    if ((lcName === "src" || lcName === "xlink:href" || lcName === "href") && lcTag !== "script" && stringIndexOf(value, "data:") === 0 && DATA_URI_TAGS[lcTag]) {
-      return true;
-    }
-    if (ALLOW_UNKNOWN_PROTOCOLS && !regExpTest(IS_SCRIPT_OR_DATA$1, stringReplace(value, ATTR_WHITESPACE$1, ""))) {
-      return true;
-    }
-    return !value;
+    if (ALLOW_DATA_ATTR && regExpTest(DATA_ATTR$1, lcName)) ;
+    else if (ALLOW_ARIA_ATTR && regExpTest(ARIA_ATTR$1, lcName)) ;
+    else if (!nameIsPermitted) {
+      if (
+        // First condition does a very basic check if a) it's basically a valid custom element tagname AND
+        // b) if the tagName passes whatever the user has configured for CUSTOM_ELEMENT_HANDLING.tagNameCheck
+        // and c) if the attribute name passes whatever the user has configured for CUSTOM_ELEMENT_HANDLING.attributeNameCheck
+        _isBasicCustomElement(lcTag) && (CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof RegExp && regExpTest(CUSTOM_ELEMENT_HANDLING.tagNameCheck, lcTag) || CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof Function && CUSTOM_ELEMENT_HANDLING.tagNameCheck(lcTag)) && (CUSTOM_ELEMENT_HANDLING.attributeNameCheck instanceof RegExp && regExpTest(CUSTOM_ELEMENT_HANDLING.attributeNameCheck, lcName) || CUSTOM_ELEMENT_HANDLING.attributeNameCheck instanceof Function && CUSTOM_ELEMENT_HANDLING.attributeNameCheck(lcName, lcTag)) || // Alternative, second condition checks if it's an `is`-attribute, AND
+        // the value passes whatever the user has configured for CUSTOM_ELEMENT_HANDLING.tagNameCheck
+        lcName === "is" && CUSTOM_ELEMENT_HANDLING.allowCustomizedBuiltInElements && (CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof RegExp && regExpTest(CUSTOM_ELEMENT_HANDLING.tagNameCheck, value) || CUSTOM_ELEMENT_HANDLING.tagNameCheck instanceof Function && CUSTOM_ELEMENT_HANDLING.tagNameCheck(value))
+      ) ;
+      else {
+        return false;
+      }
+    } else if (URI_SAFE_ATTRIBUTES[lcName]) ;
+    else if (regExpTest(IS_ALLOWED_URI$1, stringReplace(value, ATTR_WHITESPACE$1, ""))) ;
+    else if ((lcName === "src" || lcName === "xlink:href" || lcName === "href") && lcTag !== "script" && stringIndexOf(value, "data:") === 0 && DATA_URI_TAGS[lcTag]) ;
+    else if (ALLOW_UNKNOWN_PROTOCOLS && !regExpTest(IS_SCRIPT_OR_DATA$1, stringReplace(value, ATTR_WHITESPACE$1, ""))) ;
+    else if (value) {
+      return false;
+    } else ;
+    return true;
   };
   const RESERVED_CUSTOM_ELEMENT_NAMES = addToSet({}, ["annotation-xml", "color-profile", "font-face", "font-face-format", "font-face-name", "font-face-src", "font-face-uri", "missing-glyph"]);
   const _isBasicCustomElement = function _isBasicCustomElement2(tagName) {
@@ -4494,33 +4450,33 @@ function createDOMPurify() {
       _executeHooks(hooks2.uponSanitizeAttribute, currentNode, hookEvent);
       value = hookEvent.attrValue;
       if (SANITIZE_NAMED_PROPS && (lcName === "id" || lcName === "name") && stringIndexOf(value, SANITIZE_NAMED_PROPS_PREFIX) !== 0) {
-        _removeAttribute(name, currentNode, attr);
+        _removeAttribute(name, currentNode);
         value = SANITIZE_NAMED_PROPS_PREFIX + value;
       }
       if (SAFE_FOR_XML && regExpTest(/((--!?|])>)|<\/(style|script|title|xmp|textarea|noscript|iframe|noembed|noframes)/i, value)) {
-        _removeAttribute(name, currentNode, attr);
+        _removeAttribute(name, currentNode);
         continue;
       }
       if (lcName === "attributename" && stringMatch(value, "href")) {
-        _removeAttribute(name, currentNode, attr);
+        _removeAttribute(name, currentNode);
         continue;
       }
       if (hookEvent.forceKeepAttr) {
         continue;
       }
       if (!hookEvent.keepAttr) {
-        _removeAttribute(name, currentNode, attr);
+        _removeAttribute(name, currentNode);
         continue;
       }
       if (!ALLOW_SELF_CLOSE_IN_ATTR && regExpTest(SELF_CLOSING_TAG, value)) {
-        _removeAttribute(name, currentNode, attr);
+        _removeAttribute(name, currentNode);
         continue;
       }
       if (SAFE_FOR_TEMPLATES) {
         value = _stripTemplateExpressions(value);
       }
       if (!_isValidAttribute(lcTag, lcName, value)) {
-        _removeAttribute(name, currentNode, attr);
+        _removeAttribute(name, currentNode);
         continue;
       }
       value = _applyTrustedTypesToAttribute(lcTag, lcName, namespaceURI, value);
@@ -4541,7 +4497,8 @@ function createDOMPurify() {
       if (_isDocumentFragment(shadowNode.content)) {
         _sanitizeShadowDOM2(shadowNode.content);
       }
-      if (_readNodeType(shadowNode) === NODE_TYPE.element) {
+      const shadowNodeType = getNodeType ? getNodeType(shadowNode) : shadowNode.nodeType;
+      if (shadowNodeType === NODE_TYPE.element) {
         const innerSr = getShadowRoot(shadowNode);
         if (_isDocumentFragment(innerSr)) {
           _sanitizeAttachedShadowRoots(innerSr);
@@ -4563,7 +4520,7 @@ function createDOMPurify() {
         continue;
       }
       const node = item.node;
-      const nodeType = _readNodeType(node);
+      const nodeType = getNodeType ? getNodeType(node) : node.nodeType;
       const isElement = nodeType === NODE_TYPE.element;
       const childNodes = getChildNodes(node);
       if (childNodes) {
@@ -4635,7 +4592,7 @@ function createDOMPurify() {
     const inPlace = IN_PLACE && typeof dirty !== "string" && _isNode(dirty);
     if (inPlace) {
       _neutralizePatchLinkage(dirty);
-      const nn2 = _readNodeName(dirty);
+      const nn2 = getNodeName ? getNodeName(dirty) : dirty.nodeName;
       if (typeof nn2 === "string") {
         const tagName = transformCaseFunc(nn2);
         if (!ALLOWED_TAGS[tagName] || FORBID_TAGS[tagName]) {
@@ -4793,17 +4750,17 @@ var purify = createDOMPurify();
 // plugins/editor/web-src/editor/MarkdownPreview.tsx
 var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
 function MarkdownPreview({ source }) {
-  const html2 = (0, import_react17.useMemo)(() => purify.sanitize(f.parse(source, { async: false })), [source]);
+  const html2 = (0, import_react18.useMemo)(() => purify.sanitize(f.parse(source, { async: false })), [source]);
   return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "markdown-preview h-full overflow-auto p-5 text-sm leading-relaxed text-foreground", dangerouslySetInnerHTML: { __html: html2 } });
 }
 
 // plugins/editor/web-src/editor/ImagePreview.tsx
-var import_react18 = __toESM(require_react(), 1);
+var import_react19 = __toESM(require_react(), 1);
 var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
 function ImagePreview({ projectId, path }) {
-  const [url, setUrl] = (0, import_react18.useState)(null);
-  const [failed, setFailed] = (0, import_react18.useState)(false);
-  (0, import_react18.useEffect)(() => {
+  const [url, setUrl] = (0, import_react19.useState)(null);
+  const [failed, setFailed] = (0, import_react19.useState)(false);
+  (0, import_react19.useEffect)(() => {
     let cancelled = false;
     let objectUrl = null;
     setUrl(null);
@@ -4827,12 +4784,12 @@ function ImagePreview({ projectId, path }) {
 }
 
 // plugins/editor/web-src/editor/PdfPreview.tsx
-var import_react19 = __toESM(require_react(), 1);
+var import_react20 = __toESM(require_react(), 1);
 var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 function PdfPreview({ projectId, path, failedLabel, office = false }) {
-  const [url, setUrl] = (0, import_react19.useState)(null);
-  const [failed, setFailed] = (0, import_react19.useState)(false);
-  (0, import_react19.useEffect)(() => {
+  const [url, setUrl] = (0, import_react20.useState)(null);
+  const [failed, setFailed] = (0, import_react20.useState)(false);
+  (0, import_react20.useEffect)(() => {
     let cancelled = false;
     let objectUrl = null;
     setUrl(null);
@@ -4903,12 +4860,12 @@ function BinaryPreview({ projectId, path, size, message, downloadLabel, sizeLabe
 }
 
 // plugins/editor/web-src/editor/CsvPreview.tsx
-var import_react20 = __toESM(require_react(), 1);
+var import_react21 = __toESM(require_react(), 1);
 var import_papaparse = __toESM(require_papaparse_min(), 1);
 var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 var MAX_ROWS = 1e3;
 function CsvPreview({ source, invalidLabel, limitedLabel }) {
-  const parsed = (0, import_react20.useMemo)(() => import_papaparse.default.parse(source, { skipEmptyLines: false }), [source]);
+  const parsed = (0, import_react21.useMemo)(() => import_papaparse.default.parse(source, { skipEmptyLines: false }), [source]);
   const fatalErrors = parsed.errors.filter((error) => error.code !== "UndetectableDelimiter");
   if (fatalErrors.length > 0) {
     const first = fatalErrors[0];
@@ -4956,34 +4913,37 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const s = usePluginStrings("editor");
   const { t } = useTranslation2();
   const { toast } = useToast();
+  const system = projectId === SYSTEM_PROJECT_ID;
   const files = useProjectFiles(projectId);
-  const [selected, setSelected] = (0, import_react21.useState)(null);
-  const [openTabs, setOpenTabs] = (0, import_react21.useState)([]);
-  const [commit] = (0, import_react21.useState)(initialCommit ?? null);
-  const [working] = (0, import_react21.useState)(!!initialWorking);
-  const [expanded, setExpanded] = (0, import_react21.useState)(/* @__PURE__ */ new Set());
-  const [tab, setTab] = (0, import_react21.useState)("edit");
-  const [prefs, setPrefs] = (0, import_react21.useState)(DEFAULT_PREFS);
-  const [cursor, setCursor] = (0, import_react21.useState)(null);
-  const [openMenu, setOpenMenu] = (0, import_react21.useState)(null);
-  const [uploading, setUploading] = (0, import_react21.useState)(false);
-  const [dropping, setDropping] = (0, import_react21.useState)(false);
-  const fileInput = (0, import_react21.useRef)(null);
-  const [fullscreen, setFullscreen] = (0, import_react21.useState)(false);
-  const [editorH, setEditorH] = (0, import_react21.useState)(560);
-  const dragY = (0, import_react21.useRef)(null);
-  const [menu, setMenu] = (0, import_react21.useState)(null);
-  const [dialog, setDialog] = (0, import_react21.useState)(null);
-  const [drafts, setDrafts] = (0, import_react21.useState)({});
-  const draftsRef = (0, import_react21.useRef)(drafts);
+  const [treeEpoch, setTreeEpoch] = (0, import_react22.useState)(0);
+  const bumpTree = () => setTreeEpoch((n) => n + 1);
+  const [selected, setSelected] = (0, import_react22.useState)(null);
+  const [openTabs, setOpenTabs] = (0, import_react22.useState)([]);
+  const [commit] = (0, import_react22.useState)(initialCommit ?? null);
+  const [working] = (0, import_react22.useState)(!!initialWorking);
+  const [expanded, setExpanded] = (0, import_react22.useState)(/* @__PURE__ */ new Set());
+  const [tab, setTab] = (0, import_react22.useState)("edit");
+  const [prefs, setPrefs] = (0, import_react22.useState)(DEFAULT_PREFS);
+  const [cursor, setCursor] = (0, import_react22.useState)(null);
+  const [openMenu, setOpenMenu] = (0, import_react22.useState)(null);
+  const [uploading, setUploading] = (0, import_react22.useState)(false);
+  const [dropping, setDropping] = (0, import_react22.useState)(false);
+  const fileInput = (0, import_react22.useRef)(null);
+  const [fullscreen, setFullscreen] = (0, import_react22.useState)(false);
+  const [editorH, setEditorH] = (0, import_react22.useState)(560);
+  const dragY = (0, import_react22.useRef)(null);
+  const [menu, setMenu] = (0, import_react22.useState)(null);
+  const [dialog, setDialog] = (0, import_react22.useState)(null);
+  const [drafts, setDrafts] = (0, import_react22.useState)({});
+  const draftsRef = (0, import_react22.useRef)(drafts);
   const updateDrafts = (fn) => {
     draftsRef.current = fn(draftsRef.current);
     setDrafts(draftsRef.current);
   };
-  const [dirtyPaths, setDirtyPaths] = (0, import_react21.useState)(/* @__PURE__ */ new Set());
+  const [dirtyPaths, setDirtyPaths] = (0, import_react22.useState)(/* @__PURE__ */ new Set());
   const mobile = useMobile();
-  const [showTree, setShowTree] = (0, import_react21.useState)(false);
-  (0, import_react21.useEffect)(() => {
+  const [showTree, setShowTree] = (0, import_react22.useState)(false);
+  (0, import_react22.useEffect)(() => {
     let stored = null;
     try {
       const raw = localStorage.getItem(EDITOR_H_KEY);
@@ -4995,13 +4955,13 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     }
     setEditorH(clampEditorH(stored ?? window.innerHeight * 0.7));
   }, []);
-  (0, import_react21.useEffect)(() => {
+  (0, import_react22.useEffect)(() => {
     try {
       localStorage.setItem(EDITOR_H_KEY, String(editorH));
     } catch {
     }
   }, [editorH]);
-  (0, import_react21.useEffect)(() => {
+  (0, import_react22.useEffect)(() => {
     try {
       const raw = localStorage.getItem(PREFS_KEY);
       if (raw) setPrefs(normalisePrefs(JSON.parse(raw)));
@@ -5018,15 +4978,23 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       return next;
     });
   };
-  const commitData = useProjectCommit(projectId, commit);
-  const changesData = useProjectChanges(projectId, working);
-  const commitFileDiff = useProjectCommitFileDiff(projectId, commit, commit ? selected : null);
-  const workingChanged = useProjectChanged(projectId).data?.changed;
-  const changedSet = (0, import_react21.useMemo)(
+  const gitId = system ? null : projectId;
+  const commitData = useProjectCommit(gitId, commit);
+  const changesData = useProjectChanges(gitId, working);
+  const commitFileDiff = useProjectCommitFileDiff(gitId, commit, commit ? selected : null);
+  const workingChanged = useProjectChanged(gitId).data?.changed;
+  const changedSet = (0, import_react22.useMemo)(
     () => new Set(commit ? commitData.data?.files ?? [] : workingChanged ?? []),
     [commit, commitData.data?.files, workingChanged]
   );
-  const selectedFile = selected ? files.data?.find((node) => node.type === "file" && node.path === selected) : void 0;
+  const systemDirs = useSystemDirs(projectId, system, expanded, treeEpoch);
+  const nodes = (0, import_react22.useMemo)(() => {
+    if (!system) return files.data ?? [];
+    const byPath = new Map((files.data ?? []).map((node) => [node.path, node]));
+    for (const node of systemDirs) byPath.set(node.path, node);
+    return [...byPath.values()];
+  }, [system, files.data, systemDirs]);
+  const selectedFile = selected ? nodes.find((node) => node.type === "file" && node.path === selected) : void 0;
   const fileKind = selected ? fileKindOf(selected) : null;
   const textFile = fileKind === "text" || fileKind === "markdown" || fileKind === "csv";
   const fileData = useProjectFile(projectId, textFile ? selected : null);
@@ -5036,16 +5004,16 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const rename = useRenameProjectEntry();
   const copy = useCopyProjectEntry();
   const del = useDeleteProjectEntry();
-  const tree = (0, import_react21.useMemo)(() => buildTree(files.data ?? []), [files.data]);
+  const tree = (0, import_react22.useMemo)(() => buildTree(nodes), [nodes]);
   const serverContent = fileData.data?.content ?? "";
   const draft = selected != null ? drafts[selected] : void 0;
   const value = draft ?? serverContent;
   const dirty = selected != null && dirtyPaths.has(selected);
   const previewableText = fileKind === "markdown" || fileKind === "csv";
   const editable = selected != null && textFile && !commit && !working;
-  const effTab = tab === "preview" && !previewableText ? "edit" : tab;
+  const effTab = tab === "preview" && !previewableText || tab === "diff" && system ? "edit" : tab;
   const fileSize = selectedFile?.size ?? 0;
-  const headData = useProjectFileAtHead(projectId, selected, editable && effTab === "diff");
+  const headData = useProjectFileAtHead(gitId, selected, editable && effTab === "diff");
   const openFile = (p) => {
     setSelected(p);
     setOpenTabs((tabs) => tabs.includes(p) ? tabs : [...tabs, p]);
@@ -5097,13 +5065,13 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const closeEditor = () => {
     if (confirmDiscard()) onClose?.();
   };
-  (0, import_react21.useEffect)(() => {
+  (0, import_react22.useEffect)(() => {
     if (mobile) setFullscreen(true);
   }, [mobile]);
-  (0, import_react21.useEffect)(() => {
+  (0, import_react22.useEffect)(() => {
     if (!fullscreen || !mobile) setShowTree(false);
   }, [fullscreen, mobile]);
-  (0, import_react21.useEffect)(() => {
+  (0, import_react22.useEffect)(() => {
     if (dirtyPaths.size === 0) return;
     const warn = (event) => {
       event.preventDefault();
@@ -5205,6 +5173,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       setUploading(false);
       if (done > 0) {
         files.refetch();
+        bumpTree();
         expandPath(dir);
         toast(s.uploaded.replace("{count}", String(done)));
       }
@@ -5223,6 +5192,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     if (dialog.kind === "newFile") {
       const path = joinPath(dialog.dir, val);
       newFile.mutate({ id: projectId, path }, { onSuccess: () => {
+        bumpTree();
         expandPath(dialog.dir);
         openFile(path);
         toast(s.fileCreated.replace("{path}", path));
@@ -5230,18 +5200,21 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     } else if (dialog.kind === "newFolder") {
       const path = joinPath(dialog.dir, val);
       newDir.mutate({ id: projectId, path }, { onSuccess: () => {
+        bumpTree();
         expandPath(path);
         toast(s.folderCreated.replace("{path}", path));
       }, onError: err });
     } else if (dialog.kind === "rename") {
       const to = joinPath(parentDir(dialog.target), val);
       rename.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => {
+        bumpTree();
         remapPath(dialog.target, to);
         toast(s.renamed.replace("{path}", to));
       }, onError: err });
     } else if (dialog.kind === "duplicate") {
       const to = joinPath(parentDir(dialog.target), val);
       copy.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => {
+        bumpTree();
         toast(s.duplicated.replace("{path}", to));
       }, onError: err });
     }
@@ -5251,6 +5224,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     if (dialog?.kind !== "delete") return;
     const path = dialog.target;
     del.mutate({ id: projectId, path }, { onSuccess: () => {
+      bumpTree();
       forgetPath(path);
       toast(s.deleted.replace("{path}", path));
     }, onError: err });
@@ -5342,7 +5316,8 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
         options: [
           { id: "edit", label: s.tabEdit, icon: CodeXml },
           ...previewableText ? [{ id: "preview", label: s.tabPreview, icon: Eye }] : [],
-          { id: "diff", label: s.tabDiff, icon: GitCompare }
+          // Nothing to diff against under the system root — there is no HEAD behind `/`.
+          ...system ? [] : [{ id: "diff", label: s.tabDiff, icon: GitCompare }]
         ]
       }
     ),
@@ -5366,6 +5341,10 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(CodeXml, { size: 15, className: "shrink-0 text-primary", "aria-hidden": true }),
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-sm font-semibold text-foreground", children: s.editorTitle })
       ] }),
+      system ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "min-w-0 truncate font-mono text-xs text-muted-foreground", title: SYSTEM_ROOT + (selected ?? ""), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(HardDrive, { size: 11, className: "mr-1 inline shrink-0 text-primary", "aria-hidden": true }),
+        SYSTEM_ROOT + (selected ?? "")
+      ] }) : null,
       working ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "truncate font-mono text-xs text-warning", children: [
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(GitCompare, { size: 11, className: "mr-1 inline", "aria-hidden": true }),
         s.workingChanges
@@ -5509,17 +5488,21 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
 
 // plugins/editor/web-src/EditorPage.tsx
 var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
-var { useProjects, usePluginStrings: usePluginStrings2, useProjectFilter, useFillHeight, useMobile: useMobile2 } = runtime().hooks;
+var { useProjects, usePluginStrings: usePluginStrings2, useProjectFilter, useFillHeight, useMobile: useMobile2, useMe, usePersistentState } = runtime().hooks;
 var {
   ModuleHeader,
   EmptyState: EmptyState2,
   WorkspacePage,
   WorkspaceHero,
   ProjectFilterPills,
+  SelectMenu,
   MotionPresence,
   MotionLayoutItem
 } = runtime().components;
 var { navigate } = runtime();
+var SYSTEM_KEY = "elowen.editor.systemRoot";
+var SYSTEM_CHOICES = ["on", "off"];
+var SYSTEM_OPTION = "system";
 function linkTarget() {
   const params = new URLSearchParams(window.location.search);
   const id = Number(params.get("project"));
@@ -5533,14 +5516,36 @@ function EditorPage() {
   const s = usePluginStrings2("editor");
   const mobile = useMobile2();
   const projects = useProjects();
-  const surfaceRef = (0, import_react22.useRef)(null);
+  const me3 = useMe();
+  const surfaceRef = (0, import_react23.useRef)(null);
   const fillHeight = useFillHeight(surfaceRef);
   const { selectedProject, setProject } = useProjectFilter("elowen.editor.project");
-  const [link] = (0, import_react22.useState)(linkTarget);
+  const [systemChoice, setSystemChoice] = usePersistentState(SYSTEM_KEY, "off", SYSTEM_CHOICES);
+  const [link] = (0, import_react23.useState)(linkTarget);
   const list = projects.data ?? [];
+  const admin = me3.data?.user.is_admin === true;
+  const system = admin && systemChoice === "on";
   const filtered = selectedProject === "all" ? list[0]?.id ?? null : selectedProject;
-  const projectId = link.project != null && list.some((item) => item.id === link.project) ? link.project : filtered;
+  const linked = link.project != null && list.some((item) => item.id === link.project) ? link.project : filtered;
+  const projectId = system ? SYSTEM_PROJECT_ID : linked;
   const project = list.find((item) => item.id === projectId) ?? null;
+  const chooseProject = (next) => {
+    setSystemChoice("off");
+    setProject(next);
+  };
+  const picker = admin ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+    SelectMenu,
+    {
+      label: s.project,
+      value: system ? SYSTEM_OPTION : String(projectId ?? ""),
+      onChange: (next) => next === SYSTEM_OPTION ? setSystemChoice("on") : chooseProject(Number(next)),
+      options: [
+        { value: SYSTEM_OPTION, label: s.systemRoot, icon: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(HardDrive, { size: 14 }) },
+        ...list.map((item) => ({ value: String(item.id), label: item.slug }))
+      ],
+      className: "min-w-[9.5rem]"
+    }
+  ) : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ProjectFilterPills, { value: projectId ?? "all", onChange: setProject, includeAll: false, variant: "dropdown" });
   const onClose = mobile ? () => {
     if (window.history.length > 1) window.history.back();
     else navigate("/dash");
@@ -5554,8 +5559,8 @@ function EditorPage() {
           eyebrow: s.workspaceEyebrow,
           title: s.title,
           icon: CodeXml,
-          status: project ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: "workspace-status", children: s.workspaceReady.replace("{project}", project.slug) }) : void 0,
-          action: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ProjectFilterPills, { value: projectId ?? "all", onChange: setProject, includeAll: false, variant: "dropdown" })
+          status: project || system ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: "workspace-status", children: s.workspaceReady.replace("{project}", system ? s.systemRoot : project?.slug ?? "") }) : void 0,
+          action: picker
         }
       ),
       /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { ref: surfaceRef, className: "min-h-0 overflow-hidden pt-4", style: fillHeight ? { height: fillHeight } : void 0, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MotionPresence, { mode: "wait", children: projectId == null ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(EmptyState2, { title: s.noProjects, description: s.noProjectsDescription, icon: CodeXml }) }, "empty") : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ProjectEditor, { projectId, initialCommit: link.commit, initialWorking: link.working, onClose, fill: true }) }, `${projectId}:${link.commit ?? ""}:${link.working}`) }) })

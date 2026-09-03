@@ -7,6 +7,7 @@
     "strings": {
       "title": "Editor",
       "project": "Projekt",
+      "systemRoot": "Systém (/)",
       "empty": "Nie je k dispozícii žiadny projekt",
       "workspaceEyebrow": "Pracovný priestor kódu",
       "workspaceReady": "{project} pripojený",

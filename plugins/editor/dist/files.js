@@ -1,10 +1,11 @@
 import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileKindOf, MAX_BUFFERED_BYTES, MAX_OFFICE_BYTES } from './fileTypes.js';
+import { isSystemRoot, SYSTEM_ROOT } from './systemRoot.js';
 const run = promisify(execFile);
 const IGNORE = new Set(['.git', 'node_modules', '.next', 'dist', '.turbo', 'coverage', '.cache']);
 /** Marks a half-written upload. Listed nowhere: an in-flight transfer is not a project file, and one
@@ -20,7 +21,29 @@ let activeOfficeConversions = 0;
  *  tells the caller whether a path exists), so the route maps everything else to a flat 'invalid path'. */
 export class EditorFileError extends Error {
 }
-export function listProjectFiles(root, maxDepth = 8) {
+/** The path guard for the system root, with the same contract as the host's `safeProjectPath`.
+ *
+ *  The host's own guard cannot serve `/`: its containment test is `abs === root || abs.startsWith(root +
+ *  sep)`, and at the filesystem root `root + sep` reads `'//'`, which no absolute path starts with — so
+ *  every path on the machine would be refused as "outside project".
+ *
+ *  At `/` containment is a property of resolution itself and needs no comparison: `resolve('/', rel)`
+ *  cannot produce a path above `/` however many `..` segments `rel` carries, and a symlink resolves to a
+ *  real path that is trivially inside it. What the guard still owes the caller is the normalisation —
+ *  `'../etc/shadow'` must address `/etc/shadow`, not something outside the tree. */
+export function safeSystemPath(root, rel) {
+    // Defensive, not decorative: this guard is only correct BECAUSE the root is `/`. Handing it any other
+    // root would silently drop the containment check the host guard performs.
+    if (!isSystemRoot(root))
+        throw new EditorFileError('invalid path');
+    return resolve(SYSTEM_ROOT, rel);
+}
+/** Flat listing of a tree, with every path relative to `root`.
+ *
+ *  `from` lists ONE subtree instead of the whole root — an absolute path the caller has already put
+ *  through the root's path guard. It is how the system root is browsed: a directory at a time, because
+ *  the server filesystem cannot be walked eagerly (see SYSTEM_LIST_DEPTH). */
+export function listProjectFiles(root, maxDepth = 8, from) {
     // A project row can outlive its directory (moved, unmounted, deleted). Listing has nothing to show
     // then, which is an empty tree — not a 500 that makes the whole editor look broken.
     let resolvedRoot;
@@ -30,7 +53,19 @@ export function listProjectFiles(root, maxDepth = 8) {
     catch {
         return [];
     }
+    const prefix = resolvedRoot.endsWith(sep) ? resolvedRoot : resolvedRoot + sep;
+    const inside = (path) => path === resolvedRoot || path.startsWith(prefix);
     const out = [];
+    // Real paths already walked. A symlinked directory can point back at an ancestor, and without this the
+    // walk would list the same subtree once per level left in the depth budget.
+    const seen = new Set();
+    const start = from ?? resolvedRoot;
+    try {
+        seen.add(realpathSync(start));
+    }
+    catch {
+        return [];
+    }
     const visit = (dir, depth) => {
         let entries;
         try {
@@ -45,16 +80,52 @@ export function listProjectFiles(root, maxDepth = 8) {
                 continue;
             const abs = join(dir, entry.name);
             const path = relative(resolvedRoot, abs);
-            if (entry.isDirectory()) {
-                out.push({ path, type: 'dir' });
-                if (depth < maxDepth)
-                    visit(abs, depth + 1);
+            // `readdirSync` reports a symlink as neither a file nor a directory, so a link to a folder used to
+            // be listed as a file carrying the folder's size — which is most of the top of a Linux root
+            // (/bin, /lib, /sbin). Classify it by what it points at instead; a dangling link has no answer and
+            // is dropped along with everything else this process cannot stat.
+            let directory = entry.isDirectory();
+            if (!directory && entry.isSymbolicLink()) {
+                try {
+                    directory = statSync(abs).isDirectory();
+                }
+                catch {
+                    continue;
+                }
             }
-            else
-                out.push({ path, type: 'file', size: statSync(abs).size });
+            if (directory) {
+                out.push({ path, type: 'dir' });
+                if (depth >= maxDepth)
+                    continue;
+                // Follow a link only while its target stays inside the root. Descending one that escapes would
+                // spell out, to somebody who may reach nothing but this project, the names of files outside it.
+                let real;
+                try {
+                    real = realpathSync(abs);
+                }
+                catch {
+                    continue;
+                }
+                if (!inside(real) || seen.has(real))
+                    continue;
+                seen.add(real);
+                visit(abs, depth + 1);
+            }
+            else {
+                // The daemon user cannot read everything under a system root. An entry it cannot stat costs that
+                // entry, never the rest of the directory.
+                let size;
+                try {
+                    size = statSync(abs).size;
+                }
+                catch {
+                    continue;
+                }
+                out.push({ path, type: 'file', size });
+            }
         }
     };
-    visit(resolvedRoot, 0);
+    visit(start, 0);
     return out;
 }
 export function readProjectFile(safe, root, rel) {
@@ -220,7 +291,18 @@ export function copyProjectEntry(safe, root, from, to) {
     cpSync(src, dst, { recursive: true });
 }
 const gitRoot = (root) => realpathSync(root);
+/** Whether git may be invoked for this root at all.
+ *
+ *  Every git call below is already pinned with `-C <root>`, so discovery starts at the root and never at
+ *  the process's own cwd. The system root gets a second, stronger rule: git is not run there AT ALL.
+ *  `/` is not a repository, so the only thing a git invocation could do is walk somewhere and find one —
+ *  and not spawning it is a firmer guarantee than any GIT_CEILING_DIRECTORIES, because there is no
+ *  discovery left to escape upward. It also keeps a stray `/.git` from turning the whole filesystem into
+ *  a repository the editor reports on. */
+const gitUsable = (root) => !isSystemRoot(root);
 export async function projectChangedFiles(root) {
+    if (!gitUsable(root))
+        return [];
     try {
         const { stdout } = await run('git', ['-C', gitRoot(root), 'status', '--porcelain'], { maxBuffer: 4 * 1024 * 1024 });
         return stdout.split('\n').map((line) => line.slice(3).trim()).filter(Boolean).map((path) => { const at = path.indexOf(' -> '); return at >= 0 ? path.slice(at + 4) : path; });
@@ -230,6 +312,8 @@ export async function projectChangedFiles(root) {
     }
 }
 export async function projectWorkingDiff(root) {
+    if (!gitUsable(root))
+        return '';
     try {
         return (await run('git', ['-C', gitRoot(root), 'diff', 'HEAD'], { maxBuffer: 8 * 1024 * 1024 })).stdout;
     }
@@ -238,6 +322,8 @@ export async function projectWorkingDiff(root) {
     }
 }
 export async function projectFileAtHead(safe, root, rel) {
+    if (!gitUsable(root))
+        return '';
     const resolvedRoot = gitRoot(root);
     const clean = relative(resolvedRoot, safe(root, rel));
     try {
@@ -248,6 +334,8 @@ export async function projectFileAtHead(safe, root, rel) {
     }
 }
 export async function projectFileDiff(safe, root, rel) {
+    if (!gitUsable(root))
+        return '';
     const resolvedRoot = gitRoot(root);
     const clean = relative(resolvedRoot, safe(root, rel));
     try {
@@ -264,7 +352,7 @@ export async function projectFileDiff(safe, root, rel) {
  *  itself abbreviates to and the UI passes through whatever the user pasted. */
 const isGitSha = (value) => /^[0-9a-f]{4,40}$/i.test(value);
 export async function projectCommitDiff(root, hash) {
-    if (!isGitSha(hash))
+    if (!gitUsable(root) || !isGitSha(hash))
         return '';
     try {
         return (await run('git', ['-C', gitRoot(root), 'show', '--stat', '--patch', hash], { maxBuffer: 8 * 1024 * 1024 })).stdout;
@@ -274,7 +362,7 @@ export async function projectCommitDiff(root, hash) {
     }
 }
 export async function projectCommitFiles(root, hash) {
-    if (!isGitSha(hash))
+    if (!gitUsable(root) || !isGitSha(hash))
         return [];
     try {
         return (await run('git', ['-C', gitRoot(root), 'show', '--name-only', '--pretty=format:', hash], { maxBuffer: 4 * 1024 * 1024 })).stdout.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -284,7 +372,7 @@ export async function projectCommitFiles(root, hash) {
     }
 }
 export async function projectCommitFileDiff(safe, root, hash, rel) {
-    if (!isGitSha(hash))
+    if (!gitUsable(root) || !isGitSha(hash))
         return '';
     const resolvedRoot = gitRoot(root);
     const clean = relative(resolvedRoot, safe(root, rel));
@@ -296,6 +384,8 @@ export async function projectCommitFileDiff(safe, root, hash, rel) {
     }
 }
 export async function projectCommitLog(root, limit) {
+    if (!gitUsable(root))
+        return [];
     // The route clamps to [1,500]; this guards a direct caller without narrowing that range.
     const n = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 500) : 30;
     try {

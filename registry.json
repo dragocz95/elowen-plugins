@@ -57,7 +57,7 @@
     },
     {
       "name": "editor",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "description": "Project file editor with Monaco, file management, previews for Markdown, images, PDF, media, Office and CSV files, a binary download fallback, and read-only Git history. Disabling it removes the editor UI and makes its grandfathered project-file API unavailable while project registration and task Git history remain available.",
       "category": "tools",
       "author": "Elowen",
