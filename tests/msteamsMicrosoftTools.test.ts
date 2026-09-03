@@ -182,6 +182,130 @@ describe('delegated Microsoft 365 tools', () => {
     expect(text).toContain('download_attachment');
   });
 
+  it('lists mail folders flattened with paths and follows @odata.nextLink paging', async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        value: [{ id: 'f1', displayName: 'Inbox', parentFolderId: null, childFolderCount: 1, totalItemCount: 12, unreadItemCount: 2 }],
+        '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/mailFolders?$top=100&includeHiddenFolders=false&$skiptoken=page2',
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        value: [{ id: 'f2', displayName: 'Archive', parentFolderId: null, childFolderCount: 0, totalItemCount: 3, unreadItemCount: 0 }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        value: [{ id: 'f3', displayName: 'Projekty', parentFolderId: 'f1', childFolderCount: 1, totalItemCount: 1, unreadItemCount: 1 }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        value: [{ id: 'f4', displayName: 'URGENTNÍ', parentFolderId: 'f3', childFolderCount: 0, totalItemCount: 1, unreadItemCount: 1 }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+    const result = JSON.parse(await run('MicrosoftOutlook', { resource: 'mail', action: 'list_folders' }));
+    expect(result).toMatchObject({ truncated: false, summary: '4 mail folders' });
+    expect(result.items.map((folder: { path: string }) => folder.path)).toEqual([
+      'Inbox', 'Inbox/Projekty', 'Inbox/Projekty/URGENTNÍ', 'Archive',
+    ]);
+    const calls = vi.mocked(globalThis.fetch).mock.calls.map((call) => String(call[0]));
+    expect(calls[0]).toBe('https://graph.microsoft.com/v1.0/me/mailFolders?$top=100&includeHiddenFolders=false&$select=id,displayName,parentFolderId,childFolderCount,totalItemCount,unreadItemCount');
+    expect(calls[1]).toBe('https://graph.microsoft.com/v1.0/me/mailFolders?$top=100&includeHiddenFolders=false&$skiptoken=page2');
+    expect(calls[2]).toContain('/me/mailFolders/f1/childFolders?$top=100&includeHiddenFolders=false');
+    expect(calls[3]).toContain('/me/mailFolders/f3/childFolders?$top=100&includeHiddenFolders=false');
+  });
+
+  it('finds mail folders case- and diacritics-insensitively and answers well-known names without Graph', async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        value: [{ id: 'f1', displayName: 'Inbox', childFolderCount: 1, totalItemCount: 0, unreadItemCount: 0 }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        value: [{ id: 'f2', displayName: 'URGENTNÍ', parentFolderId: 'f1', childFolderCount: 0, totalItemCount: 4, unreadItemCount: 4 }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+    // The pure-ASCII query has to reach the accented folder: this fails if the NFKD normalisation is dropped.
+    const found = JSON.parse(await run('MicrosoftOutlook', { resource: 'mail', action: 'find_folder', name: 'urgentni' }));
+    expect(found.items).toEqual([expect.objectContaining({ id: 'f2', displayName: 'URGENTNÍ', path: 'Inbox/URGENTNÍ', parentFolderId: 'f1' })]);
+    const wellKnown = JSON.parse(await run('MicrosoftOutlook', { resource: 'mail', action: 'find_folder', name: 'SentItems' }));
+    expect(wellKnown.items[0]).toMatchObject({ id: 'sentitems', wellKnown: true });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2); // the well-known name never touched Graph
+  });
+
+  it('moves a message by folderName, resolving the folder before the gate', async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        value: [{ id: 'folder-1', displayName: 'URGENTNÍ', childFolderCount: 0, totalItemCount: 0, unreadItemCount: 0 }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        value: [{ id: 'folder-1', displayName: 'URGENTNÍ', childFolderCount: 0, totalItemCount: 0, unreadItemCount: 0 }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'moved-1' }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+    const preview = JSON.parse(await run('MicrosoftOutlook', {
+      resource: 'mail', action: 'move', messageId: 'message-1', folderName: 'urgentni',
+    }));
+    expect(preview).toMatchObject({
+      committed: false,
+      preview: { action: 'move', messageId: 'message-1', destinationId: 'folder-1', folderName: 'urgentni' },
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1); // a preview walks the tree but never posts
+
+    const moved = JSON.parse(await run('MicrosoftOutlook', {
+      resource: 'mail', action: 'move', messageId: 'message-1', folderName: 'urgentni', commit: true,
+    }));
+    expect(moved).toMatchObject({ id: 'moved-1' });
+    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[2]!;
+    expect(String(url)).toContain('/messages/message-1/move');
+    expect(JSON.parse(String(init?.body))).toEqual({ destinationId: 'folder-1' });
+  });
+
+  it('refuses an ambiguous folder name and lists the candidates with their ids', async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        value: [{ id: 'fa', displayName: 'Urgent', childFolderCount: 0 }, { id: 'fb', displayName: 'URGENT', childFolderCount: 0 }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+    const text = await run('MicrosoftOutlook', {
+      resource: 'mail', action: 'move', messageId: 'message-1', folderName: 'urgent', commit: true,
+    });
+    expect(text).toContain('matches several mail folders');
+    expect(text).toContain('fa (Urgent)');
+    expect(text).toContain('fb (URGENT)');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1); // no move was posted
+    expect(await run('MicrosoftOutlook', { resource: 'mail', action: 'move', messageId: 'message-1', commit: true }))
+      .toContain('folderName (or destinationId) is required');
+  });
+
+  it('names the closest folders when a folderName matches nothing', async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        value: [{ id: 'f1', displayName: 'Urgentní', childFolderCount: 0 }, { id: 'f2', displayName: 'Archive', childFolderCount: 0 }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const { run } = harness();
+    const text = await run('MicrosoftOutlook', {
+      resource: 'mail', action: 'move', messageId: 'message-1', folderName: 'urgnecni', commit: true,
+    });
+    expect(text).toContain('No mail folder matching "urgnecni"');
+    expect(text).toContain('Urgentní, Archive');
+  });
+
+  it('previews and commits mail folder creation, nested under a parent', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ id: 'new-folder', displayName: 'URGENTNÍ' }), {
+      status: 201, headers: { 'content-type': 'application/json' },
+    }));
+    const { run } = harness();
+    const preview = await run('MicrosoftOutlook', { resource: 'mail', action: 'create_folder', name: 'URGENTNÍ' });
+    expect(preview).toContain('"committed": false');
+    expect(preview).toContain('"name": "URGENTNÍ"');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+
+    await run('MicrosoftOutlook', { resource: 'mail', action: 'create_folder', name: 'URGENTNÍ', parentId: 'parent-1', commit: true });
+    let [url, init] = vi.mocked(globalThis.fetch).mock.calls[0]!;
+    expect(String(url)).toContain('/me/mailFolders/parent-1/childFolders');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({ displayName: 'URGENTNÍ' });
+
+    await run('MicrosoftOutlook', { resource: 'mail', action: 'create_folder', name: 'Projekty', commit: true });
+    [url] = vi.mocked(globalThis.fetch).mock.calls[1]!;
+    expect(String(url)).toBe('https://graph.microsoft.com/v1.0/me/mailFolders');
+  });
+
   it('does not blindly retry a failed resumable upload chunk', async () => {
     await mkdir(tempRoot, { recursive: true });
     await writeFile(`${tempRoot}/large.bin`, new Uint8Array(4 * 1024 * 1024 + 1));

@@ -1,5 +1,9 @@
 # Changelog
 
+## msteams 0.7.0 - 2026-09-03
+
+- Address Outlook mail folders by name
+
 ## browser 0.1.0 - 2026-09-02
 
 - Add per-account persistent Chrome profiles, typed CDP automation, pinned-proxy network isolation, live web/CLI viewing and exclusive user takeover
