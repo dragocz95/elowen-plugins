@@ -59,6 +59,7 @@ export class BrowserSession {
     snapshotValue = null;
     faviconPageUrl = null;
     faviconDataUrl = null;
+    faviconGeneration = 0;
     artifactRef;
     screencast;
     input;
@@ -534,6 +535,7 @@ export class BrowserSession {
         this.snapshotValue = null;
         this.faviconPageUrl = null;
         this.faviconDataUrl = null;
+        this.faviconGeneration += 1;
     }
     agentMutation(signal, operation) {
         return this.runAgentOperation(signal, operation);
@@ -736,18 +738,46 @@ export class BrowserSession {
         if (!this.artifactRef)
             return;
         const url = snapshot?.url ?? this.page.url();
+        const title = snapshot?.title ?? await this.page.title().catch(() => '');
+        let refreshFavicon = false;
         if (this.faviconPageUrl !== url) {
             this.faviconPageUrl = url;
-            this.faviconDataUrl = await readPageFavicon(this.cdp).catch(() => null);
+            this.faviconDataUrl = null;
+            this.faviconGeneration += 1;
+            refreshFavicon = true;
         }
         await this.deps.artifacts.update(this.artifactRef, artifactData({
             browserSessionId: this.id,
             state: this.stateValue,
-            title: snapshot?.title ?? await this.page.title().catch(() => ''),
+            title,
             url,
             favicon: this.faviconDataUrl,
             lastAction: this.lastAction,
         }));
+        if (refreshFavicon)
+            this.refreshFavicon(url, this.faviconGeneration, this.cdp);
+    }
+    /** Favicon discovery is cosmetic. It never holds an agent/user operation, and a result from a page or
+     *  CDP session that has since moved on cannot overwrite the current page's identity. */
+    refreshFavicon(url, generation, cdp) {
+        void readPageFavicon(cdp).then(async (favicon) => {
+            if (!favicon || generation !== this.faviconGeneration || cdp !== this.cdp || this.page.url() !== url)
+                return;
+            if (this.stateValue === 'closing' || this.stateValue === 'closed' || this.stateValue === 'error')
+                return;
+            const ref = this.artifactRef;
+            if (!ref)
+                return;
+            this.faviconDataUrl = favicon;
+            await this.deps.artifacts.update(ref, artifactData({
+                browserSessionId: this.id,
+                state: this.stateValue,
+                title: await this.page.title().catch(() => ''),
+                url,
+                favicon,
+                lastAction: this.lastAction,
+            }));
+        }).catch(() => { });
     }
     /** The pointer belonged to the page that just went away: a new document or another tab has its own
      *  coordinate space, and keeping the old point would draw the arrow somewhere the agent never was.

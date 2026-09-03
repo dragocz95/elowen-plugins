@@ -365,6 +365,9 @@
   color: var(--color-muted-foreground, #9d948e);
   font-size: var(--text-caption, .6875rem);
 }
+.browser-artifact__site--compact {
+  max-width: 100%;
+}
 .browser-artifact__site-icon {
   width: .85rem;
   height: .85rem;
@@ -404,7 +407,7 @@
   .browser-artifact__surface {
     width: min(100%, calc(92dvh * var(--browser-aspect, 1.6)));
   }
-  .browser-artifact__site {
+  .browser-artifact__controls .browser-artifact__site {
     display: none;
   }
   .browser-artifact__dock {

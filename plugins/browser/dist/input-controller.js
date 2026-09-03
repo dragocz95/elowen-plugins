@@ -87,15 +87,38 @@ const inferredCode = (key) => {
         return key;
     return undefined;
 };
+const NAMED_VIRTUAL_KEYS = {
+    Backspace: 8, Tab: 9, Enter: 13, Escape: 27, Space: 32, PageUp: 33, PageDown: 34,
+    End: 35, Home: 36, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46,
+    F1: 112, F2: 113, F3: 114, F4: 115, F5: 116, F6: 117,
+    F7: 118, F8: 119, F9: 120, F10: 121, F11: 122, F12: 123,
+};
+const virtualKeyCode = (key, normalized) => {
+    if (/^[a-z]$/i.test(key))
+        return key.toUpperCase().charCodeAt(0);
+    if (/^[0-9]$/.test(key))
+        return key.charCodeAt(0);
+    return NAMED_VIRTUAL_KEYS[key] ?? (normalized === ' ' ? 32 : undefined);
+};
 function keyDownParams(key, normalized, modifiers, code) {
     const mask = modifierMask(modifiers);
+    const virtual = virtualKeyCode(key, normalized);
     const commandKey = modifiers?.some((modifier) => modifier === 'Control' || modifier === 'Meta') === true;
     const insertsText = normalized.length === 1 && !modifiers?.some((modifier) => modifier === 'Alt' || modifier === 'Control' || modifier === 'Meta');
     return {
         type: 'keyDown', key: normalized, modifiers: mask,
         ...(code || inferredCode(key) ? { code: code || inferredCode(key) } : {}),
+        ...(virtual !== undefined ? { windowsVirtualKeyCode: virtual, nativeVirtualKeyCode: virtual } : {}),
         ...(insertsText ? { text: normalized } : {}),
         ...(commandKey && normalized.toLowerCase() === 'a' ? { commands: ['selectAll'] } : {}),
+    };
+}
+function keyUpParams(key, normalized, modifiers, code) {
+    const virtual = virtualKeyCode(key, normalized);
+    return {
+        type: 'keyUp', key: normalized, modifiers: modifierMask(modifiers),
+        ...(code || inferredCode(key) ? { code: code || inferredCode(key) } : {}),
+        ...(virtual !== undefined ? { windowsVirtualKeyCode: virtual, nativeVirtualKeyCode: virtual } : {}),
     };
 }
 export class InputRateLimiter {
@@ -153,16 +176,20 @@ export class InputController {
             throw new Error('Browser fill value is too large.');
         await this.cdp.send('DOM.focus', { backendNodeId: requireDomNode(element) });
         await this.cdp.send('Input.dispatchKeyEvent', keyDownParams('a', 'a', ['Control'], 'KeyA'));
-        await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', modifiers: 2 });
-        await this.cdp.send('Input.insertText', { text: value });
+        await this.cdp.send('Input.dispatchKeyEvent', keyUpParams('a', 'a', ['Control'], 'KeyA'));
+        if (value)
+            await this.cdp.send('Input.insertText', { text: value });
+        else {
+            await this.cdp.send('Input.dispatchKeyEvent', keyDownParams('Backspace', 'Backspace', undefined, 'Backspace'));
+            await this.cdp.send('Input.dispatchKeyEvent', keyUpParams('Backspace', 'Backspace', undefined, 'Backspace'));
+        }
         this.emit({ kind: 'action', data: { action: 'fill', target: element.name || element.role } });
     }
     async pressKey(key, modifiers) {
         const normalized = validateKey(key);
-        const mask = modifierMask(modifiers);
         const code = inferredCode(key);
         await this.cdp.send('Input.dispatchKeyEvent', keyDownParams(key, normalized, modifiers, code));
-        await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: normalized, modifiers: mask, ...(code ? { code } : {}) });
+        await this.cdp.send('Input.dispatchKeyEvent', keyUpParams(key, normalized, modifiers, code));
         this.emit({ kind: 'action', data: { action: 'key', key: normalized, modifiers: modifiers ?? [] } });
     }
     async scroll(deltaX, deltaY) {
@@ -197,7 +224,7 @@ export class InputController {
             const code = event.code || inferredCode(event.key);
             await this.cdp.send('Input.dispatchKeyEvent', event.action === 'down'
                 ? keyDownParams(event.key, key, event.modifiers, code)
-                : { type: 'keyUp', key, ...(code ? { code } : {}), modifiers: modifierMask(event.modifiers) });
+                : keyUpParams(event.key, key, event.modifiers, code));
             return;
         }
         const viewport = this.viewport();

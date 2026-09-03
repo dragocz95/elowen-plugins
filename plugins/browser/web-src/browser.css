@@ -396,6 +396,7 @@
   color: var(--color-muted-foreground, #9d948e);
   font-size: var(--text-caption, .6875rem);
 }
+.browser-artifact__site--compact { max-width: 100%; }
 .browser-artifact__site-icon {
   width: .85rem;
   height: .85rem;
@@ -431,7 +432,7 @@
   .browser-artifact { max-width: none; }
   .browser-artifact__overlay { padding: max(.5rem, var(--safe-top, 0px)) max(.5rem, var(--safe-right, 0px)) max(.5rem, var(--safe-bottom, 0px)) max(.5rem, var(--safe-left, 0px)); }
   .browser-artifact__surface { width: min(100%, calc(92dvh * var(--browser-aspect, 1.6))); }
-  .browser-artifact__site { display: none; }
+  .browser-artifact__controls .browser-artifact__site { display: none; }
   .browser-artifact__dock { width: calc(100% - 1rem); bottom: .5rem; }
   /* Two lines on a phone: the canvas is short here, and a third line of subtitle starts covering the page
      it is describing. */

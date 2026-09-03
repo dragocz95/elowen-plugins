@@ -378,8 +378,8 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
     : state === 'user'
       ? <Button variant="ghost" icon={Hand} disabled>{strings.controlledElsewhere || 'Controlled in another window'}</Button>
       : <Button variant="ghost" icon={Hand} onClick={() => { void takeControl(); }} disabled={pending !== null || stream.closed}>{strings.takeControl || 'Take control'}</Button>;
-  const siteLabel = (): ReactNode => (
-    <span className="browser-artifact__site">
+  const siteLabel = (className = ''): ReactNode => (
+    <span className={`browser-artifact__site ${className}`.trim()}>
       {data?.favicon ? <img className="browser-artifact__site-icon" src={data.favicon} alt="" /> : null}
       <span className="browser-artifact__site-text">{site || strings.noAddress || 'No address yet'}</span>
     </span>
@@ -401,7 +401,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
         <span className="browser-artifact__expand" aria-hidden><Expand size={13} /></span>
       </button>
       <div className="mt-1.5 flex items-center gap-2 text-caption text-muted-foreground">
-        <span className="min-w-0 flex-1">{siteLabel()}</span>
+        <span className="min-w-0 flex-1">{siteLabel('browser-artifact__site--compact')}</span>
         {controlAction()}
       </div>
 

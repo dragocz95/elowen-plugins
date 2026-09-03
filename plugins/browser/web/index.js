@@ -870,7 +870,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   }, disabled: pending !== null, children: strings.returnToAgent || "Return to agent" }) : state === "user" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, disabled: true, children: strings.controlledElsewhere || "Controlled in another window" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, onClick: () => {
     void takeControl();
   }, disabled: pending !== null || stream.closed, children: strings.takeControl || "Take control" });
-  const siteLabel = () => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "browser-artifact__site", children: [
+  const siteLabel = (className = "") => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: `browser-artifact__site ${className}`.trim(), children: [
     data?.favicon ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { className: "browser-artifact__site-icon", src: data.favicon, alt: "" }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__site-text", children: site || strings.noAddress || "No address yet" })
   ] });
@@ -889,7 +889,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__expand", "aria-hidden": true, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Expand, { size: 13 }) })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "mt-1.5 flex items-center gap-2 text-caption text-muted-foreground", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 flex-1", children: siteLabel() }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 flex-1", children: siteLabel("browser-artifact__site--compact") }),
           controlAction()
         ] }),
         expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(CanvasOverlay, { label: title, aspect: frameAspect, onClose: () => setExpanded(false), children: [

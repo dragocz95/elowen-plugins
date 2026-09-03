@@ -31,11 +31,11 @@ import { UNAVAILABLE_ARTIFACT_PUBLISHER } from '../plugins/browser/src/artifact.
 import { registerBrowserApi } from '../plugins/browser/src/api.js';
 import { registerBrowserTools } from '../plugins/browser/src/tools.js';
 import type {
-  BrowserLike, BrowserLogger, BrowserProcessFactory, BrowserProxyFactory, CDPSessionLike, PageLike, ProcessInspector,
+  BrowserArtifactPublisher, BrowserLike, BrowserLogger, BrowserProcessFactory, BrowserProxyFactory, CDPSessionLike, PageLike, ProcessInspector,
 } from '../plugins/browser/src/types.js';
 
 const roots: string[] = [];
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => { vi.useRealTimers(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 const logger: BrowserLogger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -152,27 +152,54 @@ describe('browser input controller', () => {
     ]));
   });
 
+  it('clears a field when fill receives an empty replacement', async () => {
+    const cdp = new FakeCdp();
+    await controller(cdp).fill(textbox, '');
+    const downs = cdp.calls.filter((call) => call.method === 'Input.dispatchKeyEvent' && call.params?.type === 'keyDown').map((call) => call.params);
+    expect(downs.at(-1)).toMatchObject({ key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+    expect(cdp.calls.some((call) => call.method === 'Input.insertText')).toBe(false);
+  });
+
   it('types printable keys and gives shortcuts a real code and editing command', async () => {
     const cdp = new FakeCdp();
     const input = controller(cdp);
     await input.pressKey('!', undefined);
     await input.pressKey('a', ['Control']);
+    await input.pressKey('Enter', undefined);
     const downs = cdp.calls.filter((call) => call.method === 'Input.dispatchKeyEvent' && call.params?.type === 'keyDown').map((call) => call.params);
     expect(downs[0]).toMatchObject({ key: '!', text: '!' });
-    expect(downs[1]).toMatchObject({ key: 'a', code: 'KeyA', modifiers: 2, commands: ['selectAll'] });
+    expect(downs[1]).toMatchObject({ key: 'a', code: 'KeyA', modifiers: 2, commands: ['selectAll'], windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65 });
     expect(downs[1]).not.toHaveProperty('text');
+    expect(downs[2]).toMatchObject({ key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
   });
 });
 
 describe('managed page favicon', () => {
-  it('accepts only a bounded image data URL returned by the managed page', async () => {
+  const faviconCdp = () => {
     const cdp = new FakeCdp();
+    cdp.replies.set('Page.getFrameTree', { frameTree: { frame: { id: 'frame-1' } } });
+    cdp.replies.set('Page.createIsolatedWorld', { executionContextId: 42 });
+    return cdp;
+  };
+
+  it('accepts only a bounded image data URL from an isolated managed-page world', async () => {
+    const cdp = faviconCdp();
     cdp.replies.set('Runtime.evaluate', { result: { type: 'string', value: 'data:image/png;base64,aGVsbG8=' } });
     await expect(readPageFavicon(cdp)).resolves.toBe('data:image/png;base64,aGVsbG8=');
-    expect(cdp.calls.at(-1)).toMatchObject({ method: 'Runtime.evaluate', params: { awaitPromise: true, returnByValue: true } });
+    expect(cdp.calls.at(-1)).toMatchObject({ method: 'Runtime.evaluate', params: { contextId: 42, awaitPromise: true, returnByValue: true } });
+    expect(String(cdp.calls.at(-1)?.params?.expression)).toContain("credentials: 'omit'");
 
     cdp.replies.set('Runtime.evaluate', { result: { type: 'string', value: 'data:text/html;base64,aGVsbG8=' } });
     await expect(readPageFavicon(cdp)).resolves.toBeNull();
+  });
+
+  it('stops waiting on CDP from the host side', async () => {
+    vi.useFakeTimers();
+    const cdp = faviconCdp();
+    cdp.replies.set('Runtime.evaluate', () => new Promise(() => {}));
+    const pending = readPageFavicon(cdp);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await expect(pending).resolves.toBeNull();
   });
 });
 
@@ -556,8 +583,12 @@ describe('browser web artifact build', () => {
     // Floating framing must never become a crop: the page is fitted into the monitor, not cut down to it.
     expect(rule(css, '.browser-artifact__canvas img')).toContain('object-fit: contain');
     expect(rule(css, '.browser-artifact__site-icon')).toContain('object-fit: contain');
+    expect(rule(css, '.browser-artifact__site--compact')).toContain('max-width: 100%');
     expect(rule(css, '.browser-artifact')).toContain('max-width: 20rem');
     expect(rule(css, '.browser-artifact[data-expanded=true]')).toContain('opacity: 0');
+    const phone = css.slice(css.indexOf('@media (max-width: 767px)'), css.indexOf('@media (pointer: coarse)'));
+    expect(phone).toMatch(/\.browser-artifact__controls \.browser-artifact__site \{[^}]*display: none/);
+    expect(phone).not.toMatch(/(^|\n)\s*\.browser-artifact__site \{[^}]*display: none/);
   });
 
   it('raises the expanded canvas without a dialog frame over a still-readable page', () => {
@@ -689,7 +720,7 @@ describe('screencast hub', () => {
 });
 
 describe('browser takeover state machine', () => {
-  async function createSession() {
+  async function createSession(artifacts: BrowserArtifactPublisher = UNAVAILABLE_ARTIFACT_PUBLISHER) {
     const store = new BrowserStore(pluginDb());
     const now = Date.now();
     store.createSession({
@@ -703,7 +734,7 @@ describe('browser takeover state machine', () => {
     tabs.registerPrimary('session-1234567890', page);
     const session = await BrowserSession.create({
       id: 'session-1234567890', ownerUserId: 1, conversationId: 'brain-1', createdAt: now, hardExpiresAt: now + 60_000,
-      page, tabs, config: () => config({ takeoverLeaseMs: 30_000 }), store, artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
+      page, tabs, config: () => config({ takeoverLeaseMs: 30_000 }), store, artifacts,
       streamBudget: new StreamBudget(() => 10_000_000), traceLock: new ProcessTraceLock(),
       clock: { now: () => Date.now(), sleep: async () => {} }, logger,
       releasePage: async () => { await tabs.closeSession('session-1234567890'); }, forceCloseBrowser: async () => {}, onClosed: () => {},
@@ -727,6 +758,25 @@ describe('browser takeover state machine', () => {
     const { session, page } = await createSession();
     await expect(session.navigate('http://127.0.0.1:4400/health')).rejects.toThrow(/blocked network|private|loopback/i);
     expect(page.url()).toBe('about:blank');
+    await session.close();
+  });
+
+  it('publishes the page immediately while favicon discovery continues out of band', async () => {
+    const updates: unknown[] = [];
+    const artifacts: BrowserArtifactPublisher = {
+      available: true,
+      open: async () => null,
+      update: async (_ref, data) => { updates.push(data); },
+      close: async () => {},
+    };
+    const { session, page } = await createSession(artifacts);
+    page.cdp.replies.set('Page.getFrameTree', { frameTree: { frame: { id: 'frame-1' } } });
+    page.cdp.replies.set('Page.createIsolatedWorld', { executionContextId: 42 });
+    page.cdp.replies.set('Runtime.evaluate', () => new Promise(() => {}));
+
+    await session.setArtifact({ version: 1, artifactId: 'artifact-1', token: 'token-1', sessionId: 'brain-1' });
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({ favicon: null });
     await session.close();
   });
 
