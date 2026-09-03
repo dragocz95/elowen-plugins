@@ -11,7 +11,7 @@ describe('shared API v3 registry contract', () => {
     cronjob: '0.3.3',
     discord: '0.3.17',
     telegram: '0.2.13',
-    msteams: '0.6.1',
+    msteams: '0.7.0',
     whatsapp: '0.2.16',
   } as const;
 
