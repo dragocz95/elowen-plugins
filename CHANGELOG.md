@@ -1,5 +1,9 @@
 # Changelog
 
+## editor 0.3.5 - 2026-09-03
+
+- Restore host-owned project icons in the administrator project picker and require plugin UI API 16
+
 ## browser 0.2.10 - 2026-09-03
 
 - Rebuild the account browser profile panel on the host's settings rows so it reads as the same surface as Models, Memory and Terminal

@@ -6,8 +6,8 @@ import { SYSTEM_PROJECT_ID } from '../src/systemRoot';
 
 const { useProjects, usePluginStrings, useProjectFilter, useFillHeight, useMobile, useMe, usePersistentState } = runtime().hooks;
 const {
-  ModuleHeader, EmptyState, WorkspacePage, WorkspaceHero, ProjectFilterPills, SelectMenu,
-  MotionPresence, MotionLayoutItem,
+  ModuleHeader, EmptyState, WorkspacePage, WorkspaceHero, ProjectFilterPills, ProjectIcon,
+  SelectMenu, MotionPresence, MotionLayoutItem,
 } = runtime().components;
 const { navigate } = runtime();
 
@@ -67,7 +67,11 @@ export function EditorPage() {
       onChange={(next: string) => (next === SYSTEM_OPTION ? setSystemChoice('on') : chooseProject(Number(next)))}
       options={[
         { value: SYSTEM_OPTION, label: s.systemRoot, icon: <HardDrive size={14} /> },
-        ...list.map((item) => ({ value: String(item.id), label: item.slug })),
+        ...list.map((item) => ({
+          value: String(item.id),
+          label: item.slug,
+          icon: <ProjectIcon project={item} size={14} />,
+        })),
       ]}
       className="min-w-[9.5rem]"
     />

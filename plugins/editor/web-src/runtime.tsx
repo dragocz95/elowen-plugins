@@ -8,7 +8,7 @@ type MutationResult<T> = {
   isPending: boolean;
 };
 
-interface Project { id: number; slug: string; path: string; notes: string; pr_enabled: boolean | null }
+interface Project { id: number; slug: string; path: string; notes: string; icon?: string; pr_enabled: boolean | null }
 export interface FileNode { path: string; type: 'file' | 'dir'; size?: number }
 type Dict = Record<string, Record<string, string>>;
 /** Only what the editor asks of the signed-in account: whether it may reach the system root. */
@@ -23,8 +23,8 @@ interface EditorComponents {
   Field: AnyComponent; Input: AnyComponent; LoadingState: AnyComponent;
   Modal: AnyComponent; ModalBody: AnyComponent; ModalFooter: AnyComponent;
   ModuleHeader: AnyComponent; MotionLayoutItem: AnyComponent; MotionPresence: AnyComponent;
-  PatchView: AnyComponent; ProjectFilterPills: AnyComponent; SelectMenu: AnyComponent;
-  ControlSurfaceDocument: AnyComponent;
+  PatchView: AnyComponent; ProjectFilterPills: AnyComponent; ProjectIcon: AnyComponent;
+  SelectMenu: AnyComponent; ControlSurfaceDocument: AnyComponent;
   WorkspacePage: AnyComponent; WorkspaceHero: AnyComponent; WorkspaceTakeover: AnyComponent;
 }
 

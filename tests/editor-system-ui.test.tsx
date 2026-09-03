@@ -32,8 +32,11 @@ setDefaults(
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: isAdmin ? 'admin' : 'member', is_admin: isAdmin } })),
   http.get('/api/projects', () => HttpResponse.json([
     { id: 5, slug: 'elowen', path: '/var/www/elowen', notes: '', pr_enabled: null },
-    { id: 6, slug: 'kolin', path: '/var/www/kolin', notes: '', pr_enabled: null },
+    { id: 6, slug: 'kolin', path: '/var/www/kolin', notes: '', icon: 'public/brand.svg', pr_enabled: null },
   ])),
+  http.get('/api/projects/:id/raw', () => HttpResponse.text('<svg xmlns="http://www.w3.org/2000/svg"/>', {
+    headers: { 'content-type': 'image/svg+xml' },
+  })),
 );
 
 beforeAll(() => listen());
@@ -58,6 +61,21 @@ describe('EditorPage system root', () => {
     expect(optionLabels()).toContain(strings.systemRoot);
     expect(strings.systemRoot).toBe('System (/)');
     expect(optionLabels()).toEqual(expect.arrayContaining(['elowen', 'kolin']));
+  });
+
+  it('renders System with a drive and every project with the host-owned project identity', async () => {
+    renderPage();
+    await waitFor(() => expect(picker()).toBeInTheDocument());
+
+    const systemIcon = document.querySelector('[data-select-option-icon="system"]');
+    expect(systemIcon?.querySelector('.lucide-hard-drive')).toBeInTheDocument();
+    expect(systemIcon?.querySelector('[data-project-icon]')).toBeNull();
+
+    const plainProjectIcon = document.querySelector('[data-select-option-icon="5"]');
+    expect(plainProjectIcon?.querySelector('svg')).toBeInTheDocument();
+    expect(plainProjectIcon?.querySelector('.lucide-hard-drive')).toBeNull();
+    const customProjectIcon = document.querySelector('[data-select-option-icon="6"]');
+    expect(customProjectIcon?.querySelector('[data-project-icon="public/brand.svg"]')).toBeInTheDocument();
   });
 
   it('does not offer it to a non-admin, who keeps the shared project pills', async () => {
