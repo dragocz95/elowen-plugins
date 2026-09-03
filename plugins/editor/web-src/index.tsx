@@ -2,6 +2,6 @@ import { registerEditorUi } from './runtime';
 import { EditorPage } from './EditorPage';
 
 registerEditorUi({
-  requiresApiVersion: 8,
+  requiresApiVersion: 16,
   pages: { '': EditorPage },
 });

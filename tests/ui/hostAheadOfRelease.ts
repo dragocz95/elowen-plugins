@@ -3,9 +3,9 @@
  *  Both parity guards (tests/hostRuntimeParity.test.ts, tests/hostDictionaryParity.test.ts) hold the
  *  stand-ins in tests/ui/* to the INSTALLED package, because CI has the package and nothing else. That
  *  is the right truth for a stand-in — except while this repository is deliberately built against a host
- *  change that has not been released yet. The inline-artifact host extension is exactly that case: it targets
- *  PLUGIN_UI_API_VERSION 15 (inline artifacts, plus the `narration` and `pendingInput` props an artifact that covers the
- *  transcript needs), while the pinned registry dependencies still lag that unreleased core/UI-kit pair.
+ *  change that has not been released yet. The current host extension targets PLUGIN_UI_API_VERSION 16:
+ *  inline artifacts remain from API 15, and API 16 publishes the host-owned `ProjectIcon` primitive so
+ *  plugin pickers render the same configured project identity as core surfaces.
  *
  *  So the guards allow a stand-in to carry these names — and NOTHING else the package lacks. Every entry
  *  is a promise about the host, not a free pass: each guard also asserts that the package does NOT have
@@ -18,9 +18,9 @@
  *  eye against the daemon working copy and by the plugin bundles' own suites until it ships. */
 
 /** Runtime primitives added after the pinned release. Names only — the maps are untyped records on both
- * sides. Elowen 0.28.17 already ships the register/page-shell primitives, so no runtime exemption remains. */
+ * sides. API 16 adds the canonical project identity component for plugin-owned project pickers. */
 export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; utils: string[] } = {
-  components: [],
+  components: ['ProjectIcon'],
   hooks: [],
   utils: [],
 };
@@ -29,4 +29,4 @@ export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; 
 export const AHEAD_OF_RELEASE_DICTIONARY = ['projects.detailTitle'];
 
 /** The plugin UI API version the daemon's main branch declares ahead of the pinned registry package. */
-export const AHEAD_OF_RELEASE_API_VERSION = 15;
+export const AHEAD_OF_RELEASE_API_VERSION = 16;
