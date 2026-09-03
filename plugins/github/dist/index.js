@@ -5,6 +5,12 @@ export function register(ctx, deps = {}) {
     const service = new GitHubService(ctx, deps);
     registerGitHubApi(ctx, service);
     registerGitHubTools(ctx, service);
+    // The GitHub identity seam siblings resolve with `ctx.control('github')`. Sandbox uses it to start a
+    // confined child already signed in as the person driving the turn; the token stays in this process and
+    // in that child's environment, and never reaches disk on either side.
+    ctx.registerControl('github', {
+        sessionCredential: (input) => service.sessionCredential(input),
+    });
     ctx.registerProjectIndicators(({ projects, user }) => (service.projectIndicators(projects, user?.id ?? null)));
     ctx.registerReadinessCheck(async () => {
         const readiness = await service.readiness();

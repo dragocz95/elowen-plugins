@@ -1,5 +1,9 @@
 # Changelog
 
+## github 0.1.12 - 2026-09-03
+
+- Publish the connected GitHub identity to sibling plugins so a Sandbox shell starts already authenticated
+
 ## msteams 0.7.0 - 2026-09-03
 
 - Address Outlook mail folders by name

@@ -1,6 +1,6 @@
 {
   "name": "github",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "apiVersion": "1",
   "requiresCore": "0.28.13",
   "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
@@ -32,6 +32,9 @@
       "checks",
       "actions/preview",
       "actions/confirm"
+    ],
+    "controls": [
+      "github"
     ]
   },
   "icons": {

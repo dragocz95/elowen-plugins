@@ -66,6 +66,41 @@ export class GitHubService {
         const authInProgress = this.store.deviceFlows({ userId, statuses: ['pending', 'completing'] }).length > 0;
         return { connected: !!account && account.status === 'connected', reconnectRequired: account?.status === 'reconnect_required', account, mappings: this.store.mappings(userId).length, authInProgress };
     }
+    /** The connected identity's live credential for ONE account, handed to a sibling plugin IN-PROCESS
+     *  (`ctx.registerControl('github')`) so a confined child can start already authenticated instead of the
+     *  agent pasting a token or running a second device login. Nothing is written to disk here: what the
+     *  caller does with it is a per-launch environment, so disconnecting stops the next launch outright.
+     *
+     *  Never throws and never mutates. Every "no" — no account, a connection that needs re-establishing, a
+     *  missing or unreadable token — is null, because the caller's job is to launch the command anyway, just
+     *  unauthenticated.
+     *
+     *  It answers only for the account currently driving the turn. The secret vault is bound to that account
+     *  by the host and a plugin cannot name someone else's bag, so serving another account is not something
+     *  this declines to do, it is something it cannot do — and an admin acting on another user's behalf
+     *  reading as "not connected" is the fail-closed answer rather than a gap. */
+    sessionCredential(input) {
+        const accountUserId = input?.accountUserId;
+        if (!Number.isSafeInteger(accountUserId) || accountUserId <= 0)
+            return null;
+        const current = this.ctx.currentContributionUserId() ?? this.ctx.currentIdentity()?.elowenUserId ?? null;
+        if (current !== accountUserId)
+            return null;
+        const account = this.store.account(accountUserId);
+        if (!account || account.status !== 'connected')
+            return null;
+        try {
+            const secret = this.ctx.userSecrets()?.get(CLI_TOKEN_KEY) ?? null;
+            // The same shape `withToken` requires. A token with whitespace in it cannot survive an environment
+            // variable or the credential protocol, so it reads as no connection rather than being handed on.
+            if (!secret || !/^\S+$/.test(secret.value))
+                return null;
+            return { token: secret.value, login: account.login };
+        }
+        catch {
+            return null;
+        }
+    }
     browserConnectionStatus(userId = this.currentUserId()) {
         const status = this.connectionStatus(userId);
         const flow = this.store.deviceFlows({ userId, statuses: ['pending', 'completing'] })[0] ?? null;

@@ -129,6 +129,7 @@ function harness(root: string, fake: { base: string }, nowRef = { value: Date.no
     prepareExecution: async ({ command, cwd }: any) => prepared(command, cwd, join(root, 'home')),
   };
   const routes: any[] = [];
+  const controls = new Map<string, any>();
   const projectIndicatorProviders: ((request: { projects: readonly { id: number }[]; user: { id: number; isAdmin: boolean } | null }) => unknown)[] = [];
   const ctx = {
     config: { clientId: 'client-id', appSlug: 'app-slug' }, instanceSecrets: () => instance,
@@ -139,6 +140,7 @@ function harness(root: string, fake: { base: string }, nowRef = { value: Date.no
     host: { stores: () => ({ projects: { get: (id: number) => id === 1 ? project : null, list: () => [project] }, usersRead: { list: () => [{ id: 1 }, { id: 2 }], isAdmin: () => false, allowedExecs: () => [], mayUsePlugin: () => true }, homeProject: () => project }), git: () => ({ projectSnapshot: async () => ({ isRepo: true, status: { branch: workspace.branch, head: 'a'.repeat(40), upstream: null, ahead: 0, behind: 0, dirty: 0, untracked: 0, clean: true }, remotes: [{ name: 'origin', fetchUrl: 'git@github.com:base/repo.git', pushUrl: 'https://github.com/fork/repo.git' }] }), projectHead: async () => 'a'.repeat(40) }) },
     registerApiRoute: (route: unknown) => routes.push(route), registerTool: () => {},
     registerProjectIndicators: (provider: (request: { projects: readonly { id: number }[]; user: { id: number; isAdmin: boolean } | null }) => unknown) => projectIndicatorProviders.push(provider),
+    registerControl: (name: string, control: unknown) => controls.set(name, control),
     registerReadinessCheck: () => {}, registerBootReconcile: () => {}, registerInterval: () => {}, registerService: () => {}, registerUserRemoved: () => {}, registerProjectRemoved: () => {},
     logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
   } as unknown as PluginContext;
@@ -170,7 +172,7 @@ function harness(root: string, fake: { base: string }, nowRef = { value: Date.no
     }) as any,
   });
   const service = new GitHubService(ctx, { fetch, apiBase: fake.base, now: () => nowRef.value, spawnPrepared: runner, auth });
-  return { ctx, db, service, runner, auth, project, projectIndicatorProviders, setUser: (id: number) => { currentUser = id; }, users, instance, routes, pushCalls, workspace, nowRef };
+  return { ctx, db, service, runner, auth, project, projectIndicatorProviders, controls, setUser: (id: number) => { currentUser = id; }, users, instance, routes, pushCalls, workspace, nowRef };
 }
 
 async function waitForFlow(service: GitHubService, flowId: string): Promise<any> {
@@ -275,7 +277,7 @@ describe('GitHub plugin', () => {
 
   it('declares device auth without App setup or callback routes', () => {
     expect(manifest.userGrantable).not.toBe(true);
-    expect(manifest.version).toBe('0.1.11');
+    expect(manifest.version).toBe('0.1.12');
     // 8, and no longer "nice to have". The floor stayed at 4 while `placement` was the only new thing,
     // because the HOST reads that off the manifest and an older one just falls back to a rail section.
     // The bundle CALLS `LinkedAccountRow` and `SummaryChip` (7), and the pull-request register now also
@@ -291,6 +293,9 @@ describe('GitHub plugin', () => {
     expect(manifest.configSchema).toBeUndefined();
     expect(manifest.provides.apiRoutes).not.toContain('setup');
     expect(manifest.provides.apiRoutes).not.toContain('auth/callback');
+    // Declared so the daemon can answer "who satisfies this dependency" from manifests alone, without
+    // loading the plugin — the same way a consumer's `requiresControls` is resolved.
+    expect(manifest.provides.controls).toEqual(['github']);
   });
 
   it('registers one account-scoped batched Project indicator provider backed only by local store state', async () => {
@@ -405,6 +410,45 @@ describe('GitHub plugin', () => {
     expect(h.service.connectionStatus(1).connected).toBe(true);
     expect(h.users.get(1)?.get('cli-token')?.value).toBe('access-1');
     expect(h.users.get(1)?.get('oauth-token')).toBeNull();
+  });
+
+  it('publishes the connected credential to a sibling plugin, and nothing for anyone else', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'github-plugin-')); roots.push(root); mkdirSync(join(root, '.git'));
+    const fake = await fakeGitHub();
+    try {
+      const h = harness(root, fake);
+      // The control is what Sandbox resolves; it must answer from the same store and secret bag the rest
+      // of the plugin writes, so it is exercised through `register` rather than through a bare service.
+      register(h.ctx, { fetch, apiBase: fake.base, now: () => h.nowRef.value, spawnPrepared: h.runner, auth: h.auth });
+      const control = h.controls.get('github');
+      expect(typeof control?.sessionCredential).toBe('function');
+
+      // No connection yet: an ordinary state, answered with null rather than a throw, because the caller's
+      // job is to launch the command anyway — just unauthenticated.
+      expect(control.sessionCredential({ accountUserId: 1 })).toBeNull();
+
+      const started = await h.service.startDeviceAuth(1);
+      await waitForConnected(h.service, started.flowId);
+      expect(control.sessionCredential({ accountUserId: 1 })).toEqual({ token: 'access-1', login: 'octocat' });
+
+      // A connected account does not leak into a question about a different one, and nonsense ids read as
+      // "not connected" instead of faulting.
+      expect(control.sessionCredential({ accountUserId: 2 })).toBeNull();
+      expect(control.sessionCredential({ accountUserId: 0 })).toBeNull();
+      expect(control.sessionCredential({ accountUserId: Number.NaN })).toBeNull();
+
+      // The secret vault is bound to the account driving the turn. Asking about account 1 from account 2's
+      // turn is the shape an admin acting on someone else's behalf has, and it must fail closed — the
+      // alternative would hand one person's token to another person's shell.
+      h.setUser(2);
+      expect(control.sessionCredential({ accountUserId: 1 })).toBeNull();
+      h.setUser(1);
+
+      // Disconnecting is the whole cleanup story: nothing was written into a HOME, so the very next
+      // question already answers null.
+      h.service.disconnect(1);
+      expect(control.sessionCredential({ accountUserId: 1 })).toBeNull();
+    } finally { fake.server.close(); }
   });
 
   it('retains failed plaintext-directory cleanup durably and retries it before pruning', async () => {
