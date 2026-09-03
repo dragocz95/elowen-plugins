@@ -1,5 +1,9 @@
 # Changelog
 
+## github 0.1.12 - 2026-09-03
+
+- Publish the connected GitHub identity to sibling plugins so a Sandbox shell starts already authenticated
+
 ## browser 0.1.0 - 2026-09-02
 
 - Add per-account persistent Chrome profiles, typed CDP automation, pinned-proxy network isolation, live web/CLI viewing and exclusive user takeover
