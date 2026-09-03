@@ -119,6 +119,7 @@ const commonFields = {
   targetPath: Type.Optional(Type.String()),
   parentId: Type.Optional(Type.String()),
   destinationId: Type.Optional(Type.String()),
+  folderName: Type.Optional(Type.String({ description: 'Mail move alternative to destinationId: resolved with find_folder logic (case- and diacritics-insensitive).' })),
   name: Type.Optional(Type.String()),
   subject: Type.Optional(Type.String()),
   body: Type.Optional(Type.String()),
@@ -189,7 +190,7 @@ export function registerMicrosoftTools(ctx, identityRuntime, cfg) {
     async (p) => files(await get(), ctx, p));
 
   register(ctx, 'MicrosoftOutlook', 'Microsoft Outlook',
-    'Use Outlook mail, calendar or contacts. Set resource=mail|calendar|contacts. Mail actions: search, list, get, list_attachments, read_attachment_text, download_attachment, create_draft, send_draft, send, reply, forward, move, archive. A message that reports hasAttachments only carries metadata, so read its files with list_attachments and then download_attachment (needs attachmentId plus targetPath; use read_attachment_text for plain text ones). Calendar: list_calendars, list_events, get_event, availability, create_event, update_event, respond_event. Contacts: search, list, get, create, update. Destructive actions are disabled by policy.',
+    'Use Outlook mail, calendar or contacts. Set resource=mail|calendar|contacts. Mail actions: search, list, get, list_folders, find_folder, create_folder, list_attachments, read_attachment_text, download_attachment, create_draft, send_draft, send, reply, forward, move, archive. Folders are addressed by name through find_folder / folderName; move needs destinationId or folderName. A message that reports hasAttachments only carries metadata, so read its files with list_attachments and then download_attachment (needs attachmentId plus targetPath; use read_attachment_text for plain text ones). Calendar: list_calendars, list_events, get_event, availability, create_event, update_event, respond_event. Contacts: search, list, get, create, update. Destructive actions are disabled by policy.',
     async (p) => outlook(await get(), ctx, p));
 
   register(ctx, 'MicrosoftTasks', 'Microsoft tasks',
@@ -440,6 +441,110 @@ function mailboxBase(p) { return p.userId ? `/users/${enc(p.userId)}` : '/me'; }
 function recipients(values) { return (values ?? []).map((address) => ({ emailAddress: { address: String(address) } })); }
 function messageBody(p) { return { contentType: String(p.bodyType ?? 'text').toUpperCase() === 'HTML' ? 'HTML' : 'Text', content: String(p.body ?? '') }; }
 
+const FOLDER_SELECT = '$select=id,displayName,parentFolderId,childFolderCount,totalItemCount,unreadItemCount';
+const FOLDER_MAX_DEPTH = 4;
+const FOLDER_MAX_TOTAL = 500;
+/** Well-known folder names are valid destinationIds on their own, so a move by such a name never has to walk the tree. */
+const WELL_KNOWN_FOLDERS = new Map([
+  ['inbox', { id: 'inbox', displayName: 'Inbox', path: 'Inbox' }],
+  ['archive', { id: 'archive', displayName: 'Archive', path: 'Archive' }],
+  ['drafts', { id: 'drafts', displayName: 'Drafts', path: 'Drafts' }],
+  ['sentitems', { id: 'sentitems', displayName: 'Sent Items', path: 'Sent Items' }],
+  ['deleteditems', { id: 'deleteditems', displayName: 'Deleted Items', path: 'Deleted Items' }],
+  ['junkemail', { id: 'junkemail', displayName: 'Junk Email', path: 'Junk Email' }],
+]);
+
+/** Folder names match across case and diacritics, so URGENTNÍ is found as urgentni. */
+const normalizeFolderName = (value) => String(value ?? '')
+  .normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase()
+  .trim();
+
+async function fetchMailFolderLevel(graph, base, parentId) {
+  const prefix = `${base}/mailFolders`;
+  const root = parentId ? `${prefix}/${enc(parentId)}/childFolders` : prefix;
+  const first = `${root}?$top=100&includeHiddenFolders=false&${FOLDER_SELECT}`;
+  const items = [];
+  let cursor;
+  do {
+    // graph.page owns @odata.nextLink paging: the cursor round-trips through its encode/decode helpers.
+    const page = await graph.page(first, { limit: 50, cursor, cursorPrefix: prefix, permission: P.mail });
+    items.push(...page.items);
+    cursor = page.nextCursor;
+  } while (cursor && items.length < FOLDER_MAX_TOTAL);
+  return items.slice(0, FOLDER_MAX_TOTAL);
+}
+
+async function walkMailFolders(graph, base, parentId, parentPath, depth, state) {
+  if (depth > FOLDER_MAX_DEPTH || state.total >= FOLDER_MAX_TOTAL) return;
+  for (const folder of await fetchMailFolderLevel(graph, base, parentId)) {
+    if (state.total >= FOLDER_MAX_TOTAL) { state.truncated = true; return; }
+    const displayName = String(folder?.displayName ?? '');
+    const path = parentPath ? `${parentPath}/${displayName}` : displayName;
+    state.folders.push({
+      id: folder?.id,
+      displayName,
+      path,
+      parentFolderId: folder?.parentFolderId ?? null,
+      childFolderCount: folder?.childFolderCount ?? 0,
+      totalItemCount: folder?.totalItemCount ?? 0,
+      unreadItemCount: folder?.unreadItemCount ?? 0,
+    });
+    state.total += 1;
+    if ((folder?.childFolderCount ?? 0) > 0) await walkMailFolders(graph, base, folder.id, path, depth + 1, state);
+  }
+}
+
+async function collectMailFolders(graph, base, parentId) {
+  const state = { folders: [], total: 0, truncated: false };
+  if (parentId) {
+    const parent = await graph.json('GET', `${base}/mailFolders/${enc(parentId)}?$select=displayName`, { permission: P.mail });
+    await walkMailFolders(graph, base, parentId, String(parent?.displayName ?? ''), 1, state);
+  } else {
+    await walkMailFolders(graph, base, undefined, '', 1, state);
+  }
+  return state;
+}
+
+function matchMailFolders(folders, name) {
+  const needle = normalizeFolderName(name);
+  const exact = []; const prefixed = []; const contains = [];
+  for (const folder of folders) {
+    const hay = normalizeFolderName(folder.displayName);
+    if (hay === needle) exact.push(folder);
+    else if (needle && hay.startsWith(needle)) prefixed.push(folder);
+    else if (needle && hay.includes(needle)) contains.push(folder);
+  }
+  return [...exact, ...prefixed, ...contains];
+}
+
+const folderPathList = (folders, max = 10) => folders.slice(0, max).map((folder) => folder.path).join(', ');
+
+const noMailFolderMessage = (name, folders) =>
+  `No mail folder matching "${name}" (case- and diacritics-insensitive). Known folders: ${folderPathList(folders)}.`;
+
+/** One exact match moves; several exact matches list their ids; none names the closest folders by path. */
+async function resolveMailFolder(graph, base, name) {
+  const wellKnown = WELL_KNOWN_FOLDERS.get(normalizeFolderName(name));
+  if (wellKnown) return { ...wellKnown, wellKnown: true };
+  const state = await collectMailFolders(graph, base);
+  const needle = normalizeFolderName(name);
+  const exact = state.folders.filter((folder) => normalizeFolderName(folder.displayName) === needle);
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) {
+    throw new Error(`"${name}" matches several mail folders. Pick one and re-run move with destinationId: ${exact.map((folder) => `${folder.id} (${folder.path})`).join(', ')}.`);
+  }
+  const closest = state.folders.filter((folder) => {
+    const hay = normalizeFolderName(folder.displayName);
+    return hay.startsWith(needle) || hay.includes(needle);
+  });
+  const hint = closest.length
+    ? ` Closest folders: ${folderPathList(closest)}.`
+    : ` Known folders: ${folderPathList(state.folders)}.`;
+  throw new Error(`No mail folder matching "${name}" (case- and diacritics-insensitive).${hint}`);
+}
+
 async function outlook({ graph, cfg }, ctx, p) {
   const resource = nonempty(p.resource, 'resource');
   const action = nonempty(p.action, 'action');
@@ -489,6 +594,28 @@ async function outlook({ graph, cfg }, ctx, p) {
       await writeFile(safe, file.body);
       return ok({ saved: safe, bytes: file.body.byteLength, contentType: file.contentType });
     }
+    if (action === 'list_folders') {
+      const state = await collectMailFolders(graph, base, p.parentId);
+      return ok({ items: state.folders, truncated: state.truncated, summary: `${state.folders.length} mail folders` });
+    }
+    if (action === 'find_folder') {
+      const name = nonempty(p.name, 'name');
+      const wellKnown = WELL_KNOWN_FOLDERS.get(normalizeFolderName(name));
+      if (wellKnown) return ok({ items: [{ ...wellKnown, wellKnown: true, parentFolderId: null }], summary: `"${name}" is a well-known folder id usable as destinationId.` });
+      const state = await collectMailFolders(graph, base, p.parentId);
+      const matches = matchMailFolders(state.folders, name).slice(0, 20);
+      if (!matches.length) throw new Error(noMailFolderMessage(name, state.folders));
+      return ok({
+        items: matches.map(({ id, displayName, path, parentFolderId }) => ({ id, displayName, path, parentFolderId })),
+        summary: `${matches.length} folder match(es) for "${name}"`,
+      });
+    }
+    if (action === 'create_folder') {
+      const name = nonempty(p.name, 'name');
+      const gate = mutationGate(cfg, p, { action, mailbox: p.userId || 'me', name, parentId: p.parentId ?? null }); if (gate.result) return gate.result;
+      const path = p.parentId ? `${base}/mailFolders/${enc(p.parentId)}/childFolders` : `${base}/mailFolders`;
+      return ok(await graph.json('POST', path, { body: { displayName: name }, permission: P.mail }));
+    }
     if (action === 'delete') throw new Error('Microsoft mail deletion is disabled by policy.');
     const draft = { subject: String(p.subject ?? ''), body: messageBody(p), toRecipients: recipients(p.to), ccRecipients: recipients(p.cc) };
     if (action === 'create_draft') {
@@ -507,8 +634,18 @@ async function outlook({ graph, cfg }, ctx, p) {
       await graph.json('POST', `${base}/messages/${message}/${action}`, { body, permission: P.mail }); return ok({ [action === 'reply' ? 'replied' : 'forwarded']: true });
     }
     if (action === 'move' || action === 'archive') {
-      const destinationId = action === 'archive' ? 'archive' : nonempty(p.destinationId, 'destinationId');
-      const gate = mutationGate(cfg, p, { action, messageId: p.messageId ?? p.id, destinationId }); if (gate.result) return gate.result;
+      let destinationId;
+      let folderName;
+      if (action === 'archive') {
+        destinationId = 'archive';
+      } else if (p.destinationId) {
+        destinationId = nonempty(p.destinationId, 'destinationId');
+      } else {
+        // The name resolves to an id before the gate, so the preview shows the exact move it would make.
+        folderName = nonempty(p.folderName, 'folderName (or destinationId)');
+        destinationId = (await resolveMailFolder(graph, base, folderName)).id;
+      }
+      const gate = mutationGate(cfg, p, { action, messageId: p.messageId ?? p.id, destinationId, ...(folderName ? { folderName } : {}) }); if (gate.result) return gate.result;
       return ok(await graph.json('POST', `${base}/messages/${message}/move`, { body: { destinationId }, permission: P.mail }));
     }
   }
