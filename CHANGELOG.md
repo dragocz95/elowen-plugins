@@ -1,5 +1,13 @@
 # Changelog
 
+## browser 0.2.5 - 2026-09-03
+
+- Rebuild the account browser profile panel on the host's settings rows so it reads as the same surface as Models, Memory and Terminal
+
+## github 0.1.13 - 2026-09-03
+
+- Name the personal GitHub settings entry "GitHub" instead of the plugin's whole description
+
 ## github 0.1.12 - 2026-09-03
 
 - Publish the connected GitHub identity to sibling plugins so a Sandbox shell starts already authenticated

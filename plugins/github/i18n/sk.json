@@ -1,5 +1,6 @@
 {
   "description": "Integrácia GitHub CLI pre jednotlivé účty: mapovanie repozitárov, bezpečné publikovanie vetiev zo Sandboxu, pull requesty, revízie, kontroly a výslovne potvrdené zlúčenie.",
+  "userConfigLabel": "GitHub",
   "fields": {
     "mergeMethod": { "label": "Predvolený spôsob zlúčenia", "hint": "Použije sa, keď akcia zlúčenia výslovne neurčí spôsob.", "options": { "squash": "Squash", "merge": "Merge commit", "rebase": "Rebase" } }
   },

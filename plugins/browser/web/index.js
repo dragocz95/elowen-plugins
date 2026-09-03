@@ -140,6 +140,14 @@ var Activity = createLucideIcon("Activity", [
   ]
 ]);
 
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/app-window.js
+var AppWindow = createLucideIcon("AppWindow", [
+  ["rect", { x: "2", y: "4", width: "20", height: "16", rx: "2", key: "izxlao" }],
+  ["path", { d: "M10 4v4", key: "pp8u80" }],
+  ["path", { d: "M2 8h20", key: "d11cs7" }],
+  ["path", { d: "M6 4v4", key: "1svtjw" }]
+]);
+
 // ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/arrow-left.js
 var ArrowLeft = createLucideIcon("ArrowLeft", [
   ["path", { d: "m12 19-7-7 7-7", key: "1l729n" }],
@@ -199,6 +207,20 @@ var Hand = createLucideIcon("Hand", [
       key: "1s1gnw"
     }
   ]
+]);
+
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/hard-drive.js
+var HardDrive = createLucideIcon("HardDrive", [
+  ["line", { x1: "22", x2: "2", y1: "12", y2: "12", key: "1y58io" }],
+  [
+    "path",
+    {
+      d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z",
+      key: "oot6mr"
+    }
+  ],
+  ["line", { x1: "6", x2: "6.01", y1: "16", y2: "16", key: "sgf278" }],
+  ["line", { x1: "10", x2: "10.01", y1: "16", y2: "16", key: "1l4acy" }]
 ]);
 
 // ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/message-circle-question.js
@@ -306,7 +328,7 @@ var bytes = (value) => {
 };
 function BrowserAccount({ surface }) {
   const host = runtime();
-  const { PluginPageHeader, DetailBlock, Badge, Button, ConfirmDialog, LoadingState, ErrorState, EmptyState } = host.components;
+  const { PluginPageHeader, SettingsDocument, SettingsGroup, SettingsRow, Badge, IconButton, ConfirmDialog, LoadingState, ErrorState, EmptyState } = host.components;
   const strings = host.hooks.usePluginStrings("browser");
   const toast = host.hooks.useToast();
   const client = host.hooks.useQueryClient();
@@ -332,34 +354,81 @@ function BrowserAccount({ surface }) {
   const loading = profile.isLoading || sessions.isLoading;
   const error = profile.isError ? profile.error : sessions.isError ? sessions.error : null;
   const live = sessions.data?.live ?? [];
+  const clearBlocked = live.length > 0;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-4", children: [
     surface === "page" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PluginPageHeader, { title: strings.accountTitle || "Browser profile", description: strings.accountDescription || "Your private Chrome profile keeps browser sign-ins between sessions on this Elowen instance.", icon: Earth }) : null,
     loading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoadingState, { variant: "block", height: "12rem" }) : error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ErrorState, { message: apiError(error), onRetry: () => {
       void profile.refetch();
       void sessions.refetch();
     } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "grid gap-3 md:grid-cols-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DetailBlock, { icon: Database, title: strings.profileStorage || "Stored browser data", hint: strings.profileStorageHint || "Cookies and sign-in state live only in your account profile. Live images are never stored.", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: "muted", children: bytes(profile.data?.profileBytes ?? 0) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Badge, { tone: live.length ? "accent" : "muted", children: [
-              live.length,
-              " ",
-              strings.activeSessions || "active sessions"
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost-danger", icon: Trash2, onClick: () => setConfirmClear(true), disabled: live.length > 0 || clear.isPending, children: strings.clearProfile || "Clear browser data" }) })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DetailBlock, { icon: Earth, title: strings.liveSessions || "Live sessions", hint: strings.liveSessionsHint || "Closing a tab session does not erase your saved browser profile.", children: live.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EmptyState, { title: strings.noSessions || "No browser session is running", description: strings.noSessionsDescription || "A session appears here when your agent opens the browser.", icon: Earth }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "space-y-2", children: live.map((session) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "truncate font-mono text-xs text-foreground", children: [
-              session.id.slice(0, 12),
-              "\u2026"
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-xs text-muted-foreground", children: session.state === "user" ? strings.userControl || "User control" : strings.agentControl || "Agent control" })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost-danger", icon: X, onClick: () => close.mutate(session.id), disabled: close.isPending, children: strings.closeSession || "Close" })
-        ] }, session.id)) }) })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(SettingsDocument, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          SettingsGroup,
+          {
+            icon: Database,
+            title: strings.profileStorage || "Stored browser data",
+            description: strings.profileStorageHint || "Cookies and sign-in state live only in your account profile. Live images are never stored.",
+            children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              SettingsRow,
+              {
+                icon: HardDrive,
+                label: strings.storageUsed || "Space used",
+                trailingLayout: clearBlocked ? "stack" : "inline",
+                status: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: "muted", children: bytes(profile.data?.profileBytes ?? 0) }),
+                control: clearBlocked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: strings.clearBlocked || "Close every running session before the profile can be cleared." }) : void 0,
+                actions: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                  IconButton,
+                  {
+                    icon: Trash2,
+                    variant: "danger",
+                    label: strings.clearProfile || "Clear browser data",
+                    onClick: () => setConfirmClear(true),
+                    disabled: clearBlocked || clear.isPending
+                  }
+                )
+              }
+            )
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          SettingsGroup,
+          {
+            icon: Earth,
+            title: strings.liveSessions || "Live sessions",
+            description: strings.liveSessionsHint || "Closing a tab session does not erase your saved browser profile.",
+            actions: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: live.length ? "accent" : "muted", children: live.length }),
+            children: live.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              EmptyState,
+              {
+                title: strings.noSessions || "No browser session is running",
+                description: strings.noSessionsDescription || "A session appears here when your agent opens the browser.",
+                icon: Earth
+              }
+            ) : live.map((session) => (
+              // The session id is the record's name and is deliberately clipped: it identifies the tab
+              // to whoever is closing it and is not something anyone reads in full.
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                SettingsRow,
+                {
+                  icon: AppWindow,
+                  label: `${session.id.slice(0, 12)}\u2026`,
+                  status: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs text-muted-foreground", children: session.state === "user" ? strings.userControl || "User control" : strings.agentControl || "Agent control" }),
+                  actions: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                    IconButton,
+                    {
+                      icon: X,
+                      variant: "danger",
+                      label: strings.closeSession || "Close",
+                      onClick: () => close.mutate(session.id),
+                      disabled: close.isPending
+                    }
+                  )
+                },
+                session.id
+              )
+            ))
+          }
+        )
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         ConfirmDialog,

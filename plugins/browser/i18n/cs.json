@@ -111,6 +111,8 @@
       "dep_artifacts_missing_fix": "Aktualizujte Elowen na verzi, která publikuje vložené artefakty chatu.",
       "profileStorage": "Uložená data prohlížeče",
       "profileStorageHint": "Cookies a přihlášení jsou pouze ve vašem profilu. Snímky živého náhledu se neukládají.",
+      "storageUsed": "Využité místo",
+      "clearBlocked": "Než bude možné profil vymazat, ukončete všechny běžící relace.",
       "clearProfile": "Vymazat data prohlížeče",
       "profileCleared": "Data prohlížeče byla vymazána.",
       "liveSessions": "Aktivní relace",

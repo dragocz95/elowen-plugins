@@ -55,8 +55,11 @@ interface RuntimeComponents {
     title?: string;
     children?: ReactNode;
   }>;
-  // No `IconButton`: it is a bordered square that aligns to a table row or a toolbar rule, and the marks
-  // on the live canvas are round glass discs. The artifact draws that one itself (BrowserArtifact.GlassButton).
+  /** The square icon-only control that aligns to a settings row's trailing edge — which is exactly what
+   *  the account panel's two destructive actions are. It is NOT what the live canvas uses: the marks
+   *  floating over a screencast are round glass discs, and the artifact still draws those itself
+   *  (BrowserArtifact.GlassButton). Two different controls for two different surfaces, on purpose. */
+  IconButton: ComponentType<{ icon: LucideIcon; label: string; onClick?: () => void; variant?: 'default' | 'danger'; disabled?: boolean }>;
   Badge: ComponentType<{ tone?: 'default' | 'accent' | 'muted' | 'danger' | 'success' | 'warning'; children: ReactNode }>;
   // No `Modal`: the artifact's expanded view is a borderless canvas, and every Modal presentation frames
   // its content in a titled card. The plugin draws that surface itself (BrowserArtifact.CanvasOverlay).
@@ -74,7 +77,6 @@ interface RuntimeComponents {
   LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'kanban' | 'block'; height?: string }>;
   ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
   EmptyState: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
-  DetailBlock: ComponentType<{ icon: LucideIcon; title: string; hint?: string; children: ReactNode }>;
   // The canonical settings anatomy (host web/components/ui/SettingsSurface.tsx), which is what every
   // settings and account page in the app is built from — so this plugin's page needs no cards, no rows
   // and no responsive rules of its own. Props mirror the host exactly.

@@ -1,5 +1,6 @@
 {
   "description": "Integrace GitHub CLI pro jednotlivé účty: mapování repozitářů, bezpečné publikování větví ze Sandboxu, pull requesty, revize, kontroly a výslovně potvrzené sloučení.",
+  "userConfigLabel": "GitHub",
   "fields": {
     "mergeMethod": { "label": "Výchozí způsob sloučení", "hint": "Použije se, když akce sloučení výslovně neurčí způsob.", "options": { "squash": "Squash", "merge": "Merge commit", "rebase": "Rebase" } }
   },

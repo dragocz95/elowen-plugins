@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -54,6 +54,31 @@ test('checks userConfigSchema enum labels as manifest translation keys', () => {
   const result = run(root);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /missing fields\.method\.options\.safe/);
+});
+
+// `userConfigLabel` is the short name the host's Account rail shows for a plugin's per-account settings.
+// It is a menu entry, so an untranslated one leaves English sitting in an otherwise Czech rail — exactly
+// the failure this whole contract exists to prevent.
+test('holds the per-account settings label to the same translation parity as the description', () => {
+  const { root, plugin, translation } = fixture();
+  const manifest = JSON.parse(readFileSync(join(plugin, 'elowen-plugin.json'), 'utf8'));
+  manifest.userConfigLabel = 'Demo CRM';
+  writeFileSync(join(plugin, 'elowen-plugin.json'), JSON.stringify(manifest));
+  writeFileSync(join(plugin, 'i18n', 'cs.json'), JSON.stringify({ ...translation, userConfigLabel: 'Demo CRM' }));
+
+  const result = run(root);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /plugin demo \(sk\): missing userConfigLabel translation/);
+  assert.doesNotMatch(result.stderr, /plugin demo \(cs\): missing userConfigLabel/);
+});
+
+test('rejects a per-account settings label translation with nothing in the manifest behind it', () => {
+  const { root, plugin, translation } = fixture();
+  writeFileSync(join(plugin, 'i18n', 'cs.json'), JSON.stringify({ ...translation, userConfigLabel: 'Demo CRM' }));
+
+  const result = run(root);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /userConfigLabel has no matching manifest userConfigLabel/);
 });
 
 test('rejects orphaned field and enum option translations', () => {
