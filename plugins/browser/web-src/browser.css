@@ -16,6 +16,9 @@
   max-width: 20rem;
   margin: .4rem 0 .6rem;
 }
+/* The expanded canvas is portalled to body, so hiding this transcript anchor removes the duplicate small
+   monitor without touching the raised view. The same node becomes visible again when the overlay closes. */
+.browser-artifact[data-expanded='true'] { opacity: 0; pointer-events: none; }
 
 .browser-artifact__tile {
   position: relative;
@@ -46,7 +49,7 @@
      The surface publishes the measured composer height on this ancestor, so the monitor follows a growing
      textarea and always sits directly above it instead of guessing a fixed bottom offset. */
   .chat-surface-full .browser-artifact {
-    position: fixed;
+    position: absolute;
     z-index: var(--z-fab, 40);
     right: max(var(--shell-gutter, 1rem), var(--safe-right, 0px));
     bottom: calc(var(--chat-composer-height, 5rem) + var(--chat-visual-bottom-offset, 0px) + .75rem);

@@ -3,6 +3,10 @@
   max-width: 20rem;
   margin: .4rem 0 .6rem;
 }
+.browser-artifact[data-expanded=true] {
+  opacity: 0;
+  pointer-events: none;
+}
 .browser-artifact__tile {
   position: relative;
   display: block;
@@ -27,7 +31,7 @@
     aspect-ratio: 1;
   }
   .chat-surface-full .browser-artifact {
-    position: fixed;
+    position: absolute;
     z-index: var(--z-fab, 40);
     right: max(var(--shell-gutter, 1rem), var(--safe-right, 0px));
     bottom: calc(var(--chat-composer-height, 5rem) + var(--chat-visual-bottom-offset, 0px) + .75rem);

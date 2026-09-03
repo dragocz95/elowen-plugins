@@ -509,13 +509,14 @@ describe('browser web artifact build', () => {
   it('docks the wide-screen browser above the composer and shows the whole page in it', () => {
     const css = stylesheet();
     const desktop = css.slice(css.indexOf('@media (min-width: 768px)'), css.indexOf('@media (max-width: 767px)'));
-    expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact \{[^}]*position: fixed/);
+    expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact \{[^}]*position: absolute/);
     expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact \{[^}]*bottom: calc\(var\(--chat-composer-height/);
     expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact \{[^}]*right: max\(var\(--shell-gutter/);
     expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact__tile \.browser-artifact__canvas \{[^}]*aspect-ratio: var\(--browser-aspect/);
     // Floating framing must never become a crop: the page is fitted into the monitor, not cut down to it.
     expect(rule(css, '.browser-artifact__canvas img')).toContain('object-fit: contain');
     expect(rule(css, '.browser-artifact')).toContain('max-width: 20rem');
+    expect(rule(css, '.browser-artifact[data-expanded=true]')).toContain('opacity: 0');
   });
 
   it('raises the expanded canvas without a dialog frame over a still-readable page', () => {

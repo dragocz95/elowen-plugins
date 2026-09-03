@@ -870,78 +870,88 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
     void takeControl();
   }, disabled: pending !== null || stream.closed, children: strings.takeControl || "Take control" });
   if (!data) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "browser-artifact__fallback", children: artifact.fallback });
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "browser-artifact", style: aspectStyle, "aria-label": strings.sessionTitle || "Browser session", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", className: "browser-artifact__tile", onClick: () => setExpanded(true), "aria-label": strings.enlarge || "Enlarge browser", children: [
-      canvas(false),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__expand", "aria-hidden": true, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Expand, { size: 13 }) })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "mt-1.5 flex items-center gap-2 text-caption text-muted-foreground", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 flex-1 truncate", children: site || strings.noAddress || "No address yet" }),
-      controlAction()
-    ] }),
-    expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(CanvasOverlay, { label: title, aspect: frameAspect, onClose: () => setExpanded(false), children: [
-      canvas(true),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: X, label: strings.closeView || "Close view", onClick: () => setExpanded(false), className: "browser-artifact__dismiss" }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__dock", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sr-only", role: "status", "aria-live": "polite", children: waiting ? waiting.label : "" }),
-        visibleSpeech ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "browser-artifact__narration", role: "status", "aria-live": "polite", "aria-atomic": "true", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(MessageSquareText, { className: "browser-artifact__narration-icon", size: 13, "aria-hidden": true }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__narration-text", children: visibleSpeech }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-            "button",
-            {
-              type: "button",
-              className: "browser-artifact__narration-dismiss",
-              onClick: () => setSpeechHidden(true),
-              "aria-label": strings.dismissNarration || "Dismiss agent message",
-              title: strings.dismissNarration || "Dismiss agent message",
-              children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(X, { size: 12, "aria-hidden": true })
-            }
-          )
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+    "section",
+    {
+      className: "browser-artifact",
+      style: aspectStyle,
+      "data-expanded": expanded ? "true" : void 0,
+      "aria-hidden": expanded ? true : void 0,
+      "aria-label": strings.sessionTitle || "Browser session",
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", className: "browser-artifact__tile", onClick: () => setExpanded(true), "aria-label": strings.enlarge || "Enlarge browser", children: [
+          canvas(false),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__expand", "aria-hidden": true, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Expand, { size: 13 }) })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "mt-1.5 flex items-center gap-2 text-caption text-muted-foreground", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 flex-1 truncate", children: site || strings.noAddress || "No address yet" }),
+          controlAction()
+        ] }),
+        expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(CanvasOverlay, { label: title, aspect: frameAspect, onClose: () => setExpanded(false), children: [
+          canvas(true),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: X, label: strings.closeView || "Close view", onClick: () => setExpanded(false), className: "browser-artifact__dismiss" }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__dock", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sr-only", role: "status", "aria-live": "polite", children: waiting ? waiting.label : "" }),
+            visibleSpeech ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "browser-artifact__narration", role: "status", "aria-live": "polite", "aria-atomic": "true", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(MessageSquareText, { className: "browser-artifact__narration-icon", size: 13, "aria-hidden": true }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__narration-text", children: visibleSpeech }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "browser-artifact__narration-dismiss",
+                  onClick: () => setSpeechHidden(true),
+                  "aria-label": strings.dismissNarration || "Dismiss agent message",
+                  title: strings.dismissNarration || "Dismiss agent message",
+                  children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(X, { size: 12, "aria-hidden": true })
+                }
+              )
+            ] }) : null,
+            waiting ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+              "button",
+              {
+                type: "button",
+                className: "browser-artifact__question",
+                onClick: () => {
+                  pendingReveal.current = waiting.reveal;
+                  setExpanded(false);
+                },
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(MessageCircleQuestion, { size: 15, "aria-hidden": true }),
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: waiting.label })
+                ]
+              }
+            ) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__controls", children: [
+              lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]) }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => shortcut("ArrowRight", "ArrowRight", ["Alt"]) }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => shortcut("r", "KeyR", ["Control"]) })
+              ] }) : null,
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__site", children: site || strings.noAddress || "No address yet" }),
+              controlAction(),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: Power, label: strings.closeSession || "Close session", tone: "danger", onClick: () => setConfirmClose(true), disabled: pending !== null || stream.closed })
+            ] })
+          ] })
         ] }) : null,
-        waiting ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-          "button",
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          ConfirmDialog,
           {
-            type: "button",
-            className: "browser-artifact__question",
-            onClick: () => {
-              pendingReveal.current = waiting.reveal;
-              setExpanded(false);
+            open: confirmClose,
+            title: strings.closeConfirmTitle || "Close browser session?",
+            description: strings.closeConfirmDescription || "The live view and tab will close. Your browser profile and sign-in data remain stored.",
+            confirmLabel: strings.closeSession || "Close session",
+            confirmVariant: "danger",
+            pending: pending === "close",
+            onConfirm: () => {
+              void closeSession();
             },
-            children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(MessageCircleQuestion, { size: 15, "aria-hidden": true }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: waiting.label })
-            ]
+            onClose: () => setConfirmClose(false)
           }
-        ) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__controls", children: [
-          lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowLeft, label: strings.back || "Back", onClick: () => shortcut("ArrowLeft", "ArrowLeft", ["Alt"]) }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: ArrowRight, label: strings.forward || "Forward", onClick: () => shortcut("ArrowRight", "ArrowRight", ["Alt"]) }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: RotateCw, label: strings.reload || "Reload", onClick: () => shortcut("r", "KeyR", ["Control"]) })
-          ] }) : null,
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__site", children: site || strings.noAddress || "No address yet" }),
-          controlAction(),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: Power, label: strings.closeSession || "Close session", tone: "danger", onClick: () => setConfirmClose(true), disabled: pending !== null || stream.closed })
-        ] })
-      ] })
-    ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-      ConfirmDialog,
-      {
-        open: confirmClose,
-        title: strings.closeConfirmTitle || "Close browser session?",
-        description: strings.closeConfirmDescription || "The live view and tab will close. Your browser profile and sign-in data remain stored.",
-        confirmLabel: strings.closeSession || "Close session",
-        confirmVariant: "danger",
-        pending: pending === "close",
-        onConfirm: () => {
-          void closeSession();
-        },
-        onClose: () => setConfirmClose(false)
-      }
-    )
-  ] });
+        )
+      ]
+    }
+  );
 }
 
 // plugins/browser/web-src/BrowserSettings.tsx

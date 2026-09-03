@@ -106,8 +106,11 @@ describe('browser plugin UI', () => {
   it('expands into a borderless canvas that closes on Escape', async () => {
     use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
     mountArtifact();
+    const compact = document.querySelector('.browser-artifact');
     fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
     const canvas = await screen.findByRole('dialog', { name: 'Example' });
+    expect(compact).toHaveAttribute('data-expanded', 'true');
+    expect(compact).toHaveAttribute('aria-hidden', 'true');
     expect(canvas).toHaveAttribute('aria-modal', 'true');
     // No dialog header, body or footer: the raised surface carries the image and floating controls only.
     expect(within(canvas).queryByRole('heading')).toBeNull();
@@ -118,6 +121,8 @@ describe('browser plugin UI', () => {
     await waitFor(() => expect(document.querySelectorAll('.browser-artifact__cursor').length).toBeGreaterThan(0));
     fireEvent.keyDown(canvas, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(compact).not.toHaveAttribute('data-expanded');
+    expect(compact).not.toHaveAttribute('aria-hidden');
   });
 
   it('draws the close control as one glass button, not a bordered square inside a disc', async () => {

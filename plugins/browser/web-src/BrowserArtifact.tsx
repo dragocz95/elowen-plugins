@@ -380,7 +380,13 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   if (!data) return <div className="browser-artifact__fallback">{artifact.fallback}</div>;
 
   return (
-    <section className="browser-artifact" style={aspectStyle} aria-label={strings.sessionTitle || 'Browser session'}>
+    <section
+      className="browser-artifact"
+      style={aspectStyle}
+      data-expanded={expanded ? 'true' : undefined}
+      aria-hidden={expanded ? true : undefined}
+      aria-label={strings.sessionTitle || 'Browser session'}
+    >
       {/* The thumbnail is the control that opens the canvas: one target, no chrome around it. */}
       <button type="button" className="browser-artifact__tile" onClick={() => setExpanded(true)} aria-label={strings.enlarge || 'Enlarge browser'}>
         {canvas(false)}
