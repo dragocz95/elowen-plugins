@@ -4,6 +4,7 @@ import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } fr
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { ToastProvider, createWrapper } from './ui/hostHooks';
 import manifest from '../plugins/browser/elowen-plugin.json' with { type: 'json' };
+import csTranslations from '../plugins/browser/i18n/cs.json' with { type: 'json' };
 import { BrowserArtifact } from '../plugins/browser/web-src/BrowserArtifact';
 import { BrowserAccount } from '../plugins/browser/web-src/BrowserAccount';
 import { BrowserSettings } from '../plugins/browser/web-src/BrowserSettings';
@@ -11,6 +12,7 @@ import { registerBrowserUi } from '../plugins/browser/web-src/runtime';
 
 ensurePluginUiRuntime();
 const strings = manifest.web.strings;
+const csStrings = csTranslations.web.strings;
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'browser', url: '/plugins/browser/web/index.js', cssUrl: '/plugins/browser/web/index.css', apiVersion: 15, nav: [], account: manifest.web.account, settings: manifest.web.settings, strings }])),
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: 'user', is_admin: true } })),
@@ -500,5 +502,136 @@ describe('browser plugin UI', () => {
     expect(await screen.findByText(strings.activeAccounts)).toBeInTheDocument();
     expect(screen.getByText('1 / 4')).toBeInTheDocument();
     expect(screen.queryByText('https://example.com')).toBeNull();
+  });
+
+  // The account panel sits in the Account deck between Models, Memory and Terminal. Those are the host's
+  // settings groups and rows; this one used to be a pair of hand-built tiles in a grid of its own, which
+  // read as a different application wearing the same colours. Assert the host's anatomy rather than a
+  // resemblance somebody has to maintain by eye.
+  it('builds the account panel from the host settings groups and rows, with no layout of its own', async () => {
+    use(
+      http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 1 })),
+      http.get('/api/plugins/browser/api/sessions', () => HttpResponse.json({ live: [{ id: 'secret-session-id', state: 'agent', lease: null }], history: [] })),
+    );
+    const Wrapper = wrapper();
+    const view = render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    await screen.findByText('2.0 KiB');
+    expect(view.container.querySelectorAll('[data-settings-document]')).toHaveLength(1);
+    // Two groups: the stored profile, and the sessions running against it.
+    const groups = view.container.querySelectorAll('[data-settings-group]');
+    expect(groups).toHaveLength(2);
+    expect(within(groups[0] as HTMLElement).getByText(strings.profileStorage)).toBeInTheDocument();
+    expect(within(groups[1] as HTMLElement).getByText(strings.liveSessions)).toBeInTheDocument();
+    // The storage figure and the running session are settings ROWS, not tiles.
+    expect(view.container.querySelectorAll('.settings-row')).toHaveLength(2);
+    // Both destructive actions are the host's square icon control, named for a screen reader rather than
+    // spelled out in a wide labelled button that would set the row height.
+    expect(screen.getByRole('button', { name: strings.clearProfile })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: strings.closeSession })).toBeInTheDocument();
+  });
+
+  // Clearing the profile under a running Chrome would corrupt it, so the control waits — and a disabled
+  // destructive action that never says why is a dead end.
+  it('blocks clearing while a session runs and states the reason, then allows it once none are left', async () => {
+    let live: unknown[] = [{ id: 'secret-session-id', state: 'agent', lease: null }];
+    use(
+      http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: live.length })),
+      http.get('/api/plugins/browser/api/sessions', () => HttpResponse.json({ live, history: [] })),
+    );
+    const Wrapper = wrapper();
+    const view = render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    await screen.findByText('2.0 KiB');
+    expect(screen.getByRole('button', { name: strings.clearProfile })).toBeDisabled();
+    expect(screen.getByText(strings.clearBlocked)).toBeInTheDocument();
+
+    live = [];
+    view.unmount();
+    render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(screen.getByRole('button', { name: strings.clearProfile })).toBeEnabled());
+    // With nothing running, the sessions group says so in the host's empty state rather than an empty box.
+    expect(screen.getByText(strings.noSessions)).toBeInTheDocument();
+    expect(screen.queryByText(strings.clearBlocked)).toBeNull();
+  });
+
+  it('closes the session the reader picked, named by who is holding it', async () => {
+    const closed: string[] = [];
+    use(
+      http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 1 })),
+      http.get('/api/plugins/browser/api/sessions', () => HttpResponse.json({ live: [{ id: 'secret-session-id', state: 'user', lease: null }], history: [] })),
+      http.post('/api/plugins/browser/api/close', ({ request }) => {
+        closed.push(new URL(request.url).searchParams.get('sessionId') ?? '');
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const Wrapper = wrapper();
+    render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    await screen.findByText('2.0 KiB');
+    // Who holds the session stays visible on the row — it must not regress into a tooltip.
+    expect(screen.getByText(strings.userControl)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: strings.closeSession }));
+    await waitFor(() => expect(closed).toEqual(['secret-session-id']));
+  });
+
+  it('destroys the profile only behind the confirmation, never on the icon action alone', async () => {
+    let cleared = 0;
+    use(
+      http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 0 })),
+      http.get('/api/plugins/browser/api/sessions', () => HttpResponse.json({ live: [], history: [] })),
+      http.delete('/api/plugins/browser/api/profile', () => { cleared += 1; return HttpResponse.json({ ok: true }); }),
+    );
+    const Wrapper = wrapper();
+    render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    await screen.findByText('2.0 KiB');
+    fireEvent.click(screen.getByRole('button', { name: strings.clearProfile }));
+    expect(await screen.findByText(strings.clearConfirmTitle)).toBeInTheDocument();
+    expect(cleared).toBe(0);
+
+    // The dialog's own confirm, not the row's icon action — they share a name on purpose.
+    const dialog = screen.getByText(strings.clearConfirmTitle).closest('.modal, [role="dialog"]') as HTMLElement;
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.clearProfile }));
+    await waitFor(() => expect(cleared).toBe(1));
+  });
+
+  it('keeps the account panel on the host error state when the profile cannot be read', async () => {
+    use(
+      http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ error: 'boom' }, { status: 500 })),
+      http.get('/api/plugins/browser/api/sessions', () => HttpResponse.json({ live: [], history: [] })),
+    );
+    const Wrapper = wrapper();
+    const view = render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    expect(await screen.findByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    // Nothing of the surface is drawn over a failed read, so no figure is shown as if it were real.
+    expect(view.container.querySelectorAll('[data-settings-group]')).toHaveLength(0);
+  });
+
+  // Czech is a fully translated locale for this plugin, so the panel must be Czech throughout — no English
+  // sentence surviving in a rail entry or a row because a string was only ever written in the manifest.
+  it('says every account-panel string in the reader\'s language', async () => {
+    use(
+      http.get('/api/plugins/ui', () => HttpResponse.json([{
+        name: 'browser', url: '/plugins/browser/web/index.js', cssUrl: '/plugins/browser/web/index.css',
+        apiVersion: 15, nav: [], account: manifest.web.account, settings: manifest.web.settings,
+        strings: { ...strings, ...csStrings },
+      }])),
+      http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 1 })),
+      http.get('/api/plugins/browser/api/sessions', () => HttpResponse.json({ live: [{ id: 'secret-session-id', state: 'agent', lease: null }], history: [] })),
+    );
+    const Wrapper = wrapper();
+    const view = render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    expect(await screen.findByText(csStrings.profileStorage)).toBeInTheDocument();
+    expect(screen.getByText(csStrings.storageUsed)).toBeInTheDocument();
+    expect(screen.getByText(csStrings.liveSessions)).toBeInTheDocument();
+    expect(screen.getByText(csStrings.agentControl)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: csStrings.clearProfile })).toBeInTheDocument();
+    // The English originals are gone, not merely covered up.
+    for (const english of [strings.profileStorage, strings.storageUsed, strings.liveSessions, strings.agentControl]) {
+      expect(within(view.container).queryByText(english)).toBeNull();
+    }
   });
 });

@@ -465,20 +465,17 @@
   .mt-1\.5 {
     margin-top: calc(var(--spacing, 0.25rem) * 1.5);
   }
-  .mt-3 {
-    margin-top: calc(var(--spacing, 0.25rem) * 3);
-  }
   .block {
     display: block;
   }
   .flex {
     display: flex;
   }
-  .grid {
-    display: grid;
-  }
   .hidden {
     display: none;
+  }
+  .inline {
+    display: inline;
   }
   .min-w-0 {
     min-width: 0px;
@@ -489,30 +486,16 @@
   .transform {
     transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
   }
-  .flex-wrap {
-    flex-wrap: wrap;
-  }
   .items-center {
     align-items: center;
   }
-  .justify-between {
-    justify-content: space-between;
-  }
   .gap-2 {
     gap: calc(var(--spacing, 0.25rem) * 2);
-  }
-  .gap-3 {
-    gap: calc(var(--spacing, 0.25rem) * 3);
   }
   :where(.space-y-1 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
     margin-block-start: calc(var(--spacing, 0.25rem) * var(--tw-space-y-reverse));
     margin-block-end: calc(var(--spacing, 0.25rem) * calc(1 - var(--tw-space-y-reverse)));
-  }
-  :where(.space-y-2 > :not(:last-child)) {
-    --tw-space-y-reverse: 0;
-    margin-block-start: calc(calc(var(--spacing, 0.25rem) * 2) * var(--tw-space-y-reverse));
-    margin-block-end: calc(calc(var(--spacing, 0.25rem) * 2) * calc(1 - var(--tw-space-y-reverse)));
   }
   :where(.space-y-4 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
@@ -524,27 +507,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .rounded-lg {
-    border-radius: var(--radius-lg, 0.75rem);
-  }
-  .border {
-    border-style: var(--tw-border-style);
-    border-width: 1px;
-  }
-  .border-border {
-    border-color: var(--color-border, #242424);
-  }
-  .px-3 {
-    padding-inline: calc(var(--spacing, 0.25rem) * 3);
-  }
-  .py-2 {
-    padding-block: calc(var(--spacing, 0.25rem) * 2);
-  }
   .text-left {
     text-align: left;
-  }
-  .font-mono {
-    font-family: var(--font-mono, var(--font-geist-mono), ui-monospace, "SF Mono", monospace);
   }
   .text-sm {
     font-size: var(--text-sm, 0.875rem);
@@ -562,11 +526,6 @@
   }
   .text-muted-foreground {
     color: var(--color-muted-foreground, #9d948e);
-  }
-  @media (width >= 48rem) {
-    .md\:grid-cols-2 {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
   }
 }
 @property --tw-rotate-x {
@@ -594,11 +553,6 @@
   inherits: false;
   initial-value: 0;
 }
-@property --tw-border-style {
-  syntax: "*";
-  inherits: false;
-  initial-value: solid;
-}
 @layer properties {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
     *, ::before, ::after, ::backdrop {
@@ -608,7 +562,6 @@
       --tw-skew-x: initial;
       --tw-skew-y: initial;
       --tw-space-y-reverse: 0;
-      --tw-border-style: solid;
     }
   }
 }
