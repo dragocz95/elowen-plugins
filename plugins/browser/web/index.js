@@ -28,27 +28,27 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/react-dom.cjs
+// ../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react-dom.cjs
 var require_react_dom = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react-dom.cjs"(exports, module) {
+  "../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react-dom.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.reactDom;
@@ -58,19 +58,19 @@ var require_react_dom = __commonJS({
 // plugins/browser/web-src/BrowserAccount.tsx
 var import_react3 = __toESM(require_react(), 1);
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -83,7 +83,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -115,7 +115,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -129,7 +129,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/activity.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/activity.js
 var Activity = createLucideIcon("Activity", [
   [
     "path",
@@ -140,26 +140,26 @@ var Activity = createLucideIcon("Activity", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/arrow-left.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/arrow-left.js
 var ArrowLeft = createLucideIcon("ArrowLeft", [
   ["path", { d: "m12 19-7-7 7-7", key: "1l729n" }],
   ["path", { d: "M19 12H5", key: "x3x0zl" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/arrow-right.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/arrow-right.js
 var ArrowRight = createLucideIcon("ArrowRight", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/database.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/database.js
 var Database = createLucideIcon("Database", [
   ["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3", key: "msslwz" }],
   ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5", key: "1wlel7" }],
   ["path", { d: "M3 12A9 3 0 0 0 21 12", key: "mv7ke4" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/earth.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/earth.js
 var Earth = createLucideIcon("Earth", [
   ["path", { d: "M21.54 15H17a2 2 0 0 0-2 2v4.54", key: "1djwo0" }],
   [
@@ -173,7 +173,7 @@ var Earth = createLucideIcon("Earth", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/expand.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/expand.js
 var Expand = createLucideIcon("Expand", [
   ["path", { d: "m21 21-6-6m6 6v-4.8m0 4.8h-4.8", key: "1c15vz" }],
   ["path", { d: "M3 16.2V21m0 0h4.8M3 21l6-6", key: "1fsnz2" }],
@@ -181,13 +181,13 @@ var Expand = createLucideIcon("Expand", [
   ["path", { d: "M3 7.8V3m0 0h4.8M3 3l6 6", key: "u9ee12" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/gauge.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/gauge.js
 var Gauge = createLucideIcon("Gauge", [
   ["path", { d: "m12 14 4-4", key: "9kzdfg" }],
   ["path", { d: "M3.34 19a10 10 0 1 1 17.32 0", key: "19p75a" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/hand.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/hand.js
 var Hand = createLucideIcon("Hand", [
   ["path", { d: "M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2", key: "1fvzgz" }],
   ["path", { d: "M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2", key: "1kc0my" }],
@@ -201,28 +201,28 @@ var Hand = createLucideIcon("Hand", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/message-circle-question.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/message-circle-question.js
 var MessageCircleQuestion = createLucideIcon("MessageCircleQuestion", [
   ["path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z", key: "vv11sd" }],
   ["path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3", key: "1u773s" }],
   ["path", { d: "M12 17h.01", key: "p32p05" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/message-square-text.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/message-square-text.js
 var MessageSquareText = createLucideIcon("MessageSquareText", [
   ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }],
   ["path", { d: "M13 8H7", key: "14i4kc" }],
   ["path", { d: "M17 12H7", key: "16if0g" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/monitor.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/monitor.js
 var Monitor = createLucideIcon("Monitor", [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
   ["line", { x1: "8", x2: "16", y1: "21", y2: "21", key: "1svkeh" }],
   ["line", { x1: "12", x2: "12", y1: "17", y2: "21", key: "vw1qmm" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/plug-zap.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/plug-zap.js
 var PlugZap = createLucideIcon("PlugZap", [
   [
     "path",
@@ -234,19 +234,19 @@ var PlugZap = createLucideIcon("PlugZap", [
   ["path", { d: "m18 3-4 4h6l-4 4", key: "16psg9" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/power.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/power.js
 var Power = createLucideIcon("Power", [
   ["path", { d: "M12 2v10", key: "mnfbl" }],
   ["path", { d: "M18.4 6.6a9 9 0 1 1-12.77.04", key: "obofu9" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/rotate-cw.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/rotate-cw.js
 var RotateCw = createLucideIcon("RotateCw", [
   ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", key: "1p45f6" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/shield-check.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/shield-check.js
 var ShieldCheck = createLucideIcon("ShieldCheck", [
   [
     "path",
@@ -258,7 +258,7 @@ var ShieldCheck = createLucideIcon("ShieldCheck", [
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/trash-2.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
@@ -267,7 +267,7 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/x.js
+// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/x.js
 var X = createLucideIcon("X", [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
@@ -529,6 +529,7 @@ function useBrowserStream(path) {
 
 // plugins/browser/web-src/BrowserArtifact.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
+var NARRATION_VISIBLE_MS = 1e4;
 var asData = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value;
@@ -643,7 +644,9 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const [confirmClose, setConfirmClose] = (0, import_react5.useState)(false);
   const [pending, setPending] = (0, import_react5.useState)(null);
   const [lease, setLease] = (0, import_react5.useState)(null);
+  const [speechHidden, setSpeechHidden] = (0, import_react5.useState)(false);
   const pointerTimer = (0, import_react5.useRef)(null);
+  const speechTimer = (0, import_react5.useRef)(null);
   const pendingMove = (0, import_react5.useRef)(null);
   const pendingReveal = (0, import_react5.useRef)(null);
   const sessionId = data?.browserSessionId ?? "";
@@ -653,6 +656,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const state = stream.closed ? "closed" : lease || stream.control.state === "user" || data?.state === "user" ? "user" : data?.state ?? "agent";
   const takeoverRequested = stream.control.state === "agent" && stream.control.reason === "requested";
   const speech = (narration ?? "").trim();
+  const visibleSpeech = speechHidden ? "" : speech;
   const waiting = pendingInput ?? null;
   const frame = stream.frame;
   const frameAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
@@ -660,7 +664,29 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const action = stream.action ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` \xB7 ${stream.action.target}` : ""}` : takeoverRequested ? strings.waitingForUser || "Waiting for user input" : data?.lastAction;
   (0, import_react5.useEffect)(() => () => {
     if (pointerTimer.current) clearTimeout(pointerTimer.current);
+    if (speechTimer.current) clearTimeout(speechTimer.current);
   }, []);
+  (0, import_react5.useEffect)(() => {
+    if (speechTimer.current) {
+      clearTimeout(speechTimer.current);
+      speechTimer.current = null;
+    }
+    if (!speech) {
+      setSpeechHidden(false);
+      return;
+    }
+    if (speechHidden) return;
+    speechTimer.current = setTimeout(() => {
+      speechTimer.current = null;
+      setSpeechHidden(true);
+    }, NARRATION_VISIBLE_MS);
+    return () => {
+      if (speechTimer.current) {
+        clearTimeout(speechTimer.current);
+        speechTimer.current = null;
+      }
+    };
+  }, [speech, speechHidden]);
   (0, import_react5.useEffect)(() => {
     if (!lease) return;
     const interval = setInterval(() => {
@@ -858,9 +884,20 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: X, label: strings.closeView || "Close view", onClick: () => setExpanded(false), className: "browser-artifact__dismiss" }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__dock", children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sr-only", role: "status", "aria-live": "polite", children: waiting ? waiting.label : "" }),
-        speech ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "browser-artifact__narration", role: "status", "aria-live": "polite", "aria-atomic": "true", children: [
+        visibleSpeech ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "browser-artifact__narration", role: "status", "aria-live": "polite", "aria-atomic": "true", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(MessageSquareText, { className: "browser-artifact__narration-icon", size: 13, "aria-hidden": true }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__narration-text", children: speech })
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__narration-text", children: visibleSpeech }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            "button",
+            {
+              type: "button",
+              className: "browser-artifact__narration-dismiss",
+              onClick: () => setSpeechHidden(true),
+              "aria-label": strings.dismissNarration || "Dismiss agent message",
+              title: strings.dismissNarration || "Dismiss agent message",
+              children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(X, { size: 12, "aria-hidden": true })
+            }
+          )
         ] }) : null,
         waiting ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
           "button",

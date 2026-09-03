@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { ToastProvider, createWrapper } from './ui/hostHooks';
@@ -16,7 +16,7 @@ setDefaults(
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: 'user', is_admin: true } })),
 );
 beforeAll(() => listen());
-afterEach(() => { cleanup(); resetHandlers(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); resetHandlers(); vi.useRealTimers(); vi.restoreAllMocks(); });
 afterAll(() => close());
 
 const artifact = {
@@ -221,6 +221,33 @@ describe('browser plugin UI', () => {
     expect(canvas.querySelector('.browser-artifact__narration')).toBeNull();
     // The browser's own action status is a separate, shorter thing and stays.
     expect(await within(canvas).findByText('Clicking · Continue')).toBeInTheDocument();
+  });
+
+  it('dismisses narration until the next agent message and expires it after ten seconds', async () => {
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    const view = mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    const canvas = await screen.findByRole('dialog', { name: 'Example' });
+    vi.useFakeTimers();
+
+    view.narrate('Working on the first step.');
+    expect(within(canvas).getByText('Working on the first step.')).toBeInTheDocument();
+    fireEvent.click(within(canvas).getByRole('button', { name: 'Dismiss agent message' }));
+    expect(within(canvas).queryByText('Working on the first step.')).toBeNull();
+
+    // More streamed text belongs to the same message and stays dismissed.
+    view.narrate('Working on the first step. Still processing.');
+    expect(within(canvas).queryByText('Still processing.')).toBeNull();
+
+    // The empty host narration marks the next user turn; the following agent message is new and reappears.
+    view.narrate('');
+    view.narrate('Starting the next step.');
+    expect(within(canvas).getByText('Starting the next step.')).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(9_999); });
+    expect(within(canvas).getByText('Starting the next step.')).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(within(canvas).queryByText('Starting the next step.')).toBeNull();
+    vi.useRealTimers();
   });
 
   it('places the agent pointer from the action itself when the cursor frames never arrive', async () => {

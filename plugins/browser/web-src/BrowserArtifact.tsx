@@ -14,6 +14,8 @@ interface ArtifactData {
 }
 interface Lease { leaseId: string; expiresAt: number }
 
+const NARRATION_VISIBLE_MS = 10_000;
+
 const asData = (value: unknown): ArtifactData | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as Partial<ArtifactData>;
@@ -139,7 +141,9 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const [confirmClose, setConfirmClose] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [lease, setLease] = useState<Lease | null>(null);
+  const [speechHidden, setSpeechHidden] = useState(false);
   const pointerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingMove = useRef<Record<string, unknown> | null>(null);
   /** A host `reveal` waiting for this canvas to actually get out of the way — see the effect below. */
   const pendingReveal = useRef<(() => void) | null>(null);
@@ -153,6 +157,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
    *  so without this the reply streams on underneath it. The host already bounds and clears the string —
    *  the plugin only decides whether there is anything to show. */
   const speech = (narration ?? '').trim();
+  const visibleSpeech = speechHidden ? '' : speech;
   /** The app is waiting on an answer and this canvas is covering the card that takes it (host API 15).
    *  Nothing about the question crosses the boundary — a line to show and a way back. */
   const waiting = pendingInput ?? null;
@@ -165,7 +170,24 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
     ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` · ${stream.action.target}` : ''}`
     : takeoverRequested ? strings.waitingForUser || 'Waiting for user input' : data?.lastAction;
 
-  useEffect(() => () => { if (pointerTimer.current) clearTimeout(pointerTimer.current); }, []);
+  useEffect(() => () => {
+    if (pointerTimer.current) clearTimeout(pointerTimer.current);
+    if (speechTimer.current) clearTimeout(speechTimer.current);
+  }, []);
+  useEffect(() => {
+    if (speechTimer.current) { clearTimeout(speechTimer.current); speechTimer.current = null; }
+    // The host clears narration on the next user turn. That empty edge is the message boundary: a manually
+    // dismissed or expired line stays hidden while the same reply streams, then the next reply may show.
+    if (!speech) { setSpeechHidden(false); return; }
+    if (speechHidden) return;
+    speechTimer.current = setTimeout(() => {
+      speechTimer.current = null;
+      setSpeechHidden(true);
+    }, NARRATION_VISIBLE_MS);
+    return () => {
+      if (speechTimer.current) { clearTimeout(speechTimer.current); speechTimer.current = null; }
+    };
+  }, [speech, speechHidden]);
   useEffect(() => {
     if (!lease) return;
     const interval = setInterval(() => {
@@ -380,14 +402,23 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
             {/* One persistent region, so a question that arrives while the canvas is already open is
                 announced rather than appearing silently behind it. */}
             <span className="sr-only" role="status" aria-live="polite">{waiting ? waiting.label : ''}</span>
-            {speech ? (
+            {visibleSpeech ? (
               <p className="browser-artifact__narration" role="status" aria-live="polite" aria-atomic="true">
                 {/* Whose words these are, in one mark rather than a line of copy explaining it. */}
                 <MessageSquareText className="browser-artifact__narration-icon" size={13} aria-hidden />
                 {/* The clamp lives on the inner box: a padded element clips its overflow at the PADDING
                     edge, so a third line paints into the bottom padding and is cut in half instead of
                     hidden. Padding out here, clamp in there. */}
-                <span className="browser-artifact__narration-text">{speech}</span>
+                <span className="browser-artifact__narration-text">{visibleSpeech}</span>
+                <button
+                  type="button"
+                  className="browser-artifact__narration-dismiss"
+                  onClick={() => setSpeechHidden(true)}
+                  aria-label={strings.dismissNarration || 'Dismiss agent message'}
+                  title={strings.dismissNarration || 'Dismiss agent message'}
+                >
+                  <X size={12} aria-hidden />
+                </button>
               </p>
             ) : null}
             {waiting ? (

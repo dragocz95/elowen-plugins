@@ -137,10 +137,10 @@ class FakeBrowser extends EventEmitter implements BrowserLike {
 const config = (patch: Partial<BrowserConfig> = {}): BrowserConfig => ({ ...resolveConfig({ browserCloseGraceSeconds: 0 }), ...patch });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.2.2, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.2.3, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as { version: string; userGrantable: boolean; entry: string; provides: { tools: string[]; apiRoutes: string[] } };
-    expect(manifest.version).toBe('0.2.2');
+    expect(manifest.version).toBe('0.2.3');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
     expect(manifest.provides.apiRoutes).toHaveLength(11);
@@ -506,11 +506,14 @@ describe('browser web artifact build', () => {
     expect(css).not.toContain('hsl(var(--');
   });
 
-  it('keeps the transcript thumbnail square on a wide screen and shows the whole page in it', () => {
+  it('docks the wide-screen browser above the composer and shows the whole page in it', () => {
     const css = stylesheet();
-    const desktop = css.slice(css.indexOf('@media (min-width: 768px)'));
-    expect(desktop).toMatch(/\.browser-artifact__tile \.browser-artifact__canvas \{[^}]*aspect-ratio: 1/);
-    // Square framing must never become a crop: the page is fitted into the square, not cut down to it.
+    const desktop = css.slice(css.indexOf('@media (min-width: 768px)'), css.indexOf('@media (max-width: 767px)'));
+    expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact \{[^}]*position: fixed/);
+    expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact \{[^}]*bottom: calc\(var\(--chat-composer-height/);
+    expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact \{[^}]*right: max\(var\(--shell-gutter/);
+    expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact__tile \.browser-artifact__canvas \{[^}]*aspect-ratio: var\(--browser-aspect/);
+    // Floating framing must never become a crop: the page is fitted into the monitor, not cut down to it.
     expect(rule(css, '.browser-artifact__canvas img')).toContain('object-fit: contain');
     expect(rule(css, '.browser-artifact')).toContain('max-width: 20rem');
   });
@@ -587,6 +590,8 @@ describe('browser web artifact build', () => {
     expect(question).toMatch(/border: 1px solid color-mix\(in srgb, var\(--color-primary/);
     expect(rule(css, '.browser-artifact__question:focus-visible')).toContain('outline: 2px solid');
     expect(rule(css, '.browser-artifact__narration')).not.toContain('--color-primary');
+    expect(rule(css, '.browser-artifact__narration-dismiss')).toContain('pointer-events: auto');
+    expect(rule(css, '.browser-artifact__narration-dismiss:focus-visible')).toContain('outline: 2px solid');
     expect(rule(css, '.browser-artifact__dock')).toContain('pointer-events: none');
     expect(rule(css, '.browser-artifact__controls')).toContain('pointer-events: auto');
   });
