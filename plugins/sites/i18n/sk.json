@@ -60,7 +60,25 @@
     },
     "allowCommandRuntime": {
       "label": "Povoliť behové prostredia",
-      "hint": "Umožní, aby stránka bola bežiaci server – Node, Bun, Python alebo TypeScript – za privátnym unixovým socketom, prípadne aby spúšťala PHP cez PHP-CGI. Každá požiadavka beží v izolovanom sieťovom mennom priestore a vyžaduje izolovaný hosting stránok."
+      "hint": "Umožní, aby stránka bola bežiaci server – Node, Bun, Python alebo TypeScript – za privátnym unixovým socketom alebo výslovne povoleným loopback portom, prípadne aby spúšťala PHP cez PHP-CGI."
+    },
+    "runtimeNetwork": {
+      "label": "Sieť behového prostredia",
+      "hint": "Zdieľaná sieť umožní serverom bežný odchádzajúci internet a prístup k sieťovým službám viditeľným z hostiteľa. Proces nedostane Elowen token ani tajné prostredie daemona.",
+      "options": {
+        "isolated": "Bez siete",
+        "shared": "Sieť hostiteľa"
+      }
+    },
+    "allowLoopbackPorts": {
+      "label": "Povoliť loopback porty",
+      "hint": "Kompatibilný režim pre frameworky bez podpory SOCKET_PATH. Port uvidí každý lokálny proces na serveri, preto ho na vzájomne nedôveryhodnej viacužívateľskej inštancii nechajte vypnutý."
+    },
+    "loopbackPortMin": {
+      "label": "Prvý port behového prostredia"
+    },
+    "loopbackPortMax": {
+      "label": "Posledný port behového prostredia"
     },
     "startTimeoutSeconds": {
       "label": "Časový limit štartu",
@@ -123,6 +141,13 @@
       "runtimeRunning": "Beží",
       "runtimeStopped": "Nebeží",
       "runtimeCommand": "Spúšťací príkaz",
+      "runtimeBind": "Pripojenie",
+      "runtimeSocket": "Bezpečný socket",
+      "runtimePort": "Loopback port",
+      "runtimeNetwork": "Sieť",
+      "runtimeNetworkIsolated": "Bez siete",
+      "runtimeNetworkShared": "Sieť hostiteľa",
+      "saveRuntime": "Uložiť behové prostredie",
       "runtimeLog": "Posledný výstup",
       "runtimeEmptyLog": "Zatiaľ nič zaznamenané.",
       "restart": "Reštartovať",

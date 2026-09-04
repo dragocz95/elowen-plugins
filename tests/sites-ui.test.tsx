@@ -52,7 +52,16 @@ const detail = {
   releases: [{ id: 'rel-2', siteId: site.id, createdAt: '2026-08-20T10:00:00.000Z', model: 'anthropic/claude', fileCount: 12, sizeBytes: 220_000, note: 'August numbers' }],
   hits: [{ day: '2026-08-20', count: 41 }],
   sourceDir: '/var/www/kolin/reports',
-  runtime: { running: true, startCommand: 'node server.js', logTail: 'listening on :43000', lastError: null },
+  runtime: {
+    running: true,
+    startCommand: 'node server.js',
+    bind: 'socket',
+    port: null,
+    network: 'shared',
+    allowLoopbackPorts: true,
+    logTail: 'listening on socket',
+    lastError: null,
+  },
 };
 
 setDefaults(
@@ -125,6 +134,21 @@ describe('the Sites workspace', () => {
     // A named guest is a face and a name here too.
     expect(drawer.getByText(GUEST.name)).toBeInTheDocument();
     expect(drawer.getAllByLabelText(GUEST.name).length).toBeGreaterThan(0);
+  });
+
+  it('edits the command runtime without opening another surface', async () => {
+    const patched: unknown[] = [];
+    use(http.patch('/api/plugins/sites/api/site/:id', async ({ request }) => {
+      patched.push(await request.json());
+      return HttpResponse.json({ site });
+    }));
+    mount();
+    const drawer = within(await openSite());
+    expect(drawer.getByText(strings.runtimeNetworkShared)).toBeVisible();
+    fireEvent.change(drawer.getByRole('textbox', { name: strings.runtimeCommand }), { target: { value: 'node new-server.js' } });
+    fireEvent.change(drawer.getByRole('combobox', { name: strings.runtimeBind }), { target: { value: 'port' } });
+    fireEvent.click(drawer.getByRole('button', { name: strings.saveRuntime }));
+    await waitFor(() => expect(patched).toEqual([{ startCommand: 'node new-server.js', bind: 'port' }]));
   });
 
   it('changes visibility through a dropdown', async () => {

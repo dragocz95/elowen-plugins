@@ -1,5 +1,5 @@
-import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, readSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 /** Everything a published release may contain. An extension outside this list is refused at publish
  *  rather than served with a guessed type: the serving path must never have to decide what an unknown
  *  file is while a browser is waiting for the answer. */
@@ -82,7 +82,45 @@ export function snapshotRelease(sourceRoot, releaseDir, limits) {
             const from = join(dir, entry.name);
             const to = join(target, entry.name);
             if (entry.isSymbolicLink()) {
-                warnings.push(`skipped symlink ${relative(realSource, from) || entry.name}`);
+                const rel = relative(realSource, from) || entry.name;
+                let link;
+                try {
+                    link = readlinkSync(from);
+                }
+                catch {
+                    warnings.push(`skipped symlink ${rel} (it changed while publishing)`);
+                    continue;
+                }
+                if (isAbsolute(link)) {
+                    warnings.push(`skipped symlink ${rel} (absolute target)`);
+                    continue;
+                }
+                const lexicalTarget = resolve(dirname(from), link);
+                if (lexicalTarget !== realSource && !lexicalTarget.startsWith(realSource + sep)) {
+                    warnings.push(`skipped symlink ${rel} (target leaves the publish root)`);
+                    continue;
+                }
+                try {
+                    const realTarget = realpathSync(lexicalTarget);
+                    if (realTarget !== realSource && !realTarget.startsWith(realSource + sep)) {
+                        warnings.push(`skipped symlink ${rel} (target leaves the publish root)`);
+                        continue;
+                    }
+                }
+                catch {
+                    warnings.push(`skipped symlink ${rel} (dangling target)`);
+                    continue;
+                }
+                const linkBytes = Buffer.byteLength(link);
+                if (sizeBytes + linkBytes > limits.maxTotalBytes) {
+                    throw new PublishError('the build output is larger than the per-site limit. Reduce it or raise "Largest site" in the plugin settings.');
+                }
+                const fileCeiling = command ? MAX_FILES_COMMAND : MAX_FILES;
+                if (fileCount >= fileCeiling)
+                    throw new PublishError(`the output has more than ${fileCeiling} files.`);
+                symlinkSync(link, to);
+                fileCount += 1;
+                sizeBytes += linkBytes;
                 continue;
             }
             if (entry.isDirectory()) {
@@ -144,7 +182,7 @@ export function snapshotRelease(sourceRoot, releaseDir, limits) {
                         break;
                     read += chunk;
                 }
-                writeFileSync(to, buffer.subarray(0, read));
+                writeFileSync(to, buffer.subarray(0, read), { mode: opened.mode & 0o777 });
                 fileCount += 1;
                 sizeBytes += read;
             }

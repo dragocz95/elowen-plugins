@@ -140,6 +140,7 @@ const describe = (site, config) => [
     `  address    ${addressOf(config, site.slug)}`,
     `  visibility ${site.visibility}`,
     `  status     ${site.status}`,
+    ...(site.runtime === 'command' ? [`  runtime    ${site.bind}${site.port === null ? '' : ` 127.0.0.1:${site.port}`} · ${config.runtimeNetwork} network`] : []),
     site.lastPublishAt ? `  published  ${site.lastPublishAt}${site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}` : '  published  never',
     `  source     ${site.sourceDir}`,
 ].join('\n');
@@ -159,11 +160,12 @@ export function registerTools(deps) {
             summary: Type.Optional(Type.String({ maxLength: 400, description: 'One line describing what the page is for.' })),
             visibility: Type.Optional(Type.Union([Type.Literal('private'), Type.Literal('project'), Type.Literal('authenticated')], { description: 'Who may open it. Defaults to the instance setting. A site is never made public here; that is confirmed by a person in the Sites screen.' })),
             spa: Type.Optional(Type.Boolean({ description: 'Serve index.html for unknown paths, for a client-side router. Default false.' })),
-            runtime: Type.Optional(Type.Union([Type.Literal('static'), Type.Literal('command'), Type.Literal('php')], { description: 'How the site answers. "static" serves built files (the default). "command" keeps a Node, Bun, Python or TypeScript HTTP process on the unix socket in SOCKET_PATH. "php" executes .php files through PHP-CGI per request. Active runtimes require administrator enablement and isolated site hosting.' })),
+            runtime: Type.Optional(Type.Union([Type.Literal('static'), Type.Literal('command'), Type.Literal('php')], { description: 'How the site answers. "static" serves built files (the default). "command" keeps a Node, Bun, Python or TypeScript HTTP process on the secure SOCKET_PATH or an explicitly enabled loopback port. "php" executes .php files through PHP-CGI per request. Active runtimes require administrator enablement.' })),
             startCommand: Type.Optional(Type.String({
                 maxLength: 500,
-                description: 'For runtime "command": the shell command that starts the server inside the published release. Bind the HTTP server directly to the pathname in SOCKET_PATH; never open a TCP port. PHP sites do not take a start command.',
+                description: 'For runtime "command": the shell command that starts the server inside the published release. Socket mode reads SOCKET_PATH; explicitly enabled port mode reads HOST and PORT. PHP sites do not take a start command.',
             })),
+            bind: Type.Optional(Type.Union([Type.Literal('socket'), Type.Literal('port')], { description: 'For runtime "command": listen on the secure pathname socket (default), or on an administrator-enabled loopback HOST/PORT for frameworks that do not support sockets.' })),
         }),
         execute: async (_id, input) => {
             try {
@@ -185,6 +187,13 @@ export function registerTools(deps) {
                 if (runtime === 'php' && input.startCommand?.trim()) {
                     throw new ToolError('A PHP site runs through PHP-CGI and does not take startCommand.');
                 }
+                const bind = input.bind === 'port' ? 'port' : 'socket';
+                if (runtime !== 'command' && input.bind !== undefined) {
+                    throw new ToolError('Only a command site has a runtime bind mode.');
+                }
+                if (bind === 'port' && !config.allowLoopbackPorts) {
+                    throw new ToolError('Loopback ports are turned off for this instance. Use socket mode or ask an administrator to enable them.');
+                }
                 let slug = slugify(input.title);
                 while (store.slugTaken(slug))
                     slug = slugify(input.title);
@@ -196,6 +205,7 @@ export function registerTools(deps) {
                 catch {
                     throw new ToolError(`The site folder ${dir} is outside what this account may write to.`);
                 }
+                const port = runtime === 'command' && bind === 'port' ? await deps.runtime.allocatePort() : null;
                 if (existsSync(allowed))
                     throw new ToolError(`${allowed} already exists.`);
                 mkdirSync(allowed, { recursive: true });
@@ -213,8 +223,8 @@ export function registerTools(deps) {
                     spa: input.spa === true,
                     runtime,
                     startCommand: (input.startCommand ?? '').trim(),
-                    bind: 'socket',
-                    port: null,
+                    bind,
+                    port,
                     status: 'draft',
                     currentReleaseId: null,
                     createdAt: now,
@@ -232,6 +242,7 @@ export function registerTools(deps) {
                     'Name the site by either of those in SitePublish, SiteShare and the rest.',
                     '',
                     `Write the project here: ${allowed}`,
+                    'For an isolated Git worktree, create and activate a Sandbox workspace before SiteCreate; Sites automatically uses the active workspace.',
                     `Configure the build with base path: ${SITE_BASE_PATH}`,
                     `It will be published at: ${addressOf(config, slug)}`,
                     '',
@@ -239,9 +250,14 @@ export function registerTools(deps) {
                     ...(runtime === 'command'
                         ? [
                             '',
-                            'Bind the HTTP server directly to the pathname in SOCKET_PATH; the root broker seals that directory before the daemon connects. Never open a TCP port.',
-                            'Install dependencies in the site folder before publishing: the release is a copy, and nothing is built or installed for you.',
-                            'The runtime has an isolated network namespace. Requests are buffered - no streaming, server-sent events or websockets - and a request body is capped at 1 MB.',
+                            ...(bind === 'socket'
+                                ? ['Bind the HTTP server directly to the pathname in SOCKET_PATH; this is the secure multi-user default.']
+                                : [`Bind the HTTP server to HOST and PORT. This site currently owns 127.0.0.1:${port}.`]),
+                            'Use the normal Files, Terminal and Sandbox tools here: install dependencies, test and build before publishing. Sites does not run a second build pipeline.',
+                            'A root .env file in the published command output is loaded into the runtime environment and must not be committed to Git.',
+                            config.runtimeNetwork === 'shared'
+                                ? 'The runtime has ordinary outbound network access. Requests are still buffered and a request body is capped at 1 MB.'
+                                : 'The runtime network is isolated by instance policy. Requests are buffered and a request body is capped at 1 MB.',
                         ]
                         : runtime === 'php'
                             ? [
@@ -253,6 +269,7 @@ export function registerTools(deps) {
                 ].join('\n'), {
                     siteId: site.id, slug: site.slug, sourceDir: allowed,
                     basePath: SITE_BASE_PATH, url: addressOf(config, slug), visibility: site.visibility,
+                    runtime: site.runtime, bind: site.bind, port: site.port,
                 });
             }
             catch (error) {
@@ -414,7 +431,8 @@ export function registerTools(deps) {
                 ].join('\n'), {
                     siteId: site.id, slug: site.slug, url: addressOf(config, site.slug), visibility: site.visibility,
                     status: site.status, sourceDir: site.sourceDir, basePath: SITE_BASE_PATH,
-                    guests, currentReleaseId: site.currentReleaseId,
+                    runtime: site.runtime, startCommand: site.startCommand, bind: site.bind, port: site.port,
+                    network: config.runtimeNetwork, guests, currentReleaseId: site.currentReleaseId,
                     releases: releases.map((release) => ({ id: release.id, createdAt: release.createdAt, note: release.note })),
                 });
             }
@@ -426,12 +444,14 @@ export function registerTools(deps) {
     ctx.registerTool(defineTool({
         name: 'SiteUpdate',
         label: 'Update a site',
-        description: 'Change a site\'s title, summary, router behaviour or visibility. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
+        description: 'Change a site\'s title, summary, router behaviour, command runtime or visibility. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
         parameters: Type.Object({
             site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
             title: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
             summary: Type.Optional(Type.String({ maxLength: 400 })),
             spa: Type.Optional(Type.Boolean()),
+            startCommand: Type.Optional(Type.String({ maxLength: 500, description: 'Replacement start command for a command runtime.' })),
+            bind: Type.Optional(Type.Union([Type.Literal('socket'), Type.Literal('port')], { description: 'Replacement bind mode for a command runtime.' })),
             visibility: Type.Optional(Type.Union([Type.Literal('private'), Type.Literal('project'), Type.Literal('authenticated')])),
         }),
         execute: async (_id, input) => {
@@ -445,6 +465,31 @@ export function registerTools(deps) {
                     patch.summary = input.summary.trim();
                 if (input.spa !== undefined)
                     patch.spa = input.spa;
+                let runtimeChanged = false;
+                if (input.startCommand !== undefined || input.bind !== undefined) {
+                    if (site.runtime !== 'command')
+                        throw new ToolError('Only a command site has runtime settings.');
+                    if (input.startCommand !== undefined) {
+                        const command = input.startCommand.trim();
+                        if (!command)
+                            throw new ToolError('A command site needs a non-empty startCommand.');
+                        patch.startCommand = command;
+                        runtimeChanged = command !== site.startCommand;
+                    }
+                    if (input.bind !== undefined) {
+                        const bind = input.bind === 'port' ? 'port' : 'socket';
+                        const runtimeConfig = deps.config();
+                        if (bind === 'port' && !runtimeConfig.allowLoopbackPorts) {
+                            throw new ToolError('Loopback ports are turned off for this instance.');
+                        }
+                        const currentPortValid = site.port !== null
+                            && site.port >= runtimeConfig.loopbackPortMin
+                            && site.port <= runtimeConfig.loopbackPortMax;
+                        patch.bind = bind;
+                        patch.port = bind === 'port' ? (currentPortValid ? site.port : await deps.runtime.allocatePort()) : null;
+                        runtimeChanged = runtimeChanged || bind !== site.bind || patch.port !== site.port;
+                    }
+                }
                 const nextVisibility = input.visibility;
                 if (nextVisibility !== undefined && !VISIBILITIES.includes(nextVisibility)) {
                     throw new ToolError('Unknown visibility.');
@@ -456,6 +501,18 @@ export function registerTools(deps) {
                 if (accessChanged)
                     store.bumpAccessGeneration(site.id);
                 const updated = store.siteById(site.id);
+                if (runtimeChanged && updated?.currentReleaseId && isDaemonProcess()) {
+                    try {
+                        await deps.runtime.stop(site.id);
+                        await deps.runtime.start(updated);
+                        store.updateSite(site.id, { status: 'live', lastError: null });
+                    }
+                    catch (error) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        store.updateSite(site.id, { status: 'failed', lastError: message });
+                        throw new ToolError(`Runtime settings were saved, but the site did not restart: ${message}`);
+                    }
+                }
                 return text(updated ? `Updated.\n\n${describe(updated, deps.config())}` : 'Updated.');
             }
             catch (error) {

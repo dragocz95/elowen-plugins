@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { connect } from 'node:net';
+import { appendFileSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { connect, createServer } from 'node:net';
 import { dirname, join } from 'node:path';
+import { parseEnv } from 'node:util';
 const LOG_CAP_BYTES = 256 * 1024;
 const STOP_GRACE_MS = 5_000;
 const HEARTBEAT_MS = 5_000;
@@ -10,6 +11,37 @@ const HEARTBEAT_MS = 5_000;
  *  from the UI. Runtime lifecycle belongs to the daemon; a runner records the desired state and lets
  *  the daemon's own reconciliation act on it. */
 export const isDaemonProcess = () => typeof process.send !== 'function';
+const RESERVED_ENV = new Set(['HOME', 'PATH', 'NODE_ENV', 'HOST', 'PORT', 'SOCKET_PATH', 'SOCKET_ABSTRACT']);
+function readReleaseEnv(releaseDir) {
+    const file = join(releaseDir, '.env');
+    let fd = null;
+    try {
+        fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+        if (!fstatSync(fd).isFile())
+            throw new Error('.env is not a regular file');
+        return Object.fromEntries(Object.entries(parseEnv(readFileSync(fd, 'utf8')))
+            .filter((entry) => typeof entry[1] === 'string')
+            .filter(([key]) => !RESERVED_ENV.has(key) && !key.startsWith('ELOWEN_')));
+    }
+    catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+            return {};
+        throw new Error(`the runtime .env could not be loaded: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    finally {
+        if (fd !== null)
+            closeSync(fd);
+    }
+}
+const endpointConnection = (endpoint) => endpoint.kind === 'socket' ? { path: endpoint.path } : { host: '127.0.0.1', port: endpoint.port };
+function portAvailable(port) {
+    return new Promise((resolve) => {
+        const probe = createServer();
+        probe.unref();
+        probe.once('error', () => resolve(false));
+        probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)));
+    });
+}
 export class SiteRuntimeSupervisor {
     deps;
     running = new Map();
@@ -32,6 +64,17 @@ export class SiteRuntimeSupervisor {
     isRunning(siteId) {
         const entry = this.running.get(siteId);
         return entry !== undefined && entry.child.exitCode === null && !entry.stopping;
+    }
+    async allocatePort() {
+        const config = this.deps.config();
+        if (!config.allowLoopbackPorts)
+            throw new Error('Loopback ports are turned off for this instance.');
+        const claimed = new Set(this.deps.store.portsInUse());
+        for (let port = config.loopbackPortMin; port <= config.loopbackPortMax; port += 1) {
+            if (!claimed.has(port) && await portAvailable(port))
+                return port;
+        }
+        throw new Error(`No free loopback port is available in ${config.loopbackPortMin}-${config.loopbackPortMax}.`);
     }
     /** Logs live OUTSIDE every directory bound into the process's namespace. A log file the runtime can
      *  reach is a log file it can replace with a symlink, and the daemon appending to it would then write
@@ -84,31 +127,48 @@ export class SiteRuntimeSupervisor {
         const cwd = this.deps.releaseDir(site.id, site.currentReleaseId);
         if (!existsSync(cwd))
             throw new Error('the published release is missing from disk');
+        const releaseEnv = readReleaseEnv(cwd);
         const sandbox = this.deps.ctx.control('sandbox');
         if (!sandbox)
             throw new Error('the Sandbox plugin is disabled, so a site runtime cannot be confined');
         const gateway = this.deps.ctx.control('publishedSitesGateway');
-        if (!gateway)
-            throw new Error('the published-sites socket broker is unavailable');
-        const endpoint = { kind: 'socket', path: (await gateway.prepareRuntimeSocket(site.id)).path };
+        const config = this.deps.config();
+        if (site.bind === 'port' && !config.allowLoopbackPorts) {
+            throw new Error('Loopback ports are turned off for this instance.');
+        }
+        let endpoint;
+        if (site.bind === 'port') {
+            if (!Number.isSafeInteger(site.port) || site.port === null || site.port < config.loopbackPortMin || site.port > config.loopbackPortMax) {
+                throw new Error('the site has no valid allocated loopback port');
+            }
+            endpoint = { kind: 'port', port: site.port };
+        }
+        else {
+            if (!gateway)
+                throw new Error('the published-sites socket broker is unavailable');
+            endpoint = { kind: 'socket', path: (await gateway.prepareRuntimeSocket(site.id)).path };
+        }
         let prepared;
         try {
-            prepared = await sandbox.prepareExecution({ command: { type: 'shell', command: site.startCommand }, cwd, leaseKind: 'sites', network: 'isolated' }, { accountUserId: site.ownerUserId, roots: [cwd, dirname(endpoint.path)] });
+            prepared = await sandbox.prepareExecution({ command: { type: 'shell', command: site.startCommand }, cwd, leaseKind: 'sites', network: config.runtimeNetwork }, { accountUserId: site.ownerUserId, roots: endpoint.kind === 'socket' ? [cwd, dirname(endpoint.path)] : [cwd] });
         }
         catch (error) {
-            await gateway.removeRuntimeSocket(site.id).catch(() => { });
+            if (endpoint.kind === 'socket')
+                await gateway?.removeRuntimeSocket(site.id).catch(() => { });
             throw error;
         }
         // The environment is built here rather than taken from the preparation: it is the contract the
         // published app reads, and nothing of the daemon's own environment belongs in a process that
         // answers requests from the internet.
         const env = {
+            ...releaseEnv,
             ...prepared.launch.env,
             NODE_ENV: 'production',
             ELOWEN_SITE_SLUG: site.slug,
             ELOWEN_SITE_BASE_PATH: '/',
-            SOCKET_PATH: endpoint.path,
-            SOCKET_ABSTRACT: '0',
+            ...(endpoint.kind === 'socket'
+                ? { SOCKET_PATH: endpoint.path, SOCKET_ABSTRACT: '0' }
+                : { HOST: '127.0.0.1', PORT: String(endpoint.port) }),
         };
         const child = prepared.launch.type === 'argv'
             ? spawn(prepared.launch.file, prepared.launch.args, { cwd: prepared.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
@@ -129,6 +189,9 @@ export class SiteRuntimeSupervisor {
             releaseId: site.currentReleaseId,
             child,
             endpoint,
+            startCommand: site.startCommand,
+            bind: site.bind,
+            port: site.port,
             heartbeat,
             release,
             stopping: false,
@@ -146,11 +209,13 @@ export class SiteRuntimeSupervisor {
                     await entry.release();
                 }
                 finally {
-                    try {
-                        await gateway.removeRuntimeSocket(site.id);
-                    }
-                    catch (error) {
-                        this.deps.ctx.logger.warn(`site ${site.slug} socket cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+                    if (entry.endpoint.kind === 'socket') {
+                        try {
+                            await gateway?.removeRuntimeSocket(site.id);
+                        }
+                        catch (error) {
+                            this.deps.ctx.logger.warn(`site ${site.slug} socket cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+                        }
                     }
                     if (this.running.get(site.id) === entry)
                         this.running.delete(site.id);
@@ -158,7 +223,7 @@ export class SiteRuntimeSupervisor {
             });
         });
         try {
-            const ready = await this.waitForEndpoint(endpoint, this.deps.config().startTimeoutSeconds * 1000, child, () => gateway.sealRuntimeSocket(site.id));
+            const ready = await this.waitForEndpoint(endpoint, this.deps.config().startTimeoutSeconds * 1000, child, () => endpoint.kind === 'socket' ? gateway.sealRuntimeSocket(site.id) : Promise.resolve());
             if (!ready) {
                 throw new Error(`the runtime did not answer within ${this.deps.config().startTimeoutSeconds}s. Last output:\n${this.logTail(site.id, 2000)}`);
             }
@@ -170,21 +235,23 @@ export class SiteRuntimeSupervisor {
     }
     async waitForEndpoint(endpoint, timeoutMs, child, seal) {
         const deadline = Date.now() + timeoutMs;
-        while (child.exitCode === null && Date.now() <= deadline) {
-            try {
-                if (lstatSync(endpoint.path).isSocket()) {
-                    await seal();
-                    break;
+        if (endpoint.kind === 'socket') {
+            while (child.exitCode === null && Date.now() <= deadline) {
+                try {
+                    if (lstatSync(endpoint.path).isSocket()) {
+                        await seal();
+                        break;
+                    }
                 }
-            }
-            catch (error) {
-                if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-                    await new Promise((resolve) => setTimeout(resolve, 200));
-                    continue;
+                catch (error) {
+                    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+                        await new Promise((resolve) => setTimeout(resolve, 200));
+                        continue;
+                    }
+                    throw error;
                 }
-                throw error;
+                await new Promise((resolve) => setTimeout(resolve, 200));
             }
-            await new Promise((resolve) => setTimeout(resolve, 200));
         }
         if (child.exitCode !== null || Date.now() > deadline)
             return false;
@@ -198,7 +265,7 @@ export class SiteRuntimeSupervisor {
                     resolve(false);
                     return;
                 }
-                const socket = connect({ path: endpoint.path });
+                const socket = connect(endpointConnection(endpoint));
                 socket.setTimeout(1000);
                 const retry = () => { socket.destroy(); setTimeout(attempt, 200); };
                 socket.once('connect', () => { socket.destroy(); resolve(true); });
@@ -221,7 +288,8 @@ export class SiteRuntimeSupervisor {
         const gateway = this.deps.ctx.control('publishedSitesGateway');
         const entry = this.running.get(siteId);
         if (!entry) {
-            if (gateway && this.deps.store.siteById(siteId)?.runtime === 'command') {
+            const site = this.deps.store.siteById(siteId);
+            if (gateway && site?.runtime === 'command' && site.bind === 'socket') {
                 await gateway.removeRuntimeSocket(siteId);
             }
             return;
@@ -248,9 +316,11 @@ export class SiteRuntimeSupervisor {
         }
         clearInterval(entry.heartbeat);
         await entry.release();
-        if (!gateway)
-            throw new Error('the published-sites socket broker is unavailable during cleanup');
-        await gateway.removeRuntimeSocket(siteId);
+        if (entry.endpoint.kind === 'socket') {
+            if (!gateway)
+                throw new Error('the published-sites socket broker is unavailable during cleanup');
+            await gateway.removeRuntimeSocket(siteId);
+        }
         this.running.delete(siteId);
     }
     signalGroup(pid, signal) {
@@ -282,7 +352,12 @@ export class SiteRuntimeSupervisor {
     async reconcileNow() {
         for (const site of this.deps.store.liveCommandSites()) {
             const running = this.running.get(site.id);
-            if (running && running.releaseId === site.currentReleaseId && this.isRunning(site.id))
+            if (running
+                && running.releaseId === site.currentReleaseId
+                && running.startCommand === site.startCommand
+                && running.bind === site.bind
+                && running.port === site.port
+                && this.isRunning(site.id))
                 continue;
             try {
                 if (running)

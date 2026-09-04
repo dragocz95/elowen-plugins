@@ -53,11 +53,12 @@ export interface ServeDeps {
  *
  *  Every site is served from its own hostname, so a published page is a real origin: it may keep its own
  *  cookies and storage, and none of that is reachable from another site or from the app. The policy is
- *  therefore an ordinary same-origin one, with no sandbox and no cross-origin subresources. */
+ *  therefore has no sandbox. Executable assets stay local, while HTTPS APIs and passive HTTPS assets are
+ *  allowed because they cannot carry the Elowen app's host-only session cookie. */
 const securityHeaders = (isPublic: boolean): Record<string, string> => ({
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'no-referrer',
-  'content-security-policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self'; connect-src 'self'; base-uri 'self'; frame-ancestors 'none'",
+  'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; media-src 'self' blob: https:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
   ...(isPublic ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "sites",
-  "version": "0.7.5",
+  "version": "0.8.0",
   "apiVersion": "1",
   "requiresCore": "0.28.21",
   "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is a separate release you can roll back to.",
@@ -106,8 +106,52 @@
       "type": "boolean",
       "default": false,
       "risk": "high",
-      "hint": "Let a site run Node, Bun, Python or TypeScript behind a private unix socket, or execute PHP through PHP-CGI. Every request runs in an isolated network namespace and requires isolated site hosting.",
-      "help": "A published runtime is code the agent wrote. It sees only its own release, runtime directory and the owner's sandbox HOME; it cannot reach the host loopback or another site's listener. It still runs under a user namespace rather than a separate VM and has no CPU or memory limit. Requests and responses are buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
+      "hint": "Let a site run Node, Bun, Python or TypeScript behind a private unix socket or an explicitly enabled loopback port, or execute PHP through PHP-CGI.",
+      "help": "A published runtime is code the agent built with the normal Files, Terminal and Sandbox tools. It sees its copied release and the owner's sandbox HOME, runs under a user namespace rather than a separate VM, and has no CPU or memory limit. The network policy is configured below. Requests and responses are buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
+    },
+    {
+      "key": "runtimeNetwork",
+      "label": "Runtime network",
+      "type": "enum",
+      "default": "isolated",
+      "risk": "high",
+      "options": [
+        {
+          "value": "isolated",
+          "label": "No network"
+        },
+        {
+          "value": "shared",
+          "label": "Host network"
+        }
+      ],
+      "hint": "Shared gives site processes ordinary outbound internet and access to network services visible from this host. Site processes receive no Elowen bearer token or daemon secrets."
+    },
+    {
+      "key": "allowLoopbackPorts",
+      "label": "Allow loopback ports",
+      "type": "boolean",
+      "default": false,
+      "risk": "high",
+      "hint": "Compatibility mode for frameworks that cannot listen on SOCKET_PATH. Every local process on this host can reach these ports, so keep it off on mutually untrusted multi-user installations."
+    },
+    {
+      "key": "loopbackPortMin",
+      "label": "First runtime port",
+      "type": "number",
+      "default": 41000,
+      "min": 1024,
+      "max": 65535,
+      "advanced": true
+    },
+    {
+      "key": "loopbackPortMax",
+      "label": "Last runtime port",
+      "type": "number",
+      "default": 41999,
+      "min": 1024,
+      "max": 65535,
+      "advanced": true
     },
     {
       "key": "startTimeoutSeconds",
@@ -261,6 +305,13 @@
       "runtimeRunning": "Running",
       "runtimeStopped": "Not running",
       "runtimeCommand": "Start command",
+      "runtimeBind": "Connection",
+      "runtimeSocket": "Secure socket",
+      "runtimePort": "Loopback port",
+      "runtimeNetwork": "Network",
+      "runtimeNetworkIsolated": "No network",
+      "runtimeNetworkShared": "Host network",
+      "saveRuntime": "Save runtime",
       "runtimeLog": "Recent output",
       "runtimeEmptyLog": "Nothing recorded yet.",
       "restart": "Restart",

@@ -134,7 +134,9 @@ export async function proxyToRuntime(
 
     const outbound = httpRequest(
       {
-        socketPath: endpoint.path,
+        ...(endpoint.kind === 'socket'
+          ? { socketPath: endpoint.path }
+          : { host: '127.0.0.1', port: endpoint.port }),
         method: req.method,
         path: target,
         headers,

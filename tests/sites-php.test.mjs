@@ -18,7 +18,7 @@ const request = (overrides = {}) => ({
   ...overrides,
 });
 
-test('PHP runs as one isolated CGI request and may use site-local cookies', async (t) => {
+test('PHP uses the configured runtime network and may use site-local cookies', async (t) => {
   const root = tempDir();
   const release = join(root, 'release');
   mkdirSync(release, { recursive: true });
@@ -58,7 +58,7 @@ test('PHP runs as one isolated CGI request and may use site-local cookies', asyn
     },
   };
   const response = await executePhp(
-    { ctx: { control: () => sandbox }, siteDir: () => root },
+    { ctx: { control: () => sandbox }, siteDir: () => root, network: () => 'shared' },
     { id: 'site-1', ownerUserId: 7 },
     release,
     request({ path: 'reports/today' }),
@@ -82,7 +82,7 @@ test('PHP runs as one isolated CGI request and may use site-local cookies', asyn
   });
   assert.throws(() => process.kill(childPid, 0), 'a CGI descendant must not outlive the request lease');
   assert.equal(preparedInputs[0].input.command.file, '/usr/bin/php-cgi');
-  assert.equal(preparedInputs[0].input.network, 'isolated');
+  assert.equal(preparedInputs[0].input.network, 'shared');
   assert.deepEqual(preparedInputs[0].options.roots, [release, join(root, 'run')]);
   assert.equal(released, 1);
 });

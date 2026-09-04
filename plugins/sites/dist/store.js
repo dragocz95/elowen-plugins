@@ -211,6 +211,7 @@ export class SitesStore {
             summary: 'summary',
             visibility: 'visibility',
             spa: 'spa',
+            bind: 'bind',
             port: 'port',
             startCommand: 'start_command',
             status: 'status',

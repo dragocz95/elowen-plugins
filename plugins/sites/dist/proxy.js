@@ -109,7 +109,9 @@ export async function proxyToRuntime(endpoint, req, path, viewer, limits, siteRo
         const settle = done(resolve);
         const fail = done(reject);
         const outbound = httpRequest({
-            socketPath: endpoint.path,
+            ...(endpoint.kind === 'socket'
+                ? { socketPath: endpoint.path }
+                : { host: '127.0.0.1', port: endpoint.port }),
             method: req.method,
             path: target,
             headers,
