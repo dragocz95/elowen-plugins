@@ -8,6 +8,21 @@ const MAX_ARTIFACT_FAVICON = 4_096;
 const MAX_ARTIFACT_ACTION = 512;
 const MAX_ARTIFACT_FALLBACK = 2_000;
 
+interface ChatArtifactsBridge {
+  open(toolCallId: string, artifact: {
+    id: string;
+    view: string;
+    fallback: string;
+    expiresAt: string;
+    data: Record<string, string | null>;
+    media: { transport: 'sse'; path: string };
+  }): BrowserArtifactRef | Promise<BrowserArtifactRef>;
+  update(ref: BrowserArtifactRef, patch: { data: Record<string, string | null>; fallback: string }): void | Promise<void>;
+  close(ref: BrowserArtifactRef): void | Promise<void>;
+}
+
+type ArtifactContext = PluginContext & { chatArtifacts?: ChatArtifactsBridge };
+
 const artifactPayload = (data: BrowserArtifactData): Record<string, string | null> => ({
   browserSessionId: data.browserSessionId,
   state: data.state,
@@ -25,12 +40,17 @@ const fallbackText = (data: BrowserArtifactData): string => {
 
 export class ElowenArtifactPublisher implements BrowserArtifactPublisher {
   readonly available: boolean;
+  private readonly artifacts: ChatArtifactsBridge | null;
 
   constructor(private readonly context: PluginContext) {
-    this.available = !!context.chatArtifacts
-      && typeof context.chatArtifacts.open === 'function'
-      && typeof context.chatArtifacts.update === 'function'
-      && typeof context.chatArtifacts.close === 'function';
+    const artifacts = (context as ArtifactContext).chatArtifacts;
+    this.artifacts = artifacts
+      && typeof artifacts.open === 'function'
+      && typeof artifacts.update === 'function'
+      && typeof artifacts.close === 'function'
+      ? artifacts
+      : null;
+    this.available = this.artifacts !== null;
   }
 
   async open(input: {
@@ -39,11 +59,12 @@ export class ElowenArtifactPublisher implements BrowserArtifactPublisher {
     expiresAt: number;
     data: BrowserArtifactData;
   }): Promise<BrowserArtifactRef | null> {
-    if (!this.available) return null;
+    const artifacts = this.artifacts;
+    if (!artifacts) return null;
     if (this.context.currentSessionId() !== input.conversationId) {
       throw new Error('Browser artifact conversation scope changed before it opened.');
     }
-    return this.context.chatArtifacts.open(input.toolCallId, {
+    return await artifacts.open(input.toolCallId, {
       id: `browser:${input.data.browserSessionId}`,
       view: 'browser-session',
       fallback: fallbackText(input.data),
@@ -57,13 +78,13 @@ export class ElowenArtifactPublisher implements BrowserArtifactPublisher {
   }
 
   async update(ref: BrowserArtifactRef, data: BrowserArtifactData): Promise<void> {
-    if (!this.available) return;
-    this.context.chatArtifacts.update(ref, { data: artifactPayload(data), fallback: fallbackText(data) });
+    if (!this.artifacts) return;
+    await this.artifacts.update(ref, { data: artifactPayload(data), fallback: fallbackText(data) });
   }
 
   async close(ref: BrowserArtifactRef): Promise<void> {
-    if (!this.available) return;
-    this.context.chatArtifacts.close(ref);
+    if (!this.artifacts) return;
+    await this.artifacts.close(ref);
   }
 }
 

@@ -63,8 +63,24 @@ export class EnvironmentProvisioningService {
         try {
             await control.provisionEnvironments();
             const measured = await control.environmentsStatus();
-            if (measured.ready && !await this.deps.imageExists())
-                await this.deps.buildImage();
+            if (measured.ready && !await this.deps.imageExists()) {
+                try {
+                    await this.deps.buildImage();
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    const status = {
+                        ready: false,
+                        detail: `Environment base-image build failed: ${message}`,
+                        items: [
+                            ...measured.items.filter((item) => item.id !== 'base-image'),
+                            { id: 'base-image', label: 'Deterministic Sites base image', ok: false, detail: message },
+                        ],
+                    };
+                    this.deps.audit?.(status, actorUserId);
+                    return status;
+                }
+            }
             const status = await this.withBaseImage(await control.environmentsStatus());
             this.deps.audit?.(status, actorUserId);
             return status;

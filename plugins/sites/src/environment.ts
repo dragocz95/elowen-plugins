@@ -262,10 +262,20 @@ export class EnvironmentSupervisor {
       const name = containerName(site.id);
       let status = await this.deps.podman.inspectStatus(name);
       if (status === 'paused') {
-        await this.deps.podman.unpause(name);
+        try { await this.deps.podman.unpause(name); }
+        catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.endpoints.delete(site.id);
+          this.deps.store.updateSite(site.id, { status: 'failed', lastError: `snapshot resume failed: ${message}` });
+          throw error;
+        }
         status = await this.deps.podman.inspectStatus(name);
       }
-      if (status !== 'running') throw new Error('the environment is not running');
+      if (status !== 'running') {
+        this.endpoints.delete(site.id);
+        this.deps.store.updateSite(site.id, { status: 'failed', lastError: 'the environment is not running' });
+        throw new Error('the environment is not running');
+      }
       if (existsSync(snapshotDir)) {
         if (await this.deps.podman.imageExists(imageRef)) await this.deps.podman.removeImage(imageRef);
         rmSync(snapshotDir, { recursive: true, force: true });
@@ -291,7 +301,10 @@ export class EnvironmentSupervisor {
         await this.deps.podman.removeImage(imageRef).catch(() => {});
         rmSync(snapshotDir, { recursive: true, force: true });
         const message = failure instanceof Error ? failure.message : String(failure);
-        if (resumeFailed) this.deps.store.updateSite(site.id, { status: 'failed', lastError: `snapshot resume failed: ${message}` });
+        if (resumeFailed) {
+          this.endpoints.delete(site.id);
+          this.deps.store.updateSite(site.id, { status: 'failed', lastError: `snapshot resume failed: ${message}` });
+        }
         this.appendLog(site.id, `snapshot ${input.snapshotId} failed: ${message}`);
         throw failure;
       }
@@ -612,6 +625,7 @@ export class EnvironmentSupervisor {
         if (action && action.lastError === null) {
           if (action.kind === 'snapshot') {
             await this.serialize(site.id, async () => {
+              if (!this.endpoints.has(site.id)) await this.startNow(site);
               await this.snapshotNow(site, {
                 snapshotId: action.snapshotId,
                 includeData: action.includeData,
@@ -628,16 +642,20 @@ export class EnvironmentSupervisor {
         } else if (action) {
           continue;
         } else if (site.environmentDesiredState === 'restarting') {
-          await this.restart(site);
+          if (site.lastError === null) await this.restart(site);
         } else if (site.environmentDesiredState === 'stopped') {
           if (!this.settledStopped.has(site.id)) await this.serialize(site.id, () => this.stopNow(site.id, true));
-        } else if (!this.endpoints.has(site.id) || site.status === 'failed') {
+        } else if (site.lastError === null && (!this.endpoints.has(site.id) || site.status === 'failed')) {
           await this.start(site);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (action) this.deps.store.updateEnvironmentActionError(site.id, message);
-        this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
+        if (action) {
+          this.deps.store.updateEnvironmentActionError(site.id, message);
+          if (action.kind === 'rollback') this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
+        } else {
+          this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
+        }
         this.deps.logger?.warn(`site ${site.slug} environment reconciliation failed: ${message}`);
       }
     }
@@ -656,7 +674,7 @@ export class EnvironmentSupervisor {
     }
     for (const site of this.deps.store.environmentSitesForReconcile()) {
       const observed = states.get(containerName(site.id)) ?? 'missing';
-      if (this.deps.store.environmentAction(site.id) || site.environmentDesiredState === 'restarting') {
+      if (this.deps.store.environmentAction(site.id)) {
         if (observed !== 'running') this.endpoints.delete(site.id);
         continue;
       }
@@ -667,6 +685,10 @@ export class EnvironmentSupervisor {
         } else {
           this.settledStopped.add(site.id);
         }
+        continue;
+      }
+      if (site.lastError !== null || site.environmentDesiredState === 'restarting') {
+        if (observed !== 'running') this.endpoints.delete(site.id);
         continue;
       }
       if (observed !== 'running') this.endpoints.delete(site.id);

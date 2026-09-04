@@ -20,20 +20,26 @@ const fallbackText = (data) => {
 export class ElowenArtifactPublisher {
     context;
     available;
+    artifacts;
     constructor(context) {
         this.context = context;
-        this.available = !!context.chatArtifacts
-            && typeof context.chatArtifacts.open === 'function'
-            && typeof context.chatArtifacts.update === 'function'
-            && typeof context.chatArtifacts.close === 'function';
+        const artifacts = context.chatArtifacts;
+        this.artifacts = artifacts
+            && typeof artifacts.open === 'function'
+            && typeof artifacts.update === 'function'
+            && typeof artifacts.close === 'function'
+            ? artifacts
+            : null;
+        this.available = this.artifacts !== null;
     }
     async open(input) {
-        if (!this.available)
+        const artifacts = this.artifacts;
+        if (!artifacts)
             return null;
         if (this.context.currentSessionId() !== input.conversationId) {
             throw new Error('Browser artifact conversation scope changed before it opened.');
         }
-        return this.context.chatArtifacts.open(input.toolCallId, {
+        return await artifacts.open(input.toolCallId, {
             id: `browser:${input.data.browserSessionId}`,
             view: 'browser-session',
             fallback: fallbackText(input.data),
@@ -46,14 +52,14 @@ export class ElowenArtifactPublisher {
         });
     }
     async update(ref, data) {
-        if (!this.available)
+        if (!this.artifacts)
             return;
-        this.context.chatArtifacts.update(ref, { data: artifactPayload(data), fallback: fallbackText(data) });
+        await this.artifacts.update(ref, { data: artifactPayload(data), fallback: fallbackText(data) });
     }
     async close(ref) {
-        if (!this.available)
+        if (!this.artifacts)
             return;
-        this.context.chatArtifacts.close(ref);
+        await this.artifacts.close(ref);
     }
 }
 export const UNAVAILABLE_ARTIFACT_PUBLISHER = {

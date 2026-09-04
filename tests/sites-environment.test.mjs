@@ -333,6 +333,12 @@ function supervisorHarness(t, { statuses = [null], sealed = false, connectReady 
       return true;
     },
     endEnvironmentExec: (_siteId, token) => { if (execLease === token) execLease = null; },
+    tryRequestEnvironmentControl: (_siteId, desiredState) => {
+      if (execLease || action?.lastError === null) return false;
+      action = null;
+      Object.assign(desired, { environmentDesiredState: desiredState, lastError: null });
+      return true;
+    },
     environmentAction: () => action,
     putEnvironmentAction: (next) => { action = next; desired.environmentDesiredState = 'restarting'; },
     completeEnvironmentRestart: () => {
@@ -526,12 +532,19 @@ test('durable snapshot recovers a container left paused by a process crash', asy
     note: '', model: 'm', requestedAt: new Date().toISOString(), lastError: null,
   });
   await supervisor.reconcile();
-  assert.deepEqual(calls.filter(([name]) => name === 'unpause' || name === 'pause').map(([name]) => name), ['unpause', 'pause', 'unpause']);
+  assert.equal(calls.some(([name]) => name === 'stop'), true);
+  assert.equal(calls.some(([name]) => name === 'start'), true);
+  assert.deepEqual(calls.filter(([name]) => name === 'unpause' || name === 'pause').map(([name]) => name), ['pause', 'unpause']);
   assert.equal(store.environmentAction(site.id), null);
 });
 
-test('durable snapshot always unpauses and stops retrying after export failure', async (t) => {
-  const { supervisor, calls, site, podman, store } = supervisorHarness(t, { statuses: ['running'] });
+test('durable snapshot failure adopts a healthy environment after daemon restart and stops retrying', async (t) => {
+  const { supervisor, calls, site, podman, store, brokerDir } = supervisorHarness(t, { statuses: ['running'], sealed: true });
+  const socketPath = join(brokerDir, 'app.sock');
+  const server = createServer();
+  await new Promise((resolve) => server.listen(socketPath, resolve));
+  chmodSync(brokerDir, 0o510);
+  t.after(async () => { await new Promise((resolve) => server.close(resolve)); });
   podman.exportVolume = async () => { calls.push(['volume-export-failed']); throw new Error('export failed'); };
   store.putEnvironmentAction({
     siteId: site.id, kind: 'snapshot', snapshotId: 'snap-fail', includeData: true,
@@ -543,7 +556,9 @@ test('durable snapshot always unpauses and stops retrying after export failure',
   assert.equal(calls.filter(([name]) => name === 'pause').length, firstPauseCount, 'errored action must not hot-retry');
   assert.equal(calls.some(([name]) => name === 'unpause'), true);
   assert.match(store.environmentAction(site.id).lastError, /export failed/);
-  assert.equal(site.status, 'failed');
+  assert.equal(site.status, 'live');
+  assert.equal(site.lastError, null);
+  assert.notEqual(supervisor.endpointFor(site.id), null);
 });
 
 test('durable snapshot cleans image and archive when release metadata cannot be stored', async (t) => {
@@ -559,8 +574,10 @@ test('durable snapshot cleans image and archive when release metadata cannot be 
   assert.match(store.environmentAction(site.id).lastError, /database full/);
 });
 
-test('durable snapshot cleans unrecorded artifacts when unpause fails', async (t) => {
-  const { supervisor, calls, site, podman, releases, store } = supervisorHarness(t, { statuses: ['running'] });
+test('durable snapshot marks the environment failed when unpause fails', async (t) => {
+  const { supervisor, calls, site, podman, releases, store } = supervisorHarness(t, { statuses: [null] });
+  await supervisor.start(site);
+  calls.length = 0;
   podman.unpause = async () => { calls.push(['unpause-failed']); throw new Error('unpause failed'); };
   store.putEnvironmentAction({
     siteId: site.id, kind: 'snapshot', snapshotId: 'snap-unpause', includeData: false,
@@ -570,6 +587,8 @@ test('durable snapshot cleans unrecorded artifacts when unpause fails', async (t
   assert.equal(calls.some(([name]) => name === 'image-rm'), true);
   assert.equal(releases.length, 0);
   assert.equal(site.status, 'failed');
+  assert.match(site.lastError, /snapshot resume failed.*unpause failed/);
+  assert.equal(supervisor.endpointFor(site.id), null);
   assert.match(store.environmentAction(site.id).lastError, /unpause failed/);
 });
 
@@ -629,6 +648,37 @@ test('a newer durable stop request is not overwritten when restart finishes', as
   podman.start = async (name) => { await start(name); site.environmentDesiredState = 'stopped'; };
   await supervisor.reconcile();
   assert.equal(site.environmentDesiredState, 'stopped');
+});
+
+test('failed restart stays idle until explicit control permits exactly one retry', async (t) => {
+  const { supervisor, site, podman, store, calls } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
+  site.environmentDesiredState = 'restarting';
+  const start = podman.start;
+  let starts = 0;
+  podman.start = async (name) => {
+    starts += 1;
+    if (starts === 1) throw new Error('restart failed once');
+    await start(name);
+  };
+  await supervisor.reconcile();
+  assert.equal(starts, 1);
+  assert.match(site.lastError, /restart failed once/);
+  const lifecycleCalls = () => calls.filter(([name]) => name !== 'ps').length;
+  const afterFailure = lifecycleCalls();
+  await supervisor.reconcile();
+  await supervisor.reconcile();
+  await supervisor.backstop();
+  await supervisor.backstop();
+  assert.equal(lifecycleCalls(), afterFailure);
+  assert.equal(starts, 1);
+  assert.equal(store.tryRequestEnvironmentControl(site.id, 'restarting'), true);
+  await supervisor.reconcile();
+  assert.equal(starts, 2);
+  assert.equal(site.lastError, null);
+  assert.equal(site.environmentDesiredState, 'running');
+  await supervisor.reconcile();
+  await supervisor.backstop();
+  assert.equal(starts, 2);
 });
 
 test('fleet backstop never clears a durable restarting state', async (t) => {
@@ -1285,15 +1335,22 @@ test('provisioning API is admin-only, guards concurrency and handles an old core
   const buildFailure = new EnvironmentProvisioningService({
     control: () => ({
       provisionEnvironments: async () => ({ ready: true, items: [] }),
-      environmentsStatus: async () => ({ ready: true, items: [] }),
+      environmentsStatus: async () => ({
+        ready: true,
+        detail: 'Core dependencies are ready.',
+        items: [{ id: 'podman', label: 'Podman', ok: true, detail: 'Rootless Podman is available.' }],
+      }),
     }),
     imageExists: async () => false,
     buildImage: async () => { throw new Error('base build failed'); },
     audit: (status) => buildAudits.push(status),
   });
-  await assert.rejects(() => buildFailure.provision(9), /base build failed/);
-  assert.equal(buildAudits[0].ready, false);
-  assert.equal(buildAudits[0].items.find((item) => item.id === 'base-image').ok, false);
+  const buildStatus = await buildFailure.provision(9);
+  assert.equal(buildStatus.ready, false);
+  assert.match(buildStatus.detail, /base build failed/);
+  assert.equal(buildStatus.items.find((item) => item.id === 'podman').ok, true);
+  assert.equal(buildStatus.items.find((item) => item.id === 'base-image').ok, false);
+  assert.deepEqual(buildAudits[0], buildStatus);
 });
 
 test('environment proxy strips forged forwarding headers and writes only verified values', async (t) => {
