@@ -625,6 +625,7 @@ function useBrowserStream(path) {
 // plugins/browser/web-src/BrowserArtifact.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var NARRATION_VISIBLE_MS = 1e4;
+var INPUT_DROPPED_VISIBLE_MS = 2500;
 var asData = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value;
@@ -762,6 +763,8 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const [lease, setLease] = (0, import_react5.useState)(() => initialSessionId ? rememberedLease(initialSessionId) : null);
   const adoptedLease = (0, import_react5.useRef)(lease?.leaseId ?? null);
   const [speechHidden, setSpeechHidden] = (0, import_react5.useState)(false);
+  const [inputDropped, setInputDropped] = (0, import_react5.useState)(false);
+  const droppedTimer = (0, import_react5.useRef)(null);
   const pointerTimer = (0, import_react5.useRef)(null);
   const speechTimer = (0, import_react5.useRef)(null);
   const pendingMove = (0, import_react5.useRef)(null);
@@ -780,8 +783,9 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const frame = stream.frame;
   const frameAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
   const aspectStyle = frameAspect ? { "--browser-aspect": String(frameAspect) } : void 0;
-  const action = stream.action ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` \xB7 ${stream.action.target}` : ""}` : takeoverRequested ? strings.waitingForUser || "Waiting for user input" : data?.lastAction;
+  const action = inputDropped ? strings.inputDropped || "The page changed \u2014 input was not delivered" : stream.action ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` \xB7 ${stream.action.target}` : ""}` : takeoverRequested ? strings.waitingForUser || "Waiting for user input" : data?.lastAction;
   (0, import_react5.useEffect)(() => () => {
+    if (droppedTimer.current) clearTimeout(droppedTimer.current);
     if (pointerTimer.current) clearTimeout(pointerTimer.current);
     if (speechTimer.current) clearTimeout(speechTimer.current);
   }, []);
@@ -904,7 +908,14 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   };
   const command = async (events) => {
     if (!lease || events.length === 0) return;
-    await runtime().api(inputPath(sessionId, "input"), jsonRequest("POST", { leaseId: lease.leaseId, events }));
+    const result = await runtime().api(inputPath(sessionId, "input"), jsonRequest("POST", { leaseId: lease.leaseId, events }));
+    if (result?.dropped !== "page_changed") return;
+    setInputDropped(true);
+    if (droppedTimer.current) clearTimeout(droppedTimer.current);
+    droppedTimer.current = setTimeout(() => {
+      droppedTimer.current = null;
+      setInputDropped(false);
+    }, INPUT_DROPPED_VISIBLE_MS);
   };
   const navigate = (action2) => {
     if (!lease) return;

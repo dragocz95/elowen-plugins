@@ -16,6 +16,7 @@ interface ArtifactData {
 interface Lease { leaseId: string; expiresAt: number; controlRevision: number }
 
 const NARRATION_VISIBLE_MS = 10_000;
+const INPUT_DROPPED_VISIBLE_MS = 2_500;
 
 const asData = (value: unknown): ArtifactData | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -169,6 +170,10 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   /** A lease this mount adopted rather than claimed: it is checked with the server at once, below. */
   const adoptedLease = useRef<string | null>(lease?.leaseId ?? null);
   const [speechHidden, setSpeechHidden] = useState(false);
+  /** The server dropped a batch because the page had already moved on — most often the navigation the
+   *  person's own last input caused. Shown briefly where the action copy lives; never as an error. */
+  const [inputDropped, setInputDropped] = useState(false);
+  const droppedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speechTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingMove = useRef<Record<string, unknown> | null>(null);
@@ -197,11 +202,14 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
    *  also what keeps the pointer mapping honest, since a click is sent as a fraction of the canvas. */
   const frameAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
   const aspectStyle = frameAspect ? { '--browser-aspect': String(frameAspect) } as CSSProperties : undefined;
-  const action = stream.action
-    ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` · ${stream.action.target}` : ''}`
-    : takeoverRequested ? strings.waitingForUser || 'Waiting for user input' : data?.lastAction;
+  const action = inputDropped
+    ? strings.inputDropped || 'The page changed — input was not delivered'
+    : stream.action
+      ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` · ${stream.action.target}` : ''}`
+      : takeoverRequested ? strings.waitingForUser || 'Waiting for user input' : data?.lastAction;
 
   useEffect(() => () => {
+    if (droppedTimer.current) clearTimeout(droppedTimer.current);
     if (pointerTimer.current) clearTimeout(pointerTimer.current);
     if (speechTimer.current) clearTimeout(speechTimer.current);
   }, []);
@@ -326,7 +334,11 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   };
   const command = async (events: Record<string, unknown>[]): Promise<void> => {
     if (!lease || events.length === 0) return;
-    await runtime().api(inputPath(sessionId, 'input'), jsonRequest('POST', { leaseId: lease.leaseId, events }));
+    const result = await runtime().api(inputPath(sessionId, 'input'), jsonRequest('POST', { leaseId: lease.leaseId, events })) as { dropped?: string } | null;
+    if (result?.dropped !== 'page_changed') return;
+    setInputDropped(true);
+    if (droppedTimer.current) clearTimeout(droppedTimer.current);
+    droppedTimer.current = setTimeout(() => { droppedTimer.current = null; setInputDropped(false); }, INPUT_DROPPED_VISIBLE_MS);
   };
   const navigate = (action: 'back' | 'forward' | 'reload'): void => {
     if (!lease) return;

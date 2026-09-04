@@ -1,5 +1,9 @@
 # Changelog
 
+## browser 0.2.11 - 2026-09-04
+
+- Report an input batch dropped because the page moved on as an outcome the card shows for a moment, not as an error toast per pointer move
+
 ## editor 0.3.5 - 2026-09-03
 
 - Restore host-owned project icons in the administrator project picker and require plugin UI API 16

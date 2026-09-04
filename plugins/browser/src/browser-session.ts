@@ -534,7 +534,10 @@ export class BrowserSession {
     }
   }
 
-  async dispatchUserInput(leaseId: string, events: readonly UserInputEvent[]): Promise<void> {
+  /** How a user input batch ended. `page_changed` is not a failure: the document the person acted on
+   *  was replaced before the batch could run — typically by the navigation their own previous input
+   *  caused — so the batch was dropped rather than applied to a page they never saw. */
+  async dispatchUserInput(leaseId: string, events: readonly UserInputEvent[]): Promise<'delivered' | 'page_changed'> {
     // Which document the person was looking at when they acted. Control is now handed over instantly,
     // so an agent navigation can still hold the queue: without this the click would be delivered after
     // that navigation finished, landing at those coordinates on a page the user never saw.
@@ -555,9 +558,9 @@ export class BrowserSession {
       // and is required either way so a fresh loader id can never vouch for a page that moved.
       const currentLoader = await this.mainFrameLoaderId();
       const sameLoader = !actedOnLoader || !currentLoader || actedOnLoader === currentLoader;
-      if (!sameLoader || this.page.url() !== actedOnUrl) {
-        throw new Error('The page changed before this input could be delivered.');
-      }
+      // Dropped, not failed: every pointer move made while a login form was submitting used to come
+      // back as an error, and a person doing exactly the right thing saw a burst of red toasts.
+      if (!sameLoader || this.page.url() !== actedOnUrl) return 'page_changed' as const;
       const epoch = this.inputEpochValue;
       await withDeadline(
         this.input.dispatchUserBatch(events, () => {
@@ -571,6 +574,7 @@ export class BrowserSession {
       // it, which is what keeps a stuck batch from replaying a whole gesture into the wrong page.
       this.snapshotValue = null;
       this.touch('User input');
+      return 'delivered' as const;
     });
     void delivery.catch(() => {});
     try {

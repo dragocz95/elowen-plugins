@@ -1,6 +1,6 @@
 {
   "name": "browser",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "apiVersion": "1",
   "requiresCore": "0.28.27",
   "description": "Persistent private browser automation for linked Elowen accounts. Each account gets its own Chrome profile and process with multiple tab sessions, accessibility-first typed actions, bounded live screencast streaming, exclusive user takeover, authenticated account-owned API routes, and a deny-by-default enforcing network proxy boundary.",
@@ -381,6 +381,7 @@
       "closed": "Closed",
       "disconnected": "Disconnected",
       "viewerLimit": "Too many viewers",
+      "inputDropped": "The page changed — input was not delivered",
       "connecting": "Connecting",
       "agentControl": "Agent control",
       "userControl": "User control",
