@@ -13,7 +13,7 @@ import { matchPolicy, senderIds, senderIsAdmin, displayNameOf, ownerKey, isOwner
 import { parseModelExec, splitContent } from './format.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
-import { buildAskCard, buildPickerCard, settledCard } from './cards.mjs';
+import { buildAskCard, buildPickerCard, collectQuestionAnswers, settledCard } from './cards.mjs';
 import { buildAppPackage } from './appPackage.mjs';
 import { botControlCommandsFrom, controlCommandsFrom, localCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
@@ -1400,7 +1400,7 @@ export class MsTeamsAdapter {
     const selected = questions.map(() => []);
     const cs = this.cfg.language === 'cs';
     const activityId = await this.tmSend(conversationId, '', { replyToId, card: buildAskCard(token, questions, { cs, selected }) });
-    this.pendingAsks.set(token, { id, conversationId, activityId, questions, askerId, selected });
+    this.pendingAsks.set(token, { id, conversationId, activityId, questions, askerId, selected, other: [] });
   }
 
   /** The core settled this question — answered, timed out, aborted, or superseded by a newer one. Settle
@@ -1444,6 +1444,15 @@ export class MsTeamsAdapter {
     }
     const cs = this.cfg.language === 'cs';
     const single = pend.questions.length === 1 && pend.questions[0]?.multiSelect !== true;
+    pend.other ??= [];
+    pend.questions.forEach((question, qi) => {
+      if (question.custom === false) return;
+      const key = pend.questions.length === 1 ? 'other' : `other${qi}`;
+      if (value[key] === undefined) return;
+      const custom = String(value[key] ?? '').trim();
+      if (custom) pend.other[qi] = custom;
+      else delete pend.other[qi];
+    });
 
     if (value.o !== undefined && value.q !== undefined) {
       const qi = Number(value.q);
@@ -1455,34 +1464,36 @@ export class MsTeamsAdapter {
       pend.selected[qi] = multi
         ? (picks.includes(label) ? picks.filter((l) => l !== label) : [...picks, label])
         : [label];
+      delete pend.other[qi];
       if (single) return this.settleAsk(token, pend);
       // Re-render the card so the ✅ marks reflect the current selection.
-      await this.tmEdit(pend.conversationId, pend.activityId, '', buildAskCard(token, pend.questions, { cs, selected: pend.selected }));
+      await this.tmEdit(pend.conversationId, pend.activityId, '', buildAskCard(token, pend.questions, { cs, selected: pend.selected, other: pend.other }));
       return;
     }
-    if (value.ot !== undefined) {
-      const other = String(value.other ?? '').trim();
-      if (!other) return;
-      return this.settleAsk(token, pend, other);
-    }
+    if (value.ot !== undefined) return this.settleAsk(token, pend);
     if (value.s !== undefined) return this.settleAsk(token, pend);
   }
 
-  /** Deliver the collected answers to the parked turn and settle the card to a summary line. */
-  async settleAsk(token, pend, other) {
-    const answers = pend.questions.map((q, qi) => ({
-      header: q.header,
-      selected: pend.selected[qi] ?? [],
-      ...(other !== undefined && qi === 0 ? { other } : {}),
-    }));
+  /** Deliver every locally complete answer to the parked turn and settle the card to a summary line. */
+  async settleAsk(token, pend) {
+    const { answers, next } = collectQuestionAnswers(pend.questions, pend.selected, pend.other);
+    if (next >= 0) {
+      if (pend.activityId) {
+        const cs = this.cfg.language === 'cs';
+        await this.tmEdit(pend.conversationId, pend.activityId, '', buildAskCard(token, pend.questions, {
+          cs, selected: pend.selected, other: pend.other, missing: next,
+        }));
+      }
+      return false;
+    }
     const settled = this.answerQuestion(pend.id, answers);
+    if (!settled) return false;
     this.pendingAsks.delete(token);
     const summary = answers
-      .map((a) => `${a.header}: ${[...a.selected, ...(a.other ? [a.other] : [])].join(', ') || '—'}`)
+      .map((a) => `${a.header}: ${[...a.selected, ...(a.other ? [a.other] : [])].join(', ')}`)
       .join(' · ');
-    if (pend.activityId) {
-      await this.tmEdit(pend.conversationId, pend.activityId, '', settledCard(settled ? this.msg.askAnswered(summary) : this.msg.askExpired));
-    }
+    if (pend.activityId) await this.tmEdit(pend.conversationId, pend.activityId, '', settledCard(this.msg.askAnswered(summary)));
+    return true;
   }
 
   // ── slash commands ──
