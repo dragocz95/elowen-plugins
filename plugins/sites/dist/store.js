@@ -7,7 +7,7 @@ const asRuntime = (value) => {
     }
     return { runtime: 'unsupported', unsupportedRuntime: value ?? '(null)' };
 };
-const asEnvironmentDesiredState = (value) => value === 'stopped' ? 'stopped' : 'running';
+const asEnvironmentDesiredState = (value) => value === 'stopped' || value === 'restarting' ? value : 'running';
 const toSite = (row) => {
     const runtime = asRuntime(row.runtime);
     return {
@@ -51,7 +51,7 @@ const toRelease = (row) => ({
     fileCount: row.file_count,
     sizeBytes: row.size_bytes,
     note: row.note ?? '',
-    kind: row.kind === 'environment-rootfs' || row.kind === 'environment-data' ? row.kind : 'files',
+    kind: row.kind === 'environment-snapshot' ? row.kind : 'files',
     imageRef: row.image_ref,
     dataArchive: row.data_archive,
 });
@@ -177,6 +177,23 @@ export class SitesStore {
           `);
                 },
             },
+            {
+                version: 6,
+                // Rollback crosses the daemon-only broker boundary, so the request itself is durable. A single row
+                // per site also prevents two restore operations from interleaving across plugin reloads.
+                up: (handle) => {
+                    handle.exec(`
+            CREATE TABLE IF NOT EXISTS p_sites_environment_actions (
+              site_id TEXT PRIMARY KEY,
+              kind TEXT NOT NULL,
+              snapshot_id TEXT NOT NULL,
+              restore_data INTEGER NOT NULL DEFAULT 0,
+              requested_at TEXT NOT NULL,
+              last_error TEXT
+            );
+          `);
+                },
+            },
         ]);
     }
     transaction(fn) {
@@ -246,6 +263,12 @@ export class SitesStore {
         return this.db.prepare(`
       SELECT * FROM p_sites_sites
       WHERE runtime = 'environment' AND status = 'live'
+    `).all().map(toSite);
+    }
+    environmentSitesForReconcile() {
+        return this.db.prepare(`
+      SELECT * FROM p_sites_sites
+      WHERE runtime = 'environment' AND status <> 'deleting'
     `).all().map(toSite);
     }
     portsInUse() {
@@ -319,6 +342,7 @@ export class SitesStore {
             this.db.prepare('DELETE FROM p_sites_releases WHERE site_id = ?').run(id);
             this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id = ?').run(id);
             this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
+            this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(id);
             this.db.prepare('DELETE FROM p_sites_sites WHERE id = ?').run(id);
         });
     }
@@ -369,6 +393,57 @@ export class SitesStore {
     }
     deleteRelease(siteId, releaseId) {
         this.db.prepare('DELETE FROM p_sites_releases WHERE site_id = ? AND id = ?').run(siteId, releaseId);
+    }
+    environmentAction(siteId) {
+        const row = this.db.prepare('SELECT * FROM p_sites_environment_actions WHERE site_id = ?').get(siteId);
+        if (!row || row.kind !== 'rollback')
+            return null;
+        return {
+            siteId: row.site_id,
+            kind: 'rollback',
+            snapshotId: row.snapshot_id,
+            restoreData: row.restore_data === 1,
+            requestedAt: row.requested_at,
+            lastError: row.last_error,
+        };
+    }
+    putEnvironmentAction(action) {
+        this.db.prepare(`
+      INSERT INTO p_sites_environment_actions (site_id, kind, snapshot_id, restore_data, requested_at, last_error)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(site_id) DO UPDATE SET
+        kind = excluded.kind, snapshot_id = excluded.snapshot_id, restore_data = excluded.restore_data,
+        requested_at = excluded.requested_at, last_error = excluded.last_error
+    `).run(action.siteId, action.kind, action.snapshotId, action.restoreData ? 1 : 0, action.requestedAt, action.lastError);
+    }
+    tryPutEnvironmentAction(action) {
+        return this.db.transaction(() => {
+            const result = this.db.prepare(`
+        INSERT OR IGNORE INTO p_sites_environment_actions (
+          site_id, kind, snapshot_id, restore_data, requested_at, last_error
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `).run(action.siteId, action.kind, action.snapshotId, action.restoreData ? 1 : 0, action.requestedAt, action.lastError);
+            if (result.changes !== 1)
+                return false;
+            this.db.prepare(`
+        UPDATE p_sites_sites SET environment_desired_state = 'restarting', updated_at = ? WHERE id = ?
+      `).run(new Date().toISOString(), action.siteId);
+            return true;
+        });
+    }
+    completeEnvironmentRestart(siteId) {
+        const result = this.db.prepare(`
+      UPDATE p_sites_sites
+      SET environment_desired_state = 'running', status = 'live', last_error = NULL, updated_at = ?
+      WHERE id = ? AND environment_desired_state = 'restarting'
+    `).run(new Date().toISOString(), siteId);
+        return result.changes === 1;
+    }
+    updateEnvironmentActionError(siteId, error) {
+        this.db.prepare('UPDATE p_sites_environment_actions SET last_error = ? WHERE site_id = ?').run(error, siteId);
+    }
+    deleteEnvironmentAction(siteId) {
+        this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(siteId);
     }
     putTicket(tokenHash, ticket) {
         this.db.prepare(`

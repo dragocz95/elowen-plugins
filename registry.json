@@ -184,9 +184,9 @@
       "author": "Elowen",
       "apiVersion": "1",
       "provides": {
-        "tools": 10,
+        "tools": 13,
         "httpRoutes": 1,
-        "apiRoutes": 4
+        "apiRoutes": 6
       }
     },
     {

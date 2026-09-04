@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir, userInfo } from 'node:os';
@@ -14,6 +14,9 @@ import { resolveConfig } from '../plugins/sites/dist/config.js';
 import { SitesStore } from '../plugins/sites/dist/store.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
 import { proxyToEnvironment } from '../plugins/sites/dist/proxy.js';
+import { registerTools } from '../plugins/sites/dist/tools.js';
+import { createApiHandlers } from '../plugins/sites/dist/api.js';
+import { EnvironmentProvisioningService } from '../plugins/sites/dist/provisioning.js';
 
 const SITE_ID = '123e4567-e89b-12d3-a456-426614174000';
 
@@ -167,6 +170,23 @@ test('Podman creates labeled data volumes and updates limits with exact argv', a
   ]);
 });
 
+test('SiteExec command bytes use stdin and never appear in host argv', async () => {
+  const executor = new FakeExecutor();
+  executor.enqueue('done');
+  const podman = new PodmanClient({ executor });
+  const command = 'printf super-secret-command';
+  const result = await podman.execInteractive(`elowen-site-${SITE_ID}`, ['/bin/bash', '-s'], command, {
+    timeoutMs: 5_000,
+    workdir: '/workspace',
+  });
+  assert.equal(result.stdout, 'done');
+  assert.deepEqual(executor.calls[0].args, [
+    'exec', '--interactive', '--workdir', '/workspace', `elowen-site-${SITE_ID}`, '/bin/bash', '-s',
+  ]);
+  assert.equal(executor.calls[0].args.some((arg) => arg.includes('super-secret-command')), false);
+  assert.equal(executor.calls[0].options.input, command);
+});
+
 test('isolated environments use no network and Podman output is bounded', async () => {
   const executor = new FakeExecutor();
   executor.enqueue('x'.repeat(100), 'y'.repeat(100));
@@ -240,7 +260,7 @@ function supervisorHarness(t, { statuses = [null], sealed = false, connectReady 
   let currentStatus = statuses[0] ?? null;
   const podman = {
     async inspectStatus() {
-      const value = statuses[Math.min(statusIndex, statuses.length - 1)] ?? currentStatus;
+      const value = statusIndex < statuses.length ? statuses[statusIndex] : currentStatus;
       statusIndex += 1;
       calls.push(['inspect', value]);
       return value;
@@ -248,6 +268,15 @@ function supervisorHarness(t, { statuses = [null], sealed = false, connectReady 
     async ensureVolume(name, siteId) { calls.push(['volume-ensure', name, siteId]); },
     async create(spec) { calls.push(['create', spec]); currentStatus = 'created'; },
     async update(name, limits) { calls.push(['update', name, limits]); },
+    async execInteractive(name, argv, input, options) { calls.push(['exec-interactive', name, argv, input, options]); return { stdout: 'ok', stderr: '', code: 0 }; },
+    async exec(name, argv, options) { calls.push(['exec', name, argv, options]); return { stdout: 'journal', stderr: '', code: 0 }; },
+    async pause(name) { calls.push(['pause', name]); },
+    async unpause(name) { calls.push(['unpause', name]); },
+    async commit(name, image) { calls.push(['commit', name, image]); },
+    async exportVolume(name, output) { calls.push(['volume-export', name, output]); mkdirSync(join(output, '..'), { recursive: true }); writeFileSync(output, 'archive'); },
+    async importVolume(name, input) { calls.push(['volume-import', name, input]); },
+    async removeImage(name) { calls.push(['image-rm', name]); },
+    async imageExists(name) { calls.push(['image-exists', name]); return true; },
     async start(name) {
       calls.push(['start', name]);
       currentStatus = 'running';
@@ -273,10 +302,25 @@ function supervisorHarness(t, { statuses = [null], sealed = false, connectReady 
   };
   if (sealed) mkdirSync(brokerDir, { recursive: true });
   const desired = environmentSite();
+  const releases = [];
+  let action = null;
   const store = {
     siteById: () => desired,
     liveEnvironmentSites: () => [desired],
+    environmentSitesForReconcile: () => [desired],
     updateSite: (_id, patch) => Object.assign(desired, patch),
+    insertRelease: (release) => releases.push(release),
+    releases: () => releases,
+    release: (_siteId, releaseId) => releases.find((release) => release.id === releaseId) ?? null,
+    environmentAction: () => action,
+    putEnvironmentAction: (next) => { action = next; desired.environmentDesiredState = 'restarting'; },
+    completeEnvironmentRestart: () => {
+      if (desired.environmentDesiredState !== 'restarting') return false;
+      Object.assign(desired, { environmentDesiredState: 'running', status: 'live', lastError: null });
+      return true;
+    },
+    updateEnvironmentActionError: (_siteId, error) => { if (action) action.lastError = error; },
+    deleteEnvironmentAction: () => { action = null; },
   };
   const supervisor = new EnvironmentSupervisor({
     podman,
@@ -297,7 +341,7 @@ function supervisorHarness(t, { statuses = [null], sealed = false, connectReady 
     try { chmodSync(brokerDir, 0o730); } catch {}
     rmSync(root, { recursive: true, force: true });
   });
-  return { supervisor, lifecycle, calls, socketPath, brokerDir, site: desired };
+  return { supervisor, lifecycle, calls, socketPath, brokerDir, site: desired, store, releases, podman, root };
 }
 
 test('environment start performs the direct broker sequence and never uses restart', async (t) => {
@@ -361,9 +405,215 @@ test('service detach never stops a running environment and backstop uses one ps 
   assert.equal(calls.some(([name]) => name === 'stop' || name === 'kill'), false);
 });
 
-test('environment delete removes only plugin metadata and never the Project source', async (t) => {
-  const { supervisor, calls, site } = supervisorHarness(t, { statuses: [null] });
+test('environment limit overrides persist only after Podman update succeeds', async (t) => {
+  const { supervisor, site, podman } = supervisorHarness(t, { statuses: ['running'] });
+  podman.update = async () => { throw new Error('update denied'); };
+  await assert.rejects(() => supervisor.applyLimits(site, {
+    environmentCpus: 2,
+    environmentMemoryMb: 2048,
+    environmentPidsLimit: 700,
+    environmentDiskSoftMb: 8192,
+  }), /update denied/);
+  assert.equal(site.environmentMemoryMb, null);
+});
+
+test('environment exec refuses a stopped container', async (t) => {
+  const { supervisor, site } = supervisorHarness(t, { statuses: ['exited'] });
+  await assert.rejects(() => supervisor.exec(site, 'echo no', { timeoutSeconds: 120 }), /not running/);
+});
+
+test('environment logs use a bounded journalctl argv plus lifecycle log', async (t) => {
+  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['running'] });
+  const logs = await supervisor.logs(site, 5000);
+  assert.equal(logs.journal, 'journal');
+  assert.deepEqual(calls.find(([name]) => name === 'exec'), [
+    'exec', `elowen-site-${SITE_ID}`, ['journalctl', '--no-pager', '-n', '1000'], { timeoutMs: 30000 },
+  ]);
+});
+
+test('environment snapshot pauses, commits and exports data before unpausing', async (t) => {
+  const { supervisor, calls, site, releases } = supervisorHarness(t, { statuses: ['running'] });
+  const release = await supervisor.snapshot(site, { snapshotId: 'snap-1', includeData: true, note: 'before change', model: 'test/model' });
+  assert.deepEqual(calls.filter(([name]) => ['pause', 'commit', 'volume-export', 'unpause'].includes(name)).map(([name]) => name), [
+    'pause', 'commit', 'volume-export', 'unpause',
+  ]);
+  assert.equal(release.kind, 'environment-snapshot');
+  assert.equal(releases[0].id, 'snap-1');
+  assert.match(release.dataArchive, /snapshots\/snap-1\/data\.tar$/);
+});
+
+test('environment snapshot always unpauses after export failure', async (t) => {
+  const { supervisor, calls, site, podman } = supervisorHarness(t, { statuses: ['running'] });
+  podman.exportVolume = async () => { calls.push(['volume-export-failed']); throw new Error('export failed'); };
+  await assert.rejects(
+    () => supervisor.snapshot(site, { snapshotId: 'snap-fail', includeData: true, note: '', model: 'test/model' }),
+    /export failed/,
+  );
+  assert.equal(calls.some(([name]) => name === 'unpause'), true);
+  assert.equal(site.status, 'live');
+});
+
+test('environment snapshot cleans image and archive when release metadata cannot be stored', async (t) => {
+  const { supervisor, calls, site, store, releases } = supervisorHarness(t, { statuses: ['running'] });
+  store.insertRelease = () => { throw new Error('database full'); };
+  await assert.rejects(
+    () => supervisor.snapshot(site, { snapshotId: 'snap-db', includeData: true, note: '', model: 'test/model' }),
+    /database full/,
+  );
+  assert.equal(calls.some(([name]) => name === 'image-rm'), true);
+  assert.equal(releases.length, 0);
+});
+
+test('environment snapshot cleans unrecorded artifacts when unpause fails', async (t) => {
+  const { supervisor, calls, site, podman, releases } = supervisorHarness(t, { statuses: ['running'] });
+  podman.unpause = async () => { calls.push(['unpause-failed']); throw new Error('unpause failed'); };
+  await assert.rejects(
+    () => supervisor.snapshot(site, { snapshotId: 'snap-unpause', includeData: false, note: '', model: 'test/model' }),
+    /unpause failed/,
+  );
+  assert.equal(calls.some(([name]) => name === 'image-rm'), true);
+  assert.equal(releases.length, 0);
+  assert.equal(site.status, 'failed');
+});
+
+test('daemon reconcile performs a durable restart and atomically returns desired state to running', async (t) => {
+  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
+  site.environmentDesiredState = 'restarting';
+  await supervisor.reconcile();
+  assert.equal(site.environmentDesiredState, 'running');
+  assert.deepEqual(calls.filter(([name]) => ['stop', 'update', 'start'].includes(name)).map(([name]) => name), [
+    'stop', 'update', 'start',
+  ]);
+});
+
+test('a newer durable stop request is not overwritten when restart finishes', async (t) => {
+  const { supervisor, site, podman } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
+  site.environmentDesiredState = 'restarting';
+  const start = podman.start;
+  podman.start = async (name) => { await start(name); site.environmentDesiredState = 'stopped'; };
+  await supervisor.reconcile();
+  assert.equal(site.environmentDesiredState, 'stopped');
+});
+
+test('fleet backstop never clears a durable restarting state', async (t) => {
+  const { supervisor, site, calls } = supervisorHarness(t, { statuses: ['running'] });
+  site.environmentDesiredState = 'restarting';
+  await supervisor.backstop();
+  assert.equal(site.environmentDesiredState, 'restarting');
+  assert.equal(calls.some(([name]) => name === 'start'), false);
+});
+
+test('daemon reconcile completes durable rollback and returns desired state to running', async (t) => {
+  const { supervisor, calls, site, store, releases, root } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
+  const dataArchive = join(root, 'site', 'environment', 'snapshots', 'restore-1', 'data.tar');
+  releases.push({
+    id: 'restore-1', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
+    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:restore-1`,
+    dataArchive,
+  });
+  store.putEnvironmentAction({
+    siteId: site.id, kind: 'rollback', snapshotId: 'restore-1', restoreData: true,
+    requestedAt: new Date().toISOString(), lastError: null,
+  });
+  await supervisor.reconcile();
+  assert.equal(store.environmentAction(site.id), null);
+  assert.equal(site.environmentDesiredState, 'running');
+  assert.equal(calls.some(([name, spec]) => name === 'create' && spec.image === releases[0].imageRef), true);
+  assert.deepEqual(calls.filter(([name]) => ['stop', 'remove', 'volume-rm', 'volume-ensure', 'volume-import', 'volume-export', 'create', 'update', 'start'].includes(name)).map(([name]) => name), [
+    'volume-rm', 'volume-ensure', 'volume-import', 'volume-rm',
+    'stop', 'remove', 'volume-export', 'volume-rm', 'volume-ensure', 'volume-import',
+    'create', 'update', 'start',
+  ]);
+});
+
+test('rollback keeps the original data backup until restored rootfs passes readiness', async (t) => {
+  const { supervisor, site, store, releases, root, podman } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
+  const dataArchive = join(root, 'site', 'environment', 'snapshots', 'start-fail', 'data.tar');
+  releases.push({
+    id: 'start-fail', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
+    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:start-fail`, dataArchive,
+  });
+  podman.start = async () => { throw new Error('restored rootfs failed to start'); };
+  store.putEnvironmentAction({
+    siteId: site.id, kind: 'rollback', snapshotId: 'start-fail', restoreData: true,
+    requestedAt: new Date().toISOString(), lastError: null,
+  });
+  await supervisor.reconcile();
+  assert.equal(existsSync(join(root, 'site', 'environment', 'restore', 'start-fail', 'previous-data.tar')), true);
+  assert.match(store.environmentAction(site.id).lastError, /failed to start/);
+});
+
+test('rollback verifies snapshot image before stopping the current container', async (t) => {
+  const { supervisor, site, store, releases, podman, calls } = supervisorHarness(t, { statuses: ['running'] });
+  releases.push({
+    id: 'missing-image', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
+    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:missing-image`, dataArchive: null,
+  });
+  podman.imageExists = async () => false;
+  store.putEnvironmentAction({
+    siteId: site.id, kind: 'rollback', snapshotId: 'missing-image', restoreData: false,
+    requestedAt: new Date().toISOString(), lastError: null,
+  });
+  await supervisor.reconcile();
+  assert.equal(calls.some(([name]) => name === 'stop' || name === 'remove'), false);
+  assert.match(store.environmentAction(site.id).lastError, /image is missing/);
+});
+
+test('failed data restore puts the previous volume back and leaves the action durable', async (t) => {
+  const { supervisor, site, store, releases, root, podman, calls } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
+  const dataArchive = join(root, 'site', 'environment', 'snapshots', 'restore-fail', 'data.tar');
+  releases.push({
+    id: 'restore-fail', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
+    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:restore-fail`, dataArchive,
+  });
+  let imports = 0;
+  podman.importVolume = async (name, input) => {
+    imports += 1;
+    calls.push(['volume-import', name, input]);
+    if (imports === 2) throw new Error('snapshot import failed');
+  };
+  store.putEnvironmentAction({
+    siteId: site.id, kind: 'rollback', snapshotId: 'restore-fail', restoreData: true,
+    requestedAt: new Date().toISOString(), lastError: null,
+  });
+  await supervisor.reconcile();
+  assert.equal(imports, 3, 'validate snapshot, failed replacement, restore previous backup');
+  assert.match(store.environmentAction(site.id).lastError, /snapshot import failed/);
+  assert.equal(site.status, 'failed');
+});
+
+test('failed previous-data restore keeps the durable backup archive', async (t) => {
+  const { supervisor, site, store, releases, root, podman, calls } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
+  const dataArchive = join(root, 'site', 'environment', 'snapshots', 'restore-broken', 'data.tar');
+  releases.push({
+    id: 'restore-broken', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
+    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:restore-broken`, dataArchive,
+  });
+  let imports = 0;
+  podman.importVolume = async (name, input) => {
+    imports += 1;
+    calls.push(['volume-import', name, input]);
+    if (imports >= 2) throw new Error(imports === 2 ? 'snapshot import failed' : 'backup restore failed');
+  };
+  store.putEnvironmentAction({
+    siteId: site.id, kind: 'rollback', snapshotId: 'restore-broken', restoreData: true,
+    requestedAt: new Date().toISOString(), lastError: null,
+  });
+  await supervisor.reconcile();
+  assert.match(store.environmentAction(site.id).lastError, /previous data backup could not be restored/);
+  assert.equal(existsSync(join(root, 'site', 'environment', 'restore', 'restore-broken', 'previous-data.tar')), true);
+});
+
+test('environment delete removes snapshots and pending actions without deleting Project source', async (t) => {
+  const { supervisor, calls, site, releases, store } = supervisorHarness(t, { statuses: [null] });
+  releases.push({
+    id: 'delete-snapshot', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
+    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:delete-snapshot`, dataArchive: null,
+  });
+  store.putEnvironmentAction({ siteId: site.id, kind: 'rollback', snapshotId: 'delete-snapshot', restoreData: false, requestedAt: new Date().toISOString(), lastError: null });
   await supervisor.delete(site.id);
+  assert.equal(calls.some(([name]) => name === 'image-rm'), true);
+  assert.equal(store.environmentAction(site.id), null);
   const cleanup = calls.find(([name]) => name === 'unshare-rm');
   assert.ok(cleanup);
   assert.equal(cleanup[1].includes(site.sourceDir), false);
@@ -385,7 +635,7 @@ test('migration v5 preserves existing runtimes, exposes environment counts and f
     },
   });
   const store = new SitesStore(db);
-  assert.equal(db.appliedVersion(), 5);
+  assert.equal(db.appliedVersion(), 6);
   for (const runtime of ['static', 'command', 'php']) assert.equal(store.siteById(`legacy-${runtime}`).runtime, runtime);
   store.insertSite(environmentSite({ id: 'site-environment', slug: 'site-environment' }));
   assert.equal(store.countEnvironmentOwnedBy(7), 1);
@@ -416,6 +666,12 @@ test('core seam, manifest and lifecycle match the final core contract', () => {
   assert.match(index, /report\.ready/);
   assert.doesNotMatch(index, /report\.steps|report\.available|report\.ok|report\.error/);
   assert.equal(manifest.requiresCore, '0.28.31');
+  assert.ok(manifest.provides.tools.includes('SiteExec'));
+  assert.ok(manifest.provides.tools.includes('SiteControl'));
+  assert.ok(manifest.provides.tools.includes('SiteSnapshot'));
+  assert.ok(manifest.provides.apiRoutes.includes('environments/readiness'));
+  assert.ok(manifest.provides.apiRoutes.includes('environments/provision'));
+  assert.ok(manifest.capabilities.mutates.includes('events'));
   assert.equal(manifest.configSchema.find((field) => field.key === 'environmentNetwork')?.default, 'shared');
   assert.equal(manifest.configSchema.find((field) => field.key === 'runtimeNetwork')?.default, 'isolated');
   assert.match(manifest.description, /persistent rootless environments/i);
@@ -446,6 +702,251 @@ test('environment configuration is strictly bounded and separately gated', () =>
   assert.equal(resolved.environmentPidsLimit, 16);
   assert.equal(resolved.environmentDiskSoftMb, 4096);
   assert.equal(resolved.maxEnvironmentsPerAccount, 20);
+});
+
+function phase2ToolHarness(t, { userId = 1, admin = false, projectAccess = true, configRaw = {} } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'sites-phase2-tools-'));
+  const project = join(root, 'project');
+  mkdirSync(project, { recursive: true });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const store = new SitesStore(makeDb());
+  const registered = new Map();
+  const environmentCalls = [];
+  const access = {
+    accountExists: () => true,
+    isAdmin: (id) => id === userId && admin,
+    canAccessProject: (id, projectId) => id === userId && projectId === 7 && projectAccess,
+  };
+  const ctx = {
+    registerTool: (tool) => registered.set(tool.name, tool),
+    currentModel: () => ({ provider: 'test', model: 'model' }),
+    currentContributionUserId: () => userId,
+    currentIdentity: () => ({ elowenUserId: userId }),
+    currentSessionId: () => 'session-1',
+    workDir: () => project,
+    assertPathAllowed: (path) => path,
+    control: () => undefined,
+    host: { stores: () => ({ projects: { list: () => [{ id: 7, slug: 'demo', path: project }] } }) },
+  };
+  const resolved = () => resolveConfig({ allowEnvironments: true, ...configRaw }, 'https://elowen.example', 'sites.elowen.example');
+  const environment = {
+    async state(site) {
+      return {
+        state: 'running', desiredState: site.environmentDesiredState ?? 'running', usage: null,
+        limits: {
+          cpus: site.environmentCpus ?? resolved().environmentCpus,
+          memoryMb: site.environmentMemoryMb ?? resolved().environmentMemoryMb,
+          pidsLimit: site.environmentPidsLimit ?? resolved().environmentPidsLimit,
+          diskSoftMb: site.environmentDiskSoftMb ?? resolved().environmentDiskSoftMb,
+        },
+      };
+    },
+    async exec(site, command, options) { environmentCalls.push(['exec', site.id, command, options]); return { stdout: 'exec-ok', stderr: '', code: 0 }; },
+    async snapshot(site, options) {
+      environmentCalls.push(['snapshot', site.id, options]);
+      const release = {
+        id: options.snapshotId, siteId: site.id, createdAt: new Date().toISOString(), model: options.model,
+        fileCount: 0, sizeBytes: 0, note: options.note, kind: 'environment-snapshot',
+        imageRef: `localhost/elowen-site/${site.id}:${options.snapshotId}`, dataArchive: null,
+      };
+      store.insertRelease(release);
+      return release;
+    },
+    async logs(site, lines) { environmentCalls.push(['logs', site.id, lines]); return { lifecycle: 'life', journal: 'journal' }; },
+  };
+  registerTools({
+    ctx, store, access, config: resolved,
+    people: () => new Map([[userId, { id: userId, username: `user-${userId}`, name: `User ${userId}`, avatar: '' }]]),
+    siteDir: (id) => join(root, 'data', id), releaseDir: (id, releaseId) => join(root, 'data', id, releaseId),
+    deleteSite: async () => {},
+    runtime: { allocatePort: async () => 43000, stop: async () => {}, start: async () => {}, logTail: () => '', isRunning: () => false },
+    environment,
+  });
+  return { store, environmentCalls, call: (name, input = {}) => registered.get(name).execute('call-1', input) };
+}
+
+test('SiteCreate creates a durable environment from a forked runner without gateway control', async (t) => {
+  const harness = phase2ToolHarness(t);
+  const result = await harness.call('SiteCreate', { title: 'Persistent app', runtime: 'environment' });
+  const site = harness.store.siteById(result.details.siteId);
+  assert.equal(site.runtime, 'environment');
+  assert.equal(site.status, 'live');
+  assert.equal(site.currentReleaseId, null);
+  assert.equal(site.environmentDesiredState, 'running');
+  assert.match(result.content[0].text, /SiteExec/);
+  assert.match(result.content[0].text, /\/workspace/);
+  assert.match(result.content[0].text, /\/data/);
+  assert.match(result.content[0].text, /port 80/i);
+  assert.match(result.content[0].text, /1 MB/);
+});
+
+test('SiteCreate enforces the environment gate, separate count and environment-only inputs', async (t) => {
+  const disabled = phase2ToolHarness(t, { configRaw: { allowEnvironments: false } });
+  await assert.rejects(() => disabled.call('SiteCreate', { title: 'No', runtime: 'environment' }), /environments are turned off/i);
+
+  const limited = phase2ToolHarness(t, { configRaw: { maxEnvironmentsPerAccount: 1 } });
+  limited.store.insertSite(environmentSite({ id: 'existing', slug: 'existing', ownerUserId: 1, projectId: 7 }));
+  await assert.rejects(() => limited.call('SiteCreate', { title: 'Another', runtime: 'environment' }), /environment.*limit/i);
+
+  const enabled = phase2ToolHarness(t);
+  await assert.rejects(() => enabled.call('SiteCreate', { title: 'Bad', runtime: 'environment', startCommand: 'node app.js' }), /startCommand/);
+  await assert.rejects(() => enabled.call('SiteCreate', { title: 'Bad', runtime: 'environment', bind: 'socket' }), /bind/);
+});
+
+test('SiteExec enforces publisher and Project access and runs synchronously in a forked runner', async (t) => {
+  const allowed = phase2ToolHarness(t);
+  allowed.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
+  const result = await allowed.call('SiteExec', { site: SITE_ID, command: 'echo ok', timeoutSeconds: 900, workdir: '/workspace' });
+  assert.equal(result.content[0].text.includes('exec-ok'), true);
+  assert.deepEqual(allowed.environmentCalls[0], ['exec', SITE_ID, 'echo ok', { timeoutSeconds: 900, workdir: '/workspace' }]);
+  await assert.rejects(() => allowed.call('SiteExec', { site: SITE_ID, command: 'x', workdir: '/workspace/../data' }), /workdir/i);
+
+  const noProject = phase2ToolHarness(t, { projectAccess: false });
+  noProject.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
+  await assert.rejects(() => noProject.call('SiteExec', { site: SITE_ID, command: 'echo no' }), /Project access/i);
+
+  const noPublisher = phase2ToolHarness(t, { configRaw: { publishers: 'admins' } });
+  noPublisher.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
+  await assert.rejects(() => noPublisher.call('SiteExec', { site: SITE_ID, command: 'echo no' }), /not allowed to publish/i);
+});
+
+test('SiteControl and SiteRollback persist durable daemon work without ambient gateway control', async (t) => {
+  const harness = phase2ToolHarness(t);
+  const site = environmentSite({ ownerUserId: 1, projectId: 7 });
+  harness.store.insertSite(site);
+  harness.store.insertRelease({
+    id: 'snapshot-1', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
+    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:snapshot-1`, dataArchive: '/snapshot/data.tar',
+  });
+  await harness.call('SiteControl', { site: SITE_ID, action: 'restart' });
+  assert.equal(harness.store.siteById(SITE_ID).environmentDesiredState, 'restarting');
+  await harness.call('SiteRollback', { site: SITE_ID, releaseId: 'snapshot-1', restoreData: true });
+  assert.deepEqual(harness.store.environmentAction(SITE_ID), {
+    siteId: SITE_ID, kind: 'rollback', snapshotId: 'snapshot-1', restoreData: true,
+    requestedAt: harness.store.environmentAction(SITE_ID).requestedAt, lastError: null,
+  });
+
+  harness.store.insertSite(environmentSite({ id: 'other-site', slug: 'other-site', ownerUserId: 1, projectId: 7 }));
+  await assert.rejects(() => harness.call('SiteRollback', { site: 'other-site', releaseId: 'snapshot-1' }), /not retained for this site/i);
+});
+
+const apiRequest = ({ method = 'GET', path = '', admin = false, userId = 1, body = {} } = {}) => ({
+  method, path, query: {}, headers: {}, params: {},
+  auth: { userId, admin, tokenScope: 'user', accessibleProjects: [7] },
+  body: async () => Buffer.from(JSON.stringify(body)),
+  json: async () => body,
+});
+
+function phase2ApiHarness({ provisioning } = {}) {
+  const store = new SitesStore(makeDb());
+  const target = environmentSite({ ownerUserId: 1, projectId: 7 });
+  store.insertSite(target);
+  const calls = [];
+  const handlers = createApiHandlers({
+    store,
+    access: { accountExists: () => true, isAdmin: () => false, canAccessProject: () => true },
+    config: () => resolveConfig({ allowEnvironments: true }, 'https://elowen.example', 'sites.elowen.example'),
+    people: () => new Map([[1, { id: 1, username: 'owner', name: 'Owner', avatar: '' }]]),
+    projectSlug: () => 'demo', deleteSite: async () => {}, activateRelease: () => {},
+    runtimeState: () => ({ running: false, logTail: '' }), allocatePort: async () => 43000, restartRuntime: async () => {},
+    environmentState: async (site) => ({
+      state: 'running', desiredState: site.environmentDesiredState, usage: null,
+      limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 },
+    }),
+    requestEnvironmentControl: async (site, action) => { calls.push(['control', site.id, action]); store.updateSite(site.id, { environmentDesiredState: action === 'stop' ? 'stopped' : action === 'restart' ? 'restarting' : 'running' }); },
+    snapshotEnvironment: async (site, input) => { calls.push(['snapshot', site.id, input]); return { id: 'snap-api' }; },
+    rollbackEnvironment: async (site, input) => { calls.push(['rollback', site.id, input]); },
+    applyEnvironmentLimits: async (site, limits) => { calls.push(['limits', site.id, limits]); store.updateSite(site.id, limits); },
+    provisioning: provisioning ?? { status: async () => ({ ready: true, items: [] }), provision: async () => ({ ready: true, items: [] }) },
+  });
+  return { store, handlers, calls };
+}
+
+test('API environment detail, control, snapshot and rollback actions use durable seams', async () => {
+  const { handlers, calls, store } = phase2ApiHarness();
+  store.insertRelease({
+    id: 'snap', siteId: SITE_ID, createdAt: new Date().toISOString(), model: 'm', fileCount: 0, sizeBytes: 0,
+    note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${SITE_ID}:snap`, dataArchive: null,
+  });
+  const detail = await handlers.site(apiRequest({ path: SITE_ID }));
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.environment.state, 'running');
+  assert.equal(detail.body.environment.desiredState, 'running');
+  assert.equal(detail.body.environment.limits.memoryMb, 1024);
+  assert.equal(detail.body.releases[0].imageRef, undefined);
+  assert.equal(detail.body.releases[0].dataArchive, undefined);
+
+  assert.equal((await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, body: { action: 'restart' } }))).status, 200);
+  assert.equal((await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/snapshot`, body: { includeData: true } }))).status, 200);
+  assert.equal((await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/rollback`, body: { releaseId: 'snap', restoreData: false } }))).status, 200);
+  assert.deepEqual(calls.map(([name]) => name), ['control', 'snapshot', 'rollback']);
+});
+
+test('API environment limit overrides are admin-only and persist through the apply seam', async () => {
+  const { handlers, store, calls } = phase2ApiHarness();
+  const owner = await handlers.site(apiRequest({ method: 'PATCH', path: SITE_ID, body: { environmentMemoryMb: 2048 } }));
+  assert.equal(owner.status, 403);
+  assert.equal(store.siteById(SITE_ID).environmentMemoryMb, null);
+
+  const invalidMixed = await handlers.site(apiRequest({ method: 'PATCH', path: SITE_ID, admin: true, body: {
+    environmentMemoryMb: 2048, visibility: 'mystery',
+  } }));
+  assert.equal(invalidMixed.status, 400);
+  assert.equal(calls.length, 0);
+  assert.equal(store.siteById(SITE_ID).environmentMemoryMb, null);
+
+  const admin = await handlers.site(apiRequest({ method: 'PATCH', path: SITE_ID, admin: true, body: {
+    environmentCpus: 99, environmentMemoryMb: 64, environmentPidsLimit: 2, environmentDiskSoftMb: 999999,
+  } }));
+  assert.equal(admin.status, 200);
+  assert.deepEqual(calls[0], ['limits', SITE_ID, {
+    environmentCpus: 8, environmentMemoryMb: 128, environmentPidsLimit: 16, environmentDiskSoftMb: 131072,
+  }]);
+});
+
+test('provisioning API is admin-only, guards concurrency and handles an old core', async () => {
+  const oldCore = new EnvironmentProvisioningService({ control: () => undefined });
+  const unavailable = await oldCore.status();
+  assert.equal(unavailable.ready, false);
+  assert.match(unavailable.detail, /0\.28\.31|unavailable/i);
+  assert.equal((await new EnvironmentProvisioningService({ control: () => ({}) }).status()).ready, false);
+
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  let provisions = 0;
+  const audits = [];
+  const service = new EnvironmentProvisioningService({
+    control: () => ({
+      provisionEnvironments: async () => { provisions += 1; await pending; return { ready: true, items: [] }; },
+      environmentsStatus: async () => ({ ready: true, items: [{ id: 'podman', label: 'Podman', ok: true }] }),
+    }),
+    audit: (status, actorUserId) => audits.push({ status, actorUserId }),
+  });
+  const { handlers } = phase2ApiHarness({ provisioning: service });
+  assert.equal((await handlers.environmentsReadiness(apiRequest({ admin: false }))).status, 403);
+  assert.equal((await handlers.environmentsProvision(apiRequest({ method: 'POST', admin: false }))).status, 403);
+  const first = handlers.environmentsProvision(apiRequest({ method: 'POST', admin: true }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal((await handlers.environmentsProvision(apiRequest({ method: 'POST', admin: true }))).status, 409);
+  release();
+  const completed = await first;
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.ready, true);
+  assert.equal(provisions, 1);
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0].actorUserId, 1);
+
+  const failedAudits = [];
+  const failed = new EnvironmentProvisioningService({
+    control: () => ({
+      provisionEnvironments: async () => { throw new Error('package failure'); },
+      environmentsStatus: async () => ({ ready: false, items: [] }),
+    }),
+    audit: (status) => failedAudits.push(status),
+  });
+  await assert.rejects(() => failed.provision(9), /package failure/);
+  assert.equal(failedAudits.length, 1);
+  assert.match(failedAudits[0].detail, /package failure/);
 });
 
 test('environment proxy strips forged forwarding headers and writes only verified values', async (t) => {

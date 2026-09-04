@@ -16,7 +16,10 @@
       "SiteLogs",
       "SiteShare",
       "SiteUnshare",
-      "SiteDelete"
+      "SiteDelete",
+      "SiteExec",
+      "SiteControl",
+      "SiteSnapshot"
     ],
     "httpRoutes": [
       "s"
@@ -25,7 +28,9 @@
       "sites",
       "site",
       "ticket",
-      "directory"
+      "directory",
+      "environments/readiness",
+      "environments/provision"
     ]
   },
   "planSafe": [
@@ -36,11 +41,19 @@
   "icons": {
     "Site*": "🌐"
   },
+  "showOutput": [
+    "SiteExec",
+    "SiteControl",
+    "SiteSnapshot"
+  ],
   "capabilities": {
     "reads": [
       "db",
       "stores",
       "controls"
+    ],
+    "mutates": [
+      "events"
     ],
     "network": true
   },
@@ -386,6 +399,18 @@
       "runtimeNetwork": "Network",
       "runtimeNetworkIsolated": "No network",
       "runtimeNetworkShared": "Host network",
+      "environment": "Persistent environment",
+      "environmentState": "Environment state",
+      "environmentDesiredState": "Desired state",
+      "environmentLimits": "Resource limits",
+      "environmentStart": "Start environment",
+      "environmentStop": "Stop environment",
+      "environmentRestart": "Restart environment",
+      "environmentSnapshot": "Create snapshot",
+      "environmentSnapshots": "Environment snapshots",
+      "environmentCrashConsistent": "Crash-consistent snapshot. Databases may require their own backup procedure.",
+      "environmentReadiness": "Environment dependencies",
+      "environmentProvision": "Install missing dependencies",
       "saveRuntime": "Save runtime",
       "runtimeLog": "Recent output",
       "runtimeEmptyLog": "Nothing recorded yet.",

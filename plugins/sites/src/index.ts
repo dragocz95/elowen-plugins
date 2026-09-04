@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PluginContext } from 'elowen/plugin-api';
@@ -14,6 +14,7 @@ import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
 import { PodmanClient } from './podman.js';
 import { ensureBaseImage } from './baseImage.js';
 import { EnvironmentSupervisor } from './environment.js';
+import { EnvironmentProvisioningService } from './provisioning.js';
 import type { AccessDeps } from './access.js';
 
 const SESSION_SECRET_KEY = 'sessionSigningKey';
@@ -173,6 +174,25 @@ export function register(published: PluginContext): void {
     logger: ctx.logger,
   });
 
+  const provisioning = new EnvironmentProvisioningService({
+    control: () => ctx.control('publishedSitesGateway'),
+    audit: (status, actorUserId) => ctx.publishEvent({
+      type: 'plugin',
+      plugin: 'sites',
+      kind: 'environments.provisioned',
+      projectId: null,
+      data: { at: new Date().toISOString(), actorUserId, ready: status.ready, items: status.items },
+    }),
+  });
+  ctx.registerEventRowResolver((event) => event.type === 'plugin' && event.kind === 'environments.provisioned'
+    ? {
+      type: 'sites.environments.provisioned',
+      target: 'sites-environments',
+      label: 'Sites environments',
+      detail: 'An administrator ran environment dependency provisioning.',
+    }
+    : null);
+
   /** Deletion is two-phase and crash-safe. The durable marker removes access immediately; only the
    * authoritative daemon touches processes and plugin-owned files. A forked tool runner stops after the
    * marker and the daemon's five-second reconcile finishes the same operation. */
@@ -305,14 +325,49 @@ export function register(published: PluginContext): void {
       await supervisor.start(next);
       store.updateSite(site.id, { status: 'live', lastError: null });
     },
+    environmentState: (site) => environment.state(site),
+    requestEnvironmentControl: async (site, action) => {
+      if (store.environmentAction(site.id)) throw new Error('an environment restore is already scheduled');
+      store.updateSite(site.id, {
+        environmentDesiredState: action === 'stop' ? 'stopped' : action === 'restart' ? 'restarting' : 'running',
+        lastError: null,
+      });
+    },
+    snapshotEnvironment: async (site, input) => {
+      if (store.environmentAction(site.id) || site.environmentDesiredState === 'restarting') {
+        throw new Error('the environment is already changing state');
+      }
+      const model = ctx.currentModel();
+      return await environment.snapshot(site, {
+        snapshotId: randomUUID(),
+        includeData: input.includeData,
+        note: input.note,
+        model: model ? (model.provider ? `${model.provider}/${model.model}` : model.model) : '',
+      });
+    },
+    rollbackEnvironment: async (site, input) => {
+      const scheduled = store.tryPutEnvironmentAction({
+        siteId: site.id,
+        kind: 'rollback',
+        snapshotId: input.releaseId,
+        restoreData: input.restoreData,
+        requestedAt: new Date().toISOString(),
+        lastError: null,
+      });
+      if (!scheduled) throw new Error('another environment restore is already scheduled');
+    },
+    applyEnvironmentLimits: (site, limits) => environment.applyLimits(site, limits),
+    provisioning,
   });
 
   ctx.registerApiRoute({ path: 'sites', method: 'GET', access: 'user', handler: handlers.list });
   ctx.registerApiRoute({ path: 'site', access: 'user', handler: handlers.site });
   ctx.registerApiRoute({ path: 'ticket', method: 'POST', access: 'user', handler: handlers.ticket });
   ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
+  ctx.registerApiRoute({ path: 'environments/readiness', method: 'GET', access: 'user', handler: handlers.environmentsReadiness });
+  ctx.registerApiRoute({ path: 'environments/provision', method: 'POST', access: 'user', handler: handlers.environmentsProvision });
 
-  registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, people });
+  registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people });
 
   ctx.registerReadinessCheck(() => gateway.readiness());
   ctx.registerReadinessCheck(async () => {

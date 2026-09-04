@@ -1,6 +1,7 @@
 import { VISIBILITIES } from './store.js';
 import { mayOpen, mintTicket, normalizeReturnPath } from './access.js';
-import { SITE_BASE_PATH, siteUrl } from './config.js';
+import { environmentLimitOverrides, SITE_BASE_PATH, siteUrl } from './config.js';
+import { ProvisionInProgressError } from './provisioning.js';
 const json = (status, body) => ({
     status,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
@@ -9,6 +10,7 @@ const json = (status, body) => ({
 const TICKET_TTL_MS = 60_000;
 /** Whether the caller may change this site. Viewing is a different question, answered by `mayOpen`. */
 const canManage = (site, auth) => auth.admin || (auth.userId !== null && auth.userId === site.ownerUserId);
+const canAccessProject = (projectId, auth) => auth.accessibleProjects === null ? auth.admin : auth.accessibleProjects.includes(projectId);
 const toView = (site, deps, auth) => {
     const config = deps.config();
     return {
@@ -88,13 +90,24 @@ export function createApiHandlers(deps) {
         if (req.method === 'GET' && action === '') {
             const people = deps.people();
             const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
+            const environment = target.runtime === 'environment' ? await deps.environmentState(target) : null;
             return json(200, {
                 site: toView(target, deps, req.auth),
                 // Only somebody who can EDIT the guest list may read it. A guest seeing the whole list learns
                 // who else the owner shared with, which is the owner's business and not part of opening a page.
                 members: !canManage(target, req.auth) ? [] : deps.store.memberIds(target.id).map((id) => people.get(id)
                     ?? { id, username: `#${id}`, name: `#${id}`, avatar: '' }),
-                releases: deps.store.releases(target.id),
+                releases: deps.store.releases(target.id).map((release) => ({
+                    id: release.id,
+                    siteId: release.siteId,
+                    createdAt: release.createdAt,
+                    model: release.model,
+                    fileCount: release.fileCount,
+                    sizeBytes: release.sizeBytes,
+                    note: release.note,
+                    kind: release.kind,
+                    ...(release.kind === 'environment-snapshot' ? { includesData: Boolean(release.dataArchive) } : {}),
+                })),
                 hits: deps.store.hits(target.id, since),
                 sourceDir: canManage(target, req.auth) ? target.sourceDir : null,
                 // The command and the log are operational detail about a process, so they go only to somebody
@@ -109,6 +122,9 @@ export function createApiHandlers(deps) {
                     logTail: canManage(target, req.auth) ? deps.runtimeState(target.id).logTail : null,
                     lastError: canManage(target, req.auth) ? target.lastError : null,
                 },
+                environment: environment === null ? null : canManage(target, req.auth)
+                    ? environment
+                    : { state: environment.state, desiredState: environment.desiredState },
             });
         }
         if (!canManage(target, req.auth))
@@ -132,9 +148,44 @@ export function createApiHandlers(deps) {
             deps.store.bumpAccessGeneration(target.id);
             return json(200, { ok: true });
         }
+        if (req.method === 'POST' && action === 'control') {
+            if (target.runtime !== 'environment')
+                return json(400, { error: 'this site is not an environment' });
+            if (!canAccessProject(target.projectId, req.auth))
+                return json(403, { error: 'project access is required' });
+            const body = await req.json().catch(() => ({}));
+            if (body.action !== 'start' && body.action !== 'stop' && body.action !== 'restart') {
+                return json(400, { error: 'unknown environment action' });
+            }
+            try {
+                await deps.requestEnvironmentControl(target, body.action);
+            }
+            catch (error) {
+                return json(409, { error: error instanceof Error ? error.message : 'action could not be scheduled' });
+            }
+            return json(200, { ok: true, scheduled: true, action: body.action });
+        }
+        if (req.method === 'POST' && action === 'snapshot') {
+            if (target.runtime !== 'environment')
+                return json(400, { error: 'this site is not an environment' });
+            if (!canAccessProject(target.projectId, req.auth))
+                return json(403, { error: 'project access is required' });
+            const body = await req.json()
+                .catch(() => ({}));
+            try {
+                const snapshot = await deps.snapshotEnvironment(target, {
+                    includeData: body.includeData !== false,
+                    note: typeof body.note === 'string' ? body.note.trim().slice(0, 200) : '',
+                });
+                return json(200, { ok: true, snapshotId: snapshot.id, crashConsistent: true });
+            }
+            catch (error) {
+                return json(502, { error: error instanceof Error ? error.message : 'snapshot failed' });
+            }
+        }
         if (req.method === 'POST' && action === 'restart') {
             if (target.runtime !== 'command')
-                return json(400, { error: 'this site has no runtime' });
+                return json(400, { error: 'this site has no command runtime' });
             try {
                 await deps.restartRuntime(target);
             }
@@ -144,9 +195,26 @@ export function createApiHandlers(deps) {
             return json(200, { ok: true });
         }
         if (req.method === 'POST' && action === 'rollback') {
-            const body = await req.json().catch(() => ({}));
+            const body = await req.json()
+                .catch(() => ({}));
             const releaseId = typeof body.releaseId === 'string' ? body.releaseId : '';
             const release = deps.store.release(target.id, releaseId);
+            if (target.runtime === 'environment') {
+                if (!canAccessProject(target.projectId, req.auth))
+                    return json(403, { error: 'project access is required' });
+                if (!release || release.kind !== 'environment-snapshot' || !release.imageRef) {
+                    return json(404, { error: 'unknown environment snapshot' });
+                }
+                if (body.restoreData === true && !release.dataArchive)
+                    return json(400, { error: 'snapshot has no data archive' });
+                try {
+                    await deps.rollbackEnvironment(target, { releaseId, restoreData: body.restoreData === true });
+                }
+                catch (error) {
+                    return json(409, { error: error instanceof Error ? error.message : 'rollback could not be scheduled' });
+                }
+                return json(200, { ok: true, scheduled: true, snapshotId: releaseId });
+            }
             if (!release)
                 return json(404, { error: 'unknown release' });
             deps.activateRelease(target, release.id);
@@ -159,6 +227,23 @@ export function createApiHandlers(deps) {
         const patch = {};
         let accessChanged = false;
         let runtimeChanged = false;
+        const limitKeys = ['environmentCpus', 'environmentMemoryMb', 'environmentPidsLimit', 'environmentDiskSoftMb'];
+        const hasLimitOverrides = limitKeys.some((key) => key in body);
+        let limits = null;
+        if (hasLimitOverrides) {
+            if (!req.auth.admin)
+                return json(403, { error: 'environment limit overrides require an administrator' });
+            if (target.runtime !== 'environment')
+                return json(400, { error: 'only an environment has resource limits' });
+            if (!canAccessProject(target.projectId, req.auth))
+                return json(403, { error: 'project access is required' });
+            try {
+                limits = environmentLimitOverrides(body);
+            }
+            catch (error) {
+                return json(400, { error: error instanceof Error ? error.message : 'invalid environment limits' });
+            }
+        }
         if (typeof body.title === 'string' && body.title.trim() !== '')
             patch.title = body.title.trim().slice(0, 120);
         if (typeof body.summary === 'string')
@@ -201,6 +286,14 @@ export function createApiHandlers(deps) {
             if (next !== target.visibility) {
                 patch.visibility = next;
                 accessChanged = true;
+            }
+        }
+        if (limits) {
+            try {
+                await deps.applyEnvironmentLimits(target, limits);
+            }
+            catch (error) {
+                return json(502, { error: error instanceof Error ? error.message : 'Podman could not apply the limits' });
             }
         }
         deps.store.updateSite(target.id, patch);
@@ -290,5 +383,25 @@ export function createApiHandlers(deps) {
         const accounts = [...deps.people().values()].sort((a, b) => a.name.localeCompare(b.name));
         return json(200, { accounts });
     };
-    return { list, site, ticket, directory };
+    const environmentsReadiness = async (req) => {
+        if (!req.auth.admin)
+            return json(403, { error: 'forbidden' });
+        return json(200, await deps.provisioning.status());
+    };
+    const environmentsProvision = async (req) => {
+        if (!req.auth.admin)
+            return json(403, { error: 'forbidden' });
+        if (req.method !== 'POST')
+            return json(405, { error: 'method not allowed' });
+        try {
+            const status = await deps.provisioning.provision(req.auth.userId);
+            return json(status.ready ? 200 : 503, status);
+        }
+        catch (error) {
+            if (error instanceof ProvisionInProgressError)
+                return json(409, { error: error.message });
+            return json(502, { error: error instanceof Error ? error.message : 'environment provisioning failed' });
+        }
+    };
+    return { list, site, ticket, directory, environmentsReadiness, environmentsProvision };
 }

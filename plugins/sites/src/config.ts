@@ -53,6 +53,34 @@ const boundedFloat = (value: unknown, fallback: number, min: number, max: number
   return Math.min(max, Math.max(min, Math.round(parsed * 100) / 100));
 };
 
+export interface EnvironmentLimitOverrides {
+  environmentCpus?: number | null;
+  environmentMemoryMb?: number | null;
+  environmentPidsLimit?: number | null;
+  environmentDiskSoftMb?: number | null;
+}
+
+const ENVIRONMENT_LIMITS = {
+  environmentCpus: { min: 0.25, max: 8, decimals: true },
+  environmentMemoryMb: { min: 128, max: 32768, decimals: false },
+  environmentPidsLimit: { min: 16, max: 4096, decimals: false },
+  environmentDiskSoftMb: { min: 256, max: 131072, decimals: false },
+} as const;
+
+export function environmentLimitOverrides(raw: Record<string, unknown>): EnvironmentLimitOverrides {
+  const out: EnvironmentLimitOverrides = {};
+  for (const [key, bounds] of Object.entries(ENVIRONMENT_LIMITS) as
+    [keyof EnvironmentLimitOverrides, (typeof ENVIRONMENT_LIMITS)[keyof typeof ENVIRONMENT_LIMITS]][]) {
+    if (!(key in raw)) continue;
+    if (raw[key] === null) { out[key] = null; continue; }
+    const parsed = Number(raw[key]);
+    if (!Number.isFinite(parsed)) throw new Error(`${key} must be a finite number or null`);
+    const value = Math.min(bounds.max, Math.max(bounds.min, bounds.decimals ? Math.round(parsed * 100) / 100 : Math.round(parsed)));
+    out[key] = value;
+  }
+  return out;
+}
+
 const VISIBILITY_DEFAULTS = new Set(['private', 'project', 'authenticated']);
 
 /** Normalise a configured origin, or null when it is unusable.
@@ -111,10 +139,10 @@ export function resolveConfig(
     allowCommandRuntime: raw.allowCommandRuntime === true,
     allowEnvironments: raw.allowEnvironments === true,
     environmentNetwork: raw.environmentNetwork === 'isolated' ? 'isolated' : 'shared',
-    environmentCpus: boundedFloat(raw.environmentCpus, 1, 0.25, 8),
-    environmentMemoryMb: bounded(raw.environmentMemoryMb, 1024, 128, 32768),
-    environmentPidsLimit: bounded(raw.environmentPidsLimit, 512, 16, 4096),
-    environmentDiskSoftMb: bounded(raw.environmentDiskSoftMb, 4096, 256, 131072),
+    environmentCpus: boundedFloat(raw.environmentCpus, 1, ENVIRONMENT_LIMITS.environmentCpus.min, ENVIRONMENT_LIMITS.environmentCpus.max),
+    environmentMemoryMb: bounded(raw.environmentMemoryMb, 1024, ENVIRONMENT_LIMITS.environmentMemoryMb.min, ENVIRONMENT_LIMITS.environmentMemoryMb.max),
+    environmentPidsLimit: bounded(raw.environmentPidsLimit, 512, ENVIRONMENT_LIMITS.environmentPidsLimit.min, ENVIRONMENT_LIMITS.environmentPidsLimit.max),
+    environmentDiskSoftMb: bounded(raw.environmentDiskSoftMb, 4096, ENVIRONMENT_LIMITS.environmentDiskSoftMb.min, ENVIRONMENT_LIMITS.environmentDiskSoftMb.max),
     maxEnvironmentsPerAccount: bounded(raw.maxEnvironmentsPerAccount, 3, 1, 20),
     runtimeNetwork: raw.runtimeNetwork === 'shared' ? 'shared' : 'isolated',
     allowLoopbackPorts: raw.allowLoopbackPorts === true,

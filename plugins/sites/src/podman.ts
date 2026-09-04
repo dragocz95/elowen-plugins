@@ -259,6 +259,21 @@ export class PodmanClient {
     return await this.run(args, { timeoutMs: options.timeoutMs });
   }
 
+  async execInteractive(
+    name: string,
+    argv: readonly string[],
+    input: string | Buffer,
+    options: { timeoutMs?: number; workdir?: string } = {},
+  ): Promise<CommandResult> {
+    const args = ['exec', '--interactive'];
+    if (options.workdir) args.push('--workdir', options.workdir);
+    args.push(name, ...argv);
+    return await this.run(args, { timeoutMs: options.timeoutMs, input });
+  }
+
+  async pause(name: string): Promise<void> { await this.run(['pause', name]); }
+  async unpause(name: string): Promise<void> { await this.run(['unpause', name]); }
+
   async ps(): Promise<PodmanContainerSummary[]> {
     const result = await this.run(['ps', '-a', '--format', 'json', '--filter', 'label=io.elowen.site']);
     const parsed = JSON.parse(result.stdout || '[]') as unknown;
@@ -289,10 +304,18 @@ export class PodmanClient {
   }
 
   async imageExists(reference: string): Promise<boolean> {
-    return (await this.run(['image', 'exists', reference], { allowFailure: true })).code === 0;
+    const result = await this.run(['image', 'exists', reference], { allowFailure: true });
+    if (result.code === 0) return true;
+    if (result.code === 1 || this.missingObject(result)) return false;
+    throw new Error(`podman image exists failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
   }
 
-  async removeImage(reference: string): Promise<void> { await this.run(['image', 'rm', reference]); }
+  async removeImage(reference: string): Promise<void> {
+    const result = await this.run(['image', 'rm', reference], { allowFailure: true });
+    if (result.code !== 0 && !this.missingObject(result)) {
+      throw new Error(`podman image rm failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
+    }
+  }
   async volumeExists(name: string): Promise<boolean> {
     const result = await this.run(['volume', 'exists', name], { allowFailure: true });
     if (result.code === 0) return true;

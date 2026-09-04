@@ -189,6 +189,15 @@ export class PodmanClient {
         args.push(name, ...argv);
         return await this.run(args, { timeoutMs: options.timeoutMs });
     }
+    async execInteractive(name, argv, input, options = {}) {
+        const args = ['exec', '--interactive'];
+        if (options.workdir)
+            args.push('--workdir', options.workdir);
+        args.push(name, ...argv);
+        return await this.run(args, { timeoutMs: options.timeoutMs, input });
+    }
+    async pause(name) { await this.run(['pause', name]); }
+    async unpause(name) { await this.run(['unpause', name]); }
     async ps() {
         const result = await this.run(['ps', '-a', '--format', 'json', '--filter', 'label=io.elowen.site']);
         const parsed = JSON.parse(result.stdout || '[]');
@@ -217,9 +226,19 @@ export class PodmanClient {
         await this.run(['build', '--tag', tag, contextDir], { timeoutMs: 15 * 60_000 });
     }
     async imageExists(reference) {
-        return (await this.run(['image', 'exists', reference], { allowFailure: true })).code === 0;
+        const result = await this.run(['image', 'exists', reference], { allowFailure: true });
+        if (result.code === 0)
+            return true;
+        if (result.code === 1 || this.missingObject(result))
+            return false;
+        throw new Error(`podman image exists failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
     }
-    async removeImage(reference) { await this.run(['image', 'rm', reference]); }
+    async removeImage(reference) {
+        const result = await this.run(['image', 'rm', reference], { allowFailure: true });
+        if (result.code !== 0 && !this.missingObject(result)) {
+            throw new Error(`podman image rm failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
+        }
+    }
     async volumeExists(name) {
         const result = await this.run(['volume', 'exists', name], { allowFailure: true });
         if (result.code === 0)

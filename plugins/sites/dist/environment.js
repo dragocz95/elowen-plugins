@@ -1,6 +1,6 @@
-import { appendFileSync, chmodSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 const STOP_TIMEOUT_SECONDS = 8;
 const EXIT_WAIT_MS = 30_000;
 const KILL_WAIT_MS = 5_000;
@@ -86,6 +86,36 @@ export class EnvironmentSupervisor {
             return '';
         }
     }
+    async state(site) {
+        const state = site.runtime === 'environment'
+            ? await this.deps.podman.inspectStatus(containerName(site.id))
+            : null;
+        return {
+            state,
+            desiredState: site.environmentDesiredState ?? 'running',
+            limits: this.effectiveLimits(site),
+            usage: null,
+            lastError: site.lastError,
+        };
+    }
+    async exec(site, command, options) {
+        if (site.runtime !== 'environment')
+            throw new Error('this site is not a persistent environment');
+        if (await this.deps.podman.inspectStatus(containerName(site.id)) !== 'running') {
+            throw new Error('the environment is not running');
+        }
+        this.appendLog(site.id, `exec requested (${command.length} bytes)`);
+        return await this.deps.podman.execInteractive(containerName(site.id), ['/bin/bash', '-s'], command, { timeoutMs: options.timeoutSeconds * 1000, workdir: options.workdir });
+    }
+    async logs(site, lines = 200) {
+        const lifecycle = this.logTail(site.id);
+        if (site.runtime !== 'environment' || await this.deps.podman.inspectStatus(containerName(site.id)) !== 'running') {
+            return { lifecycle, journal: '' };
+        }
+        const bounded = Math.min(1000, Math.max(1, Math.round(lines)));
+        const result = await this.deps.podman.exec(containerName(site.id), ['journalctl', '--no-pager', '-n', String(bounded)], { timeoutMs: 30_000 });
+        return { lifecycle, journal: result.stdout || result.stderr };
+    }
     brokerSealed(socketPath) {
         try {
             return (statSync(dirname(socketPath)).mode & 0o777) === 0o510;
@@ -94,13 +124,18 @@ export class EnvironmentSupervisor {
             return false;
         }
     }
-    limits(site) {
+    effectiveLimits(site) {
         const config = this.deps.config();
         return {
             cpus: site.environmentCpus ?? config.environmentCpus,
             memoryMb: site.environmentMemoryMb ?? config.environmentMemoryMb,
             pidsLimit: site.environmentPidsLimit ?? config.environmentPidsLimit,
+            diskSoftMb: site.environmentDiskSoftMb ?? config.environmentDiskSoftMb,
         };
+    }
+    containerLimits(site) {
+        const { cpus, memoryMb, pidsLimit } = this.effectiveLimits(site);
+        return { cpus, memoryMb, pidsLimit };
     }
     writeEnvironmentFiles(site) {
         const dir = this.environmentDir(site.id);
@@ -114,11 +149,79 @@ export class EnvironmentSupervisor {
         writeFileSync(gitStub, '', { mode: 0o400 });
         return { envFile, gitStub };
     }
+    snapshot(site, input) {
+        return this.serialize(site.id, async () => {
+            if (site.runtime !== 'environment')
+                throw new Error('this site is not a persistent environment');
+            const name = containerName(site.id);
+            if (await this.deps.podman.inspectStatus(name) !== 'running')
+                throw new Error('the environment is not running');
+            const snapshotDir = join(this.environmentDir(site.id), 'snapshots', input.snapshotId);
+            mkdirSync(snapshotDir, { recursive: true, mode: 0o700 });
+            const imageRef = `localhost/elowen-site/${site.id}:${input.snapshotId}`;
+            const dataArchive = input.includeData ? join(snapshotDir, 'data.tar') : null;
+            let paused = false;
+            let resumeFailed = false;
+            let failure = null;
+            try {
+                await this.deps.podman.pause(name);
+                paused = true;
+                await this.deps.podman.commit(name, imageRef);
+                if (dataArchive)
+                    await this.deps.podman.exportVolume(volumeName(site.id), dataArchive);
+            }
+            catch (error) {
+                failure = error;
+            }
+            finally {
+                if (paused) {
+                    try {
+                        await this.deps.podman.unpause(name);
+                    }
+                    catch (error) {
+                        resumeFailed = true;
+                        failure ??= error;
+                    }
+                }
+            }
+            if (failure) {
+                await this.deps.podman.removeImage(imageRef).catch(() => { });
+                rmSync(snapshotDir, { recursive: true, force: true });
+                const message = failure instanceof Error ? failure.message : String(failure);
+                if (resumeFailed)
+                    this.deps.store.updateSite(site.id, { status: 'failed', lastError: `snapshot resume failed: ${message}` });
+                this.appendLog(site.id, `snapshot ${input.snapshotId} failed: ${message}`);
+                throw failure;
+            }
+            const release = {
+                id: input.snapshotId,
+                siteId: site.id,
+                createdAt: new Date(this.now()).toISOString(),
+                model: input.model,
+                fileCount: 0,
+                sizeBytes: 0,
+                note: input.note,
+                kind: 'environment-snapshot',
+                imageRef,
+                dataArchive,
+            };
+            try {
+                this.deps.store.insertRelease(release);
+            }
+            catch (error) {
+                await this.deps.podman.removeImage(imageRef).catch(() => { });
+                rmSync(snapshotDir, { recursive: true, force: true });
+                throw error;
+            }
+            this.appendLog(site.id, `created crash-consistent snapshot ${input.snapshotId}`);
+            return release;
+        });
+    }
     start(site) {
         this.deps.store.updateSite(site.id, { environmentDesiredState: 'running' });
         return this.serialize(site.id, () => this.startNow(site));
     }
-    async startNow(site) {
+    async startNow(site, createImage, volumePrepared = false) {
         if (site.runtime !== 'environment')
             return;
         this.detached = false;
@@ -143,12 +246,13 @@ export class EnvironmentSupervisor {
         const prepared = await this.deps.gateway.prepareRuntimeSocket(site.id);
         const endpoint = { kind: 'socket', path: prepared.path };
         try {
-            const limits = this.limits(site);
+            const limits = this.containerLimits(site);
             if (status === null) {
-                const image = await this.deps.ensureBaseImage();
+                const image = createImage ?? await this.deps.ensureBaseImage();
                 const files = this.writeEnvironmentFiles(site);
                 const volume = volumeName(site.id);
-                await this.deps.podman.ensureVolume(volume, site.id);
+                if (!volumePrepared)
+                    await this.deps.podman.ensureVolume(volume, site.id);
                 await this.deps.podman.create({
                     name,
                     siteId: site.id,
@@ -236,11 +340,95 @@ export class EnvironmentSupervisor {
     }
     restart(site) {
         return this.serialize(site.id, async () => {
-            this.deps.store.updateSite(site.id, { environmentDesiredState: 'running' });
             await this.stopNow(site.id, true);
             const current = this.deps.store.siteById(site.id) ?? site;
             await this.startNow(current);
+            this.deps.store.completeEnvironmentRestart(site.id);
         });
+    }
+    applyLimits(site, patch) {
+        return this.serialize(site.id, async () => {
+            const next = { ...site, ...patch };
+            if (await this.deps.podman.inspectStatus(containerName(site.id)) !== null) {
+                await this.deps.podman.update(containerName(site.id), this.containerLimits(next));
+            }
+            this.deps.store.updateSite(site.id, patch);
+        });
+    }
+    async rollbackNow(site, action) {
+        const snapshot = this.deps.store.release(site.id, action.snapshotId);
+        if (!snapshot || snapshot.kind !== 'environment-snapshot' || !snapshot.imageRef) {
+            throw new Error('the requested environment snapshot is not retained for this site');
+        }
+        if (!await this.deps.podman.imageExists(snapshot.imageRef)) {
+            throw new Error('the requested environment snapshot image is missing');
+        }
+        if (action.restoreData) {
+            if (!snapshot.dataArchive || !this.safeSnapshotPath(site.id, snapshot.dataArchive)) {
+                throw new Error('the requested snapshot has no valid data archive');
+            }
+            await this.validateDataArchive(site.id, action.snapshotId, snapshot.dataArchive);
+        }
+        await this.stopNow(site.id, true);
+        const name = containerName(site.id);
+        if (await this.deps.podman.inspectStatus(name) !== null)
+            await this.deps.podman.remove(name);
+        const backupDir = action.restoreData && snapshot.dataArchive
+            ? await this.replaceDataVolume(site.id, action.snapshotId, snapshot.dataArchive)
+            : null;
+        await this.startNow(site, snapshot.imageRef, action.restoreData);
+        if (backupDir)
+            rmSync(backupDir, { recursive: true, force: true });
+        this.deps.store.deleteEnvironmentAction(site.id);
+        this.deps.store.completeEnvironmentRestart(site.id);
+        this.appendLog(site.id, `restored snapshot ${snapshot.id}${action.restoreData ? ' with data' : ''}`);
+    }
+    async validateDataArchive(siteId, snapshotId, archive) {
+        const temporaryVolume = `${volumeName(siteId)}-validate-${snapshotId}`;
+        await this.deps.podman.removeVolume(temporaryVolume);
+        try {
+            await this.deps.podman.ensureVolume(temporaryVolume, siteId);
+            await this.deps.podman.importVolume(temporaryVolume, archive);
+        }
+        finally {
+            await this.deps.podman.removeVolume(temporaryVolume);
+        }
+    }
+    async replaceDataVolume(siteId, snapshotId, archive) {
+        const volume = volumeName(siteId);
+        const backupDir = join(this.environmentDir(siteId), 'restore', snapshotId);
+        const backup = join(backupDir, 'previous-data.tar');
+        const backupTemp = join(backupDir, 'previous-data.tar.partial');
+        mkdirSync(backupDir, { recursive: true, mode: 0o700 });
+        if (!existsSync(backup)) {
+            rmSync(backupTemp, { force: true });
+            await this.deps.podman.exportVolume(volume, backupTemp);
+            renameSync(backupTemp, backup);
+        }
+        await this.deps.podman.removeVolume(volume);
+        try {
+            await this.deps.podman.ensureVolume(volume, siteId);
+            await this.deps.podman.importVolume(volume, archive);
+        }
+        catch (error) {
+            try {
+                await this.deps.podman.removeVolume(volume);
+                await this.deps.podman.ensureVolume(volume, siteId);
+                await this.deps.podman.importVolume(volume, backup);
+            }
+            catch (restoreError) {
+                const message = restoreError instanceof Error ? restoreError.message : String(restoreError);
+                throw new Error(`snapshot import failed and the previous data backup could not be restored: ${message}`, { cause: error });
+            }
+            rmSync(backupDir, { recursive: true, force: true });
+            throw error;
+        }
+        return backupDir;
+    }
+    safeSnapshotPath(siteId, path) {
+        const root = resolve(this.environmentDir(siteId), 'snapshots');
+        const candidate = resolve(path);
+        return candidate.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
     }
     delete(siteId) {
         return this.serialize(siteId, async () => {
@@ -248,18 +436,31 @@ export class EnvironmentSupervisor {
             const name = containerName(siteId);
             if (await this.deps.podman.inspectStatus(name) !== null)
                 await this.deps.podman.remove(name);
+            for (const snapshot of this.deps.store.releases(siteId).filter((release) => release.kind === 'environment-snapshot')) {
+                const expectedPrefix = `localhost/elowen-site/${siteId}:`;
+                if (snapshot.imageRef?.startsWith(expectedPrefix))
+                    await this.deps.podman.removeImage(snapshot.imageRef);
+            }
+            this.deps.store.deleteEnvironmentAction(siteId);
             await this.deps.podman.removeVolume(volumeName(siteId));
-            this.appendLog(siteId, 'deleting container and data volume');
+            this.appendLog(siteId, 'deleting container, snapshots and data volume');
             await this.deps.podman.unshareRemove([this.environmentDir(siteId)]);
         });
     }
     reconcile() {
-        return this.reconcileSites(this.deps.store.liveEnvironmentSites());
+        return this.reconcileSites(this.deps.store.environmentSitesForReconcile());
     }
     async reconcileSites(sites) {
         for (const site of sites) {
+            const action = this.deps.store.environmentAction(site.id);
             try {
-                if (site.environmentDesiredState === 'stopped') {
+                if (action?.kind === 'rollback') {
+                    await this.serialize(site.id, () => this.rollbackNow(site, action));
+                }
+                else if (site.environmentDesiredState === 'restarting') {
+                    await this.restart(site);
+                }
+                else if (site.environmentDesiredState === 'stopped') {
                     if (!this.settledStopped.has(site.id))
                         await this.serialize(site.id, () => this.stopNow(site.id, true));
                 }
@@ -269,6 +470,8 @@ export class EnvironmentSupervisor {
             }
             catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
+                if (action)
+                    this.deps.store.updateEnvironmentActionError(site.id, message);
                 this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
                 this.deps.logger?.warn(`site ${site.slug} environment reconciliation failed: ${message}`);
             }
@@ -287,8 +490,13 @@ export class EnvironmentSupervisor {
             for (const name of names)
                 states.set(name, state.toLowerCase());
         }
-        for (const site of this.deps.store.liveEnvironmentSites()) {
+        for (const site of this.deps.store.environmentSitesForReconcile()) {
             const observed = states.get(containerName(site.id)) ?? 'missing';
+            if (this.deps.store.environmentAction(site.id) || site.environmentDesiredState === 'restarting') {
+                if (observed !== 'running')
+                    this.endpoints.delete(site.id);
+                continue;
+            }
             if (site.environmentDesiredState === 'stopped') {
                 if (observed !== 'exited' && observed !== 'missing') {
                     this.settledStopped.delete(site.id);

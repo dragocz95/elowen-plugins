@@ -6,7 +6,7 @@ export type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
 /** How a published site answers a request. Unsupported is a quarantined database value, never a
  * fallback to static content. */
 export type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
-export type EnvironmentDesiredState = 'running' | 'stopped';
+export type EnvironmentDesiredState = 'running' | 'stopped' | 'restarting';
 
 /** Where a command runtime listens. A unix socket lives inside the plugin's own data directory, which
  *  no confined shell can reach, so only the daemon can talk to it. A loopback port is reachable by any
@@ -61,7 +61,7 @@ export interface Release {
   fileCount: number;
   sizeBytes: number;
   note: string;
-  kind?: 'files' | 'environment-rootfs' | 'environment-data';
+  kind?: 'files' | 'environment-snapshot';
   imageRef?: string | null;
   dataArchive?: string | null;
 }
@@ -71,6 +71,15 @@ export interface Ticket {
   userId: number;
   returnPath: string;
   expiresAt: number;
+}
+
+export interface EnvironmentAction {
+  siteId: string;
+  kind: 'rollback';
+  snapshotId: string;
+  restoreData: boolean;
+  requestedAt: string;
+  lastError: string | null;
 }
 
 interface SiteDbRow {
@@ -130,7 +139,7 @@ const asRuntime = (value: string | null): { runtime: SiteRuntime; unsupportedRun
 };
 
 const asEnvironmentDesiredState = (value: string | null): EnvironmentDesiredState =>
-  value === 'stopped' ? 'stopped' : 'running';
+  value === 'stopped' || value === 'restarting' ? value : 'running';
 
 const toSite = (row: SiteDbRow): Site => {
   const runtime = asRuntime(row.runtime);
@@ -176,7 +185,7 @@ const toRelease = (row: ReleaseDbRow): Release => ({
   fileCount: row.file_count,
   sizeBytes: row.size_bytes,
   note: row.note ?? '',
-  kind: row.kind === 'environment-rootfs' || row.kind === 'environment-data' ? row.kind : 'files',
+  kind: row.kind === 'environment-snapshot' ? row.kind : 'files',
   imageRef: row.image_ref,
   dataArchive: row.data_archive,
 });
@@ -301,6 +310,23 @@ export class SitesStore {
           `);
         },
       },
+      {
+        version: 6,
+        // Rollback crosses the daemon-only broker boundary, so the request itself is durable. A single row
+        // per site also prevents two restore operations from interleaving across plugin reloads.
+        up: (handle) => {
+          handle.exec(`
+            CREATE TABLE IF NOT EXISTS p_sites_environment_actions (
+              site_id TEXT PRIMARY KEY,
+              kind TEXT NOT NULL,
+              snapshot_id TEXT NOT NULL,
+              restore_data INTEGER NOT NULL DEFAULT 0,
+              requested_at TEXT NOT NULL,
+              last_error TEXT
+            );
+          `);
+        },
+      },
     ]);
   }
 
@@ -393,6 +419,13 @@ export class SitesStore {
     `).all() as SiteDbRow[]).map(toSite);
   }
 
+  environmentSitesForReconcile(): Site[] {
+    return (this.db.prepare(`
+      SELECT * FROM p_sites_sites
+      WHERE runtime = 'environment' AND status <> 'deleting'
+    `).all() as SiteDbRow[]).map(toSite);
+  }
+
   portsInUse(): number[] {
     return (this.db.prepare('SELECT port FROM p_sites_sites WHERE port IS NOT NULL')
       .all() as { port: number }[]).map((row) => row.port);
@@ -471,6 +504,7 @@ export class SitesStore {
       this.db.prepare('DELETE FROM p_sites_releases WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
+      this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_sites WHERE id = ?').run(id);
     });
   }
@@ -533,6 +567,68 @@ export class SitesStore {
 
   deleteRelease(siteId: string, releaseId: string): void {
     this.db.prepare('DELETE FROM p_sites_releases WHERE site_id = ? AND id = ?').run(siteId, releaseId);
+  }
+
+  environmentAction(siteId: string): EnvironmentAction | null {
+    const row = this.db.prepare('SELECT * FROM p_sites_environment_actions WHERE site_id = ?').get(siteId) as
+      { site_id: string; kind: string; snapshot_id: string; restore_data: number; requested_at: string; last_error: string | null } | undefined;
+    if (!row || row.kind !== 'rollback') return null;
+    return {
+      siteId: row.site_id,
+      kind: 'rollback',
+      snapshotId: row.snapshot_id,
+      restoreData: row.restore_data === 1,
+      requestedAt: row.requested_at,
+      lastError: row.last_error,
+    };
+  }
+
+  putEnvironmentAction(action: EnvironmentAction): void {
+    this.db.prepare(`
+      INSERT INTO p_sites_environment_actions (site_id, kind, snapshot_id, restore_data, requested_at, last_error)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(site_id) DO UPDATE SET
+        kind = excluded.kind, snapshot_id = excluded.snapshot_id, restore_data = excluded.restore_data,
+        requested_at = excluded.requested_at, last_error = excluded.last_error
+    `).run(
+      action.siteId, action.kind, action.snapshotId, action.restoreData ? 1 : 0,
+      action.requestedAt, action.lastError,
+    );
+  }
+
+  tryPutEnvironmentAction(action: EnvironmentAction): boolean {
+    return this.db.transaction(() => {
+      const result = this.db.prepare(`
+        INSERT OR IGNORE INTO p_sites_environment_actions (
+          site_id, kind, snapshot_id, restore_data, requested_at, last_error
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        action.siteId, action.kind, action.snapshotId, action.restoreData ? 1 : 0,
+        action.requestedAt, action.lastError,
+      );
+      if (result.changes !== 1) return false;
+      this.db.prepare(`
+        UPDATE p_sites_sites SET environment_desired_state = 'restarting', updated_at = ? WHERE id = ?
+      `).run(new Date().toISOString(), action.siteId);
+      return true;
+    });
+  }
+
+  completeEnvironmentRestart(siteId: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE p_sites_sites
+      SET environment_desired_state = 'running', status = 'live', last_error = NULL, updated_at = ?
+      WHERE id = ? AND environment_desired_state = 'restarting'
+    `).run(new Date().toISOString(), siteId);
+    return result.changes === 1;
+  }
+
+  updateEnvironmentActionError(siteId: string, error: string): void {
+    this.db.prepare('UPDATE p_sites_environment_actions SET last_error = ? WHERE site_id = ?').run(error, siteId);
+  }
+
+  deleteEnvironmentAction(siteId: string): void {
+    this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(siteId);
   }
 
   putTicket(tokenHash: string, ticket: Ticket): void {
