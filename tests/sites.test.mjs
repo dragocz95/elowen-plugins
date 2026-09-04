@@ -839,13 +839,25 @@ test('a created site tells the agent the identifier the other tools demand', asy
   assert.equal(created.details.slug, created.details.slug.toLowerCase());
 });
 
-test('SiteCreate refuses an instance with no site address before creating anything', async (t) => {
+test('SiteCreate refuses a file-published site with no address before creating anything', async (t) => {
   // The refusal used to fire while building the SUCCESS text, after the row and folder existed: the
   // agent read a failure while every retry leaked another site towards the per-account limit.
   const harness = toolHarness(t, { gatewayHost: null });
   await assert.rejects(() => harness.call('SiteCreate', { title: 'No address here' }), /HTTPS domain/);
   assert.deepEqual(harness.store.allSites(), [], 'a refused create must not persist a site row');
   assert.equal(existsSync(join(harness.dir, 'project', 'sites')), false, 'not even the source folder may appear');
+});
+
+test('SiteCreate allows a persistent environment before its public DNS gateway is ready', async (t) => {
+  const harness = toolHarness(t, { gatewayHost: null, configRaw: { allowEnvironments: true } });
+  const created = await harness.call('SiteCreate', { title: 'Local environment', runtime: 'environment' });
+  const stored = harness.store.siteById(created.details.siteId);
+
+  assert.equal(created.details.url, null);
+  assert.match(created.content[0].text, /No public address is available/);
+  assert.equal(stored.runtime, 'environment');
+  assert.equal(stored.status, 'live');
+  assert.equal(existsSync(stored.sourceDir), true, 'the environment still gets its Project workspace');
 });
 
 test('a site answers to its slug as readily as to its id', async (t) => {

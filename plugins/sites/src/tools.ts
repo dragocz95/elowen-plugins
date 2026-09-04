@@ -186,21 +186,24 @@ const addressOf = (config: SitesConfig, slug: string): string => {
   return url;
 };
 
-const describe = (site: Site, config: SitesConfig, environment?: EnvironmentState): string => [
-  `${site.title}`,
-  `  id         ${site.id}`,
-  `  slug       ${site.slug}   (either identifier works wherever a site is named)`,
-  `  address    ${addressOf(config, site.slug)}`,
-  `  visibility ${site.visibility}`,
-  `  status     ${site.status}`,
-  ...(site.runtime === 'command' ? [`  runtime    ${site.bind}${site.port === null ? '' : ` 127.0.0.1:${site.port}`} · ${config.runtimeNetwork} network`] : []),
-  ...(site.runtime === 'environment' ? [
-    `  environment ${environment?.state ?? 'unknown'} · desired ${site.environmentDesiredState ?? 'running'} · ${config.environmentNetwork} network`,
-    `  limits      ${environment?.limits.cpus ?? site.environmentCpus ?? config.environmentCpus} CPU · ${environment?.limits.memoryMb ?? site.environmentMemoryMb ?? config.environmentMemoryMb} MB · ${environment?.limits.pidsLimit ?? site.environmentPidsLimit ?? config.environmentPidsLimit} PIDs`,
-  ] : []),
-  site.lastPublishAt ? `  published  ${site.lastPublishAt}${site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}` : site.runtime === 'environment' ? '  snapshot   never' : '  published  never',
-  `  source     ${site.sourceDir}`,
-].join('\n');
+const describe = (site: Site, config: SitesConfig, environment?: EnvironmentState): string => {
+  const address = siteUrl(config, site.slug);
+  return [
+    `${site.title}`,
+    `  id         ${site.id}`,
+    `  slug       ${site.slug}   (either identifier works wherever a site is named)`,
+    `  address    ${address ?? 'unavailable until the domain gateway is ready'}`,
+    `  visibility ${site.visibility}`,
+    `  status     ${site.status}`,
+    ...(site.runtime === 'command' ? [`  runtime    ${site.bind}${site.port === null ? '' : ` 127.0.0.1:${site.port}`} · ${config.runtimeNetwork} network`] : []),
+    ...(site.runtime === 'environment' ? [
+      `  environment ${environment?.state ?? 'unknown'} · desired ${site.environmentDesiredState ?? 'running'} · ${config.environmentNetwork} network`,
+      `  limits      ${environment?.limits.cpus ?? site.environmentCpus ?? config.environmentCpus} CPU · ${environment?.limits.memoryMb ?? site.environmentMemoryMb ?? config.environmentMemoryMb} MB · ${environment?.limits.pidsLimit ?? site.environmentPidsLimit ?? config.environmentPidsLimit} PIDs`,
+    ] : []),
+    site.lastPublishAt ? `  published  ${site.lastPublishAt}${site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}` : site.runtime === 'environment' ? '  snapshot   never' : '  published  never',
+    `  source     ${site.sourceDir}`,
+  ].join('\n');
+};
 
 export function registerTools(deps: ToolDeps): void {
   const { ctx, store } = deps;
@@ -277,9 +280,9 @@ export function registerTools(deps: ToolDeps): void {
         let slug = slugify(input.title);
         while (store.slugTaken(slug)) slug = slugify(input.title);
 
-        // Decided before anything is written: on an instance with no site hostname this refusal must
-        // not leave a half-made site row and source folder behind for every retry to duplicate.
-        const address = addressOf(config, slug);
+        // File-published sites need a public origin before the first side effect. A persistent environment
+        // may still be administered and locally verified while its DNS gateway is not ready yet.
+        const address = runtime === 'environment' ? siteUrl(config, slug) : addressOf(config, slug);
 
         const { dir, projectId } = resolveSourceRoot(ctx, slug);
         let allowed: string;
@@ -333,7 +336,9 @@ export function registerTools(deps: ToolDeps): void {
           `Write the project here: ${allowed}`,
           'For an isolated Git worktree, create and activate a Sandbox workspace before SiteCreate; Sites automatically uses the active workspace.',
           `Configure the build with base path: ${SITE_BASE_PATH}`,
-          `It will be published at: ${address}`,
+          address
+            ? `It will be published at: ${address}`
+            : 'No public address is available until the domain gateway DNS is ready. SiteExec and lifecycle controls still work.',
           '',
           ...(runtime === 'environment'
             ? [
@@ -657,7 +662,7 @@ export function registerTools(deps: ToolDeps): void {
           environmentAction ? `\nPending action: ${environmentAction.kind} ${environmentAction.snapshotId}${environmentAction.lastError ? `\nAction error: ${environmentAction.lastError}` : ''}` : '',
           site.lastError ? `\nLast error: ${site.lastError}` : '',
         ].join('\n'), {
-          siteId: site.id, slug: site.slug, url: addressOf(config, site.slug), visibility: site.visibility,
+          siteId: site.id, slug: site.slug, url: siteUrl(config, site.slug), visibility: site.visibility,
           status: site.status, sourceDir: site.sourceDir, basePath: SITE_BASE_PATH,
           runtime: site.runtime, startCommand: site.startCommand, bind: site.bind, port: site.port,
           network: site.runtime === 'environment' ? config.environmentNetwork : config.runtimeNetwork,
@@ -854,9 +859,12 @@ export function registerTools(deps: ToolDeps): void {
         return text(`${person.name} could already open "${site.title}".`, { siteId: site.id, userId: person.id, changed: false });
       }
       store.addMember(site.id, person.id);
+      const address = siteUrl(deps.config(), site.slug);
       return text([
         `${person.name} can now open "${site.title}".`,
-        `They will find it at ${addressOf(deps.config(), site.slug)} and in their own Sites screen.`,
+        address
+          ? `They will find it at ${address} and in their own Sites screen.`
+          : 'It will appear in their Sites screen, but no public address is available until the domain gateway DNS is ready.',
         site.status === 'live' ? '' : 'The site has not been published yet, so there is nothing to see there until SitePublish runs.',
       ].filter(Boolean).join('\n'), { siteId: site.id, slug: site.slug, userId: person.id, changed: true });
     },
