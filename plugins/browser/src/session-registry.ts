@@ -3,8 +3,9 @@ import { artifactData, parseArtifactRef } from './artifact.js';
 import type { BrowserConfig } from './config.js';
 import { BrowserPool } from './browser-launcher.js';
 import { BrowserSession } from './browser-session.js';
-import { StreamBudget } from './screencast-hub.js';
 import { BrowserStore } from './store.js';
+import type { VirtualDisplayPool } from './virtual-display.js';
+import type { VncTarget, VncTicketPayload } from './vnc-transport.js';
 import type { BrowserArtifactPublisher, BrowserClock, BrowserLogger, ProcessInspector } from './types.js';
 
 const CLOSED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60_000;
@@ -27,7 +28,6 @@ export interface CreateBrowserSessionInput {
 export class SessionRegistry {
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly createQueue = new RegistryQueue();
-  private readonly streamBudget: StreamBudget;
 
   constructor(private readonly deps: {
     config: () => BrowserConfig;
@@ -35,11 +35,13 @@ export class SessionRegistry {
     pool: BrowserPool;
     artifacts: BrowserArtifactPublisher;
     processInspector: ProcessInspector;
+    displays: VirtualDisplayPool;
     clock: BrowserClock;
     logger: BrowserLogger;
-  }) {
-    this.streamBudget = new StreamBudget(() => deps.config().globalStreamBytesPerSecond, () => deps.clock.now());
-  }
+    /** Drop every live view of a session, because the thing they were views of has gone. Wired to the
+     *  transport; absent only in tests that do not exercise the socket. */
+    closeLiveViews?: (sessionId: string, reason: string) => void;
+  }) {}
 
   create(input: CreateBrowserSessionInput): Promise<BrowserSession> {
     return this.createQueue.run(async () => {
@@ -83,13 +85,17 @@ export class SessionRegistry {
           config: this.deps.config,
           store: this.deps.store,
           artifacts: this.deps.artifacts,
-          streamBudget: this.streamBudget,
           traceLock: opened.traceLock,
           clock: this.deps.clock,
           logger: this.deps.logger,
           releasePage: () => this.deps.pool.releasePage(input.ownerUserId, id),
           forceCloseBrowser: () => this.deps.pool.closeUser(input.ownerUserId),
-          onClosed: (sessionId) => { this.sessions.delete(sessionId); },
+          onClosed: (sessionId) => {
+            this.sessions.delete(sessionId);
+            // The live views go with it. Left open they would sit on a framebuffer nobody owns, showing
+            // the last thing the page painted as though the session were still running.
+            this.deps.closeLiveViews?.(sessionId, 'session_closed');
+          },
         });
         createdSession = session;
         const ref = await this.deps.artifacts.open({
@@ -143,6 +149,50 @@ export class SessionRegistry {
 
   profileSize(ownerUserId: number): number { return this.deps.pool.profileSize(ownerUserId); }
 
+  /** What the live view socket needs to know about this session, and where its framebuffer is.
+   *
+   *  The caller reaching this has already been proved to own the session by an ordinary authenticated
+   *  route. `leaseId` is whatever the card claims to hold; it is NOT trusted here and is not checked
+   *  here either — it is sealed into the ticket and compared against the session's current lease on
+   *  every input message, which is what makes a released or expired lease stop the input immediately
+   *  rather than at the next reconnect.
+   *
+   *  Returns null when the session has no framebuffer to show, which is a normal answer while one is
+   *  still starting rather than an error. */
+  liveViewPayload(sessionId: string, ownerUserId: number, leaseId: string | null): VncTicketPayload | null {
+    this.getOwned(sessionId, ownerUserId);
+    if (!this.deps.displays.get(ownerUserId) || this.deps.displays.failure(ownerUserId)) return null;
+    return { sessionId, leaseId };
+  }
+
+  /** How many live views one session may fan out to. */
+  viewerLimit(): number { return this.deps.config().maxViewersPerSession; }
+
+  /** The framebuffer's size, so the card can give its canvas the right shape before a single pixel has
+   *  arrived. Without it the tile would be laid out at a guessed aspect ratio and jump once the RFB
+   *  handshake reports the real one. */
+  liveViewSize(ownerUserId: number): { width: number; height: number } | null {
+    const display = this.deps.displays.get(ownerUserId);
+    return display ? { width: display.width, height: display.height } : null;
+  }
+
+  /** Where a ticket's session is drawn, for the transport to dial. Resolved at CONNECT time: a session
+   *  that closed between minting and connecting must not still be reachable through a ticket it left
+   *  behind, and a display that has since died must not be dialled at all. */
+  resolveLiveView(userId: number, payload: VncTicketPayload): VncTarget | null {
+    const session = this.sessions.get(payload.sessionId);
+    if (!session || session.ownerUserId !== userId) return null;
+    if (session.state === 'closing' || session.state === 'closed' || session.state === 'error') return null;
+    const display = this.deps.displays.get(userId);
+    if (!display || this.deps.displays.failure(userId)) return null;
+    return {
+      socketPath: display.socketPath,
+      // Re-read per message. A viewer holding no lease, or a lease that has since been released, expired
+      // or been superseded by a newer claim, is watching and nothing more.
+      interactive: () => payload.leaseId !== null && session.holdsLease(payload.leaseId),
+    };
+  }
+
   async sweep(): Promise<void> {
     const now = this.deps.clock.now();
     const config = this.deps.config();
@@ -156,7 +206,13 @@ export class SessionRegistry {
       else if (now - session.lastActivity >= config.idleTimeoutMs) closing.push(session.close('idle_timeout'));
     }
     for (const [userId, sessions] of byUser) {
-      if (!this.deps.pool.isHealthy(userId)) {
+      // One health question for the whole assembly. Chrome, the X server it draws on and the VNC server
+      // that publishes it are one unit: a framebuffer that died takes every window mapped onto it, and
+      // there is no repairing that in place — the sessions go, and the next launch builds a new set.
+      const displayFailure = this.deps.displays.failure(userId);
+      if (displayFailure) this.deps.logger.warn(`browser recycling the display assembly for user ${userId}: ${displayFailure}`);
+      if (displayFailure || !this.deps.pool.isHealthy(userId)) {
+        for (const session of sessions) this.deps.closeLiveViews?.(session.id, 'display_lost');
         closing.push(...sessions.map((session) => session.close('browser_error')));
         continue;
       }
@@ -209,6 +265,9 @@ export class SessionRegistry {
       }
       this.deps.store.deleteProcess(record.userId);
     }
+    // The X server and the VNC server are orphaned by the same crash that orphans Chrome, and nothing
+    // else will ever reclaim them: the display number stays locked and the framebuffer stays resident.
+    this.deps.displays.reconcileOrphans();
   }
 
   async deleteUser(ownerUserId: number): Promise<void> {

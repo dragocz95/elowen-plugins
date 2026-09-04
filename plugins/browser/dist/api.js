@@ -1,7 +1,5 @@
 import { randomBytes } from 'node:crypto';
 import { BrowserAccessError, requireApiUser } from './ownership.js';
-import { parseUserInputEvents } from './input-controller.js';
-import { ViewerLimitError } from './screencast-hub.js';
 const object = (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value))
         throw new BrowserAccessError('A JSON object is required.', 400);
@@ -32,7 +30,7 @@ function ownedSession(registry, req) {
 async function json(req) {
     return object(await req.json());
 }
-export function registerBrowserApi(ctx, registry, dependencies) {
+export function registerBrowserApi(ctx, registry, dependencies, liveView) {
     ctx.registerApiRoute({
         path: 'profile', method: 'GET', access: 'user', handler: async (req) => {
             try {
@@ -83,10 +81,13 @@ export function registerBrowserApi(ctx, registry, dependencies) {
             try {
                 const session = ownedSession(registry, req);
                 return {
+                    // The session's STATE, not its picture. Pixels travel over the live view socket now, so this
+                    // carries only what a card has to know: who is in control, what the agent just did, the
+                    // favicon, and the end of the session. It is cheap enough to have no viewer limit of its own —
+                    // the limit that matters is on the framebuffer connections, and it lives with them.
                     sse: async (send, signal) => {
                         const subscriberId = randomBytes(18).toString('base64url');
                         let unsubscribeEvents = null;
-                        let unsubscribeFrames = null;
                         const heartbeat = setInterval(() => {
                             session.viewerActivity();
                             void send(JSON.stringify({ at: Date.now() }), 'heartbeat').catch(() => { });
@@ -98,30 +99,24 @@ export function registerBrowserApi(ctx, registry, dependencies) {
                             // snapshot, but its higher revision makes the older snapshot harmless to the client.
                             await send(JSON.stringify({
                                 id: session.id, state: session.state, lease: session.currentLease,
-                                controlRevision: session.controlRevision, reason: session.controlReason, cursor: session.currentCursor, favicon: session.currentFavicon,
+                                controlRevision: session.controlRevision, reason: session.controlReason, favicon: session.currentFavicon,
                             }), 'session');
-                            unsubscribeFrames = await session.subscribeFrames(subscriberId, async (frame) => send(JSON.stringify(frame), 'frame'));
                             if (!signal.aborted)
                                 await new Promise((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
                         }
                         catch (error) {
                             // The 200 and the opening snapshot are already on the wire, so this cannot become an HTTP
                             // error — and a stream that ends right after its snapshot is indistinguishable, from the
-                            // client's side, from a viewer that simply left. Every client then reconnects into the same
-                            // silent failure. So the refusal is SAID: the client shows it and backs off instead of
-                            // believing it is connected to a stream that will never carry a frame.
+                            // client's side, from a viewer that simply left. So the refusal is SAID: the client shows
+                            // it and backs off instead of believing it is connected to a stream that is dead.
                             const message = error instanceof Error ? error.message : String(error);
-                            const reason = error instanceof ViewerLimitError ? 'viewer_limit' : 'stream_failed';
-                            await send(JSON.stringify({ reason, message }), 'rejected').catch(() => { });
-                            // A full room is reported to the viewer it concerns; only a real failure pages the operator.
-                            if (reason === 'stream_failed')
-                                ctx.logger.warn(`browser live view stream for ${session.id} failed: ${message}`);
+                            await send(JSON.stringify({ reason: 'stream_failed', message }), 'rejected').catch(() => { });
+                            ctx.logger.warn(`browser live view stream for ${session.id} failed: ${message}`);
                             throw error;
                         }
                         finally {
                             clearInterval(heartbeat);
                             unsubscribeEvents?.();
-                            await unsubscribeFrames?.();
                         }
                     },
                 };
@@ -165,21 +160,6 @@ export function registerBrowserApi(ctx, registry, dependencies) {
         },
     });
     ctx.registerApiRoute({
-        path: 'input', method: 'POST', access: 'user', handler: async (req) => {
-            try {
-                const body = await json(req);
-                const events = parseUserInputEvents(body.events);
-                const outcome = await ownedSession(registry, req).dispatchUserInput(requiredString(body.leaseId, 'leaseId', 256), events);
-                // A batch dropped because the page moved on is a normal outcome of driving a page, not a bad
-                // request: it is reported, so the card can say so, but it is not an error.
-                return { body: outcome === 'delivered' ? { accepted: events.length } : { accepted: 0, dropped: outcome } };
-            }
-            catch (error) {
-                return responseError(error);
-            }
-        },
-    });
-    ctx.registerApiRoute({
         path: 'navigation', method: 'POST', access: 'user', handler: async (req) => {
             try {
                 const body = await json(req);
@@ -188,6 +168,46 @@ export function registerBrowserApi(ctx, registry, dependencies) {
                     throw new BrowserAccessError('Browser navigation action is invalid.', 400);
                 await ownedSession(registry, req).dispatchUserNavigation(requiredString(body.leaseId, 'leaseId', 256), action);
                 return { body: { navigated: action } };
+            }
+            catch (error) {
+                return responseError(error);
+            }
+        },
+    });
+    ctx.registerApiRoute({
+        // The only door to the live view socket, and an ordinary authenticated plugin route: `ownedSession`
+        // already proves the caller is signed in AND owns this session, so the ticket it mints inherits
+        // exactly that authority and nothing more. A browser WebSocket cannot carry an Authorization header,
+        // which is why the proof has to be moved into a one-shot token first.
+        //
+        // The lease id in the body is a CLAIM, not a grant. It is sealed into the ticket and checked against
+        // the session's current lease on every input message, so asking for one while holding somebody
+        // else's token buys a view-only connection and nothing more.
+        path: 'vnc-ticket', method: 'POST', access: 'user', handler: async (req) => {
+            try {
+                const userId = requireApiUser(req.auth);
+                const session = ownedSession(registry, req);
+                if (!liveView)
+                    throw new BrowserAccessError('This host cannot carry a browser live view connection.', 501);
+                const body = await req.json().catch(() => ({}));
+                const leaseId = body?.leaseId;
+                const payload = registry.liveViewPayload(session.id, userId, typeof leaseId === 'string' && leaseId ? requiredString(leaseId, 'leaseId', 256) : null);
+                if (!payload)
+                    throw new BrowserAccessError('The browser live view has no display yet.', 409);
+                // Refused here as well as at the socket, because this is the only place the CARD can be told
+                // why. noVNC surfaces no close code, so a refusal that happened at the upgrade would reach the
+                // reader as an anonymous disconnect. The socket still enforces the limit — this only races
+                // ahead of it to produce a sentence — so two tickets minted at once cannot exceed it.
+                //
+                // 429 rather than another 409: the STATUS is what crosses to the card, because the host's API
+                // client keeps the status and the error string and drops any other field. A full room and a
+                // session with no display yet have to be told apart, and "too many" is exactly this code.
+                if (liveView.transport.viewerCount(session.id) >= registry.viewerLimit()) {
+                    return { status: 429, body: { error: 'This browser session already has as many viewers as it allows.' } };
+                }
+                const issued = liveView.transport.issueTicket(liveView.core, userId, payload);
+                const display = registry.liveViewSize(userId);
+                return { body: { ...issued, ...(display ? { width: display.width, height: display.height } : {}) } };
             }
             catch (error) {
                 return responseError(error);

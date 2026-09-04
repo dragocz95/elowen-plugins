@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 /** The browser-UI runner. A plugin that ships `web-src/` renders inside the host app in production, so
@@ -22,5 +23,12 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./tests/ui/setup.ts'],
     include: ['tests/**/*.test.tsx', 'tests/**/*.test.ts'],
+    alias: {
+      // The browser plugin's live view is a real noVNC client, which opens a WebSocket to a VNC server —
+      // not something jsdom can have. It is also installed under `plugins/browser/node_modules`, so the
+      // specifier does not resolve from a test file at the repo root and a `vi.mock` against it would be
+      // silently ignored. An alias is the one form that reaches the dynamic import inside the component.
+      '@novnc/novnc': fileURLToPath(new URL('./tests/ui/novncDouble.ts', import.meta.url)),
+    },
   },
 });

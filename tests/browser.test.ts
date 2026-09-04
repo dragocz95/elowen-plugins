@@ -15,17 +15,17 @@ import {
 import { resolveConfig, type BrowserConfig } from '../plugins/browser/src/config.js';
 import { BrowserStore } from '../plugins/browser/src/store.js';
 import { BrowserPool } from '../plugins/browser/src/browser-launcher.js';
+import { SessionRegistry } from '../plugins/browser/src/session-registry.js';
 import {
   browserDependencyReport, browserReadiness,
   type BrowserDependencyCheck, type BrowserDependencyReport, type BrowserDependencyStatus,
 } from '../plugins/browser/src/readiness.js';
-import { ScreencastHub, StreamBudget, ViewerLimitError } from '../plugins/browser/src/screencast-hub.js';
 import { boundBytes, boundText, isTextualMime, pickResponseHeaders, sanitizeUrl, UNTRUSTED_NOTE } from '../plugins/browser/src/redaction.js';
 import { MAX_CAPTURE_CSS_AREA, MAX_FULL_PAGE_CSS_PX, MAX_SCREENSHOT_BYTES } from '../plugins/browser/src/capture.js';
 import { CONSOLE_BUFFER_SIZE, MAX_BODY_BYTES } from '../plugins/browser/src/page-diagnostics.js';
 import { ProcessTraceLock, summarizeTraceEvents, TraceRecorder, TraceStateUnknownError } from '../plugins/browser/src/performance-probe.js';
 import { BrowserSession } from '../plugins/browser/src/browser-session.js';
-import { InputController, InputRateLimiter } from '../plugins/browser/src/input-controller.js';
+import { InputController } from '../plugins/browser/src/input-controller.js';
 import { readPageFavicon } from '../plugins/browser/src/page-favicon.js';
 import { TabManager } from '../plugins/browser/src/tab-manager.js';
 import { artifactData, UNAVAILABLE_ARTIFACT_PUBLISHER } from '../plugins/browser/src/artifact.js';
@@ -145,7 +145,7 @@ const config = (patch: Partial<BrowserConfig> = {}): BrowserConfig => ({ ...reso
 
 describe('browser input controller', () => {
   const textbox = { ref: 'e1', backendNodeId: 7, role: 'textbox', name: 'Name', interactive: true, disabled: false };
-  const controller = (cdp: FakeCdp) => new InputController(cdp, () => ({ width: 1280, height: 800 }), () => {}, new InputRateLimiter(() => 100));
+  const controller = (cdp: FakeCdp) => new InputController(cdp, () => ({ width: 1280, height: 800 }), () => {});
 
   it('selects the existing value before a fill inserts the replacement', async () => {
     const cdp = new FakeCdp();
@@ -171,16 +171,23 @@ describe('browser input controller', () => {
     await input.pressKey('!', undefined);
     await input.pressKey('a', ['Control']);
     await input.pressKey('Enter', undefined);
-    await input.dispatchUserBatch([
-      { type: 'key', action: 'down', key: 'Shift', code: 'ShiftLeft', modifiers: ['Shift'] },
-      { type: 'key', action: 'up', key: 'Shift', code: 'ShiftLeft', modifiers: [] },
-    ]);
     const downs = cdp.calls.filter((call) => call.method === 'Input.dispatchKeyEvent' && call.params?.type === 'keyDown').map((call) => call.params);
     expect(downs[0]).toMatchObject({ key: '!', text: '!' });
+    // `commands` is what makes a SYNTHESIZED Ctrl+A select anything: Chrome runs the editing command
+    // rather than the shortcut, because a CDP key never reaches the browser's own handling. A person
+    // pressing Ctrl+A does not come through here at all — their key arrives natively over VNC.
     expect(downs[1]).toMatchObject({ key: 'a', code: 'KeyA', modifiers: 2, commands: ['selectAll'], windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65 });
     expect(downs[1]).not.toHaveProperty('text');
     expect(downs[2]).toMatchObject({ key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
-    expect(downs[3]).toMatchObject({ key: 'Shift', code: 'ShiftLeft', modifiers: 8, windowsVirtualKeyCode: 16, nativeVirtualKeyCode: 16 });
+  });
+
+  it('walks the pointer to a target before pressing, so hover handlers see it coming', async () => {
+    const cdp = new FakeCdp();
+    await controller(cdp).click({ ref: 'e1', backendNodeId: 7, role: 'button', name: 'Continue', interactive: true, disabled: false });
+    const mouse = cdp.calls.filter((call) => call.method === 'Input.dispatchMouseEvent').map((call) => call.params);
+    expect(mouse.filter((params) => params?.type === 'mouseMoved').length).toBeGreaterThan(1);
+    expect(mouse.at(-2)).toMatchObject({ type: 'mousePressed', button: 'left' });
+    expect(mouse.at(-1)).toMatchObject({ type: 'mouseReleased', button: 'left' });
   });
 });
 
@@ -277,23 +284,49 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.2.11, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.3.0, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
-    const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as { version: string; userGrantable: boolean; entry: string; provides: { tools: string[]; apiRoutes: string[] } };
-    expect(manifest.version).toBe('0.2.11');
+    const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
+      version: string; userGrantable: boolean; entry: string;
+      provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[] };
+      configSchema: { key: string }[];
+    };
+    expect(manifest.version).toBe('0.3.0');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
     expect(manifest.provides.apiRoutes).toHaveLength(12);
     expect(manifest.provides.apiRoutes).toContain('navigation');
+    // The live view's only door. A browser WebSocket cannot carry an Authorization header, so the proof
+    // of ownership is moved into a single-use ticket by an ordinary authenticated route.
+    expect(manifest.provides.apiRoutes).toContain('vnc-ticket');
+    // A person's pointer and keyboard reach Chrome natively over VNC now. There is no route that accepts
+    // input events, and the breaking part of this version is that there no longer can be.
+    expect(manifest.provides.apiRoutes).not.toContain('input');
+    // The socket surface is deny-by-default: an undeclared path is refused at registration, so the
+    // manifest stays the one place that says what this plugin serves.
+    expect(manifest.provides.wsRoutes).toEqual(['vnc']);
+    // The settings the screencast owned are gone with it, which is what makes this a minor bump rather
+    // than a patch: an instance carrying values for these keys loses them.
+    const keys = manifest.configSchema.map((field) => field.key);
+    for (const retired of ['webFps', 'cliFps', 'jpegQuality', 'globalStreamMegabits', 'maxFrameKilobytes', 'maxInputEventsPerSecond', 'vncEnabled']) {
+      expect(keys).not.toContain(retired);
+    }
+    // One knob for the latency/bandwidth trade, and it is the server's coalescing window.
+    expect(keys).toContain('vncDeferMs');
     expect(existsSync(join(root, manifest.entry))).toBe(true);
     const launcherSource = readFileSync(join(root, 'src', 'browser-launcher.ts'), 'utf8');
     expect(launcherSource).toContain('--proxy-bypass-list=<-loopback>');
     expect(launcherSource).toContain('--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1');
     expect(launcherSource).toContain('--disable-quic');
+    // A real browser window, tab strip and address bar included. Kiosk would hide exactly the parts a
+    // person taking over reaches for.
+    expect(launcherSource).not.toContain('--kiosk');
+    expect(launcherSource).toContain("ignoreDefaultArgs: ['--enable-automation']");
     for (const locale of ['cs', 'sk']) {
       const translation = JSON.parse(readFileSync(join(root, 'i18n', `${locale}.json`), 'utf8')) as { description?: string; fields?: Record<string, unknown> };
       expect(translation.description).toBeTruthy();
       expect(translation.fields?.privateNetworkAllowlist).toBeTruthy();
+      expect(translation.fields?.vncDeferMs).toBeTruthy();
     }
   });
 
@@ -307,7 +340,9 @@ describe('browser plugin contract', () => {
       requiresCore: string; web: { settings: { id: string; placement?: string }[] };
     };
     expect(manifest.web.settings).toEqual([expect.objectContaining({ id: 'runtime', placement: 'pluginDetail' })]);
-    expect(manifest.requiresCore).toBe('0.28.27');
+    // The release that carries plugin WebSocket routes. Below it the daemon cannot hand a socket to a
+    // plugin at all, and a live view is the only live view there is now.
+    expect(manifest.requiresCore).toBe('0.28.30');
   });
 });
 
@@ -358,30 +393,55 @@ describe('browser tool and API denial behavior', () => {
 });
 
 describe('browser live view stream', () => {
-  it('names a refused viewer on the wire instead of ending the stream in silence', async () => {
+  const streamRoute = (session: unknown) => {
     const routes: any[] = [];
     const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const ctx = { registerApiRoute: (route: unknown) => routes.push(route), logger };
+    registerBrowserApi(ctx as any, { getOwned: () => session } as any, async () => ({}) as any, null);
+    return { route: routes.find((item) => item.path === 'stream' && item.method === 'GET'), logger };
+  };
+  const request = {
+    auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [] },
+    query: { sessionId: 'session-1' }, params: {}, method: 'GET', path: '', headers: {},
+    body: async () => Buffer.alloc(0), json: async () => ({}),
+  };
+
+  it('opens with the session state and carries no pixels', async () => {
     const session = {
-      id: 'session-1', state: 'agent', currentLease: null, controlRevision: 0, controlReason: null, currentCursor: null, currentFavicon: null,
+      id: 'session-1', state: 'agent', currentLease: null, controlRevision: 3, controlReason: null, currentFavicon: null,
       viewerActivity: vi.fn(),
       subscribeEvents: async () => () => {},
-      subscribeFrames: async () => { throw new ViewerLimitError(); },
     };
-    registerBrowserApi(ctx as any, { getOwned: () => session } as any);
-    const route = routes.find((item) => item.path === 'stream' && item.method === 'GET');
-    const response = await route.handler({
-      auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [] },
-      query: { sessionId: 'session-1' }, params: {}, method: 'GET', path: '', headers: {},
-      body: async () => Buffer.alloc(0), json: async () => ({}),
-    });
+    const { route } = streamRoute(session);
+    const response = await route.handler(request);
+    const sent: { event: string; data: any }[] = [];
+    const controller = new AbortController();
+    const pump = response.sse(async (data: string, event: string) => { sent.push({ event, data: JSON.parse(data) }); }, controller.signal);
+    await tick();
+    controller.abort();
+    await pump;
+    expect(sent.map((item) => item.event)).toEqual(['session']);
+    // The picture is the live view socket's job. Nothing on this stream carries a frame, and the agent
+    // cursor it used to replay is gone with the screencast that needed it.
+    expect(sent[0].data).not.toHaveProperty('cursor');
+    expect(sent.some((item) => item.event === 'frame')).toBe(false);
+  });
+
+  it('names a refused stream on the wire instead of ending it in silence', async () => {
+    const session = {
+      id: 'session-1', state: 'agent', currentLease: null, controlRevision: 0, controlReason: null, currentFavicon: null,
+      viewerActivity: vi.fn(),
+      subscribeEvents: async () => { throw new Error('subscriber storage is gone'); },
+    };
+    const { route, logger } = streamRoute(session);
+    const response = await route.handler(request);
     const sent: { event: string; data: any }[] = [];
     await expect(response.sse(async (data: string, event: string) => { sent.push({ event, data: JSON.parse(data) }); }, new AbortController().signal))
-      .rejects.toBeInstanceOf(ViewerLimitError);
-    expect(sent.map((item) => item.event)).toEqual(['session', 'rejected']);
-    expect(sent[1].data).toEqual({ reason: 'viewer_limit', message: 'Browser viewer limit reached.' });
-    // Expected condition of the room, not a fault: it must not page anyone through the warn log.
-    expect(logger.warn).not.toHaveBeenCalled();
+      .rejects.toThrow('subscriber storage is gone');
+    expect(sent.map((item) => item.event)).toEqual(['rejected']);
+    expect(sent[0].data).toEqual({ reason: 'stream_failed', message: 'subscriber storage is gone' });
+    // A real failure, unlike a full room, is worth an operator's attention.
+    expect(logger.warn).toHaveBeenCalled();
   });
 });
 
@@ -525,7 +585,24 @@ describe('browser process pool', () => {
       },
       terminate: () => {},
     };
-    const pool = new BrowserPool({ dataDir: root, config: () => config({ chromeExecutable: executable }), store, proxyFactory, processFactory, processInspector, logger });
+    // A display the pool can hand to Chrome without an X server anywhere near this test. Every managed
+    // launch is headed now, so the pool always asks for one.
+    const acquired: number[] = [];
+    const released: number[] = [];
+    const displays = {
+      acquire: async (userId: number) => {
+        acquired.push(userId);
+        return {
+          userId, displayNumber: 90 + userId, display: `:${90 + userId}`,
+          xauthPath: join(root, `xauth-${userId}`), socketPath: join(root, `vnc-${userId}.sock`),
+          width: 1280, height: 800, xvfbPid: 1, vncPid: 2,
+        };
+      },
+      release: async (userId: number) => { released.push(userId); },
+      get: () => null,
+      failure: () => null,
+    };
+    const pool = new BrowserPool({ dataDir: root, config: () => config({ chromeExecutable: executable }), store, proxyFactory, processFactory, processInspector, logger, displays: displays as any });
     const opened = await Promise.all([pool.openPage(1, 's1'), pool.openPage(1, 's2')]);
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(opened.every(({ page }) => !page.isClosed?.())).toBe(true);
@@ -550,7 +627,68 @@ describe('browser process pool', () => {
     expect(launches).toBe(2);
     expect(pool.profilePath(1)).toBe(join(root, 'profiles', 'u-1'));
     expect(pool.profilePath(2)).toBe(join(root, 'profiles', 'u-2'));
+    // One display per ACCOUNT, not per session: the two sessions of user 1 share the Chrome process that
+    // is drawn on it, so a second acquire would be a second framebuffer for the same window.
+    expect(acquired).toEqual([1, 2]);
     await pool.closeAll();
+    // And it goes when the browser does. An X server outliving its only client is a framebuffer per
+    // account that no later launch will ever reuse.
+    expect(released.sort()).toEqual([1, 2]);
+  });
+});
+
+describe('browser session sweep', () => {
+  /** A registry over fakes, with a display whose health the test controls. Chrome, the X server it is
+   *  drawn on and the VNC server that publishes it are one assembly, and the sweep is where that is
+   *  decided — so it is worth exercising without needing a real X server. */
+  async function sweepFixture(displayFailure: () => string | null) {
+    const store = new BrowserStore(pluginDb());
+    const page = new FakePage();
+    const browser = new FakeBrowser();
+    const tabs = new TabManager(browser, () => 12, logger, async () => {}, async () => {});
+    const closedLiveViews: { sessionId: string; reason: string }[] = [];
+    let healthy = true;
+    const pool = {
+      openPage: async () => ({ page, tabs, traceLock: new ProcessTraceLock() }),
+      releasePage: async () => {},
+      closeUser: async () => { healthy = false; },
+      closeAll: async () => {},
+      isHealthy: () => healthy,
+      rssBytes: () => 0,
+    };
+    const registry = new SessionRegistry({
+      config: () => config(),
+      store,
+      pool: pool as never,
+      artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
+      processInspector: { inspect: () => null, terminate: () => {} },
+      displays: { failure: displayFailure, get: () => null, reconcileOrphans: () => {} } as never,
+      clock: { now: () => Date.now(), sleep: async () => {} },
+      logger,
+      closeLiveViews: (sessionId, reason) => { closedLiveViews.push({ sessionId, reason }); },
+    });
+    const session = await registry.create({ ownerUserId: 1, conversationId: 'c1', toolCallId: 't1' });
+    return { registry, session, closedLiveViews };
+  }
+
+  it('leaves a healthy session alone', async () => {
+    const { registry, session, closedLiveViews } = await sweepFixture(() => null);
+    await registry.sweep();
+    expect(session.state).toBe('agent');
+    expect(closedLiveViews).toEqual([]);
+    await registry.closeAll();
+  });
+
+  it('recycles the whole assembly when the display underneath it died', async () => {
+    // A framebuffer that died takes every window mapped onto it, so there is nothing to repair in
+    // place: the sessions drawn on it end, their live views are dropped with a reason, and the next
+    // launch builds a new display, VNC server and Chrome together.
+    const { registry, session, closedLiveViews } = await sweepFixture(() => 'Xvfb for user 1 exited (SIGKILL).');
+    await registry.sweep();
+    expect(session.state).toBe('error');
+    // Dropped rather than left showing the last thing the dead framebuffer painted.
+    expect(closedLiveViews).toContainEqual({ sessionId: session.id, reason: 'display_lost' });
+    await registry.closeAll();
   });
 });
 
@@ -594,11 +732,14 @@ describe('browser dependency report', () => {
 
     expect(report.status).toBe('ready');
     expect(report.ready).toBe(report.total);
-    // Five things a session cannot start without, plus the one that only degrades it. There is no sandbox
+    // The things a session cannot start without, plus the ones that only degrade it. There is no sandbox
     // row: nothing this process can read proves a sandbox that AppArmor or a host policy may still refuse,
     // and the panel says so in words instead of showing a green badge it cannot stand behind.
+    //
+    // `virtual-display` is a BLOCKING row now, not an optional extra: a managed browser is always drawn
+    // on a private X display, so a host without Xvfb and x11vnc cannot open a session at all.
     expect(report.checks.map((check) => check.id)).toEqual([
-      'chrome', 'browser-control', 'network-proxy', 'profile-storage', 'chat-artifacts',
+      'chrome', 'browser-control', 'virtual-display', 'network-proxy', 'profile-storage', 'chat-artifacts',
     ]);
     // Opening a status page must never be the thing that allocates a browser or a proxy port.
     expect(launched).toBe(0);
@@ -738,7 +879,10 @@ describe('browser web artifact build', () => {
     expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact \{[^}]*right: max\(var\(--shell-gutter/);
     expect(desktop).toMatch(/\.chat-surface-full \.browser-artifact__tile \.browser-artifact__canvas \{[^}]*aspect-ratio: var\(--browser-aspect/);
     // Floating framing must never become a crop: the page is fitted into the monitor, not cut down to it.
-    expect(rule(css, '.browser-artifact__canvas img')).toContain('object-fit: contain');
+    // The live canvas is noVNC's own element, so the guarantee is a cap it cannot paint past.
+    expect(rule(css, '.browser-artifact__vnc canvas')).toContain('object-fit: contain');
+    expect(rule(css, '.browser-artifact__vnc canvas')).toContain('max-width: 100%');
+    expect(rule(css, '.browser-artifact__vnc canvas')).toContain('max-height: 100%');
     expect(rule(css, '.browser-artifact__site-icon')).toContain('object-fit: contain');
     expect(rule(css, '.browser-artifact__site--compact')).toContain('max-width: 100%');
     expect(rule(css, '.browser-artifact')).toContain('max-width: 20rem');
@@ -827,55 +971,6 @@ describe('browser web artifact build', () => {
   });
 });
 
-describe('screencast hub', () => {
-  it('ACKs every frame and keeps only the latest pending frame per subscriber', async () => {
-    const cdp = new FakeCdp();
-    const budget = new StreamBudget(() => 10_000_000);
-    const hub = new ScreencastHub(cdp, () => config({ maxViewersPerSession: 1 }), budget, logger);
-    const delivered: string[] = [];
-    let releaseFirst!: () => void;
-    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    const unsubscribe = await hub.subscribe('viewer-1', async (frame) => {
-      delivered.push(frame.data);
-      if (delivered.length === 1) await firstBlocked;
-    });
-    await expect(hub.subscribe('viewer-2', async () => {})).rejects.toThrow(/viewer limit/);
-    cdp.emit('Page.screencastFrame', { sessionId: 1, data: 'one', metadata: { deviceWidth: 100, deviceHeight: 80, timestamp: 1 } });
-    cdp.emit('Page.screencastFrame', { sessionId: 2, data: 'two', metadata: { deviceWidth: 100, deviceHeight: 80, timestamp: 1.05 } });
-    cdp.emit('Page.screencastFrame', { sessionId: 3, data: 'three', metadata: { deviceWidth: 100, deviceHeight: 80, timestamp: 1.2 } });
-    await tick();
-    releaseFirst();
-    await tick(); await tick();
-    expect(cdp.calls.filter((call) => call.method === 'Page.screencastFrameAck')).toHaveLength(3);
-    expect(delivered).toEqual(['one', 'three']);
-    await unsubscribe();
-    expect(cdp.calls.some((call) => call.method === 'Page.stopScreencast')).toBe(true);
-    await hub.close();
-  });
-
-  it('replays the latest frame to a viewer joining an already running static page', async () => {
-    const cdp = new FakeCdp();
-    const hub = new ScreencastHub(cdp, () => config({ maxViewersPerSession: 2 }), new StreamBudget(() => 10_000_000), logger);
-    const first: string[] = [];
-    const second: string[] = [];
-    const unsubscribeFirst = await hub.subscribe('viewer-1', async (frame) => { first.push(frame.data); });
-    expect(cdp.calls.find((call) => call.method === 'Page.startScreencast')?.params?.everyNthFrame).toBe(1);
-
-    cdp.emit('Page.screencastFrame', { sessionId: 1, data: 'static-page', metadata: { deviceWidth: 100, deviceHeight: 80 } });
-    await tick(); await tick();
-    expect(first).toEqual(['static-page']);
-
-    const unsubscribeSecond = await hub.subscribe('viewer-2', async (frame) => { second.push(frame.data); });
-    await tick(); await tick();
-    expect(second).toEqual(['static-page']);
-    expect(cdp.calls.filter((call) => call.method === 'Page.startScreencast')).toHaveLength(1);
-
-    await unsubscribeSecond();
-    await unsubscribeFirst();
-    await hub.close();
-  });
-});
-
 describe('browser takeover state machine', () => {
   async function createSession(artifacts: BrowserArtifactPublisher = UNAVAILABLE_ARTIFACT_PUBLISHER) {
     const store = new BrowserStore(pluginDb());
@@ -892,7 +987,7 @@ describe('browser takeover state machine', () => {
     const session = await BrowserSession.create({
       id: 'session-1234567890', ownerUserId: 1, conversationId: 'brain-1', createdAt: now, hardExpiresAt: now + 60_000,
       page, tabs, config: () => config({ takeoverLeaseMs: 30_000 }), store, artifacts,
-      streamBudget: new StreamBudget(() => 10_000_000), traceLock: new ProcessTraceLock(),
+      traceLock: new ProcessTraceLock(),
       clock: { now: () => Date.now(), sleep: async () => {} }, logger,
       releasePage: async () => { await tabs.closeSession('session-1234567890'); }, forceCloseBrowser: async () => {}, onClosed: () => {},
     });
@@ -970,63 +1065,19 @@ describe('browser takeover state machine', () => {
     await session.close();
   });
 
-  it('answers a session read while a stuck user input holds the serial queue', async () => {
-    // Seen in production: with the session under user control, GET /session hung for over thirty
-    // seconds and came back the instant the lease expired. A read of the tab list is not page work
-    // and must not queue behind whatever the page is doing.
-    vi.useFakeTimers();
-    try {
-      const { session, page } = await createSession();
-      const lease = await session.claimTakeover();
-      page.cdp.replies.set('Input.dispatchMouseEvent', () => new Promise(() => {}));
-      const stuck = session.dispatchUserInput(lease.leaseId, [{ type: 'pointer', action: 'move', x: 1, y: 1, surfaceWidth: 10, surfaceHeight: 10 }]);
-      void stuck.catch(() => {});
-      await vi.advanceTimersByTimeAsync(0);
-      let tabs: unknown[] | null = null;
-      void session.tabs().then((value) => { tabs = value; });
-      await vi.advanceTimersByTimeAsync(500);
-      expect(tabs).toHaveLength(1);
-      await vi.advanceTimersByTimeAsync(20_000);
-      await session.releaseTakeover(lease.leaseId);
-      await session.close();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('gives up on a user input that cannot even start behind a stuck sibling', async () => {
-    // Every batch is bounded once it RUNS, but a batch waiting its turn had no bound at all: a page
-    // that stopped acknowledging input turned each click into ten more seconds of backlog, and the
-    // HTTP request for the newest click simply hung. The wait to start is bounded too, and a batch
-    // abandoned while waiting must not run late once the queue frees up.
-    vi.useFakeTimers();
-    try {
-      const { session, page } = await createSession();
-      const lease = await session.claimTakeover();
-      let dispatched = 0;
-      page.cdp.replies.set('Input.dispatchMouseEvent', () => { dispatched += 1; return new Promise(() => {}); });
-      const move = { type: 'pointer' as const, action: 'move' as const, x: 1, y: 1, surfaceWidth: 10, surfaceHeight: 10 };
-      const first = session.dispatchUserInput(lease.leaseId, [move]);
-      void first.catch(() => {});
-      await vi.advanceTimersByTimeAsync(0);
-      const second = session.dispatchUserInput(lease.leaseId, [move]);
-      void second.catch(() => {});
-      const third = session.dispatchUserInput(lease.leaseId, [move]);
-      void third.catch(() => {});
-      // t=10s: the first batch hits its running deadline and frees the queue; the second gets its turn
-      // and sticks the same way. t=15s: both later batches pass their delivery bound. t=20s: the queue
-      // frees again — and the third, abandoned five seconds earlier, must not run into Chrome now.
-      await vi.advanceTimersByTimeAsync(30_000);
-      await expect(first).rejects.toThrow(/not acknowledged/i);
-      await expect(second).rejects.toThrow(/could not be delivered in time/i);
-      await expect(third).rejects.toThrow(/could not be delivered in time/i);
-      expect(dispatched).toBe(2);
-      // Thirty seconds also outlived the test lease, so the session is already back with the agent.
-      expect(session.state).toBe('agent');
-      await session.close();
-    } finally {
-      vi.useRealTimers();
-    }
+  it('answers a session read while page work holds the serial queue', async () => {
+    // Seen in production: GET /session hung for over thirty seconds and came back the instant the
+    // wedged operation ended. A read of the tab list is not page work and must not queue behind
+    // whatever the page is doing — which is exactly what a person reaches for when a session looks
+    // stuck, so it is the one read that must never be stuck itself.
+    const { session, page } = await createSession();
+    const wedged = wedgeQueueOnNavigation(session, page);
+    await wedged.held;
+    // Awaiting this at all is the assertion: queued behind the goto it would never resolve.
+    expect(await session.tabs()).toHaveLength(1);
+    wedged.release();
+    await wedged.navigation.catch(() => {});
+    await session.close();
   });
 
   it('records every change of control with its reason', async () => {
@@ -1043,63 +1094,16 @@ describe('browser takeover state machine', () => {
     await session.close();
   });
 
-  it('drops the rest of an abandoned input batch once control has moved on', async () => {
-    // A batch stuck on an unacknowledged CDP command is abandoned by its deadline but keeps running.
-    // Its remaining events must not land after the person has already handed the session back.
-    const { session, page } = await createSession();
-    const lease = await session.claimTakeover();
-    let dispatched = 0;
-    let releaseFirstKey!: () => void;
-    page.cdp.replies.set('Input.dispatchKeyEvent', () => {
-      dispatched += 1;
-      return dispatched === 1 ? new Promise((resolve) => { releaseFirstKey = () => resolve({}); }) : {};
-    });
-    const typing = session.dispatchUserInput(lease.leaseId, [
-      { type: 'key', action: 'down', key: 'a' },
-      { type: 'key', action: 'down', key: 'b' },
-    ]);
-    await tick();
-    await session.releaseTakeover(lease.leaseId);
-    releaseFirstKey();
-    await expect(typing).rejects.toThrow(/superseded/i);
-    expect(dispatched).toBe(1);
-    await session.close();
-  });
-
-  it('refuses user input aimed at a document the agent has since replaced', async () => {
-    // Control is handed over instantly, so a click can be made while an agent navigation still owns the
-    // queue. Delivering it afterwards would apply those coordinates to a page the person never saw.
-    const { session, page } = await createSession();
-    const wedged = wedgeQueueOnNavigation(session, page);
-    await wedged.held;
-    const lease = await session.claimTakeover();
-    const clicking = session.dispatchUserInput(lease.leaseId, [
-      { type: 'pointer', action: 'down', x: 10, y: 10, surfaceWidth: 100, surfaceHeight: 100 },
-    ]);
-    // Let the click record the document it was aimed at, exactly as it does when a person clicks what
-    // is on screen; only then does the agent's navigation land.
-    await tick();
-    wedged.release();
-    // Dropped, and SAID so — but not as a failure: the person did nothing wrong, the page moved.
-    await expect(clicking).resolves.toBe('page_changed');
-    await wedged.navigation.catch(() => {});
-    await session.close();
-  });
-
-  it('reports a dropped batch as an outcome on the wire, not as a bad request', async () => {
+  it('publishes no route that accepts synthesized input', () => {
+    // The breaking half of this version. A person's pointer and keyboard reach Chrome as native X input
+    // over the live view socket, so there is no HTTP path that takes coordinates any more — and there
+    // must not be one, because it would be a way to drive the page without holding the lease the
+    // socket checks on every message.
     const routes: any[] = [];
     const ctx = { registerApiRoute: (route: unknown) => routes.push(route), logger };
-    const session = { dispatchUserInput: vi.fn(async () => 'page_changed' as const) };
-    registerBrowserApi(ctx as any, { getOwned: () => session } as any);
-    const route = routes.find((item) => item.path === 'input' && item.method === 'POST');
-    const response = await route.handler({
-      auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [] },
-      query: { sessionId: 'session-1' }, params: {}, method: 'POST', path: '', headers: {},
-      body: async () => Buffer.alloc(0),
-      json: async () => ({ leaseId: 'lease-1', events: [{ type: 'pointer', action: 'move', x: 1, y: 1, surfaceWidth: 10, surfaceHeight: 10 }] }),
-    });
-    expect(response.status ?? 200).toBe(200);
-    expect(response.body).toEqual({ accepted: 0, dropped: 'page_changed' });
+    registerBrowserApi(ctx as any, { getOwned: () => ({}) } as any, async () => ({}) as any, null);
+    expect(routes.map((route) => route.path)).not.toContain('input');
+    expect(routes.some((route) => route.path === 'navigation' && route.method === 'POST')).toBe(true);
   });
 
   it('fails an agent turn that is cancelled while a takeover holds the session', async () => {
@@ -1132,18 +1136,25 @@ describe('browser takeover state machine', () => {
     expect(session.state).toBe('closed');
   });
 
-  it('expires an abandoned lease even while user input holds the queue', async () => {
+  it('expires an abandoned lease even while a wedged navigation holds the queue', async () => {
+    // Expiry is the recovery for a person who simply walked away, so it must not itself depend on the
+    // queue draining — which is exactly what has failed when a session needs recovering.
     vi.useFakeTimers();
-    const { session, page } = await createSession();
-    const lease = await session.claimTakeover();
-    const dispatched = new Promise<void>((reached) => {
-      page.cdp.replies.set('Input.dispatchKeyEvent', () => { reached(); return new Promise(() => {}); });
-    });
-    void session.dispatchUserInput(lease.leaseId, [{ type: 'key', action: 'down', key: 'a' }]).catch(() => {});
-    await dispatched;
-    await vi.advanceTimersByTimeAsync(35_000);
-    expect(session.state).toBe('agent');
-    await session.close();
+    try {
+      const { session, page } = await createSession();
+      const lease = await session.claimTakeover();
+      page.goBack = () => new Promise<void>(() => {});
+      void session.dispatchUserNavigation(lease.leaseId, 'back').catch(() => {});
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(35_000);
+      expect(session.state).toBe('agent');
+      // The queue is still held, so the close has to fall back on its own drain deadline to finish.
+      const closing = session.close();
+      await vi.advanceTimersByTimeAsync(20_000);
+      await closing;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renews a takeover while a slow history navigation owns the serial queue', async () => {
@@ -1273,7 +1284,10 @@ describe('browser takeover state machine', () => {
     await session.close();
   });
 
-  it('pauses agent reads and invalidates cached snapshots after user input', async () => {
+  it('pauses agent reads during a takeover and re-reads the page it gets back', async () => {
+    // The person drove the page natively for the length of the lease, and the agent saw none of it.
+    // Anything cached from before the takeover describes a page that no longer exists, so the snapshot
+    // waiting on control must come from a fresh read rather than from what was remembered.
     const { session, page } = await createSession();
     await session.snapshot(false);
     const before = page.cdp.calls.filter((call) => call.method === 'Accessibility.getFullAXTree').length;
@@ -1281,7 +1295,6 @@ describe('browser takeover state machine', () => {
     const pending = session.snapshot(false);
     await tick();
     expect(page.cdp.calls.filter((call) => call.method === 'Accessibility.getFullAXTree')).toHaveLength(before);
-    await session.dispatchUserInput(lease.leaseId, [{ type: 'key', action: 'down', key: 'Enter' }]);
     await session.releaseTakeover(lease.leaseId);
     await pending;
     expect(page.cdp.calls.filter((call) => call.method === 'Accessibility.getFullAXTree')).toHaveLength(before + 1);
@@ -1325,31 +1338,20 @@ describe('browser takeover state machine', () => {
     await session.close();
   });
 
-  it('remembers where the agent left its pointer, so a viewer that joins later still has one', async () => {
+  it('says what the agent did without drawing a second pointer for it', async () => {
     const { session, page, events } = await createSession();
-    // No agent action yet: there is nothing to place a pointer at, and the session says so rather than
-    // inventing a position.
-    expect(session.currentCursor).toBeNull();
-
     await session.scroll(0, 400);
     const viewport = { width: config().maxViewportWidth, height: config().viewportHeight };
     const wheel = page.cdp.calls.find((call) => call.method === 'Input.dispatchMouseEvent' && (call.params as { type: string }).type === 'mouseWheel');
-    // A scroll used to be the one agent action a viewer could not place: the wheel is dispatched at the
-    // middle of the viewport, and now the event says so.
-    expect(events.at(-1)).toMatchObject({ kind: 'action', data: { action: 'scroll', x: viewport.width / 2, y: viewport.height / 2 } });
+    // The wheel still lands inside the page: the framebuffer is at least as large as the viewport, so
+    // its midpoint is always within the document.
     expect(wheel!.params).toMatchObject({ x: viewport.width / 2, y: viewport.height / 2 });
-
-    // THIS is what a late viewer reads out of the stream's opening frame. Live `cursor` events only ever
-    // reach the viewers that are already connected, so without it the artifact had no pointer to draw
-    // until the agent happened to move again.
-    expect(session.currentCursor).toEqual({ x: viewport.width / 2, y: viewport.height / 2 });
-    expect(session.currentCursor).not.toBe(session.currentCursor); // a copy: a viewer cannot move it
-
-    // A new document has its own coordinate space, so the remembered point is dropped rather than drawn
-    // over a page the agent has never pointed at — and viewers already connected are told so.
-    await session.navigate('https://93.184.216.34/next');
-    expect(session.currentCursor).toBeNull();
-    expect(events.some((event) => event.kind === 'cursor' && event.data.cleared === true)).toBe(true);
+    // The activity line is told WHAT happened. Where it happened is no longer broadcast, because the
+    // page paints its own cursor into the framebuffer now — a synthetic arrow beside the real one was
+    // two pointers for one session.
+    expect(events.at(-1)).toMatchObject({ kind: 'action', data: { action: 'scroll' } });
+    expect(events.some((event) => event.kind === 'cursor')).toBe(false);
+    expect(events.filter((event) => event.kind === 'action').every((event) => !('x' in event.data))).toBe(true);
     await session.close();
   });
 });
@@ -1422,7 +1424,7 @@ describe('browser diagnostics collector', () => {
     const session = await BrowserSession.create({
       id, ownerUserId: 1, conversationId: 'brain-1', createdAt: now, hardExpiresAt: now + 60_000,
       page, tabs, config: () => config(patch), store, artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
-      streamBudget: new StreamBudget(() => 10_000_000), traceLock,
+      traceLock,
       clock: { now: () => Date.now(), sleep: async () => {} }, logger,
       releasePage: async () => { await tabs.closeSession(id); }, forceCloseBrowser: async () => {}, onClosed: () => {},
     });
@@ -1642,22 +1644,18 @@ describe('browser diagnostics collector', () => {
     await session.close();
   });
 
-  it('leaves the previous CDP session owning the screencast when a later step of the switch throws', async () => {
+  it('leaves the previous CDP session owning the input controller when a later step of the switch throws', async () => {
     const { session, page, browser, tabs, id } = await diagnosticSession();
     const second = await browser.newPage() as FakePage;
-    // The screencast and the input controller have already been moved when the collector's attach
-    // refuses. Registering their undo only after the move would leave nothing to put them back with.
+    // The input controller has already been moved when the collector's attach refuses. Registering its
+    // undo only after the move would leave nothing to put it back with.
     second.cdp.replies.set('Log.enable', new Error('Target closed'));
-    await session.subscribeFrames('viewer-1', async () => {});
     await expect(session.selectTab(tabs.registerPrimary(id, second), undefined)).rejects.toThrow(/Target closed/);
 
-    // Proof of ownership: a screencast frame is ACKed on the session the hub is actually bound to.
-    const acksOn = (target: FakePage) => target.cdp.calls.filter((call) => call.method === 'Page.screencastFrameAck').length;
-    const before = acksOn(page);
-    page.cdp.emit('Page.screencastFrame', { sessionId: 7, data: 'AAAA', metadata: { deviceWidth: 800, deviceHeight: 600 } });
-    await tick();
-    expect(acksOn(page)).toBe(before + 1);
-    expect(acksOn(second)).toBe(0);
+    // Proof of ownership: the agent's next action is dispatched on the session it was rolled back to.
+    await session.pressKey('Enter', undefined);
+    expect(page.cdp.calls.some((call) => call.method === 'Input.dispatchKeyEvent')).toBe(true);
+    expect(second.cdp.calls.some((call) => call.method === 'Input.dispatchKeyEvent')).toBe(false);
     await session.close();
   });
 
@@ -1689,7 +1687,7 @@ describe('browser screenshots', () => {
     const session = await BrowserSession.create({
       id, ownerUserId: 1, conversationId: 'brain-1', createdAt: now, hardExpiresAt: now + 60_000,
       page, tabs, config: () => config(), store, artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
-      streamBudget: new StreamBudget(() => 10_000_000), traceLock: new ProcessTraceLock(),
+      traceLock: new ProcessTraceLock(),
       clock: { now: () => Date.now(), sleep: async () => {} }, logger,
       releasePage: async () => { await tabs.closeSession(id); }, forceCloseBrowser: async () => {}, onClosed: () => {},
     });
@@ -1794,7 +1792,7 @@ describe('browser evaluate', () => {
     const session = await BrowserSession.create({
       id, ownerUserId: 1, conversationId: 'brain-1', createdAt: now, hardExpiresAt: now + 60_000,
       page, tabs, config: () => config(), store, artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
-      streamBudget: new StreamBudget(() => 10_000_000), traceLock: new ProcessTraceLock(),
+      traceLock: new ProcessTraceLock(),
       clock: { now: () => Date.now(), sleep: async () => {} }, logger,
       releasePage: async () => { await tabs.closeSession(id); }, forceCloseBrowser: async () => {}, onClosed: () => {},
     });
@@ -1945,7 +1943,7 @@ describe('browser performance tracing', () => {
     const session = await BrowserSession.create({
       id, ownerUserId: 1, conversationId: 'brain-1', createdAt: now, hardExpiresAt: now + 60_000,
       page, tabs, config: () => config(), store, artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
-      streamBudget: new StreamBudget(() => 10_000_000), traceLock,
+      traceLock,
       clock: { now: () => Date.now(), sleep: async () => {} }, logger,
       releasePage: async () => { await tabs.closeSession(id); },
       forceCloseBrowser: async () => { forceClosed += 1; }, onClosed: () => {},
@@ -2009,7 +2007,6 @@ describe('browser performance tracing', () => {
       const { session, page, browser, tabs, traceLock, id, forceCloseCalls } = await tracingSession();
       page.cdp.replies.set('Tracing.end', {}); // ends, but never completes
       await session.startTrace();
-      await session.subscribeFrames('viewer-1', async () => {});
 
       const second = await browser.newPage() as FakePage;
       const switching = session.selectTab(tabs.registerPrimary(id, second), undefined);
@@ -2018,8 +2015,7 @@ describe('browser performance tracing', () => {
       await assertion;
 
       // The browser this switch was moving INTO is the one being closed underneath it. Nothing may be
-      // carried over to it: not the screencast, not the input controller, not the collector.
-      expect(second.cdp.calls.some((call) => call.method === 'Page.startScreencast')).toBe(false);
+      // carried over to it: not the input controller, not the collector.
       expect(second.cdp.calls.some((call) => call.method === 'Runtime.enable')).toBe(false);
       expect(second.cdp.eventNames()).toEqual([]);
       expect(second.cdp.detached).toBe(true);
@@ -2109,7 +2105,7 @@ describe('browser diagnostics tools', () => {
     const session = await BrowserSession.create({
       id, ownerUserId: 7, conversationId: 'brain-1', createdAt: now, hardExpiresAt: now + 60_000,
       page, tabs, config: () => config(), store, artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
-      streamBudget: new StreamBudget(() => 10_000_000), traceLock: new ProcessTraceLock(),
+      traceLock: new ProcessTraceLock(),
       clock: { now: () => Date.now(), sleep: async () => {} }, logger,
       releasePage: async () => { await tabs.closeSession(id); }, forceCloseBrowser: async () => {}, onClosed: () => {},
     });
@@ -2308,7 +2304,7 @@ describe('browser element refs', () => {
     const session = await BrowserSession.create({
       id, ownerUserId: 1, conversationId: 'brain-1', createdAt: now, hardExpiresAt: now + 60_000,
       page, tabs, config: () => config(), store, artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
-      streamBudget: new StreamBudget(() => 10_000_000), traceLock: new ProcessTraceLock(),
+      traceLock: new ProcessTraceLock(),
       clock: { now: () => Date.now(), sleep: async () => {} }, logger,
       releasePage: async () => { await tabs.closeSession(id); }, forceCloseBrowser: async () => {}, onClosed: () => {},
     });

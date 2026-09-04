@@ -4,22 +4,30 @@ export interface BrowserConfig {
   maxSessionsPerUser: number;
   idleTimeoutMs: number;
   hardSessionLimitMs: number;
-  webFps: number;
-  cliFps: number;
-  jpegQuality: number;
+  /** The virtual display an account's Chrome is drawn on, and therefore the framebuffer a viewer sees.
+   *  NOT the page viewport: a native Chrome window spends 87px of it on the tab strip and the address
+   *  bar, so the page is that much shorter. Anything that needs the page's own box asks Chrome. */
   maxViewportWidth: number;
   viewportHeight: number;
   takeoverLeaseMs: number;
+  /** How many live view connections one session may fan out to. Each is a full RFB stream of the whole
+   *  framebuffer — the VNC server cannot downscale per client — so this is a bandwidth limit as much as
+   *  a policy one. */
   maxViewersPerSession: number;
-  globalStreamBytesPerSecond: number;
-  maxFrameBytes: number;
   maxChromeRssBytesPerUser: number;
   maxTargetsPerUser: number;
   proxyConcurrency: number;
   proxyRequestsPerMinute: number;
   privateNetworkAllowlist: string[];
   browserCloseGraceMs: number;
-  maxInputEventsPerSecond: number;
+  /** How long x11vnc coalesces framebuffer updates before sending, in milliseconds.
+   *
+   *  The one number worth exposing, because it is the whole latency/bandwidth trade and the right answer
+   *  depends on the link rather than on the host. Measured here at 1280x800: 10 ms reaches 88 ms
+   *  click-to-pixel and costs 589 kB/s while scrolling; 40 ms costs 373 kB/s but 146 ms. The default is
+   *  10 — this exists so a person driving a page feels the page, and bandwidth is the thing being spent
+   *  to get that. */
+  vncDeferMs: number;
 }
 
 const bounded = (value: unknown, fallback: number, min: number, max: number): number => {
@@ -41,21 +49,16 @@ export function resolveConfig(raw: Record<string, unknown>): BrowserConfig {
     maxSessionsPerUser: bounded(raw.maxSessionsPerUser, 2, 1, 8),
     idleTimeoutMs: bounded(raw.idleTimeoutMinutes, 10, 1, 60) * 60_000,
     hardSessionLimitMs: bounded(raw.hardSessionLimitMinutes, 60, 5, 240) * 60_000,
-    webFps: bounded(raw.webFps, 8, 1, 15),
-    cliFps: bounded(raw.cliFps, 2, 1, 5),
-    jpegQuality: bounded(raw.jpegQuality, 70, 40, 90),
     maxViewportWidth: width,
     viewportHeight: Math.max(500, Math.round(width * 0.625)),
     takeoverLeaseMs: bounded(raw.takeoverLeaseSeconds, 120, 30, 600) * 1000,
     maxViewersPerSession: bounded(raw.maxViewersPerSession, 4, 1, 8),
-    globalStreamBytesPerSecond: bounded(raw.globalStreamMegabits, 12, 2, 50) * 125_000,
-    maxFrameBytes: bounded(raw.maxFrameKilobytes, 750, 100, 2000) * 1024,
     maxChromeRssBytesPerUser: bounded(raw.maxChromeRssMb, 768, 256, 2048) * 1048576,
     maxTargetsPerUser: bounded(raw.maxTargetsPerUser, 12, 4, 32),
     proxyConcurrency: bounded(raw.proxyConcurrency, 24, 1, 200),
     proxyRequestsPerMinute: bounded(raw.proxyRequestsPerMinute, 600, 30, 6000),
     privateNetworkAllowlist: tokenList(raw.privateNetworkAllowlist),
     browserCloseGraceMs: bounded(raw.browserCloseGraceSeconds, 15, 0, 120) * 1000,
-    maxInputEventsPerSecond: bounded(raw.maxInputEventsPerSecond, 60, 10, 240),
+    vncDeferMs: bounded(raw.vncDeferMs, 10, 5, 400),
   };
 }

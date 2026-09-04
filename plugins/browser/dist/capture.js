@@ -15,6 +15,11 @@ export const MAX_FULL_PAGE_CSS_PX = 8000;
 export const MAX_CAPTURE_CSS_AREA = 16_000_000;
 /** The image is base64'd into a model transcript, so its size is the reader's cost, not just ours. */
 export const MAX_SCREENSHOT_BYTES = 1_572_864; // 1.5 MiB
+/** JPEG quality for every capture the AGENT takes. A constant rather than a setting: the live view no
+ *  longer encodes anything — the VNC server does that, and answers to its own knob — so this governs
+ *  screenshots alone, where 70 is the point at which text stays legible and the byte cap above is still
+ *  reachable for a full page. Nobody tuned the old slider for that. */
+export const SCREENSHOT_JPEG_QUALITY = 70;
 const decodedBytes = (base64) => Math.floor(base64.length * 0.75);
 async function capture(cdp, area, format, quality, clip, beyondViewport) {
     const response = await cdp.send('Page.captureScreenshot', {

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type WheelEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, ArrowRight, Expand, Hand, MessageCircleQuestion, MessageSquareText, Power, RotateCw, ShieldCheck, X, type LucideIcon } from 'lucide-react';
 import type { BrowserArtifactProps } from './runtime';
 import { apiError, jsonRequest, runtime } from './runtime';
 import { useBrowserStream } from './useBrowserStream';
+import { useVncSurface, type VncTicketResult } from './VncSurface';
 
 interface ArtifactData {
   browserSessionId: string;
@@ -16,7 +17,6 @@ interface ArtifactData {
 interface Lease { leaseId: string; expiresAt: number; controlRevision: number }
 
 const NARRATION_VISIBLE_MS = 10_000;
-const INPUT_DROPPED_VISIBLE_MS = 2_500;
 
 const asData = (value: unknown): ArtifactData | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -169,14 +169,17 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const [lease, setLease] = useState<Lease | null>(() => (initialSessionId ? rememberedLease(initialSessionId) : null));
   /** A lease this mount adopted rather than claimed: it is checked with the server at once, below. */
   const adoptedLease = useRef<string | null>(lease?.leaseId ?? null);
+  /** Read when a ticket is minted, which happens on every reconnect and therefore long after the render
+   *  that last changed it. A ref keeps that read current without making the mint function a new closure
+   *  each time control changes hands. */
+  const leaseRef = useRef<Lease | null>(lease);
+  leaseRef.current = lease;
   const [speechHidden, setSpeechHidden] = useState(false);
-  /** The server dropped a batch because the page had already moved on — most often the navigation the
-   *  person's own last input caused. Shown briefly where the action copy lives; never as an error. */
-  const [inputDropped, setInputDropped] = useState(false);
-  const droppedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pointerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Where the one live canvas is parked: the thumbnail while the card is collapsed, the raised surface
+   *  while it is open. The canvas node itself is never rebuilt, only reparented. */
+  const [thumbSlot, setThumbSlot] = useState<HTMLElement | null>(null);
+  const [overlaySlot, setOverlaySlot] = useState<HTMLElement | null>(null);
   const speechTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingMove = useRef<Record<string, unknown> | null>(null);
   /** The transcript anchor. On a wide screen this element is lifted out of the flow and docked above the
    *  composer, which is why the surface has to be told how much room it takes. */
   const anchor = useRef<HTMLElement>(null);
@@ -197,20 +200,11 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   /** The app is waiting on an answer and this canvas is covering the card that takes it (host API 15).
    *  Nothing about the question crosses the boundary — a line to show and a way back. */
   const waiting = pendingInput ?? null;
-  const frame = stream.frame;
-  /** Both surfaces take the SHAPE of the live stream, so the canvas box and the image coincide — which is
-   *  also what keeps the pointer mapping honest, since a click is sent as a fraction of the canvas. */
-  const frameAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
-  const aspectStyle = frameAspect ? { '--browser-aspect': String(frameAspect) } as CSSProperties : undefined;
-  const action = inputDropped
-    ? strings.inputDropped || 'The page changed — input was not delivered'
-    : stream.action
-      ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` · ${stream.action.target}` : ''}`
-      : takeoverRequested ? strings.waitingForUser || 'Waiting for user input' : data?.lastAction;
+  const action = stream.action
+    ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` · ${stream.action.target}` : ''}`
+    : takeoverRequested ? strings.waitingForUser || 'Waiting for user input' : data?.lastAction;
 
   useEffect(() => () => {
-    if (droppedTimer.current) clearTimeout(droppedTimer.current);
-    if (pointerTimer.current) clearTimeout(pointerTimer.current);
     if (speechTimer.current) clearTimeout(speechTimer.current);
   }, []);
   useEffect(() => {
@@ -292,25 +286,66 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
       surface.style.removeProperty('--chat-dock-height');
     };
   }, [expanded]);
-  useEffect(() => {
-    // A pointer move is batched for 50ms. Releasing (or losing) control inside that window would otherwise
-    // fire it afterwards against a lease that no longer exists — a rejected request and a toast for a
-    // gesture the user already finished.
-    if (lease) return;
-    if (pointerTimer.current) { clearTimeout(pointerTimer.current); pointerTimer.current = null; }
-    pendingMove.current = null;
-  }, [lease]);
+  /** One connection for both surfaces. The canvas node is moved between the thumbnail and the expanded
+   *  view rather than duplicated: a second view-only RFB connection was measured at +207 kB/s while
+   *  scrolling, because the VNC server encodes the full framebuffer per client and cannot scale it down
+   *  for a thumbnail a third of the width.
+   *
+   *  The lease this window holds travels WITH the ticket, and the server decides what it is worth: it is
+   *  compared against the session's current lease on every input message, so a token this card kept
+   *  after losing control buys a view and nothing more. */
+  const mintTicket = useCallback(async (): Promise<VncTicketResult> => {
+    if (!sessionId) return { kind: 'refused', reason: 'unavailable' };
+    const held = leaseRef.current;
+    try {
+      const issued = await runtime().api(
+        inputPath(sessionId, 'vnc-ticket'),
+        jsonRequest('POST', held ? { leaseId: held.leaseId } : {}),
+      ) as { url?: string; width?: number; height?: number } | null;
+      if (typeof issued?.url !== 'string') return { kind: 'refused', reason: 'unavailable' };
+      return { kind: 'ticket', url: issued.url, width: issued.width, height: issued.height };
+    } catch (error) {
+      // The host's API client carries the status through; 429 is the full room, and every other refusal
+      // — no display yet, a host that cannot carry a socket, a session that closed — is one state as far
+      // as the reader is concerned: there is no picture right now.
+      const status = (error as { status?: number } | null)?.status;
+      return { kind: 'refused', reason: status === 429 ? 'viewer_limit' : 'unavailable' };
+    }
+  }, [sessionId]);
+
+  const vnc = useVncSurface({
+    slot: expanded ? overlaySlot : thumbSlot,
+    ticket: mintTicket,
+    interactive: !!lease,
+    enabled: !!sessionId && !stream.closed,
+  });
+  const aspectStyle = vnc.aspect ? { '--browser-aspect': String(vnc.aspect) } as CSSProperties : undefined;
+  /** Until the RFB handshake finishes there is nothing on the glass, so the card says so rather than
+   *  showing an empty box that looks like a session which failed to start. */
+  const painting = vnc.state === 'connected';
+
+  /** What the glass says while it is not painting. The room being full is a state that resolves itself
+   *  when a viewer leaves, so it reads as a condition rather than as a failure. */
+  const connectingLabel = vnc.state === 'viewer_limit'
+    ? strings.viewerLimit || 'Too many viewers'
+    : vnc.state === 'failed'
+      ? strings.disconnected || 'Disconnected'
+      : vnc.state === 'unavailable'
+        ? strings.liveViewUnavailable || 'The live view is unavailable'
+        : strings.connectingImage || 'Connecting to the browser image…';
 
   const status = useMemo(() => {
     if (stream.closed || state === 'closed') return { tone: 'muted' as const, label: strings.closed || 'Closed' };
-    if (stream.rejected === 'viewer_limit') return { tone: 'warning' as const, label: strings.viewerLimit || 'Too many viewers' };
-    if (stream.error) return { tone: 'danger' as const, label: strings.disconnected || 'Disconnected' };
+    // The viewer limit is a property of the FRAMEBUFFER connections now, so it is the live view that
+    // reports it rather than the event stream.
+    if (vnc.state === 'viewer_limit') return { tone: 'warning' as const, label: strings.viewerLimit || 'Too many viewers' };
+    if (stream.error || vnc.state === 'failed') return { tone: 'danger' as const, label: strings.disconnected || 'Disconnected' };
     if (state === 'user') return { tone: 'accent' as const, label: lease ? strings.youControl || 'You control' : strings.userControl || 'User control' };
     // A handoff the agent asked for is a STATE, not a passing action: the thumbnail carries no action
     // copy, so this is what turns its dot amber and tells a screen reader why the button is waiting.
     if (takeoverRequested) return { tone: 'warning' as const, label: strings.waitingForUser || 'Waiting for user input' };
     return { tone: stream.connected ? 'success' as const : 'warning' as const, label: stream.connected ? strings.agentControl || 'Agent control' : strings.connecting || 'Connecting' };
-  }, [lease, state, stream.closed, stream.connected, stream.error, stream.rejected, strings, takeoverRequested]);
+  }, [lease, state, stream.closed, stream.connected, stream.error, strings, takeoverRequested, vnc.state]);
 
   const run = async <T,>(name: string, operation: () => Promise<T>): Promise<T | undefined> => {
     setPending(name);
@@ -332,114 +367,36 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
     const closed = await run('close', () => runtime().api(inputPath(sessionId, 'close'), jsonRequest('POST')));
     if (closed !== undefined) { setConfirmClose(false); setExpanded(false); }
   };
-  const command = async (events: Record<string, unknown>[]): Promise<void> => {
-    if (!lease || events.length === 0) return;
-    const result = await runtime().api(inputPath(sessionId, 'input'), jsonRequest('POST', { leaseId: lease.leaseId, events })) as { dropped?: string } | null;
-    if (result?.dropped !== 'page_changed') return;
-    setInputDropped(true);
-    if (droppedTimer.current) clearTimeout(droppedTimer.current);
-    droppedTimer.current = setTimeout(() => { droppedTimer.current = null; setInputDropped(false); }, INPUT_DROPPED_VISIBLE_MS);
-  };
   const navigate = (action: 'back' | 'forward' | 'reload'): void => {
     if (!lease) return;
     void run('navigation', () => runtime().api(inputPath(sessionId, 'navigation'), jsonRequest('POST', { leaseId: lease.leaseId, action })));
   };
 
-  const pointerEvent = (event: PointerEvent<HTMLDivElement>, actionName: 'move' | 'down' | 'up'): Record<string, unknown> => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return {
-      type: 'pointer', action: actionName,
-      x: event.clientX - rect.left, y: event.clientY - rect.top,
-      surfaceWidth: rect.width, surfaceHeight: rect.height,
-      button: event.button === 1 ? 'middle' : event.button === 2 ? 'right' : 'left',
-      modifiers: [event.altKey ? 'Alt' : '', event.ctrlKey ? 'Control' : '', event.metaKey ? 'Meta' : '', event.shiftKey ? 'Shift' : ''].filter(Boolean),
-    };
-  };
-  const onPointerMove = (event: PointerEvent<HTMLDivElement>): void => {
-    if (!lease) return;
-    pendingMove.current = pointerEvent(event, 'move');
-    if (pointerTimer.current) return;
-    pointerTimer.current = setTimeout(() => {
-      pointerTimer.current = null;
-      const next = pendingMove.current;
-      pendingMove.current = null;
-      if (next) void command([next]).catch((error) => toast.toast(apiError(error), 'error'));
-    }, 50);
-  };
-  const onPointerDown = (event: PointerEvent<HTMLDivElement>): void => {
-    if (!lease) return;
-    event.currentTarget.focus();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    void command([pointerEvent(event, 'down')]).catch((error) => toast.toast(apiError(error), 'error'));
-  };
-  const onPointerUp = (event: PointerEvent<HTMLDivElement>): void => {
-    if (!lease) return;
-    void command([pointerEvent(event, 'up')]).catch((error) => toast.toast(apiError(error), 'error'));
-  };
-  const onWheel = (event: WheelEvent<HTMLDivElement>): void => {
-    if (!lease) return;
-    event.preventDefault();
-    const rect = event.currentTarget.getBoundingClientRect();
-    void command([{
-      type: 'wheel', x: event.clientX - rect.left, y: event.clientY - rect.top,
-      surfaceWidth: rect.width, surfaceHeight: rect.height,
-      deltaX: event.deltaX, deltaY: event.deltaY,
-      modifiers: [event.altKey ? 'Alt' : '', event.ctrlKey ? 'Control' : '', event.metaKey ? 'Meta' : '', event.shiftKey ? 'Shift' : ''].filter(Boolean),
-    }]).catch((error) => toast.toast(apiError(error), 'error'));
-  };
-  const onKey = (event: KeyboardEvent<HTMLDivElement>, actionName: 'down' | 'up'): void => {
-    if (!lease) return;
-    if (actionName === 'down') event.preventDefault();
-    void command([{
-      type: 'key', action: actionName, key: event.key, code: event.code,
-      modifiers: [event.altKey ? 'Alt' : '', event.ctrlKey ? 'Control' : '', event.metaKey ? 'Meta' : '', event.shiftKey ? 'Shift' : ''].filter(Boolean),
-    }]).catch((error) => toast.toast(apiError(error), 'error'));
-  };
-  const onPaste = (event: ClipboardEvent<HTMLDivElement>): void => {
-    if (!lease) return;
-    const text = event.clipboardData.getData('text');
-    if (!text) return;
-    event.preventDefault();
-    void command([{ type: 'paste', text }]).catch((error) => toast.toast(apiError(error), 'error'));
-  };
-
-  /** The live image and the two marks that belong ON it: what the session is doing right now, and — on
-   *  the expanded canvas only — the agent's pointer. The thumbnail leaves the pointer out: at a third of
-   *  the width it is a 28px arrow over a 300px page, which reads as damage rather than as feedback.
+  /** The live picture and the one mark that belongs on it: what the session is doing right now.
    *
-   *  The agent's pointer is withdrawn whenever the session is under USER control — this window's takeover
-   *  or another one's. The stream only reports where the AGENT is pointing, so while a person is driving
-   *  it is a stale arrow sitting wherever the agent left it, beside the pointer that now matters. One
-   *  session, one pointer, whoever is holding it. */
+   *  There are no input handlers here any more. noVNC binds the pointer and the keyboard to its OWN
+   *  canvas inside this box and encodes them as RFB, which is the whole point — a native key reaches
+   *  Chrome as a key rather than as something the renderer was told to pretend it saw. Attaching
+   *  handlers here as well would send every gesture twice.
+   *
+   *  The agent's pointer is gone with them. It was drawn from the CDP events the agent's own clicks
+   *  emitted, and the page now paints its real cursor into the framebuffer, so there is one pointer
+   *  again instead of a synthetic arrow beside a real one. */
   const canvas = (interactive: boolean) => (
     <div
       className="browser-artifact__canvas"
       data-interactive={interactive && lease ? 'true' : undefined}
-      role={interactive && lease ? 'application' : undefined}
-      tabIndex={interactive && lease ? 0 : -1}
-      onPointerMove={interactive ? onPointerMove : undefined}
-      onPointerDown={interactive ? onPointerDown : undefined}
-      onPointerUp={interactive ? onPointerUp : undefined}
-      onWheel={interactive ? onWheel : undefined}
-      onKeyDown={interactive ? (event) => onKey(event, 'down') : undefined}
-      onKeyUp={interactive ? (event) => onKey(event, 'up') : undefined}
-      onPaste={interactive ? onPaste : undefined}
-      onContextMenu={interactive && lease ? (event) => event.preventDefault() : undefined}
       aria-label={strings.browserViewport || 'Live browser view'}
     >
-      {frame ? <img src={`data:${frame.mimeType};base64,${frame.data}`} alt="" draggable={false} /> : (
+      {/* Where the one noVNC canvas is parked while this surface is the visible one. Always rendered,
+          because the client needs somewhere to mount before it can connect. */}
+      <div className="browser-artifact__vnc-slot" ref={interactive ? setOverlaySlot : setThumbSlot} />
+      {painting ? null : (
         <div className="browser-artifact__waiting" role="status" aria-live="polite">
           <Spinner size="lg" />
-          <span>{stream.error || strings.waitingFrame || 'Waiting for the browser image…'}</span>
+          <span>{connectingLabel}</span>
         </div>
       )}
-      {interactive && state !== 'user' && stream.cursor && frame ? (
-        <span
-          className={`browser-artifact__cursor ${stream.cursor.clicking ? 'is-clicking' : ''}`}
-          style={{ left: `${(stream.cursor.x / frame.width) * 100}%`, top: `${(stream.cursor.y / frame.height) * 100}%` }}
-          aria-hidden
-        ><svg width="28" height="34" viewBox="0 0 28 34"><path d="M2 2l19 15-9 2 5 10-5 2-5-10-5 6z" /></svg></span>
-      ) : null}
       <div className={`browser-artifact__activity ${interactive && action ? 'has-action' : ''}`}>
         <span className="browser-artifact__dot" data-tone={status.tone} aria-hidden />
         <span className="sr-only">{status.label}</span>
@@ -485,7 +442,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
       </div>
 
       {expanded ? (
-        <CanvasOverlay label={title} aspect={frameAspect} onClose={() => setExpanded(false)}>
+        <CanvasOverlay label={title} aspect={vnc.aspect} onClose={() => setExpanded(false)}>
           {canvas(true)}
           <GlassButton icon={X} label={strings.closeView || 'Close view'} onClick={() => setExpanded(false)} className="browser-artifact__dismiss" />
           {/* One bottom column, so the narration and the controls stack without either one being placed

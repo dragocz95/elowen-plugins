@@ -4,19 +4,62 @@ import { createServer, type Server } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
+import type { PluginDb } from 'elowen/plugin-api';
 import { PuppeteerCoreFactory, detectChrome, installProxyAuthentication } from '../plugins/browser/src/browser-launcher.js';
 import { DynamicProxyChainAdapter, EnforcingProxyManager } from '../plugins/browser/src/navigation-policy.js';
 import { resolveConfig } from '../plugins/browser/src/config.js';
-import { ScreencastHub, StreamBudget } from '../plugins/browser/src/screencast-hub.js';
-import type { CDPSessionLike } from '../plugins/browser/src/types.js';
+import { VirtualDisplayPool } from '../plugins/browser/src/virtual-display.js';
+import { BrowserStore } from '../plugins/browser/src/store.js';
+import type { ProcessInspector } from '../plugins/browser/src/types.js';
 
 const roots: string[] = [];
+const displayPools: VirtualDisplayPool[] = [];
 let server: Server | null = null;
 afterEach(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
   server = null;
+  while (displayPools.length) await displayPools.pop()!.releaseAll();
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
 });
+
+/** Enough of a database for the display pool to write its ownership record into. */
+function pluginDb(): PluginDb {
+  const raw = new Database(':memory:');
+  raw.exec('CREATE TABLE plugin_migrations(version INTEGER PRIMARY KEY)');
+  const handle = {
+    exec: (sql: string) => raw.exec(sql),
+    prepare: (sql: string) => {
+      const statement = raw.prepare(sql);
+      return {
+        run: (...params: unknown[]) => statement.run(...params),
+        get: (...params: unknown[]) => statement.get(...params),
+        all: (...params: unknown[]) => statement.all(...params),
+      };
+    },
+    migrate: (steps: { version: number; up(db: PluginDb): void }[]) => {
+      for (const step of steps) if (!raw.prepare('SELECT 1 FROM plugin_migrations WHERE version=?').get(step.version)) {
+        raw.transaction(() => { step.up(handle as PluginDb); raw.prepare('INSERT INTO plugin_migrations(version) VALUES (?)').run(step.version); })();
+      }
+    },
+    appliedVersion: () => 0,
+    transaction: <T>(fn: () => T) => raw.transaction(fn)(),
+  };
+  return handle as PluginDb;
+}
+
+const inspector: ProcessInspector = { inspect: () => null, terminate: () => {} };
+
+/** A managed browser is always headed now, so even this proxy smoke test needs a display to draw on. */
+async function display(): Promise<{ display: string; xauthPath: string; width: number; height: number }> {
+  const dir = mkdtempSync(join(tmpdir(), 'elowen-browser-display-'));
+  roots.push(dir);
+  const pool = new VirtualDisplayPool({
+    dataDir: dir, config: () => resolveConfig({}), store: new BrowserStore(pluginDb()), processInspector: inspector, logger,
+  });
+  displayPools.push(pool);
+  return pool.acquire(1);
+}
 
 const real = process.env.ELOWEN_BROWSER_E2E === '1' ? it : it.skip;
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
@@ -45,7 +88,7 @@ async function fixture(): Promise<{ url: string }> {
 }
 
 describe('browser real Chrome flow', () => {
-  real('launches sandboxed Chrome through the pinned proxy and emits a CDP frame', async () => {
+  real('launches sandboxed Chrome on a private display through the pinned proxy', async () => {
     const executablePath = detectChrome(null);
     expect(executablePath).toBeTruthy();
     const pageUrl = await fixture();
@@ -53,37 +96,24 @@ describe('browser real Chrome flow', () => {
       privateNetworkAllowlist: ['127.0.0.1'],
       chromeExecutable: executablePath,
       browserCloseGraceSeconds: 0,
-      webFps: 4,
     });
     const proxy = new EnforcingProxyManager(config, new DynamicProxyChainAdapter(), logger);
     const lease = await proxy.open(1);
     const profile = mkdtempSync(join(tmpdir(), 'elowen-browser-e2e-'));
     roots.push(profile);
+    const screen = await display();
     const browser = await new PuppeteerCoreFactory().launch({
-      executablePath: executablePath!, userDataDir: profile, proxyUrl: lease.url, viewport: { width: 960, height: 600 },
+      executablePath: executablePath!,
+      userDataDir: profile,
+      proxyUrl: lease.url,
+      viewport: { width: screen.width, height: screen.height },
+      display: { display: screen.display, xauthPath: screen.xauthPath },
     });
     try {
       const page = await browser.newPage();
       await installProxyAuthentication(page, lease);
       await page.goto(pageUrl.url, { waitUntil: 'domcontentloaded', timeout: 15_000 });
       expect(await page.title()).toBe('Browser smoke');
-      const cdp = await page.createCDPSession();
-      await cdp.send('Page.enable');
-      const hub = new ScreencastHub(
-        cdp as unknown as CDPSessionLike,
-        config,
-        new StreamBudget(() => config().globalStreamBytesPerSecond),
-        logger,
-      );
-      let resolveFrame!: (frame: { data: string }) => void;
-      const frame = new Promise<{ data: string }>((resolve) => { resolveFrame = resolve; });
-      await hub.subscribe('static-page-viewer', async (captured) => { resolveFrame(captured); });
-      const captured = await Promise.race([
-        frame,
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no screencast frame')), 10_000)),
-      ]);
-      expect(captured.data.length).toBeGreaterThan(100);
-      await hub.close();
 
       await page.goto(`${pageUrl.url}alert`, { waitUntil: 'domcontentloaded', timeout: 5_000 });
       expect(await page.title()).toBe('Alert handled');
@@ -106,8 +136,13 @@ describe('browser real Chrome flow', () => {
     const lease = await proxy.open(1);
     const profile = mkdtempSync(join(tmpdir(), 'elowen-browser-deny-'));
     roots.push(profile);
+    const screen = await display();
     const browser = await new PuppeteerCoreFactory().launch({
-      executablePath: executablePath!, userDataDir: profile, proxyUrl: lease.url, viewport: { width: 800, height: 500 },
+      executablePath: executablePath!,
+      userDataDir: profile,
+      proxyUrl: lease.url,
+      viewport: { width: screen.width, height: screen.height },
+      display: { display: screen.display, xauthPath: screen.xauthPath },
     });
     try {
       const page = await browser.newPage();

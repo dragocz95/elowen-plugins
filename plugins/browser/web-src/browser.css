@@ -98,19 +98,30 @@
   background: var(--color-muted, #0d0d0d);
   user-select: none;
 }
-.browser-artifact__canvas img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+/* The live canvas and the "connecting" notice share ONE grid cell, so the picture arriving neither
+   resizes the box nor makes the tile jump in the transcript. */
+.browser-artifact__canvas > .browser-artifact__vnc-slot,
+.browser-artifact__canvas > .browser-artifact__waiting { grid-area: 1 / 1; }
+.browser-artifact__vnc-slot,
+.browser-artifact__vnc { width: 100%; height: 100%; }
+/* noVNC scales its own canvas to the container through scaleViewport, preserving the framebuffer's
+   aspect ratio. The caps are the guarantee that framing never becomes a CROP: the whole page is fitted
+   into the monitor, never cut down to it, whatever size the client decides on. */
+.browser-artifact__vnc canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  margin: auto;
+  object-fit: contain;
+}
 /* Driving the session rings the glass, so it is never ambiguous which window is taking the keystrokes.
-   Your OWN pointer stays visible, and stays the arrow the system already draws: the canvas box and the
-   image coincide, so where that arrow sits IS the point being sent to the remote page. It was hidden here
-   once, on the theory that the streamed cursor stood in for it — but that cursor reports where the AGENT
-   is pointing and goes silent the moment you take over, so a takeover left the canvas with no pointer at
-   all. The agent's arrow is withdrawn during a takeover instead (BrowserArtifact), which is what keeps
-   this from being two pointers. */
+   Your own pointer stays the arrow the system already draws, and the remote page draws its own inside
+   the framebuffer: the canvas box and the picture coincide, so the two land on the same spot. */
 .browser-artifact__canvas[data-interactive='true'] {
   cursor: default;
   /* The gesture belongs to the remote page, not to the mobile browser: without this a touch scroll or a
-     pinch is claimed by the UA, which then cancels the pointer stream mid-drag (pointercancel) and the
-     remote page sees half a gesture. */
+     pinch is claimed by the UA, which then cancels the gesture mid-drag and the remote page sees half
+     of it. noVNC binds its own listeners to the canvas inside, and this is what lets them win. */
   touch-action: none;
   outline-color: color-mix(in srgb, var(--color-primary, #ff5236) 55%, transparent);
 }
@@ -161,39 +172,6 @@
 .browser-artifact__dot[data-tone='warning'] { background: var(--color-warning, #edae49); }
 .browser-artifact__dot[data-tone='danger'] { background: var(--color-destructive, #e94d42); }
 .browser-artifact__dot[data-tone='muted'] { background: var(--color-muted-foreground, #9d948e); }
-
-.browser-artifact__cursor {
-  position: absolute;
-  z-index: 3;
-  width: 28px;
-  height: 34px;
-  transform: translate(-3px, -2px);
-  transition: left 90ms linear, top 90ms linear;
-  filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--color-background, #000) 75%, transparent));
-  pointer-events: none;
-}
-.browser-artifact__cursor path {
-  fill: var(--color-primary, #ff5236);
-  stroke: var(--color-background, #000);
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-}
-.browser-artifact__cursor::after {
-  content: '';
-  position: absolute;
-  left: 4px;
-  top: 4px;
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--color-primary, #ff5236);
-  border-radius: 999px;
-  opacity: 0;
-}
-.browser-artifact__cursor.is-clicking::after { animation: browser-click-ring 420ms ease-out; }
-@keyframes browser-click-ring {
-  0% { opacity: .9; transform: scale(.45); }
-  100% { opacity: 0; transform: scale(3.4); }
-}
 
 /* ── The expanded canvas ─────────────────────────────────────────────────────────────────────────── */
 
@@ -455,6 +433,4 @@
 
 @media (prefers-reduced-motion: reduce) {
   .browser-artifact__overlay { animation: none; }
-  .browser-artifact__cursor { transition: none; }
-  .browser-artifact__cursor.is-clicking::after { animation: none; }
 }

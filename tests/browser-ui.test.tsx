@@ -1,5 +1,10 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+
+// The live view's RFB client, aliased to a double for the whole runner (vitest.config.ts). The card
+// dials it, sets `viewOnly` from the lease and waits for its 'connect' event, and this is where a test
+// gets hold of the instance to drive those.
+import { rfbClients, resetRfbClients } from './ui/novncDouble';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { ToastProvider, createWrapper } from './ui/hostHooks';
@@ -16,10 +21,21 @@ const csStrings = csTranslations.web.strings;
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'browser', url: '/plugins/browser/web/index.js', cssUrl: '/plugins/browser/web/index.css', apiVersion: 15, nav: [], account: manifest.web.account, settings: manifest.web.settings, strings }])),
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: 'user', is_admin: true } })),
+  // Every card asks for one of these before it can show anything, so it is a default rather than
+  // something each test has to remember.
+  http.post('/api/plugins/browser/api/vnc-ticket', () => HttpResponse.json({ url: '/ws/plugins/browser/vnc?ticket=t1', expiresAt: Date.now() + 15_000, width: 1280, height: 800 })),
 );
 beforeAll(() => listen());
-afterEach(() => { cleanup(); resetHandlers(); vi.useRealTimers(); vi.restoreAllMocks(); window.sessionStorage.clear(); });
+afterEach(() => { cleanup(); resetHandlers(); vi.useRealTimers(); vi.restoreAllMocks(); window.sessionStorage.clear(); resetRfbClients(); });
 afterAll(() => close());
+
+/** Wait for the card to dial, then let the handshake complete — which is when the picture appears. */
+async function paint(): Promise<any> {
+  await waitFor(() => expect(rfbClients.length).toBeGreaterThan(0));
+  const client = rfbClients.at(-1)!;
+  await act(async () => { client.emit('connect'); });
+  return client;
+}
 
 const artifact = {
   id: 'browser:session-1', plugin: 'browser', sessionId: 'brain-1', toolCallId: 'tool-1', view: 'browser-session',
@@ -48,28 +64,15 @@ function mountArtifact(narration?: string, pendingInput?: Pending) {
   });
 }
 
+/** The session's state. No pixels: those arrive on the live view socket, which the fake client above
+ *  stands in for. */
 const streamBody = [
   `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0, favicon: 'data:image/png;base64,aGVsbG8=' })}\n\n`,
-  `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
-  `event: cursor\ndata: ${JSON.stringify({ x: 640, y: 400, moving: false })}\n\n`,
-  `event: action\ndata: ${JSON.stringify({ action: 'click', target: 'Continue', x: 640, y: 400 })}\n\n`,
+  `event: action\ndata: ${JSON.stringify({ action: 'click', target: 'Continue' })}\n\n`,
 ].join('');
 const requestedStreamBody = [
   `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null })}\n\n`,
   `event: control\ndata: ${JSON.stringify({ state: 'agent', reason: 'requested' })}\n\n`,
-].join('');
-/** The shape production actually delivered: a click reports where it landed, but the six `cursor` frames
- *  of the approach never reached this viewer — it connected mid-move, or they were dropped. */
-const actionOnlyStreamBody = [
-  `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, cursor: null })}\n\n`,
-  `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
-  `event: action\ndata: ${JSON.stringify({ action: 'click', target: 'Continue', x: 320, y: 200 })}\n\n`,
-].join('');
-/** A viewer that opens the artifact between two agent moves: no live cursor event is coming, so the
- *  opening frame replays where the agent left the pointer. */
-const lateViewerStreamBody = [
-  `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, cursor: { x: 960, y: 600 } })}\n\n`,
-  `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
 ].join('');
 
 describe('browser plugin UI', () => {
@@ -89,8 +92,12 @@ describe('browser plugin UI', () => {
   it('renders the live session as one compact tile with no card chrome around it', async () => {
     use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
     mountArtifact();
-    await waitFor(() => expect(document.querySelector('img[src="data:image/jpeg;base64,ZmFrZS1qcGVn"]')).not.toBeNull());
-    // The image IS the card: one control (the thumbnail itself) opens the canvas, and the only text
+    const client = await paint();
+    // The live canvas is mounted into the thumbnail's slot, and it is the ONE connection: the expanded
+    // view moves this same node rather than opening a second stream of the whole framebuffer.
+    expect(client.target.closest('.browser-artifact__vnc-slot')).not.toBeNull();
+    expect(rfbClients).toHaveLength(1);
+    // The picture IS the card: one control (the thumbnail itself) opens the canvas, and the only text
     // beside it is the site and the current action.
     expect(screen.getAllByRole('button', { name: strings.enlarge })).toHaveLength(1);
     expect(screen.getByText('example.com')).toBeInTheDocument();
@@ -102,8 +109,30 @@ describe('browser plugin UI', () => {
     expect(document.querySelector('.browser-artifact__activity.has-action')).toBeNull();
     expect(document.querySelector('.browser-artifact__dot')).toHaveAttribute('data-tone');
     expect(document.querySelector('.browser-artifact__activity .sr-only')?.textContent).toBeTruthy();
-    // The agent's pointer is feedback for the surface you are working on, not for a 300px thumbnail.
+    // Once it is painting the connecting notice goes, and nothing draws a second pointer over the page:
+    // the framebuffer carries the real one.
+    expect(screen.queryByText(strings.connectingImage)).toBeNull();
     expect(document.querySelector('.browser-artifact__cursor')).toBeNull();
+  });
+
+  it('says it is connecting until the picture actually arrives', async () => {
+    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
+    mountArtifact();
+    // An empty box looks like a session that failed to start. Until the RFB handshake lands the card
+    // says what it is doing instead.
+    expect(await screen.findByText(strings.connectingImage)).toBeInTheDocument();
+    await waitFor(() => expect(rfbClients.length).toBeGreaterThan(0));
+    const client = rfbClients.at(-1)!;
+    // It dialled the URL the ticket named, upgraded to a WebSocket scheme, and asked for the measured
+    // quality and compression rather than noVNC's defaults.
+    expect(client.url).toMatch(/^wss?:\/\/[^/]+\/ws\/plugins\/browser\/vnc\?ticket=t1$/);
+    expect(client.scaleViewport).toBe(true);
+    expect({ quality: client.qualityLevel, compression: client.compressionLevel }).toEqual({ quality: 4, compression: 6 });
+    // Nobody holds the lease, so this viewer is watching — and says so to the client as well, even
+    // though the server is what enforces it.
+    expect(client.viewOnly).toBe(true);
+    await act(async () => { client.emit('connect'); });
+    expect(screen.queryByText(strings.connectingImage)).toBeNull();
   });
 
   it('reserves transcript room for the docked live view instead of covering the text', async () => {
@@ -168,9 +197,13 @@ describe('browser plugin UI', () => {
     expect(within(canvas).queryByRole('heading')).toBeNull();
     expect(within(canvas).getByRole('button', { name: strings.closeView })).toBeInTheDocument();
     expect(within(canvas).getByRole('button', { name: strings.closeSession })).toBeInTheDocument();
-    // The surface you work on is the one that gets the action copy and the agent's pointer.
+    // The surface you work on is the one that gets the action copy.
     expect(await within(canvas).findByText('Clicking · Continue')).toBeInTheDocument();
-    await waitFor(() => expect(document.querySelectorAll('.browser-artifact__cursor').length).toBeGreaterThan(0));
+    // The SAME connection moved into the raised surface. A second one would cost the whole framebuffer
+    // again, which is the measurement that decided this design.
+    await waitFor(() => expect(rfbClients).toHaveLength(1));
+    expect(rfbClients[0]!.target.closest('.browser-artifact__surface')).not.toBeNull();
+    expect(rfbClients[0]!.disconnected).toBe(false);
     fireEvent.keyDown(canvas, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(compact).not.toHaveAttribute('data-expanded');
@@ -203,17 +236,23 @@ describe('browser plugin UI', () => {
     expect(screen.queryByText(strings.controlledElsewhere)).toBeNull();
   });
 
-  it('keeps takeover tokens local, sends user input and releases control', async () => {
+  it('keeps takeover tokens local, hands the lease to the live view and releases control', async () => {
     const calls: { path: string; body: any }[] = [];
     use(
       http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
       http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-new', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
-      http.post('/api/plugins/browser/api/input', async ({ request }) => { calls.push({ path: 'input', body: await request.json() }); return HttpResponse.json({ accepted: 1 }); }),
+      http.post('/api/plugins/browser/api/vnc-ticket', async ({ request }) => {
+        calls.push({ path: 'vnc-ticket', body: await request.json() });
+        return HttpResponse.json({ url: '/ws/plugins/browser/vnc?ticket=t2', expiresAt: Date.now() + 15_000, width: 1280, height: 800 });
+      }),
       http.post('/api/plugins/browser/api/release', async ({ request }) => { calls.push({ path: 'release', body: await request.json() }); return HttpResponse.json({ released: true }); }),
       http.post('/api/plugins/browser/api/navigation', async ({ request }) => { calls.push({ path: 'navigation', body: await request.json() }); return HttpResponse.json({ navigated: 'back' }); }),
       http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000 })),
     );
     mountArtifact();
+    const client = await paint();
+    // Watching, so the client is told to stay out of the way — while the SERVER is what refuses input.
+    expect(client.viewOnly).toBe(true);
     fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
     // Page navigation belongs to whoever is driving: nothing to show while the agent holds the session.
     expect(screen.queryByRole('button', { name: strings.reload })).toBeNull();
@@ -222,14 +261,65 @@ describe('browser plugin UI', () => {
     for (const label of [strings.back, strings.forward, strings.reload]) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
+    // Taking control turns the SAME connection into a driving one and grabs the keyboard, rather than
+    // reconnecting: dropping the picture on every takeover would be the most visible thing the card does.
+    await waitFor(() => expect(client.viewOnly).toBe(false));
+    expect(client.focused).toBe(true);
+    expect(rfbClients).toHaveLength(1);
+
     fireEvent.click(screen.getByRole('button', { name: strings.back }));
     await waitFor(() => expect(calls.some((call) => call.path === 'navigation' && call.body.action === 'back' && call.body.leaseId === 'lease-new')).toBe(true));
-    const viewport = screen.getAllByLabelText(strings.browserViewport).at(-1)!;
-    vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400, toJSON: () => ({}) });
-    fireEvent.pointerDown(viewport, { clientX: 320, clientY: 200, button: 0, pointerId: 1 });
-    await waitFor(() => expect(calls.some((call) => call.path === 'input' && call.body.leaseId === 'lease-new')).toBe(true));
     fireEvent.click(screen.getAllByRole('button', { name: strings.returnToAgent }).at(-1)!);
     await waitFor(() => expect(calls.some((call) => call.path === 'release' && call.body.leaseId === 'lease-new')).toBe(true));
+    // Handing it back is reflected too, so the canvas stops taking keystrokes at once.
+    await waitFor(() => expect(client.viewOnly).toBe(true));
+  });
+
+  it('carries the lease it holds into the ticket, so the server can weigh it', async () => {
+    const tickets: any[] = [];
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-drive', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
+      http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000 })),
+      http.post('/api/plugins/browser/api/vnc-ticket', async ({ request }) => {
+        tickets.push(await request.json());
+        return HttpResponse.json({ url: '/ws/plugins/browser/vnc?ticket=t3', expiresAt: Date.now() + 15_000, width: 1280, height: 800 });
+      }),
+    );
+    mountArtifact();
+    const client = await paint();
+    // A viewer with no lease claims none.
+    expect(tickets.at(-1)).toEqual({});
+    fireEvent.click(await screen.findByRole('button', { name: strings.takeControl }));
+    expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
+    // The lease is a CLAIM sealed into the ticket, checked against the session's real lease on every
+    // input message. Reconnecting is what carries it, so the connection is dropped to re-mint.
+    await act(async () => { client.emit('disconnect'); });
+    await waitFor(() => expect(tickets.at(-1)).toEqual({ leaseId: 'lease-drive' }));
+  });
+
+  it('says the live view is unavailable rather than showing an empty box', async () => {
+    // A host too old to carry a plugin WebSocket has no live view at all — there is no screencast to
+    // fall back on any more. The card says so plainly and stays usable: the session is still running,
+    // the agent is still working, and the controls that do not need pixels still do their job.
+    let tickets = 0;
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/vnc-ticket', () => {
+        tickets += 1;
+        return HttpResponse.json({ error: 'This host cannot carry a browser live view connection.' }, { status: 501 });
+      }),
+    );
+    mountArtifact();
+    await waitFor(() => expect(tickets).toBeGreaterThan(0));
+    // Said on the glass, not thrown as a toast: a missing picture is a state of the card.
+    expect(await screen.findByText(strings.liveViewUnavailable)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    // And noVNC was never loaded, because there was nothing to connect to.
+    expect(rfbClients).toHaveLength(0);
+    // The rest of the card is untouched: the site, the state and the takeover control are all there.
+    expect(screen.getByText('example.com')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: strings.takeControl }).length).toBeGreaterThan(0);
   });
 
   it('keeps your takeover through a remount of the card, and lets it go once the server has', async () => {
@@ -270,26 +360,26 @@ describe('browser plugin UI', () => {
     expect(screen.queryByText(strings.youControl)).toBeNull();
   });
 
-  it('says the page moved instead of raising an error when the server drops an input batch', async () => {
-    // Production: a person logged in through the takeover, the login navigated, and every pointer move
-    // made during that navigation came back as a red error toast. Nothing was wrong; the page moved.
+  it('binds no input handler of its own to the canvas', async () => {
+    // noVNC binds the pointer and the keyboard to its own canvas inside this box. A handler here as well
+    // would send every gesture twice — once natively, once as something synthesized — and the second
+    // copy would land at coordinates measured against a different box.
     use(
       http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
       http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-new', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
-      http.post('/api/plugins/browser/api/input', () => HttpResponse.json({ accepted: 0, dropped: 'page_changed' })),
       http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000 })),
     );
     mountArtifact();
+    await paint();
     fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
     fireEvent.click(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)!);
     expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
     const viewport = screen.getAllByLabelText(strings.browserViewport).at(-1)!;
-    vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400, toJSON: () => ({}) });
-    fireEvent.pointerDown(viewport, { clientX: 320, clientY: 200, button: 0, pointerId: 1 });
-    expect(await screen.findByText(strings.inputDropped)).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).toBeNull();
-    // Still in control: a dropped batch is not a lost lease.
-    expect(screen.getAllByRole('button', { name: strings.returnToAgent }).length).toBeGreaterThan(0);
+    // Driving, and still nothing here claims the keyboard: the canvas is not a focus target of its own,
+    // because the element noVNC owns inside it is.
+    expect(viewport).toHaveAttribute('data-interactive', 'true');
+    expect(viewport).not.toHaveAttribute('tabindex');
+    expect(viewport).not.toHaveAttribute('role', 'application');
   });
 
   it('keeps a local takeover through a transient heartbeat failure', async () => {
@@ -324,37 +414,24 @@ describe('browser plugin UI', () => {
   it('says the room is full instead of pretending to be connected when the stream is refused', async () => {
     // What production did: the opening snapshot arrived, the stream ended, and the card read
     // "Agent control" with an image that never came — while the viewer reconnected every half second.
-    const refusedStreamBody = [
-      `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0 })}\n\n`,
-      `event: rejected\ndata: ${JSON.stringify({ reason: 'viewer_limit', message: 'Browser viewer limit reached.' })}\n\n`,
-    ].join('');
+    //
+    // The limit is on the FRAMEBUFFER connections now, so it is the ticket that refuses: noVNC surfaces
+    // no close code, and a refusal that only happened at the upgrade would reach the reader as an
+    // anonymous disconnect.
     let attempts = 0;
-    use(http.get('/api/plugins/browser/api/stream', () => { attempts += 1; return new HttpResponse(refusedStreamBody, { headers: { 'content-type': 'text/event-stream' } }); }));
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/vnc-ticket', () => {
+        attempts += 1;
+        return HttpResponse.json({ error: 'This browser session already has as many viewers as it allows.' }, { status: 429 });
+      }),
+    );
     mountArtifact();
     expect((await screen.findAllByText(strings.viewerLimit)).length).toBeGreaterThan(0);
     expect(screen.queryByText(strings.agentControl)).toBeNull();
     // Gentle retry: a full room does not change in half a second.
     await new Promise((resolve) => setTimeout(resolve, 1_200));
     expect(attempts).toBe(1);
-  });
-
-  it('leaves the user one pointer while they drive the session', async () => {
-    use(
-      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
-      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-1', expiresAt: Date.now() + 120_000 })),
-      http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000 })),
-    );
-    mountArtifact();
-    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
-    // The agent is driving: its arrow is the pointer on the canvas.
-    await waitFor(() => expect(document.querySelector('.browser-artifact__cursor')).not.toBeNull());
-
-    fireEvent.click(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)!);
-    expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
-    // Now YOU are: the streamed cursor reports where the agent points and stops moving, so it is
-    // withdrawn rather than left beside your own system pointer.
-    await waitFor(() => expect(document.querySelector('.browser-artifact__cursor')).toBeNull());
-    expect(screen.getAllByLabelText(strings.browserViewport).at(-1)).toHaveAttribute('data-interactive', 'true');
   });
 
   it('shows what the agent is saying inside the expanded canvas only, and clears with it', async () => {
@@ -414,62 +491,6 @@ describe('browser plugin UI', () => {
     act(() => { vi.advanceTimersByTime(1); });
     expect(within(canvas).queryByText('Starting the next step.')).toBeNull();
     vi.useRealTimers();
-  });
-
-  it('places the agent pointer from the action itself when the cursor frames never arrive', async () => {
-    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(actionOnlyStreamBody, { headers: { 'content-type': 'text/event-stream' } })));
-    mountArtifact();
-    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
-    const cursor = await waitFor(() => {
-      const found = document.querySelector<HTMLElement>('.browser-artifact__cursor');
-      expect(found).not.toBeNull();
-      return found!;
-    });
-    // The action's own coordinates are the authoritative landing point, read as a fraction of the frame.
-    expect(cursor.style.left).toBe('25%');
-    expect(cursor.style.top).toBe('25%');
-  });
-
-  it('starts a late viewer from the pointer the agent left behind', async () => {
-    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(lateViewerStreamBody, { headers: { 'content-type': 'text/event-stream' } })));
-    mountArtifact();
-    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
-    const cursor = await waitFor(() => {
-      const found = document.querySelector<HTMLElement>('.browser-artifact__cursor');
-      expect(found).not.toBeNull();
-      return found!;
-    });
-    expect(cursor.style.left).toBe('75%');
-    expect(cursor.style.top).toBe('75%');
-  });
-
-  it('withdraws the agent pointer while anyone holds the session, not just this window', async () => {
-    // `control: user` with no lease of our own is the OTHER window driving. The streamed cursor still
-    // reports where the agent last pointed, and drawing it beside that person's pointer is the same
-    // two-pointer bug as a local takeover.
-    const foreignTakeover = [
-      `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, cursor: { x: 640, y: 400 } })}\n\n`,
-      `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
-      `event: control\ndata: ${JSON.stringify({ state: 'user' })}\n\n`,
-    ].join('');
-    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(foreignTakeover, { headers: { 'content-type': 'text/event-stream' } })));
-    mountArtifact();
-    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
-    await waitFor(() => expect(screen.getAllByRole('button', { name: strings.controlledElsewhere }).length).toBeGreaterThan(0));
-    expect(document.querySelector('.browser-artifact__cursor')).toBeNull();
-  });
-
-  it('drops the agent pointer when the page it was on goes away', async () => {
-    const navigated = [
-      `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, cursor: { x: 640, y: 400 } })}\n\n`,
-      `event: frame\ndata: ${JSON.stringify({ data: 'ZmFrZS1qcGVn', mimeType: 'image/jpeg', width: 1280, height: 800, timestamp: 1 })}\n\n`,
-      `event: cursor\ndata: ${JSON.stringify({ cleared: true })}\n\n`,
-    ].join('');
-    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(navigated, { headers: { 'content-type': 'text/event-stream' } })));
-    mountArtifact();
-    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
-    await waitFor(() => expect(document.querySelector('img[src^="data:image/jpeg"]')).not.toBeNull());
-    expect(document.querySelector('.browser-artifact__cursor')).toBeNull();
   });
 
   it('says a question is waiting only on the expanded canvas, and gets out of the way when pressed', async () => {

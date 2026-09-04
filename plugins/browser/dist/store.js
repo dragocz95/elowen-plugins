@@ -30,7 +30,27 @@ export class BrowserStore {
         profile_path TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
-    `) }]);
+    `) }, {
+                // The X server and the VNC server outlive the daemon that spawned them, exactly as Chrome does, so
+                // they need the same ownership record: after a hard crash this table is the only thing that can
+                // tell a leaked framebuffer from somebody else's display.
+                version: 2,
+                up: (migration) => migration.exec(`
+        CREATE TABLE IF NOT EXISTS p_browser_displays (
+          user_id INTEGER PRIMARY KEY,
+          display_number INTEGER NOT NULL,
+          xvfb_pid INTEGER NOT NULL,
+          xvfb_started_at_ticks TEXT NOT NULL,
+          xvfb_executable_path TEXT NOT NULL,
+          vnc_pid INTEGER NOT NULL,
+          vnc_started_at_ticks TEXT NOT NULL,
+          vnc_executable_path TEXT NOT NULL,
+          socket_path TEXT NOT NULL,
+          root_path TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        );
+      `),
+            }]);
     }
     createSession(record) {
         this.db.prepare(`INSERT INTO p_browser_sessions(
@@ -79,6 +99,7 @@ export class BrowserStore {
         this.db.transaction(() => {
             this.db.prepare('DELETE FROM p_browser_sessions WHERE owner_user_id=?').run(userId);
             this.db.prepare('DELETE FROM p_browser_processes WHERE user_id=?').run(userId);
+            this.db.prepare('DELETE FROM p_browser_displays WHERE user_id=?').run(userId);
         });
     }
     saveProcess(record) {
@@ -97,6 +118,24 @@ export class BrowserStore {
     deleteProcess(userId) {
         this.db.prepare('DELETE FROM p_browser_processes WHERE user_id=?').run(userId);
     }
+    saveDisplay(record) {
+        this.db.prepare(`INSERT INTO p_browser_displays(
+      user_id,display_number,xvfb_pid,xvfb_started_at_ticks,xvfb_executable_path,
+      vnc_pid,vnc_started_at_ticks,vnc_executable_path,socket_path,root_path,created_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
+      display_number=excluded.display_number,xvfb_pid=excluded.xvfb_pid,
+      xvfb_started_at_ticks=excluded.xvfb_started_at_ticks,xvfb_executable_path=excluded.xvfb_executable_path,
+      vnc_pid=excluded.vnc_pid,vnc_started_at_ticks=excluded.vnc_started_at_ticks,
+      vnc_executable_path=excluded.vnc_executable_path,socket_path=excluded.socket_path,
+      root_path=excluded.root_path,created_at=excluded.created_at`).run(record.userId, record.displayNumber, record.xvfbPid, record.xvfbStartedAtTicks, record.xvfbExecutablePath, record.vncPid, record.vncStartedAtTicks, record.vncExecutablePath, record.socketPath, record.rootPath, record.createdAt);
+    }
+    displays() {
+        return this.db.prepare('SELECT * FROM p_browser_displays ORDER BY user_id').all()
+            .map((value) => this.displayRow(asRow(value)));
+    }
+    deleteDisplay(userId) {
+        this.db.prepare('DELETE FROM p_browser_displays WHERE user_id=?').run(userId);
+    }
     sessionRow(value) {
         return {
             id: stringValue(value.id), ownerUserId: numberValue(value.owner_user_id), conversationId: stringValue(value.conversation_id),
@@ -111,6 +150,17 @@ export class BrowserStore {
         return {
             userId: numberValue(value.user_id), pid: numberValue(value.pid), startedAtTicks: stringValue(value.started_at_ticks),
             executablePath: stringValue(value.executable_path), profilePath: stringValue(value.profile_path),
+            createdAt: numberValue(value.created_at),
+        };
+    }
+    displayRow(value) {
+        return {
+            userId: numberValue(value.user_id), displayNumber: numberValue(value.display_number),
+            xvfbPid: numberValue(value.xvfb_pid), xvfbStartedAtTicks: stringValue(value.xvfb_started_at_ticks),
+            xvfbExecutablePath: stringValue(value.xvfb_executable_path),
+            vncPid: numberValue(value.vnc_pid), vncStartedAtTicks: stringValue(value.vnc_started_at_ticks),
+            vncExecutablePath: stringValue(value.vnc_executable_path),
+            socketPath: stringValue(value.socket_path), rootPath: stringValue(value.root_path),
             createdAt: numberValue(value.created_at),
         };
     }

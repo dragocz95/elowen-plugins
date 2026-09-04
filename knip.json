@@ -14,7 +14,11 @@
     "tests/**/*.{mjs,ts,tsx}"
   ],
   "ignoreBinaries": [
-    "soffice"
+    "soffice",
+    "Xvfb",
+    "x11vnc",
+    "ss",
+    "readlink"
   ],
   "ignoreDependencies": [
     "puppeteer-core",
