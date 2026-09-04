@@ -510,7 +510,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
                 {s.dropHere.replace('{dir}', uploadDir || '/')}
               </div>
             ) : null}
-            <div className="min-h-0 flex-1 overflow-auto p-1.5">
+            <div className="editor-file-tree-scroll min-h-0 flex-1 overflow-auto p-1.5">
               {files.isLoading ? <LoadingState />
                 : <FileTree tree={tree} expanded={expanded} onToggle={toggle} selected={selected} onSelect={(p) => { selectInTree(p); if (mobile && fullscreen) setShowTree(false); }} changed={changedSet} onContextMenu={onContextMenu} emptyLabel={s.noFiles} treeLabel={s.editorTitle} />}
             </div>

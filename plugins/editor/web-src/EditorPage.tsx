@@ -89,7 +89,7 @@ export function EditorPage() {
   return (
     <>
       <ModuleHeader title={s.title} icon={Code2} />
-      <WorkspacePage>
+      <WorkspacePage className="editor-workspace-page">
         <WorkspaceHero
           eyebrow={s.workspaceEyebrow}
           title={s.title}

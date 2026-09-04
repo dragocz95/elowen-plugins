@@ -5386,7 +5386,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
           className: `relative flex shrink-0 flex-col border-r border-border ${mobile && fullscreen ? "absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-card shadow-[var(--shadow-raised)]" : "w-[clamp(11rem,18vw,16rem)] bg-background"} ${dropping ? "ring-2 ring-inset ring-primary" : ""}`,
           children: [
             dropping ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-primary/10 px-3 text-center text-xs font-medium text-primary", children: s.dropHere.replace("{dir}", uploadDir || "/") }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "min-h-0 flex-1 overflow-auto p-1.5", children: files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "editor-file-tree-scroll min-h-0 flex-1 overflow-auto p-1.5", children: files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
               selectInTree(p);
               if (mobile && fullscreen) setShowTree(false);
             }, changed: changedSet, onContextMenu, emptyLabel: s.noFiles, treeLabel: s.editorTitle }) }),
@@ -5557,7 +5557,7 @@ function EditorPage() {
   } : void 0;
   return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ModuleHeader, { title: s.title, icon: CodeXml }),
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(WorkspacePage, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(WorkspacePage, { className: "editor-workspace-page", children: [
       /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
         WorkspaceHero,
         {

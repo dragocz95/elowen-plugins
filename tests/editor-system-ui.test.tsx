@@ -55,6 +55,12 @@ const picker = () => screen.getByLabelText(strings.project) as HTMLSelectElement
 const optionLabels = () => [...picker().options].map((option) => option.textContent);
 
 describe('EditorPage system root', () => {
+  it('marks the standalone editor as the wide workspace variant', async () => {
+    renderPage();
+    const workbench = await screen.findByTestId('workbench');
+    expect(workbench.closest('.workspace-page')).toHaveClass('editor-workspace-page');
+  });
+
   it('offers the system root to an administrator, alongside the projects', async () => {
     renderPage();
     await waitFor(() => expect(picker()).toBeInTheDocument());

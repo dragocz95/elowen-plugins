@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const registryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const editorSourcesRoot = resolve(registryRoot, 'plugins/editor/web-src');
+const editorAuthoredCssPath = resolve(editorSourcesRoot, 'editor.css');
 const editorCssPath = resolve(registryRoot, 'plugins/editor/web/index.css');
 
 function editorSources(): string[] {
@@ -58,6 +59,14 @@ describe('Editor design-token contract', () => {
       return found;
     });
     expect(offenders).toEqual([]);
+  });
+
+  it('owns the wide page and hover scrollbar as authored plugin CSS', () => {
+    const css = readFileSync(editorAuthoredCssPath, 'utf8');
+    expect(css).toContain('.workspace-page.editor-workspace-page');
+    expect(css).toContain('max-width: min(max(var(--content-max), 80%), 118rem)');
+    expect(css).toContain('.editor-file-tree-scroll:is(:hover, :focus-within)');
+    expect(css).toContain('@media (hover: hover) and (pointer: fine)');
   });
 
   it('ships CSS against the current semantic token contract', () => {
