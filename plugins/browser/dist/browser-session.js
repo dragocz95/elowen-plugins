@@ -114,16 +114,6 @@ export class BrowserSession {
     get controlRevision() { return this.controlRevisionValue; }
     get controlReason() { return this.controlReasonValue; }
     get currentFavicon() { return this.faviconDataUrl; }
-    /** Whether this lease is the one currently driving the session.
-     *
-     *  The live view transport asks per input message, so control changing hands takes effect on the next
-     *  message rather than at the next reconnect. It compares a token the caller already holds and never
-     *  hands one out, so it cannot become a way to learn a lease id. */
-    holdsLease(leaseId) {
-        return this.stateValue === 'user'
-            && this.lease?.leaseId === leaseId
-            && this.lease.expiresAt > this.deps.clock.now();
-    }
     async setArtifact(ref) {
         if (this.stateValue === 'closing' || this.stateValue === 'closed' || this.stateValue === 'error') {
             if (ref)

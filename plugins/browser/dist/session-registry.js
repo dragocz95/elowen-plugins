@@ -125,18 +125,17 @@ export class SessionRegistry {
     /** What the live view socket needs to know about this session, and where its framebuffer is.
      *
      *  The caller reaching this has already been proved to own the session by an ordinary authenticated
-     *  route. `leaseId` is whatever the card claims to hold; it is NOT trusted here and is not checked
-     *  here either — it is sealed into the ticket and compared against the session's current lease on
-     *  every input message, which is what makes a released or expired lease stop the input immediately
-     *  rather than at the next reconnect.
+     *  route; the ticket inherits exactly that and nothing about the takeover lease. The owner's input is
+     *  welcome whether or not the agent has been asked to wait — the lease is the agent's signal, not a
+     *  gate on the human.
      *
      *  Returns null when the session has no framebuffer to show, which is a normal answer while one is
      *  still starting rather than an error. */
-    liveViewPayload(sessionId, ownerUserId, leaseId) {
+    liveViewPayload(sessionId, ownerUserId) {
         this.getOwned(sessionId, ownerUserId);
         if (!this.deps.displays.get(ownerUserId) || this.deps.displays.failure(ownerUserId))
             return null;
-        return { sessionId, leaseId };
+        return { sessionId };
     }
     /** How many live views one session may fan out to. */
     viewerLimit() { return this.deps.config().maxViewersPerSession; }
@@ -159,12 +158,7 @@ export class SessionRegistry {
         const display = this.deps.displays.get(userId);
         if (!display || this.deps.displays.failure(userId))
             return null;
-        return {
-            socketPath: display.socketPath,
-            // Re-read per message. A viewer holding no lease, or a lease that has since been released, expired
-            // or been superseded by a newer claim, is watching and nothing more.
-            interactive: () => payload.leaseId !== null && session.holdsLease(payload.leaseId),
-        };
+        return { socketPath: display.socketPath };
     }
     async sweep() {
         const now = this.deps.clock.now();
