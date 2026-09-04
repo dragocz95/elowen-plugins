@@ -1,7 +1,7 @@
 // The Discord adapter: gateway connection management, the inbound message pipeline,
 // slash-command/component interactions, voice (STT/TTS) and outbound posting.
 import { memberIsAdmin, matchPolicy, displayNameOf, resolveMentions, buildReplyContext, parseModelExec, stripForSpeech, withoutFooter } from './format.mjs';
-import { buildAskComponents, askTruncationNote } from './ask.mjs';
+import { buildAskComponents, askTruncationNote, collectQuestionAnswers, parseQuestionReply } from './ask.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
 import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } from './display.mjs';
@@ -33,6 +33,17 @@ const CONTEXT_MAX = 200;                 // upper bound of own conversations the
 export function splitList(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
   return String(value ?? '').split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+}
+
+function askTextPrompt(question, cs) {
+  const options = (question.options ?? []).map((option, index) => `${index + 1}. ${option.label}`).join('\n');
+  const instruction = question.multiSelect
+    ? (cs ? 'Odpověz jedním či více čísly oddělenými čárkou.' : 'Reply with one or more numbers separated by commas.')
+    : (cs ? 'Odpověz číslem.' : 'Reply with a number.');
+  const custom = question.custom !== false
+    ? (cs ? ' Můžeš také napsat vlastní odpověď.' : ' You can also type your own answer.')
+    : '';
+  return `**${question.header}**\n${options}\n${instruction}${custom}`;
 }
 
 /** A destination field stores an opaque provider-qualified value. Discord's REST API still needs only the
@@ -454,16 +465,48 @@ export class DiscordAdapter {
     // question stops being answerable, and it announces every exit as `ask_resolved` → resolveAsk below,
     // which removes the entry. A second clock here could only disagree with it.
     for (const [id, pend] of this.pendingAsks) {
-      if (!pend.awaitingText || pend.channelId !== m.channel_id || pend.askerId !== m.author.id) continue;
-      const other = String(m.content ?? '').trim();
-      const q0 = pend.questions[0];
-      const settled = this.answerQuestion(id, [{ header: q0.header, selected: pend.selected[0] ?? [], other: other || undefined }]);
+      if (pend.awaitingText === false || pend.awaitingText === undefined || pend.channelId !== m.channel_id || pend.askerId !== m.author.id) continue;
+      const qi = Number.isInteger(pend.awaitingText) ? pend.awaitingText : 0;
+      const parsed = parseQuestionReply(m.content, pend.questions[qi]);
+      const cs = this.cfg.language === 'cs';
+      if (!parsed) {
+        if (pend.messageId) void this.rest('PATCH', `/channels/${pend.channelId}/messages/${pend.messageId}`, {
+          embeds: [{ title: pend.title, description: `${pend.desc}\n\n${askTextPrompt(pend.questions[qi], cs)}`, color: 0x3498DB }],
+          components: buildAskComponents(id, pend.questions, { cs, selected: pend.selected, other: pend.other }),
+        }).catch(() => {});
+        return;
+      }
+      pend.other ??= {};
+      if (parsed.kind === 'picks') {
+        pend.selected[qi] = parsed.labels;
+        delete pend.other[qi];
+      } else {
+        pend.other[qi] = parsed.text;
+        delete pend.selected[qi];
+      }
+      pend.awaitingText = false;
+      const { answers, next } = collectQuestionAnswers(pend.questions, pend.selected, pend.other);
+      if (next >= 0) {
+        pend.awaitingText = next;
+        if (pend.messageId) void this.rest('PATCH', `/channels/${pend.channelId}/messages/${pend.messageId}`, {
+          embeds: [{ title: pend.title, description: `${pend.desc}\n\n${askTextPrompt(pend.questions[next], cs)}`, color: 0x3498DB }],
+          components: buildAskComponents(id, pend.questions, { cs, selected: pend.selected, other: pend.other }),
+        }).catch(() => {});
+        return;
+      }
+      const settled = this.answerQuestion(id, answers);
+      if (!settled) {
+        if (pend.messageId) void this.rest('PATCH', `/channels/${pend.channelId}/messages/${pend.messageId}`, {
+          embeds: [{ title: pend.title, description: pend.desc, color: 0x3498DB }],
+          components: buildAskComponents(id, pend.questions, { cs, selected: pend.selected, other: pend.other }),
+        }).catch(() => {});
+        return;
+      }
       this.pendingAsks.delete(id);
-      if (!settled) break; // already timed out server-side → fall through and treat the message as a normal turn
       if (pend.messageId) {
-        const cs = this.cfg.language === 'cs';
+        const summary = answers.map((answer) => `**${answer.header}:** ${[...answer.selected, ...(answer.other ? [answer.other] : [])].join(', ')}`).join('\n');
         void this.rest('PATCH', `/channels/${pend.channelId}/messages/${pend.messageId}`, {
-          embeds: [{ title: cs ? '✅ Odpovězeno' : '✅ Answered', description: `**${q0.header}:** ${other || '—'}`, color: 0x2ECC71 }],
+          embeds: [{ title: cs ? '✅ Odpovězeno' : '✅ Answered', description: summary, color: 0x2ECC71 }],
           components: [],
         }).catch(() => {});
       }
@@ -845,7 +888,7 @@ export class DiscordAdapter {
       embeds: [{ title, description: desc, color: 0xE67E22 }],
       components: buildAskComponents(id, questions, { cs }),
     }).catch((e) => { this.log.error(`postAsk failed: ${e?.message ?? e}`); return null; });
-    this.pendingAsks.set(id, { channelId, messageId: res?.id ?? null, questions, askerId, selected: {}, awaitingText: false, title, desc });
+    this.pendingAsks.set(id, { channelId, messageId: res?.id ?? null, questions, askerId, selected: {}, other: {}, awaitingText: false, title, desc });
   }
 
   /** The core settled this question — by an answer, its own timeout, an abort, or a newer question
@@ -868,13 +911,23 @@ export class DiscordAdapter {
     }).catch(() => {});
   }
 
-  /** Deliver every collected pick of a pending ask to the parked turn and close out the message. */
+  /** Deliver every locally complete answer to the parked turn and close out the message. */
   async settleAsk(i, id, pend, cs) {
-    const answers = pend.questions.map((q, qi) => ({ header: q.header, selected: pend.selected[qi] ?? [] }));
+    const { answers, next } = collectQuestionAnswers(pend.questions, pend.selected, pend.other);
+    if (next >= 0) {
+      pend.awaitingText = next;
+      return this.respond(i, 7, {
+        embeds: [{ title: pend.title, description: `${pend.desc}\n\n${askTextPrompt(pend.questions[next], cs)}`, color: 0x3498DB }],
+        components: buildAskComponents(id, pend.questions, { cs, selected: pend.selected, other: pend.other }),
+      });
+    }
     const settled = this.answerQuestion(id, answers);
+    if (!settled) return this.respond(i, 7, {
+      embeds: [{ title: pend.title, description: pend.desc, color: 0x3498DB }],
+      components: buildAskComponents(id, pend.questions, { cs, selected: pend.selected, other: pend.other }),
+    });
     this.pendingAsks.delete(id);
-    if (!settled) return this.respond(i, 7, { embeds: [{ title: cs ? '⏱ Otázka vypršela' : '⏱ Question expired', color: 0x95A5A6 }], components: [] });
-    const summary = answers.map((a) => `**${a.header}:** ${a.selected.join(', ') || '—'}`).join('\n');
+    const summary = answers.map((a) => `**${a.header}:** ${[...a.selected, ...(a.other ? [a.other] : [])].join(', ')}`).join('\n');
     return this.respond(i, 7, { embeds: [{ title: cs ? '✅ Odpovězeno' : '✅ Answered', description: summary, color: 0x2ECC71 }], components: [] });
   }
 
@@ -894,9 +947,16 @@ export class DiscordAdapter {
     }
     if (part === 'submit') return this.settleAsk(i, id, pend, cs);
     if (part === 'other') {
-      pend.awaitingText = true;
-      const note = cs ? '✏️ Napiš odpověď do tohohle kanálu.' : '✏️ Type your answer in this channel.';
-      return this.respond(i, 7, { embeds: [{ title: pend.title, description: `${pend.desc}\n\n${note}`, color: 0x3498DB }], components: [] });
+      const { next } = collectQuestionAnswers(pend.questions, pend.selected, pend.other);
+      const qi = sub === undefined ? next : Number(sub);
+      const q = pend.questions[qi];
+      if (!q || q.custom === false) return this.respond(i, 7, { components: buildAskComponents(id, pend.questions, { cs, selected: pend.selected, other: pend.other }) });
+      pend.awaitingText = qi;
+      const note = cs ? `✏️ Napiš odpověď pro **${q.header}** do tohoto kanálu.` : `✏️ Type an answer for **${q.header}** in this channel.`;
+      return this.respond(i, 7, {
+        embeds: [{ title: pend.title, description: `${pend.desc}\n\n${note}`, color: 0x3498DB }],
+        components: buildAskComponents(id, pend.questions, { cs, selected: pend.selected, other: pend.other }),
+      });
     }
     const qi = Number(part);
     const q = pend.questions[qi];
@@ -905,12 +965,16 @@ export class DiscordAdapter {
     // re-renders so the green button shows the pick and Submit delivers later.
     if (sub !== undefined) {
       const label = q.options[Number(sub)]?.label;
-      if (label) pend.selected[qi] = [label];
+      if (label) {
+        pend.selected[qi] = [label];
+        if (pend.other) delete pend.other[qi];
+      }
       if (pend.questions.length === 1) return this.settleAsk(i, id, pend, cs);
-      return this.respond(i, 7, { components: buildAskComponents(id, pend.questions, { cs, selected: pend.selected }) });
+      return this.respond(i, 7, { components: buildAskComponents(id, pend.questions, { cs, selected: pend.selected, other: pend.other }) });
     }
     // Otherwise a string select → record that question's selected labels (the client shows them).
     pend.selected[qi] = (i.data.values ?? []).map((v) => q.options[Number(v)]?.label).filter(Boolean);
+    if (pend.other) delete pend.other[qi];
     return this.respond(i, 6, {}); // DEFERRED_UPDATE: ack without changing the message
   }
 

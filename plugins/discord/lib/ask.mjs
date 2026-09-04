@@ -1,5 +1,32 @@
 // AskUserQuestion UI rendering: native Discord components for a parked question.
 
+/** Marketplace installs each plugin folder alone; the parametric contract test keeps these local
+ * state-projection helpers aligned without making an installed plugin reach outside its payload. */
+export function parseQuestionReply(text, question) {
+  const value = String(text ?? '').trim();
+  if (!value) return null;
+  const options = question.options ?? [];
+  const parts = value.split(',').map((part) => part.trim());
+  if (parts.every((part) => /^\d+$/.test(part))) {
+    const numbers = parts.map(Number);
+    const inRange = numbers.every((number) => number >= 1 && number <= options.length);
+    if (inRange && (question.multiSelect === true || numbers.length === 1)) {
+      return { kind: 'picks', labels: [...new Set(numbers.map((number) => options[number - 1].label))] };
+    }
+  }
+  if (question.custom !== false) return { kind: 'other', text: value };
+  return null;
+}
+
+export function collectQuestionAnswers(questions, selected = {}, other = {}) {
+  const answers = questions.map((question, index) => {
+    const picks = Array.isArray(selected?.[index]) ? selected[index].filter((value) => typeof value === 'string' && value.trim()) : [];
+    const custom = typeof other?.[index] === 'string' ? other[index].trim() : '';
+    return { header: question.header, selected: picks, ...(custom ? { other: custom } : {}) };
+  });
+  return { answers, next: answers.findIndex((answer) => answer.selected.length === 0 && !answer.other) };
+}
+
 /** How much of an ask Discord can actually render. Both numbers are the platform's hard caps, not a
  *  preference: a message carries at most 5 action rows and the footer row takes one, and a string select
  *  carries at most 25 options. They are deliberately NOT aligned with the other platforms' numbers —
@@ -42,9 +69,9 @@ function askUsesButtons(q) {
 /** Build the component rows for a parked AskUserQuestion message. Pure — exported for tests.
  *  Per question: a row of ≤5 buttons (single-select, `ask:<id>:<qi>:<oi>`; picked = green) or one
  *  string select (`ask:<id>:<qi>`, multi-capable, ≤25 options). Footer row: Submit — skipped for a
- *  single button-question where a click answers instantly — plus a free-text "Other" button on
- *  single-question asks unless the question sets `custom: false` (absent = allowed). */
-export function buildAskComponents(id, questions, { cs = false, selected = {} } = {}) {
+ *  single button-question where a click answers instantly — plus a free-text "Other" button for the
+ *  first unanswered question that permits custom input. */
+export function buildAskComponents(id, questions, { cs = false, selected = {}, other = {} } = {}) {
   const qs = questions.slice(0, ASK_MAX_QUESTIONS);
   const rows = qs.map((q, qi) => {
     if (askUsesButtons(q)) {
@@ -77,7 +104,10 @@ export function buildAskComponents(id, questions, { cs = false, selected = {} } 
   const instant = qs.length === 1 && askUsesButtons(qs[0]); // a button click answers by itself
   const footer = [];
   if (!instant) footer.push({ type: 2, style: 3, custom_id: `ask:${id}:submit`, label: cs ? 'Odeslat' : 'Submit' });
-  if (qs.length === 1 && qs[0].custom !== false) footer.push({ type: 2, style: 2, custom_id: `ask:${id}:other`, label: cs ? '✏️ Jiné' : '✏️ Other' });
+  const { next } = collectQuestionAnswers(qs, selected, other);
+  if (next >= 0 && qs[next]?.custom !== false) {
+    footer.push({ type: 2, style: 2, custom_id: qs.length === 1 ? `ask:${id}:other` : `ask:${id}:other:${next}`, label: cs ? '✏️ Jiné' : '✏️ Other' });
+  }
   if (footer.length) rows.push({ type: 1, components: footer });
   return rows;
 }

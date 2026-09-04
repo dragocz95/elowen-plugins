@@ -4,7 +4,7 @@
 import { Bot, InputFile, GrammyError } from 'grammy';
 import { parseModelExec, buildReplyContext, stripForSpeech, withoutFooter } from './format.mjs';
 import { senderIds, senderIsAdmin, matchPolicy, displayNameOf } from './ids.mjs';
-import { buildAskKeyboard } from './ask.mjs';
+import { buildAskKeyboard, collectQuestionAnswers, parseQuestionReply } from './ask.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
 import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } from './display.mjs';
@@ -41,6 +41,17 @@ const TG_DESCRIPTION_MAX = 256;
 export function splitList(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
   return String(value ?? '').split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+}
+
+function askTextPrompt(question, cs) {
+  const options = (question.options ?? []).map((option, index) => `${index + 1}. ${option.label}`).join('\n');
+  const instruction = question.multiSelect
+    ? (cs ? 'Odpověz jedním či více čísly oddělenými čárkou.' : 'Reply with one or more numbers separated by commas.')
+    : (cs ? 'Odpověz číslem.' : 'Reply with a number.');
+  const custom = question.custom !== false
+    ? (cs ? ' Můžeš také napsat vlastní odpověď.' : ' You can also type your own answer.')
+    : '';
+  return `${question.header}\n${options}\n${instruction}${custom}`;
 }
 
 /** The adapter's OWN commands: dispatched here (onCommand) against this chat's stored state. Core
@@ -284,15 +295,27 @@ export class TelegramAdapter {
     // text from THIS sender, consume the message as that answer — not as a new brain turn.
     for (const [token, pend] of this.pendingAsks) {
       if (Date.now() - pend.createdAt > this.askTtlMs()) { this.pendingAsks.delete(token); continue; }
-      if (!pend.awaitingText || pend.chatId !== chatId || pend.askerId !== from.id) continue;
-      const other = String(m.text ?? '').trim();
-      if (!other) continue;
-      const q0 = pend.questions[0];
-      const settled = this.answerQuestion(pend.id, [{ header: q0.header, selected: pend.selected[0] ?? [], other }]);
-      this.pendingAsks.delete(token);
-      if (!settled) break; // already timed out server-side → treat the message as a normal turn
-      if (pend.messageId) void this.tgEdit(pend.chatId, pend.messageId, this.msg.askAnswered(`${q0.header}: ${other}`), { reply_markup: { inline_keyboard: [] } }).catch(() => {});
-      return; // this message was the answer
+      if (pend.awaitingText === false || pend.awaitingText === undefined || pend.chatId !== chatId || pend.askerId !== from.id) continue;
+      const qi = Number.isInteger(pend.awaitingText) ? pend.awaitingText : 0;
+      const parsed = parseQuestionReply(m.text, pend.questions[qi]);
+      if (!parsed) {
+        const cs = this.cfg.language === 'cs';
+        await this.tgEdit(pend.chatId, pend.messageId, `${pend.title}\n\n${pend.desc}\n\n${askTextPrompt(pend.questions[qi], cs)}`, {
+          reply_markup: { inline_keyboard: buildAskKeyboard(token, pend.questions, { cs, selected: pend.selected, other: pend.other }) },
+        }).catch(() => {});
+        return;
+      }
+      pend.other ??= {};
+      if (parsed.kind === 'picks') {
+        pend.selected[qi] = parsed.labels;
+        delete pend.other[qi];
+      } else {
+        pend.other[qi] = parsed.text;
+        delete pend.selected[qi];
+      }
+      pend.awaitingText = false;
+      await this.settleAsk(null, token, pend);
+      return;
     }
 
     // Chat allowlist: when configured, the bot only responds in these chats. Empty/unset = everywhere.
@@ -442,16 +465,17 @@ export class TelegramAdapter {
    *  handlers resolve. Keyed by a SHORT token so the callback_data stays under Telegram's 64-byte limit. */
   async postAsk(chatId, replyToId, askerId, id, questions) {
     const cs = this.cfg.language === 'cs';
-    const qs = questions.slice(0, 4);
+    const qs = questions;
     const token = (++this.askSeq).toString(36);
     const title = `❓ ${this.cfg.agentName || 'Elowen'} ${cs ? 'potřebuje tvůj vstup' : 'needs your input'}`;
-    const desc = qs.map((q) => `${q.header} — ${q.question}`).join('\n\n');
+    const remaining = qs.length > 4 ? `\n\n${cs ? 'Zbývající otázky se zobrazí postupně.' : 'The remaining questions will follow one by one.'}` : '';
+    const desc = `${qs.slice(0, 4).map((q) => `${q.header} — ${q.question}`).join('\n\n')}${remaining}`;
     const extra = {
       reply_markup: { inline_keyboard: buildAskKeyboard(token, qs, { cs }) },
       ...(replyToId ? { reply_parameters: { message_id: replyToId, allow_sending_without_reply: true } } : {}),
     };
     const messageId = await this.tgSend(chatId, `${title}\n\n${desc}`, extra);
-    this.pendingAsks.set(token, { id, chatId, messageId, questions: qs, askerId, selected: {}, awaitingText: false, title, desc, createdAt: Date.now() });
+    this.pendingAsks.set(token, { id, chatId, messageId, questions: qs, askerId, selected: {}, other: {}, awaitingText: false, title, desc, createdAt: Date.now() });
   }
 
   /** The core settled this question — by an answer, its own timeout, an abort, or a newer question
@@ -474,14 +498,22 @@ export class TelegramAdapter {
     await this.tgEdit(pend.chatId ?? chatId, pend.messageId, text, { reply_markup: { inline_keyboard: [] } }).catch(() => {});
   }
 
-  /** Deliver every collected pick of a pending ask to the parked turn and close out the message. */
+  /** Deliver every locally complete answer to the parked turn and close out the message. */
   async settleAsk(ctx, token, pend) {
-    const answers = pend.questions.map((q, qi) => ({ header: q.header, selected: pend.selected[qi] ?? [] }));
+    const cs = this.cfg.language === 'cs';
+    const { answers, next } = collectQuestionAnswers(pend.questions, pend.selected, pend.other);
+    await ctx?.answerCallbackQuery().catch(() => {});
+    if (next >= 0) {
+      pend.awaitingText = next;
+      await this.tgEdit(pend.chatId, pend.messageId, `${pend.title}\n\n${pend.desc}\n\n${askTextPrompt(pend.questions[next], cs)}`, {
+        reply_markup: { inline_keyboard: buildAskKeyboard(token, pend.questions, { cs, selected: pend.selected, other: pend.other }) },
+      }).catch(() => {});
+      return;
+    }
     const settled = this.answerQuestion(pend.id, answers);
+    if (!settled) return;
     this.pendingAsks.delete(token);
-    await ctx.answerCallbackQuery().catch(() => {});
-    if (!settled) { await this.tgEdit(pend.chatId, pend.messageId, this.msg.askExpired, { reply_markup: { inline_keyboard: [] } }).catch(() => {}); return; }
-    const summary = answers.map((a) => `${a.header}: ${a.selected.join(', ') || '—'}`).join('\n');
+    const summary = answers.map((a) => `${a.header}: ${[...a.selected, ...(a.other ? [a.other] : [])].join(', ')}`).join('\n');
     await this.tgEdit(pend.chatId, pend.messageId, this.msg.askAnswered(summary), { reply_markup: { inline_keyboard: [] } }).catch(() => {});
   }
 
@@ -502,9 +534,15 @@ export class TelegramAdapter {
     }
     if (part === 'submit') return this.settleAsk(ctx, token, pend);
     if (part === 'other') {
-      pend.awaitingText = true;
+      const { next } = collectQuestionAnswers(pend.questions, pend.selected, pend.other);
+      const qi = sub === undefined ? next : Number(sub);
+      const q = pend.questions[qi];
       await ctx.answerCallbackQuery().catch(() => {});
-      await this.tgEdit(pend.chatId, pend.messageId, `${pend.title}\n\n${pend.desc}\n\n${this.msg.askTypeAnswer}`, { reply_markup: { inline_keyboard: [] } }).catch(() => {});
+      if (!q || q.custom === false) return;
+      pend.awaitingText = qi;
+      await this.tgEdit(pend.chatId, pend.messageId, `${pend.title}\n\n${pend.desc}\n\n${this.msg.askTypeAnswer} ${q.header}`, {
+        reply_markup: { inline_keyboard: buildAskKeyboard(token, pend.questions, { cs, selected: pend.selected, other: pend.other }) },
+      }).catch(() => {});
       return;
     }
     const qi = Number(part);
@@ -519,12 +557,13 @@ export class TelegramAdapter {
       } else {
         pend.selected[qi] = [label];
       }
+      if (pend.other) delete pend.other[qi];
     }
     // A single-question single-select ask answers right away; anything else re-renders so the ✅ shows the
     // pick and Submit delivers later.
     if (pend.questions.length === 1 && q.multiSelect !== true) return this.settleAsk(ctx, token, pend);
     await ctx.answerCallbackQuery().catch(() => {});
-    await this.tgEdit(pend.chatId, pend.messageId, `${pend.title}\n\n${pend.desc}`, { reply_markup: { inline_keyboard: buildAskKeyboard(token, pend.questions, { cs, selected: pend.selected }) } }).catch(() => {});
+    await this.tgEdit(pend.chatId, pend.messageId, `${pend.title}\n\n${pend.desc}`, { reply_markup: { inline_keyboard: buildAskKeyboard(token, pend.questions, { cs, selected: pend.selected, other: pend.other }) } }).catch(() => {});
   }
 
   // ── commands ──

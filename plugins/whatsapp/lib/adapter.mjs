@@ -7,7 +7,7 @@ import {
 import QRCode from 'qrcode';
 import { rmSync, mkdirSync } from 'node:fs';
 import { parseModelExec, buildReplyContext, splitContent, stripThinking, withoutFooter } from './format.mjs';
-import { parseAskReply } from './ask.mjs';
+import { collectQuestionAnswers, parseAskReply } from './ask.mjs';
 import { sameId, isGroup, isSupportedChat, numberOf, toJid, senderIsAdmin, matchPolicy } from './jid.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage } from './stream.mjs';
@@ -548,34 +548,25 @@ export class WhatsAppAdapter {
       if (Date.now() - pend.createdAt > this.askTtlMs()) { this.pendingAsks.delete(id); continue; }
       if (pend.jid !== chatJid || !sameId(pend.askerJid, senderJid)) continue;
       if (/^submit$/i.test(t)) { await this.submitAsk(id, m); return true; }
-      // A single-question ask answers from one reply: a number (or a comma list on multiSelect) picks
-      // and submits; anything else is a free-text answer when the question allows it. An unusable
-      // reply (options-only question, no valid number) re-prompts instead of being swallowed.
-      if (pend.questions.length === 1) {
-        const q0 = pend.questions[0];
-        const parsed = parseAskReply(t, q0);
-        if (parsed?.kind === 'picks') {
-          pend.selected[0] = parsed.labels;
-          await this.submitAsk(id, m);
-          return true;
-        }
-        if (parsed?.kind === 'other') {
-          const settled = this.answerQuestion(id, [{ header: q0.header, selected: pend.selected[0] ?? [], other: parsed.text }]);
-          this.pendingAsks.delete(id);
-          if (settled) return true; // answer delivered — the model's reply is the acknowledgement, no ack line
-          continue; // already timed out server-side → fall through and treat the message as a normal turn
-        }
-        const hint = q0.multiSelect ? this.msg.replyWithNumbers((q0.options ?? []).length) : this.msg.replyWithNumber((q0.options ?? []).length);
-        await this.sendText(pend.jid, hint, m);
+      const { next } = collectQuestionAnswers(pend.questions, pend.selected, pend.other);
+      if (next < 0) continue; // a previous locally complete attempt was refused; only `submit` retries it
+      const question = pend.questions[next];
+      const parsed = parseAskReply(t, question);
+      if (parsed?.kind === 'picks') {
+        pend.selected[next] = parsed.labels;
+        if (pend.other) delete pend.other[next];
+        await this.submitAsk(id, m);
         return true;
       }
-      // Multi-question asks collect a free-text answer for the first question that allows it, or `submit`.
-      if (t && pend.questions[0]?.custom !== false) {
-        const q0 = pend.questions[0];
-        const settled = this.answerQuestion(id, [{ header: q0.header, selected: pend.selected[0] ?? [], other: t }]);
-        this.pendingAsks.delete(id);
-        if (settled) return true; // answer delivered — the model's reply is the acknowledgement, no ack line
+      if (parsed?.kind === 'other') {
+        pend.other ??= {};
+        pend.other[next] = parsed.text;
+        delete pend.selected[next];
+        await this.submitAsk(id, m);
+        return true;
       }
+      await this.promptForAskQuestion(pend, next, m);
+      return true;
     }
     // Numeric reply to a pending model/thinking/context menu, resolved against the CURRENT page's entries
     // (a "nav" entry re-renders another page; a "pick" entry selects).
@@ -615,28 +606,43 @@ export class WhatsAppAdapter {
   // ── AskUserQuestion ──
 
   /** Render a parked AskUserQuestion (brain `ask` event) as a numbered text prompt
-   *  ("1. label — description"). On a single-question ask the user replies with a number (a comma list
-   *  on multiSelect), or free text unless the question sets `custom: false`; multi-question asks collect
-   *  a free-text answer or `submit`. Answers are delivered from handleTextReply. */
+   *  ("1. label — description"). Replies fill the first unanswered question in order: a number (or comma
+   *  list on multiSelect) chooses options, while free text is accepted when that question permits it.
+   *  `submit` retries delivery once every question has local input. */
   async postAsk(chatJid, quoted, askerJid, id, questions) {
-    const qs = questions.slice(0, 4);
-    const blocks = qs.map((q) => {
+    const shown = questions.slice(0, 4);
+    const blocks = shown.map((q) => {
       const opts = (q.options ?? []).slice(0, 25).map((op, oi) => `  ${oi + 1}. ${op.label}${op.description ? ` — ${op.description}` : ''}`);
       return `*${q.header}* — ${q.question}\n${opts.join('\n')}`;
     });
-    const single = qs.length === 1;
+    const single = questions.length === 1;
     let hint = this.msg.submitHint;
     if (single) {
-      const q0 = qs[0];
+      const q0 = questions[0];
       const n = (q0.options ?? []).length;
       hint = q0.multiSelect ? this.msg.replyWithNumbers(n) : this.msg.replyWithNumber(n);
       if (q0.custom !== false) hint += ` ${this.msg.otherHint}`;
     }
-    const body = `❓ ${blocks.join('\n\n')}\n\n_${hint}_`;
-    this.pendingAsks.set(id, { jid: chatJid, askerJid, questions: qs, selected: {}, createdAt: Date.now() });
+    const cropped = questions.length > shown.length
+      ? `\n\n_${this.cfg.language === 'cs' ? 'Zbývající otázky se zobrazí postupně.' : 'The remaining questions will follow one by one.'}_`
+      : '';
+    const body = `❓ ${blocks.join('\n\n')}${cropped}\n\n_${hint}_`;
+    this.pendingAsks.set(id, { jid: chatJid, askerJid, questions, selected: {}, other: {}, createdAt: Date.now() });
     const key = await this.sendText(chatJid, body, quoted);
     const pend = this.pendingAsks.get(id);
     if (pend) pend.key = key;
+  }
+
+  async promptForAskQuestion(pend, index, quoted) {
+    const question = pend.questions[index];
+    if (!question) return;
+    const options = (question.options ?? []).slice(0, 25)
+      .map((option, optionIndex) => `  ${optionIndex + 1}. ${option.label}${option.description ? ` — ${option.description}` : ''}`);
+    let hint = question.multiSelect
+      ? this.msg.replyWithNumbers((question.options ?? []).length)
+      : this.msg.replyWithNumber((question.options ?? []).length);
+    if (question.custom !== false) hint += ` ${this.msg.otherHint}`;
+    await this.sendText(pend.jid, `❓ *${question.header}* — ${question.question}\n${options.join('\n')}\n\n_${hint}_`, quoted);
   }
 
   /** The core settled this question — by an answer, its own timeout, an abort, or a newer question
@@ -659,11 +665,15 @@ export class WhatsAppAdapter {
 
   async submitAsk(id, m) {
     const pend = this.pendingAsks.get(id);
-    if (!pend) return;
-    const answers = pend.questions.map((q, qi) => ({ header: q.header, selected: pend.selected[qi] ?? [] }));
+    if (!pend) return false;
+    const { answers, next } = collectQuestionAnswers(pend.questions, pend.selected, pend.other);
+    if (next >= 0) {
+      await this.promptForAskQuestion(pend, next, m);
+      return false;
+    }
     const settled = this.answerQuestion(id, answers);
-    this.pendingAsks.delete(id);
-    if (!settled) await this.sendText(pend.jid, this.msg.expired, m); // only warn if it timed out; success needs no ack
+    if (settled) this.pendingAsks.delete(id);
+    return settled;
   }
 
   // ── commands ──
