@@ -89,10 +89,12 @@ export function useVncSurface({ slot, ticket, interactive, quality, compression,
     };
 
     void (async () => {
+      // The TICKET decides whether there is anything to connect to, so it is asked for first: on an
+      // instance with the pilot switched off the route refuses, and noVNC is never even loaded.
+      const issued = await ticket().catch(() => null);
+      if (!issued || disposed || generation.current !== current) { report('disconnected'); return; }
       const Rfb = await loadRfb();
       if (!Rfb || disposed || generation.current !== current) { report('failed'); return; }
-      const issued = await ticket().catch(() => null);
-      if (!issued || disposed || generation.current !== current) { report('failed'); return; }
       const url = new URL(issued.url, window.location.origin);
       url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
       client = new Rfb(container, url.toString());

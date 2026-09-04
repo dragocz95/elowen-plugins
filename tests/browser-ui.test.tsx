@@ -232,6 +232,41 @@ describe('browser plugin UI', () => {
     await waitFor(() => expect(calls.some((call) => call.path === 'release' && call.body.leaseId === 'lease-new')).toBe(true));
   });
 
+  it('asks once whether this instance serves a VNC live view, and carries on with the screencast when it does not', async () => {
+    // The card carries no flag saying which live view an instance runs, and adding one to the artifact
+    // would mean a schema change for a pilot. It ASKS instead — and a refusal is a normal answer, so it
+    // must leave the screencast, the image and the CDP input path exactly as they are, and say nothing.
+    const tickets: unknown[] = [];
+    const inputs: unknown[] = [];
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/vnc-ticket', () => {
+        tickets.push(Date.now());
+        return HttpResponse.json({ error: 'The browser live view is not running on a virtual display.' }, { status: 409 });
+      }),
+      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-new', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
+      http.post('/api/plugins/browser/api/input', async ({ request }) => { inputs.push(await request.json()); return HttpResponse.json({ accepted: 1 }); }),
+      http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000 })),
+    );
+    mountArtifact();
+    await waitFor(() => expect(tickets.length).toBe(1));
+    // The streamed image is still what the reader sees, and no refusal reached them as a toast.
+    const tile = await screen.findByRole('button', { name: strings.enlarge });
+    expect(tile.querySelector('img')).toBeTruthy();
+    expect(screen.queryByText(/not running on a virtual display/i)).toBeNull();
+
+    // And input still goes the way it does today, rather than being swallowed by a client that is not there.
+    fireEvent.click(tile);
+    fireEvent.click(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)!);
+    expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
+    const viewport = screen.getAllByLabelText(strings.browserViewport).at(-1)!;
+    vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400, toJSON: () => ({}) });
+    fireEvent.pointerDown(viewport, { clientX: 320, clientY: 200, button: 0, pointerId: 1 });
+    await waitFor(() => expect(inputs.length).toBeGreaterThan(0));
+    // Asked once for the whole life of the card: a ticket is single use, but it is only spent on connect.
+    expect(tickets.length).toBe(1);
+  });
+
   it('keeps your takeover through a remount of the card, and lets it go once the server has', async () => {
     // Production: a person took control, the transcript re-rendered the card (a plugin listing refresh,
     // a reload), and the same person was told the session was "controlled in another window" — for the

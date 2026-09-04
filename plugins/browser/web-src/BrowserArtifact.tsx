@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Expand, Hand, MessageCircleQuestion, MessageSqua
 import type { BrowserArtifactProps } from './runtime';
 import { apiError, jsonRequest, runtime } from './runtime';
 import { useBrowserStream } from './useBrowserStream';
+import { useVncSurface } from './VncSurface';
 
 interface ArtifactData {
   browserSessionId: string;
@@ -170,6 +171,11 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   /** A lease this mount adopted rather than claimed: it is checked with the server at once, below. */
   const adoptedLease = useRef<string | null>(lease?.leaseId ?? null);
   const [speechHidden, setSpeechHidden] = useState(false);
+  /** PILOT (ELOWEN_BROWSER_VNC): where the live view is coming from. Nothing in the artifact says so —
+   *  the card simply ASKS for a live view ticket, and an instance running today's screencast refuses.
+   *  One request settles it, and a refusal is a normal answer rather than an error worth a toast. */
+  const [thumbSlot, setThumbSlot] = useState<HTMLElement | null>(null);
+  const [overlaySlot, setOverlaySlot] = useState<HTMLElement | null>(null);
   /** The server dropped a batch because the page had already moved on — most often the navigation the
    *  person's own last input caused. Shown briefly where the action copy lives; never as an error. */
   const [inputDropped, setInputDropped] = useState(false);
@@ -301,6 +307,25 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
     pendingMove.current = null;
   }, [lease]);
 
+  /** One connection for both surfaces. The canvas node is moved between the thumbnail and the expanded
+   *  view rather than duplicated: a second view-only RFB connection was measured at +207 kB/s while
+   *  scrolling, because the VNC server encodes the full 1280x800 stream per client and cannot scale it
+   *  down for a thumbnail a third of the width. */
+  const vnc = useVncSurface({
+    slot: expanded ? overlaySlot : thumbSlot,
+    ticket: async () => {
+      if (!sessionId) return null;
+      const issued = await runtime().api(inputPath(sessionId, 'vnc-ticket'), jsonRequest('POST')) as { url?: string; interactive?: boolean } | null;
+      return typeof issued?.url === 'string' ? { url: issued.url, interactive: issued.interactive === true } : null;
+    },
+    interactive: !!lease,
+    quality: 4,
+    compression: 6,
+  });
+  // Only once it is actually painting. Until then today's streamed image stays up, so an instance
+  // running the pilot shows a picture throughout the handover rather than a black box for a second.
+  const liveViewIsVnc = vnc.state === 'connected';
+
   const status = useMemo(() => {
     if (stream.closed || state === 'closed') return { tone: 'muted' as const, label: strings.closed || 'Closed' };
     if (stream.rejected === 'viewer_limit') return { tone: 'warning' as const, label: strings.viewerLimit || 'Too many viewers' };
@@ -410,24 +435,32 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
    *  The agent's pointer is withdrawn whenever the session is under USER control — this window's takeover
    *  or another one's. The stream only reports where the AGENT is pointing, so while a person is driving
    *  it is a stale arrow sitting wherever the agent left it, beside the pointer that now matters. One
-   *  session, one pointer, whoever is holding it. */
+   *  session, one pointer, whoever is holding it.
+   *
+   *  PILOT (ELOWEN_BROWSER_VNC): when a real VNC client is on the glass, every handler below belongs to
+   *  IT. noVNC binds the pointer and the keyboard to its own canvas and encodes them as RFB; leaving
+   *  these attached would send each gesture twice, once natively and once as a synthesized CDP event. */
   const canvas = (interactive: boolean) => (
     <div
       className="browser-artifact__canvas"
       data-interactive={interactive && lease ? 'true' : undefined}
       role={interactive && lease ? 'application' : undefined}
       tabIndex={interactive && lease ? 0 : -1}
-      onPointerMove={interactive ? onPointerMove : undefined}
-      onPointerDown={interactive ? onPointerDown : undefined}
-      onPointerUp={interactive ? onPointerUp : undefined}
-      onWheel={interactive ? onWheel : undefined}
-      onKeyDown={interactive ? (event) => onKey(event, 'down') : undefined}
-      onKeyUp={interactive ? (event) => onKey(event, 'up') : undefined}
-      onPaste={interactive ? onPaste : undefined}
-      onContextMenu={interactive && lease ? (event) => event.preventDefault() : undefined}
+      onPointerMove={interactive && !liveViewIsVnc ? onPointerMove : undefined}
+      onPointerDown={interactive && !liveViewIsVnc ? onPointerDown : undefined}
+      onPointerUp={interactive && !liveViewIsVnc ? onPointerUp : undefined}
+      onWheel={interactive && !liveViewIsVnc ? onWheel : undefined}
+      onKeyDown={interactive && !liveViewIsVnc ? (event) => onKey(event, 'down') : undefined}
+      onKeyUp={interactive && !liveViewIsVnc ? (event) => onKey(event, 'up') : undefined}
+      onPaste={interactive && !liveViewIsVnc ? onPaste : undefined}
+      onContextMenu={interactive && lease && !liveViewIsVnc ? (event) => event.preventDefault() : undefined}
       aria-label={strings.browserViewport || 'Live browser view'}
     >
-      {frame ? <img src={`data:${frame.mimeType};base64,${frame.data}`} alt="" draggable={false} /> : (
+      {/* PILOT (ELOWEN_BROWSER_VNC): where the one noVNC canvas is parked while this surface is the
+          visible one. Always rendered, because the client needs somewhere to mount before it can
+          connect; empty and invisible on an instance running today's screencast. */}
+      <div className="browser-artifact__vnc-slot" ref={interactive ? setOverlaySlot : setThumbSlot} />
+      {liveViewIsVnc ? null : frame ? <img src={`data:${frame.mimeType};base64,${frame.data}`} alt="" draggable={false} /> : (
         <div className="browser-artifact__waiting" role="status" aria-live="polite">
           <Spinner size="lg" />
           <span>{stream.error || strings.waitingFrame || 'Waiting for the browser image…'}</span>
