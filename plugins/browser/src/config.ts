@@ -20,6 +20,21 @@ export interface BrowserConfig {
   privateNetworkAllowlist: string[];
   browserCloseGraceMs: number;
   maxInputEventsPerSecond: number;
+  /** PILOT (ELOWEN_BROWSER_VNC). Off by default: with this false nothing in vnc-display.ts,
+   *  vnc-bridge.ts or the VNC surface runs, and the screencast path below is the only live one. */
+  vncEnabled: boolean;
+  /** x11vnc framebuffer poll interval and update coalescing window, in milliseconds. Measured on this
+   *  host: 20/40 costs 373 kB/s while scrolling, which is roughly today's screencast at 353 kB/s, for a
+   *  146 ms click-to-pixel time against the screencast's 42 ms. Lowering `defer` buys latency back at a
+   *  steep price — 10/10 reaches 88 ms but 589 kB/s. */
+  vncPollMs: number;
+  vncDeferMs: number;
+  /** Tight quality (0-9) and compression (0-9) the CLIENT asks for. Quality 4 is close to the JPEG 70
+   *  the screencast uses; quality 6 costs 60% more bytes for a difference nobody reported seeing. */
+  vncQualityLevel: number;
+  vncCompressionLevel: number;
+  /** How long a minted WebSocket ticket may be redeemed for. One connection, once. */
+  vncTicketTtlMs: number;
 }
 
 const bounded = (value: unknown, fallback: number, min: number, max: number): number => {
@@ -57,5 +72,11 @@ export function resolveConfig(raw: Record<string, unknown>): BrowserConfig {
     privateNetworkAllowlist: tokenList(raw.privateNetworkAllowlist),
     browserCloseGraceMs: bounded(raw.browserCloseGraceSeconds, 15, 0, 120) * 1000,
     maxInputEventsPerSecond: bounded(raw.maxInputEventsPerSecond, 60, 10, 240),
+    vncEnabled: raw.vncEnabled === true,
+    vncPollMs: bounded(raw.vncPollMs, 20, 5, 200),
+    vncDeferMs: bounded(raw.vncDeferMs, 40, 5, 400),
+    vncQualityLevel: bounded(raw.vncQualityLevel, 4, 0, 9),
+    vncCompressionLevel: bounded(raw.vncCompressionLevel, 6, 0, 9),
+    vncTicketTtlMs: bounded(raw.vncTicketTtlSeconds, 15, 5, 120) * 1000,
   };
 }

@@ -9,6 +9,8 @@ import { BrowserService } from './service.js';
 import { SessionRegistry } from './session-registry.js';
 import { BrowserStore } from './store.js';
 import { registerBrowserTools } from './tools.js';
+import { VncBridge, VncTicketStore } from './vnc-bridge.js';
+import { VncDisplayPool } from './vnc-display.js';
 import type {
   BrowserArtifactPublisher, BrowserClock, BrowserProcessFactory, BrowserProxyFactory, ProcessInspector,
 } from './types.js';
@@ -37,6 +39,10 @@ export function register(ctx: PluginContext, deps: BrowserRegisterDeps = {}): vo
     deps.resolver,
   );
   const clock = deps.clock ?? SYSTEM_CLOCK;
+  // PILOT (ELOWEN_BROWSER_VNC). Constructed unconditionally because construction only makes a 0700
+  // directory; nothing starts an X server, a VNC server or a listener until `vncEnabled` is set.
+  const displays = new VncDisplayPool({ dataDir: ctx.dataDir(), config, logger: ctx.logger });
+  const tickets = new VncTicketStore(config().vncTicketTtlMs, () => clock.now());
   const pool = new BrowserPool({
     dataDir: ctx.dataDir(),
     config,
@@ -45,8 +51,16 @@ export function register(ctx: PluginContext, deps: BrowserRegisterDeps = {}): vo
     processFactory,
     processInspector,
     logger: ctx.logger,
+    displays,
   });
-  const registry = new SessionRegistry({ config, store, pool, artifacts, processInspector, clock, logger: ctx.logger });
+  const registry = new SessionRegistry({
+    config, store, pool, artifacts, processInspector, clock, logger: ctx.logger,
+    vnc: { displays, tickets },
+  });
+  const bridge = new VncBridge({
+    config, tickets, logger: ctx.logger,
+    resolve: (ticket) => registry.resolveVncTarget(ticket),
+  });
   const service = new BrowserService(registry);
 
   // One input, two consumers: the host's readiness line and the plugin's own settings panel report the
@@ -59,6 +73,14 @@ export function register(ctx: PluginContext, deps: BrowserRegisterDeps = {}): vo
   ctx.registerBootReconcile(() => registry.bootReconcile());
   const runtimeService = { name: 'browser-runtime', criticalStop: true, start: () => service.start(), stop: () => service.stop() };
   ctx.registerService(runtimeService);
+  ctx.registerService({
+    name: 'browser-vnc-bridge',
+    criticalStop: true,
+    start: async () => { if (config().vncEnabled) await bridge.listen(); },
+    // Stopping tears down every live socket AND every display: an X server outliving the daemon that
+    // owns it is an orphan nothing will ever reconnect to, holding a framebuffer per account.
+    stop: async () => { await bridge.close(); await displays.releaseAll(); },
+  });
   ctx.registerInterval('browser-session-cleanup', () => service.cleanup(), 30_000);
   ctx.registerUserRemoved((userId) => registry.deleteUser(userId));
   ctx.logger.info('browser plugin registered');

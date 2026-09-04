@@ -283,8 +283,12 @@ describe('browser plugin contract', () => {
     expect(manifest.version).toBe('0.2.11');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
-    expect(manifest.provides.apiRoutes).toHaveLength(12);
+    expect(manifest.provides.apiRoutes).toHaveLength(13);
     expect(manifest.provides.apiRoutes).toContain('navigation');
+    // The VNC pilot's only door. A browser WebSocket cannot carry an Authorization header, so the proof
+    // of ownership is moved into a single-use ticket by an ordinary authenticated route — which means
+    // the route is part of the published contract even while the feature itself is off by default.
+    expect(manifest.provides.apiRoutes).toContain('vnc-ticket');
     expect(existsSync(join(root, manifest.entry))).toBe(true);
     const launcherSource = readFileSync(join(root, 'src', 'browser-launcher.ts'), 'utf8');
     expect(launcherSource).toContain('--proxy-bypass-list=<-loopback>');

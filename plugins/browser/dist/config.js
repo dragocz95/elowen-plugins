@@ -33,5 +33,11 @@ export function resolveConfig(raw) {
         privateNetworkAllowlist: tokenList(raw.privateNetworkAllowlist),
         browserCloseGraceMs: bounded(raw.browserCloseGraceSeconds, 15, 0, 120) * 1000,
         maxInputEventsPerSecond: bounded(raw.maxInputEventsPerSecond, 60, 10, 240),
+        vncEnabled: raw.vncEnabled === true,
+        vncPollMs: bounded(raw.vncPollMs, 20, 5, 200),
+        vncDeferMs: bounded(raw.vncDeferMs, 40, 5, 400),
+        vncQualityLevel: bounded(raw.vncQualityLevel, 4, 0, 9),
+        vncCompressionLevel: bounded(raw.vncCompressionLevel, 6, 0, 9),
+        vncTicketTtlMs: bounded(raw.vncTicketTtlSeconds, 15, 5, 120) * 1000,
     };
 }

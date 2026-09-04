@@ -81,6 +81,10 @@ interface BrowserLaunchOptions {
   userDataDir: string;
   proxyUrl: string;
   viewport: { width: number; height: number };
+  /** PILOT (ELOWEN_BROWSER_VNC): the X display to draw on, or undefined for today's headless launch.
+   *  Present means HEADED — which is the point, since only a real window produces the native input the
+   *  VNC path exists to carry. */
+  display?: { display: string; xauthPath: string };
 }
 
 export interface BrowserProcessFactory {

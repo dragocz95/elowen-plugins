@@ -42,6 +42,7 @@
       "release",
       "input",
       "navigation",
+      "vnc-ticket",
       "close",
       "admin-status",
       "admin-close"
@@ -276,6 +277,91 @@
         "unit": "events/s"
       },
       "advanced": true
+    },
+    {
+      "key": "virtualDisplay",
+      "label": "Virtual display (pilot)",
+      "type": "section",
+      "hint": "Experimental. Draws each account's Chrome on a private X display and serves it over VNC, so keyboard shortcuts, the right mouse button and drag reach the page natively. Leave off to keep the screencast live view."
+    },
+    {
+      "key": "vncEnabled",
+      "label": "Serve the live view over VNC",
+      "type": "boolean",
+      "default": false,
+      "advanced": true,
+      "risk": "high",
+      "hint": "Requires Xvfb and x11vnc on the host. Each account then runs one X server and one VNC server beside its Chrome process, which costs roughly 200 MB more memory per account."
+    },
+    {
+      "key": "vncPollMs",
+      "label": "Framebuffer poll",
+      "type": "number",
+      "min": 5,
+      "max": 200,
+      "step": 5,
+      "default": 20,
+      "advanced": true,
+      "display": {
+        "control": "slider",
+        "unit": "ms"
+      }
+    },
+    {
+      "key": "vncDeferMs",
+      "label": "Update coalescing",
+      "type": "number",
+      "min": 5,
+      "max": 400,
+      "step": 5,
+      "default": 40,
+      "advanced": true,
+      "display": {
+        "control": "slider",
+        "unit": "ms"
+      },
+      "hint": "Higher values send fewer, larger updates: 40 ms costs about the same bandwidth as the screencast, 10 ms is three times faster to react and 60% more traffic."
+    },
+    {
+      "key": "vncQualityLevel",
+      "label": "VNC image quality",
+      "type": "number",
+      "min": 0,
+      "max": 9,
+      "step": 1,
+      "default": 4,
+      "advanced": true,
+      "display": {
+        "control": "slider"
+      }
+    },
+    {
+      "key": "vncCompressionLevel",
+      "label": "VNC compression",
+      "type": "number",
+      "min": 0,
+      "max": 9,
+      "step": 1,
+      "default": 6,
+      "advanced": true,
+      "display": {
+        "control": "slider"
+      }
+    },
+    {
+      "key": "vncTicketTtlSeconds",
+      "label": "Live view ticket lifetime",
+      "type": "number",
+      "min": 5,
+      "max": 120,
+      "step": 5,
+      "default": 15,
+      "advanced": true,
+      "display": {
+        "control": "slider",
+        "unit": "s"
+      },
+      "hint": "A ticket opens exactly one live view connection, once, for the account and session it was issued to."
     },
     {
       "key": "resourceLimits",

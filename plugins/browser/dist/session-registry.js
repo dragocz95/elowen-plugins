@@ -121,6 +121,43 @@ export class SessionRegistry {
         this.deps.pool.clearProfile(ownerUserId);
     }
     profileSize(ownerUserId) { return this.deps.pool.profileSize(ownerUserId); }
+    /** PILOT (ELOWEN_BROWSER_VNC): a one-shot ticket for the live view socket, or null when this session
+     *  is not on a virtual display. The caller has already been proved to own the session; the URL handed
+     *  back names the bridge port and carries nothing else.
+     *
+     *  `interactive` is decided HERE and travels with the ticket, so a viewer cannot promote itself to a
+     *  driver by flipping a flag in its own JavaScript: the bridge drops input from a ticket minted while
+     *  the session was under agent control, and a takeover mints a new one. */
+    mintVncTicket(sessionId, ownerUserId) {
+        const vnc = this.deps.vnc;
+        if (!vnc || !this.deps.config().vncEnabled)
+            return null;
+        const session = this.getOwned(sessionId, ownerUserId);
+        if (!vnc.displays.get(ownerUserId))
+            return null;
+        const { ticket, expiresAt } = vnc.tickets.mint(ownerUserId, sessionId);
+        return {
+            url: `/ws/plugins/browser/vnc?ticket=${encodeURIComponent(ticket)}`,
+            expiresAt,
+            interactive: session.state === 'user',
+        };
+    }
+    /** Where a ticket's session is drawn, for the bridge to dial. Resolved at CONNECT time: a session that
+     *  closed between minting and connecting must not still be reachable through a ticket it left behind. */
+    resolveVncTarget(ticket) {
+        const vnc = this.deps.vnc;
+        if (!vnc)
+            return null;
+        const session = this.sessions.get(ticket.sessionId);
+        if (!session || session.ownerUserId !== ticket.userId)
+            return null;
+        if (session.state === 'closing' || session.state === 'closed' || session.state === 'error')
+            return null;
+        const display = vnc.displays.get(ticket.userId);
+        if (!display || vnc.displays.failure(ticket.userId))
+            return null;
+        return { socketPath: display.socketPath, interactive: session.state === 'user' };
+    }
     async sweep() {
         const now = this.deps.clock.now();
         const config = this.deps.config();

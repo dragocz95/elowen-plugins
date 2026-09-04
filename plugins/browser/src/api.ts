@@ -165,6 +165,21 @@ export function registerBrowserApi(
     },
   });
   ctx.registerApiRoute({
+    // PILOT (ELOWEN_BROWSER_VNC). The only door to the VNC bridge, and an ordinary authenticated plugin
+    // route: `ownedSession` already proves the caller is signed in AND owns this session, so the ticket
+    // it mints inherits exactly that authority and nothing more. A browser WebSocket cannot carry an
+    // Authorization header, which is why the proof has to be moved into a one-shot token first.
+    path: 'vnc-ticket', method: 'POST', access: 'user', handler: async (req) => {
+      try {
+        const userId = requireApiUser(req.auth);
+        const session = ownedSession(registry, req);
+        const issued = registry.mintVncTicket(session.id, userId);
+        if (!issued) throw new BrowserAccessError('The browser live view is not running on a virtual display.', 409);
+        return { body: issued };
+      } catch (error) { return responseError(error); }
+    },
+  });
+  ctx.registerApiRoute({
     path: 'close', method: 'POST', access: 'user', handler: async (req) => {
       try { await ownedSession(registry, req).close('user_closed'); return { body: { closed: true } }; }
       catch (error) { return responseError(error); }

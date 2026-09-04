@@ -5,6 +5,7 @@ import type { BrowserConfig } from './config.js';
 import { BrowserStore } from './store.js';
 import { ProcessTraceLock } from './performance-probe.js';
 import { TabManager } from './tab-manager.js';
+import type { VncDisplayPool } from './vnc-display.js';
 import type {
   BrowserLike, BrowserLogger, BrowserProcessFactory, BrowserProxyFactory, ManagedProcessRecord,
   PageLike, ProcessInspector, ProcessSnapshot, ProxyLease,
@@ -124,6 +125,7 @@ export class PuppeteerCoreFactory implements BrowserProcessFactory {
     userDataDir: string;
     proxyUrl: string;
     viewport: { width: number; height: number };
+    display?: { display: string; xauthPath: string };
   }): Promise<BrowserLike> {
     const moduleName = 'puppeteer-core';
     const loaded = await import(moduleName) as { default?: { launch(options: Record<string, unknown>): Promise<BrowserLike> }; launch?: (options: Record<string, unknown>) => Promise<BrowserLike> };
@@ -131,14 +133,23 @@ export class PuppeteerCoreFactory implements BrowserProcessFactory {
     if (!launch) throw new Error('puppeteer-core does not expose launch().');
     return launch({
       executablePath: options.executablePath,
-      headless: true,
+      headless: !options.display,
       pipe: true,
       userDataDir: options.userDataDir,
       // Service accounts often have HOME unset or pointing at a non-existent directory. Chrome wrappers
       // (notably Snap) reject that before CDP starts, and a shared HOME would also cross account state.
-      env: { ...process.env, HOME: options.userDataDir },
-      defaultViewport: options.viewport,
+      env: {
+        ...process.env,
+        HOME: options.userDataDir,
+        ...(options.display ? { DISPLAY: options.display.display, XAUTHORITY: options.display.xauthPath } : {}),
+      },
+      // On a real display the WINDOW decides the viewport, and forcing one through CDP would leave the
+      // rendered window and the framebuffer disagreeing about size — the thing a remote viewer sees.
+      defaultViewport: options.display ? null : options.viewport,
       dumpio: process.env.ELOWEN_BROWSER_DEBUG === '1',
+      // Measured: `--enable-automation` puts a 56px infobar above the page, so the framebuffer no longer
+      // maps 1:1 onto the viewport and the card would show a strip today's screencast never had.
+      ...(options.display ? { ignoreDefaultArgs: ['--enable-automation'] } : {}),
       args: [
         `--proxy-server=${options.proxyUrl}`,
         '--proxy-bypass-list=<-loopback>',
@@ -154,6 +165,11 @@ export class PuppeteerCoreFactory implements BrowserProcessFactory {
         '--no-first-run',
         '--no-default-browser-check',
         `--window-size=${options.viewport.width},${options.viewport.height}`,
+        // Kiosk removes the tab strip and toolbar, which is what makes the framebuffer show exactly the
+        // page and nothing else — the card already carries its own back, forward and reload controls, so
+        // Chrome's would be a second set of the same thing. Measured chrome height: 143px normally,
+        // 56px in kiosk with the automation infobar, 0px with both dealt with.
+        ...(options.display ? ['--kiosk', '--window-position=0,0'] : []),
       ],
     });
   }
@@ -197,6 +213,9 @@ export class BrowserPool {
     processFactory: BrowserProcessFactory;
     processInspector: ProcessInspector;
     logger: BrowserLogger;
+    /** PILOT (ELOWEN_BROWSER_VNC). Absent, or present with `vncEnabled` false, means today's headless
+     *  launch: the pool never asks for a display and no X server is started. */
+    displays?: VncDisplayPool;
   }) {
     mkdirSync(deps.dataDir, { recursive: true, mode: 0o700 });
     const dataRoot = realpathSync(deps.dataDir);
@@ -305,6 +324,11 @@ export class BrowserPool {
       else if (record) this.deps.logger.warn(`browser process ${record.pid} for user ${userId} did not confirm exit; keeping its ownership record`);
       if (browserResult.status === 'rejected') this.deps.logger.warn(`browser cleanup failed for user ${userId}: ${String(browserResult.reason)}`);
       if (proxyResult.status === 'rejected') this.deps.logger.warn(`browser proxy cleanup failed for user ${userId}: ${String(proxyResult.reason)}`);
+      // The display outlives nothing: Chrome is the only client, so an X server left running would be a
+      // 58 MiB leak per account that no later launch would ever reuse.
+      if (this.deps.displays) await this.deps.displays.release(userId).catch((error: unknown) => {
+        this.deps.logger.warn(`browser vnc display cleanup failed for user ${userId}: ${String(error)}`);
+      });
       this.browsers.delete(userId);
     })();
     this.closings.set(userId, closing);
@@ -388,7 +412,18 @@ export class BrowserPool {
       throw new Error('The managed browser profile path is not a real directory.');
     }
     chmodSync(profilePath, 0o700);
-    const proxy = await this.deps.proxyFactory.open(userId);
+    // The display comes up BEFORE the proxy and before Chrome: a browser launched against a display
+    // that is not serving yet fails inside Chrome's ozone layer, where the error says only "Missing X
+    // server" and nothing about which account or why.
+    const display = config.vncEnabled && this.deps.displays
+      ? await this.deps.displays.acquire(userId)
+      : null;
+    let proxy: ProxyLease;
+    try { proxy = await this.deps.proxyFactory.open(userId); }
+    catch (error) {
+      if (display) await this.deps.displays!.release(userId).catch(() => {});
+      throw error;
+    }
     let browser: BrowserLike;
     try {
       browser = await this.deps.processFactory.launch({
@@ -396,9 +431,11 @@ export class BrowserPool {
         userDataDir: profilePath,
         proxyUrl: proxy.url,
         viewport: { width: config.maxViewportWidth, height: config.viewportHeight },
+        ...(display ? { display: { display: display.display, xauthPath: display.xauthPath } } : {}),
       });
     } catch (error) {
       await proxy.close().catch(() => {});
+      if (display) await this.deps.displays!.release(userId).catch(() => {});
       throw error;
     }
     const tabs = new TabManager(

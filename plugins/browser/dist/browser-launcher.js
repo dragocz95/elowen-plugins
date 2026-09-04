@@ -127,14 +127,23 @@ export class PuppeteerCoreFactory {
             throw new Error('puppeteer-core does not expose launch().');
         return launch({
             executablePath: options.executablePath,
-            headless: true,
+            headless: !options.display,
             pipe: true,
             userDataDir: options.userDataDir,
             // Service accounts often have HOME unset or pointing at a non-existent directory. Chrome wrappers
             // (notably Snap) reject that before CDP starts, and a shared HOME would also cross account state.
-            env: { ...process.env, HOME: options.userDataDir },
-            defaultViewport: options.viewport,
+            env: {
+                ...process.env,
+                HOME: options.userDataDir,
+                ...(options.display ? { DISPLAY: options.display.display, XAUTHORITY: options.display.xauthPath } : {}),
+            },
+            // On a real display the WINDOW decides the viewport, and forcing one through CDP would leave the
+            // rendered window and the framebuffer disagreeing about size — the thing a remote viewer sees.
+            defaultViewport: options.display ? null : options.viewport,
             dumpio: process.env.ELOWEN_BROWSER_DEBUG === '1',
+            // Measured: `--enable-automation` puts a 56px infobar above the page, so the framebuffer no longer
+            // maps 1:1 onto the viewport and the card would show a strip today's screencast never had.
+            ...(options.display ? { ignoreDefaultArgs: ['--enable-automation'] } : {}),
             args: [
                 `--proxy-server=${options.proxyUrl}`,
                 '--proxy-bypass-list=<-loopback>',
@@ -150,6 +159,11 @@ export class PuppeteerCoreFactory {
                 '--no-first-run',
                 '--no-default-browser-check',
                 `--window-size=${options.viewport.width},${options.viewport.height}`,
+                // Kiosk removes the tab strip and toolbar, which is what makes the framebuffer show exactly the
+                // page and nothing else — the card already carries its own back, forward and reload controls, so
+                // Chrome's would be a second set of the same thing. Measured chrome height: 143px normally,
+                // 56px in kiosk with the automation infobar, 0px with both dealt with.
+                ...(options.display ? ['--kiosk', '--window-position=0,0'] : []),
             ],
         });
     }
@@ -289,6 +303,12 @@ export class BrowserPool {
                 this.deps.logger.warn(`browser cleanup failed for user ${userId}: ${String(browserResult.reason)}`);
             if (proxyResult.status === 'rejected')
                 this.deps.logger.warn(`browser proxy cleanup failed for user ${userId}: ${String(proxyResult.reason)}`);
+            // The display outlives nothing: Chrome is the only client, so an X server left running would be a
+            // 58 MiB leak per account that no later launch would ever reuse.
+            if (this.deps.displays)
+                await this.deps.displays.release(userId).catch((error) => {
+                    this.deps.logger.warn(`browser vnc display cleanup failed for user ${userId}: ${String(error)}`);
+                });
             this.browsers.delete(userId);
         })();
         this.closings.set(userId, closing);
@@ -395,7 +415,21 @@ export class BrowserPool {
             throw new Error('The managed browser profile path is not a real directory.');
         }
         chmodSync(profilePath, 0o700);
-        const proxy = await this.deps.proxyFactory.open(userId);
+        // The display comes up BEFORE the proxy and before Chrome: a browser launched against a display
+        // that is not serving yet fails inside Chrome's ozone layer, where the error says only "Missing X
+        // server" and nothing about which account or why.
+        const display = config.vncEnabled && this.deps.displays
+            ? await this.deps.displays.acquire(userId)
+            : null;
+        let proxy;
+        try {
+            proxy = await this.deps.proxyFactory.open(userId);
+        }
+        catch (error) {
+            if (display)
+                await this.deps.displays.release(userId).catch(() => { });
+            throw error;
+        }
         let browser;
         try {
             browser = await this.deps.processFactory.launch({
@@ -403,10 +437,13 @@ export class BrowserPool {
                 userDataDir: profilePath,
                 proxyUrl: proxy.url,
                 viewport: { width: config.maxViewportWidth, height: config.viewportHeight },
+                ...(display ? { display: { display: display.display, xauthPath: display.xauthPath } } : {}),
             });
         }
         catch (error) {
             await proxy.close().catch(() => { });
+            if (display)
+                await this.deps.displays.release(userId).catch(() => { });
             throw error;
         }
         const tabs = new TabManager(browser, () => this.deps.config().maxTargetsPerUser, this.deps.logger, (page) => installProxyAuthentication(page, proxy), () => this.closeUser(userId));
