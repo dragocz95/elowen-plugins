@@ -8,7 +8,7 @@ import type { EnvironmentAction, Release, Site, SitesStore } from './store.js';
 import type { CreateContainerSpec, PodmanClient, PodmanContainerSummary } from './podman.js';
 
 const STOP_TIMEOUT_SECONDS = 8;
-const LIMIT_UPDATE_WAIT_MS = 10_000;
+const LIMIT_UPDATE_ATTEMPTS = 3;
 const EXIT_WAIT_MS = 30_000;
 const KILL_WAIT_MS = 5_000;
 const LOG_CAP_BYTES = 256 * 1024;
@@ -434,8 +434,7 @@ export class EnvironmentSupervisor {
     name: string,
     limits: Pick<CreateContainerSpec, 'cpus' | 'memoryMb' | 'pidsLimit'>,
   ): Promise<void> {
-    const deadline = this.now() + LIMIT_UPDATE_WAIT_MS;
-    while (true) {
+    for (let attempt = 1; attempt <= LIMIT_UPDATE_ATTEMPTS; attempt += 1) {
       try {
         await this.deps.podman.update(name, limits);
         return;
@@ -444,8 +443,10 @@ export class EnvironmentSupervisor {
         const transient = message.includes('/crun/')
           && message.includes('/status')
           && message.includes('No such file or directory');
-        if (!transient || this.now() >= deadline || await this.deps.podman.inspectStatus(name) !== 'running') throw error;
-        await this.sleep(200);
+        if (!transient || attempt === LIMIT_UPDATE_ATTEMPTS) throw error;
+        const status = await this.deps.podman.inspectStatus(name);
+        if (status !== 'running' && status !== 'created') throw error;
+        await this.sleep(attempt * 1_000);
       }
     }
   }

@@ -413,14 +413,14 @@ test('existing environment receives effective limits after start without recreat
   ]);
 });
 
-test('a previously created container retries only the transient crun startup race after ingress readiness', async (t) => {
+test('a previously created container retries the transient crun race through created and running states', async (t) => {
   const name = `elowen-site-${SITE_ID}`;
-  const { supervisor, calls, site, podman } = supervisorHarness(t, { statuses: ['created'] });
+  const { supervisor, calls, site, podman } = supervisorHarness(t, { statuses: ['created', 'created', 'running'] });
   let updates = 0;
   podman.update = async (container, limits) => {
     calls.push(['update', container, limits]);
     updates += 1;
-    if (updates === 1) {
+    if (updates < 3) {
       throw new Error('podman update failed: error opening file `/run/user/33/crun/test/status`: No such file or directory');
     }
   };
@@ -430,10 +430,13 @@ test('a previously created container retries only the transient crun startup rac
   const updateIndexes = calls.flatMap(([operation], index) => operation === 'update' ? [index] : []);
   assert.ok(startIndex >= 0);
   assert.ok(readyIndex > startIndex);
-  assert.equal(updateIndexes.length, 2);
+  assert.equal(updateIndexes.length, 3);
   assert.ok(updateIndexes[0] > readyIndex);
-  assert.ok(calls.findIndex(([operation, status]) => operation === 'inspect' && status === 'running') > updateIndexes[0]);
-  assert.deepEqual(calls[updateIndexes[1]], ['update', name, { cpus: 1, memoryMb: 1024, pidsLimit: 512 }]);
+  assert.deepEqual(
+    calls.slice(updateIndexes[0] + 1, updateIndexes[2]).filter(([operation]) => operation === 'inspect').map(([, status]) => status),
+    ['created', 'running'],
+  );
+  assert.deepEqual(calls[updateIndexes[2]], ['update', name, { cpus: 1, memoryMb: 1024, pidsLimit: 512 }]);
 });
 
 test('a structural crun update failure is not retried', async (t) => {
