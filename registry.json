@@ -3,7 +3,7 @@
   "plugins": [
     {
       "name": "browser",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "requiresCore": "0.28.30",
       "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, a live view served over VNC that carries native keyboard and mouse input, exclusive user takeover and a deny-by-default enforcing network boundary.",
       "category": "tools",

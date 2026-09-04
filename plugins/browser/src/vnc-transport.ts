@@ -79,20 +79,13 @@ export const VNC_CLOSE = {
   sessionClosed: 4503,
 } as const;
 
-/** What the server sealed into the ticket. The client never sees it and cannot influence it: whether this
- *  connection may drive the browser is decided from `leaseId` against the session's CURRENT lease, every
- *  time a message arrives. */
+/** What the server sealed into the ticket. The client never sees it and cannot influence it. */
 export interface VncTicketPayload {
   sessionId: string;
-  /** The takeover lease this viewer claims to hold, or null for a viewer that is only watching. */
-  leaseId: string | null;
 }
 
 export interface VncTarget {
   socketPath: string;
-  /** Whether this connection may send input RIGHT NOW. Asked per message rather than resolved once, so a
-   *  lease that is released or expires stops the input on the next message instead of at reconnect. */
-  interactive(): boolean;
 }
 
 export interface VncTransportDeps {
@@ -131,8 +124,7 @@ const asPayload = (value: unknown): VncTicketPayload | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as Partial<VncTicketPayload>;
   if (typeof raw.sessionId !== 'string' || !raw.sessionId) return null;
-  if (raw.leaseId !== null && typeof raw.leaseId !== 'string') return null;
-  return { sessionId: raw.sessionId, leaseId: raw.leaseId ?? null };
+  return { sessionId: raw.sessionId };
 };
 
 const asBuffer = (data: string | Uint8Array): Buffer =>
@@ -248,13 +240,13 @@ export class VncTransport {
     // opening handshake bytes wait here rather than anywhere later in this function.
     conn.onMessage((data) => {
       if (closed) return;
-      // Framed on every connection, driver or not: see RfbInputFilter. `interactive()` is re-read here so
-      // a lease that ended a moment ago cannot get one more click through.
-      const result = filter.push(asBuffer(data), target.interactive());
+      // Framed on every connection: see RfbInputFilter. Input is let through for every viewer, because
+      // every viewer IS the session's owner — the ticket proved that — and the owner may always reach
+      // into their own browser, agent driving or not. The takeover lease decides whether the AGENT waits,
+      // not whether the human's click arrives; gating clicks on it once left a connection opened before
+      // the takeover dead until it happened to reconnect.
+      const result = filter.push(asBuffer(data), true);
       if (result.forward.length > 0) upstream.write(result.forward);
-      if (result.dropped > 0) {
-        this.deps.logger.debug?.(`browser vnc dropped ${result.dropped} input message(s) from a viewer without the lease`);
-      }
       if (result.close) {
         this.deps.logger.warn(`browser vnc connection closed: ${result.close}`);
         entry.shutdown(VNC_CLOSE.protocol, 'protocol_error');

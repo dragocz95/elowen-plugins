@@ -175,17 +175,6 @@ export class BrowserSession {
   get controlReason(): string | null { return this.controlReasonValue; }
   get currentFavicon(): string | null { return this.faviconDataUrl; }
 
-  /** Whether this lease is the one currently driving the session.
-   *
-   *  The live view transport asks per input message, so control changing hands takes effect on the next
-   *  message rather than at the next reconnect. It compares a token the caller already holds and never
-   *  hands one out, so it cannot become a way to learn a lease id. */
-  holdsLease(leaseId: string): boolean {
-    return this.stateValue === 'user'
-      && this.lease?.leaseId === leaseId
-      && this.lease.expiresAt > this.deps.clock.now();
-  }
-
   async setArtifact(ref: BrowserArtifactRef | null): Promise<void> {
     if (this.stateValue === 'closing' || this.stateValue === 'closed' || this.stateValue === 'error') {
       if (ref) await this.deps.artifacts.close(ref).catch(() => {});

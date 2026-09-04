@@ -14999,7 +14999,7 @@ function useBrowserStream(path) {
 
 // plugins/browser/web-src/VncSurface.tsx
 var import_react5 = __toESM(require_react(), 1);
-var QUALITY_LEVEL = 4;
+var QUALITY_LEVEL = 8;
 var COMPRESSION_LEVEL = 6;
 var RECONNECT_MIN_MS = 500;
 var RECONNECT_MAX_MS = 15e3;
@@ -15256,8 +15256,6 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const initialSessionId = data?.browserSessionId ?? "";
   const [lease, setLease] = (0, import_react6.useState)(() => initialSessionId ? rememberedLease(initialSessionId) : null);
   const adoptedLease = (0, import_react6.useRef)(lease?.leaseId ?? null);
-  const leaseRef = (0, import_react6.useRef)(lease);
-  leaseRef.current = lease;
   const [speechHidden, setSpeechHidden] = (0, import_react6.useState)(false);
   const [thumbSlot, setThumbSlot] = (0, import_react6.useState)(null);
   const [overlaySlot, setOverlaySlot] = (0, import_react6.useState)(null);
@@ -15354,11 +15352,10 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   }, [expanded]);
   const mintTicket = (0, import_react6.useCallback)(async () => {
     if (!sessionId) return { kind: "refused", reason: "unavailable" };
-    const held = leaseRef.current;
     try {
       const issued = await runtime().api(
         inputPath(sessionId, "vnc-ticket"),
-        jsonRequest("POST", held ? { leaseId: held.leaseId } : {})
+        jsonRequest("POST")
       );
       if (typeof issued?.url !== "string") return { kind: "refused", reason: "unavailable" };
       return { kind: "ticket", url: issued.url, width: issued.width, height: issued.height };
@@ -15370,7 +15367,9 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const vnc = useVncSurface({
     slot: expanded ? overlaySlot : thumbSlot,
     ticket: mintTicket,
-    interactive: !!lease,
+    // The raised canvas is the working surface and always takes input; the thumbnail is a picture and
+    // a button, so a stray wheel or key over the transcript never reaches the remote page.
+    interactive: expanded,
     enabled: !!sessionId && !stream.closed
   });
   const aspectStyle = vnc.aspect ? { "--browser-aspect": String(vnc.aspect) } : void 0;
@@ -15419,7 +15418,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
     "div",
     {
       className: "browser-artifact__canvas",
-      "data-interactive": interactive && lease ? "true" : void 0,
+      "data-interactive": interactive ? "true" : void 0,
       "aria-label": strings.browserViewport || "Live browser view",
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "browser-artifact__vnc-slot", ref: interactive ? setOverlaySlot : setThumbSlot }),

@@ -151,23 +151,15 @@ export function registerBrowserApi(
     // The only door to the live view socket, and an ordinary authenticated plugin route: `ownedSession`
     // already proves the caller is signed in AND owns this session, so the ticket it mints inherits
     // exactly that authority and nothing more. A browser WebSocket cannot carry an Authorization header,
-    // which is why the proof has to be moved into a one-shot token first.
-    //
-    // The lease id in the body is a CLAIM, not a grant. It is sealed into the ticket and checked against
-    // the session's current lease on every input message, so asking for one while holding somebody
-    // else's token buys a view-only connection and nothing more.
+    // which is why the proof has to be moved into a one-shot token first. The owner may always drive
+    // their own browser through it: the takeover lease tells the AGENT to wait, it does not gate the
+    // human's input.
     path: 'vnc-ticket', method: 'POST', access: 'user', handler: async (req) => {
       try {
         const userId = requireApiUser(req.auth);
         const session = ownedSession(registry, req);
         if (!liveView) throw new BrowserAccessError('This host cannot carry a browser live view connection.', 501);
-        const body = await req.json<unknown>().catch(() => ({}));
-        const leaseId = (body as { leaseId?: unknown } | null)?.leaseId;
-        const payload = registry.liveViewPayload(
-          session.id,
-          userId,
-          typeof leaseId === 'string' && leaseId ? requiredString(leaseId, 'leaseId', 256) : null,
-        );
+        const payload = registry.liveViewPayload(session.id, userId);
         if (!payload) throw new BrowserAccessError('The browser live view has no display yet.', 409);
         // Refused here as well as at the socket, because this is the only place the CARD can be told
         // why. noVNC surfaces no close code, so a refusal that happened at the upgrade would reach the

@@ -13,11 +13,13 @@ import { useEffect, useRef, useState } from 'react';
  *  outlives every slot change, because it is what noVNC owns: remounting it would drop the connection
  *  every time the reader expands or collapses the card. */
 
-/** Measured good values for this framebuffer, and not worth a setting each: quality 4 is close to the
- *  JPEG 70 the screencast used, and 6 is the compression level above which the CPU cost stops buying
- *  bytes. The one knob that genuinely trades one thing for another is the server's update coalescing,
- *  and that one IS configurable. */
-const QUALITY_LEVEL = 4;
+/** Not worth a setting each. Quality 4 (about JPEG 70) read as "terrible" on the first real day: a
+ *  browser page is mostly text, and JPEG ringing around glyphs turns into blur once the canvas is
+ *  scaled up for the expanded view. 8 keeps JPEG for the photographic rectangles at a level where text
+ *  stays crisp; 9 would drop JPEG entirely and multiply bandwidth on every scroll. 6 is the compression
+ *  level above which the CPU cost stops buying bytes. The one knob that genuinely trades one thing for
+ *  another is the server's update coalescing, and that one IS configurable. */
+const QUALITY_LEVEL = 8;
 const COMPRESSION_LEVEL = 6;
 
 const RECONNECT_MIN_MS = 500;

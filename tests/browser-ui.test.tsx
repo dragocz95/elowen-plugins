@@ -127,9 +127,9 @@ describe('browser plugin UI', () => {
     // quality and compression rather than noVNC's defaults.
     expect(client.url).toMatch(/^wss?:\/\/[^/]+\/ws\/plugins\/browser\/vnc\?ticket=t1$/);
     expect(client.scaleViewport).toBe(true);
-    expect({ quality: client.qualityLevel, compression: client.compressionLevel }).toEqual({ quality: 4, compression: 6 });
-    // Nobody holds the lease, so this viewer is watching — and says so to the client as well, even
-    // though the server is what enforces it.
+    expect({ quality: client.qualityLevel, compression: client.compressionLevel }).toEqual({ quality: 8, compression: 6 });
+    // Collapsed, the canvas is a thumbnail and a button: a stray wheel or key over the transcript must
+    // not reach the remote page, so the client is told to stay out of the way until it is raised.
     expect(client.viewOnly).toBe(true);
     await act(async () => { client.emit('connect'); });
     expect(screen.queryByText(strings.connectingImage)).toBeNull();
@@ -242,7 +242,7 @@ describe('browser plugin UI', () => {
       http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
       http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-new', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
       http.post('/api/plugins/browser/api/vnc-ticket', async ({ request }) => {
-        calls.push({ path: 'vnc-ticket', body: await request.json() });
+        calls.push({ path: 'vnc-ticket', body: await request.text() });
         return HttpResponse.json({ url: '/ws/plugins/browser/vnc?ticket=t2', expiresAt: Date.now() + 15_000, width: 1280, height: 800 });
       }),
       http.post('/api/plugins/browser/api/release', async ({ request }) => { calls.push({ path: 'release', body: await request.json() }); return HttpResponse.json({ released: true }); }),
@@ -251,9 +251,16 @@ describe('browser plugin UI', () => {
     );
     mountArtifact();
     const client = await paint();
-    // Watching, so the client is told to stay out of the way — while the SERVER is what refuses input.
+    // Collapsed: a thumbnail, so the client stays out of the way.
     expect(client.viewOnly).toBe(true);
     fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    // Raised, the SAME connection drives at once — before any takeover. The owner may always reach into
+    // their own browser; "Take control" is what tells the agent to wait, not what unlocks the mouse.
+    // Production regression: input used to be gated on a lease sealed into the ticket at mint time, so a
+    // connection opened before the takeover stayed dead until it happened to reconnect.
+    await waitFor(() => expect(client.viewOnly).toBe(false));
+    expect(client.focused).toBe(true);
+    expect(rfbClients).toHaveLength(1);
     // Page navigation belongs to whoever is driving: nothing to show while the agent holds the session.
     expect(screen.queryByRole('button', { name: strings.reload })).toBeNull();
     fireEvent.click(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)!);
@@ -261,41 +268,42 @@ describe('browser plugin UI', () => {
     for (const label of [strings.back, strings.forward, strings.reload]) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
-    // Taking control turns the SAME connection into a driving one and grabs the keyboard, rather than
-    // reconnecting: dropping the picture on every takeover would be the most visible thing the card does.
-    await waitFor(() => expect(client.viewOnly).toBe(false));
-    expect(client.focused).toBe(true);
+    expect(client.viewOnly).toBe(false);
     expect(rfbClients).toHaveLength(1);
 
     fireEvent.click(screen.getByRole('button', { name: strings.back }));
     await waitFor(() => expect(calls.some((call) => call.path === 'navigation' && call.body.action === 'back' && call.body.leaseId === 'lease-new')).toBe(true));
     fireEvent.click(screen.getAllByRole('button', { name: strings.returnToAgent }).at(-1)!);
     await waitFor(() => expect(calls.some((call) => call.path === 'release' && call.body.leaseId === 'lease-new')).toBe(true));
-    // Handing it back is reflected too, so the canvas stops taking keystrokes at once.
+    // Handing it back does not take the mouse away: the raised canvas keeps driving.
+    await waitFor(() => expect(screen.queryByRole('button', { name: strings.back })).toBeNull());
+    expect(client.viewOnly).toBe(false);
+    // Collapsing it does.
+    fireEvent.click(screen.getByRole('button', { name: strings.closeView }));
     await waitFor(() => expect(client.viewOnly).toBe(true));
   });
 
-  it('carries the lease it holds into the ticket, so the server can weigh it', async () => {
+  it('mints a ticket that names nothing but the session, before and after a takeover', async () => {
     const tickets: any[] = [];
     use(
       http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
       http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-drive', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
       http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000 })),
       http.post('/api/plugins/browser/api/vnc-ticket', async ({ request }) => {
-        tickets.push(await request.json());
+        tickets.push(await request.text());
         return HttpResponse.json({ url: '/ws/plugins/browser/vnc?ticket=t3', expiresAt: Date.now() + 15_000, width: 1280, height: 800 });
       }),
     );
     mountArtifact();
     const client = await paint();
-    // A viewer with no lease claims none.
-    expect(tickets.at(-1)).toEqual({});
+    expect(tickets.at(-1)).toBe('');
     fireEvent.click(await screen.findByRole('button', { name: strings.takeControl }));
     expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
-    // The lease is a CLAIM sealed into the ticket, checked against the session's real lease on every
-    // input message. Reconnecting is what carries it, so the connection is dropped to re-mint.
+    // The lease never travels with the ticket: the server does not weigh it, so a reconnect after the
+    // takeover asks for exactly what it asked for before.
     await act(async () => { client.emit('disconnect'); });
-    await waitFor(() => expect(tickets.at(-1)).toEqual({ leaseId: 'lease-drive' }));
+    await waitFor(() => expect(tickets).toHaveLength(2));
+    expect(tickets.at(-1)).toBe('');
   });
 
   it('says the live view is unavailable rather than showing an empty box', async () => {
