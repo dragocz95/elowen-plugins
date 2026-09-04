@@ -292,6 +292,11 @@ export function registerTools(deps) {
                 guardPublisher(userId);
                 const site = requireOwned(deps, input.site, userId);
                 const config = deps.config();
+                if (site.runtime === 'environment') {
+                    throw new ToolError('Persistent environments are managed by the later environment tool phase and cannot be published as file releases.');
+                }
+                if (site.runtime === 'unsupported')
+                    throw new ToolError(`This site has an unsupported runtime: ${site.unsupportedRuntime ?? 'unknown'}.`);
                 const relative = (input.outputDir ?? '').replace(/^\/+/, '');
                 if (relative.split('/').some((segment) => segment === '..')) {
                     throw new ToolError('outputDir must stay inside the site folder.');

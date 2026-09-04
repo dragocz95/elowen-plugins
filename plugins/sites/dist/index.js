@@ -3,13 +3,16 @@ import { existsSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { asSitesContext, asUserViews } from './coreSeams.js';
 import { SitesStore } from './store.js';
-import { resolveConfig } from './config.js';
+import { resolveConfig, siteUrl } from './config.js';
 import { createSiteHandler } from './serve.js';
 import { createApiHandlers } from './api.js';
 import { registerTools } from './tools.js';
 import { SiteGatewayManager } from './gateway.js';
 import { executePhp } from './php.js';
 import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
+import { PodmanClient } from './podman.js';
+import { ensureBaseImage } from './baseImage.js';
+import { EnvironmentSupervisor } from './environment.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
 const GATEWAY_RECONCILE_MS = 12 * 3600_000;
@@ -109,6 +112,56 @@ export function register(published) {
         siteDir,
         releaseDir,
     });
+    const podman = new PodmanClient();
+    let baseImage = null;
+    const ensureEnvironmentBaseImage = () => {
+        if (baseImage)
+            return baseImage;
+        baseImage = ensureBaseImage(podman, dataDir).catch((error) => {
+            baseImage = null;
+            throw error;
+        });
+        return baseImage;
+    };
+    const environment = new EnvironmentSupervisor({
+        podman,
+        store,
+        gateway: {
+            prepareRuntimeSocket: async (siteId) => {
+                const control = ctx.control('publishedSitesGateway');
+                if (!control)
+                    throw new Error('the published-sites socket broker is unavailable');
+                return await control.prepareRuntimeSocket(siteId);
+            },
+            sealRuntimeSocket: async (siteId) => {
+                const control = ctx.control('publishedSitesGateway');
+                if (!control)
+                    throw new Error('the published-sites socket broker is unavailable');
+                await control.sealRuntimeSocket(siteId);
+            },
+            removeRuntimeSocket: async (siteId) => {
+                const control = ctx.control('publishedSitesGateway');
+                if (!control)
+                    throw new Error('the published-sites socket broker is unavailable');
+                await control.removeRuntimeSocket(siteId);
+            },
+        },
+        config: () => {
+            const resolved = config();
+            return {
+                startTimeoutSeconds: resolved.startTimeoutSeconds,
+                runtimeNetwork: resolved.runtimeNetwork,
+                environmentCpus: resolved.environmentCpus,
+                environmentMemoryMb: resolved.environmentMemoryMb,
+                environmentPidsLimit: resolved.environmentPidsLimit,
+                environmentDiskSoftMb: resolved.environmentDiskSoftMb,
+            };
+        },
+        siteDir,
+        ensureBaseImage: ensureEnvironmentBaseImage,
+        siteUrl: (site) => siteUrl(config(), site.slug),
+        logger: ctx.logger,
+    });
     /** Deletion is two-phase and crash-safe. The durable marker removes access immediately; only the
      * authoritative daemon touches processes and plugin-owned files. A forked tool runner stops after the
      * marker and the daemon's five-second reconcile finishes the same operation. */
@@ -123,7 +176,10 @@ export function register(published) {
         if (!isDaemonProcess())
             return;
         try {
-            await supervisor.stop(siteId);
+            if (site.runtime === 'environment')
+                await environment.delete(siteId);
+            else
+                await supervisor.stop(siteId);
             rmSync(siteDir(siteId), { recursive: true, force: true });
             store.deleteSite(siteId);
             // Last, and never fatal: the hostname and its certificate are the gateway's copy of a site that no
@@ -211,7 +267,7 @@ export function register(published) {
                 if (!deletingSiteIds.has(siteId))
                     pendingHits.set(siteId, (pendingHits.get(siteId) ?? 0) + 1);
             },
-            endpointFor: (siteId) => supervisor.endpointFor(siteId),
+            endpointFor: (siteId) => environment.endpointFor(siteId) ?? supervisor.endpointFor(siteId),
             proxyLimits: () => {
                 const resolved = config();
                 return {
@@ -251,6 +307,34 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
     registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, people });
     ctx.registerReadinessCheck(() => gateway.readiness());
+    ctx.registerReadinessCheck(async () => {
+        if (!config().allowEnvironments) {
+            return { id: 'sites-environments', label: 'Sites environments', ok: true, detail: 'Persistent environments are disabled in Sites settings.' };
+        }
+        const control = ctx.control('publishedSitesGateway');
+        if (!control || typeof control.environmentsStatus !== 'function') {
+            return {
+                id: 'sites-environments',
+                label: 'Sites environments',
+                ok: false,
+                detail: 'The installed core does not expose the environments-status helper operation.',
+                hint: 'Update Elowen and re-run elowen install as root, then review the Sites settings checklist.',
+            };
+        }
+        const report = await control.environmentsStatus();
+        const detail = report.steps.map((step) => `${step.id}: ${step.status} (${step.detail})`).join('; ')
+            || report.error
+            || 'No environment dependency checks were returned.';
+        return {
+            id: 'sites-environments',
+            label: 'Sites environments',
+            ok: report.available && report.ok,
+            detail,
+            ...(!report.available || !report.ok
+                ? { hint: 'Review the Sites settings checklist. Dependency installation is exposed by the later admin API and UI phase.' }
+                : {}),
+        };
+    });
     ctx.registerReadinessCheck(() => {
         const required = ['/usr/bin/node', '/usr/bin/npm', '/usr/bin/corepack'];
         const missing = required.filter((path) => !existsSync(path) || !sandboxVisible(path));
@@ -310,8 +394,16 @@ export function register(published) {
         ctx.registerService({
             name: 'site-runtimes',
             criticalStop: true,
-            start: async () => { await supervisor.reconcile(); },
-            stop: async () => { await supervisor.stopAll(); },
+            start: async () => {
+                await supervisor.reconcile();
+                await environment.reconcile();
+            },
+            // Command runtimes retain their existing reload behavior. Persistent environments detach only and
+            // remain in Podman's user scope across plugin reloads and daemon restarts.
+            stop: async () => {
+                await supervisor.stopAll();
+                await environment.detach();
+            },
         });
     }
     ctx.registerUserRemoved(async (userId) => {
@@ -340,7 +432,11 @@ export function register(published) {
     // shared desired state here and starts or replaces the process whose release id no longer matches.
     ctx.registerInterval('reconcile-site-runtimes', async () => {
         await supervisor.reconcile();
+        await environment.reconcile();
     }, 2_000);
+    ctx.registerInterval('backstop-site-environments', async () => {
+        await environment.backstop();
+    }, 60_000);
     // A publish almost always arrives from a forked tool runner, which has no gateway of its own and never
     // reconciles, so the daemon has to notice the new site itself. Without this the page is `live` in the
     // store while nginx has no server block for it, and stays unreachable until the 12-hour renewal sweep.

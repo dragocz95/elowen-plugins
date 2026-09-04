@@ -1,30 +1,48 @@
 export const VISIBILITIES = ['private', 'project', 'authenticated', 'public'];
 const asVisibility = (value) => VISIBILITIES.includes(value) ? value : 'private';
 const asStatus = (value) => value === 'live' || value === 'failed' || value === 'deleting' ? value : 'draft';
-const toSite = (row) => ({
-    id: row.id,
-    slug: row.slug,
-    title: row.title,
-    summary: row.summary ?? '',
-    projectId: row.project_id,
-    ownerUserId: row.owner_user_id,
-    visibility: asVisibility(row.visibility),
-    accessGeneration: row.access_generation,
-    sourceDir: row.source_dir,
-    spa: row.spa === 1,
-    runtime: row.runtime === 'command' ? 'command' : row.runtime === 'php' ? 'php' : 'static',
-    startCommand: row.start_command ?? '',
-    bind: row.bind === 'port' ? 'port' : 'socket',
-    port: row.port,
-    status: asStatus(row.status),
-    currentReleaseId: row.current_release_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    createdModel: row.created_model ?? '',
-    lastPublishAt: row.last_publish_at,
-    lastPublishModel: row.last_publish_model,
-    lastError: row.last_error,
-});
+const asRuntime = (value) => {
+    if (value === 'static' || value === 'command' || value === 'php' || value === 'environment') {
+        return { runtime: value, unsupportedRuntime: null };
+    }
+    return { runtime: 'unsupported', unsupportedRuntime: value ?? '(null)' };
+};
+const asEnvironmentDesiredState = (value) => value === 'stopped' ? 'stopped' : 'running';
+const toSite = (row) => {
+    const runtime = asRuntime(row.runtime);
+    return {
+        id: row.id,
+        slug: row.slug,
+        title: row.title,
+        summary: row.summary ?? '',
+        projectId: row.project_id,
+        ownerUserId: row.owner_user_id,
+        visibility: asVisibility(row.visibility),
+        accessGeneration: row.access_generation,
+        sourceDir: row.source_dir,
+        spa: row.spa === 1,
+        runtime: runtime.runtime,
+        unsupportedRuntime: runtime.unsupportedRuntime,
+        startCommand: row.start_command ?? '',
+        bind: row.bind === 'port' ? 'port' : 'socket',
+        port: row.port,
+        environmentCpus: row.environment_cpus,
+        environmentMemoryMb: row.environment_memory_mb,
+        environmentPidsLimit: row.environment_pids_limit,
+        environmentDiskSoftMb: row.environment_disk_soft_mb,
+        environmentDesiredState: asEnvironmentDesiredState(row.environment_desired_state),
+        status: runtime.runtime === 'unsupported' ? 'failed' : asStatus(row.status),
+        currentReleaseId: row.current_release_id,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        createdModel: row.created_model ?? '',
+        lastPublishAt: row.last_publish_at,
+        lastPublishModel: row.last_publish_model,
+        lastError: runtime.runtime === 'unsupported'
+            ? `Unsupported site runtime: ${runtime.unsupportedRuntime}`
+            : row.last_error,
+    };
+};
 const toRelease = (row) => ({
     id: row.id,
     siteId: row.site_id,
@@ -33,6 +51,9 @@ const toRelease = (row) => ({
     fileCount: row.file_count,
     sizeBytes: row.size_bytes,
     note: row.note ?? '',
+    kind: row.kind === 'environment-rootfs' || row.kind === 'environment-data' ? row.kind : 'files',
+    imageRef: row.image_ref,
+    dataArchive: row.data_archive,
 });
 export class SitesStore {
     db;
@@ -139,6 +160,23 @@ export class SitesStore {
           `);
                 },
             },
+            {
+                version: 5,
+                // Additive environment metadata. Existing static, command and PHP rows retain every value and
+                // behavior; nullable overrides continue to mean the administrator defaults.
+                up: (handle) => {
+                    handle.exec(`
+            ALTER TABLE p_sites_sites ADD COLUMN environment_cpus REAL;
+            ALTER TABLE p_sites_sites ADD COLUMN environment_memory_mb INTEGER;
+            ALTER TABLE p_sites_sites ADD COLUMN environment_pids_limit INTEGER;
+            ALTER TABLE p_sites_sites ADD COLUMN environment_disk_soft_mb INTEGER;
+            ALTER TABLE p_sites_sites ADD COLUMN environment_desired_state TEXT NOT NULL DEFAULT 'running';
+            ALTER TABLE p_sites_releases ADD COLUMN kind TEXT NOT NULL DEFAULT 'files';
+            ALTER TABLE p_sites_releases ADD COLUMN image_ref TEXT;
+            ALTER TABLE p_sites_releases ADD COLUMN data_archive TEXT;
+          `);
+                },
+            },
         ]);
     }
     transaction(fn) {
@@ -148,10 +186,12 @@ export class SitesStore {
         this.db.prepare(`
       INSERT INTO p_sites_sites (
         id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
-        source_dir, spa, runtime, start_command, bind, port, status, current_release_id,
+        source_dir, spa, runtime, start_command, bind, port,
+        environment_cpus, environment_memory_mb, environment_pids_limit, environment_disk_soft_mb,
+        environment_desired_state, status, current_release_id,
         created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0, site.runtime, site.startCommand, site.bind, site.port, site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError);
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0, site.runtime, site.startCommand, site.bind, site.port, site.environmentCpus ?? null, site.environmentMemoryMb ?? null, site.environmentPidsLimit ?? null, site.environmentDiskSoftMb ?? null, site.environmentDesiredState ?? 'running', site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError);
     }
     siteById(id) {
         const row = this.db.prepare('SELECT * FROM p_sites_sites WHERE id = ?').get(id);
@@ -171,6 +211,13 @@ export class SitesStore {
     countOwnedBy(userId) {
         const row = this.db.prepare("SELECT COUNT(*) AS n FROM p_sites_sites WHERE owner_user_id = ? AND status <> 'deleting'")
             .get(userId);
+        return row?.n ?? 0;
+    }
+    countEnvironmentOwnedBy(userId) {
+        const row = this.db.prepare(`
+      SELECT COUNT(*) AS n FROM p_sites_sites
+      WHERE owner_user_id = ? AND runtime = 'environment' AND status <> 'deleting'
+    `).get(userId);
         return row?.n ?? 0;
     }
     sitesInProjects(projectIds) {
@@ -195,6 +242,12 @@ export class SitesStore {
       WHERE runtime = 'command' AND status = 'live' AND current_release_id IS NOT NULL
     `).all().map(toSite);
     }
+    liveEnvironmentSites() {
+        return this.db.prepare(`
+      SELECT * FROM p_sites_sites
+      WHERE runtime = 'environment' AND status = 'live'
+    `).all().map(toSite);
+    }
     portsInUse() {
         return this.db.prepare('SELECT port FROM p_sites_sites WHERE port IS NOT NULL')
             .all().map((row) => row.port);
@@ -214,6 +267,11 @@ export class SitesStore {
             bind: 'bind',
             port: 'port',
             startCommand: 'start_command',
+            environmentCpus: 'environment_cpus',
+            environmentMemoryMb: 'environment_memory_mb',
+            environmentPidsLimit: 'environment_pids_limit',
+            environmentDiskSoftMb: 'environment_disk_soft_mb',
+            environmentDesiredState: 'environment_desired_state',
             status: 'status',
             currentReleaseId: 'current_release_id',
             lastPublishAt: 'last_publish_at',
@@ -295,9 +353,10 @@ export class SitesStore {
     }
     insertRelease(release) {
         this.db.prepare(`
-      INSERT INTO p_sites_releases (id, site_id, created_at, model, file_count, size_bytes, note)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(release.id, release.siteId, release.createdAt, release.model, release.fileCount, release.sizeBytes, release.note);
+      INSERT INTO p_sites_releases (
+        id, site_id, created_at, model, file_count, size_bytes, note, kind, image_ref, data_archive
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(release.id, release.siteId, release.createdAt, release.model, release.fileCount, release.sizeBytes, release.note, release.kind ?? 'files', release.imageRef ?? null, release.dataArchive ?? null);
     }
     releases(siteId) {
         return this.db.prepare('SELECT * FROM p_sites_releases WHERE site_id = ? ORDER BY created_at DESC')

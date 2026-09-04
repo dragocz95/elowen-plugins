@@ -1,11 +1,12 @@
 import type { PluginDb } from 'elowen/plugin-api';
 
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
-type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
+export type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
 
-/** How a published site answers a request: from files on disk, or from a process this plugin keeps
- *  running behind a loopback socket. */
-type SiteRuntime = 'static' | 'command' | 'php';
+/** How a published site answers a request. Unsupported is a quarantined database value, never a
+ * fallback to static content. */
+export type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
+export type EnvironmentDesiredState = 'running' | 'stopped';
 
 /** Where a command runtime listens. A unix socket lives inside the plugin's own data directory, which
  *  no confined shell can reach, so only the daemon can talk to it. A loopback port is reachable by any
@@ -30,11 +31,18 @@ export interface Site {
   sourceDir: string;
   spa: boolean;
   runtime: SiteRuntime;
+  /** Original database value when runtime is unsupported. */
+  unsupportedRuntime?: string | null;
   /** Shell command that starts the server, run inside the release directory. Empty for a static site. */
   startCommand: string;
   bind: SiteBind;
   /** Loopback port for a port-bound runtime; null for a socket-bound one. */
   port: number | null;
+  environmentCpus?: number | null;
+  environmentMemoryMb?: number | null;
+  environmentPidsLimit?: number | null;
+  environmentDiskSoftMb?: number | null;
+  environmentDesiredState?: EnvironmentDesiredState;
   status: SiteStatus;
   currentReleaseId: string | null;
   createdAt: string;
@@ -53,6 +61,9 @@ export interface Release {
   fileCount: number;
   sizeBytes: number;
   note: string;
+  kind?: 'files' | 'environment-rootfs' | 'environment-data';
+  imageRef?: string | null;
+  dataArchive?: string | null;
 }
 
 export interface Ticket {
@@ -77,6 +88,11 @@ interface SiteDbRow {
   start_command: string | null;
   bind: string | null;
   port: number | null;
+  environment_cpus: number | null;
+  environment_memory_mb: number | null;
+  environment_pids_limit: number | null;
+  environment_disk_soft_mb: number | null;
+  environment_desired_state: string | null;
   status: string;
   current_release_id: string | null;
   created_at: string;
@@ -95,6 +111,9 @@ interface ReleaseDbRow {
   file_count: number;
   size_bytes: number;
   note: string;
+  kind: string | null;
+  image_ref: string | null;
+  data_archive: string | null;
 }
 
 const asVisibility = (value: string): Visibility =>
@@ -103,30 +122,51 @@ const asVisibility = (value: string): Visibility =>
 const asStatus = (value: string): SiteStatus =>
   value === 'live' || value === 'failed' || value === 'deleting' ? value : 'draft';
 
-const toSite = (row: SiteDbRow): Site => ({
-  id: row.id,
-  slug: row.slug,
-  title: row.title,
-  summary: row.summary ?? '',
-  projectId: row.project_id,
-  ownerUserId: row.owner_user_id,
-  visibility: asVisibility(row.visibility),
-  accessGeneration: row.access_generation,
-  sourceDir: row.source_dir,
-  spa: row.spa === 1,
-  runtime: row.runtime === 'command' ? 'command' : row.runtime === 'php' ? 'php' : 'static',
-  startCommand: row.start_command ?? '',
-  bind: row.bind === 'port' ? 'port' : 'socket',
-  port: row.port,
-  status: asStatus(row.status),
-  currentReleaseId: row.current_release_id,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-  createdModel: row.created_model ?? '',
-  lastPublishAt: row.last_publish_at,
-  lastPublishModel: row.last_publish_model,
-  lastError: row.last_error,
-});
+const asRuntime = (value: string | null): { runtime: SiteRuntime; unsupportedRuntime: string | null } => {
+  if (value === 'static' || value === 'command' || value === 'php' || value === 'environment') {
+    return { runtime: value, unsupportedRuntime: null };
+  }
+  return { runtime: 'unsupported', unsupportedRuntime: value ?? '(null)' };
+};
+
+const asEnvironmentDesiredState = (value: string | null): EnvironmentDesiredState =>
+  value === 'stopped' ? 'stopped' : 'running';
+
+const toSite = (row: SiteDbRow): Site => {
+  const runtime = asRuntime(row.runtime);
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    summary: row.summary ?? '',
+    projectId: row.project_id,
+    ownerUserId: row.owner_user_id,
+    visibility: asVisibility(row.visibility),
+    accessGeneration: row.access_generation,
+    sourceDir: row.source_dir,
+    spa: row.spa === 1,
+    runtime: runtime.runtime,
+    unsupportedRuntime: runtime.unsupportedRuntime,
+    startCommand: row.start_command ?? '',
+    bind: row.bind === 'port' ? 'port' : 'socket',
+    port: row.port,
+    environmentCpus: row.environment_cpus,
+    environmentMemoryMb: row.environment_memory_mb,
+    environmentPidsLimit: row.environment_pids_limit,
+    environmentDiskSoftMb: row.environment_disk_soft_mb,
+    environmentDesiredState: asEnvironmentDesiredState(row.environment_desired_state),
+    status: runtime.runtime === 'unsupported' ? 'failed' : asStatus(row.status),
+    currentReleaseId: row.current_release_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdModel: row.created_model ?? '',
+    lastPublishAt: row.last_publish_at,
+    lastPublishModel: row.last_publish_model,
+    lastError: runtime.runtime === 'unsupported'
+      ? `Unsupported site runtime: ${runtime.unsupportedRuntime}`
+      : row.last_error,
+  };
+};
 
 const toRelease = (row: ReleaseDbRow): Release => ({
   id: row.id,
@@ -136,6 +176,9 @@ const toRelease = (row: ReleaseDbRow): Release => ({
   fileCount: row.file_count,
   sizeBytes: row.size_bytes,
   note: row.note ?? '',
+  kind: row.kind === 'environment-rootfs' || row.kind === 'environment-data' ? row.kind : 'files',
+  imageRef: row.image_ref,
+  dataArchive: row.data_archive,
 });
 
 export class SitesStore {
@@ -241,6 +284,23 @@ export class SitesStore {
           `);
         },
       },
+      {
+        version: 5,
+        // Additive environment metadata. Existing static, command and PHP rows retain every value and
+        // behavior; nullable overrides continue to mean the administrator defaults.
+        up: (handle) => {
+          handle.exec(`
+            ALTER TABLE p_sites_sites ADD COLUMN environment_cpus REAL;
+            ALTER TABLE p_sites_sites ADD COLUMN environment_memory_mb INTEGER;
+            ALTER TABLE p_sites_sites ADD COLUMN environment_pids_limit INTEGER;
+            ALTER TABLE p_sites_sites ADD COLUMN environment_disk_soft_mb INTEGER;
+            ALTER TABLE p_sites_sites ADD COLUMN environment_desired_state TEXT NOT NULL DEFAULT 'running';
+            ALTER TABLE p_sites_releases ADD COLUMN kind TEXT NOT NULL DEFAULT 'files';
+            ALTER TABLE p_sites_releases ADD COLUMN image_ref TEXT;
+            ALTER TABLE p_sites_releases ADD COLUMN data_archive TEXT;
+          `);
+        },
+      },
     ]);
   }
 
@@ -252,13 +312,18 @@ export class SitesStore {
     this.db.prepare(`
       INSERT INTO p_sites_sites (
         id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
-        source_dir, spa, runtime, start_command, bind, port, status, current_release_id,
+        source_dir, spa, runtime, start_command, bind, port,
+        environment_cpus, environment_memory_mb, environment_pids_limit, environment_disk_soft_mb,
+        environment_desired_state, status, current_release_id,
         created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId,
       site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0,
-      site.runtime, site.startCommand, site.bind, site.port, site.status,
+      site.runtime, site.startCommand, site.bind, site.port,
+      site.environmentCpus ?? null, site.environmentMemoryMb ?? null,
+      site.environmentPidsLimit ?? null, site.environmentDiskSoftMb ?? null,
+      site.environmentDesiredState ?? 'running', site.status,
       site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel,
       site.lastPublishAt, site.lastPublishModel, site.lastError,
     );
@@ -289,6 +354,14 @@ export class SitesStore {
     return row?.n ?? 0;
   }
 
+  countEnvironmentOwnedBy(userId: number): number {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) AS n FROM p_sites_sites
+      WHERE owner_user_id = ? AND runtime = 'environment' AND status <> 'deleting'
+    `).get(userId) as { n: number } | undefined;
+    return row?.n ?? 0;
+  }
+
   sitesInProjects(projectIds: readonly number[]): Site[] {
     if (projectIds.length === 0) return [];
     const marks = projectIds.map(() => '?').join(', ');
@@ -313,6 +386,13 @@ export class SitesStore {
     `).all() as SiteDbRow[]).map(toSite);
   }
 
+  liveEnvironmentSites(): Site[] {
+    return (this.db.prepare(`
+      SELECT * FROM p_sites_sites
+      WHERE runtime = 'environment' AND status = 'live'
+    `).all() as SiteDbRow[]).map(toSite);
+  }
+
   portsInUse(): number[] {
     return (this.db.prepare('SELECT port FROM p_sites_sites WHERE port IS NOT NULL')
       .all() as { port: number }[]).map((row) => row.port);
@@ -328,7 +408,8 @@ export class SitesStore {
 
   updateSite(id: string, patch: Partial<Pick<Site,
     'title' | 'summary' | 'visibility' | 'spa' | 'status' | 'currentReleaseId' | 'bind' | 'port' |
-    'startCommand' | 'lastPublishAt' | 'lastPublishModel' | 'lastError'>>): void {
+    'startCommand' | 'lastPublishAt' | 'lastPublishModel' | 'lastError' | 'environmentCpus' |
+    'environmentMemoryMb' | 'environmentPidsLimit' | 'environmentDiskSoftMb' | 'environmentDesiredState'>>): void {
     const columns: Record<string, string> = {
       title: 'title',
       summary: 'summary',
@@ -337,6 +418,11 @@ export class SitesStore {
       bind: 'bind',
       port: 'port',
       startCommand: 'start_command',
+      environmentCpus: 'environment_cpus',
+      environmentMemoryMb: 'environment_memory_mb',
+      environmentPidsLimit: 'environment_pids_limit',
+      environmentDiskSoftMb: 'environment_disk_soft_mb',
+      environmentDesiredState: 'environment_desired_state',
       status: 'status',
       currentReleaseId: 'current_release_id',
       lastPublishAt: 'last_publish_at',
@@ -425,9 +511,13 @@ export class SitesStore {
 
   insertRelease(release: Release): void {
     this.db.prepare(`
-      INSERT INTO p_sites_releases (id, site_id, created_at, model, file_count, size_bytes, note)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(release.id, release.siteId, release.createdAt, release.model, release.fileCount, release.sizeBytes, release.note);
+      INSERT INTO p_sites_releases (
+        id, site_id, created_at, model, file_count, size_bytes, note, kind, image_ref, data_archive
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      release.id, release.siteId, release.createdAt, release.model, release.fileCount, release.sizeBytes,
+      release.note, release.kind ?? 'files', release.imageRef ?? null, release.dataArchive ?? null,
+    );
   }
 
   releases(siteId: string): Release[] {

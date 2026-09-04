@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { RESERVED_PREFIX, cookieName, hashToken, mayOpen, normalizeReturnPath, readCookies, signSession, verifySession, } from './access.js';
 import { CONTENT_TYPES, HTML_TYPE, extensionOf, resolveWithin } from './publish.js';
 import { requestOnSiteHost } from './config.js';
-import { ProxyError, proxyToRuntime } from './proxy.js';
+import { ProxyError, proxyToEnvironment, proxyToRuntime } from './proxy.js';
 /** Security headers applied to EVERY published response.
  *
  *  Every site is served from its own hostname, so a published page is a real origin: it may keep its own
@@ -154,7 +154,7 @@ export function createSiteHandler(deps) {
         // A site nobody shared with this visitor must be indistinguishable from a slug that was never
         // taken, so an unknown slug takes the SAME sign-in path a forbidden one takes. Answering 404 here
         // and 302 there is a working directory of everything published on the instance.
-        if (!site || site.status !== 'live' || !site.currentReleaseId) {
+        if (!site || site.status !== 'live' || (site.runtime !== 'environment' && !site.currentReleaseId)) {
             return bounceOrNotFound(req, slug, rest, config);
         }
         if (rest === `${RESERVED_PREFIX}/session`) {
@@ -196,6 +196,49 @@ export function createSiteHandler(deps) {
                 };
             }
         }
+        if (site.runtime === 'environment') {
+            const endpoint = deps.endpointFor(site.id);
+            if (!endpoint || endpoint.kind !== 'socket') {
+                return {
+                    status: 503,
+                    headers: {
+                        'content-type': HTML_TYPE,
+                        'cache-control': 'no-store',
+                        'x-content-type-options': 'nosniff',
+                        'referrer-policy': 'no-referrer',
+                        ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
+                    },
+                    body: '<!doctype html><meta charset="utf-8"><title>Not running</title><p>This environment is not running right now.</p>',
+                };
+            }
+            try {
+                const environmentProxy = deps.proxyEnvironment ?? proxyToEnvironment;
+                const proxied = await environmentProxy(endpoint, req, rest, { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) }, deps.proxyLimits(), siteRoot);
+                return {
+                    ...proxied,
+                    headers: {
+                        ...proxied.headers,
+                        'cache-control': site.visibility === 'public' ? 'public, max-age=0' : 'private, no-store',
+                        ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
+                    },
+                };
+            }
+            catch (error) {
+                if (!(error instanceof ProxyError))
+                    throw error;
+                return {
+                    status: 502,
+                    headers: {
+                        'content-type': HTML_TYPE,
+                        'cache-control': 'no-store',
+                        'x-content-type-options': 'nosniff',
+                        'referrer-policy': 'no-referrer',
+                        ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
+                    },
+                    body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This environment did not answer.</p>',
+                };
+            }
+        }
         if (site.runtime === 'command') {
             const endpoint = deps.endpointFor(site.id);
             if (!endpoint) {
@@ -226,6 +269,8 @@ export function createSiteHandler(deps) {
                 };
             }
         }
+        if (site.runtime !== 'static' || !site.currentReleaseId)
+            return notFound();
         const response = serveFile(site, deps.releaseDir(site.id, site.currentReleaseId), rest);
         // A HEAD answer must carry the same headers and status as the GET, and no body.
         return req.method === 'HEAD' ? { ...response, body: '' } : response;

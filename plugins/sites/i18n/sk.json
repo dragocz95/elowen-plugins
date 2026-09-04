@@ -62,6 +62,30 @@
       "label": "Povoliť behové prostredia",
       "hint": "Umožní, aby stránka bola bežiaci server – Node, Bun, Python alebo TypeScript – za privátnym unixovým socketom alebo výslovne povoleným loopback portom, prípadne aby spúšťala PHP cez PHP-CGI."
     },
+    "allowEnvironments": {
+      "label": "Povoliť trvalé prostredia",
+      "hint": "Umožní Sites prevádzkovať trvalé rootless Podman prostredia so systemd, súkromným koreňovým súborovým systémom a jediným vstupným socketom spravovaným hostiteľom."
+    },
+    "environmentCpus": {
+      "label": "Procesory prostredia",
+      "hint": "Limit procesora použitý pri vytvorení kontajnera prostredia."
+    },
+    "environmentMemoryMb": {
+      "label": "Pamäť prostredia",
+      "hint": "Limit pamäte a pamäte vrátane swapu v MB použitý pri vytvorení kontajnera prostredia."
+    },
+    "environmentPidsLimit": {
+      "label": "Limit procesov prostredia",
+      "hint": "Najvyšší počet procesov a vlákien v jednom prostredí."
+    },
+    "environmentDiskSoftMb": {
+      "label": "Upozornenie na disk prostredia",
+      "hint": "Mäkký limit využitia disku v MB. Ide o upozornenie, nie o kvótu súborového systému."
+    },
+    "maxEnvironmentsPerAccount": {
+      "label": "Počet prostredí na účet",
+      "hint": "Koľko trvalých prostredí smie jeden účet uchovávať. Počítajú sa oddelene od bežných stránok."
+    },
     "runtimeNetwork": {
       "label": "Sieť behového prostredia",
       "hint": "Zdieľaná sieť umožní serverom bežný odchádzajúci internet a prístup k sieťovým službám viditeľným z hostiteľa. Proces nedostane Elowen token ani tajné prostredie daemona.",

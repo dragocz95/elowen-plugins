@@ -13,6 +13,12 @@ export interface SitesConfig {
    *  default: it puts agent-authored code on the network, and the confinement around it is a namespace,
    *  not a separate machine account. */
   allowCommandRuntime: boolean;
+  allowEnvironments: boolean;
+  environmentCpus: number;
+  environmentMemoryMb: number;
+  environmentPidsLimit: number;
+  environmentDiskSoftMb: number;
+  maxEnvironmentsPerAccount: number;
   runtimeNetwork: 'isolated' | 'shared';
   allowLoopbackPorts: boolean;
   loopbackPortMin: number;
@@ -38,6 +44,12 @@ const bounded = (value: unknown, fallback: number, min: number, max: number): nu
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.round(parsed)));
+};
+
+const boundedFloat = (value: unknown, fallback: number, min: number, max: number): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(parsed * 100) / 100));
 };
 
 const VISIBILITY_DEFAULTS = new Set(['private', 'project', 'authenticated']);
@@ -96,6 +108,12 @@ export function resolveConfig(
     releasesKept: bounded(raw.releasesKept, 5, 1, 50),
     sessionTtlHours: bounded(raw.sessionTtlHours, 12, 1, 720),
     allowCommandRuntime: raw.allowCommandRuntime === true,
+    allowEnvironments: raw.allowEnvironments === true,
+    environmentCpus: boundedFloat(raw.environmentCpus, 1, 0.25, 8),
+    environmentMemoryMb: bounded(raw.environmentMemoryMb, 1024, 128, 32768),
+    environmentPidsLimit: bounded(raw.environmentPidsLimit, 512, 16, 4096),
+    environmentDiskSoftMb: bounded(raw.environmentDiskSoftMb, 4096, 256, 131072),
+    maxEnvironmentsPerAccount: bounded(raw.maxEnvironmentsPerAccount, 3, 1, 20),
     runtimeNetwork: raw.runtimeNetwork === 'shared' ? 'shared' : 'isolated',
     allowLoopbackPorts: raw.allowLoopbackPorts === true,
     loopbackPortMin,

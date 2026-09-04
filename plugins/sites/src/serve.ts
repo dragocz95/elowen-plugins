@@ -10,7 +10,7 @@ import {
 } from './access.js';
 import { CONTENT_TYPES, HTML_TYPE, extensionOf, resolveWithin } from './publish.js';
 import { requestOnSiteHost } from './config.js';
-import { ProxyError, proxyToRuntime, type ProxyLimits } from './proxy.js';
+import { ProxyError, proxyToEnvironment, proxyToRuntime, type ProxyLimits, type ProxyViewer } from './proxy.js';
 import type { Endpoint } from './runtime.js';
 
 interface ServeConfig {
@@ -38,6 +38,14 @@ export interface ServeDeps {
   /** Where a command site's process is listening, or null when it is not running. */
   endpointFor(siteId: string): Endpoint | null;
   proxyLimits(): ProxyLimits;
+  proxyEnvironment?(
+    endpoint: Endpoint,
+    req: PluginHttpRequest,
+    path: string,
+    viewer: ProxyViewer,
+    limits: ProxyLimits,
+    siteRoot: string,
+  ): Promise<SitesHttpResponse>;
   usernameOf(userId: number): string | null;
   executePhp(
     site: Site,
@@ -203,7 +211,7 @@ export function createSiteHandler(deps: ServeDeps) {
     // A site nobody shared with this visitor must be indistinguishable from a slug that was never
     // taken, so an unknown slug takes the SAME sign-in path a forbidden one takes. Answering 404 here
     // and 302 there is a working directory of everything published on the instance.
-    if (!site || site.status !== 'live' || !site.currentReleaseId) {
+    if (!site || site.status !== 'live' || (site.runtime !== 'environment' && !site.currentReleaseId)) {
       return bounceOrNotFound(req, slug, rest, config);
     }
 
@@ -226,7 +234,7 @@ export function createSiteHandler(deps: ServeDeps) {
     deps.countHit(site.id);
 
     if (site.runtime === 'php') {
-      const release = deps.releaseDir(site.id, site.currentReleaseId);
+      const release = deps.releaseDir(site.id, site.currentReleaseId!);
       const staticResponse = serveFile(site, release, rest);
       if (staticResponse.status === 200) return req.method === 'HEAD' ? { ...staticResponse, body: '' } : staticResponse;
       try {
@@ -244,6 +252,55 @@ export function createSiteHandler(deps: ServeDeps) {
           status: 502,
           headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(false) },
           body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This PHP site did not answer.</p>',
+        };
+      }
+    }
+
+    if (site.runtime === 'environment') {
+      const endpoint = deps.endpointFor(site.id);
+      if (!endpoint || endpoint.kind !== 'socket') {
+        return {
+          status: 503,
+          headers: {
+            'content-type': HTML_TYPE,
+            'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff',
+            'referrer-policy': 'no-referrer',
+            ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
+          },
+          body: '<!doctype html><meta charset="utf-8"><title>Not running</title><p>This environment is not running right now.</p>',
+        };
+      }
+      try {
+        const environmentProxy = deps.proxyEnvironment ?? proxyToEnvironment;
+        const proxied = await environmentProxy(
+          endpoint,
+          req,
+          rest,
+          { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) },
+          deps.proxyLimits(),
+          siteRoot,
+        );
+        return {
+          ...proxied,
+          headers: {
+            ...proxied.headers,
+            'cache-control': site.visibility === 'public' ? 'public, max-age=0' : 'private, no-store',
+            ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
+          },
+        };
+      } catch (error) {
+        if (!(error instanceof ProxyError)) throw error;
+        return {
+          status: 502,
+          headers: {
+            'content-type': HTML_TYPE,
+            'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff',
+            'referrer-policy': 'no-referrer',
+            ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
+          },
+          body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This environment did not answer.</p>',
         };
       }
     }
@@ -284,6 +341,7 @@ export function createSiteHandler(deps: ServeDeps) {
       }
     }
 
+    if (site.runtime !== 'static' || !site.currentReleaseId) return notFound();
     const response = serveFile(site, deps.releaseDir(site.id, site.currentReleaseId), rest);
     // A HEAD answer must carry the same headers and status as the GET, and no body.
     return req.method === 'HEAD' ? { ...response, body: '' } : response;

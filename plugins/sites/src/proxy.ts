@@ -25,6 +25,16 @@ const FORWARDED_RESPONSE_HEADERS = new Set([
   'access-control-allow-methods', 'access-control-allow-headers', 'access-control-expose-headers',
 ]);
 
+const HOP_BY_HOP_HEADERS = new Set([
+  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer',
+  'transfer-encoding', 'upgrade',
+]);
+
+const ENVIRONMENT_HOST_OWNED_RESPONSE_HEADERS = new Set([
+  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer',
+  'transfer-encoding', 'upgrade', 'cache-control', 'x-robots-tag',
+]);
+
 export interface ProxyLimits {
   maxResponseBytes: number;
   requestTimeoutSeconds: number;
@@ -82,6 +92,22 @@ export function runtimeResponseHeaders(
   return out;
 }
 
+export function environmentResponseHeaders(
+  headers: Record<string, string | string[] | undefined>,
+): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase();
+    if (value === undefined || ENVIRONMENT_HOST_OWNED_RESPONSE_HEADERS.has(lower) || lower.startsWith('x-elowen-')) continue;
+    if (lower === 'set-cookie') {
+      out[lower] = (Array.isArray(value) ? value : [value]).map((cookie) => hostOnlyCookie(String(cookie)));
+    } else {
+      out[lower] = Array.isArray(value) ? value.join(', ') : String(value);
+    }
+  }
+  return out;
+}
+
 export class ProxyError extends Error {}
 
 /** Forward one request to a site's runtime and buffer the answer.
@@ -95,13 +121,31 @@ export async function proxyToRuntime(
   viewer: ProxyViewer,
   limits: ProxyLimits,
   siteRoot: string,
+  mode: 'command' | 'environment' = 'command',
 ): Promise<SitesHttpResponse> {
   const headers: Record<string, string> = {};
   for (const [name, value] of Object.entries(req.headers)) {
-    if (FORWARDED_REQUEST_HEADERS.has(name)) headers[name] = value;
+    const lower = name.toLowerCase();
+    if (mode === 'environment') {
+      if (!HOP_BY_HOP_HEADERS.has(lower) && !lower.startsWith('x-elowen-') && lower !== 'host' && lower !== 'content-length') {
+        headers[lower] = value;
+      }
+    } else if (FORWARDED_REQUEST_HEADERS.has(lower)) {
+      headers[lower] = value;
+    }
   }
-  headers.host = 'site.localhost';
-  headers['x-forwarded-proto'] = 'https';
+  if (mode === 'environment') {
+    const host = req.headers.host ?? new URL(siteRoot).host;
+    headers.host = host;
+    headers['x-forwarded-host'] = host;
+    headers['x-forwarded-proto'] = new URL(siteRoot).protocol.replace(':', '');
+    const peer = (req as PluginHttpRequest & { remoteAddress?: string; ip?: string }).remoteAddress
+      ?? (req as PluginHttpRequest & { remoteAddress?: string; ip?: string }).ip;
+    if (peer) headers['x-forwarded-for'] = peer;
+  } else {
+    headers.host = 'site.localhost';
+    headers['x-forwarded-proto'] = 'https';
+  }
   // Identity encoding only: the answer is buffered and handed on verbatim, so a compressed body would
   // arrive at the browser without the `content-encoding` that explains it.
   headers['accept-encoding'] = 'identity';
@@ -158,7 +202,10 @@ export async function proxyToRuntime(
         });
         response.on('end', () => {
           if (aborted) return;
-          const out = runtimeResponseHeaders(response.headers as Record<string, string | string[] | undefined>, siteRoot);
+          const responseHeaders = response.headers as Record<string, string | string[] | undefined>;
+          const out = mode === 'environment'
+            ? environmentResponseHeaders(responseHeaders)
+            : runtimeResponseHeaders(responseHeaders, siteRoot);
           settle({ status: response.statusCode ?? 502, headers: out, body: new Uint8Array(Buffer.concat(chunks)) });
         });
         response.on('error', (error) => fail(new ProxyError(error.message)));
@@ -174,3 +221,12 @@ export async function proxyToRuntime(
     outbound.end();
   });
 }
+
+export const proxyToEnvironment = (
+  endpoint: Endpoint,
+  req: PluginHttpRequest,
+  path: string,
+  viewer: ProxyViewer,
+  limits: ProxyLimits,
+  siteRoot: string,
+): Promise<SitesHttpResponse> => proxyToRuntime(endpoint, req, path, viewer, limits, siteRoot, 'environment');

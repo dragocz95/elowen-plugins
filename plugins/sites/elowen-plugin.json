@@ -1,6 +1,6 @@
 {
   "name": "sites",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "apiVersion": "1",
   "requiresCore": "0.28.21",
   "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is a separate release you can roll back to.",
@@ -108,6 +108,63 @@
       "risk": "high",
       "hint": "Let a site run Node, Bun, Python or TypeScript behind a private unix socket or an explicitly enabled loopback port, or execute PHP through PHP-CGI.",
       "help": "A published runtime is code the agent built with the normal Files, Terminal and Sandbox tools. It sees its copied release and the owner's sandbox HOME, runs under a user namespace rather than a separate VM, and has no CPU or memory limit. The network policy is configured below. Requests and responses are buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
+    },
+    {
+      "key": "allowEnvironments",
+      "label": "Allow persistent environments",
+      "type": "boolean",
+      "default": false,
+      "risk": "high",
+      "hint": "Allow Sites to run persistent rootless Podman environments with systemd, a private root filesystem and a single host-owned ingress socket."
+    },
+    {
+      "key": "environmentCpus",
+      "label": "Environment CPUs",
+      "type": "number",
+      "default": 1,
+      "min": 0.25,
+      "max": 8,
+      "advanced": true,
+      "hint": "CPU limit applied when an environment container is created."
+    },
+    {
+      "key": "environmentMemoryMb",
+      "label": "Environment memory",
+      "type": "number",
+      "default": 1024,
+      "min": 128,
+      "max": 32768,
+      "advanced": true,
+      "hint": "Memory and memory-plus-swap limit in MB applied when an environment container is created."
+    },
+    {
+      "key": "environmentPidsLimit",
+      "label": "Environment process limit",
+      "type": "number",
+      "default": 512,
+      "min": 16,
+      "max": 4096,
+      "advanced": true,
+      "hint": "Maximum number of processes and threads in one environment."
+    },
+    {
+      "key": "environmentDiskSoftMb",
+      "label": "Environment disk warning",
+      "type": "number",
+      "default": 4096,
+      "min": 256,
+      "max": 131072,
+      "advanced": true,
+      "hint": "Soft disk-usage ceiling in MB. This is reported as a warning and is not a filesystem quota."
+    },
+    {
+      "key": "maxEnvironmentsPerAccount",
+      "label": "Environments per account",
+      "type": "number",
+      "default": 3,
+      "min": 1,
+      "max": 20,
+      "hint": "How many persistent environments one account may keep, counted separately from ordinary sites."
     },
     {
       "key": "runtimeNetwork",
