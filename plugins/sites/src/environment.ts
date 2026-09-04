@@ -8,6 +8,7 @@ import type { EnvironmentAction, Release, Site, SitesStore } from './store.js';
 import type { CreateContainerSpec, PodmanClient, PodmanContainerSummary } from './podman.js';
 
 const STOP_TIMEOUT_SECONDS = 8;
+const LIMIT_UPDATE_WAIT_MS = 10_000;
 const EXIT_WAIT_MS = 30_000;
 const KILL_WAIT_MS = 5_000;
 const LOG_CAP_BYTES = 256 * 1024;
@@ -410,9 +411,9 @@ export class EnvironmentSupervisor {
       await this.deps.podman.start(name);
       const ready = await this.waitForReady(endpoint, this.deps.config().startTimeoutSeconds * 1_000);
       if (!ready) throw new Error(`the environment did not expose ${prepared.path} in time`);
-      // Create already persisted these limits. Podman delegates `update` to crun, which needs the runtime
-      // fully initialized, so existing containers are updated only after their systemd ingress is ready.
-      if (!creating) await this.deps.podman.update(name, limits);
+      // Create already persisted these limits. Podman delegates `update` to crun, whose status file can
+      // briefly lag behind the systemd ingress, so retry only that known startup race before exposure.
+      if (!creating) await this.updateStartedContainer(name, limits);
       await this.deps.gateway.sealRuntimeSocket(site.id);
       if (!await this.connectReady(endpoint)) throw new Error('the environment ingress socket did not answer after sealing');
       this.endpoints.set(site.id, endpoint);
@@ -426,6 +427,26 @@ export class EnvironmentSupervisor {
       this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
       this.appendLog(site.id, `start failed: ${message}`);
       throw error;
+    }
+  }
+
+  private async updateStartedContainer(
+    name: string,
+    limits: Pick<CreateContainerSpec, 'cpus' | 'memoryMb' | 'pidsLimit'>,
+  ): Promise<void> {
+    const deadline = this.now() + LIMIT_UPDATE_WAIT_MS;
+    while (true) {
+      try {
+        await this.deps.podman.update(name, limits);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const transient = message.includes('/crun/')
+          && message.includes('/status')
+          && message.includes('No such file or directory');
+        if (!transient || this.now() >= deadline || await this.deps.podman.inspectStatus(name) !== 'running') throw error;
+        await this.sleep(200);
+      }
     }
   }
 

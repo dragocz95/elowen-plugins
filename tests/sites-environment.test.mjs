@@ -413,17 +413,35 @@ test('existing environment receives effective limits after start without recreat
   ]);
 });
 
-test('a previously created container exposes its systemd ingress before crun receives an update', async (t) => {
+test('a previously created container retries only the transient crun startup race after ingress readiness', async (t) => {
   const name = `elowen-site-${SITE_ID}`;
-  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['created'] });
+  const { supervisor, calls, site, podman } = supervisorHarness(t, { statuses: ['created'] });
+  let updates = 0;
+  podman.update = async (container, limits) => {
+    calls.push(['update', container, limits]);
+    updates += 1;
+    if (updates === 1) {
+      throw new Error('podman update failed: error opening file `/run/user/33/crun/test/status`: No such file or directory');
+    }
+  };
   await supervisor.start(site);
   const startIndex = calls.findIndex(([operation]) => operation === 'start');
   const readyIndex = calls.findIndex(([operation, ready]) => operation === 'socket-ready' && ready === true);
-  const updateIndex = calls.findIndex(([operation]) => operation === 'update');
+  const updateIndexes = calls.flatMap(([operation], index) => operation === 'update' ? [index] : []);
   assert.ok(startIndex >= 0);
   assert.ok(readyIndex > startIndex);
-  assert.ok(updateIndex > readyIndex);
-  assert.deepEqual(calls[updateIndex], ['update', name, { cpus: 1, memoryMb: 1024, pidsLimit: 512 }]);
+  assert.equal(updateIndexes.length, 2);
+  assert.ok(updateIndexes[0] > readyIndex);
+  assert.ok(calls.findIndex(([operation, status]) => operation === 'inspect' && status === 'running') > updateIndexes[0]);
+  assert.deepEqual(calls[updateIndexes[1]], ['update', name, { cpus: 1, memoryMb: 1024, pidsLimit: 512 }]);
+});
+
+test('a structural crun update failure is not retried', async (t) => {
+  const { supervisor, site, podman } = supervisorHarness(t, { statuses: ['created'] });
+  let updates = 0;
+  podman.update = async () => { updates += 1; throw new Error('podman update failed: permission denied'); };
+  await assert.rejects(() => supervisor.start(site), /permission denied/);
+  assert.equal(updates, 1);
 });
 
 test('stop waits for exactly exited before removing the broker', async (t) => {
