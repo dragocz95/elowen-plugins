@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
@@ -15,6 +15,7 @@ import { createSiteHandler } from '../plugins/sites/dist/serve.js';
 import { resolveConfig, siteUrl, requestOnSiteHost, SITE_BASE_PATH } from '../plugins/sites/dist/config.js';
 import { proxyToRuntime, ProxyError } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
+import { createApiHandlers } from '../plugins/sites/dist/api.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -278,6 +279,32 @@ test('a snapshot copies the output and refuses what it must not follow', (t) => 
   assert.throws(() => readFileSync(join(release, 'r1', 'escape.html')), 'the symlink target was not copied');
 });
 
+test('a command snapshot preserves executable files and contained relative symlinks', (t) => {
+  const source = tempDir('command-src');
+  const release = tempDir('command-rel');
+  t.after(() => { rmSync(source, { recursive: true, force: true }); rmSync(release, { recursive: true, force: true }); });
+
+  mkdirSync(join(source, 'bin'), { recursive: true });
+  writeFileSync(join(source, 'bin', 'server.js'), 'console.log("ok")');
+  chmodSync(join(source, 'bin', 'server.js'), 0o755);
+  symlinkSync('server.js', join(source, 'bin', 'start.js'));
+  symlinkSync('../../outside', join(source, 'bin', 'escape.js'));
+
+  const target = join(release, 'r1');
+  const result = snapshotRelease(source, target, {
+    maxAssetBytes: 1048576,
+    maxTotalBytes: 10485760,
+    mode: 'command',
+  });
+
+  assert.equal(result.fileCount, 2, 'the file and safe symlink count as release entries');
+  assert.equal(lstatSync(join(target, 'bin', 'server.js')).mode & 0o111, 0o111, 'executable bits survive publish');
+  assert.equal(lstatSync(join(target, 'bin', 'start.js')).isSymbolicLink(), true);
+  assert.equal(readlinkSync(join(target, 'bin', 'start.js')), 'server.js');
+  assert.ok(result.warnings.some((line) => line.includes('escape.js')));
+  assert.equal(lstatSync(join(target, 'bin', 'escape.js'), { throwIfNoEntry: false }), undefined);
+});
+
 test('a snapshot refuses a file above the configured ceiling', (t) => {
   const source = tempDir('big');
   const release = tempDir('bigrel');
@@ -471,7 +498,10 @@ test('a site is a real origin: scripts run, and nothing outside the site is reac
   const csp = response.headers['content-security-policy'];
 
   assert.ok(!csp.startsWith('sandbox'), 'the hostname IS the isolation; sandboxing it again would break its own storage');
-  assert.match(csp, /script-src 'self'/);
+  assert.match(csp, /script-src 'self' 'unsafe-inline'/);
+  assert.match(csp, /connect-src 'self' https: wss:/, 'browser applications may call public APIs and secure sockets');
+  assert.match(csp, /img-src 'self' data: blob: https:/);
+  assert.match(csp, /object-src 'none'/);
   assert.match(csp, /default-src 'self'/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.equal(response.headers['x-content-type-options'], 'nosniff');
@@ -552,6 +582,15 @@ const runtimeServer = async (t, handler) => {
   return { kind: 'socket', path };
 };
 
+const portRuntimeServer = async (t, handler) => {
+  const server = createServer(handler);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  t.after(() => server.close());
+  return { kind: 'port', port: address.port };
+};
+
 const proxyLimits = { maxResponseBytes: 1048576, requestTimeoutSeconds: 5 };
 const SITE_ROOT = 'https://demo.sites.example.com/';
 
@@ -574,6 +613,12 @@ test('a dedicated runtime receives its own application auth but not forged gatew
   assert.equal(seen['x-forwarded-for'], undefined);
   assert.equal(seen['x-elowen-user-id'], '4', 'the spoofed value was replaced by the verified one');
   assert.equal(seen['x-elowen-user-name'], 'amy');
+});
+
+test('the runtime proxy reaches an explicitly allocated loopback port', async (t) => {
+  const endpoint = await portRuntimeServer(t, (_req, res) => res.end('port-ok'));
+  const response = await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
+  assert.equal(Buffer.from(response.body).toString(), 'port-ok');
 });
 
 test('a runtime owns cookies and CORS on its isolated origin', async (t) => {
@@ -662,6 +707,10 @@ test('configuration is re-validated, because the settings API validates nothing'
     sessionTtlHours: 'nonsense',
     releasesKept: 0,
     publishers: 'whatever',
+    runtimeNetwork: 'shared',
+    allowLoopbackPorts: true,
+    loopbackPortMin: 43010,
+    loopbackPortMax: 43000,
   }, 'https://elowen.example');
 
   assert.equal(config.defaultVisibility, 'private', 'public is not an allowed default');
@@ -670,6 +719,9 @@ test('configuration is re-validated, because the settings API validates nothing'
   assert.equal(config.sessionTtlHours, 12);
   assert.equal(config.releasesKept, 1);
   assert.equal(config.publishers, 'everyone');
+  assert.equal(config.runtimeNetwork, 'shared');
+  assert.equal(config.allowLoopbackPorts, true);
+  assert.deepEqual([config.loopbackPortMin, config.loopbackPortMax], [41000, 41999], 'an inverted range falls back as one unit');
 });
 
 test('every site gets the root of the gateway hostname derived by core', () => {
@@ -700,13 +752,45 @@ test('every site gets the root of the gateway hostname derived by core', () => {
   assert.equal(resolveConfig({}, 'https://elowen.example', 'localhost').siteHostBase, null);
 });
 
+test('authenticated site API updates command and bind settings under the instance gate', async () => {
+  const store = new SitesStore(makeDb());
+  store.insertSite(site({ id: 'api-site', runtime: 'command', startCommand: 'node old.js', currentReleaseId: null }));
+  const handlers = createApiHandlers({
+    store,
+    access: deps(),
+    config: () => resolveConfig({ allowCommandRuntime: true, allowLoopbackPorts: true, runtimeNetwork: 'shared' }, 'https://elowen.example', 'sites.elowen.example'),
+    people: () => new Map([[1, { id: 1, username: 'filip', name: 'Filip', avatar: '' }]]),
+    projectSlug: () => 'demo',
+    deleteSite: async () => {},
+    activateRelease: () => {},
+    runtimeState: () => ({ running: false, logTail: '' }),
+    allocatePort: async () => 43000,
+    restartRuntime: async () => {},
+  });
+  const response = await handlers.site({
+    method: 'PATCH',
+    path: 'api-site',
+    query: {},
+    headers: {},
+    auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [2] },
+    params: {},
+    body: async () => Buffer.from(''),
+    json: async () => ({ startCommand: 'node new.js', bind: 'port' }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    { startCommand: store.siteById('api-site').startCommand, bind: store.siteById('api-site').bind, port: store.siteById('api-site').port },
+    { startCommand: 'node new.js', bind: 'port', port: 43000 },
+  );
+});
+
 // ── the tool surface ─────────────────────────────────────────────────────────────────────────────
 //
 // This layer had NO coverage, which is why 42 green tests coexisted with a feature that could not be
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {} } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db);
   const registered = new Map();
@@ -735,7 +819,7 @@ const toolHarness = (t, { projects, people: roster } = {}) => {
     ctx,
     store,
     access: { isAdmin: () => false, canAccessProject: () => true, accountExists: () => true },
-    config: () => resolveConfig({}, 'https://elowen.example', 'sites.elowen.example'),
+    config: () => resolveConfig(configRaw, 'https://elowen.example', 'sites.elowen.example'),
     people: () => new Map(accounts.map((person) => [person.id, person])),
     siteDir: (id) => join(dir, 'sites', id),
     releaseDir: (id, releaseId) => join(dir, 'sites', id, releaseId),
@@ -801,6 +885,31 @@ test('sharing with somebody who does not exist fails with the roster', async (t)
   const { store, call } = toolHarness(t);
   store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1 }));
   await assert.rejects(() => call('SiteShare', { site: 'report-a1b2c3', person: 'nobody' }), /josef\.kvitek/);
+});
+
+test('loopback binding is explicit and refused unless the instance enables it', async (t) => {
+  const disabled = toolHarness(t, { configRaw: { allowCommandRuntime: true } });
+  await assert.rejects(
+    () => disabled.call('SiteCreate', { title: 'API', runtime: 'command', startCommand: 'node server.js', bind: 'port' }),
+    /loopback ports are turned off/i,
+  );
+
+  const enabled = toolHarness(t, { configRaw: { allowCommandRuntime: true, allowLoopbackPorts: true } });
+  const created = await enabled.call('SiteCreate', { title: 'API', runtime: 'command', startCommand: 'node server.js', bind: 'port' });
+  const stored = enabled.store.siteById(created.details.siteId);
+  assert.equal(stored.bind, 'port');
+  assert.equal(stored.port, 43000);
+});
+
+test('SiteUpdate changes command runtime settings without republishing', async (t) => {
+  const { store, call } = toolHarness(t, { configRaw: { allowCommandRuntime: true, allowLoopbackPorts: true } });
+  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, runtime: 'command', startCommand: 'node old.js' }));
+
+  await call('SiteUpdate', { site: 'id-1', startCommand: 'node new.js', bind: 'port' });
+  const updated = store.siteById('id-1');
+  assert.equal(updated.startCommand, 'node new.js');
+  assert.equal(updated.bind, 'port');
+  assert.equal(updated.port, 43000);
 });
 
 test('SiteDelete uses the shared cascading cleanup and leaves the Project source alone', async (t) => {

@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.8.0 - 2026-09-04
+
+- Let agents build normally in Project worktrees, then run published sites with configurable outbound networking, safe socket or loopback binding, runtime `.env`, modern browser API access and dependency-safe release copies
+
 ## browser 0.2.11 - 2026-09-04
 
 - Report an input batch dropped because the page moved on as an outcome the card shows for a moment, not as an error toast per pointer move

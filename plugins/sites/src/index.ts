@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { rmSync } from 'node:fs';
+import { existsSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PluginContext } from 'elowen/plugin-api';
 import { asSitesContext, asUserViews } from './coreSeams.js';
@@ -20,6 +20,15 @@ const GATEWAY_RECONCILE_MS = 12 * 3600_000;
  *  `recover-site-gateway` interval for why an inactive gateway is the one state worth polling. */
 const GATEWAY_RECOVERY_MS = 60_000;
 const ISSUE_SWEEP_MS = 30_000;
+
+const sandboxVisible = (path: string): boolean => {
+  try {
+    const real = realpathSync(path);
+    return real === '/usr' || real.startsWith('/usr/');
+  } catch {
+    return false;
+  }
+};
 
 export function register(published: PluginContext): void {
   const ctx = asSitesContext(published);
@@ -100,7 +109,16 @@ export function register(published: PluginContext): void {
   const supervisor = new SiteRuntimeSupervisor({
     ctx,
     store,
-    config: () => ({ startTimeoutSeconds: config().startTimeoutSeconds }),
+    config: () => {
+      const resolved = config();
+      return {
+        startTimeoutSeconds: resolved.startTimeoutSeconds,
+        runtimeNetwork: resolved.runtimeNetwork,
+        allowLoopbackPorts: resolved.allowLoopbackPorts,
+        loopbackPortMin: resolved.loopbackPortMin,
+        loopbackPortMax: resolved.loopbackPortMax,
+      };
+    },
     siteDir,
     releaseDir,
   });
@@ -204,7 +222,7 @@ export function register(published: PluginContext): void {
       },
       usernameOf: (userId) => people().get(userId)?.username ?? null,
       executePhp: (site, release, req, rest, viewer, siteRoot) => executePhp(
-        { ctx, siteDir },
+        { ctx, siteDir, network: () => config().runtimeNetwork },
         site,
         release,
         req,
@@ -228,6 +246,7 @@ export function register(published: PluginContext): void {
     deleteSite,
     activateRelease,
     runtimeState: (siteId) => ({ running: supervisor.isRunning(siteId), logTail: supervisor.logTail(siteId) }),
+    allocatePort: () => supervisor.allocatePort(),
     restartRuntime: async (site) => {
       await supervisor.stop(site.id);
       const next = store.siteById(site.id);
@@ -245,6 +264,18 @@ export function register(published: PluginContext): void {
   registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, people });
 
   ctx.registerReadinessCheck(() => gateway.readiness());
+  ctx.registerReadinessCheck(() => {
+    const required = ['/usr/bin/node', '/usr/bin/npm', '/usr/bin/corepack'];
+    const missing = required.filter((path) => !existsSync(path) || !sandboxVisible(path));
+    const optional = [
+      `Python ${sandboxVisible('/usr/bin/python3') ? 'ready' : 'unavailable'}`,
+      `Bun ${sandboxVisible('/usr/local/bin/bun') ? 'ready' : 'unavailable to confined users'}`,
+      `PHP-CGI ${sandboxVisible('/usr/bin/php-cgi') ? 'ready' : 'unavailable'}`,
+    ].join('; ');
+    return missing.length === 0
+      ? { id: 'sites-toolchain', label: 'Sites toolchain', ok: true, detail: `Node, npm and Corepack are ready. ${optional}.` }
+      : { id: 'sites-toolchain', label: 'Sites toolchain', ok: false, detail: `Missing from the confined Sandbox: ${missing.join(', ')}.`, hint: 'Install the required tools under /usr so Project agents can build sites.' };
+  });
 
   // Nothing in the daemon keeps a process alive across a restart, and a confined child dies with its
   // parent by construction. Supervision of published runtimes is therefore this plugin's own job:

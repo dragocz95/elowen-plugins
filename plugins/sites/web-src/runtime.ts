@@ -63,6 +63,10 @@ export interface SiteDetailResponse {
   runtime: {
     running: boolean;
     startCommand: string | null;
+    bind: 'socket' | 'port' | null;
+    port: number | null;
+    network: 'isolated' | 'shared' | null;
+    allowLoopbackPorts: boolean;
     logTail: string | null;
     lastError: string | null;
   } | null;

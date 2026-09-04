@@ -18,6 +18,7 @@ class PhpError extends Error {}
 interface PhpDeps {
   ctx: SitesContext;
   siteDir(siteId: string): string;
+  network?(): 'isolated' | 'shared';
 }
 
 function phpTarget(releaseDir: string, rest: string): { script: string; scriptName: string; pathInfo: string } | null {
@@ -82,9 +83,9 @@ async function stopProcessGroup(pid: number | undefined): Promise<void> {
   if (groupAlive(pid)) throw new PhpError('the PHP process group did not stop');
 }
 
-/** Execute one PHP request as CGI inside a fresh network namespace. There is no loopback listener to
- * bypass and no long-running PHP process to orphan; the durable Sandbox lease is released only after the
- * whole detached process group exits or is killed. */
+/** Execute one PHP request as CGI under the configured Sandbox network policy. There is no loopback
+ * listener to bypass and no long-running PHP process to orphan; the durable Sandbox lease is released
+ * only after the whole detached process group exits or is killed. */
 export async function executePhp(
   deps: PhpDeps,
   site: { id: string; ownerUserId: number },
@@ -116,7 +117,7 @@ export async function executePhp(
       },
       cwd: releaseDir,
       leaseKind: 'sites',
-      network: 'isolated',
+      network: deps.network?.() ?? 'isolated',
     },
     { accountUserId: site.ownerUserId, roots: [releaseDir, runtimeDir] },
   );

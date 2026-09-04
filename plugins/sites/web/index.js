@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../../var/www/elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../../var/www/elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../../var/www/elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../../var/www/elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -86,19 +86,19 @@ var formatBytes = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)}
 // plugins/sites/web-src/SitesPage.tsx
 var import_react4 = __toESM(require_react(), 1);
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -111,7 +111,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -143,7 +143,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -157,7 +157,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/activity.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/activity.js
 var Activity = createLucideIcon("Activity", [
   [
     "path",
@@ -168,18 +168,18 @@ var Activity = createLucideIcon("Activity", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/chevron-right.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/chevron-right.js
 var ChevronRight = createLucideIcon("ChevronRight", [
   ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/circle-check.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/circle-check.js
 var CircleCheck = createLucideIcon("CircleCheck", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/circle-dashed.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/circle-dashed.js
 var CircleDashed = createLucideIcon("CircleDashed", [
   ["path", { d: "M10.1 2.182a10 10 0 0 1 3.8 0", key: "5ilxe3" }],
   ["path", { d: "M13.9 21.818a10 10 0 0 1-3.8 0", key: "11zvb9" }],
@@ -191,32 +191,32 @@ var CircleDashed = createLucideIcon("CircleDashed", [
   ["path", { d: "M6.391 20.279a10 10 0 0 1-2.69-2.7", key: "1fvljs" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/circle-dot.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/circle-dot.js
 var CircleDot = createLucideIcon("CircleDot", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["circle", { cx: "12", cy: "12", r: "1", key: "41hilf" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/clock.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/clock.js
 var Clock = createLucideIcon("Clock", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["polyline", { points: "12 6 12 12 16 14", key: "68esgv" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/copy.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/copy.js
 var Copy = createLucideIcon("Copy", [
   ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2", key: "17jyea" }],
   ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/external-link.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/external-link.js
 var ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/folder-git-2.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/folder-git-2.js
 var FolderGit2 = createLucideIcon("FolderGit2", [
   [
     "path",
@@ -230,21 +230,21 @@ var FolderGit2 = createLucideIcon("FolderGit2", [
   ["circle", { cx: "20", cy: "19", r: "2", key: "1obnsp" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/globe.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/globe.js
 var Globe = createLucideIcon("Globe", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", key: "13o1zl" }],
   ["path", { d: "M2 12h20", key: "9i4pu4" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/history.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/history.js
 var History = createLucideIcon("History", [
   ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
   ["path", { d: "M12 7v5l4 2", key: "1fdv2h" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/layers.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/layers.js
 var Layers = createLucideIcon("Layers", [
   [
     "path",
@@ -257,20 +257,20 @@ var Layers = createLucideIcon("Layers", [
   ["path", { d: "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65", key: "ep9fru" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/link-2.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/link-2.js
 var Link2 = createLucideIcon("Link2", [
   ["path", { d: "M9 17H7A5 5 0 0 1 7 7h2", key: "8i5ue5" }],
   ["path", { d: "M15 7h2a5 5 0 1 1 0 10h-2", key: "1b9ql8" }],
   ["line", { x1: "8", x2: "16", y1: "12", y2: "12", key: "1jonct" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/lock.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/lock.js
 var Lock = createLucideIcon("Lock", [
   ["rect", { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2", key: "1w4ew1" }],
   ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4", key: "fwvmzm" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/refresh-cw.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/refresh-cw.js
 var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
@@ -278,19 +278,19 @@ var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/rotate-ccw.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/rotate-ccw.js
 var RotateCcw = createLucideIcon("RotateCcw", [
   ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/search.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/search.js
 var Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
   ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/server.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/server.js
 var Server = createLucideIcon("Server", [
   ["rect", { width: "20", height: "8", x: "2", y: "2", rx: "2", ry: "2", key: "ngkwjq" }],
   ["rect", { width: "20", height: "8", x: "2", y: "14", rx: "2", ry: "2", key: "iecqi9" }],
@@ -298,7 +298,7 @@ var Server = createLucideIcon("Server", [
   ["line", { x1: "6", x2: "6.01", y1: "18", y2: "18", key: "nzw8ys" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/shield-check.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/shield-check.js
 var ShieldCheck = createLucideIcon("ShieldCheck", [
   [
     "path",
@@ -310,13 +310,13 @@ var ShieldCheck = createLucideIcon("ShieldCheck", [
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/terminal.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/terminal.js
 var Terminal = createLucideIcon("Terminal", [
   ["polyline", { points: "4 17 10 11 4 5", key: "akl6gq" }],
   ["line", { x1: "12", x2: "20", y1: "19", y2: "19", key: "q2wloq" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/trash-2.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
@@ -325,7 +325,7 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/triangle-alert.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/triangle-alert.js
 var TriangleAlert = createLucideIcon("TriangleAlert", [
   [
     "path",
@@ -338,14 +338,14 @@ var TriangleAlert = createLucideIcon("TriangleAlert", [
   ["path", { d: "M12 17h.01", key: "p32p05" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/user-minus.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/user-minus.js
 var UserMinus = createLucideIcon("UserMinus", [
   ["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", key: "1yyitq" }],
   ["circle", { cx: "9", cy: "7", r: "4", key: "nufk8" }],
   ["line", { x1: "22", x2: "16", y1: "11", y2: "11", key: "1shjgl" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/users.js
+// ../../var/www/elowen-plugins/node_modules/lucide-react/dist/esm/icons/users.js
 var Users = createLucideIcon("Users", [
   ["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", key: "1yyitq" }],
   ["circle", { cx: "9", cy: "7", r: "4", key: "nufk8" }],
@@ -401,6 +401,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
     Badge,
     Button,
     IconButton,
+    Input,
     SelectMenu,
     ConfirmDialog,
     ManageSelectionModal,
@@ -415,6 +416,8 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   const [pendingPublic, setPendingPublic] = (0, import_react3.useState)(false);
   const [confirmDelete, setConfirmDelete] = (0, import_react3.useState)(false);
   const [guestPicker, setGuestPicker] = (0, import_react3.useState)(false);
+  const [runtimeCommand, setRuntimeCommand] = (0, import_react3.useState)("");
+  const [runtimeBind, setRuntimeBind] = (0, import_react3.useState)("socket");
   const [failedAction, setFailedAction] = (0, import_react3.useState)(null);
   const [failedGuests, setFailedGuests] = (0, import_react3.useState)(null);
   const callRef = (0, import_react3.useRef)(false);
@@ -489,6 +492,12 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   (0, import_react3.useEffect)(() => {
     onBusyChange?.(callRef.current || guestsRef.current || call.isPending || saveGuests.isPending);
   }, [call.isPending, onBusyChange, saveGuests.isPending]);
+  (0, import_react3.useEffect)(() => {
+    const next = detail.data?.runtime;
+    if (!next) return;
+    setRuntimeCommand(next.startCommand ?? "");
+    setRuntimeBind(next.bind === "port" ? "port" : "socket");
+  }, [detail.data?.runtime]);
   if (detail.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EmptyState, { title: strings.loadFailed, icon: Server });
   if (!site) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoadingLine, {});
   const setVisibility = (next) => {
@@ -498,6 +507,15 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
       return;
     }
     runCall({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: next }) });
+  };
+  const saveRuntime = () => {
+    const command = runtimeCommand.trim();
+    if (!command || !detail.data?.runtime || callRef.current) return;
+    runCall({
+      path: basePath(siteId),
+      init: jsonBody("PATCH", { startCommand: command, bind: runtimeBind }),
+      done: strings.saved
+    });
   };
   const releases = detail.data?.releases ?? [];
   const visits = (detail.data?.hits ?? []).reduce((sum, entry) => sum + entry.count, 0);
@@ -657,7 +675,42 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
           }
         ) : null
       ] }),
-      runtimeState.startCommand ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
+      canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex flex-col gap-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-muted-foreground", children: strings.runtimeCommand }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            Input,
+            {
+              value: runtimeCommand,
+              onChange: (event) => setRuntimeCommand(event.target.value),
+              "aria-label": strings.runtimeCommand,
+              className: "font-mono",
+              disabled: call.isPending
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          SelectMenu,
+          {
+            value: runtimeBind,
+            onChange: (value) => setRuntimeBind(value === "port" ? "port" : "socket"),
+            label: strings.runtimeBind,
+            options: [
+              { value: "socket", label: strings.runtimeSocket },
+              ...runtimeState.allowLoopbackPorts || runtimeBind === "port" ? [{ value: "port", label: strings.runtimePort }] : []
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center justify-between gap-3 text-xs", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-muted-foreground", children: strings.runtimeNetwork }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: runtimeState.network === "shared" ? "warning" : "muted", children: runtimeState.network === "shared" ? strings.runtimeNetworkShared : strings.runtimeNetworkIsolated })
+        ] }),
+        runtimeBind === "port" && runtimeState.port !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("code", { className: "font-mono text-[11px] text-muted-foreground", children: [
+          "127.0.0.1:",
+          runtimeState.port
+        ] }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", disabled: call.isPending || runtimeCommand.trim() === "", onClick: saveRuntime, children: strings.saveRuntime }) })
+      ] }) : runtimeState.startCommand ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-muted-foreground", children: strings.runtimeCommand }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "break-all font-mono text-[11px] text-foreground", children: runtimeState.startCommand })
       ] }) : null,
