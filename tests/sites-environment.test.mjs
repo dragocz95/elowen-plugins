@@ -387,13 +387,13 @@ test('environment start performs the direct broker sequence and never uses resta
   assert.equal(calls.filter(([name]) => name === 'create').length, 1);
   assert.equal(calls.filter(([name]) => name === 'start').length, 1);
   assert.deepEqual(calls.filter(([name]) => ['volume-ensure', 'create', 'update', 'start'].includes(name)).map(([name]) => name), [
-    'volume-ensure', 'create', 'update', 'start',
+    'volume-ensure', 'create', 'start',
   ]);
   assert.equal(supervisor.endpointFor(SITE_ID)?.kind, 'socket');
   assert.equal(calls.some(([name]) => name === 'restart'), false);
 });
 
-test('existing environment receives effective limits before every start without recreation', async (t) => {
+test('existing environment receives effective limits after start without recreation', async (t) => {
   const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['exited'] });
   site.environmentMemoryMb = 2048;
   site.environmentCpus = 1.75;
@@ -401,8 +401,17 @@ test('existing environment receives effective limits before every start without 
   await supervisor.start(site);
   assert.equal(calls.some(([name]) => name === 'create'), false);
   assert.deepEqual(calls.filter(([name]) => ['update', 'start'].includes(name)), [
-    ['update', `elowen-site-${SITE_ID}`, { cpus: 1.75, memoryMb: 2048, pidsLimit: 700 }],
     ['start', `elowen-site-${SITE_ID}`],
+    ['update', `elowen-site-${SITE_ID}`, { cpus: 1.75, memoryMb: 2048, pidsLimit: 700 }],
+  ]);
+});
+
+test('a previously created container starts before crun receives an update', async (t) => {
+  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['created'] });
+  await supervisor.start(site);
+  assert.deepEqual(calls.filter(([name]) => ['start', 'update'].includes(name)), [
+    ['start', `elowen-site-${SITE_ID}`],
+    ['update', `elowen-site-${SITE_ID}`, { cpus: 1, memoryMb: 1024, pidsLimit: 512 }],
   ]);
 });
 
@@ -455,6 +464,25 @@ test('environment limit overrides persist only after Podman update succeeds', as
     environmentDiskSoftMb: 8192,
   }), /update denied/);
   assert.equal(site.environmentMemoryMb, null);
+});
+
+test('environment limit overrides persist while stopped and apply on the next start', async (t) => {
+  const { supervisor, site, calls } = supervisorHarness(t, { statuses: ['exited'] });
+  await supervisor.applyLimits(site, {
+    environmentCpus: 2,
+    environmentMemoryMb: 2048,
+    environmentPidsLimit: 700,
+    environmentDiskSoftMb: 8192,
+  });
+  assert.equal(calls.some(([name]) => name === 'update'), false);
+  assert.equal(site.environmentMemoryMb, 2048);
+
+  calls.length = 0;
+  await supervisor.start(site);
+  assert.deepEqual(calls.filter(([name]) => ['start', 'update'].includes(name)), [
+    ['start', `elowen-site-${SITE_ID}`],
+    ['update', `elowen-site-${SITE_ID}`, { cpus: 2, memoryMb: 2048, pidsLimit: 700 }],
+  ]);
 });
 
 test('environment exec refuses a stopped container', async (t) => {
@@ -637,7 +665,7 @@ test('daemon reconcile performs a durable restart and atomically returns desired
   await supervisor.reconcile();
   assert.equal(site.environmentDesiredState, 'running');
   assert.deepEqual(calls.filter(([name]) => ['stop', 'update', 'start'].includes(name)).map(([name]) => name), [
-    'stop', 'update', 'start',
+    'stop', 'start', 'update',
   ]);
 });
 
@@ -709,7 +737,7 @@ test('daemon reconcile completes durable rollback and returns desired state to r
   assert.deepEqual(calls.filter(([name]) => ['stop', 'remove', 'volume-rm', 'volume-ensure', 'volume-import', 'volume-export', 'create', 'update', 'start'].includes(name)).map(([name]) => name), [
     'volume-rm', 'volume-ensure', 'volume-import', 'volume-rm',
     'stop', 'remove', 'volume-export', 'volume-rm', 'volume-ensure', 'volume-import',
-    'create', 'update', 'start',
+    'create', 'start',
   ]);
 });
 

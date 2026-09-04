@@ -319,7 +319,8 @@ export class EnvironmentSupervisor {
         const endpoint = { kind: 'socket', path: prepared.path };
         try {
             const limits = this.containerLimits(site);
-            if (status === null) {
+            const creating = status === null;
+            if (creating) {
                 const image = createImage ?? await this.deps.ensureBaseImage();
                 const files = this.writeEnvironmentFiles(site);
                 const volume = volumeName(site.id);
@@ -338,8 +339,11 @@ export class EnvironmentSupervisor {
                     image,
                 });
             }
-            await this.deps.podman.update(name, limits);
             await this.deps.podman.start(name);
+            // Create already persisted these limits. Podman delegates `update` to crun, which requires a live
+            // runtime and fails for created/exited containers, so existing containers are updated after start.
+            if (!creating)
+                await this.deps.podman.update(name, limits);
             const ready = await this.waitForReady(endpoint, this.deps.config().startTimeoutSeconds * 1_000);
             if (!ready)
                 throw new Error(`the environment did not expose ${prepared.path} in time`);
@@ -421,7 +425,10 @@ export class EnvironmentSupervisor {
     applyLimits(site, patch) {
         return this.serialize(site.id, async () => {
             const next = { ...site, ...patch };
-            if (await this.deps.podman.inspectStatus(containerName(site.id)) !== null) {
+            const status = await this.deps.podman.inspectStatus(containerName(site.id));
+            // crun can update only a running container. For a stopped/created container persist the override;
+            // startNow applies it immediately after the next start and before ingress is accepted.
+            if (status === 'running') {
                 await this.deps.podman.update(containerName(site.id), this.containerLimits(next));
             }
             this.deps.store.updateSite(site.id, patch);
