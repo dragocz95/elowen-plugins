@@ -18,7 +18,7 @@ setDefaults(
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: 'user', is_admin: true } })),
 );
 beforeAll(() => listen());
-afterEach(() => { cleanup(); resetHandlers(); vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); resetHandlers(); vi.useRealTimers(); vi.restoreAllMocks(); window.sessionStorage.clear(); });
 afterAll(() => close());
 
 const artifact = {
@@ -268,6 +268,28 @@ describe('browser plugin UI', () => {
     mountArtifact();
     expect(await screen.findByRole('button', { name: strings.takeControl })).toBeInTheDocument();
     expect(screen.queryByText(strings.youControl)).toBeNull();
+  });
+
+  it('says the page moved instead of raising an error when the server drops an input batch', async () => {
+    // Production: a person logged in through the takeover, the login navigated, and every pointer move
+    // made during that navigation came back as a red error toast. Nothing was wrong; the page moved.
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-new', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
+      http.post('/api/plugins/browser/api/input', () => HttpResponse.json({ accepted: 0, dropped: 'page_changed' })),
+      http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000 })),
+    );
+    mountArtifact();
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    fireEvent.click(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)!);
+    expect((await screen.findAllByText(strings.youControl)).length).toBeGreaterThan(0);
+    const viewport = screen.getAllByLabelText(strings.browserViewport).at(-1)!;
+    vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400, toJSON: () => ({}) });
+    fireEvent.pointerDown(viewport, { clientX: 320, clientY: 200, button: 0, pointerId: 1 });
+    expect(await screen.findByText(strings.inputDropped)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    // Still in control: a dropped batch is not a lost lease.
+    expect(screen.getAllByRole('button', { name: strings.returnToAgent }).length).toBeGreaterThan(0);
   });
 
   it('keeps a local takeover through a transient heartbeat failure', async () => {

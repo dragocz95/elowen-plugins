@@ -40,6 +40,7 @@
       "closed": "Ukončené",
       "disconnected": "Odpojené",
       "viewerLimit": "Príliš veľa divákov",
+      "inputDropped": "Stránka sa zmenila — vstup nebol doručený",
       "connecting": "Pripájanie",
       "agentControl": "Ovláda agent",
       "userControl": "Ovláda používateľ",

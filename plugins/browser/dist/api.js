@@ -169,8 +169,10 @@ export function registerBrowserApi(ctx, registry, dependencies) {
             try {
                 const body = await json(req);
                 const events = parseUserInputEvents(body.events);
-                await ownedSession(registry, req).dispatchUserInput(requiredString(body.leaseId, 'leaseId', 256), events);
-                return { body: { accepted: events.length } };
+                const outcome = await ownedSession(registry, req).dispatchUserInput(requiredString(body.leaseId, 'leaseId', 256), events);
+                // A batch dropped because the page moved on is a normal outcome of driving a page, not a bad
+                // request: it is reported, so the card can say so, but it is not an error.
+                return { body: outcome === 'delivered' ? { accepted: events.length } : { accepted: 0, dropped: outcome } };
             }
             catch (error) {
                 return responseError(error);

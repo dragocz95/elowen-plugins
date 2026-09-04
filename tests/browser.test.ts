@@ -277,10 +277,10 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.2.10, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.2.11, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as { version: string; userGrantable: boolean; entry: string; provides: { tools: string[]; apiRoutes: string[] } };
-    expect(manifest.version).toBe('0.2.10');
+    expect(manifest.version).toBe('0.2.11');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
     expect(manifest.provides.apiRoutes).toHaveLength(12);
@@ -1080,9 +1080,26 @@ describe('browser takeover state machine', () => {
     // is on screen; only then does the agent's navigation land.
     await tick();
     wedged.release();
-    await expect(clicking).rejects.toThrow(/page changed/i);
+    // Dropped, and SAID so — but not as a failure: the person did nothing wrong, the page moved.
+    await expect(clicking).resolves.toBe('page_changed');
     await wedged.navigation.catch(() => {});
     await session.close();
+  });
+
+  it('reports a dropped batch as an outcome on the wire, not as a bad request', async () => {
+    const routes: any[] = [];
+    const ctx = { registerApiRoute: (route: unknown) => routes.push(route), logger };
+    const session = { dispatchUserInput: vi.fn(async () => 'page_changed' as const) };
+    registerBrowserApi(ctx as any, { getOwned: () => session } as any);
+    const route = routes.find((item) => item.path === 'input' && item.method === 'POST');
+    const response = await route.handler({
+      auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [] },
+      query: { sessionId: 'session-1' }, params: {}, method: 'POST', path: '', headers: {},
+      body: async () => Buffer.alloc(0),
+      json: async () => ({ leaseId: 'lease-1', events: [{ type: 'pointer', action: 'move', x: 1, y: 1, surfaceWidth: 10, surfaceHeight: 10 }] }),
+    });
+    expect(response.status ?? 200).toBe(200);
+    expect(response.body).toEqual({ accepted: 0, dropped: 'page_changed' });
   });
 
   it('fails an agent turn that is cancelled while a takeover holds the session', async () => {
