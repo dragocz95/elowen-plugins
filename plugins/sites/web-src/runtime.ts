@@ -1,8 +1,10 @@
 import type { ComponentType, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import type { PluginPageProps } from 'elowen-plugin-ui-kit';
 
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
 export type SiteStatus = 'draft' | 'live' | 'failed';
+export type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
 
 export interface SiteView {
   id: string;
@@ -24,6 +26,7 @@ export interface SiteView {
   lastPublishAt: string | null;
   lastPublishModel: string | null;
   spa: boolean;
+  runtime: SiteRuntime;
   canManage: boolean;
 }
 
@@ -33,7 +36,7 @@ export interface SitesListResponse {
   allowPublicSites: boolean;
 }
 
-interface ReleaseView {
+export interface ReleaseView {
   id: string;
   siteId: string;
   createdAt: string;
@@ -41,6 +44,31 @@ interface ReleaseView {
   fileCount: number;
   sizeBytes: number;
   note: string;
+  kind: 'files' | 'environment-snapshot';
+  includesData?: boolean;
+}
+
+export type EnvironmentAction = {
+  kind: 'snapshot' | 'rollback';
+  snapshotId: string;
+  lastError: string | null;
+  includeData?: boolean;
+  restoreData?: boolean;
+  note?: string;
+};
+
+export interface EnvironmentView {
+  state: string | null;
+  desiredState: 'running' | 'stopped' | 'restarting';
+  limits?: { cpus: number; memoryMb: number; pidsLimit: number; diskSoftMb: number };
+  limitOverrides?: { cpus: number | null; memoryMb: number | null; pidsLimit: number | null; diskSoftMb: number | null };
+  usage?: null;
+  lastError?: string | null;
+  action?: EnvironmentAction | null;
+  canControl?: boolean;
+  canReadLogs?: boolean;
+  canSetLimits?: boolean;
+  transport?: { buffered: true; requestBodyLimitBytes: number };
 }
 
 /** One person as the API hands them over: the account id and the display name, nothing else. Core's
@@ -70,6 +98,7 @@ export interface SiteDetailResponse {
     logTail: string | null;
     lastError: string | null;
   } | null;
+  environment: EnvironmentView | null;
 }
 
 export interface DirectoryResponse {
@@ -80,6 +109,27 @@ export interface TicketResponse {
   token: string;
   action: string;
   title: string;
+}
+
+export interface GatewayReadinessResponse {
+  ready: boolean;
+  status: 'ready' | 'missing' | 'misdirected' | 'unavailable';
+  detail: string;
+  expectedRecord: { type: 'CNAME'; name: string; value: string } | null;
+  observedTargets: string[];
+}
+
+export interface EnvironmentReadinessResponse {
+  ready: boolean;
+  detail?: string;
+  canProvision: boolean;
+  items: { id: string; label: string; ok: boolean; detail?: string }[];
+}
+
+export interface EnvironmentLogsResponse {
+  lifecycle: string;
+  journal: string;
+  lines: number;
 }
 
 interface QueryResult<T> { data?: T; isLoading: boolean; isError: boolean; error?: unknown; refetch(): void }
@@ -130,9 +180,15 @@ interface RuntimeComponents {
     placeholder?: string;
     className?: string;
     disabled?: boolean;
-    type?: 'text' | 'password' | 'email' | 'search';
+    type?: 'text' | 'password' | 'email' | 'search' | 'number';
     autoComplete?: string;
     'aria-label'?: string;
+  }>;
+  Toggle: ComponentType<{
+    checked: boolean;
+    onChange(checked: boolean): void;
+    label?: string;
+    disabled?: boolean;
   }>;
   RegisterSearch: ComponentType<{
     value: string;
@@ -167,7 +223,9 @@ interface RuntimeComponents {
     title: string;
     description?: string;
     confirmLabel?: string;
-    onConfirm(): void;
+    confirmVariant?: 'default' | 'accent' | 'ghost' | 'danger' | 'ghost-danger' | 'outline' | 'outline-danger';
+    pending?: boolean;
+    onConfirm(): unknown;
     onClose(): void;
   }>;
   /** The host's people picker: search, grouped rows and a local selection that is handed over whole on
@@ -195,6 +253,31 @@ interface RuntimeComponents {
   }>;
   WorkspacePage: ComponentType<{ className?: string; children: ReactNode }>;
   PluginPageHeader: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
+  SettingsDocument: ComponentType<{ children: ReactNode; className?: string }>;
+  SettingsGroup: ComponentType<{
+    title?: string;
+    description?: string;
+    icon?: LucideIcon;
+    actions?: ReactNode;
+    tone?: 'default' | 'danger';
+    density?: 'comfortable' | 'compact';
+    columns?: 1 | 2;
+    children?: ReactNode;
+    className?: string;
+  }>;
+  SettingsRow: ComponentType<{
+    label: string;
+    description?: string;
+    hint?: string;
+    icon?: LucideIcon;
+    iconNode?: ReactNode;
+    control?: ReactNode;
+    status?: ReactNode;
+    actions?: ReactNode;
+    trailingLayout?: 'inline' | 'stack';
+    children?: ReactNode;
+    className?: string;
+  }>;
   SpatialWorkspaceLayout: ComponentType<{
     hero: {
       eyebrow?: string;
@@ -272,6 +355,7 @@ interface HostWindow {
     requiresApiVersion: number;
     pages?: Record<string, ComponentType<never>>;
     project?: Record<string, ComponentType<never>>;
+    settings?: Record<string, ComponentType<PluginPageProps>>;
   }) => void;
 }
 
@@ -284,11 +368,13 @@ export function runtime(): SitesRuntime {
 export function registerSitesUi(
   pages: Record<string, ComponentType<never>>,
   project: Record<string, ComponentType<never>>,
+  settings: Record<string, ComponentType<PluginPageProps>>,
 ): void {
   (window as HostWindow).__elowenRegisterPluginUi?.('sites', {
     requiresApiVersion: 12,
     pages,
     project,
+    settings,
   });
 }
 

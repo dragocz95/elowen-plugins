@@ -2,7 +2,10 @@ import type { PluginApiRequest, PluginHttpResponse } from 'elowen/plugin-api';
 import type { Site, SitesStore, Visibility } from './store.js';
 import { VISIBILITIES } from './store.js';
 import { mayOpen, mintTicket, normalizeReturnPath, type AccessDeps } from './access.js';
-import { SITE_BASE_PATH, siteUrl, type SitesConfig } from './config.js';
+import { environmentLimitOverrides, SITE_BASE_PATH, siteUrl, type EnvironmentLimitOverrides, type SitesConfig } from './config.js';
+import { ProvisionInProgressError, type EnvironmentProvisioningService } from './provisioning.js';
+import type { EnvironmentState } from './environment.js';
+import type { RequiredRecord, SiteGatewayReadiness } from './gateway.js';
 
 /** A person as this plugin's surfaces show them. Mirrored in web-src/runtime.ts, which cannot import
  *  from here: the browser bundle is a separate compile unit. */
@@ -26,6 +29,15 @@ export interface ApiDeps {
   runtimeState(siteId: string): { running: boolean; logTail: string };
   allocatePort(): Promise<number>;
   restartRuntime(site: Site): Promise<void>;
+  environmentState(site: Site): Promise<EnvironmentState>;
+  environmentLogs(site: Site, lines: number): Promise<{ lifecycle: string; journal: string }>;
+  gatewayReadiness(): Promise<SiteGatewayReadiness>;
+  gatewayRecord(): RequiredRecord | null;
+  requestEnvironmentControl(site: Site, action: 'start' | 'stop' | 'restart'): Promise<void>;
+  snapshotEnvironment(site: Site, input: { includeData: boolean; note: string }): Promise<{ id: string }>;
+  rollbackEnvironment(site: Site, input: { releaseId: string; restoreData: boolean }): Promise<void>;
+  applyEnvironmentLimits(site: Site, limits: EnvironmentLimitOverrides): Promise<void>;
+  provisioning: Pick<EnvironmentProvisioningService, 'status' | 'provision'>;
 }
 
 const json = (status: number, body: unknown): PluginHttpResponse => ({
@@ -39,6 +51,9 @@ const TICKET_TTL_MS = 60_000;
 /** Whether the caller may change this site. Viewing is a different question, answered by `mayOpen`. */
 const canManage = (site: Site, auth: PluginApiRequest['auth']): boolean =>
   auth.admin || (auth.userId !== null && auth.userId === site.ownerUserId);
+
+const canAccessProject = (projectId: number, auth: PluginApiRequest['auth']): boolean =>
+  auth.admin || (auth.accessibleProjects !== null && auth.accessibleProjects.includes(projectId));
 
 interface SiteView {
   id: string;
@@ -61,6 +76,7 @@ interface SiteView {
   lastPublishAt: string | null;
   lastPublishModel: string | null;
   spa: boolean;
+  runtime: Site['runtime'];
   canManage: boolean;
 }
 
@@ -86,6 +102,7 @@ const toView = (site: Site, deps: ApiDeps, auth: PluginApiRequest['auth']): Site
     lastPublishAt: site.lastPublishAt,
     lastPublishModel: site.lastPublishModel,
     spa: site.spa,
+    runtime: site.runtime,
     canManage: canManage(site, auth),
   };
 };
@@ -144,13 +161,24 @@ export function createApiHandlers(deps: ApiDeps) {
     if (req.method === 'GET' && action === '') {
       const people = deps.people();
       const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
+      const environment = target.runtime === 'environment' ? await deps.environmentState(target) : null;
       return json(200, {
         site: toView(target, deps, req.auth),
         // Only somebody who can EDIT the guest list may read it. A guest seeing the whole list learns
         // who else the owner shared with, which is the owner's business and not part of opening a page.
         members: !canManage(target, req.auth) ? [] : deps.store.memberIds(target.id).map((id) => people.get(id)
           ?? { id, username: `#${id}`, name: `#${id}`, avatar: '' }),
-        releases: deps.store.releases(target.id),
+        releases: deps.store.releases(target.id).map((release) => ({
+          id: release.id,
+          siteId: release.siteId,
+          createdAt: release.createdAt,
+          model: release.model,
+          fileCount: release.fileCount,
+          sizeBytes: release.sizeBytes,
+          note: release.note,
+          kind: release.kind,
+          ...(release.kind === 'environment-snapshot' ? { includesData: Boolean(release.dataArchive) } : {}),
+        })),
         hits: deps.store.hits(target.id, since),
         sourceDir: canManage(target, req.auth) ? target.sourceDir : null,
         // The command and the log are operational detail about a process, so they go only to somebody
@@ -165,11 +193,35 @@ export function createApiHandlers(deps: ApiDeps) {
           logTail: canManage(target, req.auth) ? deps.runtimeState(target.id).logTail : null,
           lastError: canManage(target, req.auth) ? target.lastError : null,
         },
+        environment: environment === null ? null : canManage(target, req.auth)
+          ? {
+            ...environment,
+            action: deps.store.environmentAction(target.id),
+            limitOverrides: {
+              cpus: target.environmentCpus ?? null,
+              memoryMb: target.environmentMemoryMb ?? null,
+              pidsLimit: target.environmentPidsLimit ?? null,
+              diskSoftMb: target.environmentDiskSoftMb ?? null,
+            },
+            canControl: canAccessProject(target.projectId, req.auth),
+            canReadLogs: canAccessProject(target.projectId, req.auth),
+            canSetLimits: req.auth.admin && canAccessProject(target.projectId, req.auth),
+            transport: { buffered: true, requestBodyLimitBytes: 1024 * 1024 },
+          }
+          : { state: environment.state, desiredState: environment.desiredState },
       });
     }
 
     if (!canManage(target, req.auth)) return json(403, { error: 'forbidden' });
 
+    if (req.method === 'GET' && action === 'logs') {
+      if (target.runtime !== 'environment') return json(400, { error: 'this site is not an environment' });
+      if (!canAccessProject(target.projectId, req.auth)) return json(403, { error: 'project access is required' });
+      const requested = Number(req.query.lines ?? 200);
+      const lines = Number.isFinite(requested) ? Math.min(1000, Math.max(1, Math.round(requested))) : 200;
+      const logs = await deps.environmentLogs(target, lines);
+      return json(200, { ...logs, lines });
+    }
     if (req.method === 'PATCH' && action === '') return patchSite(req, target);
     if (req.method === 'DELETE' && action === '') {
       await deps.deleteSite(target.id);
@@ -186,8 +238,34 @@ export function createApiHandlers(deps: ApiDeps) {
       deps.store.bumpAccessGeneration(target.id);
       return json(200, { ok: true });
     }
+    if (req.method === 'POST' && action === 'control') {
+      if (target.runtime !== 'environment') return json(400, { error: 'this site is not an environment' });
+      if (!canAccessProject(target.projectId, req.auth)) return json(403, { error: 'project access is required' });
+      const body = await req.json<{ action?: unknown }>().catch(() => ({} as { action?: unknown }));
+      if (body.action !== 'start' && body.action !== 'stop' && body.action !== 'restart') {
+        return json(400, { error: 'unknown environment action' });
+      }
+      try { await deps.requestEnvironmentControl(target, body.action); }
+      catch (error) { return json(409, { error: error instanceof Error ? error.message : 'action could not be scheduled' }); }
+      return json(200, { ok: true, scheduled: true, action: body.action });
+    }
+    if (req.method === 'POST' && action === 'snapshot') {
+      if (target.runtime !== 'environment') return json(400, { error: 'this site is not an environment' });
+      if (!canAccessProject(target.projectId, req.auth)) return json(403, { error: 'project access is required' });
+      const body = await req.json<{ includeData?: unknown; note?: unknown }>()
+        .catch(() => ({} as { includeData?: unknown; note?: unknown }));
+      try {
+        const snapshot = await deps.snapshotEnvironment(target, {
+          includeData: body.includeData !== false,
+          note: typeof body.note === 'string' ? body.note.trim().slice(0, 200) : '',
+        });
+        return json(200, { ok: true, snapshotId: snapshot.id, crashConsistent: true, scheduled: true });
+      } catch (error) {
+        return json(409, { error: error instanceof Error ? error.message : 'snapshot could not be scheduled' });
+      }
+    }
     if (req.method === 'POST' && action === 'restart') {
-      if (target.runtime !== 'command') return json(400, { error: 'this site has no runtime' });
+      if (target.runtime !== 'command') return json(400, { error: 'this site has no command runtime' });
       try {
         await deps.restartRuntime(target);
       } catch (error) {
@@ -196,9 +274,20 @@ export function createApiHandlers(deps: ApiDeps) {
       return json(200, { ok: true });
     }
     if (req.method === 'POST' && action === 'rollback') {
-      const body = await req.json<{ releaseId?: string }>().catch(() => ({} as { releaseId?: string }));
+      const body = await req.json<{ releaseId?: string; restoreData?: unknown }>()
+        .catch(() => ({} as { releaseId?: string; restoreData?: unknown }));
       const releaseId = typeof body.releaseId === 'string' ? body.releaseId : '';
       const release = deps.store.release(target.id, releaseId);
+      if (target.runtime === 'environment') {
+        if (!canAccessProject(target.projectId, req.auth)) return json(403, { error: 'project access is required' });
+        if (!release || release.kind !== 'environment-snapshot' || !release.imageRef) {
+          return json(404, { error: 'unknown environment snapshot' });
+        }
+        if (body.restoreData === true && !release.dataArchive) return json(400, { error: 'snapshot has no data archive' });
+        try { await deps.rollbackEnvironment(target, { releaseId, restoreData: body.restoreData === true }); }
+        catch (error) { return json(409, { error: error instanceof Error ? error.message : 'rollback could not be scheduled' }); }
+        return json(200, { ok: true, scheduled: true, snapshotId: releaseId });
+      }
       if (!release) return json(404, { error: 'unknown release' });
       deps.activateRelease(target, release.id);
       return json(200, { ok: true });
@@ -211,6 +300,16 @@ export function createApiHandlers(deps: ApiDeps) {
     const patch: Parameters<SitesStore['updateSite']>[1] = {};
     let accessChanged = false;
     let runtimeChanged = false;
+    const limitKeys = ['environmentCpus', 'environmentMemoryMb', 'environmentPidsLimit', 'environmentDiskSoftMb'] as const;
+    const hasLimitOverrides = limitKeys.some((key) => key in body);
+    let limits: EnvironmentLimitOverrides | null = null;
+    if (hasLimitOverrides) {
+      if (!req.auth.admin) return json(403, { error: 'environment limit overrides require an administrator' });
+      if (target.runtime !== 'environment') return json(400, { error: 'only an environment has resource limits' });
+      if (!canAccessProject(target.projectId, req.auth)) return json(403, { error: 'project access is required' });
+      try { limits = environmentLimitOverrides(body); }
+      catch (error) { return json(400, { error: error instanceof Error ? error.message : 'invalid environment limits' }); }
+    }
 
     if (typeof body.title === 'string' && body.title.trim() !== '') patch.title = body.title.trim().slice(0, 120);
     if (typeof body.summary === 'string') patch.summary = body.summary.trim().slice(0, 400);
@@ -250,6 +349,10 @@ export function createApiHandlers(deps: ApiDeps) {
         patch.visibility = next;
         accessChanged = true;
       }
+    }
+    if (limits) {
+      try { await deps.applyEnvironmentLimits(target, limits); }
+      catch (error) { return json(502, { error: error instanceof Error ? error.message : 'Podman could not apply the limits' }); }
     }
     deps.store.updateSite(target.id, patch);
     if (accessChanged) deps.store.bumpAccessGeneration(target.id);
@@ -336,5 +439,45 @@ export function createApiHandlers(deps: ApiDeps) {
     return json(200, { accounts });
   };
 
-  return { list, site, ticket, directory };
+  const gatewayReadiness = async (req: PluginApiRequest): Promise<PluginHttpResponse> => {
+    if (req.auth.userId === null) return json(403, { error: 'forbidden' });
+    const readiness = await deps.gatewayReadiness();
+    return json(200, {
+      ready: readiness.ok,
+      status: readiness.status,
+      detail: readiness.detail,
+      expectedRecord: deps.gatewayRecord(),
+      observedTargets: readiness.observedTargets ?? [],
+    });
+  };
+
+  const environmentsReadiness = async (req: PluginApiRequest): Promise<PluginHttpResponse> => {
+    if (req.auth.userId === null) return json(403, { error: 'forbidden' });
+    const status = await deps.provisioning.status();
+    if (req.auth.admin) return json(200, { ...status, canProvision: true });
+    return json(200, {
+      ready: status.ready,
+      canProvision: false,
+      items: status.items.map((item) => ({
+        id: item.id,
+        label: item.label,
+        ok: item.ok,
+        ...(item.ok ? {} : { detail: 'An administrator must complete this dependency.' }),
+      })),
+    });
+  };
+
+  const environmentsProvision = async (req: PluginApiRequest): Promise<PluginHttpResponse> => {
+    if (!req.auth.admin) return json(403, { error: 'forbidden' });
+    if (req.method !== 'POST') return json(405, { error: 'method not allowed' });
+    try {
+      const status = await deps.provisioning.provision(req.auth.userId);
+      return json(status.ready ? 200 : 503, { ...status, canProvision: true });
+    } catch (error) {
+      if (error instanceof ProvisionInProgressError) return json(409, { error: error.message });
+      return json(502, { error: error instanceof Error ? error.message : 'environment provisioning failed' });
+    }
+  };
+
+  return { list, site, ticket, directory, gatewayReadiness, environmentsReadiness, environmentsProvision };
 }

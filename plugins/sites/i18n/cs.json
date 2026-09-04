@@ -1,5 +1,5 @@
 {
-  "description": "Zveřejněte stránku, kterou agent vytvořil – přehled, report, prezentační web – na skutečné adrese této instance a rozhodněte, kdo ji smí otevřít: jen vy, lidé z projektu, kterýkoli přihlášený účet, jmenovitě pozvaní hosté, nebo úplně všichni. Agent staví vlastními nástroji a předává hotový výstup; každé zveřejnění je samostatná verze, ke které se dá vrátit.",
+  "description": "Zveřejňujte statické stránky, command a PHP aplikace nebo provozujte doplňková trvalá rootless prostředí se systemd, omezenými prostředky a vstupním socketem spravovaným hostitelem. Každá stránka si zachovává vlastní adresu a pravidla viditelnosti.",
   "fields": {
     "publishing": {
       "label": "Zveřejňování"
@@ -59,11 +59,43 @@
       "label": "Běhová prostředí stránek"
     },
     "allowCommandRuntime": {
-      "label": "Povolit běhová prostředí",
-      "hint": "Umožní, aby stránka byla běžící server – Node, Bun, Python nebo TypeScript – za privátním unixovým socketem nebo výslovně povoleným loopback portem, případně aby spouštěla PHP přes PHP-CGI."
+      "label": "Povolit command a PHP runtime",
+      "hint": "Umožní zveřejněné verzi spouštět Node, Bun, Python nebo TypeScript za privátním unixovým socketem či výslovně povoleným loopback portem, případně PHP přes PHP-CGI."
+    },
+    "allowEnvironments": {
+      "label": "Povolit trvalá prostředí",
+      "hint": "Umožní Sites provozovat trvalá rootless Podman prostředí se systemd, soukromým kořenovým systémem souborů a jediným vstupním socketem spravovaným hostitelem."
+    },
+    "environmentNetwork": {
+      "label": "Síť prostředí",
+      "hint": "Odchozí internet používá rootless slirp4netns se zakázaným loopbackem hostitele. Režim bez sítě neposkytne prostředí žádné síťové rozhraní kromě vlastního loopbacku.",
+      "options": {
+        "shared": "Odchozí internet",
+        "isolated": "Bez sítě"
+      }
+    },
+    "environmentCpus": {
+      "label": "Procesory prostředí",
+      "hint": "Limit procesoru použitý při vytvoření kontejneru prostředí."
+    },
+    "environmentMemoryMb": {
+      "label": "Paměť prostředí",
+      "hint": "Limit paměti a paměti včetně swapu v MB použitý při vytvoření kontejneru prostředí."
+    },
+    "environmentPidsLimit": {
+      "label": "Limit procesů prostředí",
+      "hint": "Nejvyšší počet procesů a vláken v jednom prostředí."
+    },
+    "environmentDiskSoftMb": {
+      "label": "Upozornění na disk prostředí",
+      "hint": "Měkký limit využití disku v MB. Jde o upozornění, ne o kvótu systému souborů."
+    },
+    "maxEnvironmentsPerAccount": {
+      "label": "Počet prostředí na účet",
+      "hint": "Kolik trvalých prostředí smí jeden účet uchovávat. Počítají se odděleně od běžných stránek."
     },
     "runtimeNetwork": {
-      "label": "Síť běhového prostředí",
+      "label": "Síť command a PHP runtime",
       "hint": "Sdílená síť umožní serverům běžný odchozí internet a přístup k síťovým službám viditelným z hostitele. Proces nedostane Elowen token ani tajné prostředí daemona.",
       "options": {
         "isolated": "Bez sítě",
@@ -100,6 +132,9 @@
     },
     "project": {
       "sites": "Stránky"
+    },
+    "settings": {
+      "environment-setup": "Nastavení prostředí"
     },
     "strings": {
       "title": "Stránky",
@@ -147,6 +182,71 @@
       "runtimeNetwork": "Síť",
       "runtimeNetworkIsolated": "Bez sítě",
       "runtimeNetworkShared": "Síť hostitele",
+      "environment": "Trvalé prostředí",
+      "environmentState": "Stav prostředí",
+      "environmentDesiredState": "Požadovaný stav",
+      "environmentLimits": "Limity prostředků",
+      "environmentStart": "Spustit prostředí",
+      "environmentStop": "Zastavit prostředí",
+      "environmentRestart": "Restartovat prostředí",
+      "environmentSnapshot": "Vytvořit snapshot",
+      "environmentSnapshots": "Snapshoty prostředí",
+      "environmentCrashConsistent": "Snapshot zachycuje stav při pádu. Databáze mohou vyžadovat vlastní postup zálohování.",
+      "environmentReadiness": "Závislosti prostředí",
+      "environmentProvision": "Nainstalovat chybějící závislosti",
+      "environmentBaseImage": "Deterministický základní image",
+      "environmentActionPending": "Probíhá akce prostředí",
+      "environmentActionError": "Akce prostředí vyžaduje pozornost",
+      "environmentActionScheduled": "Akce prostředí byla naplánována",
+      "environmentSnapshotScheduled": "Snapshot byl naplánován",
+      "environmentSetupTitle": "Nastavení prostředí",
+      "environmentSetupDescription": "Směrování domény a závislosti hostitele potřebné pro trvalá prostředí Sites.",
+      "environmentGatewayTitle": "Doménová brána",
+      "environmentGatewayDescription": "Zástupná doména musí vést na hostname používaný touto instancí Elowen.",
+      "environmentGatewayCheck": "Cíl zástupné domény",
+      "environmentStatusReady": "Připraveno",
+      "environmentStatusMissing": "DNS záznam chybí",
+      "environmentStatusMisdirected": "Nesprávný cíl",
+      "environmentStatusUnavailable": "Kontrola není dostupná",
+      "environmentObservedTarget": "Zjištěný cíl",
+      "environmentRecordType": "Typ",
+      "environmentRecordName": "Název",
+      "environmentRecordValue": "Hodnota",
+      "environmentDependenciesTitle": "Závislosti prostředí",
+      "environmentDependenciesDescription": "Systémové balíčky, podpora rootless Podmanu a deterministický základní image Sites.",
+      "environmentProvisionHelp": "Instalace podle potřeby nainstaluje Podman, crun, uidmap, dbus-user-session, passt, slirp4netns a fuse-overlayfs; nastaví podřízená ID, linger uživatele a delegování cgroup; a sestaví deterministický základní image. Nerestartuje Elowen, web ani nginx.",
+      "environmentSetupReady": "Závislosti prostředí jsou připravené",
+      "environmentSetupAttention": "Závislosti prostředí vyžadují pozornost",
+      "environmentProvisionConfirmTitle": "Nainstalovat závislosti prostředí",
+      "environmentProvisionConfirmDescription": "Podle potřeby se nainstalují Podman, crun, uidmap, dbus-user-session, passt, slirp4netns a fuse-overlayfs; nastaví se podřízená ID, linger uživatele a delegování cgroup; a sestaví se deterministický základní image. Elowen, web ani nginx se nerestartují.",
+      "environmentObservedState": "Zjištěný stav",
+      "environmentTransportLimit": "Požadavky se ukládají do vyrovnávací paměti a jsou omezené na 1 MB. Streaming, události odesílané serverem ani WebSockety nejsou podporované.",
+      "environmentSnapshotNote": "Poznámka ke snapshotu",
+      "environmentSnapshotNotePlaceholder": "Popište bod obnovy",
+      "environmentIncludeData": "Zahrnout archiv svazku /data",
+      "environmentIncludeDataHelp": "Kořenový systém souborů a volitelný archiv /data zachycují stav při pádu, nikoli databázově konzistentní stav.",
+      "environmentNoSnapshots": "Zatím nebyl vytvořen žádný snapshot prostředí.",
+      "environmentSnapshotActive": "Aktivní bod obnovy",
+      "environmentRestore": "Obnovit snapshot",
+      "environmentRestoreRoot": "Obnovit pouze systém",
+      "environmentRestoreData": "Obnovit systém a /data",
+      "environmentRestoreConfirmTitle": "Obnovit snapshot prostředí",
+      "environmentRestoreRootWarning": "Prostředí se zastaví a jeho kořenový systém souborů se nahradí. Aktuální svazek /data zůstane zachovaný.",
+      "environmentRestoreWithDataWarning": "Prostředí se zastaví a ze snapshotu se nahradí kořenový systém souborů i svazek /data.",
+      "environmentRestoreScheduled": "Obnovení snapshotu bylo naplánováno",
+      "environmentLogs": "Logy prostředí",
+      "environmentLogsLoading": "Načítají se omezené logy prostředí…",
+      "environmentLimitsHint": "Prázdné hodnoty převezmou výchozí nastavení instance. Hodnota disku je upozornění, ne kvóta systému souborů.",
+      "environmentLimitCpu": "Procesory",
+      "environmentLimitMemory": "Paměť (MB)",
+      "environmentLimitPids": "Procesy a vlákna",
+      "environmentLimitDisk": "Upozornění na disk (MB)",
+      "environmentSaveLimits": "Uložit limity",
+      "environmentLimitsSaved": "Limity prostředí byly uloženy",
+      "copy": "Kopírovat",
+      "refresh": "Obnovit",
+      "pass": "OK",
+      "fail": "CHYBA",
       "saveRuntime": "Uložit běhové prostředí",
       "runtimeLog": "Poslední výstup",
       "runtimeEmptyLog": "Zatím nic zaznamenáno.",

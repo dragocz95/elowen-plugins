@@ -47,6 +47,19 @@ export interface SitesGatewayStatus {
   slugs?: string[];
 }
 
+export interface PublishedSitesEnvironmentStatusItem {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface PublishedSitesEnvironmentStatus {
+  ready: boolean;
+  items: PublishedSitesEnvironmentStatusItem[];
+  detail?: string;
+}
+
 interface SitesGatewayControl {
   hostnameBase(): string | null;
   syncSites(input: { gatewayToken: string }): Promise<SitesGatewayStatus>;
@@ -57,6 +70,8 @@ interface SitesGatewayControl {
   prepareRuntimeSocket(siteId: string): Promise<{ path: string }>;
   sealRuntimeSocket(siteId: string): Promise<void>;
   removeRuntimeSocket(siteId: string): Promise<void>;
+  environmentsStatus(): Promise<PublishedSitesEnvironmentStatus>;
+  provisionEnvironments(): Promise<PublishedSitesEnvironmentStatus>;
 }
 
 /** An account as the host hands it over. The published package still describes it without the display

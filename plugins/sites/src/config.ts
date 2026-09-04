@@ -13,6 +13,13 @@ export interface SitesConfig {
    *  default: it puts agent-authored code on the network, and the confinement around it is a namespace,
    *  not a separate machine account. */
   allowCommandRuntime: boolean;
+  allowEnvironments: boolean;
+  environmentNetwork: 'isolated' | 'shared';
+  environmentCpus: number;
+  environmentMemoryMb: number;
+  environmentPidsLimit: number;
+  environmentDiskSoftMb: number;
+  maxEnvironmentsPerAccount: number;
   runtimeNetwork: 'isolated' | 'shared';
   allowLoopbackPorts: boolean;
   loopbackPortMin: number;
@@ -39,6 +46,40 @@ const bounded = (value: unknown, fallback: number, min: number, max: number): nu
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.round(parsed)));
 };
+
+const boundedFloat = (value: unknown, fallback: number, min: number, max: number): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(parsed * 100) / 100));
+};
+
+export interface EnvironmentLimitOverrides {
+  environmentCpus?: number | null;
+  environmentMemoryMb?: number | null;
+  environmentPidsLimit?: number | null;
+  environmentDiskSoftMb?: number | null;
+}
+
+const ENVIRONMENT_LIMITS = {
+  environmentCpus: { min: 0.25, max: 8, decimals: true },
+  environmentMemoryMb: { min: 128, max: 32768, decimals: false },
+  environmentPidsLimit: { min: 16, max: 4096, decimals: false },
+  environmentDiskSoftMb: { min: 256, max: 131072, decimals: false },
+} as const;
+
+export function environmentLimitOverrides(raw: Record<string, unknown>): EnvironmentLimitOverrides {
+  const out: EnvironmentLimitOverrides = {};
+  for (const [key, bounds] of Object.entries(ENVIRONMENT_LIMITS) as
+    [keyof EnvironmentLimitOverrides, (typeof ENVIRONMENT_LIMITS)[keyof typeof ENVIRONMENT_LIMITS]][]) {
+    if (!(key in raw)) continue;
+    if (raw[key] === null) { out[key] = null; continue; }
+    const parsed = Number(raw[key]);
+    if (!Number.isFinite(parsed)) throw new Error(`${key} must be a finite number or null`);
+    const value = Math.min(bounds.max, Math.max(bounds.min, bounds.decimals ? Math.round(parsed * 100) / 100 : Math.round(parsed)));
+    out[key] = value;
+  }
+  return out;
+}
 
 const VISIBILITY_DEFAULTS = new Set(['private', 'project', 'authenticated']);
 
@@ -96,6 +137,13 @@ export function resolveConfig(
     releasesKept: bounded(raw.releasesKept, 5, 1, 50),
     sessionTtlHours: bounded(raw.sessionTtlHours, 12, 1, 720),
     allowCommandRuntime: raw.allowCommandRuntime === true,
+    allowEnvironments: raw.allowEnvironments === true,
+    environmentNetwork: raw.environmentNetwork === 'isolated' ? 'isolated' : 'shared',
+    environmentCpus: boundedFloat(raw.environmentCpus, 1, ENVIRONMENT_LIMITS.environmentCpus.min, ENVIRONMENT_LIMITS.environmentCpus.max),
+    environmentMemoryMb: bounded(raw.environmentMemoryMb, 1024, ENVIRONMENT_LIMITS.environmentMemoryMb.min, ENVIRONMENT_LIMITS.environmentMemoryMb.max),
+    environmentPidsLimit: bounded(raw.environmentPidsLimit, 512, ENVIRONMENT_LIMITS.environmentPidsLimit.min, ENVIRONMENT_LIMITS.environmentPidsLimit.max),
+    environmentDiskSoftMb: bounded(raw.environmentDiskSoftMb, 4096, ENVIRONMENT_LIMITS.environmentDiskSoftMb.min, ENVIRONMENT_LIMITS.environmentDiskSoftMb.max),
+    maxEnvironmentsPerAccount: bounded(raw.maxEnvironmentsPerAccount, 3, 1, 20),
     runtimeNetwork: raw.runtimeNetwork === 'shared' ? 'shared' : 'isolated',
     allowLoopbackPorts: raw.allowLoopbackPorts === true,
     loopbackPortMin,

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { join, resolve, sep } from 'node:path';
+import { join, posix, resolve, sep } from 'node:path';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import type { SitesContext } from './coreSeams.js';
@@ -10,6 +10,7 @@ import { mayPublish, type AccessDeps } from './access.js';
 import { SITE_BASE_PATH, siteUrl, type SitesConfig } from './config.js';
 import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } from './publish.js';
 import { isDaemonProcess, type SiteRuntimeSupervisor } from './runtime.js';
+import type { EnvironmentState, EnvironmentSupervisor } from './environment.js';
 
 export interface ToolDeps {
   ctx: SitesContext;
@@ -21,6 +22,7 @@ export interface ToolDeps {
   releaseDir(siteId: string, releaseId: string): string;
   deleteSite(siteId: string): Promise<void>;
   runtime: SiteRuntimeSupervisor;
+  environment: Pick<EnvironmentSupervisor, 'state' | 'exec' | 'logs'>;
 }
 
 /** A command runtime is only offered where the operator has turned it on. */
@@ -29,6 +31,12 @@ function commandRuntimeRefusal(config: SitesConfig): string | null {
     return 'Site runtimes are turned off for this instance. An administrator can enable them in the plugin settings.';
   }
   return null;
+}
+
+function environmentRefusal(config: SitesConfig): string | null {
+  return config.allowEnvironments
+    ? null
+    : 'Persistent environments are turned off for this instance. An administrator can enable them in the Sites settings.';
 }
 
 const text = (body: string, details: Record<string, unknown> = {}) =>
@@ -121,6 +129,37 @@ const requireOwned = (deps: ToolDeps, ref: string, userId: number): Site => {
   return site;
 };
 
+const requireManaged = (deps: ToolDeps, ref: string, userId: number): Site => {
+  const wanted = ref.trim();
+  const site = deps.store.siteById(wanted) ?? deps.store.siteBySlug(wanted);
+  if (!site || (site.ownerUserId !== userId && !deps.access.isAdmin(userId))) {
+    throw new ToolError(`No manageable site matches "${wanted}".`);
+  }
+  return site;
+};
+
+const requireEnvironmentAuthority = (deps: ToolDeps, site: Site, userId: number): void => {
+  if (deps.access.isAdmin(userId)) return;
+  if (!mayPublish(userId, deps.access, deps.config().publishers)) {
+    throw new ToolError('This account is not allowed to publish sites on this instance.');
+  }
+  if (!deps.access.canAccessProject(userId, site.projectId)) {
+    throw new ToolError('Current Project access is required to administer this environment.');
+  }
+};
+
+const workdirOf = (value: unknown): string | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.includes('\0') || !value.startsWith('/')) {
+    throw new ToolError('workdir must be an absolute normalized in-container path.');
+  }
+  const normalized = posix.normalize(value);
+  if (normalized !== value || normalized.includes('/../')) {
+    throw new ToolError('workdir must be an absolute normalized in-container path.');
+  }
+  return normalized;
+};
+
 /** Resolve a person by account name or numeric id, for the sharing tools. */
 const requirePerson = (deps: ToolDeps, ref: string): { id: number; name: string } => {
   const wanted = ref.trim();
@@ -147,7 +186,7 @@ const addressOf = (config: SitesConfig, slug: string): string => {
   return url;
 };
 
-const describe = (site: Site, config: SitesConfig): string => [
+const describe = (site: Site, config: SitesConfig, environment?: EnvironmentState): string => [
   `${site.title}`,
   `  id         ${site.id}`,
   `  slug       ${site.slug}   (either identifier works wherever a site is named)`,
@@ -155,7 +194,11 @@ const describe = (site: Site, config: SitesConfig): string => [
   `  visibility ${site.visibility}`,
   `  status     ${site.status}`,
   ...(site.runtime === 'command' ? [`  runtime    ${site.bind}${site.port === null ? '' : ` 127.0.0.1:${site.port}`} · ${config.runtimeNetwork} network`] : []),
-  site.lastPublishAt ? `  published  ${site.lastPublishAt}${site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}` : '  published  never',
+  ...(site.runtime === 'environment' ? [
+    `  environment ${environment?.state ?? 'unknown'} · desired ${site.environmentDesiredState ?? 'running'} · ${config.environmentNetwork} network`,
+    `  limits      ${environment?.limits.cpus ?? site.environmentCpus ?? config.environmentCpus} CPU · ${environment?.limits.memoryMb ?? site.environmentMemoryMb ?? config.environmentMemoryMb} MB · ${environment?.limits.pidsLimit ?? site.environmentPidsLimit ?? config.environmentPidsLimit} PIDs`,
+  ] : []),
+  site.lastPublishAt ? `  published  ${site.lastPublishAt}${site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}` : site.runtime === 'environment' ? '  snapshot   never' : '  published  never',
   `  source     ${site.sourceDir}`,
 ].join('\n');
 
@@ -171,7 +214,7 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteCreate',
     label: 'Create a site',
-    description: 'Reserve a published web address and get the folder to build it in. Returns the directory to write the project into, the absolute base path the build must be configured with, and the address the site will have once published. The site is not reachable until SitePublish runs. Build with your normal tools; this does not run any build for you.',
+    description: 'Create a site and its Project source folder. Static, command and PHP sites remain drafts until SitePublish. An environment is durable immediately and the daemon schedules its persistent container to start.',
     parameters: Type.Object({
       title: Type.String({ minLength: 1, maxLength: 120, description: 'Human title shown in the Sites screen.' }),
       summary: Type.Optional(Type.String({ maxLength: 400, description: 'One line describing what the page is for.' })),
@@ -181,8 +224,8 @@ export function registerTools(deps: ToolDeps): void {
       )),
       spa: Type.Optional(Type.Boolean({ description: 'Serve index.html for unknown paths, for a client-side router. Default false.' })),
       runtime: Type.Optional(Type.Union(
-        [Type.Literal('static'), Type.Literal('command'), Type.Literal('php')],
-        { description: 'How the site answers. "static" serves built files (the default). "command" keeps a Node, Bun, Python or TypeScript HTTP process on the secure SOCKET_PATH or an explicitly enabled loopback port. "php" executes .php files through PHP-CGI per request. Active runtimes require administrator enablement.' },
+        [Type.Literal('static'), Type.Literal('command'), Type.Literal('php'), Type.Literal('environment')],
+        { description: 'How the site answers. Static, command and PHP preserve the published-release behavior. Environment creates a persistent rootless server with /workspace, /data and systemd.' },
       )),
       startCommand: Type.Optional(Type.String({
         maxLength: 500,
@@ -198,20 +241,30 @@ export function registerTools(deps: ToolDeps): void {
         const userId = ownerOf(ctx);
         guardPublisher(userId);
         const config = deps.config();
-        if (store.countOwnedBy(userId) >= config.maxSitesPerAccount) {
-          throw new ToolError(`This account already has ${config.maxSitesPerAccount} sites, which is the configured limit.`);
-        }
-
-        const runtime = (input.runtime as 'static' | 'command' | 'php' | undefined) ?? 'static';
-        if (runtime !== 'static') {
-          const refusal = commandRuntimeRefusal(config);
+        const runtime = (input.runtime as 'static' | 'command' | 'php' | 'environment' | undefined) ?? 'static';
+        if (runtime === 'environment') {
+          const refusal = environmentRefusal(config);
           if (refusal) throw new ToolError(refusal);
+          if (store.countEnvironmentOwnedBy(userId) >= config.maxEnvironmentsPerAccount) {
+            throw new ToolError(`This account has reached the configured environment limit of ${config.maxEnvironmentsPerAccount}.`);
+          }
+        } else {
+          if (store.countOwnedBy(userId) - store.countEnvironmentOwnedBy(userId) >= config.maxSitesPerAccount) {
+            throw new ToolError(`This account already has ${config.maxSitesPerAccount} sites, which is the configured limit.`);
+          }
+          if (runtime !== 'static') {
+            const refusal = commandRuntimeRefusal(config);
+            if (refusal) throw new ToolError(refusal);
+          }
         }
         if (runtime === 'command' && !input.startCommand?.trim()) {
           throw new ToolError('A command site runtime needs startCommand.');
         }
         if (runtime === 'php' && input.startCommand?.trim()) {
           throw new ToolError('A PHP site runs through PHP-CGI and does not take startCommand.');
+        }
+        if (runtime === 'environment' && input.startCommand !== undefined) {
+          throw new ToolError('An environment does not take startCommand; administer services with SiteExec and systemd inside.');
         }
         const bind = input.bind === 'port' ? 'port' : 'socket';
         if (runtime !== 'command' && input.bind !== undefined) {
@@ -251,7 +304,12 @@ export function registerTools(deps: ToolDeps): void {
           startCommand: (input.startCommand ?? '').trim(),
           bind,
           port,
-          status: 'draft',
+          environmentCpus: null,
+          environmentMemoryMb: null,
+          environmentPidsLimit: null,
+          environmentDiskSoftMb: null,
+          environmentDesiredState: 'running',
+          status: runtime === 'environment' ? 'live' : 'draft',
           currentReleaseId: null,
           createdAt: now,
           updatedAt: now,
@@ -266,41 +324,154 @@ export function registerTools(deps: ToolDeps): void {
           `Created "${site.title}".`,
           `  id   ${site.id}`,
           `  slug ${site.slug}`,
-          'Name the site by either of those in SitePublish, SiteShare and the rest.',
+          'Name the site by either of those in Sites tools.',
           '',
           `Write the project here: ${allowed}`,
           'For an isolated Git worktree, create and activate a Sandbox workspace before SiteCreate; Sites automatically uses the active workspace.',
           `Configure the build with base path: ${SITE_BASE_PATH}`,
           `It will be published at: ${addressOf(config, slug)}`,
           '',
-          'Asset URLs must be absolute. A relative reference (./assets/...) resolves against whatever address the visitor opened, so it works at the root and breaks on every deeper route.',
-          ...(runtime === 'command'
+          ...(runtime === 'environment'
             ? [
-              '',
-              ...(bind === 'socket'
-                ? ['Bind the HTTP server directly to the pathname in SOCKET_PATH; this is the secure multi-user default.']
-                : [`Bind the HTTP server to HOST and PORT. This site currently owns 127.0.0.1:${port}.`]),
-              'Use the normal Files, Terminal and Sandbox tools here: install dependencies, test and build before publishing. Sites does not run a second build pipeline.',
-              'A root .env file in the published command output is loaded into the runtime environment and must not be committed to Git.',
-              config.runtimeNetwork === 'shared'
-                ? 'The runtime has ordinary outbound network access. Requests are still buffered and a request body is capped at 1 MB.'
-                : 'The runtime network is isolated by instance policy. Requests are buffered and a request body is capped at 1 MB.',
+              'This persistent environment is scheduled to start. It works from this Project folder at /workspace and keeps service data under /data.',
+              'Use SiteExec to install packages, configure systemd services and inspect the server. Serve HTTP on port 80 at 127.0.0.1 inside the environment.',
+              config.environmentNetwork === 'shared'
+                ? 'The environment has outbound internet through rootless slirp4netns with host loopback disabled.'
+                : 'The environment has no network beyond its own loopback.',
+              'Ingress is buffered through the host gateway. Request bodies are limited to 1 MB, and streaming, server-sent events and WebSockets are not supported.',
             ]
-            : runtime === 'php'
-              ? [
-                '',
-                'Put index.php (and any routed PHP scripts) in the published output. PHP-CGI runs one confined process per request; there is no long-running PHP server or loopback port.',
-              ]
-              : []),
-          'When the output is ready, call SitePublish with the output directory.',
+            : [
+              'Asset URLs must be absolute. A relative reference (./assets/...) resolves against whatever address the visitor opened, so it works at the root and breaks on every deeper route.',
+              ...(runtime === 'command'
+                ? [
+                  '',
+                  ...(bind === 'socket'
+                    ? ['Bind the HTTP server directly to the pathname in SOCKET_PATH; this is the secure multi-user default.']
+                    : [`Bind the HTTP server to HOST and PORT. This site currently owns 127.0.0.1:${port}.`]),
+                  'Use the normal Files, Terminal and Sandbox tools here: install dependencies, test and build before publishing. Sites does not run a second build pipeline.',
+                  'A root .env file in the published command output is loaded into the runtime environment and must not be committed to Git.',
+                  config.runtimeNetwork === 'shared'
+                    ? 'The runtime has ordinary outbound network access. Requests are still buffered and a request body is capped at 1 MB.'
+                    : 'The runtime network is isolated by instance policy. Requests are buffered and a request body is capped at 1 MB.',
+                ]
+                : runtime === 'php'
+                  ? [
+                    '',
+                    'Put index.php (and any routed PHP scripts) in the published output. PHP-CGI runs one confined process per request; there is no long-running PHP server or loopback port.',
+                  ]
+                  : []),
+              'When the output is ready, call SitePublish with the output directory.',
+            ]),
         ].join('\n'), {
           siteId: site.id, slug: site.slug, sourceDir: allowed,
           basePath: SITE_BASE_PATH, url: addressOf(config, slug), visibility: site.visibility,
           runtime: site.runtime, bind: site.bind, port: site.port,
+          ...(site.runtime === 'environment' ? {
+            desiredState: site.environmentDesiredState,
+            limits: {
+              cpus: config.environmentCpus,
+              memoryMb: config.environmentMemoryMb,
+              pidsLimit: config.environmentPidsLimit,
+              diskSoftMb: config.environmentDiskSoftMb,
+            },
+          } : {}),
         });
       } catch (error) {
         throw error instanceof ToolError ? error : new Error(`Could not create the site: ${String(error)}`);
       }
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'SiteExec',
+    label: 'Run a command in a site environment',
+    description: 'Run a shell script synchronously as root inside a running persistent environment. The command is sent on stdin and never appears in the host process argv.',
+    parameters: Type.Object({
+      site: Type.String({ description: 'Environment slug or id.' }),
+      command: Type.String({ minLength: 1, maxLength: 200_000, description: 'Bash script sent to /bin/bash on stdin.' }),
+      timeoutSeconds: Type.Optional(Type.Number({ minimum: 1, maximum: 900, description: 'Execution timeout. Defaults to 120 seconds.' })),
+      workdir: Type.Optional(Type.String({ description: 'Absolute normalized path inside the environment, such as /workspace.' })),
+    }),
+    execute: async (_id, input) => {
+      const userId = ownerOf(ctx);
+      const site = requireManaged(deps, input.site, userId);
+      requireEnvironmentAuthority(deps, site, userId);
+      if (site.runtime !== 'environment') throw new ToolError('SiteExec works only with a persistent environment.');
+      if (store.environmentAction(site.id) || site.environmentDesiredState !== 'running') {
+        throw new ToolError('SiteExec is unavailable while an environment action or lifecycle change is pending.');
+      }
+      const command = input.command;
+      if (typeof command !== 'string' || command.length === 0 || command.includes('\0')) throw new ToolError('command must be non-empty text without NUL bytes.');
+      const requestedTimeout = Number(input.timeoutSeconds ?? 120);
+      if (!Number.isFinite(requestedTimeout)) throw new ToolError('timeoutSeconds must be a finite number.');
+      const timeoutSeconds = Math.min(900, Math.max(1, Math.round(requestedTimeout)));
+      const result = await deps.environment.exec(site, command, { timeoutSeconds, workdir: workdirOf(input.workdir) });
+      return text([
+        result.stdout,
+        result.stderr ? `\n[stderr]\n${result.stderr}` : '',
+        result.code === 0 ? '' : `\n[exit ${result.code}]`,
+      ].join('').trim() || '(command produced no output)', { siteId: site.id, exitCode: result.code });
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'SiteControl',
+    label: 'Control a site environment',
+    description: 'Durably request start, stop or restart for a persistent environment. The daemon performs the broker-aware lifecycle even when this tool runs in a forked worker.',
+    parameters: Type.Object({
+      site: Type.String({ description: 'Environment slug or id.' }),
+      action: Type.Union([Type.Literal('start'), Type.Literal('stop'), Type.Literal('restart')]),
+    }),
+    execute: async (_id, input) => {
+      const userId = ownerOf(ctx);
+      const site = requireManaged(deps, input.site, userId);
+      requireEnvironmentAuthority(deps, site, userId);
+      if (site.runtime !== 'environment') throw new ToolError('SiteControl works only with a persistent environment.');
+      const desired = input.action === 'stop' ? 'stopped' : input.action === 'restart' ? 'restarting' : 'running';
+      if (!store.tryRequestEnvironmentControl(site.id, desired)) {
+        throw new ToolError('An environment action or command is already in progress.');
+      }
+      return text(`Scheduled ${input.action} for "${site.title}". The daemon will perform the durable lifecycle.`, {
+        siteId: site.id, action: input.action, desiredState: desired, scheduled: true,
+      });
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'SiteSnapshot',
+    label: 'Snapshot a site environment',
+    description: 'Create a crash-consistent environment snapshot. The root filesystem is committed while paused; /data is optionally exported while still paused. This is not a database-consistent backup.',
+    parameters: Type.Object({
+      site: Type.String({ description: 'Environment slug or id.' }),
+      note: Type.Optional(Type.String({ maxLength: 200 })),
+      includeData: Type.Optional(Type.Boolean({ description: 'Export /data into the snapshot. Defaults to true.' })),
+    }),
+    execute: async (_id, input) => {
+      const userId = ownerOf(ctx);
+      const site = requireManaged(deps, input.site, userId);
+      requireEnvironmentAuthority(deps, site, userId);
+      if (site.runtime !== 'environment') throw new ToolError('SiteSnapshot works only with a persistent environment.');
+      const pending = store.environmentAction(site.id);
+      if (site.environmentDesiredState !== 'running' && !pending?.lastError) {
+        throw new ToolError('The environment already has a pending lifecycle change.');
+      }
+      const snapshotId = randomUUID();
+      const scheduled = store.tryPutEnvironmentAction({
+        siteId: site.id,
+        kind: 'snapshot',
+        snapshotId,
+        includeData: input.includeData !== false,
+        note: (input.note ?? '').trim().slice(0, 200),
+        model: modelLabel(ctx),
+        requestedAt: new Date().toISOString(),
+        lastError: null,
+      });
+      if (!scheduled) throw new ToolError('Another environment action is already pending.');
+      return text([
+        `Scheduled crash-consistent snapshot ${snapshotId} for "${site.title}".`,
+        'The daemon will pause, commit and resume the environment. Poll SiteGet for completion or an action error.',
+        'Applications with databases still need their own database-consistent backup procedure.',
+      ].join('\n'), { siteId: site.id, snapshotId, scheduled: true });
     },
   }));
 
@@ -319,6 +490,10 @@ export function registerTools(deps: ToolDeps): void {
         guardPublisher(userId);
         const site = requireOwned(deps, input.site, userId);
         const config = deps.config();
+        if (site.runtime === 'environment') {
+          throw new ToolError('Persistent environments keep their own root filesystem and cannot be published as file releases. Use SiteExec and SiteSnapshot.');
+        }
+        if (site.runtime === 'unsupported') throw new ToolError(`This site has an unsupported runtime: ${site.unsupportedRuntime ?? 'unknown'}.`);
 
         const relative = (input.outputDir ?? '').replace(/^\/+/, '');
         if (relative.split('/').some((segment) => segment === '..')) {
@@ -418,7 +593,7 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteList',
     label: 'List sites',
-    description: 'List the sites this account owns, with their address, visibility and publish state.',
+    description: 'List owned sites with address, visibility and runtime state. Persistent environments include desired state and effective limits.',
     parameters: Type.Object({}),
     execute: async () => {
       try {
@@ -426,7 +601,18 @@ export function registerTools(deps: ToolDeps): void {
         const config = deps.config();
         const sites = store.sitesOwnedBy(userId);
         if (sites.length === 0) return text('This account has no sites yet.');
-        return text(sites.map((site) => describe(site, config)).join('\n\n'));
+        const rows = await Promise.all(sites.map(async (site) => ({
+          site,
+          environment: site.runtime === 'environment' ? await deps.environment.state(site) : undefined,
+        })));
+        return text(rows.map((row) => describe(row.site, config, row.environment)).join('\n\n'), {
+          sites: rows.map((row) => ({
+            id: row.site.id,
+            slug: row.site.slug,
+            runtime: row.site.runtime,
+            ...(row.environment ? { environment: row.environment } : {}),
+          })),
+        });
       } catch (error) {
         throw error instanceof ToolError ? error : new Error(String(error));
       }
@@ -436,32 +622,47 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteGet',
     label: 'Read a site',
-    description: 'Full detail of one site: address, base path for the build, source folder, visibility, guests and release history.',
+    description: 'Full site detail including source, visibility and releases. Persistent environments also include actual and desired state, effective limits and snapshot ids.',
     parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }) }),
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
-        const site = requireOwned(deps, input.site, userId);
+        const site = deps.access.isAdmin(userId)
+          ? requireManaged(deps, input.site, userId)
+          : requireOwned(deps, input.site, userId);
+        if (site.ownerUserId !== userId && site.runtime !== 'environment') {
+          throw new ToolError('Only the site owner may read this site detail.');
+        }
         const config = deps.config();
         const releases = store.releases(site.id);
+        const environment = site.runtime === 'environment' ? await deps.environment.state(site) : undefined;
+        const environmentAction = site.runtime === 'environment' ? store.environmentAction(site.id) : null;
         const people = deps.people();
         const guests = store.memberIds(site.id)
           .map((id) => ({ id, name: people.get(id)?.name || people.get(id)?.username || `#${id}` }));
         return text([
-          describe(site, config),
+          describe(site, config, environment),
           `  base path  ${SITE_BASE_PATH}`,
           `  guests     ${guests.length === 0 ? 'none' : guests.map((guest) => guest.name).join(', ')}`,
           '',
           releases.length === 0
             ? 'No releases yet.'
-            : ['Releases:', ...releases.map((release) => `  ${release.id}  ${release.createdAt}  ${release.fileCount} files  ${(release.sizeBytes / 1048576).toFixed(2)} MB${release.note ? `  ${release.note}` : ''}`)].join('\n'),
+            : ['Releases:', ...releases.map((release) => release.kind === 'environment-snapshot'
+              ? `  ${release.id}  ${release.createdAt}  environment snapshot${release.dataArchive ? ' with /data' : ''}${release.note ? `  ${release.note}` : ''}`
+              : `  ${release.id}  ${release.createdAt}  ${release.fileCount} files  ${(release.sizeBytes / 1048576).toFixed(2)} MB${release.note ? `  ${release.note}` : ''}`)].join('\n'),
+          environmentAction ? `\nPending action: ${environmentAction.kind} ${environmentAction.snapshotId}${environmentAction.lastError ? `\nAction error: ${environmentAction.lastError}` : ''}` : '',
           site.lastError ? `\nLast error: ${site.lastError}` : '',
         ].join('\n'), {
           siteId: site.id, slug: site.slug, url: addressOf(config, site.slug), visibility: site.visibility,
           status: site.status, sourceDir: site.sourceDir, basePath: SITE_BASE_PATH,
           runtime: site.runtime, startCommand: site.startCommand, bind: site.bind, port: site.port,
-          network: config.runtimeNetwork, guests, currentReleaseId: site.currentReleaseId,
-          releases: releases.map((release) => ({ id: release.id, createdAt: release.createdAt, note: release.note })),
+          network: site.runtime === 'environment' ? config.environmentNetwork : config.runtimeNetwork,
+          guests, currentReleaseId: site.currentReleaseId,
+          ...(environment ? { environment, environmentAction } : {}),
+          releases: releases.map((release) => ({
+            id: release.id, createdAt: release.createdAt, note: release.note, kind: release.kind,
+            ...(release.kind === 'environment-snapshot' ? { snapshotId: release.id, includesData: Boolean(release.dataArchive) } : {}),
+          })),
         });
       } catch (error) {
         throw error instanceof ToolError ? error : new Error(String(error));
@@ -545,14 +746,40 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteRollback',
     label: 'Roll back a site',
-    description: 'Make an earlier release the live one again. The release must still be retained.',
-    parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }), releaseId: Type.String({ description: 'Release id from SiteGet.' }) }),
+    description: 'Restore a retained file release, or durably schedule restoration of an environment snapshot with optional /data replacement.',
+    parameters: Type.Object({
+      site: Type.String({ description: 'Which site: its slug or id.' }),
+      releaseId: Type.String({ description: 'File release or environment snapshot id from SiteGet.' }),
+      restoreData: Type.Optional(Type.Boolean({ description: 'For environment snapshots, replace /data from the snapshot archive.' })),
+    }),
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
-        const site = requireOwned(deps, input.site, userId);
+        const site = requireManaged(deps, input.site, userId);
         const release = store.release(site.id, input.releaseId);
         if (!release) throw new ToolError('That release is not retained for this site.');
+        if (site.runtime === 'environment') {
+          requireEnvironmentAuthority(deps, site, userId);
+          if (release.kind !== 'environment-snapshot' || !release.imageRef) {
+            throw new ToolError('That release is not an environment snapshot retained for this site.');
+          }
+          if (input.restoreData === true && !release.dataArchive) {
+            throw new ToolError('That snapshot does not include a /data archive.');
+          }
+          const scheduled = store.tryPutEnvironmentAction({
+            siteId: site.id,
+            kind: 'rollback',
+            snapshotId: release.id,
+            restoreData: input.restoreData === true,
+            requestedAt: new Date().toISOString(),
+            lastError: null,
+          });
+          if (!scheduled) throw new ToolError('Another environment restore is already scheduled.');
+          return text(`Scheduled restore of snapshot ${release.id} for "${site.title}". The daemon will perform the broker-aware rollback.`, {
+            siteId: site.id, snapshotId: release.id, restoreData: input.restoreData === true, scheduled: true,
+          });
+        }
+        if (site.ownerUserId !== userId) throw new ToolError('Only the site owner may roll back a file release.');
         store.updateSite(site.id, { currentReleaseId: release.id, status: 'live', lastError: null });
         return text(`"${site.title}" now serves the release from ${release.createdAt}.`);
       } catch (error) {
@@ -564,12 +791,33 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteLogs',
     label: 'Read a site runtime log',
-    description: 'The recent output of a site runtime, which is where a server that refuses to start says why. Static sites have no runtime and no log.',
-    parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }) }),
+    description: 'Read command runtime output or an environment lifecycle log plus its bounded systemd journal tail. Static sites have no runtime log.',
+    parameters: Type.Object({
+      site: Type.String({ description: 'Which site: its slug or id.' }),
+      lines: Type.Optional(Type.Number({ minimum: 1, maximum: 1000, description: 'Journal lines for an environment. Defaults to 200.' })),
+    }),
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
-        const site = requireOwned(deps, input.site, userId);
+        const site = requireManaged(deps, input.site, userId);
+        if (site.runtime === 'environment') {
+          if (!deps.access.isAdmin(userId) && !deps.access.canAccessProject(userId, site.projectId)) {
+            throw new ToolError('Current Project access is required to read environment logs.');
+          }
+          const state = await deps.environment.state(site);
+          const logs = await deps.environment.logs(site, Math.min(1000, Math.max(1, Math.round(Number(input.lines ?? 200)))));
+          return text([
+            `"${site.title}" is ${state.state ?? 'not created'}; desired ${state.desiredState}.`,
+            site.lastError ? `Last error: ${site.lastError}` : '',
+            '',
+            '[lifecycle]',
+            logs.lifecycle || '(no lifecycle output recorded)',
+            '',
+            '[journal]',
+            logs.journal || '(environment is not running or journal is empty)',
+          ].join('\n'), { siteId: site.id, environment: state });
+        }
+        if (site.ownerUserId !== userId) throw new ToolError('Only the site owner may read this runtime log.');
         if (site.runtime !== 'command') return text('This is a static site, so it has no runtime log.');
         const tail = deps.runtime.logTail(site.id);
         const state = deps.runtime.isRunning(site.id) ? 'running' : 'not running';

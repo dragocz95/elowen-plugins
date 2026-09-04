@@ -9,8 +9,23 @@ import { SiteGatewayManager } from '../plugins/sites/dist/gateway.js';
 // feature actually ships in until an operator creates the record.
 const APP_HOST = 'agent.example.invalid';
 const HOSTNAME_BASE = `sites.${APP_HOST}`;
+const PROBE_HOST = `elowen-probe.${HOSTNAME_BASE}`;
 
-const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example.com' } = {}) => {
+const dnsFailure = (code) => Object.assign(new Error(code), { code });
+const missingDns = async () => { throw dnsFailure('ENODATA'); };
+const makeResolver = (overrides = {}) => {
+  const queries = [];
+  const resolver = {};
+  for (const kind of ['resolveCname', 'resolve4', 'resolve6']) {
+    resolver[kind] = async (hostname) => {
+      queries.push([kind, hostname]);
+      return await (overrides[kind]?.(hostname) ?? missingDns());
+    };
+  }
+  return { resolver, queries };
+};
+
+const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example.com', dns = {} } = {}) => {
   const values = new Map();
   const warnings = [];
   const calls = { status: 0, sync: 0, ensure: [], remove: [] };
@@ -47,7 +62,11 @@ const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example
     logger: { warn: (message) => warnings.push(message), info: () => {} },
     control: (name) => name === 'publishedSitesGateway' ? control : undefined,
   };
-  return { manager: new SiteGatewayManager(ctx), control, values, warnings, calls };
+  const resolved = makeResolver(dns);
+  return {
+    manager: new SiteGatewayManager(ctx, { resolver: resolved.resolver, randomLabel: () => 'elowen-probe' }),
+    control, values, warnings, calls, queries: resolved.queries,
+  };
 };
 
 test('the readiness check names the exact DNS record while the wildcard is missing', async () => {
@@ -58,6 +77,7 @@ test('the readiness check names the exact DNS record while the wildcard is missi
   // configuration form, because the record lives at a registrar this instance cannot write to. A
   // readiness check that only says "not configured" leaves the feature permanently unusable.
   assert.equal(readiness.ok, false);
+  assert.equal(readiness.status, 'missing');
   assert.match(readiness.detail, /does not resolve/);
   assert.match(readiness.hint, /registrar/);
 
@@ -76,19 +96,100 @@ test('the readiness check names the exact DNS record while the wildcard is missi
   assert.deepEqual(harness.calls.ensure, []);
 });
 
-test('a resolvable wildcard is what makes the gateway serve, and it publishes before any certificate', async () => {
-  const harness = makeHarness();
-  // Stand in for a resolving wildcard: the probe is the only thing between "record exists" and
-  // "publish the vhost", and HTTP-01 is answered by a port-80 block that must already be serving.
-  harness.manager.wildcardResolves = async () => true;
+test('a CNAME chain to the app hostname makes the gateway serve before any certificate', async () => {
+  const harness = makeHarness({
+    dns: {
+      resolveCname: async (hostname) => hostname === `${PROBE_HOST}.`
+        ? ['Edge.Example.Invalid.']
+        : hostname === 'edge.example.invalid.' ? [`${APP_HOST}.`] : await missingDns(),
+    },
+  });
   const status = await harness.manager.reconcile();
 
   assert.equal(status.active, true);
   assert.equal(harness.calls.sync, 1, 'the challenge vhost is published first');
   assert.equal(harness.manager.isActive(), true);
+  assert.equal(harness.queries.every(([, hostname]) => hostname.endsWith('.')), true, 'every DNS query must be absolute');
   const readiness = await harness.manager.readiness();
   assert.equal(readiness.ok, true);
   assert.equal(readiness.hint, undefined, 'a working gateway has nothing for an operator to do');
+});
+
+test('flattened IPv4 DNS is accepted when either answer set intersects', async () => {
+  const harness = makeHarness({
+    dns: {
+      resolve4: async (hostname) => hostname === `${PROBE_HOST}.`
+        ? ['192.0.2.40', '192.0.2.41']
+        : hostname === `${APP_HOST}.` ? ['192.0.2.41', '192.0.2.42'] : await missingDns(),
+    },
+  });
+  assert.equal((await harness.manager.reconcile()).active, true);
+});
+
+test('flattened IPv6 DNS is accepted without an IPv4 answer', async () => {
+  const harness = makeHarness({
+    dns: {
+      resolve6: async (hostname) => hostname === `${PROBE_HOST}.`
+        ? ['2001:db8::20']
+        : hostname === `${APP_HOST}.` ? ['2001:DB8::20'] : await missingDns(),
+    },
+  });
+  assert.equal((await harness.manager.reconcile()).active, true);
+});
+
+test('a wildcard resolving to another destination is reported as misdirected', async () => {
+  const harness = makeHarness({
+    dns: {
+      resolve4: async (hostname) => hostname === `${PROBE_HOST}.`
+        ? ['203.0.113.10']
+        : hostname === `${APP_HOST}.` ? ['192.0.2.10'] : await missingDns(),
+    },
+  });
+  const readiness = await harness.manager.readiness();
+  assert.equal(readiness.ok, false);
+  assert.equal(readiness.status, 'misdirected');
+  assert.match(readiness.detail, /resolves, but not to/);
+  assert.deepEqual(readiness.observedTargets, ['203.0.113.10']);
+  assert.deepEqual(readiness.fix, [
+    { label: 'Type', value: 'CNAME' },
+    { label: 'Name', value: '*.sites.agent.example.invalid' },
+    { label: 'Value', value: 'agent.example.invalid.' },
+  ]);
+  assert.equal(harness.calls.sync, 0);
+});
+
+test('a transient CNAME lookup failure is unavailable rather than a proven wrong target', async () => {
+  const harness = makeHarness({
+    dns: {
+      resolveCname: async () => { throw dnsFailure('SERVFAIL'); },
+      resolve4: async (hostname) => hostname === `${PROBE_HOST}.`
+        ? ['203.0.113.10']
+        : hostname === `${APP_HOST}.` ? ['192.0.2.10'] : await missingDns(),
+    },
+  });
+  const readiness = await harness.manager.readiness();
+  assert.equal(readiness.status, 'unavailable');
+  assert.match(readiness.detail, /could not complete/i);
+  assert.equal(harness.calls.sync, 0);
+});
+
+test('changing load-balanced answers are compared as unordered sampled sets', async () => {
+  const counts = new Map();
+  const next = (hostname, answers) => {
+    const count = counts.get(hostname) ?? 0;
+    counts.set(hostname, count + 1);
+    return answers[count % answers.length];
+  };
+  const harness = makeHarness({
+    dns: {
+      resolve4: async (hostname) => hostname === `${PROBE_HOST}.`
+        ? next(hostname, [['192.0.2.11'], ['192.0.2.12', '192.0.2.10']])
+        : hostname === `${APP_HOST}.`
+          ? next(hostname, [['192.0.2.10', '192.0.2.13'], ['192.0.2.14']])
+          : await missingDns(),
+    },
+  });
+  assert.equal((await harness.manager.reconcile()).active, true);
 });
 
 test('concurrent reconciles join one broker call', async () => {
@@ -113,8 +214,7 @@ test('a failed certificate backs off per slug, so one broken site cannot spend t
 });
 
 test('a site that succeeds clears its own backoff, and one bad slug never marks the gateway down', async () => {
-  const harness = makeHarness();
-  harness.manager.wildcardResolves = async () => true;
+  const harness = makeHarness({ dns: { resolveCname: async () => [`${APP_HOST}.`] } });
   await harness.manager.reconcile();
   assert.equal(harness.manager.isActive(), true);
 

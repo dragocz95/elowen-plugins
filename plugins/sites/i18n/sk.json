@@ -1,5 +1,5 @@
 {
-  "description": "Zverejnite stránku, ktorú agent vytvoril – prehľad, report, prezentačný web – na skutočnej adrese tejto inštancie a rozhodnite, kto ju smie otvoriť: len vy, ľudia z projektu, ktorýkoľvek prihlásený účet, menovite pozvaní hostia, alebo úplne všetci. Agent stavia vlastnými nástrojmi a odovzdáva hotový výstup; každé zverejnenie je samostatná verzia, ku ktorej sa dá vrátiť.",
+  "description": "Zverejňujte statické stránky, command a PHP aplikácie alebo prevádzkujte doplnkové trvalé rootless prostredia so systemd, obmedzenými prostriedkami a vstupným socketom spravovaným hostiteľom. Každá stránka si zachováva vlastnú adresu a pravidlá viditeľnosti.",
   "fields": {
     "publishing": {
       "label": "Zverejňovanie"
@@ -59,11 +59,43 @@
       "label": "Behové prostredia stránok"
     },
     "allowCommandRuntime": {
-      "label": "Povoliť behové prostredia",
-      "hint": "Umožní, aby stránka bola bežiaci server – Node, Bun, Python alebo TypeScript – za privátnym unixovým socketom alebo výslovne povoleným loopback portom, prípadne aby spúšťala PHP cez PHP-CGI."
+      "label": "Povoliť command a PHP runtime",
+      "hint": "Umožní zverejnenej verzii spúšťať Node, Bun, Python alebo TypeScript za privátnym unixovým socketom či výslovne povoleným loopback portom, prípadne PHP cez PHP-CGI."
+    },
+    "allowEnvironments": {
+      "label": "Povoliť trvalé prostredia",
+      "hint": "Umožní Sites prevádzkovať trvalé rootless Podman prostredia so systemd, súkromným koreňovým súborovým systémom a jediným vstupným socketom spravovaným hostiteľom."
+    },
+    "environmentNetwork": {
+      "label": "Sieť prostredia",
+      "hint": "Odchádzajúci internet používa rootless slirp4netns so zakázaným loopbackom hostiteľa. Režim bez siete neposkytne prostrediu žiadne sieťové rozhranie okrem vlastného loopbacku.",
+      "options": {
+        "shared": "Odchádzajúci internet",
+        "isolated": "Bez siete"
+      }
+    },
+    "environmentCpus": {
+      "label": "Procesory prostredia",
+      "hint": "Limit procesora použitý pri vytvorení kontajnera prostredia."
+    },
+    "environmentMemoryMb": {
+      "label": "Pamäť prostredia",
+      "hint": "Limit pamäte a pamäte vrátane swapu v MB použitý pri vytvorení kontajnera prostredia."
+    },
+    "environmentPidsLimit": {
+      "label": "Limit procesov prostredia",
+      "hint": "Najvyšší počet procesov a vlákien v jednom prostredí."
+    },
+    "environmentDiskSoftMb": {
+      "label": "Upozornenie na disk prostredia",
+      "hint": "Mäkký limit využitia disku v MB. Ide o upozornenie, nie o kvótu súborového systému."
+    },
+    "maxEnvironmentsPerAccount": {
+      "label": "Počet prostredí na účet",
+      "hint": "Koľko trvalých prostredí smie jeden účet uchovávať. Počítajú sa oddelene od bežných stránok."
     },
     "runtimeNetwork": {
-      "label": "Sieť behového prostredia",
+      "label": "Sieť command a PHP runtime",
       "hint": "Zdieľaná sieť umožní serverom bežný odchádzajúci internet a prístup k sieťovým službám viditeľným z hostiteľa. Proces nedostane Elowen token ani tajné prostredie daemona.",
       "options": {
         "isolated": "Bez siete",
@@ -100,6 +132,9 @@
     },
     "project": {
       "sites": "Stránky"
+    },
+    "settings": {
+      "environment-setup": "Nastavenie prostredí"
     },
     "strings": {
       "title": "Stránky",
@@ -147,6 +182,71 @@
       "runtimeNetwork": "Sieť",
       "runtimeNetworkIsolated": "Bez siete",
       "runtimeNetworkShared": "Sieť hostiteľa",
+      "environment": "Trvalé prostredie",
+      "environmentState": "Stav prostredia",
+      "environmentDesiredState": "Požadovaný stav",
+      "environmentLimits": "Limity prostriedkov",
+      "environmentStart": "Spustiť prostredie",
+      "environmentStop": "Zastaviť prostredie",
+      "environmentRestart": "Reštartovať prostredie",
+      "environmentSnapshot": "Vytvoriť snapshot",
+      "environmentSnapshots": "Snapshoty prostredia",
+      "environmentCrashConsistent": "Snapshot zachytáva stav pri páde. Databázy môžu vyžadovať vlastný postup zálohovania.",
+      "environmentReadiness": "Závislosti prostredia",
+      "environmentProvision": "Nainštalovať chýbajúce závislosti",
+      "environmentBaseImage": "Deterministický základný image",
+      "environmentActionPending": "Prebieha akcia prostredia",
+      "environmentActionError": "Akcia prostredia vyžaduje pozornosť",
+      "environmentActionScheduled": "Akcia prostredia bola naplánovaná",
+      "environmentSnapshotScheduled": "Snapshot bol naplánovaný",
+      "environmentSetupTitle": "Nastavenie prostredí",
+      "environmentSetupDescription": "Smerovanie domény a závislosti hostiteľa potrebné pre trvalé prostredia Sites.",
+      "environmentGatewayTitle": "Doménová brána",
+      "environmentGatewayDescription": "Zástupná doména musí viesť na hostname používaný touto inštanciou Elowen.",
+      "environmentGatewayCheck": "Cieľ zástupnej domény",
+      "environmentStatusReady": "Pripravené",
+      "environmentStatusMissing": "DNS záznam chýba",
+      "environmentStatusMisdirected": "Nesprávny cieľ",
+      "environmentStatusUnavailable": "Kontrola nie je dostupná",
+      "environmentObservedTarget": "Zistený cieľ",
+      "environmentRecordType": "Typ",
+      "environmentRecordName": "Názov",
+      "environmentRecordValue": "Hodnota",
+      "environmentDependenciesTitle": "Závislosti prostredia",
+      "environmentDependenciesDescription": "Systémové balíčky, podpora rootless Podmanu a deterministický základný image Sites.",
+      "environmentProvisionHelp": "Inštalácia podľa potreby nainštaluje Podman, crun, uidmap, dbus-user-session, passt, slirp4netns a fuse-overlayfs; nastaví podradené ID, linger používateľa a delegovanie cgroup; a zostaví deterministický základný image. Nereštartuje Elowen, web ani nginx.",
+      "environmentSetupReady": "Závislosti prostredia sú pripravené",
+      "environmentSetupAttention": "Závislosti prostredia vyžadujú pozornosť",
+      "environmentProvisionConfirmTitle": "Nainštalovať závislosti prostredia",
+      "environmentProvisionConfirmDescription": "Podľa potreby sa nainštalujú Podman, crun, uidmap, dbus-user-session, passt, slirp4netns a fuse-overlayfs; nastavia sa podradené ID, linger používateľa a delegovanie cgroup; a zostaví sa deterministický základný image. Elowen, web ani nginx sa nereštartujú.",
+      "environmentObservedState": "Zistený stav",
+      "environmentTransportLimit": "Požiadavky sa ukladajú do vyrovnávacej pamäte a sú obmedzené na 1 MB. Streaming, udalosti odosielané serverom ani WebSockety nie sú podporované.",
+      "environmentSnapshotNote": "Poznámka k snapshotu",
+      "environmentSnapshotNotePlaceholder": "Opíšte bod obnovy",
+      "environmentIncludeData": "Zahrnúť archív zväzku /data",
+      "environmentIncludeDataHelp": "Koreňový súborový systém a voliteľný archív /data zachytávajú stav pri páde, nie databázovo konzistentný stav.",
+      "environmentNoSnapshots": "Zatiaľ nebol vytvorený žiadny snapshot prostredia.",
+      "environmentSnapshotActive": "Aktívny bod obnovy",
+      "environmentRestore": "Obnoviť snapshot",
+      "environmentRestoreRoot": "Obnoviť iba systém",
+      "environmentRestoreData": "Obnoviť systém a /data",
+      "environmentRestoreConfirmTitle": "Obnoviť snapshot prostredia",
+      "environmentRestoreRootWarning": "Prostredie sa zastaví a jeho koreňový súborový systém sa nahradí. Aktuálny zväzok /data zostane zachovaný.",
+      "environmentRestoreWithDataWarning": "Prostredie sa zastaví a zo snapshotu sa nahradí koreňový súborový systém aj zväzok /data.",
+      "environmentRestoreScheduled": "Obnovenie snapshotu bolo naplánované",
+      "environmentLogs": "Logy prostredia",
+      "environmentLogsLoading": "Načítavajú sa obmedzené logy prostredia…",
+      "environmentLimitsHint": "Prázdne hodnoty prevezmú predvolené nastavenie inštancie. Hodnota disku je upozornenie, nie kvóta súborového systému.",
+      "environmentLimitCpu": "Procesory",
+      "environmentLimitMemory": "Pamäť (MB)",
+      "environmentLimitPids": "Procesy a vlákna",
+      "environmentLimitDisk": "Upozornenie na disk (MB)",
+      "environmentSaveLimits": "Uložiť limity",
+      "environmentLimitsSaved": "Limity prostredia boli uložené",
+      "copy": "Kopírovať",
+      "refresh": "Obnoviť",
+      "pass": "OK",
+      "fail": "CHYBA",
       "saveRuntime": "Uložiť behové prostredie",
       "runtimeLog": "Posledný výstup",
       "runtimeEmptyLog": "Zatiaľ nič zaznamenané.",

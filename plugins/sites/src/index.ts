@@ -1,16 +1,20 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PluginContext } from 'elowen/plugin-api';
 import { asSitesContext, asUserViews } from './coreSeams.js';
 import { SitesStore, type Site } from './store.js';
-import { resolveConfig, type SitesConfig } from './config.js';
+import { resolveConfig, siteUrl, type SitesConfig } from './config.js';
 import { createSiteHandler } from './serve.js';
 import { createApiHandlers, type Person } from './api.js';
 import { registerTools } from './tools.js';
 import { SiteGatewayManager } from './gateway.js';
 import { executePhp } from './php.js';
 import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
+import { PodmanClient } from './podman.js';
+import { BASE_IMAGE_TAG, ensureBaseImage } from './baseImage.js';
+import { EnvironmentSupervisor } from './environment.js';
+import { EnvironmentProvisioningService } from './provisioning.js';
 import type { AccessDeps } from './access.js';
 
 const SESSION_SECRET_KEY = 'sessionSigningKey';
@@ -123,6 +127,75 @@ export function register(published: PluginContext): void {
     releaseDir,
   });
 
+  const podman = new PodmanClient();
+  let baseImage: Promise<string> | null = null;
+  const ensureEnvironmentBaseImage = (): Promise<string> => {
+    if (baseImage) return baseImage;
+    const building = ensureBaseImage(podman, dataDir).finally(() => {
+      if (baseImage === building) baseImage = null;
+    });
+    baseImage = building;
+    return building;
+  };
+  const environment = new EnvironmentSupervisor({
+    podman,
+    store,
+    gateway: {
+      prepareRuntimeSocket: async (siteId) => {
+        const control = ctx.control('publishedSitesGateway');
+        if (!control) throw new Error('the published-sites socket broker is unavailable');
+        return await control.prepareRuntimeSocket(siteId);
+      },
+      sealRuntimeSocket: async (siteId) => {
+        const control = ctx.control('publishedSitesGateway');
+        if (!control) throw new Error('the published-sites socket broker is unavailable');
+        await control.sealRuntimeSocket(siteId);
+      },
+      removeRuntimeSocket: async (siteId) => {
+        const control = ctx.control('publishedSitesGateway');
+        if (!control) throw new Error('the published-sites socket broker is unavailable');
+        await control.removeRuntimeSocket(siteId);
+      },
+    },
+    config: () => {
+      const resolved = config();
+      return {
+        startTimeoutSeconds: resolved.startTimeoutSeconds,
+        environmentNetwork: resolved.environmentNetwork,
+        environmentCpus: resolved.environmentCpus,
+        environmentMemoryMb: resolved.environmentMemoryMb,
+        environmentPidsLimit: resolved.environmentPidsLimit,
+        environmentDiskSoftMb: resolved.environmentDiskSoftMb,
+        releasesKept: resolved.releasesKept,
+      };
+    },
+    siteDir,
+    ensureBaseImage: ensureEnvironmentBaseImage,
+    siteUrl: (site) => siteUrl(config(), site.slug),
+    logger: ctx.logger,
+  });
+
+  const provisioning = new EnvironmentProvisioningService({
+    control: () => ctx.control('publishedSitesGateway'),
+    imageExists: () => podman.imageExists(BASE_IMAGE_TAG),
+    buildImage: async () => { await ensureEnvironmentBaseImage(); },
+    audit: (status, actorUserId) => ctx.publishEvent({
+      type: 'plugin',
+      plugin: 'sites',
+      kind: 'environments.provisioned',
+      projectId: null,
+      data: { at: new Date().toISOString(), actorUserId, ready: status.ready, items: status.items },
+    }),
+  });
+  ctx.registerEventRowResolver((event) => event.type === 'plugin' && event.kind === 'environments.provisioned'
+    ? {
+      type: 'sites.environments.provisioned',
+      target: 'sites-environments',
+      label: 'Sites environments',
+      detail: 'An administrator ran environment dependency provisioning.',
+    }
+    : null);
+
   /** Deletion is two-phase and crash-safe. The durable marker removes access immediately; only the
    * authoritative daemon touches processes and plugin-owned files. A forked tool runner stops after the
    * marker and the daemon's five-second reconcile finishes the same operation. */
@@ -134,7 +207,8 @@ export function register(published: PluginContext): void {
     deletingSiteIds.add(siteId);
     if (!isDaemonProcess()) return;
     try {
-      await supervisor.stop(siteId);
+      if (site.runtime === 'environment') await environment.delete(siteId);
+      else await supervisor.stop(siteId);
       rmSync(siteDir(siteId), { recursive: true, force: true });
       store.deleteSite(siteId);
       // Last, and never fatal: the hostname and its certificate are the gateway's copy of a site that no
@@ -212,7 +286,7 @@ export function register(published: PluginContext): void {
       countHit: (siteId) => {
         if (!deletingSiteIds.has(siteId)) pendingHits.set(siteId, (pendingHits.get(siteId) ?? 0) + 1);
       },
-      endpointFor: (siteId) => supervisor.endpointFor(siteId),
+      endpointFor: (siteId) => environment.endpointFor(siteId) ?? supervisor.endpointFor(siteId),
       proxyLimits: () => {
         const resolved = config();
         return {
@@ -254,16 +328,82 @@ export function register(published: PluginContext): void {
       await supervisor.start(next);
       store.updateSite(site.id, { status: 'live', lastError: null });
     },
+    environmentState: (site) => environment.state(site),
+    environmentLogs: (site, lines) => environment.logs(site, lines),
+    gatewayReadiness: () => gateway.readiness(),
+    gatewayRecord: () => gateway.requiredRecord(),
+    requestEnvironmentControl: async (site, action) => {
+      const desired = action === 'stop' ? 'stopped' : action === 'restart' ? 'restarting' : 'running';
+      if (!store.tryRequestEnvironmentControl(site.id, desired)) {
+        throw new Error('an environment action or command is already in progress');
+      }
+    },
+    snapshotEnvironment: async (site, input) => {
+      const current = store.siteById(site.id);
+      const pending = store.environmentAction(site.id);
+      if (!current || (current.environmentDesiredState !== 'running' && !pending?.lastError)) {
+        throw new Error('the environment has a pending lifecycle change');
+      }
+      const model = ctx.currentModel();
+      const snapshotId = randomUUID();
+      const scheduled = store.tryPutEnvironmentAction({
+        siteId: site.id,
+        kind: 'snapshot',
+        snapshotId,
+        includeData: input.includeData,
+        note: input.note,
+        model: model ? (model.provider ? `${model.provider}/${model.model}` : model.model) : '',
+        requestedAt: new Date().toISOString(),
+        lastError: null,
+      });
+      if (!scheduled) throw new Error('another environment action is already pending');
+      return { id: snapshotId };
+    },
+    rollbackEnvironment: async (site, input) => {
+      const scheduled = store.tryPutEnvironmentAction({
+        siteId: site.id,
+        kind: 'rollback',
+        snapshotId: input.releaseId,
+        restoreData: input.restoreData,
+        requestedAt: new Date().toISOString(),
+        lastError: null,
+      });
+      if (!scheduled) throw new Error('another environment restore is already scheduled');
+    },
+    applyEnvironmentLimits: (site, limits) => environment.applyLimits(site, limits),
+    provisioning,
   });
 
   ctx.registerApiRoute({ path: 'sites', method: 'GET', access: 'user', handler: handlers.list });
   ctx.registerApiRoute({ path: 'site', access: 'user', handler: handlers.site });
   ctx.registerApiRoute({ path: 'ticket', method: 'POST', access: 'user', handler: handlers.ticket });
   ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
+  ctx.registerApiRoute({ path: 'gateway/readiness', method: 'GET', access: 'user', handler: handlers.gatewayReadiness });
+  ctx.registerApiRoute({ path: 'environments/readiness', method: 'GET', access: 'user', handler: handlers.environmentsReadiness });
+  ctx.registerApiRoute({ path: 'environments/provision', method: 'POST', access: 'user', handler: handlers.environmentsProvision });
 
-  registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, people });
+  registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people });
 
   ctx.registerReadinessCheck(() => gateway.readiness());
+  ctx.registerReadinessCheck(async () => {
+    if (!config().allowEnvironments) {
+      return { id: 'sites-environments', label: 'Sites environments', ok: true, detail: 'Persistent environments are disabled in Sites settings.' };
+    }
+    const report = await provisioning.status();
+    const items = report.items.map((item) =>
+      `${item.label}: ${item.ok ? 'ready' : 'not ready'}${item.detail ? ` (${item.detail})` : ''}`);
+    const detail = [report.detail, ...items].filter((value): value is string => Boolean(value)).join('; ')
+      || 'No environment dependency checks were returned.';
+    return {
+      id: 'sites-environments',
+      label: 'Sites environments',
+      ok: report.ready,
+      detail,
+      ...(!report.ready
+        ? { hint: 'Review the Sites settings checklist. Dependency installation is exposed by the later admin API and UI phase.' }
+        : {}),
+    };
+  });
   ctx.registerReadinessCheck(() => {
     const required = ['/usr/bin/node', '/usr/bin/npm', '/usr/bin/corepack'];
     const missing = required.filter((path) => !existsSync(path) || !sandboxVisible(path));
@@ -319,8 +459,16 @@ export function register(published: PluginContext): void {
     ctx.registerService({
       name: 'site-runtimes',
       criticalStop: true,
-      start: async () => { await supervisor.reconcile(); },
-      stop: async () => { await supervisor.stopAll(); },
+      start: async () => {
+        await supervisor.reconcile();
+        await environment.reconcile();
+      },
+      // Command runtimes retain their existing reload behavior. Persistent environments detach only and
+      // remain in Podman's user scope across plugin reloads and daemon restarts.
+      stop: async () => {
+        await supervisor.stopAll();
+        await environment.detach();
+      },
     });
   }
 
@@ -351,7 +499,12 @@ export function register(published: PluginContext): void {
   // shared desired state here and starts or replaces the process whose release id no longer matches.
   ctx.registerInterval('reconcile-site-runtimes', async () => {
     await supervisor.reconcile();
+    await environment.reconcile();
   }, 2_000);
+
+  ctx.registerInterval('backstop-site-environments', async () => {
+    await environment.backstop();
+  }, 60_000);
 
   // A publish almost always arrives from a forked tool runner, which has no gateway of its own and never
   // reconciles, so the daemon has to notice the new site itself. Without this the page is `live` in the

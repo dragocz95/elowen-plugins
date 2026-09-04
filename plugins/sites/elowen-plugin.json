@@ -1,9 +1,9 @@
 {
   "name": "sites",
-  "version": "0.8.0",
+  "version": "0.10.0",
   "apiVersion": "1",
-  "requiresCore": "0.28.21",
-  "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is a separate release you can roll back to.",
+  "requiresCore": "0.28.31",
+  "description": "Publish static, command and PHP sites, or run additive persistent rootless environments with systemd, bounded resources and a host-owned ingress socket. Every site keeps its own address and visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
   "entry": "dist/index.js",
   "provides": {
     "tools": [
@@ -16,7 +16,10 @@
       "SiteLogs",
       "SiteShare",
       "SiteUnshare",
-      "SiteDelete"
+      "SiteDelete",
+      "SiteExec",
+      "SiteControl",
+      "SiteSnapshot"
     ],
     "httpRoutes": [
       "s"
@@ -25,7 +28,10 @@
       "sites",
       "site",
       "ticket",
-      "directory"
+      "directory",
+      "gateway/readiness",
+      "environments/readiness",
+      "environments/provision"
     ]
   },
   "planSafe": [
@@ -36,11 +42,19 @@
   "icons": {
     "Site*": "🌐"
   },
+  "showOutput": [
+    "SiteExec",
+    "SiteControl",
+    "SiteSnapshot"
+  ],
   "capabilities": {
     "reads": [
       "db",
       "stores",
       "controls"
+    ],
+    "mutates": [
+      "events"
     ],
     "network": true
   },
@@ -102,16 +116,91 @@
     },
     {
       "key": "allowCommandRuntime",
-      "label": "Allow site runtimes",
+      "label": "Allow command and PHP runtimes",
       "type": "boolean",
       "default": false,
       "risk": "high",
-      "hint": "Let a site run Node, Bun, Python or TypeScript behind a private unix socket or an explicitly enabled loopback port, or execute PHP through PHP-CGI.",
-      "help": "A published runtime is code the agent built with the normal Files, Terminal and Sandbox tools. It sees its copied release and the owner's sandbox HOME, runs under a user namespace rather than a separate VM, and has no CPU or memory limit. The network policy is configured below. Requests and responses are buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
+      "hint": "Let a published release run Node, Bun, Python or TypeScript behind a private unix socket or an explicitly enabled loopback port, or execute PHP through PHP-CGI.",
+      "help": "Command and PHP runtimes use the existing Sandbox confinement and the command/PHP network policy below. They are separate from persistent Podman environments. Requests and responses remain buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
+    },
+    {
+      "key": "allowEnvironments",
+      "label": "Allow persistent environments",
+      "type": "boolean",
+      "default": false,
+      "risk": "high",
+      "hint": "Allow Sites to run persistent rootless Podman environments with systemd, a private root filesystem and a single host-owned ingress socket."
+    },
+    {
+      "key": "environmentNetwork",
+      "label": "Environment network",
+      "type": "enum",
+      "default": "shared",
+      "risk": "high",
+      "options": [
+        {
+          "value": "shared",
+          "label": "Outbound internet"
+        },
+        {
+          "value": "isolated",
+          "label": "No network"
+        }
+      ],
+      "hint": "Outbound internet uses rootless slirp4netns with host loopback disabled. No network gives the environment no network interface beyond its own loopback."
+    },
+    {
+      "key": "environmentCpus",
+      "label": "Environment CPUs",
+      "type": "number",
+      "default": 1,
+      "min": 0.25,
+      "max": 8,
+      "advanced": true,
+      "hint": "CPU limit applied when an environment container is created."
+    },
+    {
+      "key": "environmentMemoryMb",
+      "label": "Environment memory",
+      "type": "number",
+      "default": 1024,
+      "min": 128,
+      "max": 32768,
+      "advanced": true,
+      "hint": "Memory and memory-plus-swap limit in MB applied when an environment container is created."
+    },
+    {
+      "key": "environmentPidsLimit",
+      "label": "Environment process limit",
+      "type": "number",
+      "default": 512,
+      "min": 16,
+      "max": 4096,
+      "advanced": true,
+      "hint": "Maximum number of processes and threads in one environment."
+    },
+    {
+      "key": "environmentDiskSoftMb",
+      "label": "Environment disk warning",
+      "type": "number",
+      "default": 4096,
+      "min": 256,
+      "max": 131072,
+      "advanced": true,
+      "hint": "Soft disk-usage ceiling in MB. This is reported as a warning and is not a filesystem quota."
+    },
+    {
+      "key": "maxEnvironmentsPerAccount",
+      "label": "Environments per account",
+      "type": "number",
+      "default": 3,
+      "min": 1,
+      "max": 20,
+      "hint": "How many persistent environments one account may keep, counted separately from ordinary sites."
     },
     {
       "key": "runtimeNetwork",
-      "label": "Runtime network",
+      "label": "Command and PHP network",
       "type": "enum",
       "default": "isolated",
       "risk": "high",
@@ -265,6 +354,14 @@
         "icon": "Globe"
       }
     ],
+    "settings": [
+      {
+        "id": "environment-setup",
+        "label": "Environment setup",
+        "icon": "Server",
+        "placement": "pluginDetail"
+      }
+    ],
     "strings": {
       "title": "Sites",
       "subtitle": "Pages your agent published, and who can open them.",
@@ -311,6 +408,71 @@
       "runtimeNetwork": "Network",
       "runtimeNetworkIsolated": "No network",
       "runtimeNetworkShared": "Host network",
+      "environment": "Persistent environment",
+      "environmentState": "Environment state",
+      "environmentDesiredState": "Desired state",
+      "environmentLimits": "Resource limits",
+      "environmentStart": "Start environment",
+      "environmentStop": "Stop environment",
+      "environmentRestart": "Restart environment",
+      "environmentSnapshot": "Create snapshot",
+      "environmentSnapshots": "Environment snapshots",
+      "environmentCrashConsistent": "Crash-consistent snapshot. Databases may require their own backup procedure.",
+      "environmentReadiness": "Environment dependencies",
+      "environmentProvision": "Install missing dependencies",
+      "environmentBaseImage": "Deterministic base image",
+      "environmentActionPending": "Environment action pending",
+      "environmentActionError": "Environment action needs attention",
+      "environmentActionScheduled": "Environment action scheduled",
+      "environmentSnapshotScheduled": "Snapshot scheduled",
+      "environmentSetupTitle": "Environment setup",
+      "environmentSetupDescription": "Domain routing and host dependencies required by persistent Sites environments.",
+      "environmentGatewayTitle": "Domain gateway",
+      "environmentGatewayDescription": "The wildcard domain must lead to the hostname used by this Elowen instance.",
+      "environmentGatewayCheck": "Wildcard destination",
+      "environmentStatusReady": "Ready",
+      "environmentStatusMissing": "DNS record missing",
+      "environmentStatusMisdirected": "Wrong destination",
+      "environmentStatusUnavailable": "Check unavailable",
+      "environmentObservedTarget": "Observed target",
+      "environmentRecordType": "Type",
+      "environmentRecordName": "Name",
+      "environmentRecordValue": "Value",
+      "environmentDependenciesTitle": "Environment dependencies",
+      "environmentDependenciesDescription": "System packages, rootless Podman support and the deterministic Sites base image.",
+      "environmentProvisionHelp": "Installation adds Podman, crun, uidmap, dbus-user-session, passt, slirp4netns and fuse-overlayfs when required; configures subordinate IDs, user linger and cgroup delegation; and builds the deterministic base image. It does not restart Elowen, web or nginx.",
+      "environmentSetupReady": "Environment dependencies are ready",
+      "environmentSetupAttention": "Environment dependencies need attention",
+      "environmentProvisionConfirmTitle": "Install environment dependencies",
+      "environmentProvisionConfirmDescription": "This installs Podman, crun, uidmap, dbus-user-session, passt, slirp4netns and fuse-overlayfs when required; configures subordinate IDs, user linger and cgroup delegation; and builds the deterministic base image. It does not restart Elowen, web or nginx.",
+      "environmentObservedState": "Observed state",
+      "environmentTransportLimit": "Requests are buffered and limited to 1 MB. Streaming, server-sent events and WebSockets are not supported.",
+      "environmentSnapshotNote": "Snapshot note",
+      "environmentSnapshotNotePlaceholder": "Describe the restore point",
+      "environmentIncludeData": "Include the /data volume archive",
+      "environmentIncludeDataHelp": "The root filesystem and optional /data archive are crash-consistent, not database-consistent.",
+      "environmentNoSnapshots": "No environment snapshots have been created.",
+      "environmentSnapshotActive": "Active restore point",
+      "environmentRestore": "Restore snapshot",
+      "environmentRestoreRoot": "Restore system only",
+      "environmentRestoreData": "Restore system and /data",
+      "environmentRestoreConfirmTitle": "Restore environment snapshot",
+      "environmentRestoreRootWarning": "The environment will stop and its root filesystem will be replaced. The current /data volume will be retained.",
+      "environmentRestoreWithDataWarning": "The environment will stop and both its root filesystem and /data volume will be replaced from this snapshot.",
+      "environmentRestoreScheduled": "Snapshot restore scheduled",
+      "environmentLogs": "Environment logs",
+      "environmentLogsLoading": "Loading bounded environment logs…",
+      "environmentLimitsHint": "Blank values inherit the instance defaults. The disk value is a warning threshold, not a filesystem quota.",
+      "environmentLimitCpu": "CPUs",
+      "environmentLimitMemory": "Memory (MB)",
+      "environmentLimitPids": "Processes and threads",
+      "environmentLimitDisk": "Disk warning (MB)",
+      "environmentSaveLimits": "Save limits",
+      "environmentLimitsSaved": "Environment limits saved",
+      "copy": "Copy",
+      "refresh": "Refresh",
+      "pass": "PASS",
+      "fail": "FAIL",
       "saveRuntime": "Save runtime",
       "runtimeLog": "Recent output",
       "runtimeEmptyLog": "Nothing recorded yet.",
