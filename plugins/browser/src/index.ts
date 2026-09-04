@@ -9,8 +9,8 @@ import { BrowserService } from './service.js';
 import { SessionRegistry } from './session-registry.js';
 import { BrowserStore } from './store.js';
 import { registerBrowserTools } from './tools.js';
-import { VncBridge, VncTicketStore } from './vnc-bridge.js';
-import { VncDisplayPool } from './vnc-display.js';
+import { VirtualDisplayPool } from './virtual-display.js';
+import { VncTransport, webSocketSupport } from './vnc-transport.js';
 import type {
   BrowserArtifactPublisher, BrowserClock, BrowserProcessFactory, BrowserProxyFactory, ProcessInspector,
 } from './types.js';
@@ -39,10 +39,9 @@ export function register(ctx: PluginContext, deps: BrowserRegisterDeps = {}): vo
     deps.resolver,
   );
   const clock = deps.clock ?? SYSTEM_CLOCK;
-  // PILOT (ELOWEN_BROWSER_VNC). Constructed unconditionally because construction only makes a 0700
-  // directory; nothing starts an X server, a VNC server or a listener until `vncEnabled` is set.
-  const displays = new VncDisplayPool({ dataDir: ctx.dataDir(), config, logger: ctx.logger });
-  const tickets = new VncTicketStore(config().vncTicketTtlMs, () => clock.now());
+  const displays = new VirtualDisplayPool({
+    dataDir: ctx.dataDir(), config, store, processInspector, logger: ctx.logger,
+  });
   const pool = new BrowserPool({
     dataDir: ctx.dataDir(),
     config,
@@ -53,33 +52,51 @@ export function register(ctx: PluginContext, deps: BrowserRegisterDeps = {}): vo
     logger: ctx.logger,
     displays,
   });
+
+  // The live view needs a WebSocket the daemon carries into the plugin. A host too old to offer one
+  // cannot serve a live view at all — there is no screencast to fall back to any more — so this is said
+  // plainly once, at registration, and the rest of the plugin keeps working: every tool, every API route
+  // and the whole agent path are unaffected, and the card reports that the picture is unavailable.
+  const core = webSocketSupport(ctx);
+  const transport = core ? new VncTransport({
+    config,
+    logger: ctx.logger,
+    resolve: (userId, payload) => registry.resolveLiveView(userId, payload),
+  }) : null;
+  if (!core) {
+    ctx.logger.warn('browser live view is unavailable: this Elowen core does not offer registerWebSocketRoute/issueWebSocketTicket');
+  }
+
   const registry = new SessionRegistry({
-    config, store, pool, artifacts, processInspector, clock, logger: ctx.logger,
-    vnc: { displays, tickets },
-  });
-  const bridge = new VncBridge({
-    config, tickets, logger: ctx.logger,
-    resolve: (ticket) => registry.resolveVncTarget(ticket),
+    config, store, pool, artifacts, processInspector, displays, clock, logger: ctx.logger,
+    closeLiveViews: (sessionId, reason) => transport?.closeSession(sessionId, reason),
   });
   const service = new BrowserService(registry);
 
   // One input, two consumers: the host's readiness line and the plugin's own settings panel report the
   // same dependency verdicts because they are the same computation.
-  const dependencyInput = { config, processFactory, proxyFactory, artifacts, storage: () => pool.storageStatus() };
+  const dependencyInput = {
+    config, processFactory, proxyFactory, artifacts,
+    storage: () => pool.storageStatus(),
+    liveView: () => core !== null,
+  };
 
+  if (core && transport) transport.register(core);
   registerBrowserTools(ctx, registry);
-  registerBrowserApi(ctx, registry, () => browserDependencyReport(dependencyInput));
+  registerBrowserApi(ctx, registry, () => browserDependencyReport(dependencyInput), core && transport ? { core, transport } : null);
   ctx.registerReadinessCheck(() => browserReadiness(dependencyInput));
   ctx.registerBootReconcile(() => registry.bootReconcile());
-  const runtimeService = { name: 'browser-runtime', criticalStop: true, start: () => service.start(), stop: () => service.stop() };
-  ctx.registerService(runtimeService);
   ctx.registerService({
-    name: 'browser-vnc-bridge',
+    name: 'browser-runtime',
     criticalStop: true,
-    start: async () => { if (config().vncEnabled) await bridge.listen(); },
-    // Stopping tears down every live socket AND every display: an X server outliving the daemon that
-    // owns it is an orphan nothing will ever reconnect to, holding a framebuffer per account.
-    stop: async () => { await bridge.close(); await displays.releaseAll(); },
+    start: () => service.start(),
+    // Stopping tears down every live view AND every display: an X server outliving the daemon that owns
+    // it is an orphan nothing will reconnect to, holding a framebuffer per account.
+    stop: async () => {
+      transport?.closeAll('daemon_stopping');
+      await service.stop();
+      await displays.releaseAll();
+    },
   });
   ctx.registerInterval('browser-session-cleanup', () => service.cleanup(), 30_000);
   ctx.registerUserRemoved((userId) => registry.deleteUser(userId));

@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 
-interface BrowserFrame { data: string; mimeType: string; width: number; height: number; timestamp: number }
-interface BrowserCursor { x: number; y: number; moving?: boolean; clicking?: boolean }
+/** The session's STATE, over Server-Sent Events. Not its picture.
+ *
+ *  Pixels arrive on the live view socket as RFB, decoded by noVNC onto a canvas this never touches. What
+ *  is left here is everything the card has to know that is not in the framebuffer: who holds control,
+ *  what the agent just did, the site's favicon, and the end of the session. */
+
 interface BrowserControl { state: 'agent' | 'user'; expiresAt?: number; reason?: string; controlRevision: number }
 interface BrowserAction { kind: string; target?: string }
+
 export interface BrowserStreamState {
-  frame: BrowserFrame | null;
-  cursor: BrowserCursor | null;
   favicon: string | null;
   control: BrowserControl;
   action: BrowserAction | null;
@@ -14,14 +17,12 @@ export interface BrowserStreamState {
   hasControlSnapshot: boolean;
   closed: boolean;
   error: string | null;
-  /** The server named why it would not carry frames to this viewer. `viewer_limit` means the room is
-   *  full — another viewer leaving frees it — so it is shown as a state, not as a broken connection. */
-  rejected: 'viewer_limit' | 'stream_failed' | null;
+  /** The server named why it would not carry this session's events. Kept as a state rather than a broken
+   *  connection so the reconnect below can back off instead of hammering a failure every half second. */
+  rejected: 'stream_failed' | null;
 }
 
 const initialState: BrowserStreamState = {
-  frame: null,
-  cursor: null,
   favicon: null,
   control: { state: 'agent', controlRevision: 0 },
   action: null,
@@ -54,6 +55,11 @@ const object = (value: unknown): Record<string, unknown> | null => value && type
   ? value as Record<string, unknown>
   : null;
 
+/** A favicon is a data URL the server read off the page, so it is bounded and shape-checked before it is
+ *  ever put in an `src`. */
+const asFavicon = (value: unknown): string | null =>
+  typeof value === 'string' && value.length <= 40 * 1024 && /^data:image\//i.test(value) ? value : null;
+
 export function useBrowserStream(path: string | undefined): BrowserStreamState {
   const [state, setState] = useState(initialState);
   const generation = useRef(0);
@@ -71,58 +77,15 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
       try { raw = JSON.parse(frame.data); } catch { return; }
       const data = object(raw);
       if (!data) return;
-      if (frame.event === 'frame' && typeof data.data === 'string') {
-        setState((value) => ({
-          ...value,
-          frame: {
-            data: data.data as string,
-            mimeType: typeof data.mimeType === 'string' ? data.mimeType : 'image/jpeg',
-            width: typeof data.width === 'number' ? data.width : 1280,
-            height: typeof data.height === 'number' ? data.height : 800,
-            timestamp: typeof data.timestamp === 'number' ? data.timestamp : Date.now(),
-          },
-          connected: true,
-          error: null,
-        }));
-        return;
-      }
       if (frame.event === 'favicon') {
-        if (data.favicon === null) setState((value) => ({ ...value, favicon: null }));
-        else if (typeof data.favicon === 'string' && data.favicon.length <= 40 * 1024 && /^data:image\//i.test(data.favicon)) {
-          setState((value) => ({ ...value, favicon: data.favicon as string }));
-        }
-        return;
-      }
-      if (frame.event === 'cursor' && data.cleared === true) {
-        // The page the pointer was on is gone (a navigation, another tab): drawing the old point over a
-        // new document would put the agent's arrow somewhere it has never been.
-        setState((value) => ({ ...value, cursor: null }));
-        return;
-      }
-      if (frame.event === 'cursor' && typeof data.x === 'number' && typeof data.y === 'number') {
-        setState((value) => ({ ...value, cursor: { x: data.x as number, y: data.y as number, moving: data.moving === true } }));
+        setState((value) => ({ ...value, favicon: data.favicon === null ? null : asFavicon(data.favicon) ?? value.favicon }));
         return;
       }
       if (frame.event === 'action') {
         const action = typeof data.action === 'string'
           ? { kind: data.action, ...(typeof data.target === 'string' ? { target: data.target } : {}) }
           : null;
-        // An action that reports WHERE it acted is itself a pointer position, and the authoritative one:
-        // the `cursor` events before a click are the animated approach, this is where it landed. Reading
-        // it means a viewer that missed those frames — because it connected mid-move, or because the
-        // stream dropped them — still has a pointer to draw instead of none.
-        const at = typeof data.x === 'number' && typeof data.y === 'number' ? { x: data.x, y: data.y } : null;
-        setState((value) => ({
-          ...value,
-          action,
-          cursor: at
-            ? { ...value.cursor, ...at, moving: false, clicking: data.action === 'click' }
-            : value.cursor && data.action === 'click' ? { ...value.cursor, clicking: true } : value.cursor,
-        }));
-        if (data.action === 'click') setTimeout(() => {
-          if (generation.current !== current) return;
-          setState((value) => ({ ...value, cursor: value.cursor ? { ...value.cursor, clicking: false } : null }));
-        }, 420);
+        setState((value) => ({ ...value, action }));
         return;
       }
       if (frame.event === 'control' || frame.event === 'session') {
@@ -130,11 +93,10 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
         const controlState = data.state === 'user' ? 'user' : 'agent';
         const rawExpiresAt = lease?.expiresAt ?? data.expiresAt;
         const rawRevision = data.controlRevision;
-        // The opening frame replays where the agent left its pointer, so a viewer that joins between two
-        // agent moves starts with one rather than waiting for the next move to reveal it.
-        const seeded = object(data.cursor);
         setState((value) => {
           const controlRevision = typeof rawRevision === 'number' ? rawRevision : value.control.controlRevision;
+          // An older snapshot cannot undo a newer control change: the opening frame of a reconnect races
+          // with whatever happened while the stream was down, and the revision is what orders them.
           if (controlRevision < value.control.controlRevision) return value;
           return {
             ...value,
@@ -142,14 +104,7 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
             hasControlSnapshot: true,
             closed: false,
             error: null,
-            cursor: value.cursor ?? (typeof seeded?.x === 'number' && typeof seeded?.y === 'number'
-              ? { x: seeded.x, y: seeded.y, moving: false }
-              : null),
-            favicon: data.favicon === null
-              ? null
-              : typeof data.favicon === 'string' && data.favicon.length <= 40 * 1024 && /^data:image\//i.test(data.favicon)
-                ? data.favicon
-                : value.favicon,
+            favicon: data.favicon === null ? null : asFavicon(data.favicon) ?? value.favicon,
             control: {
               state: controlState,
               expiresAt: typeof rawExpiresAt === 'number' ? rawExpiresAt : undefined,
@@ -161,10 +116,7 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
         return;
       }
       if (frame.event === 'rejected') {
-        // The stream ends right after this. Remembering the refusal keeps the card from claiming a live
-        // connection off the opening snapshot alone, and lets the reconnect below back off instead of
-        // hammering a full room every half second.
-        rejected = data.reason === 'viewer_limit' ? 'viewer_limit' : 'stream_failed';
+        rejected = 'stream_failed';
         setState((value) => ({ ...value, connected: false, rejected, error: typeof data.message === 'string' ? data.message : null }));
         return;
       }
@@ -199,7 +151,6 @@ export function useBrowserStream(path: string | undefined): BrowserStreamState {
           if (controller.signal.aborted) return;
           setState((value) => ({ ...value, connected: false, error: error instanceof Error ? error.message : String(error) }));
         }
-        // A full room does not change in half a second; a refused viewer polls it far more gently.
         if (rejected) retry = Math.max(retry, 10_000);
         await new Promise((resolve) => setTimeout(resolve, retry));
         retry = Math.min(rejected ? 30_000 : 5_000, retry * 2);

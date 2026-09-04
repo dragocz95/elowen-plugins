@@ -5,7 +5,7 @@ import type { BrowserConfig } from './config.js';
 import { BrowserStore } from './store.js';
 import { ProcessTraceLock } from './performance-probe.js';
 import { TabManager } from './tab-manager.js';
-import type { VncDisplayPool } from './vnc-display.js';
+import type { VirtualDisplayPool } from './virtual-display.js';
 import type {
   BrowserLike, BrowserLogger, BrowserProcessFactory, BrowserProxyFactory, ManagedProcessRecord,
   PageLike, ProcessInspector, ProcessSnapshot, ProxyLease,
@@ -125,7 +125,7 @@ export class PuppeteerCoreFactory implements BrowserProcessFactory {
     userDataDir: string;
     proxyUrl: string;
     viewport: { width: number; height: number };
-    display?: { display: string; xauthPath: string };
+    display: { display: string; xauthPath: string };
   }): Promise<BrowserLike> {
     const moduleName = 'puppeteer-core';
     const loaded = await import(moduleName) as { default?: { launch(options: Record<string, unknown>): Promise<BrowserLike> }; launch?: (options: Record<string, unknown>) => Promise<BrowserLike> };
@@ -133,7 +133,9 @@ export class PuppeteerCoreFactory implements BrowserProcessFactory {
     if (!launch) throw new Error('puppeteer-core does not expose launch().');
     return launch({
       executablePath: options.executablePath,
-      headless: !options.display,
+      // Always headed. A headless Chrome has no window, and a window is the only thing that turns a
+      // replayed X event into input Chrome cannot tell from a keyboard.
+      headless: false,
       pipe: true,
       userDataDir: options.userDataDir,
       // Service accounts often have HOME unset or pointing at a non-existent directory. Chrome wrappers
@@ -141,15 +143,20 @@ export class PuppeteerCoreFactory implements BrowserProcessFactory {
       env: {
         ...process.env,
         HOME: options.userDataDir,
-        ...(options.display ? { DISPLAY: options.display.display, XAUTHORITY: options.display.xauthPath } : {}),
+        DISPLAY: options.display.display,
+        XAUTHORITY: options.display.xauthPath,
       },
-      // On a real display the WINDOW decides the viewport, and forcing one through CDP would leave the
-      // rendered window and the framebuffer disagreeing about size — the thing a remote viewer sees.
-      defaultViewport: options.display ? null : options.viewport,
+      // The WINDOW decides the viewport. Forcing one through CDP would emulate a size the window does not
+      // have, so the page would render for one box and be photographed inside another — and the picture
+      // a viewer sees is the window.
+      defaultViewport: null,
       dumpio: process.env.ELOWEN_BROWSER_DEBUG === '1',
-      // Measured: `--enable-automation` puts a 56px infobar above the page, so the framebuffer no longer
-      // maps 1:1 onto the viewport and the card would show a strip today's screencast never had.
-      ...(options.display ? { ignoreDefaultArgs: ['--enable-automation'] } : {}),
+      // The one thing that actually removes the automation infobar. Measured on this host at 1280x800:
+      // Chrome's own UI is 143px with it, 87px without. `--disable-infobars` is a no-op — measured at
+      // 143px with and without it — so it is deliberately not in the argument list below pretending to
+      // help. The remaining 87px is the tab strip and the address bar, which STAY: the point of a real
+      // display is a real browser, tabs and all.
+      ignoreDefaultArgs: ['--enable-automation'],
       args: [
         `--proxy-server=${options.proxyUrl}`,
         '--proxy-bypass-list=<-loopback>',
@@ -164,12 +171,12 @@ export class PuppeteerCoreFactory implements BrowserProcessFactory {
         '--metrics-recording-only',
         '--no-first-run',
         '--no-default-browser-check',
+        // One window filling the display, at its origin. There is no window manager on this display, so
+        // nothing will move, resize or decorate it afterwards. Chrome insets the result by a pixel when
+        // the requested size equals the screen; that seam is left alone deliberately, because asking for
+        // one pixel more would push the same pixel off the far edge and clip the PAGE instead.
+        '--window-position=0,0',
         `--window-size=${options.viewport.width},${options.viewport.height}`,
-        // Kiosk removes the tab strip and toolbar, which is what makes the framebuffer show exactly the
-        // page and nothing else — the card already carries its own back, forward and reload controls, so
-        // Chrome's would be a second set of the same thing. Measured chrome height: 143px normally,
-        // 56px in kiosk with the automation infobar, 0px with both dealt with.
-        ...(options.display ? ['--kiosk', '--window-position=0,0'] : []),
       ],
     });
   }
@@ -213,9 +220,8 @@ export class BrowserPool {
     processFactory: BrowserProcessFactory;
     processInspector: ProcessInspector;
     logger: BrowserLogger;
-    /** PILOT (ELOWEN_BROWSER_VNC). Absent, or present with `vncEnabled` false, means today's headless
-     *  launch: the pool never asks for a display and no X server is started. */
-    displays?: VncDisplayPool;
+    /** Where this account's Chrome is drawn. Not optional: there is no headless path any more. */
+    displays: VirtualDisplayPool;
   }) {
     mkdirSync(deps.dataDir, { recursive: true, mode: 0o700 });
     const dataRoot = realpathSync(deps.dataDir);
@@ -280,9 +286,11 @@ export class BrowserPool {
     if (managed.sessionIds.has(sessionId)) throw new Error('Browser session already owns a page.');
     try {
       const page = await managed.browser.newPage();
-      const config = this.deps.config();
       await installProxyAuthentication(page, managed.proxy);
-      await page.setViewport?.({ width: config.maxViewportWidth, height: config.viewportHeight });
+      // Deliberately NO setViewport. The tab is a real tab in a real window, and its size is whatever
+      // the window leaves after the tab strip and the address bar. Emulating a viewport here would make
+      // the page lay itself out for a box the window does not have, so the framebuffer a person watches
+      // and the box a screenshot is clipped to would disagree.
       await page.goto('about:blank', { waitUntil: 'load', timeout: 15_000 });
       managed.tabs.registerPrimary(sessionId, page);
       managed.sessionIds.add(sessionId);
@@ -326,7 +334,7 @@ export class BrowserPool {
       if (proxyResult.status === 'rejected') this.deps.logger.warn(`browser proxy cleanup failed for user ${userId}: ${String(proxyResult.reason)}`);
       // The display outlives nothing: Chrome is the only client, so an X server left running would be a
       // 58 MiB leak per account that no later launch would ever reuse.
-      if (this.deps.displays) await this.deps.displays.release(userId).catch((error: unknown) => {
+      await this.deps.displays.release(userId).catch((error: unknown) => {
         this.deps.logger.warn(`browser vnc display cleanup failed for user ${userId}: ${String(error)}`);
       });
       this.browsers.delete(userId);
@@ -415,13 +423,11 @@ export class BrowserPool {
     // The display comes up BEFORE the proxy and before Chrome: a browser launched against a display
     // that is not serving yet fails inside Chrome's ozone layer, where the error says only "Missing X
     // server" and nothing about which account or why.
-    const display = config.vncEnabled && this.deps.displays
-      ? await this.deps.displays.acquire(userId)
-      : null;
+    const display = await this.deps.displays.acquire(userId);
     let proxy: ProxyLease;
     try { proxy = await this.deps.proxyFactory.open(userId); }
     catch (error) {
-      if (display) await this.deps.displays!.release(userId).catch(() => {});
+      await this.deps.displays.release(userId).catch(() => {});
       throw error;
     }
     let browser: BrowserLike;
@@ -430,12 +436,12 @@ export class BrowserPool {
         executablePath,
         userDataDir: profilePath,
         proxyUrl: proxy.url,
-        viewport: { width: config.maxViewportWidth, height: config.viewportHeight },
-        ...(display ? { display: { display: display.display, xauthPath: display.xauthPath } } : {}),
+        viewport: { width: display.width, height: display.height },
+        display: { display: display.display, xauthPath: display.xauthPath },
       });
     } catch (error) {
       await proxy.close().catch(() => {});
-      if (display) await this.deps.displays!.release(userId).catch(() => {});
+      await this.deps.displays.release(userId).catch(() => {});
       throw error;
     }
     const tabs = new TabManager(

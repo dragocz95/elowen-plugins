@@ -80,11 +80,12 @@ interface BrowserLaunchOptions {
   executablePath: string;
   userDataDir: string;
   proxyUrl: string;
+  /** The framebuffer to fill: the size of the X display, NOT the size of the page. A native Chrome
+   *  window spends 87px of it on the tab strip and the address bar. */
   viewport: { width: number; height: number };
-  /** PILOT (ELOWEN_BROWSER_VNC): the X display to draw on, or undefined for today's headless launch.
-   *  Present means HEADED — which is the point, since only a real window produces the native input the
-   *  VNC path exists to carry. */
-  display?: { display: string; xauthPath: string };
+  /** The X display to draw on. Required, because a managed browser is always headed now — only a real
+   *  window produces the native input the VNC path exists to carry. */
+  display: { display: string; xauthPath: string };
 }
 
 export interface BrowserProcessFactory {
@@ -112,6 +113,24 @@ export interface ManagedProcessRecord {
   startedAtTicks: string;
   executablePath: string;
   profilePath: string;
+  createdAt: number;
+}
+
+/** What a virtual display assembly was, written down so a daemon that dies without cleaning up can still
+ *  identify its own Xvfb and x11vnc after a restart. Both processes are recorded with the identity triple
+ *  an orphan check needs — start time, executable and a distinguishing argument — because a PID alone is
+ *  a promise the kernel does not keep. */
+export interface ManagedDisplayRecord {
+  userId: number;
+  displayNumber: number;
+  xvfbPid: number;
+  xvfbStartedAtTicks: string;
+  xvfbExecutablePath: string;
+  vncPid: number;
+  vncStartedAtTicks: string;
+  vncExecutablePath: string;
+  socketPath: string;
+  rootPath: string;
   createdAt: number;
 }
 
@@ -160,16 +179,8 @@ export interface BrowserTabInfo {
   active: boolean;
 }
 
-export interface ScreencastFrame {
-  data: string;
-  mimeType: 'image/jpeg';
-  width: number;
-  height: number;
-  timestamp: number;
-}
-
 export interface BrowserActionEvent {
-  kind: 'cursor' | 'action' | 'control' | 'favicon' | 'tab' | 'closed';
+  kind: 'action' | 'control' | 'favicon' | 'tab' | 'closed';
   data: Record<string, unknown>;
 }
 

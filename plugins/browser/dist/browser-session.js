@@ -1,14 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { captureAccessibilitySnapshot } from './accessibility.js';
 import { artifactData, serializeArtifactRef } from './artifact.js';
-import { captureElement, captureFullPage, captureModelScreenshot, captureViewport, } from './capture.js';
-import { InputController, InputRateLimiter } from './input-controller.js';
+import { captureElement, captureFullPage, captureModelScreenshot, captureViewport, SCREENSHOT_JPEG_QUALITY, } from './capture.js';
+import { InputController } from './input-controller.js';
 import { NavigationPolicy } from './navigation-policy.js';
 import { readPageFavicon } from './page-favicon.js';
 import { PageDiagnostics, } from './page-diagnostics.js';
 import { capturePerformanceMetrics, TraceRecorder, } from './performance-probe.js';
 import { boundText } from './redaction.js';
-import { ScreencastHub } from './screencast-hub.js';
 /** The evaluate tool's own budget for a page's answer. Larger than a console argument because the caller
  *  chose the expression and can aim it; small enough that a `document.body.innerHTML` on a heavy page
  *  cannot spend a whole context window. */
@@ -30,9 +29,6 @@ function safeJson(value) {
  *  fires. Everything a PERSON drives needs the opposite: free the caller — and with it the serial queue
  *  slot — while leaving the session alive, because a wedged CDP call must not make "take control",
  *  "release" or "close" unreachable. The abandoned work still runs; only the waiting stops. */
-/** How long a user input batch may take in total, waiting for the queue included. Longer than the
- *  10s a running batch gets, so a batch queued behind one stuck sibling still gets its own turn. */
-const USER_INPUT_DELIVERY_MS = 15_000;
 async function withDeadline(work, ms, message) {
     let timer = null;
     try {
@@ -74,24 +70,15 @@ export class BrowserSession {
     lease = null;
     controlRevisionValue = 0;
     controlReasonValue = null;
-    /** Bumped whenever previously accepted user input stops being meaningful: control changed hands, the
-     *  document was replaced, or the session is closing. Anything still mid-flight checks it and stops. */
-    inputEpochValue = 0;
     leaseTimer = null;
     hardExpiryTimer = null;
     lastActivityAt;
     lastAction = null;
-    /** Where the agent's pointer was left, in viewport pixels. A live `cursor` event only reaches the
-     *  viewers connected while it is emitted, so a viewer that opens the artifact between two agent moves
-     *  has nothing to draw a pointer from — which is a session fact, not a per-connection one. Kept here so
-     *  the stream's opening frame can replay it. */
-    lastCursorValue = null;
     snapshotValue = null;
     faviconPageUrl = null;
     faviconDataUrl = null;
     faviconGeneration = 0;
     artifactRef;
-    screencast;
     input;
     diagnostics;
     tracer;
@@ -126,11 +113,17 @@ export class BrowserSession {
     }
     get controlRevision() { return this.controlRevisionValue; }
     get controlReason() { return this.controlReasonValue; }
-    /** The agent pointer a joining viewer should start from; null until the agent has moved it. */
-    get currentCursor() {
-        return this.lastCursorValue ? { ...this.lastCursorValue } : null;
-    }
     get currentFavicon() { return this.faviconDataUrl; }
+    /** Whether this lease is the one currently driving the session.
+     *
+     *  The live view transport asks per input message, so control changing hands takes effect on the next
+     *  message rather than at the next reconnect. It compares a token the caller already holds and never
+     *  hands one out, so it cannot become a way to learn a lease id. */
+    holdsLease(leaseId) {
+        return this.stateValue === 'user'
+            && this.lease?.leaseId === leaseId
+            && this.lease.expiresAt > this.deps.clock.now();
+    }
     async setArtifact(ref) {
         if (this.stateValue === 'closing' || this.stateValue === 'closed' || this.stateValue === 'error') {
             if (ref)
@@ -144,7 +137,7 @@ export class BrowserSession {
     async snapshot(includeScreenshot = false, signal) {
         return this.runAgentOperation(signal, async () => {
             const snapshot = await this.captureSnapshot();
-            const screenshot = includeScreenshot ? await captureModelScreenshot(this.cdp, this.deps.config().jpegQuality) : undefined;
+            const screenshot = includeScreenshot ? await captureModelScreenshot(this.cdp, SCREENSHOT_JPEG_QUALITY) : undefined;
             return screenshot ? { snapshot, screenshot } : { snapshot };
         });
     }
@@ -156,7 +149,6 @@ export class BrowserSession {
             // DNS answer must be a clear tool refusal, not a successful navigation to the proxy's generic 500 page.
             await policy.resolve(validated.toString());
             await this.page.goto(validated.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 });
-            this.clearCursor();
             this.emit({ kind: 'action', data: { action: 'navigate', target: validated.hostname } });
             return this.finishMutation(`Navigated to ${validated.hostname}`);
         });
@@ -215,7 +207,7 @@ export class BrowserSession {
      *  the agent did not produce and contend for the CDP session the user's input is travelling on. */
     async screenshot(area, format, ref, signal) {
         return this.runAgentOperation(signal, async () => {
-            const quality = this.deps.config().jpegQuality;
+            const quality = SCREENSHOT_JPEG_QUALITY;
             if (area === 'viewport')
                 return captureViewport(this.cdp, format, quality);
             if (area === 'fullPage')
@@ -327,7 +319,7 @@ export class BrowserSession {
                 network: this.diagnostics.networkEntries({ filter: 'errors', limit: 10 }),
                 metrics: await capturePerformanceMetrics(this.cdp),
                 ...(includeScreenshot
-                    ? { image: await captureViewport(this.cdp, 'jpeg', this.deps.config().jpegQuality) }
+                    ? { image: await captureViewport(this.cdp, 'jpeg', SCREENSHOT_JPEG_QUALITY) }
                     : {}),
             };
         });
@@ -346,7 +338,6 @@ export class BrowserSession {
         return this.agentMutation(signal, async () => {
             const page = this.deps.tabs.select(this.id, tabId);
             await this.attachPage(page);
-            this.clearCursor();
             this.emit({ kind: 'tab', data: { action: 'select', tabId } });
             return this.finishMutation('Selected another browser tab');
         });
@@ -360,7 +351,6 @@ export class BrowserSession {
             if (!active)
                 throw new Error('The browser session has no active tab.');
             await this.attachPage(active);
-            this.clearCursor();
             this.emit({ kind: 'tab', data: { action: 'close', tabId } });
             return this.finishMutation('Closed a browser tab');
         });
@@ -445,56 +435,15 @@ export class BrowserSession {
             throw error;
         }
     }
-    /** How a user input batch ended. `page_changed` is not a failure: the document the person acted on
-     *  was replaced before the batch could run — typically by the navigation their own previous input
-     *  caused — so the batch was dropped rather than applied to a page they never saw. */
-    async dispatchUserInput(leaseId, events) {
-        // Which document the person was looking at when they acted. Control is now handed over instantly,
-        // so an agent navigation can still hold the queue: without this the click would be delivered after
-        // that navigation finished, landing at those coordinates on a page the user never saw.
-        // Identify the document this input was aimed at, and read the URL LAST: the loader probe is a round
-        // trip, so a URL sampled before it could already be older than the answer that follows.
-        const actedOnLoader = await this.mainFrameLoaderId();
-        const actedOnUrl = this.page.url();
-        // The batch is bounded once it runs (below), but its wait for the queue was not: a page that
-        // stopped acknowledging input turned every further click into ten more seconds of backlog, and
-        // the request for the newest one simply hung. So the whole delivery is bounded from here, and a
-        // batch abandoned while waiting must not run into Chrome once the queue frees up.
-        let abandoned = false;
-        const delivery = this.queue.run(async () => {
-            if (abandoned)
-                throw new Error('Browser input was abandoned before it could start.');
-            this.requireLease(leaseId);
-            // Both must still hold. The loader id catches a reload or a repeat navigation, which replace the
-            // document without changing the address; the URL catches the case where the probe cannot answer,
-            // and is required either way so a fresh loader id can never vouch for a page that moved.
-            const currentLoader = await this.mainFrameLoaderId();
-            const sameLoader = !actedOnLoader || !currentLoader || actedOnLoader === currentLoader;
-            // Dropped, not failed: every pointer move made while a login form was submitting used to come
-            // back as an error, and a person doing exactly the right thing saw a burst of red toasts.
-            if (!sameLoader || this.page.url() !== actedOnUrl)
-                return 'page_changed';
-            const epoch = this.inputEpochValue;
-            await withDeadline(this.input.dispatchUserBatch(events, () => {
-                if (this.inputEpochValue !== epoch)
-                    throw new Error('Browser input was superseded before it finished.');
-            }), 10_000, 'Browser input was not acknowledged in time.');
-            // Known limit: the single event that blew this deadline is already inside Chrome and CDP offers
-            // no way to recall it, so it may still be applied late. The epoch above stops every event AFTER
-            // it, which is what keeps a stuck batch from replaying a whole gesture into the wrong page.
-            this.snapshotValue = null;
-            this.touch('User input');
-            return 'delivered';
-        });
-        void delivery.catch(() => { });
-        try {
-            return await withDeadline(delivery, USER_INPUT_DELIVERY_MS, 'Browser input could not be delivered in time.');
-        }
-        catch (error) {
-            abandoned = true;
-            throw error;
-        }
-    }
+    /** A person driving this session does not pass through here.
+     *
+     *  Their pointer and keyboard reach Chrome as native X input through the VNC server, so there is no
+     *  batch to deliver, no coordinate to map onto a viewport, and no "the page moved under you" case to
+     *  report: input lands on whatever the window actually shows, exactly as it does on a desktop. What a
+     *  lease still governs is whether the transport forwards those RFB messages at all.
+     *
+     *  The back, forward and reload controls below stay, because they are the card's own buttons rather
+     *  than something the person pressed inside the page. */
     dispatchUserNavigation(leaseId, action) {
         return this.queue.run(async () => {
             this.requireLease(leaseId);
@@ -534,8 +483,6 @@ export class BrowserSession {
                 afterLoader = await this.mainFrameLoaderId();
                 committed = this.page.url() !== beforeUrl || (!!beforeLoader && !!afterLoader && beforeLoader !== afterLoader);
             }
-            this.inputEpochValue += 1;
-            this.clearCursor();
             if (navigationError && !committed) {
                 this.snapshotValue = null;
                 this.touch();
@@ -550,10 +497,6 @@ export class BrowserSession {
         this.listeners.set(id, send);
         return () => { this.listeners.delete(id); };
     }
-    subscribeFrames(id, send) {
-        this.viewerActivity();
-        return this.screencast.subscribe(id, send);
-    }
     viewerActivity() {
         if (this.stateValue !== 'closing' && this.stateValue !== 'closed' && this.stateValue !== 'error')
             this.touch();
@@ -566,7 +509,6 @@ export class BrowserSession {
         // page that is being detached.
         if (this.stateValue !== 'closed')
             this.stateValue = 'closing';
-        this.inputEpochValue += 1;
         this.closedPromise = this.closeSession(reason);
         return this.closedPromise;
     }
@@ -598,13 +540,12 @@ export class BrowserSession {
                     //
                     // The outcome is deliberately not read here. A close has nothing left to decide: an 'unknown'
                     // has already tainted the lock and asked for the process to be recycled, and turning that into a
-                    // failure would abort the rest of THIS teardown — the listeners, the screencast, the page — over
-                    // a recovery that is already under way.
+                    // failure would abort the rest of THIS teardown — the listeners, the page — over a recovery that
+                    // is already under way.
                     await this.tracer.abandon();
                     this.tracer.detach();
                     this.diagnostics.close();
                     this.disposeCdpListeners();
-                    await this.screencast.close();
                     this.listeners.clear();
                     await this.cdp.detach?.().catch(() => { });
                     await this.deps.releasePage();
@@ -636,10 +577,11 @@ export class BrowserSession {
         // Held so the switch below, and the close above, can take it back off. A handler kept on a CDP
         // session the session no longer uses is the one reference that stops the old tab being collected.
         const disposeDialog = () => nextCdp.off('Page.javascriptDialogOpening', onDialog);
-        // Undo for everything already moved onto the new session, newest first. A tab switch touches four
+        // Undo for everything already moved onto the new session, newest first. A tab switch touches several
         // subsystems in sequence and any of them can fail against a target that is already going away; a
-        // half-switched session — screencast on the new tab, collector on neither, dialogs answered twice —
-        // is worse than a switch that simply did not happen, because nothing afterwards can tell.
+        // half-switched session — the input controller on the new tab, the collector on neither, dialogs
+        // answered twice — is worse than a switch that simply did not happen, because nothing afterwards can
+        // tell.
         const previousCdp = this.cdp;
         const undo = [disposeDialog];
         try {
@@ -655,17 +597,15 @@ export class BrowserSession {
                 // running would hold the process-wide lock against every other tab until the session closes.
                 //
                 // An abandon that could not establish what Chrome is doing has already condemned this browser
-                // process and asked for it to be recycled. Carrying on with the switch would move the screencast,
-                // the input controller and the collector onto a tab of a browser that is being closed underneath
-                // them — so the switch stops here and unwinds, and the caller is told why.
+                // process and asked for it to be recycled. Carrying on with the switch would move the input
+                // controller and the collector onto a tab of a browser that is being closed underneath them —
+                // so the switch stops here and unwinds, and the caller is told why.
                 if (await this.tracer.abandon() === 'unknown') {
                     throw new Error('The browser is being recycled because its tracing state could not be established.');
                 }
                 // Every undo goes on the stack BEFORE the step that needs it. `replaceCdp` mutates the subsystem
                 // it is called on, so registering the restore afterwards leaves the one window where that
                 // subsystem is already on the new tab with nothing recorded to put it back.
-                undo.push(() => this.screencast.replaceCdp(previousCdp));
-                await this.screencast.replaceCdp(nextCdp);
                 undo.push(() => this.input.replaceCdp(previousCdp));
                 this.input.replaceCdp(nextCdp);
                 // The collector rebinds to the new session BEFORE the old is detached: unsubscribing from a
@@ -682,8 +622,12 @@ export class BrowserSession {
                 await previousCdp.detach?.().catch(() => { });
             }
             else {
-                this.screencast = new ScreencastHub(nextCdp, this.deps.config, this.deps.streamBudget, this.deps.logger);
-                this.input = new InputController(nextCdp, () => ({ width: this.deps.config().maxViewportWidth, height: this.deps.config().viewportHeight }), (event) => this.emit(event), new InputRateLimiter(() => this.deps.config().maxInputEventsPerSecond, () => this.deps.clock.now()));
+                this.input = new InputController(nextCdp, 
+                // The FRAMEBUFFER, which the page is drawn inside but is not the same as. It is used only to
+                // pick a point that is certainly within the page and to bound a scroll delta, and the display
+                // is always at least as large as the page, so both hold. Anything that needs the page's real
+                // box — every screenshot, every element clip — asks Chrome for its layout metrics instead.
+                () => ({ width: this.deps.config().maxViewportWidth, height: this.deps.config().viewportHeight }), (event) => this.emit(event));
                 undo.push(() => this.diagnostics.detach());
                 await this.diagnostics.attach(nextCdp);
                 undo.push(() => this.tracer.detach());
@@ -843,7 +787,6 @@ export class BrowserSession {
     }
     async returnToAgent(reason) {
         const controlRevision = ++this.controlRevisionValue;
-        this.inputEpochValue += 1;
         this.controlReasonValue = reason;
         this.lease = null;
         this.clearLeaseTimer();
@@ -1001,24 +944,7 @@ export class BrowserSession {
             }));
         }).catch(() => { });
     }
-    /** The pointer belonged to the page that just went away: a new document or another tab has its own
-     *  coordinate space, and keeping the old point would draw the arrow somewhere the agent never was.
-     *  Broadcast as well as remembered, so viewers already connected drop it too. */
-    clearCursor() {
-        if (!this.lastCursorValue)
-            return;
-        this.lastCursorValue = null;
-        for (const listener of this.listeners.values())
-            void listener({ kind: 'cursor', data: { cleared: true } }).catch(() => { });
-    }
     emit(event) {
-        // Every agent pointer move and every action that has a position passes through here, so this is the
-        // one place that can remember where the pointer is without a second code path to keep in step.
-        const x = event.data.x;
-        const y = event.data.y;
-        if ((event.kind === 'cursor' || event.kind === 'action') && typeof x === 'number' && typeof y === 'number') {
-            this.lastCursorValue = { x, y };
-        }
         for (const listener of this.listeners.values())
             void listener(event).catch(() => { });
     }

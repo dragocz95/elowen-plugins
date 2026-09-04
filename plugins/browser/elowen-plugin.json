@@ -1,9 +1,9 @@
 {
   "name": "browser",
-  "version": "0.2.11",
+  "version": "0.3.0",
   "apiVersion": "1",
-  "requiresCore": "0.28.27",
-  "description": "Persistent private browser automation for linked Elowen accounts. Each account gets its own Chrome profile and process with multiple tab sessions, accessibility-first typed actions, bounded live screencast streaming, exclusive user takeover, authenticated account-owned API routes, and a deny-by-default enforcing network proxy boundary.",
+  "requiresCore": "0.28.30",
+  "description": "Persistent private browser automation for linked Elowen accounts. Each account gets its own Chrome profile and process on a private virtual display, with multiple tab sessions, accessibility-first typed actions, a live view served over VNC that carries native keyboard and mouse input, exclusive user takeover, authenticated account-owned API routes, and a deny-by-default enforcing network proxy boundary.",
   "entry": "dist/index.js",
   "userGrantable": true,
   "capabilities": {
@@ -40,12 +40,14 @@
       "takeover",
       "heartbeat",
       "release",
-      "input",
       "navigation",
       "vnc-ticket",
       "close",
       "admin-status",
       "admin-close"
+    ],
+    "wsRoutes": [
+      "vnc"
     ]
   },
   "planSafe": [
@@ -151,50 +153,12 @@
     {
       "key": "streaming",
       "label": "Live view",
-      "type": "section"
-    },
-    {
-      "key": "webFps",
-      "label": "Web frames per second",
-      "type": "number",
-      "min": 1,
-      "max": 15,
-      "step": 1,
-      "default": 8,
-      "display": {
-        "control": "slider",
-        "unit": "fps"
-      }
-    },
-    {
-      "key": "cliFps",
-      "label": "CLI frames per second",
-      "type": "number",
-      "min": 1,
-      "max": 5,
-      "step": 1,
-      "default": 2,
-      "display": {
-        "control": "slider",
-        "unit": "fps"
-      }
-    },
-    {
-      "key": "jpegQuality",
-      "label": "JPEG quality",
-      "type": "number",
-      "min": 40,
-      "max": 90,
-      "step": 5,
-      "default": 70,
-      "display": {
-        "control": "slider",
-        "unit": "%"
-      }
+      "type": "section",
+      "hint": "Each account's Chrome is drawn on a private virtual display and served over VNC, so a person taking control sends real keyboard and mouse input. Requires Xvfb and x11vnc on the host."
     },
     {
       "key": "maxViewportWidth",
-      "label": "Maximum viewport width",
+      "label": "Display width",
       "type": "number",
       "min": 800,
       "max": 1920,
@@ -203,7 +167,8 @@
       "display": {
         "control": "slider",
         "unit": "px"
-      }
+      },
+      "hint": "The size of the virtual display. The page itself is shorter by the height of Chrome's tab strip and address bar."
     },
     {
       "key": "maxViewersPerSession",
@@ -216,34 +181,23 @@
       "display": {
         "control": "slider",
         "unit": "viewers"
-      }
-    },
-    {
-      "key": "globalStreamMegabits",
-      "label": "Global stream budget",
-      "type": "number",
-      "min": 2,
-      "max": 50,
-      "step": 1,
-      "default": 12,
-      "display": {
-        "control": "slider",
-        "unit": "Mbit/s"
-      }
-    },
-    {
-      "key": "maxFrameKilobytes",
-      "label": "Largest frame",
-      "type": "number",
-      "min": 100,
-      "max": 2000,
-      "step": 50,
-      "default": 750,
-      "display": {
-        "control": "slider",
-        "unit": "KiB"
       },
-      "advanced": true
+      "hint": "Each viewer receives the whole framebuffer: the VNC server encodes one stream per connection and cannot scale it down for a small window."
+    },
+    {
+      "key": "vncDeferMs",
+      "label": "Update coalescing",
+      "type": "number",
+      "min": 5,
+      "max": 400,
+      "step": 5,
+      "default": 10,
+      "advanced": true,
+      "display": {
+        "control": "slider",
+        "unit": "ms"
+      },
+      "hint": "How long the VNC server gathers screen changes before sending them. Measured at 1280\u00d7800: 10 ms reacts in 88 ms and costs about 590 kB/s while scrolling, 40 ms costs about 370 kB/s but takes 146 ms to react."
     },
     {
       "key": "control",
@@ -263,105 +217,6 @@
         "unit": "s"
       },
       "hint": "User control must heartbeat within this lease. A stale modal cannot extend or release a newer lease."
-    },
-    {
-      "key": "maxInputEventsPerSecond",
-      "label": "Input events per second",
-      "type": "number",
-      "min": 10,
-      "max": 240,
-      "step": 10,
-      "default": 60,
-      "display": {
-        "control": "slider",
-        "unit": "events/s"
-      },
-      "advanced": true
-    },
-    {
-      "key": "virtualDisplay",
-      "label": "Virtual display (pilot)",
-      "type": "section",
-      "hint": "Experimental. Draws each account's Chrome on a private X display and serves it over VNC, so keyboard shortcuts, the right mouse button and drag reach the page natively. Leave off to keep the screencast live view."
-    },
-    {
-      "key": "vncEnabled",
-      "label": "Serve the live view over VNC",
-      "type": "boolean",
-      "default": false,
-      "advanced": true,
-      "risk": "high",
-      "hint": "Requires Xvfb and x11vnc on the host. Each account then runs one X server and one VNC server beside its Chrome process, which costs roughly 200 MB more memory per account."
-    },
-    {
-      "key": "vncPollMs",
-      "label": "Framebuffer poll",
-      "type": "number",
-      "min": 5,
-      "max": 200,
-      "step": 5,
-      "default": 20,
-      "advanced": true,
-      "display": {
-        "control": "slider",
-        "unit": "ms"
-      }
-    },
-    {
-      "key": "vncDeferMs",
-      "label": "Update coalescing",
-      "type": "number",
-      "min": 5,
-      "max": 400,
-      "step": 5,
-      "default": 40,
-      "advanced": true,
-      "display": {
-        "control": "slider",
-        "unit": "ms"
-      },
-      "hint": "Higher values send fewer, larger updates: 40 ms costs about the same bandwidth as the screencast, 10 ms is three times faster to react and 60% more traffic."
-    },
-    {
-      "key": "vncQualityLevel",
-      "label": "VNC image quality",
-      "type": "number",
-      "min": 0,
-      "max": 9,
-      "step": 1,
-      "default": 4,
-      "advanced": true,
-      "display": {
-        "control": "slider"
-      }
-    },
-    {
-      "key": "vncCompressionLevel",
-      "label": "VNC compression",
-      "type": "number",
-      "min": 0,
-      "max": 9,
-      "step": 1,
-      "default": 6,
-      "advanced": true,
-      "display": {
-        "control": "slider"
-      }
-    },
-    {
-      "key": "vncTicketTtlSeconds",
-      "label": "Live view ticket lifetime",
-      "type": "number",
-      "min": 5,
-      "max": 120,
-      "step": 5,
-      "default": 15,
-      "advanced": true,
-      "display": {
-        "control": "slider",
-        "unit": "s"
-      },
-      "hint": "A ticket opens exactly one live view connection, once, for the account and session it was issued to."
     },
     {
       "key": "resourceLimits",
@@ -467,7 +322,6 @@
       "closed": "Closed",
       "disconnected": "Disconnected",
       "viewerLimit": "Too many viewers",
-      "inputDropped": "The page changed — input was not delivered",
       "connecting": "Connecting",
       "agentControl": "Agent control",
       "userControl": "User control",
@@ -479,7 +333,8 @@
       "enlarge": "Enlarge browser",
       "closeView": "Close view",
       "dismissNarration": "Dismiss agent message",
-      "waitingFrame": "Waiting for the browser image\u2026",
+      "connectingImage": "Connecting to the browser image\u2026",
+      "liveViewUnavailable": "The live view is unavailable",
       "browserViewport": "Live browser view",
       "waitingForUser": "Waiting for user input",
       "noAddress": "No address yet",
@@ -507,8 +362,8 @@
       "chatUnavailable": "Chat live view unavailable",
       "chatLiveView": "Live view in chat",
       "limitsTitle": "Limits",
-      "limitsHint": "The sliders above are enforced before allocating Chrome, frames, viewers or input events.",
-      "limitsBody": "Idle and hard timeouts close sessions automatically. Stream frames use a bounded latest-frame queue and a global bitrate budget.",
+      "limitsHint": "The sliders above are enforced before allocating Chrome, a virtual display or a live view connection.",
+      "limitsBody": "Idle and hard timeouts close sessions automatically. Each live view is one VNC connection carrying the whole framebuffer, and only the account holding the takeover lease may send input.",
       "depsTitle": "Dependencies",
       "depsHint": "Everything a managed browser session needs before it can start. These checks only read: the sandbox and the DevTools connection are verified by the first managed launch.",
       "depsCounted": "dependencies ready",
@@ -517,9 +372,17 @@
       "depBlocked": "Blocked",
       "dep_label_chrome": "Chrome or Chromium",
       "dep_label_browser_control": "Browser control library",
+      "dep_label_virtual_display": "Virtual display",
+      "dep_label_live_view": "Live view transport",
       "dep_label_network_proxy": "Enforcing network proxy",
       "dep_label_profile_storage": "Profile storage",
       "dep_label_chat_artifacts": "Live view in chat",
+      "dep_display_ready": "Xvfb and x11vnc are installed and executable.",
+      "dep_display_missing": "A managed browser is drawn on a private X display, and this host is missing what serves it.",
+      "dep_display_missing_fix": "Install the Xvfb and x11vnc packages on this host, then restart the daemon.",
+      "dep_liveview_ready": "This host carries plugin WebSocket routes.",
+      "dep_liveview_missing": "This host cannot carry a plugin WebSocket, so sessions run without a live view or user takeover.",
+      "dep_liveview_missing_fix": "Update Elowen to a release that offers plugin WebSocket routes.",
       "dep_chrome_missing": "No supported Chrome or Chromium executable was found on this host.",
       "dep_chrome_missing_fix": "Install Google Chrome or Chromium, or set the executable in this plugin\u2019s settings.",
       "dep_chrome_unusable": "The configured executable is missing or cannot be executed by the daemon account.",

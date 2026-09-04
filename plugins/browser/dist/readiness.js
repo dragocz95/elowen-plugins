@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import { detectChrome } from './browser-launcher.js';
+import { detectExecutable } from './virtual-display.js';
 const RANK = { ready: 0, warning: 1, blocked: 2 };
 /** A probe that throws answers "cannot be proven", never an exception and never its own message: a stack
  *  or an errno from inside the daemon is exactly the kind of internal detail this panel must not print. */
@@ -107,6 +108,44 @@ function profileStorage(storage) {
     }[state];
     return { id: 'profile-storage', status: 'blocked', label, code: `storage.${state}`, ...blocked };
 }
+/** Xvfb and x11vnc, which are no longer optional: a managed browser is always drawn on a private X
+ *  display, so a host without them cannot start a session at all. Named individually, because installing
+ *  the wrong one of the two is the likely mistake and "virtual display missing" would not say which. */
+function virtualDisplay() {
+    const label = 'Virtual display';
+    const missing = ['Xvfb', 'x11vnc'].filter((binary) => !detectExecutable(binary));
+    if (missing.length === 0) {
+        return { id: 'virtual-display', status: 'ready', label, code: 'display.ready', detail: 'Xvfb and x11vnc are installed and executable.' };
+    }
+    return {
+        id: 'virtual-display',
+        status: 'blocked',
+        label,
+        code: 'display.missing',
+        detail: 'A managed browser is drawn on a private X display, and this host is missing what serves it.',
+        // The names, not the paths: which package to install is the actionable part.
+        value: missing.join(', '),
+        remediation: 'Install the Xvfb and x11vnc packages on this host, then restart the daemon.',
+    };
+}
+/** The daemon's own WebSocket support. Without it the browser still runs and every tool still works, but
+ *  nobody can watch or take over, because the framebuffer has no way to reach a page. */
+function liveViewTransport(liveView) {
+    if (!liveView)
+        return null;
+    const label = 'Live view transport';
+    return liveView()
+        ? { id: 'live-view', status: 'ready', label, code: 'liveview.ready', detail: 'This host carries plugin WebSocket routes.' }
+        : {
+            id: 'live-view',
+            // A session is still fully usable by the agent; only watching and taking over are gone.
+            status: 'warning',
+            label,
+            code: 'liveview.missing',
+            detail: 'This host cannot carry a plugin WebSocket, so sessions run without a live view or user takeover.',
+            remediation: 'Update Elowen to a release that offers plugin WebSocket routes.',
+        };
+}
 function chatArtifacts(artifacts) {
     const label = 'Live view in chat';
     return artifacts.available
@@ -127,8 +166,10 @@ export async function browserDependencyReport(input) {
     const checks = [
         chromeExecutable(input.config()),
         await chromeControl(input.processFactory),
+        virtualDisplay(),
         await networkProxy(input.proxyFactory),
         profileStorage(input.storage),
+        liveViewTransport(input.liveView),
         chatArtifacts(input.artifacts),
     ].filter((check) => check !== null);
     const status = checks.reduce((worst, check) => (RANK[check.status] > RANK[worst] ? check.status : worst), 'ready');

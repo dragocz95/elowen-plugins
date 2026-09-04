@@ -14867,8 +14867,6 @@ var import_react_dom = __toESM(require_react_dom(), 1);
 // plugins/browser/web-src/useBrowserStream.ts
 var import_react4 = __toESM(require_react(), 1);
 var initialState = {
-  frame: null,
-  cursor: null,
   favicon: null,
   control: { state: "agent", controlRevision: 0 },
   action: null,
@@ -14895,6 +14893,7 @@ function parseSse(buffer) {
   return { frames, rest: buffer };
 }
 var object = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : null;
+var asFavicon = (value) => typeof value === "string" && value.length <= 40 * 1024 && /^data:image\//i.test(value) ? value : null;
 function useBrowserStream(path) {
   const [state, setState] = (0, import_react4.useState)(initialState);
   const generation = (0, import_react4.useRef)(0);
@@ -14914,48 +14913,13 @@ function useBrowserStream(path) {
       }
       const data = object(raw);
       if (!data) return;
-      if (frame.event === "frame" && typeof data.data === "string") {
-        setState((value) => ({
-          ...value,
-          frame: {
-            data: data.data,
-            mimeType: typeof data.mimeType === "string" ? data.mimeType : "image/jpeg",
-            width: typeof data.width === "number" ? data.width : 1280,
-            height: typeof data.height === "number" ? data.height : 800,
-            timestamp: typeof data.timestamp === "number" ? data.timestamp : Date.now()
-          },
-          connected: true,
-          error: null
-        }));
-        return;
-      }
       if (frame.event === "favicon") {
-        if (data.favicon === null) setState((value) => ({ ...value, favicon: null }));
-        else if (typeof data.favicon === "string" && data.favicon.length <= 40 * 1024 && /^data:image\//i.test(data.favicon)) {
-          setState((value) => ({ ...value, favicon: data.favicon }));
-        }
-        return;
-      }
-      if (frame.event === "cursor" && data.cleared === true) {
-        setState((value) => ({ ...value, cursor: null }));
-        return;
-      }
-      if (frame.event === "cursor" && typeof data.x === "number" && typeof data.y === "number") {
-        setState((value) => ({ ...value, cursor: { x: data.x, y: data.y, moving: data.moving === true } }));
+        setState((value) => ({ ...value, favicon: data.favicon === null ? null : asFavicon(data.favicon) ?? value.favicon }));
         return;
       }
       if (frame.event === "action") {
         const action = typeof data.action === "string" ? { kind: data.action, ...typeof data.target === "string" ? { target: data.target } : {} } : null;
-        const at = typeof data.x === "number" && typeof data.y === "number" ? { x: data.x, y: data.y } : null;
-        setState((value) => ({
-          ...value,
-          action,
-          cursor: at ? { ...value.cursor, ...at, moving: false, clicking: data.action === "click" } : value.cursor && data.action === "click" ? { ...value.cursor, clicking: true } : value.cursor
-        }));
-        if (data.action === "click") setTimeout(() => {
-          if (generation.current !== current) return;
-          setState((value) => ({ ...value, cursor: value.cursor ? { ...value.cursor, clicking: false } : null }));
-        }, 420);
+        setState((value) => ({ ...value, action }));
         return;
       }
       if (frame.event === "control" || frame.event === "session") {
@@ -14963,7 +14927,6 @@ function useBrowserStream(path) {
         const controlState = data.state === "user" ? "user" : "agent";
         const rawExpiresAt = lease?.expiresAt ?? data.expiresAt;
         const rawRevision = data.controlRevision;
-        const seeded = object(data.cursor);
         setState((value) => {
           const controlRevision = typeof rawRevision === "number" ? rawRevision : value.control.controlRevision;
           if (controlRevision < value.control.controlRevision) return value;
@@ -14973,8 +14936,7 @@ function useBrowserStream(path) {
             hasControlSnapshot: true,
             closed: false,
             error: null,
-            cursor: value.cursor ?? (typeof seeded?.x === "number" && typeof seeded?.y === "number" ? { x: seeded.x, y: seeded.y, moving: false } : null),
-            favicon: data.favicon === null ? null : typeof data.favicon === "string" && data.favicon.length <= 40 * 1024 && /^data:image\//i.test(data.favicon) ? data.favicon : value.favicon,
+            favicon: data.favicon === null ? null : asFavicon(data.favicon) ?? value.favicon,
             control: {
               state: controlState,
               expiresAt: typeof rawExpiresAt === "number" ? rawExpiresAt : void 0,
@@ -14986,7 +14948,7 @@ function useBrowserStream(path) {
         return;
       }
       if (frame.event === "rejected") {
-        rejected = data.reason === "viewer_limit" ? "viewer_limit" : "stream_failed";
+        rejected = "stream_failed";
         setState((value) => ({ ...value, connected: false, rejected, error: typeof data.message === "string" ? data.message : null }));
         return;
       }
@@ -15037,6 +14999,11 @@ function useBrowserStream(path) {
 
 // plugins/browser/web-src/VncSurface.tsx
 var import_react5 = __toESM(require_react(), 1);
+var QUALITY_LEVEL = 4;
+var COMPRESSION_LEVEL = 6;
+var RECONNECT_MIN_MS = 500;
+var RECONNECT_MAX_MS = 15e3;
+var VIEWER_LIMIT_RETRY_MS = 1e4;
 async function loadRfb() {
   try {
     const loaded = await init_rfb().then(() => rfb_exports);
@@ -15045,11 +15012,15 @@ async function loadRfb() {
     return null;
   }
 }
-function useVncSurface({ slot, ticket, interactive, quality, compression, onStateChange }) {
+function useVncSurface({ slot, ticket, interactive, enabled }) {
   const [state, setState] = (0, import_react5.useState)("connecting");
+  const [aspect, setAspect] = (0, import_react5.useState)(null);
   const containerRef = (0, import_react5.useRef)(null);
   const rfbRef = (0, import_react5.useRef)(null);
-  const generation = (0, import_react5.useRef)(0);
+  const ticketRef = (0, import_react5.useRef)(ticket);
+  ticketRef.current = ticket;
+  const interactiveRef = (0, import_react5.useRef)(interactive);
+  interactiveRef.current = interactive;
   if (!containerRef.current && typeof document !== "undefined") {
     const node = document.createElement("div");
     node.className = "browser-artifact__vnc";
@@ -15065,62 +15036,87 @@ function useVncSurface({ slot, ticket, interactive, quality, compression, onStat
   }, [slot]);
   (0, import_react5.useEffect)(() => {
     const container = containerRef.current;
-    if (!container) return;
-    const current = ++generation.current;
+    if (!container || !enabled) return;
     let disposed = false;
     let client = null;
+    let timer = null;
+    let backoff = RECONNECT_MIN_MS;
     const report = (next) => {
-      if (generation.current !== current) return;
-      setState(next);
-      onStateChange?.(next);
+      if (!disposed) setState(next);
     };
-    void (async () => {
-      const issued = await ticket().catch(() => null);
-      if (!issued || disposed || generation.current !== current) {
-        report("disconnected");
+    const later = (delay) => {
+      if (disposed) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void attempt();
+      }, delay);
+    };
+    const retryLater = () => {
+      later(backoff);
+      backoff = Math.min(backoff * 2, RECONNECT_MAX_MS);
+    };
+    const attempt = async () => {
+      if (disposed) return;
+      report("connecting");
+      const issued = await ticketRef.current().catch(() => ({ kind: "refused", reason: "unavailable" }));
+      if (disposed) return;
+      if (issued.kind === "refused") {
+        report(issued.reason === "viewer_limit" ? "viewer_limit" : "unavailable");
+        if (issued.reason === "viewer_limit") later(VIEWER_LIMIT_RETRY_MS);
+        else retryLater();
         return;
       }
       const Rfb = await loadRfb();
-      if (!Rfb || disposed || generation.current !== current) {
+      if (disposed) return;
+      if (!Rfb) {
         report("failed");
         return;
       }
+      if (issued.width && issued.height) setAspect(issued.width / issued.height);
       const url = new URL(issued.url, window.location.origin);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       client = new Rfb(container, url.toString());
       rfbRef.current = client;
       client.scaleViewport = true;
       client.clipViewport = false;
-      client.qualityLevel = quality;
-      client.compressionLevel = compression;
-      client.viewOnly = !issued.interactive;
-      client.addEventListener("connect", () => report("connected"));
-      client.addEventListener("disconnect", () => report("disconnected"));
+      client.qualityLevel = QUALITY_LEVEL;
+      client.compressionLevel = COMPRESSION_LEVEL;
+      client.viewOnly = !interactiveRef.current;
+      client.addEventListener("connect", () => {
+        backoff = RECONNECT_MIN_MS;
+        report("connected");
+      });
+      client.addEventListener("disconnect", () => {
+        if (rfbRef.current === client) rfbRef.current = null;
+        report("disconnected");
+        retryLater();
+      });
       client.addEventListener("securityfailure", () => report("failed"));
-    })();
+    };
+    void attempt();
     return () => {
       disposed = true;
+      if (timer) clearTimeout(timer);
       try {
         client?.disconnect();
       } catch {
       }
       if (rfbRef.current === client) rfbRef.current = null;
     };
-  }, [quality, compression]);
+  }, [enabled]);
   (0, import_react5.useEffect)(() => {
     const client = rfbRef.current;
     if (!client) return;
     client.viewOnly = !interactive;
     if (interactive) client.focus();
     else client.blur();
-  }, [interactive]);
-  return { state, container: containerRef.current };
+  }, [interactive, state]);
+  return { state, aspect, container: containerRef.current };
 }
 
 // plugins/browser/web-src/BrowserArtifact.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var NARRATION_VISIBLE_MS = 1e4;
-var INPUT_DROPPED_VISIBLE_MS = 2500;
 var asData = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value;
@@ -15257,14 +15253,12 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const initialSessionId = data?.browserSessionId ?? "";
   const [lease, setLease] = (0, import_react6.useState)(() => initialSessionId ? rememberedLease(initialSessionId) : null);
   const adoptedLease = (0, import_react6.useRef)(lease?.leaseId ?? null);
+  const leaseRef = (0, import_react6.useRef)(lease);
+  leaseRef.current = lease;
   const [speechHidden, setSpeechHidden] = (0, import_react6.useState)(false);
   const [thumbSlot, setThumbSlot] = (0, import_react6.useState)(null);
   const [overlaySlot, setOverlaySlot] = (0, import_react6.useState)(null);
-  const [inputDropped, setInputDropped] = (0, import_react6.useState)(false);
-  const droppedTimer = (0, import_react6.useRef)(null);
-  const pointerTimer = (0, import_react6.useRef)(null);
   const speechTimer = (0, import_react6.useRef)(null);
-  const pendingMove = (0, import_react6.useRef)(null);
   const anchor = (0, import_react6.useRef)(null);
   const pendingReveal = (0, import_react6.useRef)(null);
   const sessionId = data?.browserSessionId ?? "";
@@ -15277,13 +15271,8 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const speech = (narration ?? "").trim();
   const visibleSpeech = speechHidden ? "" : speech;
   const waiting = pendingInput ?? null;
-  const frame = stream.frame;
-  const frameAspect = frame && frame.height > 0 ? frame.width / frame.height : null;
-  const aspectStyle = frameAspect ? { "--browser-aspect": String(frameAspect) } : void 0;
-  const action = inputDropped ? strings.inputDropped || "The page changed \u2014 input was not delivered" : stream.action ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` \xB7 ${stream.action.target}` : ""}` : takeoverRequested ? strings.waitingForUser || "Waiting for user input" : data?.lastAction;
+  const action = stream.action ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` \xB7 ${stream.action.target}` : ""}` : takeoverRequested ? strings.waitingForUser || "Waiting for user input" : data?.lastAction;
   (0, import_react6.useEffect)(() => () => {
-    if (droppedTimer.current) clearTimeout(droppedTimer.current);
-    if (pointerTimer.current) clearTimeout(pointerTimer.current);
     if (speechTimer.current) clearTimeout(speechTimer.current);
   }, []);
   (0, import_react6.useEffect)(() => {
@@ -15360,34 +15349,38 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
       surface.style.removeProperty("--chat-dock-height");
     };
   }, [expanded]);
-  (0, import_react6.useEffect)(() => {
-    if (lease) return;
-    if (pointerTimer.current) {
-      clearTimeout(pointerTimer.current);
-      pointerTimer.current = null;
+  const mintTicket = (0, import_react6.useCallback)(async () => {
+    if (!sessionId) return { kind: "refused", reason: "unavailable" };
+    const held = leaseRef.current;
+    try {
+      const issued = await runtime().api(
+        inputPath(sessionId, "vnc-ticket"),
+        jsonRequest("POST", held ? { leaseId: held.leaseId } : {})
+      );
+      if (typeof issued?.url !== "string") return { kind: "refused", reason: "unavailable" };
+      return { kind: "ticket", url: issued.url, width: issued.width, height: issued.height };
+    } catch (error) {
+      const status2 = error?.status;
+      return { kind: "refused", reason: status2 === 429 ? "viewer_limit" : "unavailable" };
     }
-    pendingMove.current = null;
-  }, [lease]);
+  }, [sessionId]);
   const vnc = useVncSurface({
     slot: expanded ? overlaySlot : thumbSlot,
-    ticket: async () => {
-      if (!sessionId) return null;
-      const issued = await runtime().api(inputPath(sessionId, "vnc-ticket"), jsonRequest("POST"));
-      return typeof issued?.url === "string" ? { url: issued.url, interactive: issued.interactive === true } : null;
-    },
+    ticket: mintTicket,
     interactive: !!lease,
-    quality: 4,
-    compression: 6
+    enabled: !!sessionId && !stream.closed
   });
-  const liveViewIsVnc = vnc.state === "connected";
+  const aspectStyle = vnc.aspect ? { "--browser-aspect": String(vnc.aspect) } : void 0;
+  const painting = vnc.state === "connected";
+  const connectingLabel = vnc.state === "viewer_limit" ? strings.viewerLimit || "Too many viewers" : vnc.state === "failed" ? strings.disconnected || "Disconnected" : vnc.state === "unavailable" ? strings.liveViewUnavailable || "The live view is unavailable" : strings.connectingImage || "Connecting to the browser image\u2026";
   const status = (0, import_react6.useMemo)(() => {
     if (stream.closed || state === "closed") return { tone: "muted", label: strings.closed || "Closed" };
-    if (stream.rejected === "viewer_limit") return { tone: "warning", label: strings.viewerLimit || "Too many viewers" };
-    if (stream.error) return { tone: "danger", label: strings.disconnected || "Disconnected" };
+    if (vnc.state === "viewer_limit") return { tone: "warning", label: strings.viewerLimit || "Too many viewers" };
+    if (stream.error || vnc.state === "failed") return { tone: "danger", label: strings.disconnected || "Disconnected" };
     if (state === "user") return { tone: "accent", label: lease ? strings.youControl || "You control" : strings.userControl || "User control" };
     if (takeoverRequested) return { tone: "warning", label: strings.waitingForUser || "Waiting for user input" };
     return { tone: stream.connected ? "success" : "warning", label: stream.connected ? strings.agentControl || "Agent control" : strings.connecting || "Connecting" };
-  }, [lease, state, stream.closed, stream.connected, stream.error, stream.rejected, strings, takeoverRequested]);
+  }, [lease, state, stream.closed, stream.connected, stream.error, strings, takeoverRequested, vnc.state]);
   const run = async (name, operation) => {
     setPending(name);
     try {
@@ -15415,119 +15408,22 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
       setExpanded(false);
     }
   };
-  const command = async (events) => {
-    if (!lease || events.length === 0) return;
-    const result = await runtime().api(inputPath(sessionId, "input"), jsonRequest("POST", { leaseId: lease.leaseId, events }));
-    if (result?.dropped !== "page_changed") return;
-    setInputDropped(true);
-    if (droppedTimer.current) clearTimeout(droppedTimer.current);
-    droppedTimer.current = setTimeout(() => {
-      droppedTimer.current = null;
-      setInputDropped(false);
-    }, INPUT_DROPPED_VISIBLE_MS);
-  };
   const navigate = (action2) => {
     if (!lease) return;
     void run("navigation", () => runtime().api(inputPath(sessionId, "navigation"), jsonRequest("POST", { leaseId: lease.leaseId, action: action2 })));
-  };
-  const pointerEvent = (event, actionName) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return {
-      type: "pointer",
-      action: actionName,
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-      surfaceWidth: rect.width,
-      surfaceHeight: rect.height,
-      button: event.button === 1 ? "middle" : event.button === 2 ? "right" : "left",
-      modifiers: [event.altKey ? "Alt" : "", event.ctrlKey ? "Control" : "", event.metaKey ? "Meta" : "", event.shiftKey ? "Shift" : ""].filter(Boolean)
-    };
-  };
-  const onPointerMove = (event) => {
-    if (!lease) return;
-    pendingMove.current = pointerEvent(event, "move");
-    if (pointerTimer.current) return;
-    pointerTimer.current = setTimeout(() => {
-      pointerTimer.current = null;
-      const next = pendingMove.current;
-      pendingMove.current = null;
-      if (next) void command([next]).catch((error) => toast.toast(apiError(error), "error"));
-    }, 50);
-  };
-  const onPointerDown = (event) => {
-    if (!lease) return;
-    event.currentTarget.focus();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    void command([pointerEvent(event, "down")]).catch((error) => toast.toast(apiError(error), "error"));
-  };
-  const onPointerUp = (event) => {
-    if (!lease) return;
-    void command([pointerEvent(event, "up")]).catch((error) => toast.toast(apiError(error), "error"));
-  };
-  const onWheel = (event) => {
-    if (!lease) return;
-    event.preventDefault();
-    const rect = event.currentTarget.getBoundingClientRect();
-    void command([{
-      type: "wheel",
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-      surfaceWidth: rect.width,
-      surfaceHeight: rect.height,
-      deltaX: event.deltaX,
-      deltaY: event.deltaY,
-      modifiers: [event.altKey ? "Alt" : "", event.ctrlKey ? "Control" : "", event.metaKey ? "Meta" : "", event.shiftKey ? "Shift" : ""].filter(Boolean)
-    }]).catch((error) => toast.toast(apiError(error), "error"));
-  };
-  const onKey = (event, actionName) => {
-    if (!lease) return;
-    if (actionName === "down") event.preventDefault();
-    void command([{
-      type: "key",
-      action: actionName,
-      key: event.key,
-      code: event.code,
-      modifiers: [event.altKey ? "Alt" : "", event.ctrlKey ? "Control" : "", event.metaKey ? "Meta" : "", event.shiftKey ? "Shift" : ""].filter(Boolean)
-    }]).catch((error) => toast.toast(apiError(error), "error"));
-  };
-  const onPaste = (event) => {
-    if (!lease) return;
-    const text = event.clipboardData.getData("text");
-    if (!text) return;
-    event.preventDefault();
-    void command([{ type: "paste", text }]).catch((error) => toast.toast(apiError(error), "error"));
   };
   const canvas = (interactive) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
     "div",
     {
       className: "browser-artifact__canvas",
       "data-interactive": interactive && lease ? "true" : void 0,
-      role: interactive && lease ? "application" : void 0,
-      tabIndex: interactive && lease ? 0 : -1,
-      onPointerMove: interactive && !liveViewIsVnc ? onPointerMove : void 0,
-      onPointerDown: interactive && !liveViewIsVnc ? onPointerDown : void 0,
-      onPointerUp: interactive && !liveViewIsVnc ? onPointerUp : void 0,
-      onWheel: interactive && !liveViewIsVnc ? onWheel : void 0,
-      onKeyDown: interactive && !liveViewIsVnc ? (event) => onKey(event, "down") : void 0,
-      onKeyUp: interactive && !liveViewIsVnc ? (event) => onKey(event, "up") : void 0,
-      onPaste: interactive && !liveViewIsVnc ? onPaste : void 0,
-      onContextMenu: interactive && lease && !liveViewIsVnc ? (event) => event.preventDefault() : void 0,
       "aria-label": strings.browserViewport || "Live browser view",
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "browser-artifact__vnc-slot", ref: interactive ? setOverlaySlot : setThumbSlot }),
-        liveViewIsVnc ? null : frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { src: `data:${frame.mimeType};base64,${frame.data}`, alt: "", draggable: false }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__waiting", role: "status", "aria-live": "polite", children: [
+        painting ? null : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__waiting", role: "status", "aria-live": "polite", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Spinner, { size: "lg" }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: stream.error || strings.waitingFrame || "Waiting for the browser image\u2026" })
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: connectingLabel })
         ] }),
-        interactive && state !== "user" && stream.cursor && frame ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-          "span",
-          {
-            className: `browser-artifact__cursor ${stream.cursor.clicking ? "is-clicking" : ""}`,
-            style: { left: `${stream.cursor.x / frame.width * 100}%`, top: `${stream.cursor.y / frame.height * 100}%` },
-            "aria-hidden": true,
-            children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("svg", { width: "28", height: "34", viewBox: "0 0 28 34", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M2 2l19 15-9 2 5 10-5 2-5-10-5 6z" }) })
-          }
-        ) : null,
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: `browser-artifact__activity ${interactive && action ? "has-action" : ""}`, children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__dot", "data-tone": status.tone, "aria-hidden": true }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sr-only", children: status.label }),
@@ -15564,7 +15460,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 flex-1", children: siteLabel("browser-artifact__site--compact") }),
           controlAction()
         ] }),
-        expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(CanvasOverlay, { label: title, aspect: frameAspect, onClose: () => setExpanded(false), children: [
+        expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(CanvasOverlay, { label: title, aspect: vnc.aspect, onClose: () => setExpanded(false), children: [
           canvas(true),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: X, label: strings.closeView || "Close view", onClick: () => setExpanded(false), className: "browser-artifact__dismiss" }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__dock", children: [

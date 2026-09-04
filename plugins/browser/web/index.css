@@ -76,20 +76,9 @@
   background: var(--color-muted, #0d0d0d);
   user-select: none;
 }
-.browser-artifact__canvas img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  pointer-events: none;
-}
 .browser-artifact__canvas > .browser-artifact__vnc-slot,
-.browser-artifact__canvas > img,
 .browser-artifact__canvas > .browser-artifact__waiting {
   grid-area: 1 / 1;
-}
-.browser-artifact__vnc-slot:empty {
-  display: none;
 }
 .browser-artifact__vnc-slot,
 .browser-artifact__vnc {
@@ -98,7 +87,10 @@
 }
 .browser-artifact__vnc canvas {
   display: block;
-  margin: 0 auto;
+  max-width: 100%;
+  max-height: 100%;
+  margin: auto;
+  object-fit: contain;
 }
 .browser-artifact__canvas[data-interactive=true] {
   cursor: default;
@@ -157,46 +149,6 @@
 }
 .browser-artifact__dot[data-tone=muted] {
   background: var(--color-muted-foreground, #9d948e);
-}
-.browser-artifact__cursor {
-  position: absolute;
-  z-index: 3;
-  width: 28px;
-  height: 34px;
-  transform: translate(-3px, -2px);
-  transition: left 90ms linear, top 90ms linear;
-  filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--color-background, #000) 75%, transparent));
-  pointer-events: none;
-}
-.browser-artifact__cursor path {
-  fill: var(--color-primary, #ff5236);
-  stroke: var(--color-background, #000);
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-}
-.browser-artifact__cursor::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 4px;
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--color-primary, #ff5236);
-  border-radius: 999px;
-  opacity: 0;
-}
-.browser-artifact__cursor.is-clicking::after {
-  animation: browser-click-ring 420ms ease-out;
-}
-@keyframes browser-click-ring {
-  0% {
-    opacity: .9;
-    transform: scale(.45);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(3.4);
-  }
 }
 .browser-artifact__overlay {
   position: fixed;
@@ -455,12 +407,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .browser-artifact__overlay {
-    animation: none;
-  }
-  .browser-artifact__cursor {
-    transition: none;
-  }
-  .browser-artifact__cursor.is-clicking::after {
     animation: none;
   }
 }
