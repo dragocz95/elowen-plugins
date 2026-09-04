@@ -61,7 +61,6 @@ export interface EnvironmentState {
   state: string | null;
   desiredState: Site['environmentDesiredState'];
   limits: EnvironmentEffectiveLimits;
-  usage: null;
   lastError: string | null;
 }
 
@@ -162,7 +161,6 @@ export class EnvironmentSupervisor {
       state,
       desiredState: site.environmentDesiredState ?? 'running',
       limits: this.effectiveLimits(site),
-      usage: null,
       lastError: site.lastError,
     };
   }

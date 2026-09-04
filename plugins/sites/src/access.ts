@@ -5,9 +5,10 @@ import type { SitesStore, Site } from './store.js';
  *  sign-in endpoint cannot be shadowed by something the agent published. */
 export const RESERVED_PREFIX = '__elowen';
 
+/** Who is asking to open a site. Admin-ness is deliberately not carried here: it is re-derived from the
+ *  live account stores by `mayOpen` on every decision, never trusted from the caller's snapshot. */
 export interface Viewer {
   userId: number | null;
-  admin: boolean;
 }
 
 /** The live account/project facts an access decision needs. Passed in rather than read from a captured

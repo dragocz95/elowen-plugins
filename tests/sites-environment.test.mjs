@@ -986,7 +986,7 @@ function phase2ToolHarness(t, { userId = 1, admin = false, projectAccess = true,
   const environment = {
     async state(site) {
       return {
-        state: 'running', desiredState: site.environmentDesiredState ?? 'running', usage: null,
+        state: 'running', desiredState: site.environmentDesiredState ?? 'running',
         limits: {
           cpus: site.environmentCpus ?? resolved().environmentCpus,
           memoryMb: site.environmentMemoryMb ?? resolved().environmentMemoryMb,
@@ -1196,7 +1196,7 @@ function phase2ApiHarness({ provisioning } = {}) {
     projectSlug: () => 'demo', deleteSite: async () => {}, activateRelease: () => {},
     runtimeState: () => ({ running: false, logTail: '' }), allocatePort: async () => 43000, restartRuntime: async () => {},
     environmentState: async (site) => ({
-      state: 'running', desiredState: site.environmentDesiredState, usage: null,
+      state: 'running', desiredState: site.environmentDesiredState,
       limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 },
     }),
     environmentLogs: async (_site, lines) => { calls.push(['logs', lines]); return { lifecycle: 'life', journal: 'journal' }; },

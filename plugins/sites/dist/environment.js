@@ -95,7 +95,6 @@ export class EnvironmentSupervisor {
             state,
             desiredState: site.environmentDesiredState ?? 'running',
             limits: this.effectiveLimits(site),
-            usage: null,
             lastError: site.lastError,
         };
     }

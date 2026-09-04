@@ -502,11 +502,6 @@ export class SitesStore {
             return true;
         });
     }
-    clearErroredEnvironmentAction(siteId) {
-        return this.db.prepare(`
-      DELETE FROM p_sites_environment_actions WHERE site_id = ? AND last_error IS NOT NULL
-    `).run(siteId).changes === 1;
-    }
     tryRequestEnvironmentControl(siteId, desiredState) {
         return this.db.transaction(() => {
             const now = Date.now();

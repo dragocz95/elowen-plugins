@@ -84,7 +84,7 @@ export function createApiHandlers(deps) {
         const target = deps.store.siteById(siteId);
         if (!target)
             return json(404, { error: 'not found' });
-        const viewer = { userId: req.auth.userId, admin: req.auth.admin };
+        const viewer = { userId: req.auth.userId };
         if (!canManage(target, req.auth) && !mayOpen(target, viewer, deps.store, deps.access)) {
             return json(404, { error: 'not found' });
         }
@@ -368,7 +368,7 @@ export function createApiHandlers(deps) {
         const body = await req.json().catch(() => ({}));
         const slug = typeof body.slug === 'string' ? body.slug : '';
         const target = deps.store.siteBySlug(slug);
-        const viewer = { userId: req.auth.userId, admin: req.auth.admin };
+        const viewer = { userId: req.auth.userId };
         if (!target || target.status !== 'live' || !mayOpen(target, viewer, deps.store, deps.access)) {
             // Deliberately the same answer for an unknown site and one this account may not open.
             return json(403, { error: 'no access' });

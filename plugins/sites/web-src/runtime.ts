@@ -62,7 +62,6 @@ export interface EnvironmentView {
   desiredState: 'running' | 'stopped' | 'restarting';
   limits?: { cpus: number; memoryMb: number; pidsLimit: number; diskSoftMb: number };
   limitOverrides?: { cpus: number | null; memoryMb: number | null; pidsLimit: number | null; diskSoftMb: number | null };
-  usage?: null;
   lastError?: string | null;
   action?: EnvironmentAction | null;
   canControl?: boolean;
@@ -71,7 +70,6 @@ export interface EnvironmentView {
   transport?: { buffered: true; requestBodyLimitBytes: number };
 }
 
-/** One person as the API hands them over: the account id and the display name, nothing else. Core's
 /** A person, in the exact shape the host Avatar takes. Mirrors `Person` in src/api.ts. */
 export interface Person {
   id: number;

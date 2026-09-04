@@ -77,6 +77,14 @@ export function register(published) {
             id: user.id, username: user.username, name: user.name || user.username, avatar: user.avatar,
         }]));
     const projectSlug = (projectId) => ctx.host.stores().projects.get(projectId)?.slug ?? null;
+    /** The one bounded-proxy fact for every runtime an HTTP page is proxied from. */
+    const proxyLimits = () => {
+        const resolved = config();
+        return {
+            maxResponseBytes: resolved.maxResponseBytes,
+            requestTimeoutSeconds: resolved.requestTimeoutSeconds,
+        };
+    };
     // Visits are counted in memory and flushed on a timer: a published page must not pay for a database
     // write on every asset it serves.
     const pendingHits = new Map();
@@ -291,18 +299,9 @@ export function register(published) {
                     pendingHits.set(siteId, (pendingHits.get(siteId) ?? 0) + 1);
             },
             endpointFor: (siteId) => environment.endpointFor(siteId) ?? supervisor.endpointFor(siteId),
-            proxyLimits: () => {
-                const resolved = config();
-                return {
-                    maxResponseBytes: resolved.maxResponseBytes,
-                    requestTimeoutSeconds: resolved.requestTimeoutSeconds,
-                };
-            },
+            proxyLimits,
             usernameOf: (userId) => people().get(userId)?.username ?? null,
-            executePhp: (site, release, req, rest, viewer, siteRoot) => executePhp({ ctx, siteDir, network: () => config().runtimeNetwork }, site, release, req, rest, { userId: viewer.userId, name: viewer.userId === null ? null : people().get(viewer.userId)?.username ?? null }, (() => {
-                const resolved = config();
-                return { maxResponseBytes: resolved.maxResponseBytes, requestTimeoutSeconds: resolved.requestTimeoutSeconds };
-            })(), siteRoot),
+            executePhp: (site, release, req, rest, viewer, siteRoot) => executePhp({ ctx, siteDir, network: () => config().runtimeNetwork }, site, release, req, rest, { userId: viewer.userId, name: viewer.userId === null ? null : people().get(viewer.userId)?.username ?? null }, proxyLimits(), siteRoot),
         }),
     });
     const handlers = createApiHandlers({

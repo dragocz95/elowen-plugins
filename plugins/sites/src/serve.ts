@@ -351,8 +351,8 @@ export function createSiteHandler(deps: ServeDeps) {
 function viewerFor(req: PluginHttpRequest, site: Site, deps: ServeDeps): Viewer {
   const cookies = readCookies(req.headers.cookie);
   const session = verifySession(deps.secret(), cookies[cookieName(site.id)], Date.now());
-  if (!session || session.g !== site.accessGeneration) return { userId: null, admin: false };
-  return { userId: session.u, admin: false };
+  if (!session || session.g !== site.accessGeneration) return { userId: null };
+  return { userId: session.u };
 }
 
 /** Exchange a one-time ticket for a site session.
@@ -379,7 +379,7 @@ async function redeemTicket(
 
   // The ticket proves who asked, not that they still may: the answer is re-derived here so a permission
   // withdrawn between minting and redemption is honoured.
-  if (!mayOpen(site, { userId: ticket.userId, admin: false }, deps.store, deps.access)) {
+  if (!mayOpen(site, { userId: ticket.userId }, deps.store, deps.access)) {
     return notFound();
   }
 

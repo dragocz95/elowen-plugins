@@ -287,18 +287,6 @@ export class PodmanClient {
     }));
   }
 
-  async events(since = '0s'): Promise<Record<string, unknown>[]> {
-    const result = await this.run(['events', '--since', since, '--stream=false', '--format', 'json', '--filter', 'label=io.elowen.site']);
-    return result.stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
-  }
-
-  async stats(name: string): Promise<Record<string, unknown> | null> {
-    const result = await this.run(['stats', '--no-stream', '--format', 'json', name], { allowFailure: true });
-    if (result.code !== 0) return null;
-    const parsed = JSON.parse(result.stdout || '[]') as unknown;
-    return Array.isArray(parsed) ? parsed[0] as Record<string, unknown> | undefined ?? null : null;
-  }
-
   async build(tag: string, contextDir: string): Promise<void> {
     await this.run(['build', '--tag', tag, contextDir], { timeoutMs: 15 * 60_000 });
   }
