@@ -1,6 +1,6 @@
 {
   "name": "browser",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "apiVersion": "1",
   "requiresCore": "0.28.30",
   "description": "Persistent private browser automation for linked Elowen accounts. Each account gets its own Chrome profile and process on a private virtual display, with multiple tab sessions, accessibility-first typed actions, a live view served over VNC that carries native keyboard and mouse input, exclusive user takeover, authenticated account-owned API routes, and a deny-by-default enforcing network proxy boundary.",
@@ -263,12 +263,13 @@
       "min": 1,
       "max": 200,
       "step": 1,
-      "default": 24,
+      "default": 96,
       "display": {
         "control": "slider",
         "unit": "connections"
       },
-      "advanced": true
+      "advanced": true,
+      "hint": "Sockets Chrome may hold open through the proxy at once. One image-heavy page opens dozens across its CDNs, and every request over this limit reaches the page as ERR_TUNNEL_CONNECTION_FAILED with images silently missing. Lower it only to throttle an account deliberately."
     },
     {
       "key": "proxyRequestsPerMinute",
@@ -277,12 +278,13 @@
       "min": 30,
       "max": 6000,
       "step": 30,
-      "default": 600,
+      "default": 3000,
       "display": {
         "control": "slider",
         "unit": "requests"
       },
-      "advanced": true
+      "advanced": true,
+      "hint": "Requests per minute across the whole account. A person clicking through a normal site spends several hundred a minute, so a low value shows up as pages that half-load."
     },
     {
       "key": "privateNetworkAllowlist",
@@ -337,6 +339,7 @@
       "liveViewUnavailable": "The live view is unavailable",
       "browserViewport": "Live browser view",
       "waitingForUser": "Waiting for user input",
+      "agentWaiting": "The agent is waiting for you to return control",
       "noAddress": "No address yet",
       "back": "Back",
       "forward": "Forward",

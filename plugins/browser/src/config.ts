@@ -16,6 +16,10 @@ export interface BrowserConfig {
   maxViewersPerSession: number;
   maxChromeRssBytesPerUser: number;
   maxTargetsPerUser: number;
+  /** How many sockets Chrome may hold open through the egress proxy at once. Sized for a PERSON browsing,
+   *  not for an agent fetching one page at a time: a single image-heavy site opens six connections per
+   *  host across a dozen hosts and CDNs, and a request over this limit is refused in a way Chrome can only
+   *  report as ERR_TUNNEL_CONNECTION_FAILED — with images silently missing rather than an error page. */
   proxyConcurrency: number;
   proxyRequestsPerMinute: number;
   privateNetworkAllowlist: string[];
@@ -55,8 +59,8 @@ export function resolveConfig(raw: Record<string, unknown>): BrowserConfig {
     maxViewersPerSession: bounded(raw.maxViewersPerSession, 4, 1, 8),
     maxChromeRssBytesPerUser: bounded(raw.maxChromeRssMb, 768, 256, 2048) * 1048576,
     maxTargetsPerUser: bounded(raw.maxTargetsPerUser, 12, 4, 32),
-    proxyConcurrency: bounded(raw.proxyConcurrency, 24, 1, 200),
-    proxyRequestsPerMinute: bounded(raw.proxyRequestsPerMinute, 600, 30, 6000),
+    proxyConcurrency: bounded(raw.proxyConcurrency, 96, 1, 200),
+    proxyRequestsPerMinute: bounded(raw.proxyRequestsPerMinute, 3000, 30, 6000),
     privateNetworkAllowlist: tokenList(raw.privateNetworkAllowlist),
     browserCloseGraceMs: bounded(raw.browserCloseGraceSeconds, 15, 0, 120) * 1000,
     vncDeferMs: bounded(raw.vncDeferMs, 10, 5, 400),

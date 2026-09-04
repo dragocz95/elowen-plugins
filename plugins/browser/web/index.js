@@ -15256,6 +15256,7 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const initialSessionId = data?.browserSessionId ?? "";
   const [lease, setLease] = (0, import_react6.useState)(() => initialSessionId ? rememberedLease(initialSessionId) : null);
   const adoptedLease = (0, import_react6.useRef)(lease?.leaseId ?? null);
+  const autoClaimed = (0, import_react6.useRef)(null);
   const [speechHidden, setSpeechHidden] = (0, import_react6.useState)(false);
   const [thumbSlot, setThumbSlot] = (0, import_react6.useState)(null);
   const [overlaySlot, setOverlaySlot] = (0, import_react6.useState)(null);
@@ -15269,10 +15270,11 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const favicon = stream.hasControlSnapshot ? stream.favicon : data?.favicon;
   const state = stream.closed ? "closed" : lease ? "user" : stream.hasControlSnapshot ? stream.control.state : data?.state ?? "agent";
   const takeoverRequested = stream.control.state === "agent" && stream.control.reason === "requested";
+  const agentAwaitingReturn = stream.control.state === "user" && stream.control.reason === "handed_over" && !!lease;
   const speech = (narration ?? "").trim();
   const visibleSpeech = speechHidden ? "" : speech;
   const waiting = pendingInput ?? null;
-  const action = stream.action ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` \xB7 ${stream.action.target}` : ""}` : takeoverRequested ? strings.waitingForUser || "Waiting for user input" : data?.lastAction;
+  const action = agentAwaitingReturn ? strings.agentWaiting || "The agent is waiting for you to return control" : stream.action ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` \xB7 ${stream.action.target}` : ""}` : takeoverRequested ? strings.waitingForUser || "Waiting for user input" : data?.lastAction;
   (0, import_react6.useEffect)(() => () => {
     if (speechTimer.current) clearTimeout(speechTimer.current);
   }, []);
@@ -15324,6 +15326,24 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
       setLease((current) => current?.leaseId === lease.leaseId ? null : current);
     }
   }, [lease, stream.control.controlRevision, stream.control.state]);
+  (0, import_react6.useEffect)(() => {
+    if (!sessionId || lease || stream.closed || !takeoverRequested) return;
+    const revision = stream.control.controlRevision;
+    if (autoClaimed.current === revision) return;
+    autoClaimed.current = revision;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const claimed = await runtime().api(inputPath(sessionId, "takeover"), jsonRequest("POST"));
+        if (cancelled || !claimed || typeof claimed.leaseId !== "string") return;
+        setLease(claimed);
+      } catch {
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [lease, sessionId, stream.closed, stream.control.controlRevision, takeoverRequested]);
   (0, import_react6.useEffect)(() => {
     if (expanded) return;
     const reveal = pendingReveal.current;
@@ -15434,9 +15454,19 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
       ]
     }
   );
-  const controlAction = () => state === "user" && lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "accent", icon: ShieldCheck, onClick: () => {
-    void releaseControl();
-  }, disabled: pending !== null, children: strings.returnToAgent || "Return to agent" }) : state === "user" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, disabled: true, children: strings.controlledElsewhere || "Controlled in another window" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, onClick: () => {
+  const controlAction = () => state === "user" && lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    Button,
+    {
+      variant: "accent",
+      icon: ShieldCheck,
+      className: agentAwaitingReturn ? "browser-artifact__return--waiting" : void 0,
+      onClick: () => {
+        void releaseControl();
+      },
+      disabled: pending !== null,
+      children: strings.returnToAgent || "Return to agent"
+    }
+  ) : state === "user" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, disabled: true, children: strings.controlledElsewhere || "Controlled in another window" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Hand, onClick: () => {
     void takeControl();
   }, disabled: pending !== null || stream.closed, children: strings.takeControl || "Take control" });
   const siteLabel = (className = "") => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: `browser-artifact__site ${className}`.trim(), children: [

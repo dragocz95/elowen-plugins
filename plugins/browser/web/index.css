@@ -366,6 +366,20 @@
     opacity: 1;
   }
 }
+@keyframes browser-return-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary, #ff5236) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 .35rem transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.browser-artifact__return--waiting {
+  animation: browser-return-pulse 1.9s ease-out infinite;
+}
 @media (max-width: 767px) {
   .browser-artifact {
     max-width: none;
@@ -408,6 +422,10 @@
 @media (prefers-reduced-motion: reduce) {
   .browser-artifact__overlay {
     animation: none;
+  }
+  .browser-artifact__return--waiting {
+    animation: none;
+    box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--color-primary, #ff5236) 45%, transparent);
   }
 }
 /*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
