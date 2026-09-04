@@ -367,7 +367,14 @@ function supervisorHarness(t, { statuses = [null], sealed = false, connectReady 
     brokerPath: () => socketPath,
     ensureBaseImage: async () => BASE_IMAGE_TAG,
     socketReady: async (path) => {
-      try { return lstatSync(path).isSocket(); } catch { return false; }
+      try {
+        const ready = lstatSync(path).isSocket();
+        calls.push(['socket-ready', ready]);
+        return ready;
+      } catch {
+        calls.push(['socket-ready', false]);
+        return false;
+      }
     },
     connectReady: async () => connectReady,
     sleep: async () => { if (currentStatus === 'stopping') currentStatus = 'exited'; },
@@ -406,18 +413,16 @@ test('existing environment receives effective limits after start without recreat
   ]);
 });
 
-test('a previously created container reaches running before crun receives an update', async (t) => {
+test('a previously created container exposes its systemd ingress before crun receives an update', async (t) => {
   const name = `elowen-site-${SITE_ID}`;
-  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['created', 'created', 'running'] });
+  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['created'] });
   await supervisor.start(site);
   const startIndex = calls.findIndex(([operation]) => operation === 'start');
+  const readyIndex = calls.findIndex(([operation, ready]) => operation === 'socket-ready' && ready === true);
   const updateIndex = calls.findIndex(([operation]) => operation === 'update');
   assert.ok(startIndex >= 0);
-  assert.ok(updateIndex > startIndex);
-  assert.deepEqual(
-    calls.slice(startIndex + 1, updateIndex).filter(([operation]) => operation === 'inspect').map(([, status]) => status),
-    ['created', 'running'],
-  );
+  assert.ok(readyIndex > startIndex);
+  assert.ok(updateIndex > readyIndex);
   assert.deepEqual(calls[updateIndex], ['update', name, { cpus: 1, memoryMb: 1024, pidsLimit: 512 }]);
 });
 
