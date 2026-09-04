@@ -194,6 +194,32 @@ export class SitesStore {
           `);
                 },
             },
+            {
+                version: 7,
+                // Snapshots use the same daemon-owned durable action slot as rollback. Payloads are bounded by the
+                // tool/API boundary and contain no command or host path.
+                up: (handle) => {
+                    handle.exec(`
+            ALTER TABLE p_sites_environment_actions ADD COLUMN include_data INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE p_sites_environment_actions ADD COLUMN note TEXT NOT NULL DEFAULT '';
+            ALTER TABLE p_sites_environment_actions ADD COLUMN model TEXT NOT NULL DEFAULT '';
+          `);
+                },
+            },
+            {
+                version: 8,
+                // Exec may run in a forked worker while lifecycle reconciliation runs in the daemon. A bounded
+                // database lease makes that exclusion cross-process without persisting commands or output.
+                up: (handle) => {
+                    handle.exec(`
+            CREATE TABLE IF NOT EXISTS p_sites_environment_exec_leases (
+              site_id TEXT PRIMARY KEY,
+              token TEXT NOT NULL,
+              expires_at INTEGER NOT NULL
+            );
+          `);
+                },
+            },
         ]);
     }
     transaction(fn) {
@@ -343,6 +369,7 @@ export class SitesStore {
             this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id = ?').run(id);
             this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
             this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(id);
+            this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE site_id = ?').run(id);
             this.db.prepare('DELETE FROM p_sites_sites WHERE id = ?').run(id);
         });
     }
@@ -396,39 +423,107 @@ export class SitesStore {
     }
     environmentAction(siteId) {
         const row = this.db.prepare('SELECT * FROM p_sites_environment_actions WHERE site_id = ?').get(siteId);
-        if (!row || row.kind !== 'rollback')
+        if (!row || (row.kind !== 'snapshot' && row.kind !== 'rollback'))
             return null;
-        return {
+        const common = {
             siteId: row.site_id,
-            kind: 'rollback',
             snapshotId: row.snapshot_id,
-            restoreData: row.restore_data === 1,
             requestedAt: row.requested_at,
             lastError: row.last_error,
         };
+        return row.kind === 'snapshot'
+            ? { ...common, kind: 'snapshot', includeData: row.include_data === 1, note: row.note, model: row.model }
+            : { ...common, kind: 'rollback', restoreData: row.restore_data === 1 };
     }
     putEnvironmentAction(action) {
+        const snapshot = action.kind === 'snapshot';
         this.db.prepare(`
-      INSERT INTO p_sites_environment_actions (site_id, kind, snapshot_id, restore_data, requested_at, last_error)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO p_sites_environment_actions (
+        site_id, kind, snapshot_id, restore_data, include_data, note, model, requested_at, last_error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(site_id) DO UPDATE SET
         kind = excluded.kind, snapshot_id = excluded.snapshot_id, restore_data = excluded.restore_data,
+        include_data = excluded.include_data, note = excluded.note, model = excluded.model,
         requested_at = excluded.requested_at, last_error = excluded.last_error
-    `).run(action.siteId, action.kind, action.snapshotId, action.restoreData ? 1 : 0, action.requestedAt, action.lastError);
+    `).run(action.siteId, action.kind, action.snapshotId, !snapshot && action.restoreData ? 1 : 0, snapshot && action.includeData ? 1 : 0, snapshot ? action.note : '', snapshot ? action.model : '', action.requestedAt, action.lastError);
+    }
+    tryBeginEnvironmentExec(siteId, token, expiresAt) {
+        return this.db.transaction(() => {
+            const now = Date.now();
+            this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE expires_at <= ?').run(now);
+            const result = this.db.prepare(`
+        INSERT INTO p_sites_environment_exec_leases (site_id, token, expires_at)
+        SELECT ?, ?, ?
+        WHERE EXISTS (
+          SELECT 1 FROM p_sites_sites
+          WHERE id = ? AND runtime = 'environment' AND environment_desired_state = 'running'
+        )
+          AND NOT EXISTS (SELECT 1 FROM p_sites_environment_actions WHERE site_id = ?)
+          AND NOT EXISTS (SELECT 1 FROM p_sites_environment_exec_leases WHERE site_id = ?)
+      `).run(siteId, token, expiresAt, siteId, siteId, siteId);
+            return result.changes === 1;
+        });
+    }
+    endEnvironmentExec(siteId, token) {
+        this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE site_id = ? AND token = ?').run(siteId, token);
     }
     tryPutEnvironmentAction(action) {
         return this.db.transaction(() => {
+            const now = Date.now();
+            this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE expires_at <= ?').run(now);
+            if (this.db.prepare('SELECT 1 FROM p_sites_environment_exec_leases WHERE site_id = ?').get(action.siteId))
+                return false;
+            const existing = this.db.prepare('SELECT last_error FROM p_sites_environment_actions WHERE site_id = ?')
+                .get(action.siteId);
+            if (existing?.last_error === null)
+                return false;
+            if (!existing) {
+                const site = this.db.prepare('SELECT environment_desired_state FROM p_sites_sites WHERE id = ? AND runtime = ?')
+                    .get(action.siteId, 'environment');
+                if (site?.environment_desired_state !== 'running')
+                    return false;
+            }
+            const snapshot = action.kind === 'snapshot';
             const result = this.db.prepare(`
-        INSERT OR IGNORE INTO p_sites_environment_actions (
-          site_id, kind, snapshot_id, restore_data, requested_at, last_error
-        ) VALUES (?, ?, ?, ?, ?, ?)
-      `).run(action.siteId, action.kind, action.snapshotId, action.restoreData ? 1 : 0, action.requestedAt, action.lastError);
+        INSERT INTO p_sites_environment_actions (
+          site_id, kind, snapshot_id, restore_data, include_data, note, model, requested_at, last_error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(site_id) DO UPDATE SET
+          kind = excluded.kind, snapshot_id = excluded.snapshot_id, restore_data = excluded.restore_data,
+          include_data = excluded.include_data, note = excluded.note, model = excluded.model,
+          requested_at = excluded.requested_at, last_error = NULL
+        WHERE p_sites_environment_actions.last_error IS NOT NULL
+      `).run(action.siteId, action.kind, action.snapshotId, !snapshot && action.restoreData ? 1 : 0, snapshot && action.includeData ? 1 : 0, snapshot ? action.note.slice(0, 200) : '', snapshot ? action.model.slice(0, 200) : '', action.requestedAt, action.lastError);
             if (result.changes !== 1)
                 return false;
             this.db.prepare(`
         UPDATE p_sites_sites SET environment_desired_state = 'restarting', updated_at = ? WHERE id = ?
       `).run(new Date().toISOString(), action.siteId);
             return true;
+        });
+    }
+    clearErroredEnvironmentAction(siteId) {
+        return this.db.prepare(`
+      DELETE FROM p_sites_environment_actions WHERE site_id = ? AND last_error IS NOT NULL
+    `).run(siteId).changes === 1;
+    }
+    tryRequestEnvironmentControl(siteId, desiredState) {
+        return this.db.transaction(() => {
+            const now = Date.now();
+            this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE expires_at <= ?').run(now);
+            if (this.db.prepare('SELECT 1 FROM p_sites_environment_exec_leases WHERE site_id = ?').get(siteId))
+                return false;
+            const action = this.db.prepare('SELECT last_error FROM p_sites_environment_actions WHERE site_id = ?')
+                .get(siteId);
+            if (action?.last_error === null)
+                return false;
+            if (action)
+                this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(siteId);
+            return this.db.prepare(`
+        UPDATE p_sites_sites
+        SET environment_desired_state = ?, last_error = NULL, updated_at = ?
+        WHERE id = ? AND runtime = 'environment'
+      `).run(desiredState, new Date().toISOString(), siteId).changes === 1;
         });
     }
     completeEnvironmentRestart(siteId) {
@@ -438,6 +533,24 @@ export class SitesStore {
       WHERE id = ? AND environment_desired_state = 'restarting'
     `).run(new Date().toISOString(), siteId);
         return result.changes === 1;
+    }
+    completeEnvironmentAction(siteId, currentReleaseId) {
+        return this.db.transaction(() => {
+            const currentRelease = currentReleaseId === undefined ? '' : ', current_release_id = ?';
+            const values = currentReleaseId === undefined
+                ? [new Date().toISOString(), siteId, siteId]
+                : [currentReleaseId, new Date().toISOString(), siteId, siteId];
+            const result = this.db.prepare(`
+        UPDATE p_sites_sites
+        SET environment_desired_state = 'running', status = 'live', last_error = NULL${currentRelease}, updated_at = ?
+        WHERE id = ? AND environment_desired_state = 'restarting'
+          AND EXISTS (SELECT 1 FROM p_sites_environment_actions WHERE site_id = ?)
+      `).run(...values);
+            if (result.changes !== 1)
+                return false;
+            this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(siteId);
+            return true;
+        });
     }
     updateEnvironmentActionError(siteId, error) {
         this.db.prepare('UPDATE p_sites_environment_actions SET last_error = ? WHERE site_id = ?').run(error, siteId);

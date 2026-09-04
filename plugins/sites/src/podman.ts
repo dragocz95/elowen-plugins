@@ -336,7 +336,9 @@ export class PodmanClient {
   }
   async exportVolume(name: string, output: string): Promise<void> { await this.run(['volume', 'export', '--output', output, name]); }
   async importVolume(name: string, input: string): Promise<void> { await this.run(['volume', 'import', name, input]); }
-  async commit(name: string, image: string): Promise<void> { await this.run(['commit', '--pause', name, image]); }
+  async commit(name: string, image: string, options: { pause?: boolean } = {}): Promise<void> {
+    await this.run(['commit', `--pause=${options.pause === false ? 'false' : 'true'}`, name, image]);
+  }
 
   async unshareRemove(paths: readonly string[]): Promise<void> {
     if (paths.length === 0) return;

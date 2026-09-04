@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -99,13 +100,25 @@ export class EnvironmentSupervisor {
         };
     }
     async exec(site, command, options) {
-        if (site.runtime !== 'environment')
-            throw new Error('this site is not a persistent environment');
-        if (await this.deps.podman.inspectStatus(containerName(site.id)) !== 'running') {
-            throw new Error('the environment is not running');
-        }
-        this.appendLog(site.id, `exec requested (${command.length} bytes)`);
-        return await this.deps.podman.execInteractive(containerName(site.id), ['/bin/bash', '-s'], command, { timeoutMs: options.timeoutSeconds * 1000, workdir: options.workdir });
+        return await this.serialize(site.id, async () => {
+            if (site.runtime !== 'environment')
+                throw new Error('this site is not a persistent environment');
+            const token = randomUUID();
+            const expiresAt = Date.now() + (options.timeoutSeconds + 60) * 1000;
+            if (!this.deps.store.tryBeginEnvironmentExec(site.id, token, expiresAt)) {
+                throw new Error('the environment has a pending lifecycle action or command');
+            }
+            try {
+                if (await this.deps.podman.inspectStatus(containerName(site.id)) !== 'running') {
+                    throw new Error('the environment is not running');
+                }
+                this.appendLog(site.id, `exec requested (${command.length} bytes)`);
+                return await this.deps.podman.execInteractive(containerName(site.id), ['/bin/bash', '-s'], command, { timeoutMs: options.timeoutSeconds * 1000, workdir: options.workdir });
+            }
+            finally {
+                this.deps.store.endEnvironmentExec(site.id, token);
+            }
+        });
     }
     async logs(site, lines = 200) {
         const lifecycle = this.logTail(site.id);
@@ -149,73 +162,119 @@ export class EnvironmentSupervisor {
         writeFileSync(gitStub, '', { mode: 0o400 });
         return { envFile, gitStub };
     }
-    snapshot(site, input) {
-        return this.serialize(site.id, async () => {
-            if (site.runtime !== 'environment')
-                throw new Error('this site is not a persistent environment');
-            const name = containerName(site.id);
-            if (await this.deps.podman.inspectStatus(name) !== 'running')
-                throw new Error('the environment is not running');
-            const snapshotDir = join(this.environmentDir(site.id), 'snapshots', input.snapshotId);
-            mkdirSync(snapshotDir, { recursive: true, mode: 0o700 });
-            const imageRef = `localhost/elowen-site/${site.id}:${input.snapshotId}`;
-            const dataArchive = input.includeData ? join(snapshotDir, 'data.tar') : null;
-            let paused = false;
-            let resumeFailed = false;
-            let failure = null;
-            try {
-                await this.deps.podman.pause(name);
-                paused = true;
-                await this.deps.podman.commit(name, imageRef);
-                if (dataArchive)
-                    await this.deps.podman.exportVolume(volumeName(site.id), dataArchive);
+    async snapshotNow(site, input) {
+        if (site.runtime !== 'environment')
+            throw new Error('this site is not a persistent environment');
+        const snapshotDir = join(this.environmentDir(site.id), 'snapshots', input.snapshotId);
+        const imageRef = `localhost/elowen-site/${site.id}:${input.snapshotId}`;
+        const dataArchive = input.includeData ? join(snapshotDir, 'data.tar') : null;
+        const existing = this.deps.store.release(site.id, input.snapshotId);
+        if (existing) {
+            if (existing.kind !== 'environment-snapshot' || existing.imageRef !== imageRef || existing.dataArchive !== dataArchive) {
+                throw new Error('the durable snapshot action conflicts with an existing release');
             }
-            catch (error) {
-                failure = error;
+            if (!await this.deps.podman.imageExists(imageRef) || (dataArchive !== null && !existsSync(dataArchive))) {
+                throw new Error('the recorded environment snapshot is incomplete');
             }
-            finally {
-                if (paused) {
-                    try {
-                        await this.deps.podman.unpause(name);
-                    }
-                    catch (error) {
-                        resumeFailed = true;
-                        failure ??= error;
-                    }
+            await this.pruneEnvironmentSnapshots(site.id, input.snapshotId);
+            return existing;
+        }
+        const name = containerName(site.id);
+        let status = await this.deps.podman.inspectStatus(name);
+        if (status === 'paused') {
+            await this.deps.podman.unpause(name);
+            status = await this.deps.podman.inspectStatus(name);
+        }
+        if (status !== 'running')
+            throw new Error('the environment is not running');
+        if (existsSync(snapshotDir)) {
+            if (await this.deps.podman.imageExists(imageRef))
+                await this.deps.podman.removeImage(imageRef);
+            rmSync(snapshotDir, { recursive: true, force: true });
+        }
+        mkdirSync(snapshotDir, { recursive: true, mode: 0o700 });
+        let paused = false;
+        let resumeFailed = false;
+        let failure = null;
+        try {
+            await this.deps.podman.pause(name);
+            paused = true;
+            await this.deps.podman.commit(name, imageRef, { pause: false });
+            if (dataArchive)
+                await this.deps.podman.exportVolume(volumeName(site.id), dataArchive);
+        }
+        catch (error) {
+            failure = error;
+        }
+        finally {
+            if (paused) {
+                try {
+                    await this.deps.podman.unpause(name);
+                }
+                catch (error) {
+                    resumeFailed = true;
+                    failure ??= error;
                 }
             }
-            if (failure) {
-                await this.deps.podman.removeImage(imageRef).catch(() => { });
-                rmSync(snapshotDir, { recursive: true, force: true });
-                const message = failure instanceof Error ? failure.message : String(failure);
-                if (resumeFailed)
-                    this.deps.store.updateSite(site.id, { status: 'failed', lastError: `snapshot resume failed: ${message}` });
-                this.appendLog(site.id, `snapshot ${input.snapshotId} failed: ${message}`);
-                throw failure;
+        }
+        if (failure) {
+            await this.deps.podman.removeImage(imageRef).catch(() => { });
+            rmSync(snapshotDir, { recursive: true, force: true });
+            const message = failure instanceof Error ? failure.message : String(failure);
+            if (resumeFailed)
+                this.deps.store.updateSite(site.id, { status: 'failed', lastError: `snapshot resume failed: ${message}` });
+            this.appendLog(site.id, `snapshot ${input.snapshotId} failed: ${message}`);
+            throw failure;
+        }
+        const release = {
+            id: input.snapshotId,
+            siteId: site.id,
+            createdAt: new Date(this.now()).toISOString(),
+            model: input.model,
+            fileCount: 0,
+            sizeBytes: 0,
+            note: input.note,
+            kind: 'environment-snapshot',
+            imageRef,
+            dataArchive,
+        };
+        try {
+            this.deps.store.insertRelease(release);
+        }
+        catch (error) {
+            await this.deps.podman.removeImage(imageRef).catch(() => { });
+            rmSync(snapshotDir, { recursive: true, force: true });
+            throw error;
+        }
+        this.appendLog(site.id, `created crash-consistent snapshot ${input.snapshotId}`);
+        await this.pruneEnvironmentSnapshots(site.id, input.snapshotId);
+        return release;
+    }
+    async pruneEnvironmentSnapshots(siteId, createdSnapshotId) {
+        const snapshots = this.deps.store.releases(siteId).filter((release) => release.kind === 'environment-snapshot');
+        const limit = Math.max(1, this.deps.config().releasesKept);
+        if (snapshots.length <= limit)
+            return;
+        const currentReleaseId = this.deps.store.siteById(siteId)?.currentReleaseId ?? null;
+        const keep = new Set(snapshots.slice(0, limit).map((snapshot) => snapshot.id));
+        keep.add(createdSnapshotId);
+        if (currentReleaseId && snapshots.some((release) => release.id === currentReleaseId))
+            keep.add(currentReleaseId);
+        for (const snapshot of snapshots) {
+            if (keep.has(snapshot.id))
+                continue;
+            const expectedImage = `localhost/elowen-site/${siteId}:${snapshot.id}`;
+            if (snapshot.imageRef !== expectedImage)
+                throw new Error(`snapshot ${snapshot.id} has an invalid image reference`);
+            const snapshotDir = join(this.environmentDir(siteId), 'snapshots', snapshot.id);
+            const expectedArchive = join(snapshotDir, 'data.tar');
+            if (snapshot.dataArchive !== null && snapshot.dataArchive !== expectedArchive) {
+                throw new Error(`snapshot ${snapshot.id} has an invalid data archive`);
             }
-            const release = {
-                id: input.snapshotId,
-                siteId: site.id,
-                createdAt: new Date(this.now()).toISOString(),
-                model: input.model,
-                fileCount: 0,
-                sizeBytes: 0,
-                note: input.note,
-                kind: 'environment-snapshot',
-                imageRef,
-                dataArchive,
-            };
-            try {
-                this.deps.store.insertRelease(release);
-            }
-            catch (error) {
-                await this.deps.podman.removeImage(imageRef).catch(() => { });
-                rmSync(snapshotDir, { recursive: true, force: true });
-                throw error;
-            }
-            this.appendLog(site.id, `created crash-consistent snapshot ${input.snapshotId}`);
-            return release;
-        });
+            await this.deps.podman.removeImage(expectedImage);
+            await this.deps.podman.unshareRemove([snapshotDir]);
+            this.deps.store.deleteRelease(siteId, snapshot.id);
+        }
     }
     start(site) {
         this.deps.store.updateSite(site.id, { environmentDesiredState: 'running' });
@@ -235,6 +294,7 @@ export class EnvironmentSupervisor {
             && await this.connectReady({ kind: 'socket', path: knownSocket })) {
             this.endpoints.set(site.id, { kind: 'socket', path: knownSocket });
             this.settledStopped.delete(site.id);
+            this.deps.store.updateSite(site.id, { status: 'live', lastError: null });
             this.appendLog(site.id, 'adopted running container');
             return;
         }
@@ -357,14 +417,19 @@ export class EnvironmentSupervisor {
     }
     async rollbackNow(site, action) {
         const snapshot = this.deps.store.release(site.id, action.snapshotId);
-        if (!snapshot || snapshot.kind !== 'environment-snapshot' || !snapshot.imageRef) {
+        const expectedImage = `localhost/elowen-site/${site.id}:${action.snapshotId}`;
+        if (!snapshot || snapshot.kind !== 'environment-snapshot' || snapshot.imageRef !== expectedImage) {
             throw new Error('the requested environment snapshot is not retained for this site');
         }
-        if (!await this.deps.podman.imageExists(snapshot.imageRef)) {
+        const expectedArchive = join(this.environmentDir(site.id), 'snapshots', action.snapshotId, 'data.tar');
+        if (snapshot.dataArchive !== null && snapshot.dataArchive !== expectedArchive) {
+            throw new Error('the requested environment snapshot has an invalid data archive');
+        }
+        if (!await this.deps.podman.imageExists(expectedImage)) {
             throw new Error('the requested environment snapshot image is missing');
         }
         if (action.restoreData) {
-            if (!snapshot.dataArchive || !this.safeSnapshotPath(site.id, snapshot.dataArchive)) {
+            if (snapshot.dataArchive !== expectedArchive || !this.safeSnapshotPath(site.id, snapshot.dataArchive)) {
                 throw new Error('the requested snapshot has no valid data archive');
             }
             await this.validateDataArchive(site.id, action.snapshotId, snapshot.dataArchive);
@@ -376,11 +441,28 @@ export class EnvironmentSupervisor {
         const backupDir = action.restoreData && snapshot.dataArchive
             ? await this.replaceDataVolume(site.id, action.snapshotId, snapshot.dataArchive)
             : null;
-        await this.startNow(site, snapshot.imageRef, action.restoreData);
+        try {
+            await this.startNow(site, expectedImage, action.restoreData);
+        }
+        catch (error) {
+            if (backupDir) {
+                try {
+                    if (await this.deps.podman.inspectStatus(name) !== null)
+                        await this.deps.podman.remove(name);
+                    await this.restorePreviousData(site.id, backupDir);
+                }
+                catch (restoreError) {
+                    const message = restoreError instanceof Error ? restoreError.message : String(restoreError);
+                    throw new Error(`rollback failed and the previous data volume could not be restored: ${message}`, { cause: error });
+                }
+            }
+            throw error;
+        }
         if (backupDir)
             rmSync(backupDir, { recursive: true, force: true });
-        this.deps.store.deleteEnvironmentAction(site.id);
-        this.deps.store.completeEnvironmentRestart(site.id);
+        if (!this.deps.store.completeEnvironmentAction(site.id, snapshot.id)) {
+            throw new Error('the rollback completed but its durable action state changed unexpectedly');
+        }
         this.appendLog(site.id, `restored snapshot ${snapshot.id}${action.restoreData ? ' with data' : ''}`);
     }
     async validateDataArchive(siteId, snapshotId, archive) {
@@ -425,6 +507,14 @@ export class EnvironmentSupervisor {
         }
         return backupDir;
     }
+    async restorePreviousData(siteId, backupDir) {
+        const backup = join(backupDir, 'previous-data.tar');
+        const volume = volumeName(siteId);
+        await this.deps.podman.removeVolume(volume);
+        await this.deps.podman.ensureVolume(volume, siteId);
+        await this.deps.podman.importVolume(volume, backup);
+        rmSync(backupDir, { recursive: true, force: true });
+    }
     safeSnapshotPath(siteId, path) {
         const root = resolve(this.environmentDir(siteId), 'snapshots');
         const candidate = resolve(path);
@@ -454,8 +544,26 @@ export class EnvironmentSupervisor {
         for (const site of sites) {
             const action = this.deps.store.environmentAction(site.id);
             try {
-                if (action?.kind === 'rollback') {
-                    await this.serialize(site.id, () => this.rollbackNow(site, action));
+                if (action && action.lastError === null) {
+                    if (action.kind === 'snapshot') {
+                        await this.serialize(site.id, async () => {
+                            await this.snapshotNow(site, {
+                                snapshotId: action.snapshotId,
+                                includeData: action.includeData,
+                                note: action.note,
+                                model: action.model,
+                            });
+                            if (!this.deps.store.completeEnvironmentAction(site.id)) {
+                                throw new Error('the snapshot completed but its durable action state changed unexpectedly');
+                            }
+                        });
+                    }
+                    else {
+                        await this.serialize(site.id, () => this.rollbackNow(site, action));
+                    }
+                }
+                else if (action) {
+                    continue;
                 }
                 else if (site.environmentDesiredState === 'restarting') {
                     await this.restart(site);
@@ -464,7 +572,7 @@ export class EnvironmentSupervisor {
                     if (!this.settledStopped.has(site.id))
                         await this.serialize(site.id, () => this.stopNow(site.id, true));
                 }
-                else if (!this.endpoints.has(site.id)) {
+                else if (!this.endpoints.has(site.id) || site.status === 'failed') {
                     await this.start(site);
                 }
             }

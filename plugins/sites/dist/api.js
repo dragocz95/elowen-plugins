@@ -10,7 +10,7 @@ const json = (status, body) => ({
 const TICKET_TTL_MS = 60_000;
 /** Whether the caller may change this site. Viewing is a different question, answered by `mayOpen`. */
 const canManage = (site, auth) => auth.admin || (auth.userId !== null && auth.userId === site.ownerUserId);
-const canAccessProject = (projectId, auth) => auth.accessibleProjects === null ? auth.admin : auth.accessibleProjects.includes(projectId);
+const canAccessProject = (projectId, auth) => auth.admin || (auth.accessibleProjects !== null && auth.accessibleProjects.includes(projectId));
 const toView = (site, deps, auth) => {
     const config = deps.config();
     return {
@@ -123,7 +123,7 @@ export function createApiHandlers(deps) {
                     lastError: canManage(target, req.auth) ? target.lastError : null,
                 },
                 environment: environment === null ? null : canManage(target, req.auth)
-                    ? environment
+                    ? { ...environment, action: deps.store.environmentAction(target.id) }
                     : { state: environment.state, desiredState: environment.desiredState },
             });
         }
@@ -177,10 +177,10 @@ export function createApiHandlers(deps) {
                     includeData: body.includeData !== false,
                     note: typeof body.note === 'string' ? body.note.trim().slice(0, 200) : '',
                 });
-                return json(200, { ok: true, snapshotId: snapshot.id, crashConsistent: true });
+                return json(200, { ok: true, snapshotId: snapshot.id, crashConsistent: true, scheduled: true });
             }
             catch (error) {
-                return json(502, { error: error instanceof Error ? error.message : 'snapshot failed' });
+                return json(409, { error: error instanceof Error ? error.message : 'snapshot could not be scheduled' });
             }
         }
         if (req.method === 'POST' && action === 'restart') {

@@ -23,14 +23,37 @@ export class EnvironmentProvisioningService {
 
   constructor(private readonly deps: {
     control(): EnvironmentProvisionControl | undefined;
+    imageExists(): Promise<boolean>;
+    buildImage(): Promise<void>;
     audit?(status: PublishedSitesEnvironmentStatus, actorUserId: number | null): void;
   }) {}
 
   async status(): Promise<PublishedSitesEnvironmentStatus> {
     const control = this.deps.control();
-    return control && typeof control.environmentsStatus === 'function'
+    const core = control && typeof control.environmentsStatus === 'function'
       ? await control.environmentsStatus()
       : unavailable();
+    return await this.withBaseImage(core);
+  }
+
+  private async withBaseImage(core: PublishedSitesEnvironmentStatus): Promise<PublishedSitesEnvironmentStatus> {
+    let imageReady = false;
+    let detail: string | undefined;
+    try { imageReady = await this.deps.imageExists(); }
+    catch (error) { detail = error instanceof Error ? error.message : String(error); }
+    return {
+      ready: core.ready && imageReady,
+      detail: core.detail,
+      items: [
+        ...core.items.filter((item) => item.id !== 'base-image'),
+        {
+          id: 'base-image',
+          label: 'Deterministic Sites base image',
+          ok: imageReady,
+          ...(imageReady ? {} : { detail: detail ?? 'The base image has not been built yet.' }),
+        },
+      ],
+    };
   }
 
   provision(actorUserId: number | null = null): Promise<PublishedSitesEnvironmentStatus> {
@@ -43,22 +66,25 @@ export class EnvironmentProvisioningService {
   private async provisionNow(actorUserId: number | null): Promise<PublishedSitesEnvironmentStatus> {
     const control = this.deps.control();
     if (!control || typeof control.provisionEnvironments !== 'function' || typeof control.environmentsStatus !== 'function') {
-      const status = unavailable();
+      const status = await this.withBaseImage(unavailable());
       this.deps.audit?.(status, actorUserId);
       return status;
     }
     try {
       await control.provisionEnvironments();
-      const status = await control.environmentsStatus();
+      const measured = await control.environmentsStatus();
+      if (measured.ready && !await this.deps.imageExists()) await this.deps.buildImage();
+      const status = await this.withBaseImage(await control.environmentsStatus());
       this.deps.audit?.(status, actorUserId);
       return status;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.deps.audit?.({
+      const status = await this.withBaseImage({
         ready: false,
         detail: `Environment provisioning failed: ${message}`,
         items: [{ id: 'provision', label: 'Environment provisioning', ok: false, detail: message }],
-      }, actorUserId);
+      });
+      this.deps.audit?.(status, actorUserId);
       throw error;
     }
   }

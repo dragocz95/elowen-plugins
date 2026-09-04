@@ -262,7 +262,9 @@ export class PodmanClient {
     }
     async exportVolume(name, output) { await this.run(['volume', 'export', '--output', output, name]); }
     async importVolume(name, input) { await this.run(['volume', 'import', name, input]); }
-    async commit(name, image) { await this.run(['commit', '--pause', name, image]); }
+    async commit(name, image, options = {}) {
+        await this.run(['commit', `--pause=${options.pause === false ? 'false' : 'true'}`, name, image]);
+    }
     async unshareRemove(paths) {
         if (paths.length === 0)
             return;

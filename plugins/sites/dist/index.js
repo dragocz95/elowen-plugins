@@ -11,7 +11,7 @@ import { SiteGatewayManager } from './gateway.js';
 import { executePhp } from './php.js';
 import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
 import { PodmanClient } from './podman.js';
-import { ensureBaseImage } from './baseImage.js';
+import { BASE_IMAGE_TAG, ensureBaseImage } from './baseImage.js';
 import { EnvironmentSupervisor } from './environment.js';
 import { EnvironmentProvisioningService } from './provisioning.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
@@ -118,11 +118,12 @@ export function register(published) {
     const ensureEnvironmentBaseImage = () => {
         if (baseImage)
             return baseImage;
-        baseImage = ensureBaseImage(podman, dataDir).catch((error) => {
-            baseImage = null;
-            throw error;
+        const building = ensureBaseImage(podman, dataDir).finally(() => {
+            if (baseImage === building)
+                baseImage = null;
         });
-        return baseImage;
+        baseImage = building;
+        return building;
     };
     const environment = new EnvironmentSupervisor({
         podman,
@@ -156,6 +157,7 @@ export function register(published) {
                 environmentMemoryMb: resolved.environmentMemoryMb,
                 environmentPidsLimit: resolved.environmentPidsLimit,
                 environmentDiskSoftMb: resolved.environmentDiskSoftMb,
+                releasesKept: resolved.releasesKept,
             };
         },
         siteDir,
@@ -165,6 +167,8 @@ export function register(published) {
     });
     const provisioning = new EnvironmentProvisioningService({
         control: () => ctx.control('publishedSitesGateway'),
+        imageExists: () => podman.imageExists(BASE_IMAGE_TAG),
+        buildImage: async () => { await ensureEnvironmentBaseImage(); },
         audit: (status, actorUserId) => ctx.publishEvent({
             type: 'plugin',
             plugin: 'sites',
@@ -321,24 +325,32 @@ export function register(published) {
         },
         environmentState: (site) => environment.state(site),
         requestEnvironmentControl: async (site, action) => {
-            if (store.environmentAction(site.id))
-                throw new Error('an environment restore is already scheduled');
-            store.updateSite(site.id, {
-                environmentDesiredState: action === 'stop' ? 'stopped' : action === 'restart' ? 'restarting' : 'running',
-                lastError: null,
-            });
+            const desired = action === 'stop' ? 'stopped' : action === 'restart' ? 'restarting' : 'running';
+            if (!store.tryRequestEnvironmentControl(site.id, desired)) {
+                throw new Error('an environment action or command is already in progress');
+            }
         },
         snapshotEnvironment: async (site, input) => {
-            if (store.environmentAction(site.id) || site.environmentDesiredState === 'restarting') {
-                throw new Error('the environment is already changing state');
+            const current = store.siteById(site.id);
+            const pending = store.environmentAction(site.id);
+            if (!current || (current.environmentDesiredState !== 'running' && !pending?.lastError)) {
+                throw new Error('the environment has a pending lifecycle change');
             }
             const model = ctx.currentModel();
-            return await environment.snapshot(site, {
-                snapshotId: randomUUID(),
+            const snapshotId = randomUUID();
+            const scheduled = store.tryPutEnvironmentAction({
+                siteId: site.id,
+                kind: 'snapshot',
+                snapshotId,
                 includeData: input.includeData,
                 note: input.note,
                 model: model ? (model.provider ? `${model.provider}/${model.model}` : model.model) : '',
+                requestedAt: new Date().toISOString(),
+                lastError: null,
             });
+            if (!scheduled)
+                throw new Error('another environment action is already pending');
+            return { id: snapshotId };
         },
         rollbackEnvironment: async (site, input) => {
             const scheduled = store.tryPutEnvironmentAction({
@@ -367,17 +379,7 @@ export function register(published) {
         if (!config().allowEnvironments) {
             return { id: 'sites-environments', label: 'Sites environments', ok: true, detail: 'Persistent environments are disabled in Sites settings.' };
         }
-        const control = ctx.control('publishedSitesGateway');
-        if (!control) {
-            return {
-                id: 'sites-environments',
-                label: 'Sites environments',
-                ok: false,
-                detail: 'The published-sites gateway control is unavailable.',
-                hint: 'Enable the core published-sites gateway and review the Sites settings checklist.',
-            };
-        }
-        const report = await control.environmentsStatus();
+        const report = await provisioning.status();
         const items = report.items.map((item) => `${item.label}: ${item.ok ? 'ready' : 'not ready'}${item.detail ? ` (${item.detail})` : ''}`);
         const detail = [report.detail, ...items].filter((value) => Boolean(value)).join('; ')
             || 'No environment dependency checks were returned.';

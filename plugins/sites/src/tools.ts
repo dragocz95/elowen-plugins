@@ -10,7 +10,7 @@ import { mayPublish, type AccessDeps } from './access.js';
 import { SITE_BASE_PATH, siteUrl, type SitesConfig } from './config.js';
 import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } from './publish.js';
 import { isDaemonProcess, type SiteRuntimeSupervisor } from './runtime.js';
-import type { EnvironmentSnapshotInput, EnvironmentState, EnvironmentSupervisor } from './environment.js';
+import type { EnvironmentState, EnvironmentSupervisor } from './environment.js';
 
 export interface ToolDeps {
   ctx: SitesContext;
@@ -22,7 +22,7 @@ export interface ToolDeps {
   releaseDir(siteId: string, releaseId: string): string;
   deleteSite(siteId: string): Promise<void>;
   runtime: SiteRuntimeSupervisor;
-  environment: Pick<EnvironmentSupervisor, 'state' | 'exec' | 'snapshot' | 'logs'>;
+  environment: Pick<EnvironmentSupervisor, 'state' | 'exec' | 'logs'>;
 }
 
 /** A command runtime is only offered where the operator has turned it on. */
@@ -139,6 +139,7 @@ const requireManaged = (deps: ToolDeps, ref: string, userId: number): Site => {
 };
 
 const requireEnvironmentAuthority = (deps: ToolDeps, site: Site, userId: number): void => {
+  if (deps.access.isAdmin(userId)) return;
   if (!mayPublish(userId, deps.access, deps.config().publishers)) {
     throw new ToolError('This account is not allowed to publish sites on this instance.');
   }
@@ -396,6 +397,9 @@ export function registerTools(deps: ToolDeps): void {
       const site = requireManaged(deps, input.site, userId);
       requireEnvironmentAuthority(deps, site, userId);
       if (site.runtime !== 'environment') throw new ToolError('SiteExec works only with a persistent environment.');
+      if (store.environmentAction(site.id) || site.environmentDesiredState !== 'running') {
+        throw new ToolError('SiteExec is unavailable while an environment action or lifecycle change is pending.');
+      }
       const command = input.command;
       if (typeof command !== 'string' || command.length === 0 || command.includes('\0')) throw new ToolError('command must be non-empty text without NUL bytes.');
       const requestedTimeout = Number(input.timeoutSeconds ?? 120);
@@ -423,9 +427,10 @@ export function registerTools(deps: ToolDeps): void {
       const site = requireManaged(deps, input.site, userId);
       requireEnvironmentAuthority(deps, site, userId);
       if (site.runtime !== 'environment') throw new ToolError('SiteControl works only with a persistent environment.');
-      if (store.environmentAction(site.id)) throw new ToolError('An environment restore is already scheduled.');
       const desired = input.action === 'stop' ? 'stopped' : input.action === 'restart' ? 'restarting' : 'running';
-      store.updateSite(site.id, { environmentDesiredState: desired, lastError: null });
+      if (!store.tryRequestEnvironmentControl(site.id, desired)) {
+        throw new ToolError('An environment action or command is already in progress.');
+      }
       return text(`Scheduled ${input.action} for "${site.title}". The daemon will perform the durable lifecycle.`, {
         siteId: site.id, action: input.action, desiredState: desired, scheduled: true,
       });
@@ -446,22 +451,27 @@ export function registerTools(deps: ToolDeps): void {
       const site = requireManaged(deps, input.site, userId);
       requireEnvironmentAuthority(deps, site, userId);
       if (site.runtime !== 'environment') throw new ToolError('SiteSnapshot works only with a persistent environment.');
-      if (store.environmentAction(site.id) || site.environmentDesiredState === 'restarting') {
-        throw new ToolError('The environment is already changing state; wait before creating a snapshot.');
+      const pending = store.environmentAction(site.id);
+      if (site.environmentDesiredState !== 'running' && !pending?.lastError) {
+        throw new ToolError('The environment already has a pending lifecycle change.');
       }
       const snapshotId = randomUUID();
-      const snapshotInput: EnvironmentSnapshotInput = {
+      const scheduled = store.tryPutEnvironmentAction({
+        siteId: site.id,
+        kind: 'snapshot',
         snapshotId,
         includeData: input.includeData !== false,
         note: (input.note ?? '').trim().slice(0, 200),
         model: modelLabel(ctx),
-      };
-      const snapshot = await deps.environment.snapshot(site, snapshotInput);
+        requestedAt: new Date().toISOString(),
+        lastError: null,
+      });
+      if (!scheduled) throw new ToolError('Another environment action is already pending.');
       return text([
-        `Created crash-consistent snapshot ${snapshot.id} for "${site.title}".`,
-        snapshot.dataArchive ? 'The snapshot includes /data.' : 'The snapshot does not include /data.',
+        `Scheduled crash-consistent snapshot ${snapshotId} for "${site.title}".`,
+        'The daemon will pause, commit and resume the environment. Poll SiteGet for completion or an action error.',
         'Applications with databases still need their own database-consistent backup procedure.',
-      ].join('\n'), { siteId: site.id, snapshotId: snapshot.id, dataArchive: snapshot.dataArchive });
+      ].join('\n'), { siteId: site.id, snapshotId, scheduled: true });
     },
   }));
 
@@ -617,10 +627,16 @@ export function registerTools(deps: ToolDeps): void {
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
-        const site = requireOwned(deps, input.site, userId);
+        const site = deps.access.isAdmin(userId)
+          ? requireManaged(deps, input.site, userId)
+          : requireOwned(deps, input.site, userId);
+        if (site.ownerUserId !== userId && site.runtime !== 'environment') {
+          throw new ToolError('Only the site owner may read this site detail.');
+        }
         const config = deps.config();
         const releases = store.releases(site.id);
         const environment = site.runtime === 'environment' ? await deps.environment.state(site) : undefined;
+        const environmentAction = site.runtime === 'environment' ? store.environmentAction(site.id) : null;
         const people = deps.people();
         const guests = store.memberIds(site.id)
           .map((id) => ({ id, name: people.get(id)?.name || people.get(id)?.username || `#${id}` }));
@@ -634,6 +650,7 @@ export function registerTools(deps: ToolDeps): void {
             : ['Releases:', ...releases.map((release) => release.kind === 'environment-snapshot'
               ? `  ${release.id}  ${release.createdAt}  environment snapshot${release.dataArchive ? ' with /data' : ''}${release.note ? `  ${release.note}` : ''}`
               : `  ${release.id}  ${release.createdAt}  ${release.fileCount} files  ${(release.sizeBytes / 1048576).toFixed(2)} MB${release.note ? `  ${release.note}` : ''}`)].join('\n'),
+          environmentAction ? `\nPending action: ${environmentAction.kind} ${environmentAction.snapshotId}${environmentAction.lastError ? `\nAction error: ${environmentAction.lastError}` : ''}` : '',
           site.lastError ? `\nLast error: ${site.lastError}` : '',
         ].join('\n'), {
           siteId: site.id, slug: site.slug, url: addressOf(config, site.slug), visibility: site.visibility,
@@ -641,7 +658,7 @@ export function registerTools(deps: ToolDeps): void {
           runtime: site.runtime, startCommand: site.startCommand, bind: site.bind, port: site.port,
           network: site.runtime === 'environment' ? config.environmentNetwork : config.runtimeNetwork,
           guests, currentReleaseId: site.currentReleaseId,
-          ...(environment ? { environment } : {}),
+          ...(environment ? { environment, environmentAction } : {}),
           releases: releases.map((release) => ({
             id: release.id, createdAt: release.createdAt, note: release.note, kind: release.kind,
             ...(release.kind === 'environment-snapshot' ? { snapshotId: release.id, includesData: Boolean(release.dataArchive) } : {}),
@@ -784,7 +801,9 @@ export function registerTools(deps: ToolDeps): void {
         const userId = ownerOf(ctx);
         const site = requireManaged(deps, input.site, userId);
         if (site.runtime === 'environment') {
-          if (!deps.access.canAccessProject(userId, site.projectId)) throw new ToolError('Current Project access is required to read environment logs.');
+          if (!deps.access.isAdmin(userId) && !deps.access.canAccessProject(userId, site.projectId)) {
+            throw new ToolError('Current Project access is required to read environment logs.');
+          }
           const state = await deps.environment.state(site);
           const logs = await deps.environment.logs(site, Math.min(1000, Math.max(1, Math.round(Number(input.lines ?? 200)))));
           return text([
