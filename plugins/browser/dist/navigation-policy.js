@@ -270,15 +270,25 @@ export class DynamicProxyChainAdapter {
     }
     async createServer(input) {
         const { Server } = await this.load();
+        // `connectionId` is proxy-chain's per-SOCKET counter, and the same number comes back on
+        // `connectionClosed`, so an entry is added and removed exactly once per socket.
         const activeConnections = new Set();
         let rateWindowStartedAt = Date.now();
         let requestCount = 0;
+        const reject = (reason, host, detail) => {
+            try {
+                input.onRejected?.(reason, host, detail);
+            }
+            catch { /* reporting must never break the request path */ }
+        };
         const server = new Server({
             host: '127.0.0.1',
             port: 0,
             verbose: false,
             prepareRequestFunction: async (request) => {
+                const rawHost = `${request.hostname}:${request.port}`;
                 if (request.username !== input.username || request.password !== input.password) {
+                    reject('auth', rawHost);
                     return { requestAuthentication: true, failMsg: 'Proxy authentication required.' };
                 }
                 const now = Date.now();
@@ -287,21 +297,31 @@ export class DynamicProxyChainAdapter {
                     requestCount = 0;
                 }
                 requestCount += 1;
-                if (requestCount > input.requestsPerMinute)
+                if (requestCount > input.requestsPerMinute) {
+                    reject('rate_limit', rawHost, `${requestCount} requests this minute over a limit of ${input.requestsPerMinute}`);
                     throw new Error('Browser proxy request rate limit exceeded.');
+                }
                 if (!activeConnections.has(request.connectionId)) {
-                    if (activeConnections.size >= input.maxConcurrency)
+                    if (activeConnections.size >= input.maxConcurrency) {
+                        reject('concurrency_limit', rawHost, `${activeConnections.size} open connections at a limit of ${input.maxConcurrency}`);
                         throw new Error('Browser proxy concurrency limit exceeded.');
+                    }
                     activeConnections.add(request.connectionId);
                 }
-                const requestHostname = normalizedHostname(request.hostname);
-                const host = isIP(requestHostname) === 6 ? `[${requestHostname}]` : requestHostname;
-                const protocol = request.isHttp ? 'http:' : 'https:';
-                const target = await input.resolve(`${protocol}//${host}:${request.port}/`);
-                return {
-                    requestAuthentication: false,
-                    dnsLookup: createPinnedDnsLookup(target),
-                };
+                try {
+                    const requestHostname = normalizedHostname(request.hostname);
+                    const host = isIP(requestHostname) === 6 ? `[${requestHostname}]` : requestHostname;
+                    const protocol = request.isHttp ? 'http:' : 'https:';
+                    const target = await input.resolve(`${protocol}//${host}:${request.port}/`);
+                    return {
+                        requestAuthentication: false,
+                        dnsLookup: createPinnedDnsLookup(target),
+                    };
+                }
+                catch (error) {
+                    reject('policy', rawHost, error instanceof Error ? error.message : String(error));
+                    throw error;
+                }
             },
         });
         server.on?.('connectionClosed', ({ connectionId }) => {
@@ -317,6 +337,10 @@ export class DynamicProxyChainAdapter {
         };
     }
 }
+/** One warn line per reason per minute, per account. A page that trips the concurrency limit trips it on
+ *  dozens of images at once, so logging every rejection would bury the first — and the first is the one
+ *  that says what happened. */
+const REJECTION_LOG_WINDOW_MS = 60_000;
 export class EnforcingProxyManager {
     config;
     adapter;
@@ -324,6 +348,7 @@ export class EnforcingProxyManager {
     resolver;
     safePinningAvailable;
     leases = new Set();
+    rejectionLogs = new Map();
     constructor(config, adapter, logger, resolver = SYSTEM_RESOLVER) {
         this.config = config;
         this.adapter = adapter;
@@ -345,6 +370,7 @@ export class EnforcingProxyManager {
             maxConcurrency: this.config().proxyConcurrency,
             requestsPerMinute: this.config().proxyRequestsPerMinute,
             resolve: (url) => policy.resolve(url),
+            onRejected: (reason, host, detail) => this.logRejection(userId, reason, host, detail),
         });
         const lease = {
             url: server.url,
@@ -362,6 +388,24 @@ export class EnforcingProxyManager {
     async closeAll() {
         const leases = [...this.leases];
         this.leases.clear();
+        this.rejectionLogs.clear();
         await Promise.allSettled(leases.map((lease) => lease.close()));
+    }
+    /** Say why the proxy refused, because Chrome will not. Every rejection here reaches the page as a bare
+     *  `ERR_TUNNEL_CONNECTION_FAILED` — no host, no cause — so without this line a blocked address and an
+     *  exhausted connection budget are indistinguishable from the outside. */
+    logRejection(userId, reason, host, detail) {
+        const key = `${userId}:${reason}`;
+        const now = Date.now();
+        const previous = this.rejectionLogs.get(key);
+        if (previous && now - previous.loggedAt < REJECTION_LOG_WINDOW_MS) {
+            previous.suppressed += 1;
+            return;
+        }
+        const suppressed = previous?.suppressed ?? 0;
+        this.rejectionLogs.set(key, { loggedAt: now, suppressed: 0 });
+        const also = suppressed > 0 ? ` (${suppressed} more in the last minute)` : '';
+        const because = detail ? `: ${detail}` : '';
+        this.logger.warn(`browser proxy refused ${host} for user ${userId} [${reason}]${because}${also}`);
     }
 }

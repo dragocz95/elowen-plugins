@@ -19,8 +19,8 @@
     "maxChromeRssMb": { "label": "Paměť Chrome na účet" },
     "maxTargetsPerUser": { "label": "Cíle Chrome na účet", "hint": "Zahrnuje stránky, vyskakovací okna, workery a další cíle Chrome. Nové cíle nad limit se zavřou." },
     "network": { "label": "Síťová politika", "hint": "Veškerý provoz Chrome musí projít lokální proxy, která cílovou adresu vyřeší, schválí a připne ještě před připojením." },
-    "proxyConcurrency": { "label": "Souběžná spojení proxy" },
-    "proxyRequestsPerMinute": { "label": "Požadavky proxy za minutu" },
+    "proxyConcurrency": { "label": "Souběžná spojení proxy", "hint": "Kolik spojení smí mít Chrome současně otevřeno přes proxy. Jedna stránka s množstvím obrázků jich otevře desítky napříč svými CDN a každý požadavek nad limit skončí ve stránce jako ERR_TUNNEL_CONNECTION_FAILED s nenačtenými obrázky. Snižujte jen tehdy, když chcete účet záměrně přiškrtit." },
+    "proxyRequestsPerMinute": { "label": "Požadavky proxy za minutu", "hint": "Počet požadavků za minutu za celý účet. Běžné procházení webu jich spotřebuje několik stovek, takže nízká hodnota se projeví jako stránky, které se načtou jen zpola." },
     "privateNetworkAllowlist": { "label": "Povolené privátní sítě", "hint": "Přesné názvy hostitelů nebo rozsahy CIDR výslovně povolené pro lokální vývoj. Prázdná hodnota blokuje privátní, loopback, link-local a metadata sítě." }
   },
   "web": {
@@ -48,6 +48,7 @@
       "dismissNarration": "Skrýt zprávu agenta",
       "browserViewport": "Živý náhled prohlížeče",
       "waitingForUser": "Čeká se na váš vstup",
+      "agentWaiting": "Agent čeká, až mu vrátíte ovládání",
       "noAddress": "Adresa zatím není k dispozici",
       "back": "Zpět",
       "forward": "Vpřed",

@@ -70,10 +70,23 @@ const streamBody = [
   `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null, controlRevision: 0, favicon: 'data:image/png;base64,aGVsbG8=' })}\n\n`,
   `event: action\ndata: ${JSON.stringify({ action: 'click', target: 'Continue' })}\n\n`,
 ].join('');
-const requestedStreamBody = [
-  `event: session\ndata: ${JSON.stringify({ id: 'session-1', state: 'agent', lease: null })}\n\n`,
-  `event: control\ndata: ${JSON.stringify({ state: 'agent', reason: 'requested' })}\n\n`,
-].join('');
+/** An event stream a test pushes to one frame at a time, so a control change can arrive AFTER the card
+ *  has reacted to the one before it. A handoff is a sequence — the agent asks, the card claims, the
+ *  server confirms — and a body delivered in one piece cannot tell those steps apart. */
+function liveStream() {
+  let source!: ReadableStreamDefaultController<Uint8Array>;
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({ start: (controller) => { source = controller; } });
+  return {
+    response: () => new HttpResponse(body, { headers: { 'content-type': 'text/event-stream' } }),
+    push: async (event: string, data: unknown) => {
+      await act(async () => {
+        source.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    },
+  };
+}
 
 describe('browser plugin UI', () => {
   it('registers the chat artifact, settings and account surfaces on API 15', () => {
@@ -225,15 +238,82 @@ describe('browser plugin UI', () => {
     }
   });
 
-  it('keeps an agent-requested handoff claimable by the user', async () => {
-    use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(requestedStreamBody, { headers: { 'content-type': 'text/event-stream' } })));
+  it('takes an agent-requested handoff itself, leaving only the control that gives it back', async () => {
+    // Production report: the agent handed control over and the reader still had to press "Take control"
+    // before "Return to agent" appeared — being asked to accept something already given to them. The
+    // request IS the handoff, so the card claims the lease and offers the one control that is theirs.
+    let claims = 0;
+    const stream = liveStream();
+    use(
+      http.get('/api/plugins/browser/api/stream', () => stream.response()),
+      // Claiming advances the revision, exactly as `claimTakeover` does on the server.
+      http.post('/api/plugins/browser/api/takeover', () => {
+        claims += 1;
+        return HttpResponse.json({ leaseId: 'lease-handoff', expiresAt: Date.now() + 120_000, controlRevision: 2 });
+      }),
+      http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000, controlRevision: 2 })),
+    );
     mountArtifact();
-    // A requested handoff is a state, so it reaches the thumbnail as the dot's tone and its sr-only label.
-    expect(await screen.findByText(strings.waitingForUser)).toHaveClass('sr-only');
-    await waitFor(() => expect(document.querySelector('.browser-artifact__dot')).toHaveAttribute('data-tone', 'warning'));
-    expect(document.querySelector('.browser-artifact__waiting .spinner')).not.toBeNull();
-    expect(screen.getAllByRole('button', { name: strings.takeControl }).at(-1)).toBeEnabled();
-    expect(screen.queryByText(strings.controlledElsewhere)).toBeNull();
+    await stream.push('session', { id: 'session-1', state: 'agent', lease: null, controlRevision: 0 });
+    await stream.push('control', { state: 'agent', reason: 'requested', controlRevision: 1 });
+
+    await waitFor(() => expect(claims).toBe(1));
+    expect((await screen.findAllByRole('button', { name: strings.returnToAgent })).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: strings.takeControl })).toBeNull();
+
+    // The server keeps saying the agent is parked — `handed_over` rather than a cleared reason — so the
+    // button pulses and the activity line names who is waiting on it.
+    await stream.push('control', { state: 'user', reason: 'handed_over', controlRevision: 2, expiresAt: Date.now() + 120_000 });
+    await waitFor(() => expect(document.querySelector('.browser-artifact__return--waiting')).not.toBeNull());
+    fireEvent.click(await screen.findByRole('button', { name: strings.enlarge }));
+    expect((await screen.findAllByText(strings.agentWaiting)).length).toBeGreaterThan(0);
+
+    // One claim per control revision, however many frames repeat it.
+    await stream.push('control', { state: 'user', reason: 'handed_over', controlRevision: 2, expiresAt: Date.now() + 120_000 });
+    expect(claims).toBe(1);
+  });
+
+  it('does not fight another window for a handoff it lost, and never asks twice', async () => {
+    let attempts = 0;
+    const stream = liveStream();
+    use(
+      http.get('/api/plugins/browser/api/stream', () => stream.response()),
+      http.post('/api/plugins/browser/api/takeover', () => {
+        attempts += 1;
+        return HttpResponse.json({ error: 'Browser is already under user control.' }, { status: 409 });
+      }),
+    );
+    mountArtifact();
+    await stream.push('session', { id: 'session-1', state: 'agent', lease: null, controlRevision: 0 });
+    await stream.push('control', { state: 'agent', reason: 'requested', controlRevision: 1 });
+    await waitFor(() => expect(attempts).toBe(1));
+
+    // A refusal is an answer, not a transient failure. The card must not sit in a retry loop against a
+    // handoff another window already holds, and must not toast: the reader never asked for this claim.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(attempts).toBe(1);
+    expect(screen.queryByText(/already under user control/i)).toBeNull();
+
+    // Another window of this account claimed the same handoff first, and that window is the one driving.
+    await stream.push('control', { state: 'user', reason: 'handed_over', controlRevision: 2, expiresAt: Date.now() + 120_000 });
+    expect((await screen.findAllByRole('button', { name: strings.controlledElsewhere })).length).toBeGreaterThan(0);
+    expect(document.querySelector('.browser-artifact__return--waiting')).toBeNull();
+    expect(attempts).toBe(1);
+  });
+
+  it('leaves a takeover the reader started for their own reasons without the waiting pulse', async () => {
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/takeover', () => HttpResponse.json({ leaseId: 'lease-plain', expiresAt: Date.now() + 120_000, controlRevision: 1 })),
+      http.post('/api/plugins/browser/api/heartbeat', () => HttpResponse.json({ expiresAt: Date.now() + 120_000, controlRevision: 1 })),
+    );
+    mountArtifact();
+    await paint();
+    fireEvent.click((await screen.findAllByRole('button', { name: strings.takeControl })).at(-1)!);
+    expect((await screen.findAllByRole('button', { name: strings.returnToAgent })).length).toBeGreaterThan(0);
+    // No agent is parked, so nothing here should be asking to be pressed.
+    expect(document.querySelector('.browser-artifact__return--waiting')).toBeNull();
+    expect(screen.queryByText(strings.agentWaiting)).toBeNull();
   });
 
   it('keeps takeover tokens local, hands the lease to the live view and releases control', async () => {

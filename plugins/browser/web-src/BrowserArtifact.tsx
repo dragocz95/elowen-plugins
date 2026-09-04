@@ -169,6 +169,9 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const [lease, setLease] = useState<Lease | null>(() => (initialSessionId ? rememberedLease(initialSessionId) : null));
   /** A lease this mount adopted rather than claimed: it is checked with the server at once, below. */
   const adoptedLease = useRef<string | null>(lease?.leaseId ?? null);
+  /** The control revision this card already answered with an automatic takeover, so a hand-off is claimed
+   *  once and a refusal is never retried. */
+  const autoClaimed = useRef<number | null>(null);
   const [speechHidden, setSpeechHidden] = useState(false);
   /** Where the one live canvas is parked: the thumbnail while the card is collapsed, the raised surface
    *  while it is open. The canvas node itself is never rebuilt, only reparented. */
@@ -187,6 +190,10 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const favicon = stream.hasControlSnapshot ? stream.favicon : data?.favicon;
   const state = stream.closed ? 'closed' : lease ? 'user' : stream.hasControlSnapshot ? stream.control.state : data?.state ?? 'agent';
   const takeoverRequested = stream.control.state === 'agent' && stream.control.reason === 'requested';
+  /** The agent handed this session over and is parked until it is handed back. The server keeps saying so
+   *  through the claim — `handed_over` rather than a cleared reason — which is what separates "the agent
+   *  is waiting on you" from a takeover a person started for their own reasons. */
+  const agentAwaitingReturn = stream.control.state === 'user' && stream.control.reason === 'handed_over' && !!lease;
   /** What the agent is SAYING while you watch it browse (host API 14). The canvas covers the transcript,
    *  so without this the reply streams on underneath it. The host already bounds and clears the string —
    *  the plugin only decides whether there is anything to show. */
@@ -195,9 +202,13 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   /** The app is waiting on an answer and this canvas is covering the card that takes it (host API 15).
    *  Nothing about the question crosses the boundary — a line to show and a way back. */
   const waiting = pendingInput ?? null;
-  const action = stream.action
-    ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` · ${stream.action.target}` : ''}`
-    : takeoverRequested ? strings.waitingForUser || 'Waiting for user input' : data?.lastAction;
+  // A parked agent is a STATE, and it outranks whatever action it happened to finish before handing over:
+  // that stale line would otherwise sit there reading as though the agent were still working.
+  const action = agentAwaitingReturn
+    ? strings.agentWaiting || 'The agent is waiting for you to return control'
+    : stream.action
+      ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` · ${stream.action.target}` : ''}`
+      : takeoverRequested ? strings.waitingForUser || 'Waiting for user input' : data?.lastAction;
 
   useEffect(() => () => {
     if (speechTimer.current) clearTimeout(speechTimer.current);
@@ -245,6 +256,31 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
       setLease((current) => current?.leaseId === lease.leaseId ? null : current);
     }
   }, [lease, stream.control.controlRevision, stream.control.state]);
+  useEffect(() => {
+    // The agent asking for control IS the hand-off. Making the person press "Take control" first only to
+    // press "Return to agent" next asks them to accept something that was already given to them, so the
+    // card claims the lease itself and offers the one control that is actually theirs to press.
+    //
+    // Once per control revision, and never retried: a refusal here means another window of this account
+    // claimed the same hand-off first, and that window is the one driving. This card then shows what the
+    // server reports — "Controlled in another window" — rather than fighting it for the lease.
+    if (!sessionId || lease || stream.closed || !takeoverRequested) return;
+    const revision = stream.control.controlRevision;
+    if (autoClaimed.current === revision) return;
+    autoClaimed.current = revision;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const claimed = await runtime().api(inputPath(sessionId, 'takeover'), jsonRequest('POST')) as Lease | null;
+        if (cancelled || !claimed || typeof claimed.leaseId !== 'string') return;
+        setLease(claimed);
+      } catch {
+        // Deliberately silent. This claim is the card's own initiative, not something the reader asked
+        // for, so a lost race must not raise an error toast at them.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [lease, sessionId, stream.closed, stream.control.controlRevision, takeoverRequested]);
   useEffect(() => {
     // Handing the reader back to the question card is TWO moves in a fixed order, and running them in one
     // go got the order wrong: `reveal` focused the card, and then the closing overlay's own cleanup —
@@ -406,7 +442,19 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
 
   /** One control for who is driving, in the same shape on both surfaces. */
   const controlAction = (): ReactNode => state === 'user' && lease
-    ? <Button variant="accent" icon={ShieldCheck} onClick={() => { void releaseControl(); }} disabled={pending !== null}>{strings.returnToAgent || 'Return to agent'}</Button>
+    ? (
+      <Button
+        variant="accent"
+        icon={ShieldCheck}
+        // The pulse marks a session that is WAITING on this button, and only that. A takeover a person
+        // started for their own reasons gets the same control without the animation.
+        className={agentAwaitingReturn ? 'browser-artifact__return--waiting' : undefined}
+        onClick={() => { void releaseControl(); }}
+        disabled={pending !== null}
+      >
+        {strings.returnToAgent || 'Return to agent'}
+      </Button>
+    )
     : state === 'user'
       ? <Button variant="ghost" icon={Hand} disabled>{strings.controlledElsewhere || 'Controlled in another window'}</Button>
       : <Button variant="ghost" icon={Hand} onClick={() => { void takeControl(); }} disabled={pending !== null || stream.closed}>{strings.takeControl || 'Take control'}</Button>;

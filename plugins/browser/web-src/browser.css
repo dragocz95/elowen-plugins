@@ -403,6 +403,20 @@
   to { opacity: 1; }
 }
 
+/* The agent is parked, and this button is the thing that unparks it. A spreading halo rather than a scale
+   or an opacity blink: the control sits in a settled row of caption text, and anything that dimmed or
+   resized it would read as the button going unavailable — the opposite of what it is saying. A box-shadow
+   animates off the main thread, so it costs nothing beside a live VNC canvas. */
+@keyframes browser-return-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary, #ff5236) 55%, transparent); }
+  70% { box-shadow: 0 0 0 .35rem transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.browser-artifact__return--waiting {
+  animation: browser-return-pulse 1.9s ease-out infinite;
+}
+
 /* A phone gives the canvas every pixel it can use — there is no context worth keeping visible around a
    surface that would otherwise be 280px wide. The address leaves the controls with it: on a screen this
    size the image needs the room, and the thumbnail's caption already names the site. */
@@ -433,4 +447,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   .browser-artifact__overlay { animation: none; }
+  /* The waiting state still has to READ as waiting without the movement, so the halo stays — it simply
+     stops breathing. */
+  .browser-artifact__return--waiting {
+    animation: none;
+    box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--color-primary, #ff5236) 45%, transparent);
+  }
 }

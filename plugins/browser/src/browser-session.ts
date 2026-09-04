@@ -443,20 +443,33 @@ export class BrowserSession {
     if (this.lease && this.lease.expiresAt > this.deps.clock.now()) throw new Error('Browser is already under user control.');
     const now = this.deps.clock.now();
     const controlRevision = ++this.controlRevisionValue;
-    this.controlReasonValue = null;
+    // A takeover that ANSWERS the agent's own hand-off keeps saying so. Clearing the reason here would
+    // erase the one fact the card needs afterwards: the agent is parked, waiting to be given control back.
+    this.controlReasonValue = this.controlReasonValue === 'requested' ? 'handed_over' : null;
     this.lease = {
       leaseId: randomBytes(24).toString('base64url'),
       claimedAt: now,
       expiresAt: Math.min(now + this.deps.config().takeoverLeaseMs, this.hardExpiresAt),
     };
     this.stateValue = 'user';
+    // From here a tab this person opens by hand belongs to THIS session, whichever one the agent
+    // happened to drive most recently.
+    this.deps.tabs.markUserControl(this.id);
     this.scheduleLeaseExpiry();
     this.deps.logger.info(`browser session ${this.id} control → user (revision ${controlRevision}, lease until ${new Date(this.lease.expiresAt).toISOString()})`);
     this.touch('User took control');
     this.persist({ state: 'user' });
     // The lease id is returned only to the claimant. Broadcasting it would let an older modal adopt and
     // release a newer claim, defeating the generation guarantee the opaque token exists to provide.
-    this.emit({ kind: 'control', data: { state: 'user', expiresAt: this.lease.expiresAt, controlRevision } });
+    this.emit({
+      kind: 'control',
+      data: {
+        state: 'user',
+        expiresAt: this.lease.expiresAt,
+        controlRevision,
+        ...(this.controlReasonValue ? { reason: this.controlReasonValue } : {}),
+      },
+    });
     // The artifact is a cosmetic projection. Awaiting it here would put page I/O back on the path that
     // must stay instant, so it runs beside the claim and can only ever be late, never blocking.
     void this.updateArtifact().catch(() => {});
@@ -854,6 +867,7 @@ export class BrowserSession {
     const controlRevision = ++this.controlRevisionValue;
     this.controlReasonValue = reason;
     this.lease = null;
+    this.deps.tabs.clearUserControl(this.id);
     this.clearLeaseTimer();
     this.snapshotValue = null;
     if (this.stateValue !== 'closing' && this.stateValue !== 'closed' && this.stateValue !== 'error') this.stateValue = 'agent';

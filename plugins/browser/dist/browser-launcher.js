@@ -255,6 +255,9 @@ export class BrowserPool {
         this.cancelClose(userId);
         if (managed.sessionIds.has(sessionId))
             throw new Error('Browser session already owns a page.');
+        // Chrome announces the target before `registerPrimary` can claim it. Without this window the tab
+        // manager would see an opener-less page and adopt this session's own primary into another session.
+        const releasePrimary = managed.tabs.expectPrimary();
         try {
             const page = await managed.browser.newPage();
             await installProxyAuthentication(page, managed.proxy);
@@ -271,6 +274,9 @@ export class BrowserPool {
             if (managed.sessionIds.size === 0)
                 await this.closeUser(userId);
             throw error;
+        }
+        finally {
+            releasePrimary();
         }
     }
     async releasePage(userId, sessionId) {

@@ -6,10 +6,11 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createConnection, createServer } from 'node:net';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import type { PluginDb } from 'elowen/plugin-api';
 import { requireBrowserToolOwner } from '../plugins/browser/src/ownership.js';
 import {
-  DynamicProxyChainAdapter, NavigationPolicy, NavigationPolicyError, type HostResolver,
+  DynamicProxyChainAdapter, EnforcingProxyManager, NavigationPolicy, NavigationPolicyError, type HostResolver,
   type ProxyChainPrepareRequest, type ProxyChainPrepareResult, type ProxyChainServerLike,
 } from '../plugins/browser/src/navigation-policy.js';
 import { resolveConfig, type BrowserConfig } from '../plugins/browser/src/config.js';
@@ -284,14 +285,14 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.3.2, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.3.3, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
       version: string; userGrantable: boolean; entry: string;
       provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.3.2');
+    expect(manifest.version).toBe('0.3.3');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
     expect(manifest.provides.apiRoutes).toHaveLength(12);
@@ -553,6 +554,281 @@ describe('browser network policy', () => {
     ];
     await expect(new NavigationPolicy([], { resolve: async () => addresses }).resolve('https://example.com'))
       .rejects.toThrow(/blocked network/);
+  });
+});
+
+describe('browser human-opened tabs', () => {
+  /** A target exactly as Chrome reports one for Ctrl+T, the + button or "open in new window": a page with
+   *  no opener. This is what the tab strip produces, and what used to be closed after five seconds. */
+  const humanTarget = (page: FakePage) => page.target();
+  const openedBy = (page: FakePage, opener: FakePage) => ({ ...page.target(), opener: () => opener.target() });
+
+  const stand = (maxTargets = 12) => {
+    const browser = new FakeBrowser();
+    const warnings: string[] = [];
+    const infos: string[] = [];
+    const log: BrowserLogger = {
+      debug: () => {}, info: (message) => { infos.push(message); }, warn: (message) => { warnings.push(message); }, error: () => {},
+    };
+    return { browser, tabs: new TabManager(browser, () => maxTargets, log), warnings, infos };
+  };
+
+  it('adopts a tab the person opened instead of closing it under them', async () => {
+    // The production report: opening a tab by hand in the shared Chrome had it vanish a moment later,
+    // logged as "browser opened an unowned page target; it was closed". That policy was written for a
+    // headless browser where every target belonged to the agent; this Chrome is a screen a person uses.
+    const { browser, tabs, infos } = stand();
+    tabs.registerPrimary('session-a', new FakePage());
+    const opened = new FakePage();
+    browser.emit('targetcreated', humanTarget(opened));
+    await tick();
+
+    const listed = await tabs.list('session-a');
+    expect(listed).toHaveLength(2);
+    expect(opened.isClosed()).toBe(false);
+    // It is a tab like any other: listed, active, and selectable by the agent.
+    expect(listed.at(-1)).toMatchObject({ targetId: opened.id, openerTargetId: null, active: true });
+    expect(tabs.select('session-a', listed.at(-1)!.id)).toBe(opened);
+    expect(infos.some((line) => /adopted a user-opened tab/.test(line))).toBe(true);
+  });
+
+  it('gives the tab to the session whose lease the person holds, not the one driven most recently', async () => {
+    const { browser, tabs } = stand();
+    tabs.registerPrimary('session-a', new FakePage());
+    const bPrimary = new FakePage();
+    const bTab = tabs.registerPrimary('session-b', bPrimary);
+    tabs.markUserControl('session-a');
+    // session-b is now the most recently driven, so recency alone would put the tab there. The hands on
+    // the keyboard belong to session-a's lease holder, and that is whose tab this is.
+    tabs.select('session-b', bTab);
+
+    browser.emit('targetcreated', humanTarget(new FakePage()));
+    await tick();
+    expect(await tabs.list('session-a')).toHaveLength(2);
+    expect(await tabs.list('session-b')).toHaveLength(1);
+  });
+
+  it('falls back to the most recently driven session once control goes back to the agent', async () => {
+    const { browser, tabs } = stand();
+    tabs.registerPrimary('session-a', new FakePage());
+    const bTab = tabs.registerPrimary('session-b', new FakePage());
+    tabs.markUserControl('session-a');
+    tabs.clearUserControl('session-a');
+    tabs.select('session-b', bTab);
+
+    browser.emit('targetcreated', humanTarget(new FakePage()));
+    await tick();
+    expect(await tabs.list('session-b')).toHaveLength(2);
+    expect(await tabs.list('session-a')).toHaveLength(1);
+  });
+
+  it('still closes a page target when the account has no live session to adopt it', async () => {
+    vi.useFakeTimers();
+    const { browser, warnings } = stand();
+    const orphan = new FakePage();
+    browser.emit('targetcreated', humanTarget(orphan));
+    // Let the handler settle and arm its timer before the clock moves past it.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(orphan.isClosed()).toBe(false);
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    expect(orphan.isClosed()).toBe(true);
+    expect(warnings.some((line) => /no live session to adopt it/.test(line))).toBe(true);
+  });
+
+  it('makes room over the target limit by closing the oldest tab nobody is looking at', async () => {
+    // Closing the tab a person just opened is the one eviction that reads as a bug rather than a limit.
+    const { browser, tabs, warnings } = stand(2);
+    const oldest = new FakePage();
+    const active = new FakePage();
+    tabs.registerPrimary('session-a', oldest);
+    tabs.registerPrimary('session-a', active);
+    const opened = new FakePage();
+    browser.emit('targetcreated', humanTarget(opened));
+    await tick();
+
+    expect(oldest.isClosed()).toBe(true);
+    expect(opened.isClosed()).toBe(false);
+    expect((await tabs.list('session-a')).map((tab) => tab.targetId)).toEqual([active.id, opened.id]);
+    expect(warnings.some((line) => /oldest inactive tab/.test(line))).toBe(true);
+  });
+
+  it('closes the newest target when the session has no idle tab to give up', async () => {
+    const { browser, tabs, warnings } = stand(1);
+    const only = new FakePage();
+    tabs.registerPrimary('session-a', only);
+    const opened = new FakePage();
+    browser.emit('targetcreated', humanTarget(opened));
+    await tick();
+
+    expect(opened.isClosed()).toBe(true);
+    expect(only.isClosed()).toBe(false);
+    expect(await tabs.list('session-a')).toHaveLength(1);
+    expect(warnings.some((line) => /closed the newest target/.test(line))).toBe(true);
+  });
+
+  it('prepares an adopted tab exactly like one the agent opened, so proxy auth is installed on it', async () => {
+    // Without `preparePage` the tab has no Fetch.authRequired handler, the proxy answers 407, and Chrome
+    // reports the same ERR_TUNNEL_CONNECTION_FAILED as a blocked address.
+    const browser = new FakeBrowser();
+    const prepared: PageLike[] = [];
+    const tabs = new TabManager(browser, () => 12, logger, async (page) => { prepared.push(page); });
+    tabs.registerPrimary('session-a', new FakePage());
+    const opened = new FakePage();
+    browser.emit('targetcreated', humanTarget(opened));
+    await tick();
+
+    expect(prepared).toContain(opened);
+    expect(await tabs.list('session-a')).toHaveLength(2);
+  });
+
+  it('still files a popup under the tab that opened it', async () => {
+    const { browser, tabs } = stand();
+    const primary = new FakePage();
+    tabs.registerPrimary('session-a', primary);
+    const popup = new FakePage();
+    browser.emit('targetcreated', openedBy(popup, primary));
+    await tick();
+
+    expect((await tabs.list('session-a')).at(-1)).toMatchObject({ targetId: popup.id, openerTargetId: primary.id });
+  });
+
+  it('does not file a starting session\'s own first page under the session already running', async () => {
+    // Chrome announces the target before `registerPrimary` can claim it. Adopting in that window would
+    // put a new session's primary tab into a different session, and leave two entries for one target.
+    const { browser, tabs } = stand();
+    tabs.registerPrimary('session-a', new FakePage());
+    const release = tabs.expectPrimary();
+    const primaryB = new FakePage();
+    browser.emit('targetcreated', humanTarget(primaryB));
+    await tick();
+    expect(await tabs.list('session-a')).toHaveLength(1);
+
+    tabs.registerPrimary('session-b', primaryB);
+    release();
+    expect(await tabs.list('session-b')).toHaveLength(1);
+    expect(await tabs.list('session-a')).toHaveLength(1);
+  });
+});
+
+describe('browser egress proxy', () => {
+  /** A real proxy-chain 3.0 server with a real origin behind it. The concurrency accounting is the thing
+   *  under test and it lives in proxy-chain's connection lifecycle, so a fake server would test nothing. */
+  async function egressStand(options: { maxConcurrency: number; requestsPerMinute?: number; allowlist?: string[]; slowMs?: number }) {
+    const origin = createHttpServer((_request, response) => {
+      const send = () => { response.writeHead(200); response.end('ok'); };
+      if (options.slowMs) setTimeout(send, options.slowMs);
+      else send();
+    });
+    await new Promise<void>((resolve) => origin.listen(0, '127.0.0.1', () => resolve()));
+    const originPort = (origin.address() as { port: number }).port;
+    const policy = new NavigationPolicy(options.allowlist ?? ['127.0.0.0/8']);
+    const rejections: { reason: string; host: string }[] = [];
+    const proxy = await new DynamicProxyChainAdapter().createServer({
+      username: 'proxy-user', password: 'proxy-secret',
+      maxConcurrency: options.maxConcurrency,
+      requestsPerMinute: options.requestsPerMinute ?? 6_000,
+      resolve: (url) => policy.resolve(url),
+      onRejected: (reason, host) => { rejections.push({ reason, host }); },
+    });
+    const proxyPort = Number(new URL(proxy.url).port);
+    const auth = `Basic ${Buffer.from('proxy-user:proxy-secret').toString('base64')}`;
+    /** One request through the proxy on a socket of its own, which is what a browser opening many
+     *  connections to many hosts actually produces. */
+    const fetchThroughProxy = (path: string) => new Promise<number>((resolve) => {
+      const call = httpRequest({
+        host: '127.0.0.1', port: proxyPort, method: 'GET',
+        path: `http://127.0.0.1:${originPort}${path}`,
+        headers: { 'proxy-authorization': auth, host: `127.0.0.1:${originPort}`, connection: 'close' },
+        agent: false,
+      }, (response) => { response.resume(); response.on('end', () => resolve(response.statusCode ?? 0)); });
+      call.on('error', () => resolve(0));
+      call.end();
+    });
+    const close = async () => {
+      await proxy.close();
+      await new Promise<void>((resolve) => origin.close(() => resolve()));
+    };
+    return { fetchThroughProxy, rejections, close };
+  }
+
+  it('releases a connection when it closes, so the thirtieth page load still gets through', async () => {
+    // The production symptom was images that never loaded and a manually opened tab showing
+    // ERR_TUNNEL_CONNECTION_FAILED. A concurrency set that only ever grew would explain both — every
+    // request after the limit would fail forever — so this pins the release down against the real library.
+    const stand = await egressStand({ maxConcurrency: 4 });
+    const statuses: number[] = [];
+    for (let index = 0; index < 30; index += 1) {
+      statuses.push(await stand.fetchThroughProxy(`/r${index}`));
+      // The release rides on the socket's close event, which lands a turn after the response ends.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(statuses.filter((status) => status === 200)).toHaveLength(30);
+    expect(stand.rejections).toEqual([]);
+    await stand.close();
+  }, 30_000);
+
+  it('refuses only what is over the limit, and takes the budget back when those connections close', async () => {
+    const stand = await egressStand({ maxConcurrency: 4, slowMs: 300 });
+    const results = await Promise.all(Array.from({ length: 10 }, (_, index) => stand.fetchThroughProxy(`/p${index}`)));
+    expect(results.filter((status) => status === 200)).toHaveLength(4);
+    // Over the limit proxy-chain answers the tunnel with a non-200, which is the whole of what Chrome
+    // can report as ERR_TUNNEL_CONNECTION_FAILED — with no host and no cause anywhere in the page.
+    expect(results.filter((status) => status !== 200)).toHaveLength(6);
+    expect(stand.rejections.every((entry) => entry.reason === 'concurrency_limit')).toBe(true);
+    expect(stand.rejections[0]!.host).toContain('127.0.0.1');
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await stand.fetchThroughProxy('/after')).toBe(200);
+    await stand.close();
+  }, 30_000);
+
+  it('reports a destination the policy refused as a policy refusal rather than a limit', async () => {
+    // An empty allowlist puts loopback back behind the navigation policy, which is the same path a
+    // blocked public address takes.
+    const stand = await egressStand({ maxConcurrency: 8, allowlist: [] });
+    expect(await stand.fetchThroughProxy('/blocked')).not.toBe(200);
+    expect(stand.rejections.map((entry) => entry.reason)).toContain('policy');
+    await stand.close();
+  }, 30_000);
+
+  it('sizes the egress budget for a person browsing, not for one agent fetch at a time', () => {
+    // 24 connections is fewer than one image-heavy page opens across its CDNs, and the failure mode is
+    // silent: the page renders with holes where the images were.
+    const defaults = resolveConfig({});
+    expect(defaults.proxyConcurrency).toBeGreaterThanOrEqual(64);
+    expect(defaults.proxyRequestsPerMinute).toBeGreaterThanOrEqual(3_000);
+  });
+
+  it('says which host was refused and why, at most once a minute per reason', async () => {
+    // Chrome shows the reader one string for a blocked address, an exhausted budget and a failed
+    // handshake alike, so this line is the only place the difference survives. It is rate limited
+    // because one page over the limit trips it on dozens of images at once.
+    const warnings: string[] = [];
+    const log: BrowserLogger = { debug: () => {}, info: () => {}, warn: (message) => { warnings.push(message); }, error: () => {} };
+    let report!: (reason: 'auth' | 'rate_limit' | 'concurrency_limit' | 'policy', host: string, detail?: string) => void;
+    const adapter = {
+      available: true,
+      dependencyAvailable: async () => true,
+      createServer: async (input: { onRejected?: typeof report }) => {
+        report = input.onRejected!;
+        return { url: 'http://127.0.0.1:1', close: async () => {} };
+      },
+    };
+    const manager = new EnforcingProxyManager(() => config(), adapter as never, log);
+    await manager.open(7);
+
+    report('concurrency_limit', 'cdn.example.com:443', '96 open connections at a limit of 96');
+    report('concurrency_limit', 'img.example.com:443');
+    report('policy', 'blocked.example.com:443', 'The destination resolves to a blocked network address.');
+
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain('cdn.example.com:443');
+    expect(warnings[0]).toContain('concurrency_limit');
+    expect(warnings[0]).toContain('user 7');
+    expect(warnings[1]).toContain('blocked.example.com:443');
+    expect(warnings[1]).toContain('policy');
+    await manager.closeAll();
   });
 });
 
@@ -942,6 +1218,21 @@ describe('browser web artifact build', () => {
     // Keyed on the pointer, not the viewport: a touch laptop needs it, a narrow desktop window does not.
     const phone = css.slice(css.indexOf('@media (max-width: 767px)'), css.indexOf('@media (pointer: coarse)'));
     expect(phone).not.toContain('2.5rem');
+  });
+
+  it('pulses the return control while an agent waits, and holds still when motion is unwelcome', () => {
+    const css = stylesheet();
+    expect(css).toContain('@keyframes browser-return-pulse');
+    const waiting = rule(css, '.browser-artifact__return--waiting');
+    expect(waiting).toContain('animation: browser-return-pulse');
+    // A halo, not a scale or an opacity blink: this control sits in a row of settled caption text, and
+    // anything that dimmed or resized it would read as the button going unavailable.
+    expect(waiting).not.toContain('transform');
+    expect(waiting).not.toContain('opacity');
+    const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(reduced).toMatch(/\.browser-artifact__return--waiting \{[^}]*animation: none/);
+    // The state still has to READ as waiting without the movement, so the halo stays and stops breathing.
+    expect(reduced).toMatch(/\.browser-artifact__return--waiting \{[^}]*box-shadow:/);
   });
 
   it('reads the narration without taking the pointer away from the page', () => {
@@ -1335,6 +1626,34 @@ describe('browser takeover state machine', () => {
     expect(session.state).toBe('agent');
     expect(session.currentLease).toBeNull();
     expect(events.at(-1)).toMatchObject({ kind: 'control', data: { state: 'agent', reason: 'cancelled' } });
+    await session.close();
+  });
+
+  it('keeps saying the agent is waiting after the handoff it asked for is claimed', async () => {
+    // The card claims the lease itself the moment the agent hands over, so the person is offered "Return
+    // to agent" rather than "Take control" followed by "Return". Clearing the reason on claim erased the
+    // one fact that makes the difference: whether an agent is parked waiting to be given control back.
+    const { session, events } = await createSession();
+    const requested = session.requestTakeoverForAgent();
+    void requested.catch(() => {});
+    await tick();
+    expect(session.controlReason).toBe('requested');
+
+    const lease = await session.claimTakeover();
+    expect(session.state).toBe('user');
+    expect(session.controlReason).toBe('handed_over');
+    expect(events.at(-1)).toMatchObject({ kind: 'control', data: { state: 'user', reason: 'handed_over' } });
+
+    await session.releaseTakeover(lease.leaseId);
+    await requested;
+    expect(session.controlReason).toBe('released');
+
+    // A takeover a person started for their own reasons still carries no reason at all, which is what
+    // keeps the pulsing "the agent is waiting" treatment off an ordinary manual takeover.
+    const plain = await session.claimTakeover();
+    expect(session.controlReason).toBeNull();
+    expect(events.at(-1).data).not.toHaveProperty('reason');
+    await session.releaseTakeover(plain.leaseId);
     await session.close();
   });
 
