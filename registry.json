@@ -57,7 +57,7 @@
     },
     {
       "name": "editor",
-      "version": "0.3.5",
+      "version": "0.3.6",
       "description": "Project file editor with Monaco, file management, previews for Markdown, images, PDF, media, Office and CSV files, a binary download fallback, and read-only Git history. Administrators may also browse and edit persisted host files through the System (/) root; kernel virtual filesystems are excluded. Disabling it removes the editor UI and makes its grandfathered file API unavailable while project registration and task Git history remain available.",
       "category": "tools",
       "author": "Elowen",
