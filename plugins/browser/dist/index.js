@@ -63,7 +63,7 @@ export function register(ctx, deps = {}) {
     registerBrowserApi(ctx, registry, () => browserDependencyReport(dependencyInput), core && transport ? { core, transport } : null);
     ctx.registerReadinessCheck(() => browserReadiness(dependencyInput));
     ctx.registerBootReconcile(() => registry.bootReconcile());
-    const runtimeService = {
+    ctx.registerService({
         name: 'browser-runtime',
         criticalStop: true,
         start: () => service.start(),
@@ -74,8 +74,7 @@ export function register(ctx, deps = {}) {
             await service.stop();
             await displays.releaseAll();
         },
-    };
-    ctx.registerService(runtimeService);
+    });
     ctx.registerInterval('browser-session-cleanup', () => service.cleanup(), 30_000);
     ctx.registerUserRemoved((userId) => registry.deleteUser(userId));
     ctx.logger.info('browser plugin registered');
