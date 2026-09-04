@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { chmodSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
@@ -790,7 +790,7 @@ test('authenticated site API updates command and bind settings under the instanc
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {} } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example' } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db);
   const registered = new Map();
@@ -819,7 +819,7 @@ const toolHarness = (t, { projects, people: roster, configRaw = {} } = {}) => {
     ctx,
     store,
     access: { isAdmin: () => false, canAccessProject: () => true, accountExists: () => true },
-    config: () => resolveConfig(configRaw, 'https://elowen.example', 'sites.elowen.example'),
+    config: () => resolveConfig(configRaw, 'https://elowen.example', gatewayHost),
     people: () => new Map(accounts.map((person) => [person.id, person])),
     siteDir: (id) => join(dir, 'sites', id),
     releaseDir: (id, releaseId) => join(dir, 'sites', id, releaseId),
@@ -837,6 +837,15 @@ test('a created site tells the agent the identifier the other tools demand', asy
   assert.ok(created.details.siteId, 'the id must be a structured field, not something to parse out of prose');
   assert.match(body, new RegExp(created.details.siteId), 'and it must be visible in the text too');
   assert.equal(created.details.slug, created.details.slug.toLowerCase());
+});
+
+test('SiteCreate refuses an instance with no site address before creating anything', async (t) => {
+  // The refusal used to fire while building the SUCCESS text, after the row and folder existed: the
+  // agent read a failure while every retry leaked another site towards the per-account limit.
+  const harness = toolHarness(t, { gatewayHost: null });
+  await assert.rejects(() => harness.call('SiteCreate', { title: 'No address here' }), /HTTPS domain/);
+  assert.deepEqual(harness.store.allSites(), [], 'a refused create must not persist a site row');
+  assert.equal(existsSync(join(harness.dir, 'project', 'sites')), false, 'not even the source folder may appear');
 });
 
 test('a site answers to its slug as readily as to its id', async (t) => {

@@ -277,6 +277,10 @@ export function registerTools(deps: ToolDeps): void {
         let slug = slugify(input.title);
         while (store.slugTaken(slug)) slug = slugify(input.title);
 
+        // Decided before anything is written: on an instance with no site hostname this refusal must
+        // not leave a half-made site row and source folder behind for every retry to duplicate.
+        const address = addressOf(config, slug);
+
         const { dir, projectId } = resolveSourceRoot(ctx, slug);
         let allowed: string;
         try {
@@ -329,7 +333,7 @@ export function registerTools(deps: ToolDeps): void {
           `Write the project here: ${allowed}`,
           'For an isolated Git worktree, create and activate a Sandbox workspace before SiteCreate; Sites automatically uses the active workspace.',
           `Configure the build with base path: ${SITE_BASE_PATH}`,
-          `It will be published at: ${addressOf(config, slug)}`,
+          `It will be published at: ${address}`,
           '',
           ...(runtime === 'environment'
             ? [
@@ -364,7 +368,7 @@ export function registerTools(deps: ToolDeps): void {
             ]),
         ].join('\n'), {
           siteId: site.id, slug: site.slug, sourceDir: allowed,
-          basePath: SITE_BASE_PATH, url: addressOf(config, slug), visibility: site.visibility,
+          basePath: SITE_BASE_PATH, url: address, visibility: site.visibility,
           runtime: site.runtime, bind: site.bind, port: site.port,
           ...(site.runtime === 'environment' ? {
             desiredState: site.environmentDesiredState,
