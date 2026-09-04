@@ -1,5 +1,5 @@
 {
-  "description": "Zverejnite stránku, ktorú agent vytvoril – prehľad, report, prezentačný web – na skutočnej adrese tejto inštancie a rozhodnite, kto ju smie otvoriť: len vy, ľudia z projektu, ktorýkoľvek prihlásený účet, menovite pozvaní hostia, alebo úplne všetci. Agent stavia vlastnými nástrojmi a odovzdáva hotový výstup; každé zverejnenie je samostatná verzia, ku ktorej sa dá vrátiť.",
+  "description": "Zverejňujte statické stránky, command a PHP aplikácie alebo prevádzkujte doplnkové trvalé rootless prostredia so systemd, obmedzenými prostriedkami a vstupným socketom spravovaným hostiteľom. Každá stránka si zachováva vlastnú adresu a pravidlá viditeľnosti.",
   "fields": {
     "publishing": {
       "label": "Zverejňovanie"
@@ -59,12 +59,20 @@
       "label": "Behové prostredia stránok"
     },
     "allowCommandRuntime": {
-      "label": "Povoliť behové prostredia",
-      "hint": "Umožní, aby stránka bola bežiaci server – Node, Bun, Python alebo TypeScript – za privátnym unixovým socketom alebo výslovne povoleným loopback portom, prípadne aby spúšťala PHP cez PHP-CGI."
+      "label": "Povoliť command a PHP runtime",
+      "hint": "Umožní zverejnenej verzii spúšťať Node, Bun, Python alebo TypeScript za privátnym unixovým socketom či výslovne povoleným loopback portom, prípadne PHP cez PHP-CGI."
     },
     "allowEnvironments": {
       "label": "Povoliť trvalé prostredia",
       "hint": "Umožní Sites prevádzkovať trvalé rootless Podman prostredia so systemd, súkromným koreňovým súborovým systémom a jediným vstupným socketom spravovaným hostiteľom."
+    },
+    "environmentNetwork": {
+      "label": "Sieť prostredia",
+      "hint": "Odchádzajúci internet používa rootless slirp4netns so zakázaným loopbackom hostiteľa. Režim bez siete neposkytne prostrediu žiadne sieťové rozhranie okrem vlastného loopbacku.",
+      "options": {
+        "shared": "Odchádzajúci internet",
+        "isolated": "Bez siete"
+      }
     },
     "environmentCpus": {
       "label": "Procesory prostredia",
@@ -87,7 +95,7 @@
       "hint": "Koľko trvalých prostredí smie jeden účet uchovávať. Počítajú sa oddelene od bežných stránok."
     },
     "runtimeNetwork": {
-      "label": "Sieť behového prostredia",
+      "label": "Sieť command a PHP runtime",
       "hint": "Zdieľaná sieť umožní serverom bežný odchádzajúci internet a prístup k sieťovým službám viditeľným z hostiteľa. Proces nedostane Elowen token ani tajné prostredie daemona.",
       "options": {
         "isolated": "Bez siete",

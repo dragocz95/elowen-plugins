@@ -26,7 +26,9 @@ PrivateTmp=true
 NoNewPrivileges=true
 `;
 
-export const CONTAINERFILE = `FROM debian:bookworm-slim
+export const BASE_IMAGE_SOURCE = 'docker.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171';
+
+export const CONTAINERFILE = `FROM ${BASE_IMAGE_SOURCE}
 ENV container=podman
 RUN apt-get update \\
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \\

@@ -13,7 +13,7 @@ const LOG_CAP_BYTES = 256 * 1024;
 
 interface EnvironmentConfig {
   startTimeoutSeconds: number;
-  runtimeNetwork: 'isolated' | 'shared';
+  environmentNetwork: 'isolated' | 'shared';
   environmentCpus: number;
   environmentMemoryMb: number;
   environmentPidsLimit: number;
@@ -28,7 +28,8 @@ interface EnvironmentGateway {
 
 export interface EnvironmentDeps {
   podman: Pick<PodmanClient,
-    'inspectStatus' | 'create' | 'start' | 'stop' | 'kill' | 'remove' | 'removeVolume' | 'unshareRemove' | 'ps'>;
+    'inspectStatus' | 'ensureVolume' | 'create' | 'update' | 'start' | 'stop' | 'kill' | 'remove' |
+    'removeVolume' | 'unshareRemove' | 'ps'>;
   store: Pick<SitesStore, 'siteById' | 'liveEnvironmentSites' | 'updateSite'>;
   gateway: EnvironmentGateway;
   config(): EnvironmentConfig;
@@ -185,23 +186,26 @@ export class EnvironmentSupervisor {
     const endpoint: Endpoint = { kind: 'socket', path: prepared.path };
 
     try {
+      const limits = this.limits(site);
       if (status === null) {
         const image = await this.deps.ensureBaseImage();
         const files = this.writeEnvironmentFiles(site);
-        const limits = this.limits(site);
+        const volume = volumeName(site.id);
+        await this.deps.podman.ensureVolume(volume, site.id);
         await this.deps.podman.create({
           name,
           siteId: site.id,
           ...limits,
-          network: this.deps.config().runtimeNetwork,
+          network: this.deps.config().environmentNetwork,
           envFile: files.envFile,
           workspace: site.sourceDir,
           gitStub: files.gitStub,
           brokerDir: dirname(prepared.path),
-          volume: volumeName(site.id),
+          volume,
           image,
         });
       }
+      await this.deps.podman.update(name, limits);
       await this.deps.podman.start(name);
       const ready = await this.waitForReady(endpoint, this.deps.config().startTimeoutSeconds * 1_000);
       if (!ready) throw new Error(`the environment did not expose ${prepared.path} in time`);

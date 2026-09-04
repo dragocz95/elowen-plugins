@@ -64,6 +64,7 @@ export function resolveConfig(raw, publicWebUrl, gatewayHostBase = null) {
         sessionTtlHours: bounded(raw.sessionTtlHours, 12, 1, 720),
         allowCommandRuntime: raw.allowCommandRuntime === true,
         allowEnvironments: raw.allowEnvironments === true,
+        environmentNetwork: raw.environmentNetwork === 'isolated' ? 'isolated' : 'shared',
         environmentCpus: boundedFloat(raw.environmentCpus, 1, 0.25, 8),
         environmentMemoryMb: bounded(raw.environmentMemoryMb, 1024, 128, 32768),
         environmentPidsLimit: bounded(raw.environmentPidsLimit, 512, 16, 4096),

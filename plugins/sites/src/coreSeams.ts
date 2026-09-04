@@ -47,19 +47,17 @@ export interface SitesGatewayStatus {
   slugs?: string[];
 }
 
-export type EnvironmentProvisionStepStatus = 'pass' | 'fail' | 'changed' | 'skipped';
-
-export interface EnvironmentProvisionStep {
+export interface PublishedSitesEnvironmentStatusItem {
   id: string;
-  status: EnvironmentProvisionStepStatus;
-  detail: string;
+  label: string;
+  ok: boolean;
+  detail?: string;
 }
 
-export interface EnvironmentProvisionReport {
-  available: boolean;
-  ok: boolean;
-  steps: EnvironmentProvisionStep[];
-  error?: string;
+export interface PublishedSitesEnvironmentStatus {
+  ready: boolean;
+  items: PublishedSitesEnvironmentStatusItem[];
+  detail?: string;
 }
 
 interface SitesGatewayControl {
@@ -72,8 +70,8 @@ interface SitesGatewayControl {
   prepareRuntimeSocket(siteId: string): Promise<{ path: string }>;
   sealRuntimeSocket(siteId: string): Promise<void>;
   removeRuntimeSocket(siteId: string): Promise<void>;
-  environmentsStatus(): Promise<EnvironmentProvisionReport>;
-  provisionEnvironments(): Promise<EnvironmentProvisionReport>;
+  environmentsStatus(): Promise<PublishedSitesEnvironmentStatus>;
+  provisionEnvironments(): Promise<PublishedSitesEnvironmentStatus>;
 }
 
 /** An account as the host hands it over. The published package still describes it without the display

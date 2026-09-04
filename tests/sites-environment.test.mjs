@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 
-import { BASE_IMAGE_TAG, CONTAINERFILE, INGRESS_SERVICE, INGRESS_SOCKET } from '../plugins/sites/dist/baseImage.js';
+import { BASE_IMAGE_SOURCE, BASE_IMAGE_TAG, CONTAINERFILE, INGRESS_SERVICE, INGRESS_SOCKET } from '../plugins/sites/dist/baseImage.js';
 import { EnvironmentSupervisor } from '../plugins/sites/dist/environment.js';
 import { cleanPodmanEnv, PodmanClient } from '../plugins/sites/dist/podman.js';
 import { resolveConfig } from '../plugins/sites/dist/config.js';
 import { SitesStore } from '../plugins/sites/dist/store.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
+import { proxyToEnvironment } from '../plugins/sites/dist/proxy.js';
 
 const SITE_ID = '123e4567-e89b-12d3-a456-426614174000';
 
@@ -68,7 +70,7 @@ const environmentSite = (overrides = {}) => ({
 
 const config = (overrides = {}) => ({
   startTimeoutSeconds: 1,
-  runtimeNetwork: 'shared',
+  environmentNetwork: 'shared',
   environmentCpus: 1,
   environmentMemoryMb: 1024,
   environmentPidsLimit: 512,
@@ -133,6 +135,38 @@ test('Podman uses argv-only calls, exact clean environment and direct detached l
   }
 });
 
+test('default Podman identity comes from the service account, not poisoned ambient variables', () => {
+  const previous = { HOME: process.env.HOME, USER: process.env.USER, LOGNAME: process.env.LOGNAME };
+  process.env.HOME = '/poison/home';
+  process.env.USER = 'poison-user';
+  process.env.LOGNAME = 'poison-logname';
+  try {
+    const service = userInfo();
+    const env = cleanPodmanEnv();
+    assert.equal(env.HOME, service.homedir);
+    assert.equal(env.USER, service.username);
+    assert.equal(env.LOGNAME, service.username);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('Podman creates labeled data volumes and updates limits with exact argv', async () => {
+  const executor = new FakeExecutor();
+  const podman = new PodmanClient({ executor, uid: 1000, home: '/home/elowen', user: 'elowen' });
+  await podman.createVolume(`elowen-site-${SITE_ID}-data`, SITE_ID);
+  await podman.update(`elowen-site-${SITE_ID}`, { memoryMb: 1536, cpus: 2.25, pidsLimit: 640 });
+  assert.deepEqual(executor.calls[0].args, [
+    'volume', 'create', '--label', `io.elowen.site=${SITE_ID}`, `elowen-site-${SITE_ID}-data`,
+  ]);
+  assert.deepEqual(executor.calls[1].args, [
+    'update', '--memory=1536m', '--memory-swap=1536m', '--cpus=2.25', '--pids-limit=640', `elowen-site-${SITE_ID}`,
+  ]);
+});
+
 test('isolated environments use no network and Podman output is bounded', async () => {
   const executor = new FakeExecutor();
   executor.enqueue('x'.repeat(100), 'y'.repeat(100));
@@ -147,9 +181,46 @@ test('isolated environments use no network and Podman output is bounded', async 
   assert.ok(executor.calls[1].args.includes('--network=none'));
 });
 
-test('base image contents are deterministic and use the stable app socket', () => {
+test('Podman ps normalizes representative 4.9 uppercase JSON fields', async () => {
+  const executor = new FakeExecutor();
+  executor.enqueue(JSON.stringify([{
+    Id: 'abc', Names: [`elowen-site-${SITE_ID}`], State: 'running', Status: 'Up 3 minutes',
+    Labels: { 'io.elowen.site': SITE_ID },
+  }]));
+  const podman = new PodmanClient({ executor });
+  assert.deepEqual(await podman.ps(), [{
+    id: 'abc', names: [`elowen-site-${SITE_ID}`], state: 'running', status: 'Up 3 minutes',
+    labels: { 'io.elowen.site': SITE_ID },
+  }]);
+});
+
+test('volume removal ignores only an absent volume and surfaces structural failures', async () => {
+  const missing = new FakeExecutor();
+  missing.enqueue('', 'Error: no such volume missing', 1);
+  await new PodmanClient({ executor: missing }).removeVolume('missing');
+
+  const denied = new FakeExecutor();
+  denied.enqueue('', 'Error: permission denied', 125);
+  await assert.rejects(() => new PodmanClient({ executor: denied }).removeVolume('blocked'), /permission denied/);
+});
+
+test('executor timeout kills the detached process group', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-podman-timeout-'));
+  const marker = join(root, 'survived');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const grandchild = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'alive'), 250); setInterval(() => {}, 1000);`;
+  const parent = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], { stdio: 'ignore' }); setInterval(() => {}, 1000);`;
+  const podman = new PodmanClient({ binary: process.execPath, timeoutMs: 75 });
+  await assert.rejects(() => podman.run(['-e', parent]), /timed out/);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(existsSync(marker), false);
+});
+
+test('base image contents are digest-pinned, deterministic and use the stable app socket', () => {
+  assert.equal(BASE_IMAGE_SOURCE, 'docker.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171');
   assert.match(BASE_IMAGE_TAG, /^localhost\/elowen-site-base:[a-f0-9]{16}$/);
-  assert.match(CONTAINERFILE, /^FROM debian:bookworm-slim/m);
+  assert.ok(CONTAINERFILE.startsWith(`FROM ${BASE_IMAGE_SOURCE}\n`));
+  assert.doesNotMatch(CONTAINERFILE, /^FROM debian:bookworm-slim$/m);
   for (const dependency of ['systemd', 'systemd-sysv', 'dbus', 'ca-certificates', 'curl', 'iproute2', 'procps']) {
     assert.match(CONTAINERFILE, new RegExp(`\\b${dependency.replace('-', '\\-')}\\b`));
   }
@@ -174,7 +245,9 @@ function supervisorHarness(t, { statuses = [null], sealed = false, connectReady 
       calls.push(['inspect', value]);
       return value;
     },
+    async ensureVolume(name, siteId) { calls.push(['volume-ensure', name, siteId]); },
     async create(spec) { calls.push(['create', spec]); currentStatus = 'created'; },
+    async update(name, limits) { calls.push(['update', name, limits]); },
     async start(name) {
       calls.push(['start', name]);
       currentStatus = 'running';
@@ -233,8 +306,24 @@ test('environment start performs the direct broker sequence and never uses resta
   assert.deepEqual(lifecycle, ['remove', 'prepare', 'seal']);
   assert.equal(calls.filter(([name]) => name === 'create').length, 1);
   assert.equal(calls.filter(([name]) => name === 'start').length, 1);
+  assert.deepEqual(calls.filter(([name]) => ['volume-ensure', 'create', 'update', 'start'].includes(name)).map(([name]) => name), [
+    'volume-ensure', 'create', 'update', 'start',
+  ]);
   assert.equal(supervisor.endpointFor(SITE_ID)?.kind, 'socket');
   assert.equal(calls.some(([name]) => name === 'restart'), false);
+});
+
+test('existing environment receives effective limits before every start without recreation', async (t) => {
+  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['exited'] });
+  site.environmentMemoryMb = 2048;
+  site.environmentCpus = 1.75;
+  site.environmentPidsLimit = 700;
+  await supervisor.start(site);
+  assert.equal(calls.some(([name]) => name === 'create'), false);
+  assert.deepEqual(calls.filter(([name]) => ['update', 'start'].includes(name)), [
+    ['update', `elowen-site-${SITE_ID}`, { cpus: 1.75, memoryMb: 2048, pidsLimit: 700 }],
+    ['start', `elowen-site-${SITE_ID}`],
+  ]);
 });
 
 test('stop waits for exactly exited before removing the broker', async (t) => {
@@ -272,6 +361,15 @@ test('service detach never stops a running environment and backstop uses one ps 
   assert.equal(calls.some(([name]) => name === 'stop' || name === 'kill'), false);
 });
 
+test('environment delete removes only plugin metadata and never the Project source', async (t) => {
+  const { supervisor, calls, site } = supervisorHarness(t, { statuses: [null] });
+  await supervisor.delete(site.id);
+  const cleanup = calls.find(([name]) => name === 'unshare-rm');
+  assert.ok(cleanup);
+  assert.equal(cleanup[1].includes(site.sourceDir), false);
+  assert.deepEqual(cleanup[1].map((path) => path.endsWith('/environment')), [true]);
+});
+
 test('migration v5 preserves existing runtimes, exposes environment counts and fails unknown runtimes', () => {
   const now = new Date().toISOString();
   const db = makeDb({
@@ -304,11 +402,26 @@ test('migration v5 preserves existing runtimes, exposes environment counts and f
   assert.match(unknown.lastError, /mystery/);
 });
 
-test('core seam and lifecycle use the final provisioning names without forbidden wrappers', () => {
+test('core seam, manifest and lifecycle match the final core contract', () => {
   const seams = readFileSync(new URL('../plugins/sites/src/coreSeams.ts', import.meta.url), 'utf8');
+  const index = readFileSync(new URL('../plugins/sites/src/index.ts', import.meta.url), 'utf8');
   const lifecycle = readFileSync(new URL('../plugins/sites/src/environment.ts', import.meta.url), 'utf8');
+  const manifest = JSON.parse(readFileSync(new URL('../plugins/sites/elowen-plugin.json', import.meta.url), 'utf8'));
   assert.match(seams, /environmentsStatus\(\)/);
   assert.match(seams, /provisionEnvironments\(\)/);
+  assert.match(seams, /ready: boolean/);
+  assert.match(seams, /items: PublishedSitesEnvironmentStatusItem\[\]/);
+  assert.doesNotMatch(seams, /EnvironmentProvision|steps: Environment|status: Environment|error\?: string/);
+  assert.match(index, /report\.items/);
+  assert.match(index, /report\.ready/);
+  assert.doesNotMatch(index, /report\.steps|report\.available|report\.ok|report\.error/);
+  assert.equal(manifest.requiresCore, '0.28.31');
+  assert.equal(manifest.configSchema.find((field) => field.key === 'environmentNetwork')?.default, 'shared');
+  assert.equal(manifest.configSchema.find((field) => field.key === 'runtimeNetwork')?.default, 'isolated');
+  assert.match(manifest.description, /persistent rootless environments/i);
+  assert.match(manifest.description, /static/i);
+  assert.match(manifest.description, /command/i);
+  assert.match(manifest.description, /PHP/i);
   assert.doesNotMatch(seams, /environmentSupportStatus|installEnvironmentSupport/);
   assert.doesNotMatch(lifecycle, /systemd-run|start --attach|podman\.restart|deps\.podman\.restart/);
 });
@@ -316,6 +429,8 @@ test('core seam and lifecycle use the final provisioning names without forbidden
 test('environment configuration is strictly bounded and separately gated', () => {
   const resolved = resolveConfig({
     allowEnvironments: true,
+    runtimeNetwork: 'isolated',
+    environmentNetwork: 'shared',
     environmentCpus: 99,
     environmentMemoryMb: -1,
     environmentPidsLimit: 1.2,
@@ -323,11 +438,74 @@ test('environment configuration is strictly bounded and separately gated', () =>
     maxEnvironmentsPerAccount: 999,
   }, 'https://elowen.example', 'sites.elowen.example');
   assert.equal(resolved.allowEnvironments, true);
+  assert.equal(resolved.runtimeNetwork, 'isolated');
+  assert.equal(resolved.environmentNetwork, 'shared');
+  assert.equal(resolveConfig({ runtimeNetwork: 'shared', environmentNetwork: 'invalid' }, null).environmentNetwork, 'shared');
   assert.equal(resolved.environmentCpus, 8);
   assert.equal(resolved.environmentMemoryMb, 128);
   assert.equal(resolved.environmentPidsLimit, 16);
   assert.equal(resolved.environmentDiskSoftMb, 4096);
   assert.equal(resolved.maxEnvironmentsPerAccount, 20);
+});
+
+test('environment proxy strips forged forwarding headers and writes only verified values', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-environment-proxy-'));
+  const socketPath = join(root, 'app.sock');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  let received;
+  const server = createHttpServer((req, response) => {
+    received = req.headers;
+    response.end('ok');
+  });
+  await new Promise((resolve) => server.listen(socketPath, resolve));
+  t.after(async () => { await new Promise((resolve) => server.close(resolve)); });
+
+  await proxyToEnvironment(
+    { kind: 'socket', path: socketPath },
+    {
+      method: 'GET', path: '', query: {}, remoteAddress: '203.0.113.7',
+      headers: {
+        host: 'environment-demo.sites.example.test',
+        forwarded: 'for=attacker;proto=http;host=evil.test',
+        'x-forwarded-for': '198.51.100.99',
+        'x-forwarded-host': 'evil.test',
+        'x-forwarded-proto': 'http',
+        'x-forwarded-port': '81',
+      },
+      body: async () => Buffer.alloc(0),
+    },
+    '',
+    { userId: null, name: null },
+    { maxResponseBytes: 1024, requestTimeoutSeconds: 1 },
+    'https://environment-demo.sites.example.test/',
+  );
+  assert.equal(received.forwarded, undefined);
+  assert.equal(received['x-forwarded-for'], '203.0.113.7');
+  assert.equal(received['x-forwarded-host'], 'environment-demo.sites.example.test');
+  assert.equal(received['x-forwarded-proto'], 'https');
+  assert.equal(received['x-forwarded-port'], undefined);
+  assert.equal(received.host, 'environment-demo.sites.example.test');
+});
+
+test('environment proxy never trusts forged client address when core exposes none', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-environment-proxy-anon-'));
+  const socketPath = join(root, 'app.sock');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  let received;
+  const server = createHttpServer((req, response) => { received = req.headers; response.end('ok'); });
+  await new Promise((resolve) => server.listen(socketPath, resolve));
+  t.after(async () => { await new Promise((resolve) => server.close(resolve)); });
+  await proxyToEnvironment(
+    { kind: 'socket', path: socketPath },
+    {
+      method: 'GET', path: '', query: {},
+      headers: { host: 'environment-demo.sites.example.test', 'x-forwarded-for': '198.51.100.99' },
+      body: async () => Buffer.alloc(0),
+    },
+    '', { userId: null, name: null }, { maxResponseBytes: 1024, requestTimeoutSeconds: 1 },
+    'https://environment-demo.sites.example.test/',
+  );
+  assert.equal(received['x-forwarded-for'], undefined);
 });
 
 test('environment requests use the environment endpoint without the host CSP', async () => {

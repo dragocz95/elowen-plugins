@@ -99,9 +99,10 @@ export async function proxyToRuntime(endpoint, req, path, viewer, limits, siteRo
     for (const [name, value] of Object.entries(req.headers)) {
         const lower = name.toLowerCase();
         if (mode === 'environment') {
-            if (!HOP_BY_HOP_HEADERS.has(lower) && !lower.startsWith('x-elowen-') && lower !== 'host' && lower !== 'content-length') {
+            const hostOwned = lower === 'host' || lower === 'content-length' || lower === 'forwarded'
+                || lower.startsWith('x-forwarded-') || lower.startsWith('x-elowen-');
+            if (!HOP_BY_HOP_HEADERS.has(lower) && !hostOwned)
                 headers[lower] = value;
-            }
         }
         else if (FORWARDED_REQUEST_HEADERS.has(lower)) {
             headers[lower] = value;

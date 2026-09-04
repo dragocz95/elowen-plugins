@@ -2,8 +2,8 @@
   "name": "sites",
   "version": "0.9.0",
   "apiVersion": "1",
-  "requiresCore": "0.28.21",
-  "description": "Publish a web page the agent built - a dashboard, a report, a landing page - at a real address on this instance, and decide who may open it: only you, the Project's people, any signed-in account, named guests, or everyone. The agent builds with its own toolchain and hands over the finished output; every publish is a separate release you can roll back to.",
+  "requiresCore": "0.28.31",
+  "description": "Publish static, command and PHP sites, or run additive persistent rootless environments with systemd, bounded resources and a host-owned ingress socket. Every site keeps its own address and visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
   "entry": "dist/index.js",
   "provides": {
     "tools": [
@@ -102,12 +102,12 @@
     },
     {
       "key": "allowCommandRuntime",
-      "label": "Allow site runtimes",
+      "label": "Allow command and PHP runtimes",
       "type": "boolean",
       "default": false,
       "risk": "high",
-      "hint": "Let a site run Node, Bun, Python or TypeScript behind a private unix socket or an explicitly enabled loopback port, or execute PHP through PHP-CGI.",
-      "help": "A published runtime is code the agent built with the normal Files, Terminal and Sandbox tools. It sees its copied release and the owner's sandbox HOME, runs under a user namespace rather than a separate VM, and has no CPU or memory limit. The network policy is configured below. Requests and responses are buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
+      "hint": "Let a published release run Node, Bun, Python or TypeScript behind a private unix socket or an explicitly enabled loopback port, or execute PHP through PHP-CGI.",
+      "help": "Command and PHP runtimes use the existing Sandbox confinement and the command/PHP network policy below. They are separate from persistent Podman environments. Requests and responses remain buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
     },
     {
       "key": "allowEnvironments",
@@ -116,6 +116,24 @@
       "default": false,
       "risk": "high",
       "hint": "Allow Sites to run persistent rootless Podman environments with systemd, a private root filesystem and a single host-owned ingress socket."
+    },
+    {
+      "key": "environmentNetwork",
+      "label": "Environment network",
+      "type": "enum",
+      "default": "shared",
+      "risk": "high",
+      "options": [
+        {
+          "value": "shared",
+          "label": "Outbound internet"
+        },
+        {
+          "value": "isolated",
+          "label": "No network"
+        }
+      ],
+      "hint": "Outbound internet uses rootless slirp4netns with host loopback disabled. No network gives the environment no network interface beyond its own loopback."
     },
     {
       "key": "environmentCpus",
@@ -168,7 +186,7 @@
     },
     {
       "key": "runtimeNetwork",
-      "label": "Runtime network",
+      "label": "Command and PHP network",
       "type": "enum",
       "default": "isolated",
       "risk": "high",

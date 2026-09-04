@@ -143,23 +143,26 @@ export class EnvironmentSupervisor {
         const prepared = await this.deps.gateway.prepareRuntimeSocket(site.id);
         const endpoint = { kind: 'socket', path: prepared.path };
         try {
+            const limits = this.limits(site);
             if (status === null) {
                 const image = await this.deps.ensureBaseImage();
                 const files = this.writeEnvironmentFiles(site);
-                const limits = this.limits(site);
+                const volume = volumeName(site.id);
+                await this.deps.podman.ensureVolume(volume, site.id);
                 await this.deps.podman.create({
                     name,
                     siteId: site.id,
                     ...limits,
-                    network: this.deps.config().runtimeNetwork,
+                    network: this.deps.config().environmentNetwork,
                     envFile: files.envFile,
                     workspace: site.sourceDir,
                     gitStub: files.gitStub,
                     brokerDir: dirname(prepared.path),
-                    volume: volumeName(site.id),
+                    volume,
                     image,
                 });
             }
+            await this.deps.podman.update(name, limits);
             await this.deps.podman.start(name);
             const ready = await this.waitForReady(endpoint, this.deps.config().startTimeoutSeconds * 1_000);
             if (!ready)

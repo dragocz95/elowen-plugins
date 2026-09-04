@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { homedir, userInfo } from 'node:os';
+import { userInfo } from 'node:os';
 
 const SYSTEM_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -12,9 +12,10 @@ export interface PodmanProcessEnvInput {
 }
 
 export function cleanPodmanEnv(input: PodmanProcessEnvInput = {}): Record<string, string> {
-  const uid = input.uid ?? process.getuid?.() ?? userInfo().uid;
-  const home = input.home ?? process.env.HOME ?? homedir();
-  const user = input.user ?? process.env.USER ?? process.env.LOGNAME ?? userInfo().username;
+  const service = userInfo();
+  const uid = input.uid ?? process.getuid?.() ?? service.uid;
+  const home = input.home ?? service.homedir;
+  const user = input.user ?? service.username;
   return {
     HOME: home,
     USER: user,
@@ -46,30 +47,55 @@ export interface CommandExecutor {
 class SpawnExecutor implements CommandExecutor {
   async run(file: string, args: readonly string[], options: CommandOptions): Promise<CommandResult> {
     return await new Promise((resolve, reject) => {
+      const grouped = process.platform !== 'win32';
       const child = spawn(file, [...args], {
         cwd: options.cwd,
         env: options.env,
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
+        detached: grouped,
       });
       let stdout: Buffer = Buffer.alloc(0);
       let stderr: Buffer = Buffer.alloc(0);
+      let timedOut = false;
+      let settled = false;
       const append = (current: Buffer, chunk: Buffer): Buffer => {
         const combined = Buffer.concat([current, chunk]);
         return combined.length <= options.outputLimitBytes
           ? combined
           : combined.subarray(combined.length - options.outputLimitBytes);
       };
+      const signal = (name: NodeJS.Signals): void => {
+        if (child.pid === undefined) return;
+        try {
+          if (grouped) process.kill(-child.pid, name);
+          else child.kill(name);
+        } catch {
+          // The process group already exited.
+        }
+      };
       child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
       child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
-      child.once('error', reject);
+      child.once('error', (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      });
       const timer = setTimeout(() => {
-        child.kill('SIGKILL');
-        reject(new Error(`podman command timed out after ${options.timeoutMs}ms`));
+        timedOut = true;
+        signal('SIGTERM');
+        const killTimer = setTimeout(() => signal('SIGKILL'), 250);
+        killTimer.unref?.();
       }, options.timeoutMs);
       timer.unref?.();
       child.once('close', (code) => {
         clearTimeout(timer);
+        if (settled) return;
+        settled = true;
+        if (timedOut) {
+          reject(new Error(`podman command timed out after ${options.timeoutMs}ms`));
+          return;
+        }
         resolve({
           stdout: stdout.toString('utf8'),
           stderr: stderr.toString('utf8'),
@@ -122,6 +148,15 @@ export interface PodmanContainerSummary {
   state?: string;
   status?: string;
   labels?: Record<string, string>;
+}
+
+interface PodmanContainerSummaryJson extends PodmanContainerSummary {
+  Id?: string;
+  ID?: string;
+  Names?: string[] | string;
+  State?: string;
+  Status?: string;
+  Labels?: Record<string, string>;
 }
 
 export class PodmanClient {
@@ -177,6 +212,13 @@ export class PodmanClient {
     return result.stdout.trim();
   }
 
+  async update(name: string, limits: Pick<CreateContainerSpec, 'memoryMb' | 'cpus' | 'pidsLimit'>): Promise<void> {
+    await this.run([
+      'update', `--memory=${limits.memoryMb}m`, `--memory-swap=${limits.memoryMb}m`,
+      `--cpus=${limits.cpus}`, `--pids-limit=${limits.pidsLimit}`, name,
+    ]);
+  }
+
   async start(name: string): Promise<void> { await this.run(['start', name]); }
   async stop(name: string, timeoutSeconds: number): Promise<void> { await this.run(['stop', '-t', String(timeoutSeconds), name]); }
   async kill(name: string): Promise<void> { await this.run(['kill', name]); }
@@ -189,7 +231,7 @@ export class PodmanClient {
   }
 
   private missingObject(result: CommandResult): boolean {
-    return /no such (?:container|object)|does not exist|not found/i.test(`${result.stderr}\n${result.stdout}`);
+    return /no such (?:container|object|volume|image)|does not exist|not found/i.test(`${result.stderr}\n${result.stdout}`);
   }
 
   async inspect(name: string): Promise<Record<string, unknown> | null> {
@@ -220,7 +262,14 @@ export class PodmanClient {
   async ps(): Promise<PodmanContainerSummary[]> {
     const result = await this.run(['ps', '-a', '--format', 'json', '--filter', 'label=io.elowen.site']);
     const parsed = JSON.parse(result.stdout || '[]') as unknown;
-    return Array.isArray(parsed) ? parsed as PodmanContainerSummary[] : [];
+    if (!Array.isArray(parsed)) return [];
+    return (parsed as PodmanContainerSummaryJson[]).map((row) => ({
+      id: row.id ?? row.Id ?? row.ID,
+      names: row.names ?? row.Names,
+      state: row.state ?? row.State,
+      status: row.status ?? row.Status,
+      labels: row.labels ?? row.Labels,
+    }));
   }
 
   async events(since = '0s'): Promise<Record<string, unknown>[]> {
@@ -245,9 +294,23 @@ export class PodmanClient {
 
   async removeImage(reference: string): Promise<void> { await this.run(['image', 'rm', reference]); }
   async volumeExists(name: string): Promise<boolean> {
-    return (await this.run(['volume', 'exists', name], { allowFailure: true })).code === 0;
+    const result = await this.run(['volume', 'exists', name], { allowFailure: true });
+    if (result.code === 0) return true;
+    if (result.code === 1 || this.missingObject(result)) return false;
+    throw new Error(`podman volume exists failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
   }
-  async removeVolume(name: string): Promise<void> { await this.run(['volume', 'rm', name], { allowFailure: true }); }
+  async createVolume(name: string, siteId: string): Promise<void> {
+    await this.run(['volume', 'create', '--label', `io.elowen.site=${siteId}`, name]);
+  }
+  async ensureVolume(name: string, siteId: string): Promise<void> {
+    if (!await this.volumeExists(name)) await this.createVolume(name, siteId);
+  }
+  async removeVolume(name: string): Promise<void> {
+    const result = await this.run(['volume', 'rm', name], { allowFailure: true });
+    if (result.code !== 0 && !this.missingObject(result)) {
+      throw new Error(`podman volume rm failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
+    }
+  }
   async exportVolume(name: string, output: string): Promise<void> { await this.run(['volume', 'export', '--output', output, name]); }
   async importVolume(name: string, input: string): Promise<void> { await this.run(['volume', 'import', name, input]); }
   async commit(name: string, image: string): Promise<void> { await this.run(['commit', '--pause', name, image]); }

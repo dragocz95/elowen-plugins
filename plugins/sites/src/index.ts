@@ -160,7 +160,7 @@ export function register(published: PluginContext): void {
       const resolved = config();
       return {
         startTimeoutSeconds: resolved.startTimeoutSeconds,
-        runtimeNetwork: resolved.runtimeNetwork,
+        environmentNetwork: resolved.environmentNetwork,
         environmentCpus: resolved.environmentCpus,
         environmentMemoryMb: resolved.environmentMemoryMb,
         environmentPidsLimit: resolved.environmentPidsLimit,
@@ -320,25 +320,26 @@ export function register(published: PluginContext): void {
       return { id: 'sites-environments', label: 'Sites environments', ok: true, detail: 'Persistent environments are disabled in Sites settings.' };
     }
     const control = ctx.control('publishedSitesGateway');
-    if (!control || typeof control.environmentsStatus !== 'function') {
+    if (!control) {
       return {
         id: 'sites-environments',
         label: 'Sites environments',
         ok: false,
-        detail: 'The installed core does not expose the environments-status helper operation.',
-        hint: 'Update Elowen and re-run elowen install as root, then review the Sites settings checklist.',
+        detail: 'The published-sites gateway control is unavailable.',
+        hint: 'Enable the core published-sites gateway and review the Sites settings checklist.',
       };
     }
     const report = await control.environmentsStatus();
-    const detail = report.steps.map((step) => `${step.id}: ${step.status} (${step.detail})`).join('; ')
-      || report.error
+    const items = report.items.map((item) =>
+      `${item.label}: ${item.ok ? 'ready' : 'not ready'}${item.detail ? ` (${item.detail})` : ''}`);
+    const detail = [report.detail, ...items].filter((value): value is string => Boolean(value)).join('; ')
       || 'No environment dependency checks were returned.';
     return {
       id: 'sites-environments',
       label: 'Sites environments',
-      ok: report.available && report.ok,
+      ok: report.ready,
       detail,
-      ...(!report.available || !report.ok
+      ...(!report.ready
         ? { hint: 'Review the Sites settings checklist. Dependency installation is exposed by the later admin API and UI phase.' }
         : {}),
     };
