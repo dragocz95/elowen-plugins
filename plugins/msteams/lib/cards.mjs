@@ -20,6 +20,17 @@ const TABLE_MAX_ROWS = 20;
 const TABLE_CELL_MAX = 120;
 const TABLE_PAYLOAD_MAX_UTF16_BYTES = 80 * 1024;
 
+/** Marketplace installs each plugin folder alone; the parametric contract test keeps this local
+ * state projection aligned with the other chat adapters without reaching outside the plugin payload. */
+export function collectQuestionAnswers(questions, selected = {}, other = {}) {
+  const answers = questions.map((question, index) => {
+    const picks = Array.isArray(selected?.[index]) ? selected[index].filter((value) => typeof value === 'string' && value.trim()) : [];
+    const custom = typeof other?.[index] === 'string' ? other[index].trim() : '';
+    return { header: question.header, selected: picks, ...(custom ? { other: custom } : {}) };
+  });
+  return { answers, next: answers.findIndex((answer) => answer.selected.length === 0 && !answer.other) };
+}
+
 const clamp = (s, max = LABEL_MAX) => {
   const t = String(s ?? '').replace(/\s+/g, ' ').trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
@@ -120,9 +131,9 @@ export function buildTableCard(title, columns, rows, { cs = false, narrow = fals
 }
 
 /** The AskUserQuestion choice card. Selected options carry a ✅ prefix; a single single-select question
- *  submits on tap (no Submit row), everything else toggles and submits explicitly. `Other` free text is
- *  offered on single-question asks (unless the question opts out) as a native Input.Text. */
-export function buildAskCard(token, questions, { cs = false, selected = [] } = {}) {
+ *  submits on tap (no Submit row), everything else toggles and submits explicitly. Every question that
+ *  permits custom input gets a native Input.Text included in the same submitted card value. */
+export function buildAskCard(token, questions, { cs = false, selected = [], other = [], missing = -1 } = {}) {
   const body = [];
   const actions = [];
   const single = questions.length === 1 && questions[0]?.multiSelect !== true;
@@ -151,10 +162,26 @@ export function buildAskCard(token, questions, { cs = false, selected = [] } = {
         spacing: 'Small',
       });
     }
+    if (q.custom !== false) {
+      body.push({
+        type: 'Input.Text',
+        id: questions.length === 1 ? 'other' : `other${qi}`,
+        value: other[qi] || undefined,
+        placeholder: cs ? 'Vlastní odpověď…' : 'Your own answer…',
+      });
+    }
+    if (missing === qi) {
+      body.push({
+        type: 'TextBlock',
+        text: cs ? 'Tato odpověď je povinná.' : 'This answer is required.',
+        color: 'Attention',
+        wrap: true,
+        spacing: 'Small',
+      });
+    }
   });
   if (!single) actions.push({ type: 'Action.Submit', title: cs ? 'Odeslat' : 'Submit', data: { ea: token, s: 1 } });
   if (questions.length === 1 && questions[0]?.custom !== false) {
-    body.push({ type: 'Input.Text', id: 'other', placeholder: cs ? 'Vlastní odpověď…' : 'Your own answer…' });
     // Submits the free-text box above it, so it has to read as an ACTION. "Other" looked like one more
     // choice: people tapped it expecting another option, then waited for a send button that never came.
     // It also stays distinct from the plain Submit a multi-select question renders alongside it — two

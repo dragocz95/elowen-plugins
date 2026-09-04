@@ -1,21 +1,27 @@
 // AskUserQuestion reply parsing (numbered text menus — see the buttons caveat in index.mjs).
-/** Parse a text reply to a single parked ask question. Pure — exported for tests. Returns
- *  `{ kind: 'picks', labels }` for a valid number (or comma list on a multiSelect question),
- *  `{ kind: 'other', text }` for free text when the question allows it (`custom !== false`,
- *  absent = allowed), or null when the reply is not a usable answer (→ re-prompt). */
+/** Marketplace installs each plugin folder alone; the parametric contract test keeps these local
+ * state-projection helpers aligned without making an installed plugin reach outside its payload. */
 export function parseAskReply(text, question) {
-  const t = String(text ?? '').trim();
-  if (!t) return null;
-  const opts = question.options ?? [];
-  const parts = t.split(',').map((s) => s.trim());
-  if (parts.every((s) => /^\d+$/.test(s))) {
-    const nums = parts.map(Number);
-    const inRange = nums.every((n) => n >= 1 && n <= opts.length);
-    // A comma list only counts as picks on a multiSelect question; a single number always does.
-    if (inRange && (question.multiSelect === true || nums.length === 1)) {
-      return { kind: 'picks', labels: [...new Set(nums.map((n) => opts[n - 1].label))] };
+  const value = String(text ?? '').trim();
+  if (!value) return null;
+  const options = question.options ?? [];
+  const parts = value.split(',').map((part) => part.trim());
+  if (parts.every((part) => /^\d+$/.test(part))) {
+    const numbers = parts.map(Number);
+    const inRange = numbers.every((number) => number >= 1 && number <= options.length);
+    if (inRange && (question.multiSelect === true || numbers.length === 1)) {
+      return { kind: 'picks', labels: [...new Set(numbers.map((number) => options[number - 1].label))] };
     }
   }
-  if (question.custom !== false) return { kind: 'other', text: t };
+  if (question.custom !== false) return { kind: 'other', text: value };
   return null;
+}
+
+export function collectQuestionAnswers(questions, selected = {}, other = {}) {
+  const answers = questions.map((question, index) => {
+    const picks = Array.isArray(selected?.[index]) ? selected[index].filter((value) => typeof value === 'string' && value.trim()) : [];
+    const custom = typeof other?.[index] === 'string' ? other[index].trim() : '';
+    return { header: question.header, selected: picks, ...(custom ? { other: custom } : {}) };
+  });
+  return { answers, next: answers.findIndex((answer) => answer.selected.length === 0 && !answer.other) };
 }
