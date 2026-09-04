@@ -406,13 +406,19 @@ test('existing environment receives effective limits after start without recreat
   ]);
 });
 
-test('a previously created container starts before crun receives an update', async (t) => {
-  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['created'] });
+test('a previously created container reaches running before crun receives an update', async (t) => {
+  const name = `elowen-site-${SITE_ID}`;
+  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['created', 'created', 'running'] });
   await supervisor.start(site);
-  assert.deepEqual(calls.filter(([name]) => ['start', 'update'].includes(name)), [
-    ['start', `elowen-site-${SITE_ID}`],
-    ['update', `elowen-site-${SITE_ID}`, { cpus: 1, memoryMb: 1024, pidsLimit: 512 }],
-  ]);
+  const startIndex = calls.findIndex(([operation]) => operation === 'start');
+  const updateIndex = calls.findIndex(([operation]) => operation === 'update');
+  assert.ok(startIndex >= 0);
+  assert.ok(updateIndex > startIndex);
+  assert.deepEqual(
+    calls.slice(startIndex + 1, updateIndex).filter(([operation]) => operation === 'inspect').map(([, status]) => status),
+    ['created', 'running'],
+  );
+  assert.deepEqual(calls[updateIndex], ['update', name, { cpus: 1, memoryMb: 1024, pidsLimit: 512 }]);
 });
 
 test('stop waits for exactly exited before removing the broker', async (t) => {

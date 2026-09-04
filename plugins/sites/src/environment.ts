@@ -8,6 +8,7 @@ import type { EnvironmentAction, Release, Site, SitesStore } from './store.js';
 import type { CreateContainerSpec, PodmanClient, PodmanContainerSummary } from './podman.js';
 
 const STOP_TIMEOUT_SECONDS = 8;
+const START_WAIT_MS = 10_000;
 const EXIT_WAIT_MS = 30_000;
 const KILL_WAIT_MS = 5_000;
 const LOG_CAP_BYTES = 256 * 1024;
@@ -408,6 +409,9 @@ export class EnvironmentSupervisor {
         });
       }
       await this.deps.podman.start(name);
+      if (!await this.waitForRunning(name, START_WAIT_MS)) {
+        throw new Error(`${name} did not reach running after start`);
+      }
       // Create already persisted these limits. Podman delegates `update` to crun, which requires a live
       // runtime and fails for created/exited containers, so existing containers are updated after start.
       if (!creating) await this.deps.podman.update(name, limits);
@@ -427,6 +431,15 @@ export class EnvironmentSupervisor {
       this.appendLog(site.id, `start failed: ${message}`);
       throw error;
     }
+  }
+
+  private async waitForRunning(name: string, timeoutMs: number): Promise<boolean> {
+    const deadline = this.now() + timeoutMs;
+    while (this.now() <= deadline) {
+      if (await this.deps.podman.inspectStatus(name) === 'running') return true;
+      await this.sleep(200);
+    }
+    return false;
   }
 
   private async waitForReady(endpoint: Endpoint, timeoutMs: number): Promise<boolean> {
