@@ -169,11 +169,6 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const [lease, setLease] = useState<Lease | null>(() => (initialSessionId ? rememberedLease(initialSessionId) : null));
   /** A lease this mount adopted rather than claimed: it is checked with the server at once, below. */
   const adoptedLease = useRef<string | null>(lease?.leaseId ?? null);
-  /** Read when a ticket is minted, which happens on every reconnect and therefore long after the render
-   *  that last changed it. A ref keeps that read current without making the mint function a new closure
-   *  each time control changes hands. */
-  const leaseRef = useRef<Lease | null>(lease);
-  leaseRef.current = lease;
   const [speechHidden, setSpeechHidden] = useState(false);
   /** Where the one live canvas is parked: the thumbnail while the card is collapsed, the raised surface
    *  while it is open. The canvas node itself is never rebuilt, only reparented. */
@@ -291,16 +286,16 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
    *  scrolling, because the VNC server encodes the full framebuffer per client and cannot scale it down
    *  for a thumbnail a third of the width.
    *
-   *  The lease this window holds travels WITH the ticket, and the server decides what it is worth: it is
-   *  compared against the session's current lease on every input message, so a token this card kept
-   *  after losing control buys a view and nothing more. */
+   *  The ticket carries only who is asking. The owner may always reach into their own browser through
+   *  the raised canvas; the takeover lease is the AGENT's signal to wait, not a gate on the human, and
+   *  gating clicks on it once left a connection opened before the takeover dead until it happened to
+   *  reconnect. */
   const mintTicket = useCallback(async (): Promise<VncTicketResult> => {
     if (!sessionId) return { kind: 'refused', reason: 'unavailable' };
-    const held = leaseRef.current;
     try {
       const issued = await runtime().api(
         inputPath(sessionId, 'vnc-ticket'),
-        jsonRequest('POST', held ? { leaseId: held.leaseId } : {}),
+        jsonRequest('POST'),
       ) as { url?: string; width?: number; height?: number } | null;
       if (typeof issued?.url !== 'string') return { kind: 'refused', reason: 'unavailable' };
       return { kind: 'ticket', url: issued.url, width: issued.width, height: issued.height };
@@ -316,7 +311,9 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const vnc = useVncSurface({
     slot: expanded ? overlaySlot : thumbSlot,
     ticket: mintTicket,
-    interactive: !!lease,
+    // The raised canvas is the working surface and always takes input; the thumbnail is a picture and
+    // a button, so a stray wheel or key over the transcript never reaches the remote page.
+    interactive: expanded,
     enabled: !!sessionId && !stream.closed,
   });
   const aspectStyle = vnc.aspect ? { '--browser-aspect': String(vnc.aspect) } as CSSProperties : undefined;
@@ -385,7 +382,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const canvas = (interactive: boolean) => (
     <div
       className="browser-artifact__canvas"
-      data-interactive={interactive && lease ? 'true' : undefined}
+      data-interactive={interactive ? 'true' : undefined}
       aria-label={strings.browserViewport || 'Live browser view'}
     >
       {/* Where the one noVNC canvas is parked while this surface is the visible one. Always rendered,

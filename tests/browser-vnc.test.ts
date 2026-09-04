@@ -147,10 +147,10 @@ describe('browser live view core contract', () => {
     // One segment, matched by exact count, and declared in the manifest — see the contract test.
     expect(routes).toEqual([{ path: VNC_ROUTE_PATH, access: 'user', handler: expect.any(Function) }]);
 
-    const issued = transport.issueTicket(core, 7, { sessionId: 'session-1', leaseId: 'lease-1' });
+    const issued = transport.issueTicket(core, 7, { sessionId: 'session-1' });
     // The ticket binds to the id the authenticated route resolved. Minting for anyone else would hand
     // out that account's access, because nothing downstream re-checks who asked.
-    expect(minted).toEqual([{ userId: 7, payload: { sessionId: 'session-1', leaseId: 'lease-1' }, ttlMs: 15_000 }]);
+    expect(minted).toEqual([{ userId: 7, payload: { sessionId: 'session-1' }, ttlMs: 15_000 }]);
     expect(issued.url).toBe('/ws/plugins/browser/vnc?ticket=tkt-1');
   });
 });
@@ -166,11 +166,11 @@ describe('browser live view transport', () => {
     });
     return { transport, upstream };
   };
-  const interactiveTarget = (interactive: () => boolean): VncTarget => ({ socketPath: '/tmp/vnc.sock', interactive });
+  const target: VncTarget = { socketPath: '/tmp/vnc.sock' };
 
   it('starts listening before anything else, because the socket is paused until it does', () => {
-    const { transport } = transportWith(interactiveTarget(() => true));
-    const conn = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: 'lease-1' });
+    const { transport } = transportWith(target);
+    const conn = new FakeConnection(authOf(1), { sessionId: 'session-1' });
     transport.handle(conn);
     // Registered synchronously by the time the handler returns. An await placed before it would leave
     // noVNC's opening handshake sitting in the daemon's buffer.
@@ -179,63 +179,40 @@ describe('browser live view transport', () => {
   });
 
   it('refuses a ticket whose payload is not one of ours, and a session that has gone', () => {
-    const bad = transportWith(interactiveTarget(() => true));
+    const bad = transportWith(target);
     const wrongShape = new FakeConnection(authOf(1), { nothing: true });
     bad.transport.handle(wrongShape);
     expect(wrongShape.closes).toEqual([{ code: VNC_CLOSE.protocol, reason: 'invalid_ticket' }]);
 
     const gone = transportWith(null);
-    const closed = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: null });
+    const closed = new FakeConnection(authOf(1), { sessionId: 'session-1' });
     gone.transport.handle(closed);
     expect(closed.closes).toEqual([{ code: VNC_CLOSE.unavailable, reason: 'session_unavailable' }]);
     // Nothing was dialled for a session that is not there.
     expect(gone.upstream.written).toEqual([]);
   });
 
-  it('carries the framebuffer out and the viewer input in while the lease is held', () => {
-    const { transport, upstream } = transportWith(interactiveTarget(() => true));
-    const conn = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: 'lease-1' });
+  it('carries the framebuffer out and the owner\'s input in, lease or no lease', () => {
+    const { transport, upstream } = transportWith(target);
+    // No takeover lease anywhere in the ticket. Production regression: the lease used to be sealed into
+    // the ticket at mint time, so a connection opened BEFORE "Take control" stayed view-only for as long
+    // as it lived — the owner's clicks vanished until the socket happened to reconnect.
+    const conn = new FakeConnection(authOf(1), { sessionId: 'session-1' });
     transport.handle(conn);
-    conn.deliver(Buffer.concat([HANDSHAKE, POINTER_EVENT, KEY_EVENT(97)]));
-    // The driver's input reaches x11vnc byte for byte: the filter frames it, it does not rewrite it.
-    expect(upstream.forwarded).toEqual(Buffer.concat([HANDSHAKE, POINTER_EVENT, KEY_EVENT(97)]));
+    conn.deliver(Buffer.concat([HANDSHAKE, SET_ENCODINGS, POINTER_EVENT, FRAMEBUFFER_UPDATE_REQUEST, KEY_EVENT(97)]));
+    // Byte for byte: the filter frames the stream, it does not rewrite it, and it drops nothing of the
+    // owner's.
+    expect(upstream.forwarded).toEqual(Buffer.concat([HANDSHAKE, SET_ENCODINGS, POINTER_EVENT, FRAMEBUFFER_UPDATE_REQUEST, KEY_EVENT(97)]));
+    expect(conn.closes).toEqual([]);
     upstream.emit('data', Buffer.from([0, 0, 0, 1]));
     expect(conn.sent).toEqual([Buffer.from([0, 0, 0, 1])]);
   });
 
-  it('drops input from a viewer without the lease and keeps watching', () => {
-    const { transport, upstream } = transportWith(interactiveTarget(() => false));
-    const conn = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: null });
-    transport.handle(conn);
-    conn.deliver(Buffer.concat([HANDSHAKE, SET_ENCODINGS, POINTER_EVENT, FRAMEBUFFER_UPDATE_REQUEST, KEY_EVENT(97)]));
-    // Watching survives, driving does not. The messages that ask for pixels pass; the ones that carry
-    // input never reach the VNC server at all, so it cannot tell they were sent.
-    expect(upstream.forwarded).toEqual(Buffer.concat([HANDSHAKE, SET_ENCODINGS, FRAMEBUFFER_UPDATE_REQUEST]));
-    // And the connection stays up: a view-only viewer is not doing anything wrong.
-    expect(conn.closes).toEqual([]);
-  });
-
-  it('stops the input the moment the lease ends, mid-connection', () => {
-    let holdsLease = true;
-    const { transport, upstream } = transportWith(interactiveTarget(() => holdsLease));
-    const conn = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: 'lease-1' });
-    transport.handle(conn);
-    conn.deliver(Buffer.concat([HANDSHAKE, KEY_EVENT(97)]));
-    expect(upstream.forwarded).toEqual(Buffer.concat([HANDSHAKE, KEY_EVENT(97)]));
-    // Released, expired, or taken by the agent — the transport does not care which, it re-reads.
-    holdsLease = false;
-    conn.deliver(KEY_EVENT(98));
-    expect(upstream.forwarded).toEqual(Buffer.concat([HANDSHAKE, KEY_EVENT(97)]));
-    // Still framed correctly afterwards, which is the reason the filter runs even for a driver.
-    conn.deliver(FRAMEBUFFER_UPDATE_REQUEST);
-    expect(upstream.forwarded).toEqual(Buffer.concat([HANDSHAKE, KEY_EVENT(97), FRAMEBUFFER_UPDATE_REQUEST]));
-  });
-
   it('refuses one viewer past the limit and lets the next in when someone leaves', () => {
-    const { transport } = transportWith(interactiveTarget(() => false), { maxViewersPerSession: 2 });
-    const first = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: null });
-    const second = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: null });
-    const third = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: null });
+    const { transport } = transportWith(target, { maxViewersPerSession: 2 });
+    const first = new FakeConnection(authOf(1), { sessionId: 'session-1' });
+    const second = new FakeConnection(authOf(1), { sessionId: 'session-1' });
+    const third = new FakeConnection(authOf(1), { sessionId: 'session-1' });
     transport.handle(first);
     transport.handle(second);
     transport.handle(third);
@@ -244,15 +221,15 @@ describe('browser live view transport', () => {
     // A full room empties: the seat the departing viewer held is genuinely given back.
     second.hangUp();
     expect(transport.viewerCount('session-1')).toBe(1);
-    const fourth = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: null });
+    const fourth = new FakeConnection(authOf(1), { sessionId: 'session-1' });
     transport.handle(fourth);
     expect(fourth.closes).toEqual([]);
     expect(transport.viewerCount('session-1')).toBe(2);
   });
 
   it('drops every view of a session that ended, and tears down the socket with it', () => {
-    const { transport, upstream } = transportWith(interactiveTarget(() => false));
-    const conn = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: null });
+    const { transport, upstream } = transportWith(target);
+    const conn = new FakeConnection(authOf(1), { sessionId: 'session-1' });
     transport.handle(conn);
     transport.closeSession('session-1', 'display_lost');
     expect(conn.closes).toEqual([{ code: VNC_CLOSE.sessionClosed, reason: 'display_lost' }]);
@@ -264,8 +241,8 @@ describe('browser live view transport', () => {
   it('stops reading from the VNC server while a slow viewer is behind', () => {
     vi.useFakeTimers();
     try {
-      const { transport, upstream } = transportWith(interactiveTarget(() => false));
-      const conn = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: null });
+      const { transport, upstream } = transportWith(target);
+      const conn = new FakeConnection(authOf(1), { sessionId: 'session-1' });
       transport.handle(conn);
       conn.queued = 8 * 1024 * 1024;
       upstream.emit('data', Buffer.from([1]));
@@ -283,8 +260,8 @@ describe('browser live view transport', () => {
   });
 
   it('lets go when the daemon aborts the connection', () => {
-    const { transport, upstream } = transportWith(interactiveTarget(() => false));
-    const conn = new FakeConnection(authOf(1), { sessionId: 'session-1', leaseId: null });
+    const { transport, upstream } = transportWith(target);
+    const conn = new FakeConnection(authOf(1), { sessionId: 'session-1' });
     transport.handle(conn);
     // A plugin reload or a daemon shutdown: the one signal a frame producer gets.
     conn.abort();
@@ -655,25 +632,25 @@ describe.skipIf(!e2e)('browser live view end to end', () => {
     expect(await read(() => window.scrollY)).toBeGreaterThan(before);
   }, 120_000);
 
-  it('refuses input from a viewer without the lease, at the server', async () => {
-    // The same proof as the unit test above, but against a real x11vnc: a tampered client that sets its
-    // own viewOnly to false still cannot move the pointer, because the bytes never leave the plugin.
+  it('carries the owner\'s input through the transport to a real x11vnc, with no lease in the ticket', async () => {
+    // The transport in front of a real server, with the ticket shape production mints: session only.
+    // Input must pass — a connection opened before "Take control" is the common case, not the exception.
     const displays = poolFor(root());
     const display = await displays.acquire(3);
     try {
       const transport = new VncTransport({
         config: () => resolveConfig({}),
         logger,
-        resolve: () => ({ socketPath: display.socketPath, interactive: () => false }),
+        resolve: () => ({ socketPath: display.socketPath }),
       });
-      const conn = new FakeConnection(authOf(3), { sessionId: 'session-e2e', leaseId: null });
+      const conn = new FakeConnection(authOf(3), { sessionId: 'session-e2e' });
       transport.handle(conn);
       // The server's RFB banner comes back, so this is a live connection to a real x11vnc.
       await new Promise((resolve) => setTimeout(resolve, 500));
       expect(Buffer.concat(conn.sent).toString('ascii')).toMatch(/^RFB \d{3}\.\d{3}\n/);
       conn.deliver(Buffer.concat([HANDSHAKE, POINTER_EVENT, KEY_EVENT(97)]));
       await new Promise((resolve) => setTimeout(resolve, 500));
-      // Still connected, still watching, and x11vnc never saw the input.
+      // The server took the input without complaint: still connected.
       expect(conn.closes).toEqual([]);
 
       // What noVNC ACTUALLY sends next: x11vnc offers the Extended Clipboard extension and the client
