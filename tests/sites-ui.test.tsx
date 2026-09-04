@@ -3,6 +3,8 @@ import { act, render, screen, fireEvent, waitFor, within, cleanup } from '@testi
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { SitesPage } from '../plugins/sites/web-src/SitesPage';
+import { SiteDetail } from '../plugins/sites/web-src/SiteDetail';
+import { EnvironmentsSetup } from '../plugins/sites/web-src/EnvironmentsSetup';
 import manifest from '../plugins/sites/elowen-plugin.json' with { type: 'json' };
 import { ToastProvider, createWrapper } from './ui/hostHooks';
 
@@ -43,13 +45,14 @@ const site = {
   lastPublishAt: '2026-08-20T10:00:00.000Z',
   lastPublishModel: 'anthropic/claude',
   spa: false,
+  runtime: 'command',
   canManage: true,
 };
 
 const detail = {
   site,
   members: [GUEST],
-  releases: [{ id: 'rel-2', siteId: site.id, createdAt: '2026-08-20T10:00:00.000Z', model: 'anthropic/claude', fileCount: 12, sizeBytes: 220_000, note: 'August numbers' }],
+  releases: [{ id: 'rel-2', siteId: site.id, createdAt: '2026-08-20T10:00:00.000Z', model: 'anthropic/claude', fileCount: 12, sizeBytes: 220_000, note: 'August numbers', kind: 'files' }],
   hits: [{ day: '2026-08-20', count: 41 }],
   sourceDir: '/var/www/kolin/reports',
   runtime: {
@@ -62,6 +65,7 @@ const detail = {
     logTail: 'listening on socket',
     lastError: null,
   },
+  environment: null,
 };
 
 setDefaults(
@@ -228,5 +232,238 @@ describe('the Sites workspace', () => {
 
     // The server receives the complete intended set and applies it in one transaction.
     await waitFor(() => expect(replaced).toEqual([{ userIds: [GUEST.id, OUTSIDER.id] }]));
+  });
+});
+
+const environmentSite = {
+  ...site,
+  id: 'environment-1',
+  slug: 'environment-abc123',
+  title: 'Persistent service',
+  runtime: 'environment',
+  currentReleaseId: 'snapshot-active',
+};
+
+const environmentDetail = {
+  site: environmentSite,
+  members: [],
+  releases: [
+    { id: 'snapshot-active', siteId: environmentSite.id, createdAt: '2026-08-20T10:00:00.000Z', model: 'test/model', fileCount: 0, sizeBytes: 0, note: 'Known good', kind: 'environment-snapshot', includesData: true },
+    { id: 'snapshot-older', siteId: environmentSite.id, createdAt: '2026-08-19T10:00:00.000Z', model: 'test/model', fileCount: 0, sizeBytes: 0, note: 'Before update', kind: 'environment-snapshot', includesData: true },
+  ],
+  hits: [],
+  sourceDir: '/var/www/project/service',
+  runtime: null,
+  environment: {
+    state: 'running',
+    desiredState: 'running',
+    limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 },
+    limitOverrides: { cpus: null, memoryMb: 2048, pidsLimit: null, diskSoftMb: null },
+    lastError: null,
+    action: null,
+    canControl: true,
+    canReadLogs: true,
+    canSetLimits: true,
+    transport: { buffered: true, requestBodyLimitBytes: 1024 * 1024 },
+  },
+};
+
+const mountEnvironment = (response = environmentDetail, onDetail?: () => void) => {
+  use(
+    http.get('/api/plugins/sites/api/site/:id', () => { onDetail?.(); return HttpResponse.json(response); }),
+    http.get('/api/plugins/sites/api/site/:id/logs', () => HttpResponse.json({ lifecycle: 'started container', journal: 'service ready', lines: 200 })),
+  );
+  const { wrapper: Wrapper } = createWrapper();
+  const rendered = render(
+    <Wrapper><ToastProvider><SiteDetail siteId={environmentSite.id} allowPublicSites onDeleted={() => {}} /></ToastProvider></Wrapper>,
+  );
+  return rendered;
+};
+
+describe('environment setup settings', () => {
+  it('is registered in the host plugin detail settings navigation', () => {
+    expect((manifest.web as { settings?: unknown[] }).settings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'environment-setup', placement: 'pluginDetail' }),
+    ]));
+  });
+
+  it.each([
+    ['ready', strings.environmentStatusReady],
+    ['missing', strings.environmentStatusMissing],
+  ] as const)('renders the authoritative %s DNS state', async (status, label) => {
+    use(
+      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({
+        ready: status === 'ready',
+        status,
+        detail: status === 'ready' ? 'sites.example.com' : '*.sites.example.com does not resolve.',
+        expectedRecord: status === 'ready' ? null : { type: 'CNAME', name: '*.sites.example.com', value: 'app.example.com.' },
+        observedTargets: [],
+      })),
+      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({ ready: true, canProvision: false, items: [] })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+    await waitFor(() => expect(screen.getAllByText(label).length).toBeGreaterThan(0));
+  });
+
+  it('shows authoritative DNS states and provisions only after one confirmed request', async () => {
+    let ready = false;
+    const posts: unknown[] = [];
+    use(
+      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({
+        ready: false,
+        status: 'misdirected',
+        detail: '*.sites.example.com resolves, but not to app.example.com.',
+        expectedRecord: { type: 'CNAME', name: '*.sites.example.com', value: 'app.example.com.' },
+        observedTargets: ['203.0.113.8'],
+      })),
+      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({
+        ready,
+        canProvision: true,
+        items: [
+          { id: 'podman', label: 'Podman', ok: ready, detail: ready ? 'Rootless Podman is available.' : 'Podman is missing.' },
+          { id: 'base-image', label: 'Deterministic Sites base image', ok: ready },
+        ],
+      })),
+      http.post('/api/plugins/sites/api/environments/provision', async ({ request }) => {
+        posts.push(await request.text());
+        ready = true;
+        return HttpResponse.json({ ready: true, canProvision: true, items: [] });
+      }),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    expect(await screen.findByText(strings.environmentGatewayTitle)).toBeVisible();
+    expect(screen.getAllByText(strings.environmentStatusMisdirected).length).toBeGreaterThan(0);
+    expect(screen.getByText('*.sites.example.com')).toBeVisible();
+    expect(screen.getByText('203.0.113.8', { exact: false })).toBeVisible();
+    const install = screen.getByRole('button', { name: strings.environmentProvision });
+    fireEvent.click(install);
+    expect(posts).toHaveLength(0);
+    const dialog = await screen.findByRole('dialog', { name: strings.environmentProvisionConfirmTitle });
+    const confirm = within(dialog).getByRole('button', { name: strings.environmentProvision });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    await waitFor(() => expect(posts).toHaveLength(1));
+    await waitFor(() => expect(screen.getAllByText(strings.pass).length).toBeGreaterThan(0));
+    expect(screen.getByRole('button', { name: strings.environmentProvision })).toBeDisabled();
+  });
+
+  it('never renders the provisioning action without admin capability', async () => {
+    use(
+      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
+      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({ ready: false, canProvision: false, items: [{ id: 'podman', label: 'Podman', ok: false }] })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+    expect(await screen.findByText('Podman')).toBeVisible();
+    expect(screen.queryByRole('button', { name: strings.environmentProvision })).not.toBeInTheDocument();
+  });
+});
+
+describe('persistent environment detail', () => {
+  it('shows states, transport, snapshots and bounded plain-text logs without the command editor', async () => {
+    const { container } = mountEnvironment();
+    expect(await screen.findByText(strings.environmentState)).toBeVisible();
+    expect(screen.getByText(strings.environmentTransportLimit)).toBeVisible();
+    expect(screen.getAllByText(strings.environmentSnapshots).length).toBeGreaterThan(0);
+    expect(screen.getByText('service ready', { exact: false })).toBeVisible();
+    expect(screen.queryByRole('textbox', { name: strings.runtimeCommand })).not.toBeInTheDocument();
+    expect(container.querySelector('.grid-cols-1.sm\\:grid-cols-2')).not.toBeNull();
+  });
+
+  it('submits one lifecycle mutation while the first request is pending', async () => {
+    const controls: unknown[] = [];
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    use(http.post('/api/plugins/sites/api/site/:id/control', async ({ request }) => {
+      controls.push(await request.json());
+      await pending;
+      return HttpResponse.json({ ok: true, scheduled: true });
+    }));
+    mountEnvironment();
+    const restart = await screen.findByRole('button', { name: strings.environmentRestart });
+    fireEvent.click(restart);
+    fireEvent.click(restart);
+    await waitFor(() => expect(controls).toEqual([{ action: 'restart' }]));
+    release();
+  });
+
+  it('keeps snapshot data and restore data as explicit separate choices', async () => {
+    const snapshots: unknown[] = [];
+    const restores: unknown[] = [];
+    use(
+      http.post('/api/plugins/sites/api/site/:id/snapshot', async ({ request }) => {
+        snapshots.push(await request.json());
+        return HttpResponse.json({ ok: true, scheduled: true });
+      }),
+      http.post('/api/plugins/sites/api/site/:id/rollback', async ({ request }) => {
+        restores.push(await request.json());
+        return HttpResponse.json({ ok: true, scheduled: true });
+      }),
+    );
+    mountEnvironment();
+    const note = await screen.findByRole('textbox', { name: strings.environmentSnapshotNote });
+    fireEvent.change(note, { target: { value: 'Before migration' } });
+    const includeData = screen.getByRole('checkbox', { name: strings.environmentIncludeData });
+    fireEvent.click(includeData);
+    fireEvent.click(screen.getByRole('button', { name: strings.environmentSnapshot }));
+    await waitFor(() => expect(snapshots).toEqual([{ includeData: false, note: 'Before migration' }]));
+
+    fireEvent.click(screen.getByRole('button', { name: strings.environmentRestoreData }));
+    const dialog = await screen.findByRole('dialog', { name: strings.environmentRestoreConfirmTitle });
+    expect(within(dialog).getByText(strings.environmentRestoreWithDataWarning)).toBeVisible();
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.environmentRestore }));
+    await waitFor(() => expect(restores).toEqual([{ releaseId: 'snapshot-older', restoreData: true }]));
+  });
+
+  it('shows a durable pending action and disables further environment mutations', async () => {
+    mountEnvironment({
+      ...environmentDetail,
+      environment: {
+        ...environmentDetail.environment,
+        action: { kind: 'snapshot', snapshotId: 'pending-snapshot', lastError: null },
+      },
+    });
+    expect(await screen.findByText(strings.environmentActionPending)).toBeVisible();
+    expect(screen.getByRole('button', { name: strings.environmentRestart })).toBeDisabled();
+    expect(screen.getByRole('button', { name: strings.environmentSnapshot })).toBeDisabled();
+  });
+
+  it('shows a durable error, hides admin limits and stops polling the terminal action', async () => {
+    let detailRequests = 0;
+    mountEnvironment({
+      ...environmentDetail,
+      environment: {
+        ...environmentDetail.environment,
+        canSetLimits: false,
+        action: { kind: 'snapshot', snapshotId: 'pending-snapshot', lastError: 'snapshot export failed' },
+      },
+    }, () => { detailRequests += 1; });
+    expect(await screen.findByText(strings.environmentActionError)).toBeVisible();
+    expect(screen.getByText('snapshot export failed')).toBeVisible();
+    expect(screen.queryByRole('button', { name: strings.environmentSaveLimits })).not.toBeInTheDocument();
+    const settledRequests = detailRequests;
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 2_100)); });
+    expect(detailRequests).toBe(settledRequests);
+  });
+
+  it('saves admin-only limit overrides through the existing site patch', async () => {
+    const patches: unknown[] = [];
+    use(http.patch('/api/plugins/sites/api/site/:id', async ({ request }) => {
+      patches.push(await request.json());
+      return HttpResponse.json({ site: environmentSite });
+    }));
+    mountEnvironment();
+    const memory = await screen.findByRole('spinbutton', { name: strings.environmentLimitMemory });
+    fireEvent.change(memory, { target: { value: '3072' } });
+    fireEvent.click(screen.getByRole('button', { name: strings.environmentSaveLimits }));
+    await waitFor(() => expect(patches).toEqual([{
+      environmentCpus: null,
+      environmentMemoryMb: 3072,
+      environmentPidsLimit: null,
+      environmentDiskSoftMb: null,
+    }]));
   });
 });

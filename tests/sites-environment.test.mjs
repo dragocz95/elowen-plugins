@@ -1176,8 +1176,8 @@ test('SiteControl and SiteRollback persist durable daemon work without ambient g
   await assert.rejects(() => harness.call('SiteRollback', { site: 'other-site', releaseId: 'snapshot-1' }), /not retained for this site/i);
 });
 
-const apiRequest = ({ method = 'GET', path = '', admin = false, userId = 1, body = {} } = {}) => ({
-  method, path, query: {}, headers: {}, params: {},
+const apiRequest = ({ method = 'GET', path = '', admin = false, userId = 1, body = {}, query = {} } = {}) => ({
+  method, path, query, headers: {}, params: {},
   auth: { userId, admin, tokenScope: 'user', accessibleProjects: [7] },
   body: async () => Buffer.from(JSON.stringify(body)),
   json: async () => body,
@@ -1199,6 +1199,12 @@ function phase2ApiHarness({ provisioning } = {}) {
       state: 'running', desiredState: site.environmentDesiredState, usage: null,
       limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 },
     }),
+    environmentLogs: async (_site, lines) => { calls.push(['logs', lines]); return { lifecycle: 'life', journal: 'journal' }; },
+    gatewayReadiness: async () => ({
+      id: 'sites-gateway', label: 'Published sites gateway', ok: false, status: 'misdirected',
+      detail: 'wrong target', observedTargets: ['203.0.113.5'],
+    }),
+    gatewayRecord: () => ({ type: 'CNAME', name: '*.sites.elowen.example', value: 'elowen.example.' }),
     requestEnvironmentControl: async (site, action) => { calls.push(['control', site.id, action]); store.updateSite(site.id, { environmentDesiredState: action === 'stop' ? 'stopped' : action === 'restart' ? 'restarting' : 'running' }); },
     snapshotEnvironment: async (site, input) => {
       calls.push(['snapshot', site.id, input]);
@@ -1215,6 +1221,20 @@ function phase2ApiHarness({ provisioning } = {}) {
   return { store, handlers, calls };
 }
 
+test('gateway readiness API returns only sanitized status and expected record fields', async () => {
+  const { handlers } = phase2ApiHarness();
+  const response = await handlers.gatewayReadiness(apiRequest());
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, {
+    ready: false,
+    status: 'misdirected',
+    detail: 'wrong target',
+    expectedRecord: { type: 'CNAME', name: '*.sites.elowen.example', value: 'elowen.example.' },
+    observedTargets: ['203.0.113.5'],
+  });
+  assert.equal('gatewayToken' in response.body, false);
+});
+
 test('API environment detail, control, snapshot and rollback actions use durable seams', async () => {
   const { handlers, calls, store } = phase2ApiHarness();
   store.insertRelease({
@@ -1224,10 +1244,22 @@ test('API environment detail, control, snapshot and rollback actions use durable
   const detail = await handlers.site(apiRequest({ path: SITE_ID }));
   assert.equal(detail.status, 200);
   assert.equal(detail.body.environment.state, 'running');
+  assert.equal(detail.body.site.runtime, 'environment');
   assert.equal(detail.body.environment.desiredState, 'running');
   assert.equal(detail.body.environment.limits.memoryMb, 1024);
+  assert.deepEqual(detail.body.environment.limitOverrides, { cpus: null, memoryMb: null, pidsLimit: null, diskSoftMb: null });
+  assert.equal(detail.body.environment.canControl, true);
+  assert.equal(detail.body.environment.canSetLimits, false);
+  const adminDetail = await handlers.site(apiRequest({ path: SITE_ID, admin: true }));
+  assert.equal(adminDetail.body.environment.canSetLimits, true);
+  assert.equal(detail.body.environment.transport.requestBodyLimitBytes, 1024 * 1024);
+  assert.equal(detail.body.releases[0].kind, 'environment-snapshot');
   assert.equal(detail.body.releases[0].imageRef, undefined);
   assert.equal(detail.body.releases[0].dataArchive, undefined);
+  const logs = await handlers.site(apiRequest({ path: `${SITE_ID}/logs`, query: { lines: '9000' } }));
+  assert.equal(logs.status, 200);
+  assert.deepEqual(logs.body, { lifecycle: 'life', journal: 'journal', lines: 1000 });
+  assert.deepEqual(calls.shift(), ['logs', 1000]);
 
   assert.equal((await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, body: { action: 'restart' } }))).status, 200);
   store.updateSite(SITE_ID, { environmentDesiredState: 'running' });
@@ -1302,7 +1334,11 @@ test('provisioning API is admin-only, guards concurrency and handles an old core
     audit: (status, actorUserId) => audits.push({ status, actorUserId }),
   });
   const { handlers } = phase2ApiHarness({ provisioning: service });
-  assert.equal((await handlers.environmentsReadiness(apiRequest({ admin: false }))).status, 403);
+  const ownerReadiness = await handlers.environmentsReadiness(apiRequest({ admin: false }));
+  assert.equal(ownerReadiness.status, 200);
+  assert.equal(ownerReadiness.body.canProvision, false);
+  assert.equal(ownerReadiness.body.items.find((item) => !item.ok).detail, 'An administrator must complete this dependency.');
+  assert.equal((await handlers.environmentsReadiness(apiRequest({ admin: true }))).body.canProvision, true);
   assert.equal((await handlers.environmentsProvision(apiRequest({ method: 'POST', admin: false }))).status, 403);
   const first = handlers.environmentsProvision(apiRequest({ method: 'POST', admin: true }));
   await new Promise((resolve) => setImmediate(resolve));
@@ -1311,6 +1347,7 @@ test('provisioning API is admin-only, guards concurrency and handles an old core
   const completed = await first;
   assert.equal(completed.status, 200);
   assert.equal(completed.body.ready, true);
+  assert.equal(completed.body.canProvision, true);
   assert.equal(provisions, 1);
   assert.equal(builds, 1);
   assert.equal(completed.body.items.find((item) => item.id === 'base-image').ok, true);

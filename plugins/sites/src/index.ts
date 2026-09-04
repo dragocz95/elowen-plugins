@@ -329,6 +329,9 @@ export function register(published: PluginContext): void {
       store.updateSite(site.id, { status: 'live', lastError: null });
     },
     environmentState: (site) => environment.state(site),
+    environmentLogs: (site, lines) => environment.logs(site, lines),
+    gatewayReadiness: () => gateway.readiness(),
+    gatewayRecord: () => gateway.requiredRecord(),
     requestEnvironmentControl: async (site, action) => {
       const desired = action === 'stop' ? 'stopped' : action === 'restart' ? 'restarting' : 'running';
       if (!store.tryRequestEnvironmentControl(site.id, desired)) {
@@ -375,6 +378,7 @@ export function register(published: PluginContext): void {
   ctx.registerApiRoute({ path: 'site', access: 'user', handler: handlers.site });
   ctx.registerApiRoute({ path: 'ticket', method: 'POST', access: 'user', handler: handlers.ticket });
   ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
+  ctx.registerApiRoute({ path: 'gateway/readiness', method: 'GET', access: 'user', handler: handlers.gatewayReadiness });
   ctx.registerApiRoute({ path: 'environments/readiness', method: 'GET', access: 'user', handler: handlers.environmentsReadiness });
   ctx.registerApiRoute({ path: 'environments/provision', method: 'POST', access: 'user', handler: handlers.environmentsProvision });
 

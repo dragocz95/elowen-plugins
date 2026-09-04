@@ -8,7 +8,38 @@ const MIN_BACKOFF_MS = 60_000;
 const MAX_BACKOFF_MS = 3600_000;
 
 /** The exact record an operator has to create, so the failure is actionable without documentation. */
-type RequiredRecord = { name: string; type: 'CNAME'; value: string };
+export type RequiredRecord = { name: string; type: 'CNAME'; value: string };
+
+export interface GatewayDnsResolver {
+  resolveCname(hostname: string): Promise<string[]>;
+  resolve4(hostname: string): Promise<string[]>;
+  resolve6(hostname: string): Promise<string[]>;
+}
+
+export type GatewayDnsState = 'ready' | 'missing' | 'misdirected' | 'unavailable';
+
+export interface SiteGatewayReadiness {
+  id: 'sites-gateway';
+  label: string;
+  ok: boolean;
+  status: GatewayDnsState;
+  detail: string;
+  observedTargets?: string[];
+  hint?: string;
+  fix?: { label: string; value: string }[];
+}
+
+type DnsCheck = { state: GatewayDnsState; observedTargets: string[]; detail?: string };
+type DnsAnswer = { values: string[]; missing: boolean; error: string | null };
+
+const normalizedHost = (value: string): string => value.trim().replace(/\.+$/, '').toLowerCase();
+const fqdn = (value: string): string => `${normalizedHost(value)}.`;
+const negativeDnsError = (error: unknown): boolean => {
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : '';
+  return code === 'ENODATA' || code === 'ENOTFOUND' || code === 'EAI_NONAME';
+};
 
 /** Owns the one conversation with the root broker: the shared marker token, per-site certificates, and
  *  the check that the wildcard DNS record this whole feature stands on actually exists.
@@ -27,8 +58,22 @@ export class SiteGatewayManager {
   private reconciling: Promise<SitesGatewayStatus> | null = null;
   private readonly nextAttempt = new Map<string, number>();
   private readonly backoffMs = new Map<string, number>();
+  private readonly resolver: GatewayDnsResolver;
+  private readonly randomLabel: () => string;
+  private dnsCheck: DnsCheck = { state: 'unavailable', observedTargets: [], detail: 'DNS has not been checked yet.' };
 
-  constructor(private readonly ctx: SitesContext) {}
+  constructor(private readonly ctx: SitesContext, deps: {
+    resolver?: GatewayDnsResolver;
+    randomLabel?: () => string;
+  } = {}) {
+    const resolver = new Resolver({ timeout: DNS_TIMEOUT_MS, tries: 2 });
+    this.resolver = deps.resolver ?? {
+      resolveCname: (hostname) => resolver.resolveCname(hostname),
+      resolve4: (hostname) => resolver.resolve4(hostname),
+      resolve6: (hostname) => resolver.resolve6(hostname),
+    };
+    this.randomLabel = deps.randomLabel ?? (() => `elowen-${randomBytes(6).toString('hex')}`);
+  }
 
   /** Whether sites can be served at all right now, as of the last reconcile. */
   isActive(): boolean {
@@ -87,17 +132,93 @@ export class SiteGatewayManager {
     return run;
   }
 
-  /** Does the wildcard actually resolve? Asked with a random label so the answer proves the WILDCARD
-   *  exists rather than one leftover record, and so a cached negative for a real slug cannot mask it. */
-  private async wildcardResolves(base: string): Promise<boolean> {
-    const resolver = new Resolver({ timeout: DNS_TIMEOUT_MS, tries: 2 });
-    const probe = `elowen-${randomBytes(6).toString('hex')}.${base}`;
-    try {
-      const addresses = await resolver.resolve4(probe);
-      return addresses.length > 0;
-    } catch {
-      return false;
+  private async answer(query: () => Promise<string[]>): Promise<DnsAnswer> {
+    try { return { values: await query(), missing: false, error: null }; }
+    catch (error) {
+      if (negativeDnsError(error)) return { values: [], missing: true, error: null };
+      return { values: [], missing: false, error: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  private async cnameTargets(probe: string, appHost: string): Promise<{
+    reachesApp: boolean;
+    observed: string[];
+    errors: string[];
+  }> {
+    const pending = [probe];
+    const visited = new Set<string>();
+    const observed = new Set<string>();
+    const errors: string[] = [];
+    for (let depth = 0; pending.length > 0 && depth < 8; depth += 1) {
+      const current = normalizedHost(pending.shift() ?? '');
+      if (!current || visited.has(current)) continue;
+      visited.add(current);
+      const answer = await this.answer(() => this.resolver.resolveCname(fqdn(current)));
+      if (answer.error) errors.push(answer.error);
+      for (const raw of answer.values) {
+        const target = normalizedHost(raw);
+        if (!target) continue;
+        observed.add(target);
+        if (target === appHost) return { reachesApp: true, observed: [...observed], errors };
+        if (!visited.has(target)) pending.push(target);
+      }
+    }
+    return { reachesApp: false, observed: [...observed], errors };
+  }
+
+  private async sampledAddresses(hostname: string): Promise<{
+    ipv4: Set<string>;
+    ipv6: Set<string>;
+    answered: boolean;
+    errors: string[];
+  }> {
+    const ipv4 = new Set<string>();
+    const ipv6 = new Set<string>();
+    const errors: string[] = [];
+    let answered = false;
+    for (let sample = 0; sample < 2; sample += 1) {
+      const [v4, v6] = await Promise.all([
+        this.answer(() => this.resolver.resolve4(fqdn(hostname))),
+        this.answer(() => this.resolver.resolve6(fqdn(hostname))),
+      ]);
+      for (const value of v4.values) ipv4.add(value);
+      for (const value of v6.values) ipv6.add(value.toLowerCase());
+      answered = answered || v4.values.length > 0 || v6.values.length > 0;
+      if (v4.error) errors.push(v4.error);
+      if (v6.error) errors.push(v6.error);
+    }
+    return { ipv4, ipv6, answered, errors };
+  }
+
+  /** Prove that a random wildcard label reaches this instance, either through a CNAME chain or through
+   *  flattened A/AAAA answers. Every query is absolute so a host search domain cannot change the result. */
+  private async checkWildcard(base: string, appHostname: string): Promise<DnsCheck> {
+    const probe = normalizedHost(`${this.randomLabel()}.${base}`);
+    const appHost = normalizedHost(appHostname);
+    const cname = await this.cnameTargets(probe, appHost);
+    if (cname.reachesApp) return { state: 'ready', observedTargets: cname.observed };
+
+    const [probeAddresses, appAddresses] = await Promise.all([
+      this.sampledAddresses(probe),
+      this.sampledAddresses(appHost),
+    ]);
+    const ipv4Matches = [...probeAddresses.ipv4].some((address) => appAddresses.ipv4.has(address));
+    const ipv6Matches = [...probeAddresses.ipv6].some((address) => appAddresses.ipv6.has(address));
+    const observedTargets = [...new Set([
+      ...cname.observed,
+      ...probeAddresses.ipv4,
+      ...probeAddresses.ipv6,
+    ])].slice(0, 8);
+    if (ipv4Matches || ipv6Matches) return { state: 'ready', observedTargets };
+    if (!probeAddresses.answered && cname.observed.length === 0) {
+      const errors = [...cname.errors, ...probeAddresses.errors];
+      return errors.length > 0
+        ? { state: 'unavailable', observedTargets, detail: errors[0] }
+        : { state: 'missing', observedTargets };
+    }
+    const errors = [...cname.errors, ...probeAddresses.errors, ...appAddresses.errors];
+    if (errors.length > 0) return { state: 'unavailable', observedTargets, detail: errors[0] };
+    return { state: 'misdirected', observedTargets };
   }
 
   private async reconcileNow(): Promise<SitesGatewayStatus> {
@@ -108,18 +229,34 @@ export class SiteGatewayManager {
     }
     const base = gateway.hostnameBase();
     if (!base) {
+      this.dnsCheck = { state: 'unavailable', observedTargets: [], detail: 'The gateway hostname is unavailable.' };
       this.current = await gateway.status();
       return this.current;
     }
-    if (!await this.wildcardResolves(base)) {
-      // Fail loudly and stay failed. Serving the pages from the app's own origin instead would put
-      // agent-authored script next to the app's session cookie, so there is nothing to fall back to.
+    const appHost = this.appHost();
+    if (!appHost) {
+      this.dnsCheck = { state: 'unavailable', observedTargets: [], detail: 'The application hostname is unavailable.' };
       this.current = {
         available: false,
         active: false,
         hostnameBase: base,
-        detail: `*.${base} does not resolve, so no site can be addressed or given a certificate`,
+        detail: this.dnsCheck.detail,
       };
+      return this.current;
+    }
+    this.dnsCheck = await this.checkWildcard(base, appHost);
+    if (this.dnsCheck.state !== 'ready') {
+      // Fail loudly and stay failed. Serving the pages from the app's own origin instead would put
+      // agent-authored script next to the app's session cookie, so there is nothing to fall back to.
+      const observed = this.dnsCheck.observedTargets.length > 0
+        ? ` Observed: ${this.dnsCheck.observedTargets.join(', ')}.`
+        : '';
+      const detail = this.dnsCheck.state === 'missing'
+        ? `*.${base} does not resolve, so no site can be addressed or given a certificate.`
+        : this.dnsCheck.state === 'misdirected'
+          ? `*.${base} resolves, but not to ${appHost}.${observed}`
+          : `DNS verification for *.${base} could not complete: ${this.dnsCheck.detail ?? 'resolver unavailable'}.`;
+      this.current = { available: false, active: false, hostnameBase: base, detail };
       return this.current;
     }
     // Make the gateway live before anything asks for a certificate: HTTP-01 is answered by a port-80
@@ -199,14 +336,19 @@ export class SiteGatewayManager {
    *  only as a sentence. It is transcribed by hand into somebody else's control panel, where one wrong
    *  character produces no error anywhere: the wildcard simply does not resolve, and the gateway reports
    *  the same "does not resolve" it reports when nobody created the record at all. */
-  async readiness() {
+  async readiness(): Promise<SiteGatewayReadiness> {
     await this.reconcile();
     const record = this.requiredRecord();
+    const status: GatewayDnsState = this.current.active
+      ? 'ready'
+      : this.dnsCheck.state === 'ready' ? 'unavailable' : this.dnsCheck.state;
     return {
       id: 'sites-gateway',
       label: 'Published sites gateway',
       ok: this.current.active,
+      status,
       detail: this.current.active ? this.current.hostnameBase ?? 'active' : this.current.detail ?? 'not configured',
+      ...(this.dnsCheck.observedTargets.length > 0 ? { observedTargets: this.dnsCheck.observedTargets } : {}),
       ...(this.current.active || !record ? {} : {
         hint: 'Add this DNS record at the registrar for your domain. Sites start working within a minute of it resolving — nothing else has to be configured.',
         fix: [

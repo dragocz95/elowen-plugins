@@ -33,6 +33,7 @@ const toView = (site, deps, auth) => {
         lastPublishAt: site.lastPublishAt,
         lastPublishModel: site.lastPublishModel,
         spa: site.spa,
+        runtime: site.runtime,
         canManage: canManage(site, auth),
     };
 };
@@ -123,12 +124,35 @@ export function createApiHandlers(deps) {
                     lastError: canManage(target, req.auth) ? target.lastError : null,
                 },
                 environment: environment === null ? null : canManage(target, req.auth)
-                    ? { ...environment, action: deps.store.environmentAction(target.id) }
+                    ? {
+                        ...environment,
+                        action: deps.store.environmentAction(target.id),
+                        limitOverrides: {
+                            cpus: target.environmentCpus ?? null,
+                            memoryMb: target.environmentMemoryMb ?? null,
+                            pidsLimit: target.environmentPidsLimit ?? null,
+                            diskSoftMb: target.environmentDiskSoftMb ?? null,
+                        },
+                        canControl: canAccessProject(target.projectId, req.auth),
+                        canReadLogs: canAccessProject(target.projectId, req.auth),
+                        canSetLimits: req.auth.admin && canAccessProject(target.projectId, req.auth),
+                        transport: { buffered: true, requestBodyLimitBytes: 1024 * 1024 },
+                    }
                     : { state: environment.state, desiredState: environment.desiredState },
             });
         }
         if (!canManage(target, req.auth))
             return json(403, { error: 'forbidden' });
+        if (req.method === 'GET' && action === 'logs') {
+            if (target.runtime !== 'environment')
+                return json(400, { error: 'this site is not an environment' });
+            if (!canAccessProject(target.projectId, req.auth))
+                return json(403, { error: 'project access is required' });
+            const requested = Number(req.query.lines ?? 200);
+            const lines = Number.isFinite(requested) ? Math.min(1000, Math.max(1, Math.round(requested))) : 200;
+            const logs = await deps.environmentLogs(target, lines);
+            return json(200, { ...logs, lines });
+        }
         if (req.method === 'PATCH' && action === '')
             return patchSite(req, target);
         if (req.method === 'DELETE' && action === '') {
@@ -383,10 +407,34 @@ export function createApiHandlers(deps) {
         const accounts = [...deps.people().values()].sort((a, b) => a.name.localeCompare(b.name));
         return json(200, { accounts });
     };
-    const environmentsReadiness = async (req) => {
-        if (!req.auth.admin)
+    const gatewayReadiness = async (req) => {
+        if (req.auth.userId === null)
             return json(403, { error: 'forbidden' });
-        return json(200, await deps.provisioning.status());
+        const readiness = await deps.gatewayReadiness();
+        return json(200, {
+            ready: readiness.ok,
+            status: readiness.status,
+            detail: readiness.detail,
+            expectedRecord: deps.gatewayRecord(),
+            observedTargets: readiness.observedTargets ?? [],
+        });
+    };
+    const environmentsReadiness = async (req) => {
+        if (req.auth.userId === null)
+            return json(403, { error: 'forbidden' });
+        const status = await deps.provisioning.status();
+        if (req.auth.admin)
+            return json(200, { ...status, canProvision: true });
+        return json(200, {
+            ready: status.ready,
+            canProvision: false,
+            items: status.items.map((item) => ({
+                id: item.id,
+                label: item.label,
+                ok: item.ok,
+                ...(item.ok ? {} : { detail: 'An administrator must complete this dependency.' }),
+            })),
+        });
     };
     const environmentsProvision = async (req) => {
         if (!req.auth.admin)
@@ -395,7 +443,7 @@ export function createApiHandlers(deps) {
             return json(405, { error: 'method not allowed' });
         try {
             const status = await deps.provisioning.provision(req.auth.userId);
-            return json(status.ready ? 200 : 503, status);
+            return json(status.ready ? 200 : 503, { ...status, canProvision: true });
         }
         catch (error) {
             if (error instanceof ProvisionInProgressError)
@@ -403,5 +451,5 @@ export function createApiHandlers(deps) {
             return json(502, { error: error instanceof Error ? error.message : 'environment provisioning failed' });
         }
     };
-    return { list, site, ticket, directory, environmentsReadiness, environmentsProvision };
+    return { list, site, ticket, directory, gatewayReadiness, environmentsReadiness, environmentsProvision };
 }

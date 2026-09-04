@@ -8,6 +8,7 @@ import {
   type DirectoryResponse, type SiteDetailResponse, type Visibility,
 } from './runtime.js';
 import { STATUS_STRING, STATUS_TONE, VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE } from './meta.js';
+import { EnvironmentDetail } from './EnvironmentDetail.js';
 
 const basePath = (siteId: string): string => `/plugins/sites/api/site/${siteId}`;
 
@@ -48,6 +49,8 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
     queryKey: siteDetailKey(siteId),
     queryFn: () => runtime().api(basePath(siteId)),
   });
+  const detailRefetch = useRef(detail.refetch);
+  detailRefetch.current = detail.refetch;
 
   const site = detail.data?.site;
   const members = detail.data?.members ?? [];
@@ -121,6 +124,16 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
     setRuntimeCommand(next.startCommand ?? '');
     setRuntimeBind(next.bind === 'port' ? 'port' : 'socket');
   }, [detail.data?.runtime]);
+  const pollingAction = detail.data?.environment?.action;
+  const pollingDesiredState = detail.data?.environment?.desiredState;
+  const pollingRuntime = detail.data?.site.runtime;
+  useEffect(() => {
+    const actionInFlight = pollingAction?.lastError === null;
+    const lifecycleInFlight = !pollingAction && pollingDesiredState === 'restarting';
+    if (pollingRuntime !== 'environment' || (!actionInFlight && !lifecycleInFlight)) return;
+    const timer = window.setInterval(() => detailRefetch.current(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [pollingAction, pollingDesiredState, pollingRuntime]);
 
   if (detail.isError) return <EmptyState title={strings.loadFailed} icon={Server} />;
   if (!site) return <LoadingLine />;
@@ -141,8 +154,11 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
   };
 
   const releases = detail.data?.releases ?? [];
+  const snapshots = releases.filter((release) => release.kind === 'environment-snapshot');
+  const fileReleases = releases.filter((release) => release.kind !== 'environment-snapshot');
   const visits = (detail.data?.hits ?? []).reduce((sum, entry) => sum + entry.count, 0);
   const runtimeState = detail.data?.runtime ?? null;
+  const environment = detail.data?.environment ?? null;
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const visibleOptions = VISIBILITY_ORDER.filter((value) => value !== 'public' || allowPublicSites);
   // Guests are picked from every account except the owner, who already holds the site.
@@ -211,7 +227,11 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
           title={site.lastPublishAt ? strings.builtBy.replace('{model}', site.lastPublishModel || '—') : undefined}
         />
         <Metric icon={Activity} label={strings.visits} value={String(visits)} />
-        <Metric icon={History} label={strings.releases} value={String(releases.length)} />
+        <Metric
+          icon={History}
+          label={site.runtime === 'environment' ? strings.environmentSnapshots : strings.releases}
+          value={String(site.runtime === 'environment' ? snapshots.length : fileReleases.length)}
+        />
       </div>
 
       <DetailBlock icon={ShieldCheck} title={strings.whoCanOpen} hint={strings.sourceNotice}>
@@ -262,42 +282,53 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         </DetailBlock>
       ) : null}
 
-      <DetailBlock icon={History} title={strings.releases}>
-        {releases.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">{strings.noReleases}</p>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {releases.map((release) => {
-              const live = release.id === site.currentReleaseId;
-              return (
-              <li key={release.id} className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? 'border-primary/40 bg-primary/10' : 'border-border bg-muted/40'}`}>
-                <span className="flex min-w-0 flex-col">
-                  <span className="flex items-center gap-2 text-xs text-foreground">
-                    {relativeTime(release.createdAt)} · {strings.releaseSummary
-                      .replace('{files}', String(release.fileCount))
-                      .replace('{size}', formatBytes(release.sizeBytes))}
-                    {live ? <Badge tone="success">{strings.releaseLive}</Badge> : null}
+      {site.runtime === 'environment' && environment ? (
+        <EnvironmentDetail
+          siteId={siteId}
+          currentReleaseId={site.currentReleaseId}
+          environment={environment}
+          snapshots={snapshots}
+          busy={call.isPending}
+          runCall={runCall}
+        />
+      ) : (
+        <DetailBlock icon={History} title={strings.releases}>
+          {fileReleases.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">{strings.noReleases}</p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {fileReleases.map((release) => {
+                const live = release.id === site.currentReleaseId;
+                return (
+                <li key={release.id} className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? 'border-primary/40 bg-primary/10' : 'border-border bg-muted/40'}`}>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="flex items-center gap-2 text-xs text-foreground">
+                      {relativeTime(release.createdAt)} · {strings.releaseSummary
+                        .replace('{files}', String(release.fileCount))
+                        .replace('{size}', formatBytes(release.sizeBytes))}
+                      {live ? <Badge tone="success">{strings.releaseLive}</Badge> : null}
+                    </span>
+                    <span className="truncate text-[11px] text-muted-foreground">{release.note || release.model}</span>
                   </span>
-                  <span className="truncate text-[11px] text-muted-foreground">{release.note || release.model}</span>
-                </span>
-                {canManage && !live ? (
-                  <IconButton
-                    icon={RotateCcw}
-                    label={strings.rollback}
-                    disabled={call.isPending}
-                    onClick={() => runCall({
-                      path: `${basePath(siteId)}/rollback`,
-                      init: jsonBody('POST', { releaseId: release.id }),
-                      done: strings.rollbackDone,
-                    })}
-                  />
-                ) : null}
-              </li>
-              );
-            })}
-          </ul>
-        )}
-      </DetailBlock>
+                  {canManage && !live ? (
+                    <IconButton
+                      icon={RotateCcw}
+                      label={strings.rollback}
+                      disabled={call.isPending}
+                      onClick={() => runCall({
+                        path: `${basePath(siteId)}/rollback`,
+                        init: jsonBody('POST', { releaseId: release.id }),
+                        done: strings.rollbackDone,
+                      })}
+                    />
+                  ) : null}
+                </li>
+                );
+              })}
+            </ul>
+          )}
+        </DetailBlock>
+      )}
 
       {runtimeState ? (
         <DetailBlock icon={Terminal} title={strings.runtime}>
