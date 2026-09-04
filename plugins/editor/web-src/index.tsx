@@ -1,3 +1,4 @@
+import './editor.css';
 import { registerEditorUi } from './runtime';
 import { EditorPage } from './EditorPage';
 

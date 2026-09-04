@@ -196,7 +196,11 @@ describe('ProjectEditor copy', () => {
     }
     expect(screen.getByRole('separator', { name: 'Drag to resize the editor' })).toBeInTheDocument();
     // The file tree's accessible name is plugin copy too — `getByRole('tree')` elsewhere never checks it.
-    expect(screen.getByRole('tree')).toHaveAccessibleName('Code editor');
+    const tree = screen.getByRole('tree');
+    expect(tree).toHaveAccessibleName('Code editor');
+    // The scrolling owner carries the editor-specific hover scrollbar rather than styling every nested
+    // scroll surface or relying on a browser-global scrollbar rule.
+    expect(tree.closest('.overflow-auto')).toHaveClass('editor-file-tree-scroll');
   });
 
   it('uses accent semantics for the selected file row', async () => {

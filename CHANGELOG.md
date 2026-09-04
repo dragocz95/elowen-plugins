@@ -1,5 +1,9 @@
 # Changelog
 
+## editor 0.3.6 - 2026-09-04
+
+- Let the standalone editor use roughly 80% of a wide workspace and reveal the file-tree scrollbar on hover or keyboard focus
+
 ## editor 0.3.5 - 2026-09-03
 
 - Restore host-owned project icons in the administrator project picker and require plugin UI API 16
