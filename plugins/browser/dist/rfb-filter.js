@@ -19,6 +19,8 @@ const POINTER_EVENT = 5;
 const CLIENT_CUT_TEXT = 6;
 const QEMU_CLIENT_MESSAGE = 255;
 const QEMU_EXTENDED_KEY_EVENT = 0;
+/** Extended Clipboard flag bit for the "caps" action, the format/size negotiation both sides open with. */
+const EXTENDED_CLIPBOARD_CAPS = 0x01000000;
 /** A clipboard message is the only client message with an attacker-chosen length. Past this the stream is
  *  treated as hostile rather than buffered: a view-only client has no reason to send a megabyte of
  *  clipboard, and an unbounded reassembly buffer is a memory hole per viewer. */
@@ -116,15 +118,26 @@ export class RfbInputFilter {
             case 3: return buffer.length < 10 ? 'incomplete' : { length: 10, isInput: false };
             case KEY_EVENT: return buffer.length < 8 ? 'incomplete' : { length: 8, isInput: true };
             case POINTER_EVENT: return buffer.length < 6 ? 'incomplete' : { length: 6, isInput: true };
-            // ClientCutText: type, 3 padding, u32 length, then the text. Pasting into the remote page is input.
+            // ClientCutText: type, 3 padding, SIGNED i32 length, then the payload. Pasting into the remote page
+            // is input. A NEGATIVE length is the Extended Clipboard extension (x11vnc offers it, noVNC takes
+            // it): |length| bytes follow, starting with a u32 of flags. Read unsigned, the caps message every
+            // noVNC sends right after the handshake looks like a 4 GB paste and closes the connection — which
+            // the viewer retries, forever.
             case CLIENT_CUT_TEXT: {
                 if (buffer.length < 8)
                     return 'incomplete';
-                const length = buffer.readUInt32BE(4);
+                const signed = buffer.readInt32BE(4);
+                const length = Math.abs(signed);
                 if (length > MAX_MESSAGE_BYTES)
                     return 'An RFB clipboard message was larger than this connection allows.';
                 const total = 8 + length;
-                return buffer.length < total ? 'incomplete' : { length: total, isInput: true };
+                if (buffer.length < total)
+                    return 'incomplete';
+                // The caps announcement only negotiates formats and sizes; it carries no clipboard content and is
+                // the one thing a view-only client legitimately sends, so it goes through. Everything else on the
+                // extension (request, peek, notify, provide) either pushes text at the page or pulls it out.
+                const isCaps = signed < 0 && length >= 4 && (buffer.readUInt32BE(8) & EXTENDED_CLIPBOARD_CAPS) !== 0;
+                return { length: total, isInput: !isCaps };
             }
             // EnableContinuousUpdates: type, u8 enable, u16 x, y, width, height.
             case 150: return buffer.length < 10 ? 'incomplete' : { length: 10, isInput: false };

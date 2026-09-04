@@ -15003,6 +15003,7 @@ var QUALITY_LEVEL = 4;
 var COMPRESSION_LEVEL = 6;
 var RECONNECT_MIN_MS = 500;
 var RECONNECT_MAX_MS = 15e3;
+var STABLE_CONNECTION_MS = 5e3;
 var VIEWER_LIMIT_RETRY_MS = 1e4;
 async function loadRfb() {
   try {
@@ -15082,12 +15083,14 @@ function useVncSurface({ slot, ticket, interactive, enabled }) {
       client.qualityLevel = QUALITY_LEVEL;
       client.compressionLevel = COMPRESSION_LEVEL;
       client.viewOnly = !interactiveRef.current;
+      let connectedAt = null;
       client.addEventListener("connect", () => {
-        backoff = RECONNECT_MIN_MS;
+        connectedAt = Date.now();
         report("connected");
       });
       client.addEventListener("disconnect", () => {
         if (rfbRef.current === client) rfbRef.current = null;
+        if (connectedAt !== null && Date.now() - connectedAt >= STABLE_CONNECTION_MS) backoff = RECONNECT_MIN_MS;
         report("disconnected");
         retryLater();
       });
