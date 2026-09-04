@@ -323,6 +323,33 @@ describe('browser live view input filter', () => {
     expect(result.dropped).toBe(1);
   });
 
+  it('frames the Extended Clipboard caps every noVNC opens with, and gates the rest of that extension', () => {
+    // Production regression: x11vnc offers Extended Clipboard, noVNC answers with a caps message whose
+    // length field is NEGATIVE (-(4 + 6*4) = -28). Read as unsigned that is a 4 GB "paste", the filter
+    // closed the connection, the card reconnected every second — and the live view never appeared.
+    const extended = (flags: number, body: Buffer): Buffer => {
+      const header = Buffer.alloc(8);
+      header[0] = 6;
+      header.writeInt32BE(-(4 + body.length), 4);
+      const flagBytes = Buffer.alloc(4);
+      flagBytes.writeUInt32BE(flags, 0);
+      return Buffer.concat([header, flagBytes, body]);
+    };
+    const caps = extended(0x01000000 | 0x1f, Buffer.alloc(6 * 4));
+    const filter = new RfbInputFilter();
+    framed(filter, HANDSHAKE, false);
+    const negotiated = framed(filter, Buffer.concat([caps, FRAMEBUFFER_UPDATE_REQUEST]), false);
+    expect(negotiated.close).toBeNull();
+    expect(negotiated.forward).toEqual(Buffer.concat([caps, FRAMEBUFFER_UPDATE_REQUEST]));
+    expect(negotiated.dropped).toBe(0);
+    // A "provide" pushes text at the page; without the lease it is dropped like a plain paste.
+    const provide = extended(0x10000000 | 0x1, Buffer.from([0x78, 0x9c, 1, 2, 3]));
+    const pushed = framed(filter, provide, false);
+    expect(pushed.forward).toHaveLength(0);
+    expect(pushed.dropped).toBe(1);
+    expect(framed(filter, provide, true).forward).toEqual(provide);
+  });
+
   it('closes rather than guessing when it can no longer frame the stream', () => {
     const filter = new RfbInputFilter();
     framed(filter, HANDSHAKE, false);
@@ -648,6 +675,30 @@ describe.skipIf(!e2e)('browser live view end to end', () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       // Still connected, still watching, and x11vnc never saw the input.
       expect(conn.closes).toEqual([]);
+
+      // What noVNC ACTUALLY sends next: x11vnc offers the Extended Clipboard extension and the client
+      // answers with a caps message whose length field is negative. The first release read it unsigned,
+      // closed every connection one second after it opened, and the live view never appeared. Sent
+      // byte-for-byte as noVNC builds it, against the real server, and the picture must still come.
+      // The extension is negotiated the way libvncserver expects: the client asks for it through the
+      // ExtendedClipboard pseudo-encoding, the server enables it and announces its caps, the client
+      // answers with its own. Sent out of that order the server calls the message corrupted and hangs up.
+      const extendedClipboardEncoding = Buffer.from([2, 0, 0, 1, 0xc0, 0xa1, 0xe5, 0xce]);
+      conn.deliver(extendedClipboardEncoding);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const serverCaps = Buffer.concat(conn.sent).subarray(12);
+      // ServerCutText with a negative length: the server's half of the negotiation, proof the extension
+      // is live on this x11vnc and the client's caps are what comes next in production.
+      expect(serverCaps.indexOf(Buffer.from([3, 0, 0, 0, 0xff]))).toBeGreaterThanOrEqual(0);
+      const caps = Buffer.alloc(8 + 4 + 5 * 4);
+      caps[0] = 6;
+      caps.writeInt32BE(-(4 + 5 * 4), 4);
+      caps.writeUInt32BE(0x01000000 | 0x1f, 8);
+      const sentBefore = conn.sent.length;
+      conn.deliver(Buffer.concat([caps, FRAMEBUFFER_UPDATE_REQUEST]));
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(conn.closes).toEqual([]);
+      expect(conn.sent.length).toBeGreaterThan(sentBefore);
     } finally {
       await displays.releaseAll();
     }

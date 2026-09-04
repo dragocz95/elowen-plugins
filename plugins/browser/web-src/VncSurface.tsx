@@ -22,6 +22,10 @@ const COMPRESSION_LEVEL = 6;
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 15_000;
+/** A connection has to LIVE this long before it counts as healthy and resets the backoff. The handshake
+ *  alone does not: a server that hangs up on the first message after it would otherwise be retried at
+ *  the minimum interval forever, with the card blinking between placeholder and canvas every time. */
+const STABLE_CONNECTION_MS = 5_000;
 /** A full room does not empty in half a second, so a refused viewer waits properly instead of polling. */
 const VIEWER_LIMIT_RETRY_MS = 10_000;
 
@@ -149,12 +153,14 @@ export function useVncSurface({ slot, ticket, interactive, enabled }: VncSurface
       client.qualityLevel = QUALITY_LEVEL;
       client.compressionLevel = COMPRESSION_LEVEL;
       client.viewOnly = !interactiveRef.current;
+      let connectedAt: number | null = null;
       client.addEventListener('connect', () => {
-        backoff = RECONNECT_MIN_MS;
+        connectedAt = Date.now();
         report('connected');
       });
       client.addEventListener('disconnect', () => {
         if (rfbRef.current === client) rfbRef.current = null;
+        if (connectedAt !== null && Date.now() - connectedAt >= STABLE_CONNECTION_MS) backoff = RECONNECT_MIN_MS;
         report('disconnected');
         // Why it went is asked of the next ticket rather than guessed from the close: if the room filled
         // up or the session ended, the mint above says so in words.

@@ -434,6 +434,35 @@ describe('browser plugin UI', () => {
     expect(attempts).toBe(1);
   });
 
+  it('backs off when the server hangs up right after the handshake instead of blinking every half second', async () => {
+    // Production: the daemon closed each connection on the first message after the handshake. The
+    // handshake itself had succeeded, so every attempt reset the backoff to its minimum and the card
+    // flashed placeholder → canvas → placeholder at 1 Hz. A connection counts as healthy only once it
+    // has LIVED, not once it has opened.
+    let tickets = 0;
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/vnc-ticket', () => {
+        tickets += 1;
+        return HttpResponse.json({ url: `/ws/plugins/browser/vnc?ticket=t${tickets}`, expiresAt: Date.now() + 15_000, width: 1280, height: 800 });
+      }),
+    );
+    mountArtifact();
+    const started = Date.now();
+    while (Date.now() - started < 2_400) {
+      const client = rfbClients[rfbClients.length - 1];
+      if (client && !client.disconnected) {
+        act(() => { client.emit('connect'); client.emit('disconnect', { clean: false }); });
+        client.disconnected = true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    // Doubling from 500 ms: attempts at 0, 0.5 s and 1.5 s fit in the window; the fourth waits until 3.5 s.
+    // The bug retried at 0.5 s flat and made five.
+    expect(tickets).toBeGreaterThanOrEqual(2);
+    expect(tickets).toBeLessThanOrEqual(3);
+  });
+
   it('shows what the agent is saying inside the expanded canvas only, and clears with it', async () => {
     use(http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })));
     const view = mountArtifact('Opening the booking portal.');
