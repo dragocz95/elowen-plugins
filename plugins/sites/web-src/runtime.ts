@@ -184,6 +184,12 @@ interface RuntimeComponents {
     autoComplete?: string;
     'aria-label'?: string;
   }>;
+  Toggle: ComponentType<{
+    checked: boolean;
+    onChange(checked: boolean): void;
+    label?: string;
+    disabled?: boolean;
+  }>;
   RegisterSearch: ComponentType<{
     value: string;
     onChange(value: string): void;

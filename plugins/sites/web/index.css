@@ -2,9 +2,6 @@
 @layer properties;
 @layer theme, base, components, utilities;
 @layer utilities {
-  .mt-0\.5 {
-    margin-top: calc(var(--spacing, 0.25rem) * 0.5);
-  }
   .mt-1 {
     margin-top: var(--spacing, 0.25rem);
   }

@@ -472,7 +472,7 @@ function EnvironmentDetail({
   runCall
 }) {
   const host = runtime();
-  const { Badge, Button, ConfirmDialog, DetailBlock, HelpTip, Input } = host.components;
+  const { Badge, Button, ConfirmDialog, DetailBlock, HelpTip, Input, Toggle } = host.components;
   const strings = host.hooks.usePluginStrings("sites");
   const [snapshotNote, setSnapshotNote] = (0, import_react3.useState)("");
   const [includeData, setIncludeData] = (0, import_react3.useState)(true);
@@ -571,19 +571,16 @@ function EnvironmentDetail({
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex items-start gap-2 text-xs text-foreground", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-2 text-xs text-foreground", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "input",
+            Toggle,
             {
-              type: "checkbox",
               checked: includeData,
               disabled: mutationBlocked,
-              "aria-label": strings.environmentIncludeData,
-              onChange: (event) => setIncludeData(event.target.checked),
-              className: "mt-0.5"
+              label: strings.environmentIncludeData,
+              onChange: setIncludeData
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: strings.environmentIncludeData }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HelpTip, { children: strings.environmentIncludeDataHelp })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", icon: Camera, disabled: mutationBlocked || !canSnapshot, onClick: snapshot, children: strings.environmentSnapshot })
@@ -1489,13 +1486,11 @@ function EnvironmentsSetup({ surface }) {
     mutationFn: () => runtime().api("/plugins/sites/api/environments/provision", { method: "POST" }),
     onSuccess: (status) => {
       setProvisionError(null);
-      environment.refetch();
       toast(status.ready ? strings.environmentSetupReady : strings.environmentSetupAttention, status.ready ? "ok" : "error");
     },
     onError: (error) => {
       const message = host.utils.apiErrorMessage(error);
       setProvisionError(message);
-      environment.refetch();
       toast(message, "error");
     }
   });
@@ -1504,6 +1499,7 @@ function EnvironmentsSetup({ surface }) {
     installing.current = true;
     try {
       await provision.mutateAsync();
+    } catch {
     } finally {
       installing.current = false;
       setConfirmInstall(false);

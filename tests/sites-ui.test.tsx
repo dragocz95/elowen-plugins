@@ -342,12 +342,35 @@ describe('environment setup settings', () => {
     fireEvent.click(install);
     expect(posts).toHaveLength(0);
     const dialog = await screen.findByRole('dialog', { name: strings.environmentProvisionConfirmTitle });
+    for (const expected of ['Podman', 'crun', 'uidmap', 'dbus-user-session', 'passt', 'slirp4netns', 'fuse-overlayfs', 'subordinate IDs', 'linger', 'cgroup delegation']) {
+      expect(dialog).toHaveTextContent(expected);
+    }
+    expect(dialog).toHaveTextContent('does not restart Elowen, web or nginx');
     const confirm = within(dialog).getByRole('button', { name: strings.environmentProvision });
     fireEvent.click(confirm);
     fireEvent.click(confirm);
     await waitFor(() => expect(posts).toHaveLength(1));
     await waitFor(() => expect(screen.getAllByText(strings.pass).length).toBeGreaterThan(0));
     expect(screen.getByRole('button', { name: strings.environmentProvision })).toBeDisabled();
+  });
+
+  it('handles failed provisioning without an unhandled rejection and remeasures once', async () => {
+    let readinessRequests = 0;
+    use(
+      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
+      http.get('/api/plugins/sites/api/environments/readiness', () => {
+        readinessRequests += 1;
+        return HttpResponse.json({ ready: false, canProvision: true, items: [{ id: 'podman', label: 'Podman', ok: false }] });
+      }),
+      http.post('/api/plugins/sites/api/environments/provision', () => HttpResponse.json({ error: 'package installation failed' }, { status: 502 })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+    fireEvent.click(await screen.findByRole('button', { name: strings.environmentProvision }));
+    const dialog = await screen.findByRole('dialog', { name: strings.environmentProvisionConfirmTitle });
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.environmentProvision }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('package installation failed');
+    await waitFor(() => expect(readinessRequests).toBe(2));
   });
 
   it('never renders the provisioning action without admin capability', async () => {
@@ -406,8 +429,10 @@ describe('persistent environment detail', () => {
     mountEnvironment();
     const note = await screen.findByRole('textbox', { name: strings.environmentSnapshotNote });
     fireEvent.change(note, { target: { value: 'Before migration' } });
-    const includeData = screen.getByRole('checkbox', { name: strings.environmentIncludeData });
+    const includeData = screen.getByRole('switch', { name: strings.environmentIncludeData });
+    expect(includeData).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(includeData);
+    expect(includeData).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(screen.getByRole('button', { name: strings.environmentSnapshot }));
     await waitFor(() => expect(snapshots).toEqual([{ includeData: false, note: 'Before migration' }]));
 

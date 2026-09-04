@@ -35,13 +35,11 @@ export function EnvironmentsSetup({ surface }: PluginPageProps) {
     mutationFn: () => runtime().api('/plugins/sites/api/environments/provision', { method: 'POST' }),
     onSuccess: (status: EnvironmentReadinessResponse) => {
       setProvisionError(null);
-      environment.refetch();
       toast(status.ready ? strings.environmentSetupReady : strings.environmentSetupAttention, status.ready ? 'ok' : 'error');
     },
     onError: (error: unknown) => {
       const message = host.utils.apiErrorMessage(error);
       setProvisionError(message);
-      environment.refetch();
       toast(message, 'error');
     },
   });
@@ -50,6 +48,7 @@ export function EnvironmentsSetup({ surface }: PluginPageProps) {
     if (installing.current || provision.isPending) return;
     installing.current = true;
     try { await provision.mutateAsync(); }
+    catch { /* The mutation callback owns the visible error state. */ }
     finally {
       installing.current = false;
       setConfirmInstall(false);

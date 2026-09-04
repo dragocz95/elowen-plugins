@@ -29,7 +29,7 @@ export function EnvironmentDetail({
   runCall(call: EnvironmentCall, onSuccess?: () => void): void;
 }) {
   const host = runtime();
-  const { Badge, Button, ConfirmDialog, DetailBlock, HelpTip, Input } = host.components;
+  const { Badge, Button, ConfirmDialog, DetailBlock, HelpTip, Input, Toggle } = host.components;
   const strings = host.hooks.usePluginStrings('sites');
   const [snapshotNote, setSnapshotNote] = useState('');
   const [includeData, setIncludeData] = useState(true);
@@ -147,18 +147,15 @@ export function EnvironmentDetail({
                 aria-label={strings.environmentSnapshotNote}
               />
             </label>
-            <label className="flex items-start gap-2 text-xs text-foreground">
-              <input
-                type="checkbox"
+            <div className="flex items-center gap-2 text-xs text-foreground">
+              <Toggle
                 checked={includeData}
                 disabled={mutationBlocked}
-                aria-label={strings.environmentIncludeData}
-                onChange={(event) => setIncludeData(event.target.checked)}
-                className="mt-0.5"
+                label={strings.environmentIncludeData}
+                onChange={setIncludeData}
               />
-              <span>{strings.environmentIncludeData}</span>
               <HelpTip>{strings.environmentIncludeDataHelp}</HelpTip>
-            </label>
+            </div>
             <Button variant="ghost" icon={Camera} disabled={mutationBlocked || !canSnapshot} onClick={snapshot}>
               {strings.environmentSnapshot}
             </Button>
