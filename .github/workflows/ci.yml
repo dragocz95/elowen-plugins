@@ -25,7 +25,7 @@ jobs:
     env:
       ELOWEN_CORE_ROOT: ${{ github.workspace }}/core
       # Keep the vetted source commit aligned with the locked daemon release.
-      ELOWEN_CORE_REF: '98abfed354039c8970323c8ba8230b6f4d51b153'
+      ELOWEN_CORE_REF: 'e755706112b185c7bf1026ac6758e3747691854a'
     steps:
       - uses: actions/checkout@v7
         with:
