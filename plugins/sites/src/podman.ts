@@ -5,7 +5,7 @@ const SYSTEM_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bi
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_OUTPUT_LIMIT = 256 * 1024;
 
-export interface PodmanProcessEnvInput {
+interface PodmanProcessEnvInput {
   uid?: number;
   home?: string;
   user?: string;
@@ -32,7 +32,7 @@ export interface CommandResult {
   code: number;
 }
 
-export interface CommandOptions {
+interface CommandOptions {
   env: Record<string, string>;
   timeoutMs: number;
   outputLimitBytes: number;

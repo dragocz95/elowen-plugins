@@ -12,7 +12,7 @@ export class NavigationPolicyError extends Error {
   }
 }
 
-export interface ResolvedAddress {
+interface ResolvedAddress {
   address: string;
   family: 4 | 6;
 }

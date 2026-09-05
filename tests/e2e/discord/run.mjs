@@ -18,7 +18,8 @@
 //      (message_reference to the trigger — a Discord-specific behavior Telegram's plain sendMessage lacks).
 //   2. /stats as a SLASH-COMMAND interaction through the shared runControlCommand core → an ephemeral
 //      (flags 64) interaction callback carrying markdown-bold `**mock-model**` (Discord-specific formatting).
-//   3. /new + /fast off + /fast on — all as slash interactions routed through the shared control core.
+//   3. /new and /fast choices/off/on/status/toggle as slash interactions: persisted account preference
+//      is independent of whether the selected model supports priority routing.
 //   4. TEETH: a provider error surfaces as the bot's "⚠️ …" channel reply.
 // Every wait is deadline-bounded on the fake's captured calls — no sleep-based flakiness.
 //
@@ -29,6 +30,7 @@ import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
 import { installRegistryPlugin } from '../harness/install-plugin.mjs';
 import { linkPlatformAccount } from '../harness/link-account.mjs';
+import { verifyFastPreference } from '../harness/fast-preference.mjs';
 import { startFakeDiscord } from './fake-discord.mjs';
 
 const GUILD_ID = '7000000000000001';
@@ -168,6 +170,11 @@ async function main() {
     const reg = fake.callsOf('PUT', /^\/applications\/[^/]+\/commands$/)[0];
     assert(Array.isArray(reg?.body) && reg.body.some((c) => c.name === 'fast' && c.type === 1),
       'slash-command registration published the shared command menu (incl. /fast as CHAT_INPUT)');
+    const fastOptions = reg.body.find((c) => c.name === 'fast').options;
+    assert(fastOptions?.length === 1 && fastOptions[0].name === 'state' && fastOptions[0].type === 3
+      && fastOptions[0].required === false, '/fast registers an optional string state, allowing a bare toggle');
+    assert(JSON.stringify(fastOptions[0].choices?.map((c) => c.value)) === JSON.stringify(['on', 'off', 'status']),
+      '/fast native choices allow on/off/status and exclude invalid arguments');
     console.log('PASS wiring: discord plugin connected to the fake REST + gateway and registered slash commands.');
 
     // ── Scenario 1: real message round-trip ──────────────────────────────────────────────────────────
@@ -193,11 +200,18 @@ async function main() {
 
     // ── Scenario 3: /new + /fast (shared control core, over slash interactions) ───────────────────────
     await expectInteractionReply(fake, 'new', undefined, (t) => t.includes('Fresh conversation started'), '/new interaction reply');
-    // /fast off is switchable even on a non-OAuth model (the stale-fast-off path) — Discord bold on "off".
-    await expectInteractionReply(fake, 'fast', [{ name: 'state', value: 'off' }], (t) => t.includes('**off**'), '/fast off interaction reply');
-    // /fast on hits the fastAvailable gate (our provider is a plain API key, not OpenAI OAuth).
-    await expectInteractionReply(fake, 'fast', [{ name: 'state', value: 'on' }], (t) => /OAuth|not available|unavailable/i.test(t), '/fast on → unavailable gate');
-    console.log('PASS scenario 3: /new resets the conversation; /fast off/on both routed through the shared core.');
+    await verifyFastPreference({
+      baseUrl, token, model,
+      command: async (arg, pred) => {
+        const body = await expectInteractionReply(fake, 'fast', arg ? [{ name: 'state', type: 3, value: arg }] : undefined,
+          pred, `/fast ${arg} account preference`);
+        assert(body.type === 4, '/fast answered with an immediate interaction callback');
+        assert(body.data?.flags === 64, '/fast account preference reply is ephemeral');
+      },
+      offReply: (t) => t.includes('**off**'),
+      turn: () => expectChannelSend(fake, 'Reply with Fast preference enabled.', (b) => String(b.content ?? '').includes(REPLY_MARKER), 'unsupported Fast model turn'),
+    });
+    console.log('PASS scenario 3: /new resets; /fast choices/off/on/status/toggle persist account intent without enabling unsupported priority.');
 
     // ── Scenario 4: TEETH — a provider failure surfaces as the bot's error reply ─────────────────────
     model.setFail(true);

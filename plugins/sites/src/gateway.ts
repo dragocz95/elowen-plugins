@@ -17,7 +17,7 @@ export interface GatewayDnsResolver {
   resolve6(hostname: string): Promise<string[]>;
 }
 
-export type GatewayDnsState = 'ready' | 'missing' | 'misdirected' | 'unavailable';
+type GatewayDnsState = 'ready' | 'missing' | 'misdirected' | 'unavailable';
 
 export interface SiteGatewayReadiness {
   id: 'sites-gateway';

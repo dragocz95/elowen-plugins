@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb } from 'elowen/dist/store/db.js';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
@@ -54,6 +54,9 @@ function serverWith(projectPath: string) {
 
 describe('editor system root', () => {
   let root: string;
+  let outside: string;
+  let fixtureDir: string;
+  let fixtureFile: string;
   let app: ReturnType<typeof serverWith>['app'];
   let adminToken: string;
   let memberToken: string;
@@ -63,52 +66,59 @@ describe('editor system root', () => {
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'elowen-system-root-'));
+    outside = mkdtempSync(join(tmpdir(), 'elowen-system-outside-'));
+    fixtureDir = relative('/', outside);
+    fixtureFile = join(fixtureDir, 'host.txt');
+    writeFileSync(join(outside, 'host.txt'), 'System root fixture\n');
+    mkdirSync(join(outside, 'nested'));
+    writeFileSync(join(outside, 'nested', 'hidden.txt'), 'Not walked');
     ({ app, adminToken, memberToken } = serverWith(root));
   });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
 
   it('lists the filesystem root for an admin, one level deep', async () => {
     const res = await get(`/projects/${SYSTEM_PROJECT_ID}/files`, adminToken);
     expect(res.status).toBe(200);
     const tree = await res.json() as FileNode[];
     const paths = tree.map((node) => node.path);
-    expect(paths).toContain('var');
-    expect(paths).toContain('etc');
+    const fixtureTopLevel = fixtureDir.split('/')[0];
+    expect(paths).toContain(fixtureTopLevel);
     expect(paths).not.toContain('dev');
     expect(paths).not.toContain('proc');
     expect(paths).not.toContain('run');
     expect(paths).not.toContain('sys');
-    expect(tree.find((node) => node.path === 'var')?.type).toBe('dir');
+    expect(tree.find((node) => node.path === fixtureTopLevel)?.type).toBe('dir');
     // ONE level and not one more. Two levels below `/` is already tens of thousands of entries, so a
     // listing that started descending here would not be slow, it would be unusable.
     expect(paths.filter((path) => path.includes('/'))).toEqual([]);
   });
 
   it('reads a file anywhere on the machine for an admin', async () => {
-    const res = await get(`/projects/${SYSTEM_PROJECT_ID}/file?path=${encodeURIComponent('etc/hostname')}`, adminToken);
+    const res = await get(`/projects/${SYSTEM_PROJECT_ID}/file?path=${encodeURIComponent(fixtureFile)}`, adminToken);
     expect(res.status).toBe(200);
-    expect((await res.json() as { content: string }).content.length).toBeGreaterThan(0);
+    expect((await res.json() as { content: string }).content).toBe('System root fixture\n');
   });
 
   it('expands one directory at a time, with paths relative to the root', async () => {
-    const res = await get(`/projects/${SYSTEM_PROJECT_ID}/files?path=${encodeURIComponent('etc')}`, adminToken);
+    const res = await get(`/projects/${SYSTEM_PROJECT_ID}/files?path=${encodeURIComponent(fixtureDir)}`, adminToken);
     expect(res.status).toBe(200);
     const paths = (await res.json() as FileNode[]).map((node) => node.path);
-    expect(paths).toContain('etc/hostname');
+    expect(paths).toEqual([join(fixtureDir, 'nested'), fixtureFile]);
     // The level below the requested one is not walked either.
-    expect(paths.every((path) => path.split('/').length === 2)).toBe(true);
+    expect(paths).not.toContain(join(fixtureDir, 'nested', 'hidden.txt'));
   });
 
-  it('expands a symlinked top-level directory, which is most of a Linux root', async () => {
-    // `/bin`, `/lib` and `/sbin` are symlinks into `/usr` on a modern Debian. They are listed as
-    // directories and open like any other.
-    const listing = await (await get(`/projects/${SYSTEM_PROJECT_ID}/files`, adminToken)).json() as FileNode[];
-    expect(listing.find((node) => node.path === 'bin')?.type).toBe('dir');
-    const res = await get(`/projects/${SYSTEM_PROJECT_ID}/files?path=bin`, adminToken);
+  it('expands a symlinked directory through the system root', async () => {
+    symlinkSync(join(outside, 'nested'), join(outside, 'linked'));
+    const listing = await (await get(`/projects/${SYSTEM_PROJECT_ID}/files?path=${encodeURIComponent(fixtureDir)}`, adminToken)).json() as FileNode[];
+    const linked = join(fixtureDir, 'linked');
+    expect(listing.find((node) => node.path === linked)?.type).toBe('dir');
+    const res = await get(`/projects/${SYSTEM_PROJECT_ID}/files?path=${encodeURIComponent(linked)}`, adminToken);
     expect(res.status).toBe(200);
-    const inside = (await res.json() as FileNode[]).map((node) => node.path);
-    expect(inside.length).toBeGreaterThan(0);
-    expect(inside.every((path) => path.startsWith('bin/'))).toBe(true);
+    expect((await res.json() as FileNode[]).map((node) => node.path)).toEqual([join(linked, 'hidden.txt')]);
   });
 
   it('refuses the reserved id for a non-admin, however the id is spelled', async () => {
@@ -116,8 +126,8 @@ describe('editor system root', () => {
     // not just the listing — and the numeric spellings of the same id refuse alike.
     for (const path of [
       `/projects/${SYSTEM_PROJECT_ID}/files`,
-      `/projects/${SYSTEM_PROJECT_ID}/file?path=${encodeURIComponent('etc/hostname')}`,
-      `/projects/${SYSTEM_PROJECT_ID}/raw?path=${encodeURIComponent('etc/hostname')}`,
+      `/projects/${SYSTEM_PROJECT_ID}/file?path=${encodeURIComponent(fixtureFile)}`,
+      `/projects/${SYSTEM_PROJECT_ID}/raw?path=${encodeURIComponent(fixtureFile)}`,
       `/projects/${SYSTEM_PROJECT_ID}/changed`,
       '/projects/-1.0/files',
       '/projects/-01/files',
@@ -143,9 +153,9 @@ describe('editor system root', () => {
     // `/..` is `/`: the traversal lands back on the root rather than anywhere above it.
     expect(await climbed.json()).toEqual(rootListing);
 
-    const file = await get(`/projects/${SYSTEM_PROJECT_ID}/file?path=${encodeURIComponent('../../../etc/hostname')}`, adminToken);
+    const file = await get(`/projects/${SYSTEM_PROJECT_ID}/file?path=${encodeURIComponent(`../../../${fixtureFile}`)}`, adminToken);
     expect(file.status).toBe(200);
-    const direct = await get(`/projects/${SYSTEM_PROJECT_ID}/file?path=${encodeURIComponent('etc/hostname')}`, adminToken);
+    const direct = await get(`/projects/${SYSTEM_PROJECT_ID}/file?path=${encodeURIComponent(fixtureFile)}`, adminToken);
     expect(await file.json()).toEqual(await direct.json());
   });
 
@@ -165,7 +175,7 @@ describe('editor system root', () => {
     expect(changes.status).toBe(200);
     expect(await changes.json()).toEqual({ diff: '' });
 
-    const head = await get(`/projects/${SYSTEM_PROJECT_ID}/head?path=${encodeURIComponent('etc/hostname')}`, adminToken);
+    const head = await get(`/projects/${SYSTEM_PROJECT_ID}/head?path=${encodeURIComponent(fixtureFile)}`, adminToken);
     expect(head.status).toBe(200);
     expect(await head.json()).toEqual({ content: '' });
   });

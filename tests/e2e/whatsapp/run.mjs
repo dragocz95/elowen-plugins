@@ -24,8 +24,8 @@
 //      Discord backslash escaping), quoting the trigger — plus the 👀/✅ status reactions & typing presence.
 //   2. /stats through the shared runControlCommand core (a live session exists → the status line, with the
 //      model wrapped in WhatsApp single-asterisk bold).
-//   3. /new (fresh conversation) + /fast — bogus arg (the fastUsage fallthrough), `off`, and `on` (the
-//      fastAvailable gate) — all routed through the shared control core.
+//   3. /new and /fast usage/off/on/status/toggle through the shared core: persisted account preference
+//      is independent of whether the selected model supports priority routing.
 //   4. TEETH: a provider error surfaces as the adapter's "⚠️ …" error reply. (A control-handler regression
 //      trips a scenario-2/3 assertion and fails loudly.)
 // Every wait is deadline-bounded on the bridge-captured calls — no sleep-based flakiness.
@@ -40,6 +40,7 @@ import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
 import { installRegistryPlugin } from '../harness/install-plugin.mjs';
 import { linkPlatformAccount } from '../harness/link-account.mjs';
+import { verifyFastPreference } from '../harness/fast-preference.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SOCKET_MODULE = join(here, 'fake-baileys-socket.mjs');
@@ -222,13 +223,14 @@ async function main() {
 
     // ── Scenario 3: /new + /fast (shared control core) ───────────────────────────────────────────────
     await bridge.expectReply('/new', (t) => t.includes('Fresh conversation started'), '/new reply');
-    // The fastUsage fallthrough: a bogus arg must reply with the usage hint, NOT toggle.
-    await bridge.expectReply('/fast wat', (t) => t.startsWith('Usage:') && t.includes('/fast'), '/fast <bogus> → usage hint');
-    // /fast off is switchable even on a non-OAuth model (the stale-fast-off path).
-    await bridge.expectReply('/fast off', (t) => t.includes('Fast mode is') && t.includes('off'), '/fast off reply');
-    // /fast on hits the fastAvailable gate (our provider is a plain API key, not OpenAI OAuth).
-    await bridge.expectReply('/fast on', (t) => /OAuth|not available|unavailable/i.test(t), '/fast on → unavailable gate');
-    console.log('PASS scenario 3: /new resets the conversation; /fast usage/off/on all routed through the shared core.');
+    await verifyFastPreference({
+      baseUrl, token, model,
+      command: (arg, pred) => bridge.expectReply(`/fast ${arg}`.trim(), pred, `/fast ${arg} account preference`),
+      offReply: (t) => t.includes('Fast mode is') && t.includes('off'),
+      usageReply: (t) => t === 'Usage: `/fast`, `/fast on`, `/fast off`, or `/fast status`.',
+      turn: () => bridge.expectReply('Reply with Fast preference enabled.', (t) => t.includes(REPLY_MARKER), 'unsupported Fast model turn'),
+    });
+    console.log('PASS scenario 3: /new resets; /fast usage/off/on/status/toggle persist account intent without enabling unsupported priority.');
 
     // ── Scenario 4: TEETH — a provider failure surfaces as the adapter's error reply ─────────────────
     model.setFail(true);

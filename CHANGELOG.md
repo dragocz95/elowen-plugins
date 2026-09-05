@@ -1,5 +1,34 @@
 # Changelog
 
+## whatsapp 0.2.17 - 2026-09-05
+
+- Collect every question's numbered or permitted custom answer before submission, retain questions beyond the initial preview, and preserve pending answers when delivery is refused.
+
+## telegram 0.2.14 - 2026-09-05
+
+- Preserve all questions, collect per-question choices and custom answers, and prompt for missing answers without prematurely resolving the conversation.
+
+## discord 0.3.18 - 2026-09-05
+
+- Collect complete multi-question answers through components or numbered text, retain per-question custom input, and preserve pending state when submission is refused.
+
+## todo 0.14.2 - 2026-09-05
+
+- Add atomic task batch deletion, structured task card fields, editable subjects and owners, and control-character validation without exposing private task metadata.
+
+## sites 0.10.2 - 2026-09-05
+
+- Add persistent rootless environments with systemd, bounded resources and host-owned ingress alongside static, command and PHP sites.
+
+## cronjob 0.3.3 - 2026-09-05
+
+- Trigger job autosave only for user edits, preventing scheduler updates and API refreshes from causing repeated save loops.
+
+## browser 0.3.3 - 2026-09-05
+
+- Introduce persistent account-owned Chrome automation with typed accessibility actions, live VNC viewing, exclusive user takeover and an enforcing network boundary.
+- Include readiness and performance diagnostics and rebuild the committed browser UI with the released host helpers.
+
 ## sites 0.8.0 - 2026-09-04
 
 - Let agents build normally in Project worktrees, then run published sites with configurable outbound networking, safe socket or loopback binding, runtime `.env`, modern browser API access and dependency-safe release copies
@@ -11,6 +40,7 @@
 ## editor 0.3.6 - 2026-09-04
 
 - Let the standalone editor use roughly 80% of a wide workspace and reveal the file-tree scrollbar on hover or keyboard focus
+- Add administrator browsing and editing of persisted host files through the System root while excluding kernel virtual filesystems.
 
 ## editor 0.3.5 - 2026-09-03
 
@@ -56,6 +86,7 @@
 ## msteams 0.7.0 - 2026-09-03
 
 - Address Outlook mail folders by name
+- Preserve per-question custom answers in Adaptive Cards, require complete answers before submission, and retain pending state when delivery is refused.
 
 ## browser 0.1.0 - 2026-09-02
 

@@ -73,7 +73,7 @@ export function runtimeResponseHeaders(headers, siteRoot) {
         out.location = safeLocation(location, siteRoot);
     return out;
 }
-export function environmentResponseHeaders(headers) {
+function environmentResponseHeaders(headers) {
     const out = {};
     for (const [name, value] of Object.entries(headers)) {
         const lower = name.toLowerCase();

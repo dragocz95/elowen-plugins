@@ -4,7 +4,7 @@ import type { PluginPageProps } from 'elowen-plugin-ui-kit';
 
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
 export type SiteStatus = 'draft' | 'live' | 'failed';
-export type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
+type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
 
 export interface SiteView {
   id: string;
@@ -48,7 +48,7 @@ export interface ReleaseView {
   includesData?: boolean;
 }
 
-export type EnvironmentAction = {
+type EnvironmentAction = {
   kind: 'snapshot' | 'rollback';
   snapshotId: string;
   lastError: string | null;

@@ -19,15 +19,47 @@ jobs:
   test:
     name: Tests + bundle drift
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: registry
+    env:
+      ELOWEN_CORE_ROOT: ${{ github.workspace }}/core
+      # Keep the vetted source commit aligned with the locked daemon release.
+      ELOWEN_CORE_REF: '98abfed354039c8970323c8ba8230b6f4d51b153'
     steps:
       - uses: actions/checkout@v7
+        with:
+          path: registry
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: registry/package-lock.json
+
+      - name: Require a pinned core release commit
+        run: node -e "if (!/^[0-9a-f]{40}$/.test(process.env.ELOWEN_CORE_REF ?? '')) throw new Error('ELOWEN_CORE_REF must pin the full released core commit SHA')"
+
+      - uses: actions/checkout@v7
+        with:
+          repository: dragocz95/elowen
+          ref: ${{ env.ELOWEN_CORE_REF }}
+          path: core
+          persist-credentials: false
 
       - run: npm ci
+
+      - name: Match core source to the installed daemon
+        run: node --input-type=module -e "import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs'; import { join } from 'node:path'; const read = path => JSON.parse(readFileSync(path, 'utf8')); assert.equal(read(join(process.env.ELOWEN_CORE_ROOT, 'package.json')).version, read('node_modules/elowen/package.json').version, 'Core source must match the locked daemon release');"
+
+      - name: Install core contract dependencies
+        working-directory: core
+        run: npm ci
+
+      - name: Build core contract helpers
+        working-directory: core
+        run: npm run build:ts
 
       # Static analysis is the same mandatory gate developers run locally.
       - run: npm run check

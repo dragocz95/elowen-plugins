@@ -1,11 +1,11 @@
 import type { PluginDb } from 'elowen/plugin-api';
 
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
-export type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
+type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
 
 /** How a published site answers a request. Unsupported is a quarantined database value, never a
  * fallback to static content. */
-export type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
+type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
 export type EnvironmentDesiredState = 'running' | 'stopped' | 'restarting';
 
 /** Where a command runtime listens. A unix socket lives inside the plugin's own data directory, which

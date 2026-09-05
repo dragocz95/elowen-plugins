@@ -40,34 +40,34 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// ../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
   }
 });
 
-// ../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react-dom.cjs
+// node_modules/elowen-plugin-ui-kit/shims/react-dom.cjs
 var require_react_dom = __commonJS({
-  "../../../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react-dom.cjs"(exports, module) {
+  "node_modules/elowen-plugin-ui-kit/shims/react-dom.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.reactDom;
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/util/int.js
+// node_modules/@novnc/novnc/core/util/int.js
 function toUnsigned32bit(toConvert) {
   return toConvert >>> 0;
 }
@@ -75,11 +75,11 @@ function toSigned32bit(toConvert) {
   return toConvert | 0;
 }
 var init_int = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/util/int.js"() {
+  "node_modules/@novnc/novnc/core/util/int.js"() {
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/util/logging.js
+// node_modules/@novnc/novnc/core/util/logging.js
 function initLogging(level) {
   if (typeof level === "undefined") {
     level = _logLevel;
@@ -107,7 +107,7 @@ function initLogging(level) {
 }
 var _logLevel, Debug, Info, Warn, Error2;
 var init_logging = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/util/logging.js"() {
+  "node_modules/@novnc/novnc/core/util/logging.js"() {
     _logLevel = "warn";
     Debug = () => {
     };
@@ -121,7 +121,7 @@ var init_logging = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/util/strings.js
+// node_modules/@novnc/novnc/core/util/strings.js
 function decodeUTF8(utf8string, allowLatin1 = false) {
   try {
     return decodeURIComponent(escape(utf8string));
@@ -138,14 +138,14 @@ function encodeUTF8(DOMString) {
   return unescape(encodeURIComponent(DOMString));
 }
 var init_strings = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/util/strings.js"() {
+  "node_modules/@novnc/novnc/core/util/strings.js"() {
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/base64.js
+// node_modules/@novnc/novnc/core/base64.js
 var base64_default;
 var init_base64 = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/base64.js"() {
+  "node_modules/@novnc/novnc/core/base64.js"() {
     init_logging();
     base64_default = {
       /* Convert data (an array of integers) to a Base64 string. */
@@ -346,7 +346,7 @@ var init_base64 = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/util/browser.js
+// node_modules/@novnc/novnc/core/util/browser.js
 async function _checkWebCodecsH264DecodeSupport() {
   if (!("VideoDecoder" in window)) {
     return false;
@@ -406,7 +406,7 @@ function isIOS() {
 }
 var isTouchDevice, dragThreshold, _supportsCursorURIs, supportsCursorURIs, _hasScrollbarGutter, supportsWebCodecsH264Decode;
 var init_browser = __esm({
-  async "plugins/browser/node_modules/@novnc/novnc/core/util/browser.js"() {
+  async "node_modules/@novnc/novnc/core/util/browser.js"() {
     init_logging();
     init_base64();
     isTouchDevice = "ontouchstart" in document.documentElement || // required for Chrome debugger
@@ -450,7 +450,7 @@ var init_browser = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/util/element.js
+// node_modules/@novnc/novnc/core/util/element.js
 function clientToElement(x, y, elem) {
   const bounds = elem.getBoundingClientRect();
   let pos = { x: 0, y: 0 };
@@ -471,11 +471,11 @@ function clientToElement(x, y, elem) {
   return pos;
 }
 var init_element = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/util/element.js"() {
+  "node_modules/@novnc/novnc/core/util/element.js"() {
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/util/events.js
+// node_modules/@novnc/novnc/core/util/events.js
 function stopEvent(e2) {
   e2.stopPropagation();
   e2.preventDefault();
@@ -551,7 +551,7 @@ function releaseCapture() {
 }
 var _captureRecursion, _elementForUnflushedEvents, _captureObserver;
 var init_events = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/util/events.js"() {
+  "node_modules/@novnc/novnc/core/util/events.js"() {
     _captureRecursion = false;
     _elementForUnflushedEvents = null;
     document.captureElement = null;
@@ -559,10 +559,10 @@ var init_events = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/util/eventtarget.js
+// node_modules/@novnc/novnc/core/util/eventtarget.js
 var EventTargetMixin;
 var init_eventtarget = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/util/eventtarget.js"() {
+  "node_modules/@novnc/novnc/core/util/eventtarget.js"() {
     EventTargetMixin = class {
       constructor() {
         this._listeners = /* @__PURE__ */ new Map();
@@ -589,10 +589,10 @@ var init_eventtarget = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/display.js
+// node_modules/@novnc/novnc/core/display.js
 var Display;
 var init_display = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/display.js"() {
+  "node_modules/@novnc/novnc/core/display.js"() {
     init_logging();
     init_base64();
     init_int();
@@ -1051,7 +1051,7 @@ var init_display = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/utils/common.js
+// node_modules/@novnc/novnc/vendor/pako/lib/utils/common.js
 function arraySet(dest, src, src_offs, len, dest_offs) {
   if (src.subarray && dest.subarray) {
     dest.set(src.subarray(src_offs, src_offs + len), dest_offs);
@@ -1063,14 +1063,14 @@ function arraySet(dest, src, src_offs, len, dest_offs) {
 }
 var Buf8, Buf16, Buf32;
 var init_common = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/utils/common.js"() {
+  "node_modules/@novnc/novnc/vendor/pako/lib/utils/common.js"() {
     Buf8 = Uint8Array;
     Buf16 = Uint16Array;
     Buf32 = Int32Array;
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/adler32.js
+// node_modules/@novnc/novnc/vendor/pako/lib/zlib/adler32.js
 function adler32(adler, buf, len, pos) {
   var s1 = adler & 65535 | 0, s2 = adler >>> 16 & 65535 | 0, n = 0;
   while (len !== 0) {
@@ -1086,11 +1086,11 @@ function adler32(adler, buf, len, pos) {
   return s1 | s2 << 16 | 0;
 }
 var init_adler32 = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/adler32.js"() {
+  "node_modules/@novnc/novnc/vendor/pako/lib/zlib/adler32.js"() {
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/crc32.js
+// node_modules/@novnc/novnc/vendor/pako/lib/zlib/crc32.js
 function makeTable() {
   var c2, table = [];
   for (var n = 0; n < 256; n++) {
@@ -1104,12 +1104,12 @@ function makeTable() {
 }
 var crcTable;
 var init_crc32 = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/crc32.js"() {
+  "node_modules/@novnc/novnc/vendor/pako/lib/zlib/crc32.js"() {
     crcTable = makeTable();
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/inffast.js
+// node_modules/@novnc/novnc/vendor/pako/lib/zlib/inffast.js
 function inflate_fast(strm, start) {
   var state;
   var _in;
@@ -1332,13 +1332,13 @@ function inflate_fast(strm, start) {
 }
 var BAD, TYPE;
 var init_inffast = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/inffast.js"() {
+  "node_modules/@novnc/novnc/vendor/pako/lib/zlib/inffast.js"() {
     BAD = 30;
     TYPE = 12;
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/inftrees.js
+// node_modules/@novnc/novnc/vendor/pako/lib/zlib/inftrees.js
 function inflate_table(type, lens, lens_index, codes, table, table_index, work, opts) {
   var bits = opts.bits;
   var len = 0;
@@ -1505,7 +1505,7 @@ function inflate_table(type, lens, lens_index, codes, table, table_index, work, 
 }
 var MAXBITS, ENOUGH_LENS, ENOUGH_DISTS, CODES, LENS, DISTS, lbase, lext, dbase, dext;
 var init_inftrees = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/inftrees.js"() {
+  "node_modules/@novnc/novnc/vendor/pako/lib/zlib/inftrees.js"() {
     init_common();
     MAXBITS = 15;
     ENOUGH_LENS = 852;
@@ -1654,7 +1654,7 @@ var init_inftrees = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/inflate.js
+// node_modules/@novnc/novnc/vendor/pako/lib/zlib/inflate.js
 function zswap32(q) {
   return (q >>> 24 & 255) + (q >>> 8 & 65280) + ((q & 65280) << 8) + ((q & 255) << 24);
 }
@@ -2770,7 +2770,7 @@ function inflate(strm, flush) {
 }
 var CODES2, LENS2, DISTS2, Z_FINISH, Z_BLOCK, Z_TREES, Z_OK, Z_STREAM_END, Z_NEED_DICT, Z_STREAM_ERROR, Z_DATA_ERROR, Z_MEM_ERROR, Z_BUF_ERROR, Z_DEFLATED, HEAD, FLAGS, TIME, OS, EXLEN, EXTRA, NAME, COMMENT, HCRC, DICTID, DICT, TYPE2, TYPEDO, STORED, COPY_, COPY, TABLE, LENLENS, CODELENS, LEN_, LEN, LENEXT, DIST, DISTEXT, MATCH, LIT, CHECK, LENGTH, DONE, BAD2, MEM, SYNC, ENOUGH_LENS2, ENOUGH_DISTS2, MAX_WBITS, DEF_WBITS, virgin, lenfix, distfix;
 var init_inflate = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/inflate.js"() {
+  "node_modules/@novnc/novnc/vendor/pako/lib/zlib/inflate.js"() {
     init_common();
     init_adler32();
     init_crc32();
@@ -2830,7 +2830,7 @@ var init_inflate = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/zstream.js
+// node_modules/@novnc/novnc/vendor/pako/lib/zlib/zstream.js
 function ZStream() {
   this.input = null;
   this.next_in = 0;
@@ -2846,14 +2846,14 @@ function ZStream() {
   this.adler = 0;
 }
 var init_zstream = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/zstream.js"() {
+  "node_modules/@novnc/novnc/vendor/pako/lib/zlib/zstream.js"() {
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/inflator.js
+// node_modules/@novnc/novnc/core/inflator.js
 var Inflate;
 var init_inflator = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/inflator.js"() {
+  "node_modules/@novnc/novnc/core/inflator.js"() {
     init_inflate();
     init_zstream();
     Inflate = class {
@@ -2897,7 +2897,7 @@ var init_inflator = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/trees.js
+// node_modules/@novnc/novnc/vendor/pako/lib/zlib/trees.js
 function zero(buf) {
   var len = buf.length;
   while (--len >= 0) {
@@ -3477,7 +3477,7 @@ function _tr_tally(s, dist, lc) {
 }
 var Z_FIXED, Z_BINARY, Z_TEXT, Z_UNKNOWN, STORED_BLOCK, STATIC_TREES, DYN_TREES, MIN_MATCH, MAX_MATCH, LENGTH_CODES, LITERALS, L_CODES, D_CODES, BL_CODES, HEAP_SIZE, MAX_BITS, Buf_size, MAX_BL_BITS, END_BLOCK, REP_3_6, REPZ_3_10, REPZ_11_138, extra_lbits, extra_dbits, extra_blbits, bl_order, DIST_CODE_LEN, static_ltree, static_dtree, _dist_code, _length_code, base_length, base_dist, static_l_desc, static_d_desc, static_bl_desc, static_init_done;
 var init_trees = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/trees.js"() {
+  "node_modules/@novnc/novnc/vendor/pako/lib/zlib/trees.js"() {
     init_common();
     Z_FIXED = 4;
     Z_BINARY = 0;
@@ -3525,10 +3525,10 @@ var init_trees = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/messages.js
+// node_modules/@novnc/novnc/vendor/pako/lib/zlib/messages.js
 var messages_default;
 var init_messages = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/messages.js"() {
+  "node_modules/@novnc/novnc/vendor/pako/lib/zlib/messages.js"() {
     messages_default = {
       2: "need dictionary",
       /* Z_NEED_DICT       2  */
@@ -3552,7 +3552,7 @@ var init_messages = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/deflate.js
+// node_modules/@novnc/novnc/vendor/pako/lib/zlib/deflate.js
 function err(strm, errorCode) {
   strm.msg = messages_default[errorCode];
   return errorCode;
@@ -4428,7 +4428,7 @@ function deflate(strm, flush) {
 }
 var Z_NO_FLUSH, Z_PARTIAL_FLUSH, Z_FULL_FLUSH, Z_FINISH2, Z_BLOCK2, Z_OK2, Z_STREAM_END2, Z_STREAM_ERROR2, Z_BUF_ERROR2, Z_DEFAULT_COMPRESSION, Z_FILTERED, Z_HUFFMAN_ONLY, Z_RLE, Z_FIXED2, Z_DEFAULT_STRATEGY, Z_UNKNOWN2, Z_DEFLATED2, MAX_MEM_LEVEL, MAX_WBITS2, DEF_MEM_LEVEL, LENGTH_CODES2, LITERALS2, L_CODES2, D_CODES2, BL_CODES2, HEAP_SIZE2, MAX_BITS2, MIN_MATCH2, MAX_MATCH2, MIN_LOOKAHEAD, PRESET_DICT, INIT_STATE, EXTRA_STATE, NAME_STATE, COMMENT_STATE, HCRC_STATE, BUSY_STATE, FINISH_STATE, BS_NEED_MORE, BS_BLOCK_DONE, BS_FINISH_STARTED, BS_FINISH_DONE, OS_CODE, configuration_table;
 var init_deflate = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/vendor/pako/lib/zlib/deflate.js"() {
+  "node_modules/@novnc/novnc/vendor/pako/lib/zlib/deflate.js"() {
     init_common();
     init_trees();
     init_adler32();
@@ -4503,10 +4503,10 @@ var init_deflate = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/deflator.js
+// node_modules/@novnc/novnc/core/deflator.js
 var Deflator;
 var init_deflator = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/deflator.js"() {
+  "node_modules/@novnc/novnc/core/deflator.js"() {
     init_deflate();
     init_deflate();
     init_zstream();
@@ -4561,10 +4561,10 @@ var init_deflator = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/input/keysym.js
+// node_modules/@novnc/novnc/core/input/keysym.js
 var keysym_default;
 var init_keysym = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/input/keysym.js"() {
+  "node_modules/@novnc/novnc/core/input/keysym.js"() {
     keysym_default = {
       XK_VoidSymbol: 16777215,
       /* Void symbol */
@@ -5419,10 +5419,10 @@ var init_keysym = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/input/keysymdef.js
+// node_modules/@novnc/novnc/core/input/keysymdef.js
 var codepoints, keysymdef_default;
 var init_keysymdef = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/input/keysymdef.js"() {
+  "node_modules/@novnc/novnc/core/input/keysymdef.js"() {
     codepoints = {
       256: 960,
       // XK_Amacron
@@ -6758,10 +6758,10 @@ var init_keysymdef = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/input/vkeys.js
+// node_modules/@novnc/novnc/core/input/vkeys.js
 var vkeys_default;
 var init_vkeys = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/input/vkeys.js"() {
+  "node_modules/@novnc/novnc/core/input/vkeys.js"() {
     vkeys_default = {
       8: "Backspace",
       9: "Tab",
@@ -6872,10 +6872,10 @@ var init_vkeys = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/input/fixedkeys.js
+// node_modules/@novnc/novnc/core/input/fixedkeys.js
 var fixedkeys_default;
 var init_fixedkeys = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/input/fixedkeys.js"() {
+  "node_modules/@novnc/novnc/core/input/fixedkeys.js"() {
     fixedkeys_default = {
       // 3.1.1.1. Writing System Keys
       "Backspace": "Backspace",
@@ -6977,7 +6977,7 @@ var init_fixedkeys = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/input/domkeytable.js
+// node_modules/@novnc/novnc/core/input/domkeytable.js
 function addStandard(key, standard) {
   if (standard === void 0) throw new Error('Undefined keysym for key "' + key + '"');
   if (key in DOMKeyTable) throw new Error('Duplicate entry for key "' + key + '"');
@@ -6997,7 +6997,7 @@ function addNumpad(key, standard, numpad) {
 }
 var DOMKeyTable, domkeytable_default;
 var init_domkeytable = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/input/domkeytable.js"() {
+  "node_modules/@novnc/novnc/core/input/domkeytable.js"() {
     init_keysym();
     DOMKeyTable = {};
     addLeftRight("Alt", keysym_default.XK_Alt_L, keysym_default.XK_Alt_R);
@@ -7175,7 +7175,7 @@ var init_domkeytable = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/input/util.js
+// node_modules/@novnc/novnc/core/input/util.js
 function getKeycode(evt) {
   if (evt.code) {
     switch (evt.code) {
@@ -7322,7 +7322,7 @@ function getKeysym(evt) {
   return null;
 }
 var init_util = __esm({
-  async "plugins/browser/node_modules/@novnc/novnc/core/input/util.js"() {
+  async "node_modules/@novnc/novnc/core/input/util.js"() {
     init_keysym();
     init_keysymdef();
     init_vkeys();
@@ -7332,10 +7332,10 @@ var init_util = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/input/keyboard.js
+// node_modules/@novnc/novnc/core/input/keyboard.js
 var Keyboard;
 var init_keyboard = __esm({
-  async "plugins/browser/node_modules/@novnc/novnc/core/input/keyboard.js"() {
+  async "node_modules/@novnc/novnc/core/input/keyboard.js"() {
     init_logging();
     init_events();
     await init_util();
@@ -7523,10 +7523,10 @@ var init_keyboard = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/input/gesturehandler.js
+// node_modules/@novnc/novnc/core/input/gesturehandler.js
 var GH_NOGESTURE, GH_ONETAP, GH_TWOTAP, GH_THREETAP, GH_DRAG, GH_LONGPRESS, GH_TWODRAG, GH_PINCH, GH_INITSTATE, GH_MOVE_THRESHOLD, GH_ANGLE_THRESHOLD, GH_MULTITOUCH_TIMEOUT, GH_TAP_TIMEOUT, GH_LONGPRESS_TIMEOUT, GH_TWOTOUCH_TIMEOUT, GestureHandler;
 var init_gesturehandler = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/input/gesturehandler.js"() {
+  "node_modules/@novnc/novnc/core/input/gesturehandler.js"() {
     GH_NOGESTURE = 0;
     GH_ONETAP = 1;
     GH_TWOTAP = 2;
@@ -7953,10 +7953,10 @@ var init_gesturehandler = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/util/cursor.js
+// node_modules/@novnc/novnc/core/util/cursor.js
 var useFallback, Cursor;
 var init_cursor = __esm({
-  async "plugins/browser/node_modules/@novnc/novnc/core/util/cursor.js"() {
+  async "node_modules/@novnc/novnc/core/util/cursor.js"() {
     await init_browser();
     useFallback = !supportsCursorURIs || isTouchDevice;
     Cursor = class {
@@ -8136,10 +8136,10 @@ var init_cursor = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/websock.js
+// node_modules/@novnc/novnc/core/websock.js
 var MAX_RQ_GROW_SIZE, DataChannel, ReadyStates, rawChannelProps, Websock;
 var init_websock = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/websock.js"() {
+  "node_modules/@novnc/novnc/core/websock.js"() {
     init_logging();
     MAX_RQ_GROW_SIZE = 40 * 1024 * 1024;
     DataChannel = {
@@ -8427,10 +8427,10 @@ var init_websock = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/input/xtscancodes.js
+// node_modules/@novnc/novnc/core/input/xtscancodes.js
 var xtscancodes_default;
 var init_xtscancodes = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/input/xtscancodes.js"() {
+  "node_modules/@novnc/novnc/core/input/xtscancodes.js"() {
     xtscancodes_default = {
       "Again": 57349,
       /* html:Again (Again) -> linux:129 (KEY_AGAIN) -> atset1:57349 */
@@ -8766,10 +8766,10 @@ var init_xtscancodes = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/encodings.js
+// node_modules/@novnc/novnc/core/encodings.js
 var encodings;
 var init_encodings = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/encodings.js"() {
+  "node_modules/@novnc/novnc/core/encodings.js"() {
     encodings = {
       encodingRaw: 0,
       encodingCopyRect: 1,
@@ -8802,10 +8802,10 @@ var init_encodings = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/crypto/aes.js
+// node_modules/@novnc/novnc/core/crypto/aes.js
 var AESECBCipher, AESEAXCipher;
 var init_aes = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/crypto/aes.js"() {
+  "node_modules/@novnc/novnc/core/crypto/aes.js"() {
     AESECBCipher = class _AESECBCipher {
       constructor() {
         this._key = null;
@@ -8986,10 +8986,10 @@ var init_aes = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/crypto/des.js
+// node_modules/@novnc/novnc/core/crypto/des.js
 var PC2, totrot, z, a, b, c, d, e, f, SP1, SP2, SP3, SP4, SP5, SP6, SP7, SP8, DES, DESECBCipher, DESCBCCipher;
 var init_des = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/crypto/des.js"() {
+  "node_modules/@novnc/novnc/core/crypto/des.js"() {
     PC2 = [
       13,
       16,
@@ -9799,7 +9799,7 @@ var init_des = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/crypto/bigint.js
+// node_modules/@novnc/novnc/core/crypto/bigint.js
 function modPow(b2, e2, m) {
   let r = 1n;
   b2 = b2 % m;
@@ -9833,14 +9833,14 @@ function u8ArrayToBigInt(arr) {
   return BigInt(hex);
 }
 var init_bigint = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/crypto/bigint.js"() {
+  "node_modules/@novnc/novnc/core/crypto/bigint.js"() {
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/crypto/rsa.js
+// node_modules/@novnc/novnc/core/crypto/rsa.js
 var RSACipher;
 var init_rsa = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/crypto/rsa.js"() {
+  "node_modules/@novnc/novnc/core/crypto/rsa.js"() {
     init_base64();
     init_bigint();
     RSACipher = class _RSACipher {
@@ -9967,10 +9967,10 @@ var init_rsa = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/crypto/dh.js
+// node_modules/@novnc/novnc/core/crypto/dh.js
 var DHPublicKey, DHCipher;
 var init_dh = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/crypto/dh.js"() {
+  "node_modules/@novnc/novnc/core/crypto/dh.js"() {
     init_bigint();
     DHPublicKey = class {
       constructor(key) {
@@ -10024,7 +10024,7 @@ var init_dh = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/crypto/md5.js
+// node_modules/@novnc/novnc/core/crypto/md5.js
 async function MD5(d2) {
   let s = "";
   for (let i = 0; i < d2.length; i++) {
@@ -10082,14 +10082,14 @@ function rol(d2, g) {
   return d2 << g | d2 >>> 32 - g;
 }
 var init_md5 = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/crypto/md5.js"() {
+  "node_modules/@novnc/novnc/core/crypto/md5.js"() {
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/crypto/crypto.js
+// node_modules/@novnc/novnc/core/crypto/crypto.js
 var LegacyCrypto, crypto_default;
 var init_crypto = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/crypto/crypto.js"() {
+  "node_modules/@novnc/novnc/core/crypto/crypto.js"() {
     init_aes();
     init_des();
     init_rsa();
@@ -10172,10 +10172,10 @@ var init_crypto = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/ra2.js
+// node_modules/@novnc/novnc/core/ra2.js
 var RA2Cipher, RSAAESAuthenticationState;
 var init_ra2 = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/ra2.js"() {
+  "node_modules/@novnc/novnc/core/ra2.js"() {
     init_strings();
     init_eventtarget();
     init_crypto();
@@ -10482,10 +10482,10 @@ var init_ra2 = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/decoders/raw.js
+// node_modules/@novnc/novnc/core/decoders/raw.js
 var RawDecoder;
 var init_raw = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/decoders/raw.js"() {
+  "node_modules/@novnc/novnc/core/decoders/raw.js"() {
     RawDecoder = class {
       constructor() {
         this._lines = 0;
@@ -10527,10 +10527,10 @@ var init_raw = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/decoders/copyrect.js
+// node_modules/@novnc/novnc/core/decoders/copyrect.js
 var CopyRectDecoder;
 var init_copyrect = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/decoders/copyrect.js"() {
+  "node_modules/@novnc/novnc/core/decoders/copyrect.js"() {
     CopyRectDecoder = class {
       decodeRect(x, y, width, height, sock, display, depth) {
         if (sock.rQwait("COPYRECT", 4)) {
@@ -10548,10 +10548,10 @@ var init_copyrect = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/decoders/rre.js
+// node_modules/@novnc/novnc/core/decoders/rre.js
 var RREDecoder;
 var init_rre = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/decoders/rre.js"() {
+  "node_modules/@novnc/novnc/core/decoders/rre.js"() {
     RREDecoder = class {
       constructor() {
         this._subrects = 0;
@@ -10583,10 +10583,10 @@ var init_rre = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/decoders/hextile.js
+// node_modules/@novnc/novnc/core/decoders/hextile.js
 var HextileDecoder;
 var init_hextile = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/decoders/hextile.js"() {
+  "node_modules/@novnc/novnc/core/decoders/hextile.js"() {
     init_logging();
     HextileDecoder = class {
       constructor() {
@@ -10740,10 +10740,10 @@ var init_hextile = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/decoders/zlib.js
+// node_modules/@novnc/novnc/core/decoders/zlib.js
 var ZlibDecoder;
 var init_zlib = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/decoders/zlib.js"() {
+  "node_modules/@novnc/novnc/core/decoders/zlib.js"() {
     init_inflator();
     ZlibDecoder = class {
       constructor() {
@@ -10778,10 +10778,10 @@ var init_zlib = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/decoders/tight.js
+// node_modules/@novnc/novnc/core/decoders/tight.js
 var TightDecoder;
 var init_tight = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/decoders/tight.js"() {
+  "node_modules/@novnc/novnc/core/decoders/tight.js"() {
     init_logging();
     init_inflator();
     TightDecoder = class {
@@ -11141,10 +11141,10 @@ var init_tight = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/decoders/tightpng.js
+// node_modules/@novnc/novnc/core/decoders/tightpng.js
 var TightPNGDecoder;
 var init_tightpng = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/decoders/tightpng.js"() {
+  "node_modules/@novnc/novnc/core/decoders/tightpng.js"() {
     init_tight();
     TightPNGDecoder = class extends TightDecoder {
       _pngRect(x, y, width, height, sock, display, depth) {
@@ -11162,10 +11162,10 @@ var init_tightpng = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/decoders/zrle.js
+// node_modules/@novnc/novnc/core/decoders/zrle.js
 var ZRLE_TILE_WIDTH, ZRLE_TILE_HEIGHT, ZRLEDecoder;
 var init_zrle = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/decoders/zrle.js"() {
+  "node_modules/@novnc/novnc/core/decoders/zrle.js"() {
     init_inflator();
     ZRLE_TILE_WIDTH = 64;
     ZRLE_TILE_HEIGHT = 64;
@@ -11321,10 +11321,10 @@ var init_zrle = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/decoders/jpeg.js
+// node_modules/@novnc/novnc/core/decoders/jpeg.js
 var JPEGDecoder;
 var init_jpeg = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/decoders/jpeg.js"() {
+  "node_modules/@novnc/novnc/core/decoders/jpeg.js"() {
     JPEGDecoder = class {
       constructor() {
         this._cachedQuantTables = [];
@@ -11451,10 +11451,10 @@ var init_jpeg = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/decoders/h264.js
+// node_modules/@novnc/novnc/core/decoders/h264.js
 var H264Parser, H264Context, H264Decoder;
 var init_h264 = __esm({
-  "plugins/browser/node_modules/@novnc/novnc/core/decoders/h264.js"() {
+  "node_modules/@novnc/novnc/core/decoders/h264.js"() {
     init_logging();
     H264Parser = class {
       constructor(data) {
@@ -11719,14 +11719,14 @@ var init_h264 = __esm({
   }
 });
 
-// plugins/browser/node_modules/@novnc/novnc/core/rfb.js
+// node_modules/@novnc/novnc/core/rfb.js
 var rfb_exports = {};
 __export(rfb_exports, {
   default: () => RFB
 });
 var DISCONNECT_TIMEOUT, DEFAULT_BACKGROUND, MOUSE_MOVE_DELAY, WHEEL_STEP, WHEEL_LINE_HEIGHT, GESTURE_ZOOMSENS, GESTURE_SCRLSENS, DOUBLE_TAP_TIMEOUT, DOUBLE_TAP_THRESHOLD, securityTypeNone, securityTypeVNCAuth, securityTypeRA2ne, securityTypeTight, securityTypeVeNCrypt, securityTypeXVP, securityTypeARD, securityTypeMSLogonII, securityTypeUnixLogon, securityTypePlain, extendedClipboardFormatText, extendedClipboardFormatRtf, extendedClipboardFormatHtml, extendedClipboardFormatDib, extendedClipboardFormatFiles, extendedClipboardActionCaps, extendedClipboardActionRequest, extendedClipboardActionPeek, extendedClipboardActionNotify, extendedClipboardActionProvide, RFB;
 var init_rfb = __esm({
-  async "plugins/browser/node_modules/@novnc/novnc/core/rfb.js"() {
+  async "node_modules/@novnc/novnc/core/rfb.js"() {
     init_int();
     init_logging();
     init_strings();
@@ -14471,19 +14471,19 @@ var init_rfb = __esm({
 // plugins/browser/web-src/BrowserAccount.tsx
 var import_react3 = __toESM(require_react(), 1);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
+// node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
+// node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -14496,7 +14496,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -14528,7 +14528,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -14542,7 +14542,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/activity.js
+// node_modules/lucide-react/dist/esm/icons/activity.js
 var Activity = createLucideIcon("Activity", [
   [
     "path",
@@ -14553,7 +14553,7 @@ var Activity = createLucideIcon("Activity", [
   ]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/app-window.js
+// node_modules/lucide-react/dist/esm/icons/app-window.js
 var AppWindow = createLucideIcon("AppWindow", [
   ["rect", { x: "2", y: "4", width: "20", height: "16", rx: "2", key: "izxlao" }],
   ["path", { d: "M10 4v4", key: "pp8u80" }],
@@ -14561,26 +14561,26 @@ var AppWindow = createLucideIcon("AppWindow", [
   ["path", { d: "M6 4v4", key: "1svtjw" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/arrow-left.js
+// node_modules/lucide-react/dist/esm/icons/arrow-left.js
 var ArrowLeft = createLucideIcon("ArrowLeft", [
   ["path", { d: "m12 19-7-7 7-7", key: "1l729n" }],
   ["path", { d: "M19 12H5", key: "x3x0zl" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/arrow-right.js
+// node_modules/lucide-react/dist/esm/icons/arrow-right.js
 var ArrowRight = createLucideIcon("ArrowRight", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/database.js
+// node_modules/lucide-react/dist/esm/icons/database.js
 var Database = createLucideIcon("Database", [
   ["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3", key: "msslwz" }],
   ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5", key: "1wlel7" }],
   ["path", { d: "M3 12A9 3 0 0 0 21 12", key: "mv7ke4" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/earth.js
+// node_modules/lucide-react/dist/esm/icons/earth.js
 var Earth = createLucideIcon("Earth", [
   ["path", { d: "M21.54 15H17a2 2 0 0 0-2 2v4.54", key: "1djwo0" }],
   [
@@ -14594,7 +14594,7 @@ var Earth = createLucideIcon("Earth", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/expand.js
+// node_modules/lucide-react/dist/esm/icons/expand.js
 var Expand = createLucideIcon("Expand", [
   ["path", { d: "m21 21-6-6m6 6v-4.8m0 4.8h-4.8", key: "1c15vz" }],
   ["path", { d: "M3 16.2V21m0 0h4.8M3 21l6-6", key: "1fsnz2" }],
@@ -14602,13 +14602,13 @@ var Expand = createLucideIcon("Expand", [
   ["path", { d: "M3 7.8V3m0 0h4.8M3 3l6 6", key: "u9ee12" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/gauge.js
+// node_modules/lucide-react/dist/esm/icons/gauge.js
 var Gauge = createLucideIcon("Gauge", [
   ["path", { d: "m12 14 4-4", key: "9kzdfg" }],
   ["path", { d: "M3.34 19a10 10 0 1 1 17.32 0", key: "19p75a" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/hand.js
+// node_modules/lucide-react/dist/esm/icons/hand.js
 var Hand = createLucideIcon("Hand", [
   ["path", { d: "M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2", key: "1fvzgz" }],
   ["path", { d: "M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2", key: "1kc0my" }],
@@ -14622,7 +14622,7 @@ var Hand = createLucideIcon("Hand", [
   ]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/hard-drive.js
+// node_modules/lucide-react/dist/esm/icons/hard-drive.js
 var HardDrive = createLucideIcon("HardDrive", [
   ["line", { x1: "22", x2: "2", y1: "12", y2: "12", key: "1y58io" }],
   [
@@ -14636,28 +14636,28 @@ var HardDrive = createLucideIcon("HardDrive", [
   ["line", { x1: "10", x2: "10.01", y1: "16", y2: "16", key: "1l4acy" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/message-circle-question.js
+// node_modules/lucide-react/dist/esm/icons/message-circle-question.js
 var MessageCircleQuestion = createLucideIcon("MessageCircleQuestion", [
   ["path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z", key: "vv11sd" }],
   ["path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3", key: "1u773s" }],
   ["path", { d: "M12 17h.01", key: "p32p05" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/message-square-text.js
+// node_modules/lucide-react/dist/esm/icons/message-square-text.js
 var MessageSquareText = createLucideIcon("MessageSquareText", [
   ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }],
   ["path", { d: "M13 8H7", key: "14i4kc" }],
   ["path", { d: "M17 12H7", key: "16if0g" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/monitor.js
+// node_modules/lucide-react/dist/esm/icons/monitor.js
 var Monitor = createLucideIcon("Monitor", [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
   ["line", { x1: "8", x2: "16", y1: "21", y2: "21", key: "1svkeh" }],
   ["line", { x1: "12", x2: "12", y1: "17", y2: "21", key: "vw1qmm" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/plug-zap.js
+// node_modules/lucide-react/dist/esm/icons/plug-zap.js
 var PlugZap = createLucideIcon("PlugZap", [
   [
     "path",
@@ -14669,19 +14669,19 @@ var PlugZap = createLucideIcon("PlugZap", [
   ["path", { d: "m18 3-4 4h6l-4 4", key: "16psg9" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/power.js
+// node_modules/lucide-react/dist/esm/icons/power.js
 var Power = createLucideIcon("Power", [
   ["path", { d: "M12 2v10", key: "mnfbl" }],
   ["path", { d: "M18.4 6.6a9 9 0 1 1-12.77.04", key: "obofu9" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/rotate-cw.js
+// node_modules/lucide-react/dist/esm/icons/rotate-cw.js
 var RotateCw = createLucideIcon("RotateCw", [
   ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", key: "1p45f6" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/shield-check.js
+// node_modules/lucide-react/dist/esm/icons/shield-check.js
 var ShieldCheck = createLucideIcon("ShieldCheck", [
   [
     "path",
@@ -14693,7 +14693,7 @@ var ShieldCheck = createLucideIcon("ShieldCheck", [
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/trash-2.js
+// node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
@@ -14702,7 +14702,7 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
-// ../../../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/x.js
+// node_modules/lucide-react/dist/esm/icons/x.js
 var X = createLucideIcon("X", [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]

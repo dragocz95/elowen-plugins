@@ -42,7 +42,7 @@
     },
     {
       "name": "discord",
-      "version": "0.3.17",
+      "version": "0.3.18",
       "requiresCore": "0.28.11",
       "description": "Discord bot: chat with Elowen in a server channel, thread or DM, with slash commands, live message editing and role-based admission; account permissions come from the linked Elowen account.",
       "category": "chat",
@@ -201,7 +201,7 @@
     },
     {
       "name": "telegram",
-      "version": "0.2.13",
+      "version": "0.2.14",
       "requiresCore": "0.28.11",
       "description": "Telegram bot: chat with Elowen in a private chat, group or forum topic, with slash commands, inline keyboards and live message editing.",
       "category": "chat",
@@ -250,7 +250,7 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.16",
+      "version": "0.2.17",
       "requiresCore": "0.28.11",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",

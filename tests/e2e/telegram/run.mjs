@@ -14,8 +14,8 @@
 //   1. A private text message round-trips to the brain and the reply is sent back as Telegram plain text
 //      (no parse_mode / no markdown escaping — the shared live-trace `style` is all-identity for Telegram).
 //   2. /stats through the shared runControlCommand core (a real session exists → the status line).
-//   3. /new (fresh conversation) and /fast — with a bogus arg (the `fastUsage` fallthrough that was a real
-//      bug), with `off`, and with `on` (the fastAvailable gate) — all through the shared core.
+//   3. /new and /fast usage/off/on/status/toggle through the shared core: persisted account preference
+//      is independent of whether the selected model supports priority routing.
 //   4. TEETH: a provider error surfaces as the bot's "⚠️ …" error reply.
 // Every wait is deadline-bounded on the fake's captured calls — no sleep-based flakiness.
 //
@@ -26,6 +26,7 @@ import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
 import { installRegistryPlugin } from '../harness/install-plugin.mjs';
 import { linkPlatformAccount } from '../harness/link-account.mjs';
+import { verifyFastPreference } from '../harness/fast-preference.mjs';
 import { startFakeTelegram } from './fake-telegram.mjs';
 
 const USER_ID = 4242424242;   // the Telegram sender (also the private chat id)
@@ -146,13 +147,14 @@ async function main() {
 
     // ── Scenario 3: /new + /fast (shared control core) ───────────────────────────────────────────────
     await expectReply(fake, '/new', (t) => t.includes('Fresh conversation started'), '/new reply');
-    // The fastUsage fallthrough that was a real bug: a bogus arg must reply with the usage hint, NOT toggle.
-    await expectReply(fake, '/fast wat', (t) => t === 'Usage: /fast, /fast on, or /fast off.', '/fast <bogus> → usage hint');
-    // /fast off is switchable even on a non-OAuth model (the stale-fast-off path).
-    await expectReply(fake, '/fast off', (t) => t.includes('Fast mode is off'), '/fast off reply');
-    // /fast on hits the fastAvailable gate (our provider is a plain API key, not OpenAI OAuth).
-    await expectReply(fake, '/fast on', (t) => /priority|OAuth|not available|unavailable|není/i.test(t), '/fast on → unavailable gate');
-    console.log('PASS scenario 3: /new resets the conversation; /fast usage/off/on all routed through the shared core.');
+    await verifyFastPreference({
+      baseUrl, token, model,
+      command: (arg, pred) => expectReply(fake, `/fast ${arg}`.trim(), pred, `/fast ${arg} account preference`),
+      offReply: (t) => t.includes('Fast mode is off'),
+      usageReply: (t) => t === 'Usage: /fast, /fast on, /fast off, or /fast status.',
+      turn: () => expectReply(fake, 'Reply with Fast preference enabled.', (t) => t.includes(REPLY_MARKER), 'unsupported Fast model turn'),
+    });
+    console.log('PASS scenario 3: /new resets; /fast usage/off/on/status/toggle persist account intent without enabling unsupported priority.');
 
     // ── Scenario 4: TEETH — a provider failure surfaces as the bot's error reply ─────────────────────
     model.setFail(true);

@@ -92,7 +92,7 @@ export function runtimeResponseHeaders(
   return out;
 }
 
-export function environmentResponseHeaders(
+function environmentResponseHeaders(
   headers: Record<string, string | string[] | undefined>,
 ): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {};

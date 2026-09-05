@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { createServer } from 'node:http';
-import { closeSync, ftruncateSync, mkdtempSync, openSync, writeFileSync } from 'node:fs';
+import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -2349,16 +2349,20 @@ describe('msteams tool permissions', () => {
 
   // A file the agent just built (an export, a report) used to be handed back as a `sandbox:` path, which
   // means nothing in Teams, so the file simply never arrived. In a 1:1 chat the recipient is not ambiguous.
-  it('offers a generated file to the current Teams sender when no recipient is given', async () => {
+  it('offers a generated file to the current Teams sender when no recipient is given', async ({ onTestFinished }) => {
+    const dir = mkdtempSync(join(tmpdir(), 'msteams-send-file-'));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'report.txt');
+    writeFileSync(path, 'Generated report');
     const { adapter, calls } = await known();
     const { tools, run } = await makeTools(adapter, {
       admin: true, owner: false, platform: 'msteams', userId: 'aad-2', conversation: 'direct',
     });
     expect(tools.get('TeamsSendFile')?.description).toContain('instead of returning a sandbox link');
 
-    const result = await run('TeamsSendFile', { path: '/etc/hostname' });
+    const result = await run('TeamsSendFile', { path });
 
-    expect(result).toContain('Offered hostname');
+    expect(result).toContain('Offered report.txt');
     expect(result).toContain('Dana Novák');
     expect(calls.filter((c) => c.kind === 'create')).toHaveLength(1);
     expect(calls.filter((c) => c.kind === 'send')).toHaveLength(1);
@@ -2366,13 +2370,17 @@ describe('msteams tool permissions', () => {
 
   // …but a channel has no single sender to mean, and a file can only ever be offered in a 1:1 chat, so
   // the fallback there would divert the file into a private chat the room never sees.
-  it('refuses to guess a file recipient from a shared channel turn', async () => {
+  it('refuses to guess a file recipient from a shared channel turn', async ({ onTestFinished }) => {
+    const dir = mkdtempSync(join(tmpdir(), 'msteams-send-file-'));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'report.txt');
+    writeFileSync(path, 'Generated report');
     const { adapter, calls } = await known();
     const { run } = await makeTools(adapter, {
       admin: true, owner: false, platform: 'msteams', userId: 'aad-2', conversation: 'shared',
     });
 
-    const result = await run('TeamsSendFile', { path: '/etc/hostname' });
+    const result = await run('TeamsSendFile', { path });
 
     expect(result).toContain('name the recipient');
     expect(calls.filter((c) => c.kind === 'send' || c.kind === 'create')).toHaveLength(0);

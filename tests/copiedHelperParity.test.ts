@@ -40,8 +40,8 @@ const coreUiKitTypesPath = join(coreRoot, 'packages/plugin-ui-kit/index.d.ts');
 if (!existsSync(join(coreSharedDir, 'execs.js')) || !existsSync(coreUiKitTypesPath)) {
   throw new Error(`[copied-helper-parity] ELOWEN_CORE_ROOT lacks built shared helpers or ui-kit sources: ${coreRoot}`);
 }
-if (!/PLUGIN_UI_API_VERSION:\s*13\b/.test(readFileSync(coreUiKitTypesPath, 'utf8'))) {
-  throw new Error(`[copied-helper-parity] ELOWEN_CORE_ROOT does not expose plugin UI API 13: ${coreRoot}`);
+if (!/PLUGIN_UI_API_VERSION:\s*16\b/.test(readFileSync(coreUiKitTypesPath, 'utf8'))) {
+  throw new Error(`[copied-helper-parity] ELOWEN_CORE_ROOT does not expose plugin UI API 16: ${coreRoot}`);
 }
 console.info(`[copied-helper-parity] core source: ELOWEN_CORE_ROOT (${coreRoot})`);
 
