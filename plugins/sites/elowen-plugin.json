@@ -1,6 +1,6 @@
 {
   "name": "sites",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "apiVersion": "1",
   "requiresCore": "0.28.31",
   "description": "Publish static, command and PHP sites, or run additive persistent rootless environments with systemd, bounded resources and a host-owned ingress socket. Every site keeps its own address and visibility rules for owners, Project members, signed-in accounts, named guests or the public.",

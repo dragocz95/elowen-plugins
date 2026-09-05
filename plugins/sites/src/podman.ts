@@ -234,19 +234,16 @@ export class PodmanClient {
     return /no such (?:container|object|volume|image)|does not exist|not found/i.test(`${result.stderr}\n${result.stdout}`);
   }
 
-  async inspect(name: string): Promise<Record<string, unknown> | null> {
-    const result = await this.run(['inspect', name], { allowFailure: true });
-    if (result.code !== 0) {
-      if (this.missingObject(result)) return null;
-      throw new Error(`podman inspect failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
-    }
-    const parsed = JSON.parse(result.stdout) as unknown;
-    const first = Array.isArray(parsed) ? parsed[0] : parsed;
-    return first && typeof first === 'object' ? first as Record<string, unknown> : null;
-  }
-
+  /** `--type container` is what makes "no container" answerable.
+   *
+   *  Bare `podman inspect NAME` searches containers, images, volumes, networks and pods together. Once a
+   *  site has a snapshot image, the moment its container is gone the same name resolves to that image
+   *  instead, and `{{.State.Status}}` dies with a template error rather than a missing-object message:
+   *  exit 125, unrecognized, thrown. Rollback removes the container before recreating it, so this landed
+   *  precisely in the window where the environment had none, and it left the site with no container at
+   *  all. Scoped to containers, the same call answers "no such container", which reads as null. */
   async inspectStatus(name: string): Promise<string | null> {
-    const result = await this.run(['inspect', '--format', '{{.State.Status}}', name], { allowFailure: true });
+    const result = await this.run(['inspect', '--type', 'container', '--format', '{{.State.Status}}', name], { allowFailure: true });
     if (result.code === 0) return result.stdout.trim() || null;
     if (this.missingObject(result)) return null;
     throw new Error(`podman inspect failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);

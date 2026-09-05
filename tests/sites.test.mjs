@@ -825,6 +825,15 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     releaseDir: (id, releaseId) => join(dir, 'sites', id, releaseId),
     deleteSite: async (id) => { store.beginDelete(id); store.deleteSite(id); },
     runtime: { allocatePort: () => 43000, stop: async () => {}, start: async () => {}, logTail: () => '', isRunning: () => false },
+    environment: {
+      state: async (target) => ({
+        state: 'running',
+        desiredState: target.environmentDesiredState ?? 'running',
+        limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: null },
+      }),
+      exec: async () => ({ stdout: '', stderr: '', code: 0 }),
+      logs: async () => ({ lifecycle: '', journal: '' }),
+    },
   });
   return { store, dir, call: (name, input) => registered.get(name).execute('call-1', input ?? {}) };
 };
@@ -858,6 +867,34 @@ test('SiteCreate allows a persistent environment before its public DNS gateway i
   assert.equal(stored.runtime, 'environment');
   assert.equal(stored.status, 'live');
   assert.equal(existsSync(stored.sourceDir), true, 'the environment still gets its Project workspace');
+});
+
+test('an environment reports its newest snapshot, never a publish it cannot have', async (t) => {
+  // SitePublish refuses an environment, so lastPublishAt stays null there for good. Reading the summary
+  // line from that field told an agent "snapshot never" seconds after SiteSnapshot had succeeded, which
+  // reads as a failed snapshot and invites a pointless second one.
+  const { store, call } = toolHarness(t, { configRaw: { allowEnvironments: true } });
+  store.insertSite(site({
+    id: 'env-1', slug: 'env-a1b2c3', ownerUserId: 1, runtime: 'environment',
+    status: 'live', currentReleaseId: null, environmentDesiredState: 'running',
+  }));
+
+  const before = await call('SiteGet', { site: 'env-a1b2c3' });
+  assert.match(before.content[0].text, /snapshot {3}never/, 'an environment with no snapshot still says so');
+  assert.doesNotMatch(before.content[0].text, /published/, 'and never borrows the publish wording');
+
+  const snapshot = (id, createdAt) => ({
+    id, siteId: 'env-1', createdAt, model: 'test/model', fileCount: 0, sizeBytes: 0, note: '',
+    kind: 'environment-snapshot', imageRef: `localhost/elowen-site/env-1:${id}`, dataArchive: null,
+  });
+  store.insertRelease(snapshot('snap-old', '2026-09-01T10:00:00.000Z'));
+  store.insertRelease(snapshot('snap-new', '2026-09-04T21:30:00.000Z'));
+
+  const after = await call('SiteGet', { site: 'env-a1b2c3' });
+  assert.match(after.content[0].text, /snapshot {3}2026-09-04T21:30:00\.000Z/, 'the NEWEST snapshot, not the first');
+
+  const listed = await call('SiteList', {});
+  assert.match(listed.content[0].text, /snapshot {3}2026-09-04T21:30:00\.000Z/, 'SiteList reports it too');
 });
 
 test('a site answers to its slug as readily as to its id', async (t) => {

@@ -224,6 +224,37 @@ test('Podman ps normalizes representative 4.9 uppercase JSON fields', async () =
   }]);
 });
 
+test('container status is asked of containers only, so a snapshot image cannot answer for one', async () => {
+  // Bare `podman inspect NAME` searches containers, images, volumes, networks and pods together. Once a
+  // site owned a snapshot image, the moment rollback removed its container that name resolved to the
+  // image instead and `{{.State.Status}}` died with a template error on exit 125 — no missing-object
+  // wording, so it threw mid-rollback and left the environment with no container at all.
+  const executor = new FakeExecutor();
+  executor.enqueue('running');
+  const podman = new PodmanClient({ executor });
+  assert.equal(await podman.inspectStatus(`elowen-site-${SITE_ID}`), 'running');
+  assert.deepEqual(executor.calls[0].args, [
+    'inspect', '--type', 'container', '--format', '{{.State.Status}}', `elowen-site-${SITE_ID}`,
+  ]);
+
+  const gone = new FakeExecutor();
+  gone.enqueue('', `Error: no such container elowen-site-${SITE_ID}`, 125);
+  assert.equal(
+    await new PodmanClient({ executor: gone }).inspectStatus(`elowen-site-${SITE_ID}`),
+    null,
+    'a container-scoped miss is the answer "there is none", which is what the create path waits for',
+  );
+
+  // And the failure this replaced still has to be loud: widening the missing-object wording to swallow a
+  // template error would turn every unreadable container into a silent "create a new one".
+  const templated = new FakeExecutor();
+  templated.enqueue('', 'Error: template: inspect:1:19: executing "inspect" at <.State.Status>: can\'t evaluate field State in type interface {}', 125);
+  await assert.rejects(
+    () => new PodmanClient({ executor: templated }).inspectStatus(`elowen-site-${SITE_ID}`),
+    /can't evaluate field State/,
+  );
+});
+
 test('volume removal ignores only an absent volume and surfaces structural failures', async () => {
   const missing = new FakeExecutor();
   missing.enqueue('', 'Error: no such volume missing', 1);

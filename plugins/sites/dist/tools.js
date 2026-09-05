@@ -168,7 +168,15 @@ const addressOf = (config, slug) => {
     }
     return url;
 };
-const describe = (site, config, environment) => {
+/** What an environment has instead of a publish.
+ *
+ *  SitePublish refuses an environment outright, so its `lastPublishAt` stays null forever. Reading the
+ *  summary line from that field therefore reported "snapshot never" to an agent that had just taken one.
+ *  Releases come back newest first. */
+const latestSnapshotAt = (store, site) => (site.runtime !== 'environment'
+    ? null
+    : store.releases(site.id).find((release) => release.kind === 'environment-snapshot')?.createdAt ?? null);
+const describe = (site, config, environment, lastSnapshotAt) => {
     const address = siteUrl(config, site.slug);
     return [
         `${site.title}`,
@@ -182,7 +190,11 @@ const describe = (site, config, environment) => {
             `  environment ${environment?.state ?? 'unknown'} · desired ${site.environmentDesiredState ?? 'running'} · ${config.environmentNetwork} network`,
             `  limits      ${environment?.limits.cpus ?? site.environmentCpus ?? config.environmentCpus} CPU · ${environment?.limits.memoryMb ?? site.environmentMemoryMb ?? config.environmentMemoryMb} MB · ${environment?.limits.pidsLimit ?? site.environmentPidsLimit ?? config.environmentPidsLimit} PIDs`,
         ] : []),
-        site.lastPublishAt ? `  published  ${site.lastPublishAt}${site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}` : site.runtime === 'environment' ? '  snapshot   never' : '  published  never',
+        site.runtime === 'environment'
+            ? `  snapshot   ${lastSnapshotAt ?? 'never'}`
+            : site.lastPublishAt
+                ? `  published  ${site.lastPublishAt}${site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}`
+                : '  published  never',
         `  source     ${site.sourceDir}`,
     ].join('\n');
 };
@@ -588,7 +600,7 @@ export function registerTools(deps) {
                     site,
                     environment: site.runtime === 'environment' ? await deps.environment.state(site) : undefined,
                 })));
-                return text(rows.map((row) => describe(row.site, config, row.environment)).join('\n\n'), {
+                return text(rows.map((row) => describe(row.site, config, row.environment, latestSnapshotAt(store, row.site))).join('\n\n'), {
                     sites: rows.map((row) => ({
                         id: row.site.id,
                         slug: row.site.slug,
@@ -624,7 +636,7 @@ export function registerTools(deps) {
                 const guests = store.memberIds(site.id)
                     .map((id) => ({ id, name: people.get(id)?.name || people.get(id)?.username || `#${id}` }));
                 return text([
-                    describe(site, config, environment),
+                    describe(site, config, environment, latestSnapshotAt(store, site)),
                     `  base path  ${SITE_BASE_PATH}`,
                     `  guests     ${guests.length === 0 ? 'none' : guests.map((guest) => guest.name).join(', ')}`,
                     '',
@@ -725,7 +737,9 @@ export function registerTools(deps) {
                         throw new ToolError(`Runtime settings were saved, but the site did not restart: ${message}`);
                     }
                 }
-                return text(updated ? `Updated.\n\n${describe(updated, deps.config())}` : 'Updated.');
+                return text(updated
+                    ? `Updated.\n\n${describe(updated, deps.config(), undefined, latestSnapshotAt(store, updated))}`
+                    : 'Updated.');
             }
             catch (error) {
                 throw error instanceof ToolError ? error : new Error(String(error));
