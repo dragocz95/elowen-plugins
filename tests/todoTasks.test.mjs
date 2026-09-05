@@ -162,7 +162,7 @@ test('Task V2 exposes incremental tools and keeps private data out of the Todo p
 // renders `<task id="3">` and `ids="1-5"`, and its instructions said "id" throughout, while the neighbouring
 // TaskCreate takes a `tasks` ARRAY. The model was reading `id`, `ids` and `tasks` on every single turn and
 // sending exactly those. So the prose has to name the parameter, and the batch asymmetry has to be stated.
-test('the task context and tool descriptions name taskId and rule out a batch update', async (t) => {
+test('the task context and tool descriptions name taskId and describe batch boundaries', async (t) => {
   const h = harness(t);
   await h.tool('TaskCreate').execute('1', { tasks: [{ subject: 'Work', description: 'Do it' }] });
   const context = h.turnContext();
@@ -185,7 +185,7 @@ test('the task context and tool descriptions name taskId and rule out a batch up
   assert.match(h.tool('TaskCreate').description, /REQUIRES both a non-empty subject and a non-empty description/);
 
   assert.match(h.prompts.join('\n'), /take its ID in a parameter named `taskId`/);
-  assert.match(h.prompts.join('\n'), /only `TaskCreate` takes a batch/);
+  assert.match(h.prompts.join('\n'), /TaskDelete.*explicit non-empty `taskIds` array for an atomic batch/);
 });
 
 // The schemas are OPEN: an unrecognised key is ignored, not rejected. So a TaskUpdate that names a real
@@ -348,6 +348,36 @@ test('running-work reminders stay quiet until work looks stale, duplicated or st
 
   await update.execute('6', { taskId: '3', status: 'completed' });
   assert.doesNotMatch(h.turnContext(), /running_work_reminder/);
+});
+
+test('TaskDelete deletes an explicit batch atomically and emits one card update', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const deleteTool = h.tool('TaskDelete');
+  const list = h.tool('TaskList');
+  await create.execute('1', { tasks: [
+    { subject: 'A', description: 'a' },
+    { subject: 'B', description: 'b', blockedByIndex: [1] },
+    { subject: 'C', description: 'c' },
+  ] });
+  const beforeCards = h.cards.length;
+  const result = json(await deleteTool.execute('2', { taskIds: ['1', '2'] }));
+  assert.deepEqual(result, { success: true, taskIds: ['1', '2'] });
+  assert.equal(h.cards.length, beforeCards + 1);
+  assert.deepEqual(json(await list.execute('3', {})).tasks.map((task) => task.id), ['3']);
+
+  const cardsAfterSuccess = h.cards.length;
+  const refused = json(await deleteTool.execute('4', { taskIds: ['3', '999'] }));
+  assert.equal(refused.success, false);
+  assert.equal(refused.error, 'task not found');
+  assert.equal(h.cards.length, cardsAfterSuccess);
+  assert.deepEqual(json(await list.execute('5', {})).tasks.map((task) => task.id), ['3']);
+
+  for (const [taskIds, error] of [[[], 'task ids must be a non-empty array'], [['3', '3'], 'duplicate task id']]) {
+    const invalid = json(await deleteTool.execute('6', { taskIds }));
+    assert.equal(invalid.error, error);
+    assert.deepEqual(json(await list.execute('7', {})).tasks.map((task) => task.id), ['3']);
+  }
 });
 
 test('TaskDelete and user API routes keep session tasks tenant-scoped and clear blocker edges', async (t) => {

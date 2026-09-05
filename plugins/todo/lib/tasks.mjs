@@ -306,15 +306,26 @@ class TaskStore {
     });
   }
 
-  delete(key, taskIdValue) {
-    const taskId = numericId(taskIdValue);
-    if (taskId == null) throw new Error('task not found');
+  deleteMany(key, taskIdValues) {
+    if (!Array.isArray(taskIdValues) || taskIdValues.length === 0) throw new Error('task ids must be a non-empty array');
+    const taskIds = taskIdValues.map(numericId);
+    if (taskIds.some((taskId) => taskId == null)) throw new Error('task not found');
+    if (new Set(taskIds).size !== taskIds.length) throw new Error('duplicate task id');
     return this.db.transaction(() => {
-      if (!this.get(key, taskId)) throw new Error('task not found');
-      this.deleteTaskEdges.run(key, taskId, taskId);
-      this.deleteTask.run(key, taskId);
-      return { success: true, taskId: String(taskId) };
+      const tasks = this.list(key);
+      const existing = new Set(tasks.map((task) => Number(task.id)));
+      if (taskIds.some((taskId) => !existing.has(taskId))) throw new Error('task not found');
+      for (const taskId of taskIds) {
+        this.deleteTaskEdges.run(key, taskId, taskId);
+        this.deleteTask.run(key, taskId);
+      }
+      return { success: true, taskIds: taskIds.map(String) };
     });
+  }
+
+  delete(key, taskIdValue) {
+    const result = this.deleteMany(key, [taskIdValue]);
+    return { success: result.success, taskId: result.taskIds[0] };
   }
 
   clear(key, scope) {
@@ -465,6 +476,9 @@ const SAFE_ERRORS = new Set([
   CONTROL_SUBJECT_ERROR,
   CONTROL_OWNER_ERROR,
   'task not found',
+  'task ids must be a non-empty array',
+  'duplicate task id',
+  'provide taskId or taskIds, not both',
   'nothing to update',
   'a task cannot depend on itself',
   'dependency task not found',
@@ -730,22 +744,25 @@ export function registerTaskMode(ctx, db) {
   ctx.registerTool(defineTool({
     name: 'TaskDelete',
     label: 'Delete task',
-    description: 'Delete one EXISTING task from the current conversation task list. This permanently removes the task and every blocker edge that points to or from it. Use the exact ID returned by TaskCreate or TaskList; an unknown ID fails and does not affect any other task.',
+    description: 'Delete one or more EXISTING tasks from the current conversation task list. Pass `taskId` for one task, or explicit `taskIds` for a batch. Every ID must exist and appear only once; invalid, duplicate or unknown IDs reject the whole batch without deleting anything. Each deletion also removes blocker edges, and one successful call produces one Todo panel update. Use exact IDs returned by TaskCreate or TaskList.',
     parameters: Type.Object({
-      taskId: Type.String({ description: 'ID of an existing task, exactly as returned by TaskCreate or TaskList. Never invent or guess an ID.' }),
+      taskId: Type.Optional(Type.String({ description: 'ID of one existing task, exactly as returned by TaskCreate or TaskList.' })),
+      taskIds: Type.Optional(Type.Array(Type.String(), { minItems: 1, description: 'Explicit non-empty list of existing task IDs to delete atomically. No duplicates.' })),
     }),
-    execute: async (_id, { taskId }) => {
+    execute: async (_id, params) => {
       const key = keyFor(ctx);
-      const id = String(taskId ?? '');
-      if (!key) return ok({ success: false, taskId: id, error: 'task list unavailable outside a conversation' });
+      const hasBatch = params.taskIds !== undefined;
+      const id = String(params.taskId ?? '');
+      if (!key) return ok({ success: false, ...(hasBatch ? { taskIds: params.taskIds } : { taskId: id }), error: 'task list unavailable outside a conversation' });
       try {
-        const result = store.delete(key, id);
+        if (hasBatch && params.taskId !== undefined) throw new Error('provide taskId or taskIds, not both');
+        const result = hasBatch ? store.deleteMany(key, params.taskIds) : store.delete(key, id);
         syncCard(ctx, store, key);
         return ok(result);
       } catch (error) {
         const message = safeError(ctx, error);
         return ok({
-          success: false, taskId: id, error: message,
+          success: false, ...(hasBatch ? { taskIds: params.taskIds, error: message } : { taskId: id, error: message }),
           ...(message === 'task not found' ? { hint: NOT_FOUND_HINT } : {}),
         });
       }
@@ -767,7 +784,7 @@ export function registerTaskMode(ctx, db) {
   }, { placement: 'after-user' });
 
   ctx.registerSystemPromptFragment(
-    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskDelete`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. Mark work in_progress when it starts and completed immediately when it finishes. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, each with at least a `subject` and a `description` and with prerequisites declared inline, instead of calling it once per task — and returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. `TaskGet`, `TaskUpdate` and `TaskDelete` each act on ONE task per call and take its ID in a parameter named `taskId` (not `id`, `ids`, `task` or `updates`); only `TaskCreate` takes a batch. `TaskDelete` permanently removes one existing task and its dependency edges. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update or delete reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
+    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskDelete`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. Mark work in_progress when it starts and completed immediately when it finishes. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, each with at least a `subject` and a `description` and with prerequisites declared inline, instead of calling it once per task — and returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. `TaskGet` and `TaskUpdate` each act on ONE task per call and take its ID in a parameter named `taskId` (not `id`, `ids`, `task` or `updates`). `TaskDelete` takes `taskId` for one task or an explicit non-empty `taskIds` array for an atomic batch; do not send both, and never include duplicates or guess IDs. An invalid, duplicate or unknown batch ID rejects the whole call without deletion. `TaskDelete` permanently removes the selected existing tasks and their dependency edges, then emits one Todo panel update. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update or delete reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
   );
 
   ctx.logger.info('session task tools registered (TaskCreate + TaskGet + TaskUpdate + TaskDelete + TaskList)');
