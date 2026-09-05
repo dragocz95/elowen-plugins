@@ -91,8 +91,8 @@
       "hint": "Najvyšší počet procesov a vlákien v jednom prostredí."
     },
     "environmentDiskSoftMb": {
-      "label": "Upozornenie na disk prostredia",
-      "hint": "Mäkký limit využitia disku v MB. Ide o upozornenie, nie o kvótu súborového systému."
+      "label": "Prah disku prostredia",
+      "hint": "Zaznamenaný mäkký prah disku v MB, ktorý sa uvádza pri prostredí. Sites využitie disku nemeria, neupozorňuje naň ani nevynucuje kvótu."
     },
     "maxEnvironmentsPerAccount": {
       "label": "Počet prostredí na účet",

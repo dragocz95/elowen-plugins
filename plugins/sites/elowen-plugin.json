@@ -181,13 +181,13 @@
     },
     {
       "key": "environmentDiskSoftMb",
-      "label": "Environment disk warning",
+      "label": "Environment disk threshold",
       "type": "number",
       "default": 4096,
       "min": 256,
       "max": 131072,
       "advanced": true,
-      "hint": "Soft disk-usage ceiling in MB. This is reported as a warning and is not a filesystem quota."
+      "hint": "Recorded soft disk threshold in MB, reported with the environment. Sites does not measure disk usage, warn about it or enforce a quota."
     },
     {
       "key": "maxEnvironmentsPerAccount",

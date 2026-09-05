@@ -91,8 +91,8 @@
       "hint": "Nejvyšší počet procesů a vláken v jednom prostředí."
     },
     "environmentDiskSoftMb": {
-      "label": "Upozornění na disk prostředí",
-      "hint": "Měkký limit využití disku v MB. Jde o upozornění, ne o kvótu systému souborů."
+      "label": "Práh disku prostředí",
+      "hint": "Zaznamenaný měkký práh disku v MB, který se uvádí u prostředí. Sites využití disku neměří, neupozorňuje na něj ani nevynucuje kvótu."
     },
     "maxEnvironmentsPerAccount": {
       "label": "Počet prostředí na účet",
