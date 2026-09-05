@@ -99,6 +99,8 @@ const defaultConnectReady = async (endpoint: Endpoint): Promise<boolean> => awai
 export class EnvironmentSupervisor {
   private readonly endpoints = new Map<string, Endpoint>();
   private readonly settledStopped = new Set<string>();
+  /** Sites whose durable action this process is executing right now. See `reconcileSites`. */
+  private readonly actionsInFlight = new Set<string>();
   private readonly queues = new Map<string, Promise<unknown>>();
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly now: () => number;
@@ -653,6 +655,16 @@ export class EnvironmentSupervisor {
   private async reconcileSites(sites: Site[]): Promise<void> {
     for (const site of sites) {
       const action = this.deps.store.environmentAction(site.id);
+      // A durable action row is deleted only once its run COMPLETES, so a tick that arrives mid-restore
+      // reads the same row and queues the identical rollback behind the one still working. The queue
+      // defers a duplicate rather than dropping it, so the replay rebuilt an already restored environment
+      // and then reported `completeEnvironmentAction` returning false as a failure over a healthy site.
+      // The row still drives recovery after a daemon restart: nothing is in flight there.
+      const dispatchable = action !== null && action.lastError === null;
+      if (dispatchable) {
+        if (this.actionsInFlight.has(site.id)) continue;
+        this.actionsInFlight.add(site.id);
+      }
       try {
         if (action && action.lastError === null) {
           if (action.kind === 'snapshot') {
@@ -689,6 +701,8 @@ export class EnvironmentSupervisor {
           this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
         }
         this.deps.logger?.warn(`site ${site.slug} environment reconciliation failed: ${message}`);
+      } finally {
+        if (dispatchable) this.actionsInFlight.delete(site.id);
       }
     }
   }

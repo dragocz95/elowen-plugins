@@ -4,6 +4,7 @@ export const Type = {
   Array: (items, options = {}) => schema('array', { items, ...options }),
   Boolean: (options = {}) => schema('boolean', options),
   Literal: (value) => ({ const: value }),
+  Null: (options = {}) => schema('null', options),
   Number: (options = {}) => schema('number', options),
   Object: (properties, options = {}) => schema('object', { properties, ...options }),
   Optional: (value) => value,

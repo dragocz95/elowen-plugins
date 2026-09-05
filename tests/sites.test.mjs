@@ -12,7 +12,7 @@ import {
 import { SitesStore } from '../plugins/sites/dist/store.js';
 import { snapshotRelease, resolveWithin, pruneReleases, relativeAssetWarning } from '../plugins/sites/dist/publish.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
-import { resolveConfig, siteUrl, requestOnSiteHost, SITE_BASE_PATH } from '../plugins/sites/dist/config.js';
+import { resolveConfig, resolveGatewayDnsTarget, siteUrl, requestOnSiteHost, SITE_BASE_PATH } from '../plugins/sites/dist/config.js';
 import { proxyToRuntime, ProxyError } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
@@ -734,6 +734,7 @@ test('every site gets the root of the gateway hostname derived by core', () => {
 
   const dedicated = resolveConfig({}, 'https://elowen.example', 'sites.elowen.example');
   assert.equal(dedicated.siteHostBase, 'sites.elowen.example');
+  assert.equal('gatewayDnsTarget' in dedicated, false, 'the DNS destination is resolved once, where the gateway uses it');
   assert.equal(siteUrl(dedicated, 'demo'), 'https://demo.sites.elowen.example/');
   assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.elowen.example:443'), true);
   assert.equal(requestOnSiteHost(dedicated, 'demo', 'elowen.example'), false);
@@ -750,6 +751,38 @@ test('every site gets the root of the gateway hostname derived by core', () => {
   assert.equal(resolveConfig({}, 'http://elowen.example', 'sites.elowen.example').siteHostBase, null);
   assert.equal(resolveConfig({}, 'https://elowen.example', 'javascript:alert(1)').siteHostBase, null);
   assert.equal(resolveConfig({}, 'https://elowen.example', 'localhost').siteHostBase, null);
+});
+
+test('the Sites DNS destination is parsed once, strictly, for both readiness and the record', () => {
+  // One exported contract, used by the gateway for the DNS check AND for the record the settings screen
+  // shows. Everything that is not exactly a hostname or an address is refused rather than guessed at.
+  assert.deepEqual(resolveGatewayDnsTarget(undefined, 'elowen.example'), {
+    target: { kind: 'hostname', value: 'elowen.example' }, error: null,
+  });
+  assert.deepEqual(resolveGatewayDnsTarget('203.0.113.40', 'elowen.example').target, { kind: 'ipv4', value: '203.0.113.40' });
+  assert.deepEqual(resolveGatewayDnsTarget('Origin.Example.COM.', null).target, { kind: 'hostname', value: 'origin.example.com' });
+
+  // A trailing dot is a fully qualified value, not a hostname whose last label happens to be numeric.
+  assert.deepEqual(resolveGatewayDnsTarget('188.130.140.170.', null).target, { kind: 'ipv4', value: '188.130.140.170' });
+
+  // IPv6 is canonicalised, so a stored value and a resolver answer are the same string.
+  assert.deepEqual(resolveGatewayDnsTarget('2001:0DB8:0000:0000:0000:0000:0000:0020', null).target, {
+    kind: 'ipv6', value: '2001:db8::20',
+  });
+
+  // `domainToASCII` drops a prefix and a trailing dot silently, so these must be refused before it runs.
+  for (const rejected of [
+    '188.130.140.170/32', 'https://bad.example/path', 'bad.example/path', '*.example.com',
+    'origin.example.com:443', 'localhost', '999.1.1.1', '188.130.140.170..',
+    '2001:db8::1%eth0', 'origin example.com', 'user@origin.example.com',
+  ]) {
+    const resolved = resolveGatewayDnsTarget(rejected, 'elowen.example');
+    assert.equal(resolved.target, null, rejected);
+    assert.match(resolved.error, /DNS destination/, rejected);
+  }
+
+  // An unusable fallback is not an operator mistake: there is simply nothing to point at yet.
+  assert.deepEqual(resolveGatewayDnsTarget(undefined, null), { target: null, error: null });
 });
 
 test('authenticated site API updates command and bind settings under the instance gate', async () => {

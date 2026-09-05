@@ -5,7 +5,7 @@ import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { VISIBILITIES } from './store.js';
 import { mayPublish } from './access.js';
-import { SITE_BASE_PATH, siteUrl } from './config.js';
+import { SITE_BASE_PATH, environmentLimitOverrides, siteUrl } from './config.js';
 import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } from './publish.js';
 import { isDaemonProcess } from './runtime.js';
 /** A command runtime is only offered where the operator has turned it on. */
@@ -188,7 +188,7 @@ const describe = (site, config, environment, lastSnapshotAt) => {
         ...(site.runtime === 'command' ? [`  runtime    ${site.bind}${site.port === null ? '' : ` 127.0.0.1:${site.port}`} · ${config.runtimeNetwork} network`] : []),
         ...(site.runtime === 'environment' ? [
             `  environment ${environment?.state ?? 'unknown'} · desired ${site.environmentDesiredState ?? 'running'} · ${config.environmentNetwork} network`,
-            `  limits      ${environment?.limits.cpus ?? site.environmentCpus ?? config.environmentCpus} CPU · ${environment?.limits.memoryMb ?? site.environmentMemoryMb ?? config.environmentMemoryMb} MB · ${environment?.limits.pidsLimit ?? site.environmentPidsLimit ?? config.environmentPidsLimit} PIDs`,
+            `  limits      ${environment?.limits.cpus ?? site.environmentCpus ?? config.environmentCpus} CPU · ${environment?.limits.memoryMb ?? site.environmentMemoryMb ?? config.environmentMemoryMb} MB · ${environment?.limits.pidsLimit ?? site.environmentPidsLimit ?? config.environmentPidsLimit} PIDs · ${environment?.limits.diskSoftMb ?? site.environmentDiskSoftMb ?? config.environmentDiskSoftMb} MB disk`,
         ] : []),
         site.runtime === 'environment'
             ? `  snapshot   ${lastSnapshotAt ?? 'never'}`
@@ -668,7 +668,7 @@ export function registerTools(deps) {
     ctx.registerTool(defineTool({
         name: 'SiteUpdate',
         label: 'Update a site',
-        description: 'Change a site\'s title, summary, router behaviour, command runtime or visibility. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
+        description: 'Change a site\'s title, summary, router behaviour, command runtime, visibility or, for an administrator, the resource limits of a persistent environment. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
         parameters: Type.Object({
             site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
             title: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
@@ -677,12 +677,41 @@ export function registerTools(deps) {
             startCommand: Type.Optional(Type.String({ maxLength: 500, description: 'Replacement start command for a command runtime.' })),
             bind: Type.Optional(Type.Union([Type.Literal('socket'), Type.Literal('port')], { description: 'Replacement bind mode for a command runtime.' })),
             visibility: Type.Optional(Type.Union([Type.Literal('private'), Type.Literal('project'), Type.Literal('authenticated')])),
+            environmentCpus: Type.Optional(Type.Union([Type.Number(), Type.Null()], {
+                description: 'Administrator only, environment sites: CPU limit, or null to return to the instance default. Values outside the instance bounds are clamped.',
+            })),
+            environmentMemoryMb: Type.Optional(Type.Union([Type.Number(), Type.Null()], {
+                description: 'Administrator only, environment sites: memory limit in MB, or null for the instance default.',
+            })),
+            environmentPidsLimit: Type.Optional(Type.Union([Type.Number(), Type.Null()], {
+                description: 'Administrator only, environment sites: maximum processes and threads, or null for the instance default.',
+            })),
+            environmentDiskSoftMb: Type.Optional(Type.Union([Type.Number(), Type.Null()], {
+                description: 'Administrator only, environment sites: the recorded disk figure in MB reported by Sites tools, or null for the instance default. Sites does not measure or enforce it.',
+            })),
         }),
         execute: async (_id, input) => {
             try {
                 const userId = ownerOf(ctx);
                 const site = requireOwned(deps, input.site, userId);
                 const patch = {};
+                // The same gate, the same validator and the same apply seam as the Sites screen: a tool must not
+                // be a second way to size an environment, nor a way past the bounds the settings schema declares.
+                const limitKeys = ['environmentCpus', 'environmentMemoryMb', 'environmentPidsLimit', 'environmentDiskSoftMb'];
+                const raw = input;
+                let limits = null;
+                if (limitKeys.some((key) => raw[key] !== undefined)) {
+                    if (!deps.access.isAdmin(userId))
+                        throw new ToolError('Environment resource limits may only be changed by an administrator.');
+                    if (site.runtime !== 'environment')
+                        throw new ToolError('Only an environment has resource limits.');
+                    try {
+                        limits = environmentLimitOverrides(Object.fromEntries(limitKeys.filter((key) => raw[key] !== undefined).map((key) => [key, raw[key]])));
+                    }
+                    catch (error) {
+                        throw new ToolError(error instanceof Error ? error.message : 'Invalid environment limits.');
+                    }
+                }
                 if (input.title !== undefined)
                     patch.title = input.title.trim();
                 if (input.summary !== undefined)
@@ -721,6 +750,18 @@ export function registerTools(deps) {
                 const accessChanged = nextVisibility !== undefined && nextVisibility !== site.visibility;
                 if (accessChanged)
                     patch.visibility = nextVisibility;
+                // Limits first, and only then the ordinary patch: applying them talks to the container runtime and
+                // can fail, and a title that had already been written would leave the caller holding a bare error
+                // over a half-changed site.
+                if (limits) {
+                    try {
+                        await deps.environment.applyLimits(site, limits);
+                    }
+                    catch (error) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        throw new ToolError(`The environment limits could not be applied, so nothing else was changed: ${message}`);
+                    }
+                }
                 store.updateSite(site.id, patch);
                 if (accessChanged)
                     store.bumpAccessGeneration(site.id);
@@ -737,9 +778,12 @@ export function registerTools(deps) {
                         throw new ToolError(`Runtime settings were saved, but the site did not restart: ${message}`);
                     }
                 }
-                return text(updated
-                    ? `Updated.\n\n${describe(updated, deps.config(), undefined, latestSnapshotAt(store, updated))}`
-                    : 'Updated.');
+                if (!updated)
+                    return text('Updated.');
+                // Report what the environment now actually runs with, not what was asked for: the values were
+                // clamped, and an agent sizing a container has to read back the ceiling it was given.
+                const environment = updated.runtime === 'environment' ? await deps.environment.state(updated) : undefined;
+                return text(`Updated.\n\n${describe(updated, deps.config(), environment, latestSnapshotAt(store, updated))}`, environment ? { limits: environment.limits } : {});
             }
             catch (error) {
                 throw error instanceof ToolError ? error : new Error(String(error));

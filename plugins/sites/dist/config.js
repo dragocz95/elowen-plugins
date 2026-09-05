@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+import { domainToASCII } from 'node:url';
 const bounded = (value, fallback, min, max) => {
     const parsed = Number(value);
     if (!Number.isFinite(parsed))
@@ -34,6 +36,70 @@ export function environmentLimitOverrides(raw) {
     return out;
 }
 const VISIBILITY_DEFAULTS = new Set(['private', 'project', 'authenticated']);
+const DNS_TARGET_ERROR = 'Sites DNS destination must be one hostname, IPv4 address or IPv6 address, with no scheme, path, port, network prefix, zone or wildcard.';
+/** Characters a DNS name may carry, plus everything above ASCII so an internationalised name still
+ *  reaches the IDNA conversion. Anything else — a slash, a colon, an at-sign, a space, a percent — means
+ *  the value is a URL, a prefix or a host:port, and `domainToASCII` would silently drop the difference:
+ *  it answers `188.130.140.170` for `188.130.140.170/32`, which then rendered as a CNAME to an address. */
+const DNS_NAME_CHARS = /^[a-z0-9.\-\u{80}-\u{10ffff}]+$/iu;
+/** One address parser for every comparison and every rendered record.
+ *
+ *  IPv6 is serialised by the WHATWG URL parser, which is the same canonical form on both sides of a
+ *  comparison: an operator typing `2001:0db8:0000:0000:0000:0000:0000:0020` and a resolver answering
+ *  `2001:db8::20` are the same address, and lowercasing the two strings never made them equal. The
+ *  parser also rejects what `isIP` alone accepts, such as a scoped `fe80::1%eth0`, which is not an
+ *  answer any public resolver can return. */
+export function canonicalDnsAddress(value) {
+    const candidate = value.trim();
+    const family = isIP(candidate);
+    if (family === 4)
+        return { kind: 'ipv4', value: candidate };
+    if (family !== 6)
+        return null;
+    try {
+        const serialised = new URL(`http://[${candidate}]/`).hostname;
+        return { kind: 'ipv6', value: serialised.slice(1, -1) };
+    }
+    catch {
+        return null;
+    }
+}
+/** A DNS name, or null when the value is anything else. Every rejection happens BEFORE the IDNA
+ *  conversion, which is lenient in ways that matter here. */
+const dnsHostname = (value) => {
+    if (!DNS_NAME_CHARS.test(value))
+        return null;
+    const ascii = domainToASCII(value.toLowerCase());
+    if (!ascii || ascii.length > 253 || !ascii.includes('.'))
+        return null;
+    const labels = ascii.split('.');
+    if (labels.some((label) => label.length < 1 || label.length > 63
+        || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)))
+        return null;
+    // A name whose last label is all digits is not a hostname (RFC 1123 §2.1). Without this an address
+    // that failed to parse — `999.1.1.1`, or the remains of a stripped prefix — became a CNAME target.
+    if (/^\d+$/.test(labels[labels.length - 1] ?? ''))
+        return null;
+    return ascii;
+};
+/** Resolve the one destination used both to validate wildcard DNS and to render the registrar record.
+ *  This is an expected public DNS answer only; it never controls the host gateway proxy upstream. */
+export function resolveGatewayDnsTarget(value, fallbackHostname) {
+    const configured = typeof value === 'string' && value.trim() !== '';
+    const candidate = configured ? value.trim() : fallbackHostname?.trim() ?? '';
+    if (!candidate)
+        return { target: null, error: configured ? DNS_TARGET_ERROR : null };
+    // A single trailing dot is how a registrar writes a fully qualified value, so it is removed before the
+    // value is read — but only once, and the address behind it stays an address.
+    const bare = candidate.endsWith('.') ? candidate.slice(0, -1) : candidate;
+    const address = canonicalDnsAddress(candidate) ?? canonicalDnsAddress(bare);
+    if (address)
+        return { target: address, error: null };
+    const hostname = dnsHostname(bare);
+    if (hostname)
+        return { target: { kind: 'hostname', value: hostname }, error: null };
+    return { target: null, error: DNS_TARGET_ERROR };
+}
 /** Normalise a configured origin, or null when it is unusable.
  *
  *  A hostname that is not an absolute http(s) origin cannot be turned into a link, and guessing one from

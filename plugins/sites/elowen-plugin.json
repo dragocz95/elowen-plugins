@@ -181,13 +181,13 @@
     },
     {
       "key": "environmentDiskSoftMb",
-      "label": "Environment disk warning",
+      "label": "Environment disk threshold",
       "type": "number",
       "default": 4096,
       "min": 256,
       "max": 131072,
       "advanced": true,
-      "hint": "Soft disk-usage ceiling in MB. This is reported as a warning and is not a filesystem quota."
+      "hint": "Recorded soft disk threshold in MB, reported with the environment. Sites does not measure disk usage, warn about it or enforce a quota."
     },
     {
       "key": "maxEnvironmentsPerAccount",
@@ -327,6 +327,12 @@
       "min": 1,
       "max": 720,
       "hint": "How long a visitor stays signed in to a site before the browser is sent back through the sign-in step. Losing access takes effect immediately regardless of this, because permission is checked on every request."
+    },
+    {
+      "key": "gatewayDnsTarget",
+      "type": "string",
+      "label": "Sites DNS destination",
+      "hint": "Hostname or IP address for public Sites DNS. Leave empty to use the Elowen app hostname. It must reach this host directly; external proxies need their own TLS support."
     },
     {
       "key": "contactEmail",

@@ -811,6 +811,46 @@ test('daemon reconcile completes durable rollback and returns desired state to r
   ]);
 });
 
+test('a second reconcile tick never replays a rollback that is still running', async (t) => {
+  // The durable action row is deleted only when the run COMPLETES, so a reconcile tick arriving while the
+  // first rollback is still restoring reads the same row and queues the whole rollback again. The queue
+  // defers that duplicate rather than dropping it: it stops and rebuilds an already restored environment,
+  // then finds the row gone and reports a false failure over a site that is running perfectly well.
+  const { supervisor, calls, site, store, releases, root, podman } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
+  const dataArchive = join(root, 'site', 'environment', 'snapshots', 'restore-1', 'data.tar');
+  releases.push({
+    id: 'restore-1', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
+    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:restore-1`,
+    dataArchive,
+  });
+  store.putEnvironmentAction({
+    siteId: site.id, kind: 'rollback', snapshotId: 'restore-1', restoreData: true,
+    requestedAt: new Date().toISOString(), lastError: null,
+  });
+
+  // Hold the first rollback open inside Podman, which is where a real restore spends its time.
+  let releaseImport = () => {};
+  const held = new Promise((resolve) => { releaseImport = resolve; });
+  const importVolume = podman.importVolume;
+  let firstImport = true;
+  podman.importVolume = async (name, input) => {
+    if (firstImport) { firstImport = false; await held; }
+    return await importVolume(name, input);
+  };
+
+  const first = supervisor.reconcile();
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = supervisor.reconcile();
+  releaseImport();
+  await Promise.all([first, second]);
+
+  assert.equal(store.environmentAction(site.id), null, 'the rollback finished and cleared its own action');
+  assert.equal(site.status, 'live', 'a completed rollback must never be reported as failed');
+  assert.equal(site.lastError, null);
+  assert.equal(site.currentReleaseId, 'restore-1');
+  assert.equal(calls.filter(([name]) => name === 'create').length, 1, 'the restore ran once, not twice');
+});
+
 test('a rollback rebuilds the container over the environment files an earlier create left behind', async (t) => {
   // The stub that masks /workspace/.git is written 0400, and `mode` applies only at creation. Writing it
   // again could not reopen it, so the SECOND create — which is what a rollback performs after removing
@@ -1132,6 +1172,7 @@ function phase2ToolHarness(t, { userId = 1, admin = false, projectAccess = true,
       return release;
     },
     async logs(site, lines) { environmentCalls.push(['logs', site.id, lines]); return { lifecycle: 'life', journal: 'journal' }; },
+    async applyLimits(site, limits) { environmentCalls.push(['limits', site.id, limits]); store.updateSite(site.id, limits); },
   };
   registerTools({
     ctx, store, access, config: resolved,
@@ -1141,7 +1182,7 @@ function phase2ToolHarness(t, { userId = 1, admin = false, projectAccess = true,
     runtime: { allocatePort: async () => 43000, stop: async () => {}, start: async () => {}, logTail: () => '', isRunning: () => false },
     environment,
   });
-  return { store, environmentCalls, call: (name, input = {}) => registered.get(name).execute('call-1', input) };
+  return { store, environment, environmentCalls, call: (name, input = {}) => registered.get(name).execute('call-1', input) };
 }
 
 test('SiteCreate creates a durable environment from a forked runner without gateway control', async (t) => {
@@ -1259,6 +1300,64 @@ test('SiteExec refuses every pending environment mutation', async (t) => {
     requestedAt: new Date().toISOString(), lastError: null,
   });
   await assert.rejects(() => harness.call('SiteExec', { site: SITE_ID, command: 'echo no' }), /pending/i);
+});
+
+test('SiteUpdate applies environment limits for an administrator, clamped to the declared caps', async (t) => {
+  // The web screen could already change these; an agent asked to size an environment had no tool for it
+  // and no way to read back the disk ceiling it was given.
+  const owner = phase2ToolHarness(t);
+  owner.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
+  await assert.rejects(() => owner.call('SiteUpdate', { site: SITE_ID, environmentMemoryMb: 2048 }), /administrator/i);
+  assert.equal(owner.environmentCalls.some(([name]) => name === 'limits'), false);
+  assert.equal(owner.store.siteById(SITE_ID).environmentMemoryMb, null);
+
+  const admin = phase2ToolHarness(t, { userId: 9, admin: true });
+  admin.store.insertSite(environmentSite({ ownerUserId: 9, projectId: 7 }));
+  const updated = await admin.call('SiteUpdate', {
+    site: SITE_ID,
+    environmentCpus: 99, environmentMemoryMb: 64, environmentPidsLimit: 2, environmentDiskSoftMb: 999999,
+  });
+  // Out-of-range values are pinned to the SAME bounds the settings screen enforces: a tool must not be
+  // the way around an instance ceiling.
+  assert.deepEqual(admin.environmentCalls.find(([name]) => name === 'limits'), ['limits', SITE_ID, {
+    environmentCpus: 8, environmentMemoryMb: 128, environmentPidsLimit: 16, environmentDiskSoftMb: 131072,
+  }]);
+  assert.deepEqual(updated.details.limits, { cpus: 8, memoryMb: 128, pidsLimit: 16, diskSoftMb: 131072 });
+  assert.match(updated.content[0].text, /131072 MB disk/);
+
+  // Null clears an override, so the environment falls back to the instance default rather than keeping a
+  // value nobody can see in the settings screen.
+  const cleared = await admin.call('SiteUpdate', { site: SITE_ID, environmentMemoryMb: null });
+  assert.equal(admin.store.siteById(SITE_ID).environmentMemoryMb, null);
+  assert.equal(cleared.details.limits.memoryMb, 1024);
+});
+
+test('SiteUpdate leaves nothing half written when the limits cannot be applied', async (t) => {
+  // Persisting the ordinary patch first and applying limits afterwards meant a Podman failure surfaced as
+  // a bare error while the title and visibility had already changed, so the caller could not tell what
+  // had actually happened. The limits go first, and their failure names itself.
+  const admin = phase2ToolHarness(t, { userId: 9, admin: true });
+  admin.store.insertSite(environmentSite({ ownerUserId: 9, projectId: 7, title: 'Before', visibility: 'private' }));
+  admin.environment.applyLimits = async () => { throw new Error('crun refused the update'); };
+
+  await assert.rejects(
+    () => admin.call('SiteUpdate', {
+      site: SITE_ID, title: 'After', visibility: 'authenticated', environmentMemoryMb: 2048,
+    }),
+    /limits could not be applied.*crun refused the update/i,
+  );
+
+  const unchanged = admin.store.siteById(SITE_ID);
+  assert.equal(unchanged.title, 'Before', 'the ordinary patch must not survive a failed limit change');
+  assert.equal(unchanged.visibility, 'private');
+  assert.equal(unchanged.environmentMemoryMb, null);
+});
+
+test('SiteUpdate refuses resource limits on a site that is not an environment', async (t) => {
+  const admin = phase2ToolHarness(t, { userId: 9, admin: true });
+  admin.store.insertSite(environmentSite({ ownerUserId: 9, projectId: 7, runtime: 'static' }));
+  await assert.rejects(() => admin.call('SiteUpdate', { site: SITE_ID, environmentCpus: 2 }), /only an environment/i);
+  assert.equal(admin.environmentCalls.some(([name]) => name === 'limits'), false);
 });
 
 test('SiteSnapshot queues daemon work and SiteGet exposes pending action errors', async (t) => {

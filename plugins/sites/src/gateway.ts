@@ -1,14 +1,15 @@
 import { randomBytes } from 'node:crypto';
 import { Resolver } from 'node:dns/promises';
 import type { SitesContext, SitesGatewayStatus } from './coreSeams.js';
+import { canonicalDnsAddress, resolveGatewayDnsTarget, type GatewayDnsTarget, type GatewayDnsTargetResolution } from './config.js';
 
 const GATEWAY_TOKEN_KEY = 'gatewayToken';
 const DNS_TIMEOUT_MS = 5_000;
 const MIN_BACKOFF_MS = 60_000;
 const MAX_BACKOFF_MS = 3600_000;
 
-/** The exact record an operator has to create, so the failure is actionable without documentation. */
-export type RequiredRecord = { name: string; type: 'CNAME'; value: string };
+/** The exact configured or backward-compatible default record an operator has to create. */
+export type RequiredRecord = { name: string; type: 'CNAME' | 'A' | 'AAAA'; value: string };
 
 export interface GatewayDnsResolver {
   resolveCname(hostname: string): Promise<string[]>;
@@ -103,16 +104,17 @@ export class SiteGatewayManager {
     return this.cachedToken;
   }
 
-  /** The record an operator must create for this instance, derived from the hostname the broker owns.
-   *  Null only when the daemon has no site hostname at all, in which case there is nothing to point at. */
+  /** The record an operator must create for this instance. Its value and readiness expectation are the
+   *  same parsed target, so the UI can never instruct one destination while validation checks another. */
   requiredRecord(): RequiredRecord | null {
     const base = this.brokerHostnameBase();
-    const appHost = this.appHost();
-    if (!base || !appHost) return null;
-    // Fully qualified on both sides, because registrar panels disagree about whether they append the
-    // zone. A CNAME rather than an A record: it follows the app's own name, so it survives the address
-    // changing underneath, and chaining to another CNAME is well-defined.
-    return { name: `*.${base}`, type: 'CNAME', value: `${appHost}.` };
+    const { target } = this.dnsTarget();
+    if (!base || !target) return null;
+    return {
+      name: `*.${base}`,
+      type: target.kind === 'hostname' ? 'CNAME' : target.kind === 'ipv4' ? 'A' : 'AAAA',
+      value: target.kind === 'hostname' ? `${target.value}.` : target.value,
+    };
   }
 
   private brokerHostnameBase(): string | null {
@@ -123,6 +125,11 @@ export class SiteGatewayManager {
     const url = this.ctx.publicWebUrl();
     if (!url) return null;
     try { return new URL(url).hostname; } catch { return null; }
+  }
+
+  private dnsTarget(): GatewayDnsTargetResolution {
+    const configured = (this.ctx.config as Record<string, unknown>).gatewayDnsTarget;
+    return resolveGatewayDnsTarget(configured, this.appHost());
   }
 
   reconcile(): Promise<SitesGatewayStatus> {
@@ -140,8 +147,8 @@ export class SiteGatewayManager {
     }
   }
 
-  private async cnameTargets(probe: string, appHost: string): Promise<{
-    reachesApp: boolean;
+  private async cnameTargets(probe: string, expectedHost: string): Promise<{
+    reachesTarget: boolean;
     observed: string[];
     errors: string[];
   }> {
@@ -159,11 +166,11 @@ export class SiteGatewayManager {
         const target = normalizedHost(raw);
         if (!target) continue;
         observed.add(target);
-        if (target === appHost) return { reachesApp: true, observed: [...observed], errors };
+        if (target === expectedHost) return { reachesTarget: true, observed: [...observed], errors };
         if (!visited.has(target)) pending.push(target);
       }
     }
-    return { reachesApp: false, observed: [...observed], errors };
+    return { reachesTarget: false, observed: [...observed], errors };
   }
 
   private async sampledAddresses(hostname: string): Promise<{
@@ -181,8 +188,9 @@ export class SiteGatewayManager {
         this.answer(() => this.resolver.resolve4(fqdn(hostname))),
         this.answer(() => this.resolver.resolve6(fqdn(hostname))),
       ]);
-      for (const value of v4.values) ipv4.add(value);
-      for (const value of v6.values) ipv6.add(value.toLowerCase());
+      // Canonical on the way in, so a compressed answer and an expanded configured address compare equal.
+      for (const value of v4.values) { const address = canonicalDnsAddress(value); if (address) ipv4.add(address.value); }
+      for (const value of v6.values) { const address = canonicalDnsAddress(value); if (address) ipv6.add(address.value); }
       answered = answered || v4.values.length > 0 || v6.values.length > 0;
       if (v4.error) errors.push(v4.error);
       if (v6.error) errors.push(v6.error);
@@ -192,18 +200,24 @@ export class SiteGatewayManager {
 
   /** Prove that a random wildcard label reaches this instance, either through a CNAME chain or through
    *  flattened A/AAAA answers. Every query is absolute so a host search domain cannot change the result. */
-  private async checkWildcard(base: string, appHostname: string): Promise<DnsCheck> {
+  private async checkWildcard(base: string, target: GatewayDnsTarget): Promise<DnsCheck> {
     const probe = normalizedHost(`${this.randomLabel()}.${base}`);
-    const appHost = normalizedHost(appHostname);
-    const cname = await this.cnameTargets(probe, appHost);
-    if (cname.reachesApp) return { state: 'ready', observedTargets: cname.observed };
+    const cname = await this.cnameTargets(probe, target.value);
+    if (cname.reachesTarget) return { state: 'ready', observedTargets: cname.observed };
 
-    const [probeAddresses, appAddresses] = await Promise.all([
+    const [probeAddresses, targetAddresses] = await Promise.all([
       this.sampledAddresses(probe),
-      this.sampledAddresses(appHost),
+      target.kind === 'hostname'
+        ? this.sampledAddresses(target.value)
+        : Promise.resolve({
+            ipv4: new Set(target.kind === 'ipv4' ? [target.value] : []),
+            ipv6: new Set(target.kind === 'ipv6' ? [target.value] : []),
+            answered: true,
+            errors: [],
+          }),
     ]);
-    const ipv4Matches = [...probeAddresses.ipv4].some((address) => appAddresses.ipv4.has(address));
-    const ipv6Matches = [...probeAddresses.ipv6].some((address) => appAddresses.ipv6.has(address));
+    const ipv4Matches = [...probeAddresses.ipv4].some((address) => targetAddresses.ipv4.has(address));
+    const ipv6Matches = [...probeAddresses.ipv6].some((address) => targetAddresses.ipv6.has(address));
     const observedTargets = [...new Set([
       ...cname.observed,
       ...probeAddresses.ipv4,
@@ -216,7 +230,7 @@ export class SiteGatewayManager {
         ? { state: 'unavailable', observedTargets, detail: errors[0] }
         : { state: 'missing', observedTargets };
     }
-    const errors = [...cname.errors, ...probeAddresses.errors, ...appAddresses.errors];
+    const errors = [...cname.errors, ...probeAddresses.errors, ...targetAddresses.errors];
     if (errors.length > 0) return { state: 'unavailable', observedTargets, detail: errors[0] };
     return { state: 'misdirected', observedTargets };
   }
@@ -233,18 +247,17 @@ export class SiteGatewayManager {
       this.current = await gateway.status();
       return this.current;
     }
-    const appHost = this.appHost();
-    if (!appHost) {
-      this.dnsCheck = { state: 'unavailable', observedTargets: [], detail: 'The application hostname is unavailable.' };
-      this.current = {
-        available: false,
-        active: false,
-        hostnameBase: base,
-        detail: this.dnsCheck.detail,
+    const destination = this.dnsTarget();
+    if (!destination.target) {
+      this.dnsCheck = {
+        state: 'unavailable',
+        observedTargets: [],
+        detail: destination.error ?? 'The Sites DNS destination is unavailable.',
       };
+      this.current = { available: false, active: false, hostnameBase: base, detail: this.dnsCheck.detail };
       return this.current;
     }
-    this.dnsCheck = await this.checkWildcard(base, appHost);
+    this.dnsCheck = await this.checkWildcard(base, destination.target);
     if (this.dnsCheck.state !== 'ready') {
       // Fail loudly and stay failed. Serving the pages from the app's own origin instead would put
       // agent-authored script next to the app's session cookie, so there is nothing to fall back to.
@@ -254,7 +267,7 @@ export class SiteGatewayManager {
       const detail = this.dnsCheck.state === 'missing'
         ? `*.${base} does not resolve, so no site can be addressed or given a certificate.`
         : this.dnsCheck.state === 'misdirected'
-          ? `*.${base} resolves, but not to ${appHost}.${observed}`
+          ? `*.${base} resolves, but not to ${destination.target.value}.${observed}`
           : `DNS verification for *.${base} could not complete: ${this.dnsCheck.detail ?? 'resolver unavailable'}.`;
       this.current = { available: false, active: false, hostnameBase: base, detail };
       return this.current;
