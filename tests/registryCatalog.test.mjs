@@ -120,11 +120,12 @@ const EXPECTED_CAPABILITIES = {
   // still exist, is it an administrator, may it still see this Project" on EVERY request to a site,
   // because a site session proves identity and never permission; `db` holds the sites and their guest
   // lists; `controls` finds the account's active Sandbox workspace so a new site lands in a real Git
-  // worktree. No `network` and no `mutates`: this release publishes files that are already on disk and
-  // runs nothing of its own beyond a runtime an administrator turned on. `network` is that runtime:
-  // requests are forwarded to a process on a loopback socket, which is network activity even though it
-  // never leaves the machine.
-  sites: { reads: ['controls', 'db', 'stores'], network: true },
+  // worktree. `network` is the runtime an administrator turned on: requests are forwarded to a process
+  // on a loopback socket, which is network activity even though it never leaves the machine.
+  // `mutates:['events']` is an audit trail and nothing else. Provisioning the environment dependencies
+  // is an administrator action, so it writes one activity row through publishEvent and gives that row a
+  // label through registerEventRowResolver. It reads and rewrites no other plugin's events.
+  sites: { reads: ['controls', 'db', 'stores'], mutates: ['events'], network: true },
   // `controls` is the host-owned live catalog: SkillLoad must resolve the exact grant/owner-filtered set
   // announced to this turn instead of reopening only the skills plugin's own files.
   skills: { reads: ['controls', 'stores'] },
