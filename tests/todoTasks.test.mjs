@@ -173,7 +173,7 @@ test('the task context and tool descriptions name taskId and describe batch boun
   assert.match(context, /parameter named taskId/);
   assert.match(context, /"taskId": "3"/, 'a worked example beats a description of one');
   assert.match(context, /never called id, ids, task or updates/);
-  assert.match(context, /no batch form/);
+  assert.match(context, /TaskDelete accepts taskId for one task or an explicit non-empty taskIds array/);
 
   const updateDescription = h.tool('TaskUpdate').description;
   assert.match(updateDescription, /never `id`, `ids`, `task` or `updates`/);
@@ -378,6 +378,73 @@ test('TaskDelete deletes an explicit batch atomically and emits one card update'
     assert.equal(invalid.error, error);
     assert.deepEqual(json(await list.execute('7', {})).tasks.map((task) => task.id), ['3']);
   }
+});
+
+test('TaskDelete keeps mixed-session batches atomic and preserves the other session', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const deleteTool = h.tool('TaskDelete');
+  const list = h.tool('TaskList');
+
+  await create.execute('1', { tasks: [
+    { subject: 'Session A task', description: 'A' },
+    { subject: 'Session A dependent', description: 'A edge', blockedByIndex: [1] },
+  ] });
+  h.setSession('brain-7-b');
+  await create.execute('2', { tasks: [{ subject: 'Session B task', description: 'B' }] });
+  h.rawDb.prepare('UPDATE p_todo_task_lists SET next_id = 99 WHERE list_key = ?').run('u7#brain-7-b');
+  await create.execute('3', { tasks: [{ subject: 'Session B distinct id', description: 'B foreign id' }] });
+  h.setSession('brain-7-a');
+
+  const cardsBefore = h.cards.length;
+  const refused = json(await deleteTool.execute('4', { taskIds: ['1', '99'] }));
+  assert.equal(refused.success, false);
+  assert.equal(refused.error, 'task not found');
+  assert.equal(h.cards.length, cardsBefore);
+  assert.deepEqual(json(await list.execute('5', {})).tasks.map((task) => task.id), ['1', '2']);
+
+  h.setSession('brain-7-b');
+  assert.deepEqual(json(await list.execute('6', {})).tasks.map((task) => task.id), ['1', '99']);
+  assert.deepEqual(h.rawDb.prepare('SELECT task_id, blocker_id FROM p_todo_task_blockers WHERE list_key = ?').all('u7#brain-7-a'), [
+    { task_id: 2, blocker_id: 1 },
+  ]);
+});
+
+test('TaskDelete rejects conflicting and malformed inputs without changing tasks or cards', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const deleteTool = h.tool('TaskDelete');
+  const list = h.tool('TaskList');
+  await create.execute('1', { tasks: [{ subject: 'Keep', description: 'keep' }] });
+  for (const params of [{ taskId: '1', taskIds: ['1'] }, { taskIds: ['01'] }, { taskIds: ['1.0'] }]) {
+    const cardsBefore = h.cards.length;
+    const refused = json(await deleteTool.execute('2', params));
+    assert.equal(refused.success, false);
+    assert.equal(h.cards.length, cardsBefore);
+    assert.deepEqual(json(await list.execute('3', {})).tasks.map((task) => task.id), ['1']);
+  }
+});
+
+test('TaskDelete rolls back all rows and edges when a later SQL delete fails', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const deleteTool = h.tool('TaskDelete');
+  const list = h.tool('TaskList');
+  await create.execute('1', { tasks: [
+    { subject: 'First', description: 'first' },
+    { subject: 'Second', description: 'second', blockedByIndex: [1] },
+  ] });
+  h.rawDb.exec(`CREATE TRIGGER fail_second_delete AFTER DELETE ON p_todo_tasks
+    WHEN OLD.list_key = 'u7#brain-7-a' AND OLD.id = 2
+    BEGIN SELECT RAISE(FAIL, 'injected delete failure'); END`);
+  const cardsBefore = h.cards.length;
+  const refused = json(await deleteTool.execute('2', { taskIds: ['1', '2'] }));
+  assert.deepEqual(refused, { success: false, taskIds: ['1', '2'], error: 'task storage unavailable' });
+  assert.equal(h.cards.length, cardsBefore);
+  assert.deepEqual(json(await list.execute('3', {})).tasks.map((task) => task.id), ['1', '2']);
+  assert.deepEqual(h.rawDb.prepare('SELECT task_id, blocker_id FROM p_todo_task_blockers WHERE list_key = ?').all('u7#brain-7-a'), [
+    { task_id: 2, blocker_id: 1 },
+  ]);
 });
 
 test('TaskDelete and user API routes keep session tasks tenant-scoped and clear blocker edges', async (t) => {
