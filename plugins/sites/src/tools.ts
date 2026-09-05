@@ -7,7 +7,7 @@ import type { SitesContext } from './coreSeams.js';
 import type { Site, SitesStore, Visibility } from './store.js';
 import { VISIBILITIES } from './store.js';
 import { mayPublish, type AccessDeps } from './access.js';
-import { SITE_BASE_PATH, siteUrl, type SitesConfig } from './config.js';
+import { SITE_BASE_PATH, environmentLimitOverrides, siteUrl, type EnvironmentLimitOverrides, type SitesConfig } from './config.js';
 import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } from './publish.js';
 import { isDaemonProcess, type SiteRuntimeSupervisor } from './runtime.js';
 import type { EnvironmentState, EnvironmentSupervisor } from './environment.js';
@@ -22,7 +22,7 @@ export interface ToolDeps {
   releaseDir(siteId: string, releaseId: string): string;
   deleteSite(siteId: string): Promise<void>;
   runtime: SiteRuntimeSupervisor;
-  environment: Pick<EnvironmentSupervisor, 'state' | 'exec' | 'logs'>;
+  environment: Pick<EnvironmentSupervisor, 'state' | 'exec' | 'logs' | 'applyLimits'>;
 }
 
 /** A command runtime is only offered where the operator has turned it on. */
@@ -212,7 +212,7 @@ const describe = (
     ...(site.runtime === 'command' ? [`  runtime    ${site.bind}${site.port === null ? '' : ` 127.0.0.1:${site.port}`} · ${config.runtimeNetwork} network`] : []),
     ...(site.runtime === 'environment' ? [
       `  environment ${environment?.state ?? 'unknown'} · desired ${site.environmentDesiredState ?? 'running'} · ${config.environmentNetwork} network`,
-      `  limits      ${environment?.limits.cpus ?? site.environmentCpus ?? config.environmentCpus} CPU · ${environment?.limits.memoryMb ?? site.environmentMemoryMb ?? config.environmentMemoryMb} MB · ${environment?.limits.pidsLimit ?? site.environmentPidsLimit ?? config.environmentPidsLimit} PIDs`,
+      `  limits      ${environment?.limits.cpus ?? site.environmentCpus ?? config.environmentCpus} CPU · ${environment?.limits.memoryMb ?? site.environmentMemoryMb ?? config.environmentMemoryMb} MB · ${environment?.limits.pidsLimit ?? site.environmentPidsLimit ?? config.environmentPidsLimit} PIDs · ${environment?.limits.diskSoftMb ?? site.environmentDiskSoftMb ?? config.environmentDiskSoftMb} MB disk`,
     ] : []),
     site.runtime === 'environment'
       ? `  snapshot   ${lastSnapshotAt ?? 'never'}`
@@ -700,7 +700,7 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteUpdate',
     label: 'Update a site',
-    description: 'Change a site\'s title, summary, router behaviour, command runtime or visibility. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
+    description: 'Change a site\'s title, summary, router behaviour, command runtime, visibility or, for an administrator, the resource limits of a persistent environment. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
     parameters: Type.Object({
       site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
       title: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
@@ -711,12 +711,40 @@ export function registerTools(deps: ToolDeps): void {
       visibility: Type.Optional(Type.Union(
         [Type.Literal('private'), Type.Literal('project'), Type.Literal('authenticated')],
       )),
+      environmentCpus: Type.Optional(Type.Union([Type.Number(), Type.Null()], {
+        description: 'Administrator only, environment sites: CPU limit, or null to return to the instance default. Values outside the instance bounds are clamped.',
+      })),
+      environmentMemoryMb: Type.Optional(Type.Union([Type.Number(), Type.Null()], {
+        description: 'Administrator only, environment sites: memory limit in MB, or null for the instance default.',
+      })),
+      environmentPidsLimit: Type.Optional(Type.Union([Type.Number(), Type.Null()], {
+        description: 'Administrator only, environment sites: maximum processes and threads, or null for the instance default.',
+      })),
+      environmentDiskSoftMb: Type.Optional(Type.Union([Type.Number(), Type.Null()], {
+        description: 'Administrator only, environment sites: disk warning threshold in MB, or null for the instance default.',
+      })),
     }),
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
         const site = requireOwned(deps, input.site, userId);
         const patch: Parameters<SitesStore['updateSite']>[1] = {};
+        // The same gate, the same validator and the same apply seam as the Sites screen: a tool must not
+        // be a second way to size an environment, nor a way past the bounds the settings schema declares.
+        const limitKeys = ['environmentCpus', 'environmentMemoryMb', 'environmentPidsLimit', 'environmentDiskSoftMb'] as const;
+        const raw = input as Record<string, unknown>;
+        let limits: EnvironmentLimitOverrides | null = null;
+        if (limitKeys.some((key) => raw[key] !== undefined)) {
+          if (!deps.access.isAdmin(userId)) throw new ToolError('Environment resource limits may only be changed by an administrator.');
+          if (site.runtime !== 'environment') throw new ToolError('Only an environment has resource limits.');
+          try {
+            limits = environmentLimitOverrides(Object.fromEntries(
+              limitKeys.filter((key) => raw[key] !== undefined).map((key) => [key, raw[key]]),
+            ));
+          } catch (error) {
+            throw new ToolError(error instanceof Error ? error.message : 'Invalid environment limits.');
+          }
+        }
         if (input.title !== undefined) patch.title = input.title.trim();
         if (input.summary !== undefined) patch.summary = input.summary.trim();
         if (input.spa !== undefined) patch.spa = input.spa;
@@ -751,6 +779,7 @@ export function registerTools(deps: ToolDeps): void {
         if (accessChanged) patch.visibility = nextVisibility;
         store.updateSite(site.id, patch);
         if (accessChanged) store.bumpAccessGeneration(site.id);
+        if (limits) await deps.environment.applyLimits(store.siteById(site.id) ?? site, limits);
         const updated = store.siteById(site.id);
         if (runtimeChanged && updated?.currentReleaseId && isDaemonProcess()) {
           try {
@@ -763,9 +792,14 @@ export function registerTools(deps: ToolDeps): void {
             throw new ToolError(`Runtime settings were saved, but the site did not restart: ${message}`);
           }
         }
-        return text(updated
-          ? `Updated.\n\n${describe(updated, deps.config(), undefined, latestSnapshotAt(store, updated))}`
-          : 'Updated.');
+        if (!updated) return text('Updated.');
+        // Report what the environment now actually runs with, not what was asked for: the values were
+        // clamped, and an agent sizing a container has to read back the ceiling it was given.
+        const environment = updated.runtime === 'environment' ? await deps.environment.state(updated) : undefined;
+        return text(
+          `Updated.\n\n${describe(updated, deps.config(), environment, latestSnapshotAt(store, updated))}`,
+          environment ? { limits: environment.limits } : {},
+        );
       } catch (error) {
         throw error instanceof ToolError ? error : new Error(String(error));
       }

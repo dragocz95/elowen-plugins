@@ -1172,6 +1172,7 @@ function phase2ToolHarness(t, { userId = 1, admin = false, projectAccess = true,
       return release;
     },
     async logs(site, lines) { environmentCalls.push(['logs', site.id, lines]); return { lifecycle: 'life', journal: 'journal' }; },
+    async applyLimits(site, limits) { environmentCalls.push(['limits', site.id, limits]); store.updateSite(site.id, limits); },
   };
   registerTools({
     ctx, store, access, config: resolved,
@@ -1299,6 +1300,43 @@ test('SiteExec refuses every pending environment mutation', async (t) => {
     requestedAt: new Date().toISOString(), lastError: null,
   });
   await assert.rejects(() => harness.call('SiteExec', { site: SITE_ID, command: 'echo no' }), /pending/i);
+});
+
+test('SiteUpdate applies environment limits for an administrator, clamped to the declared caps', async (t) => {
+  // The web screen could already change these; an agent asked to size an environment had no tool for it
+  // and no way to read back the disk ceiling it was given.
+  const owner = phase2ToolHarness(t);
+  owner.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
+  await assert.rejects(() => owner.call('SiteUpdate', { site: SITE_ID, environmentMemoryMb: 2048 }), /administrator/i);
+  assert.equal(owner.environmentCalls.some(([name]) => name === 'limits'), false);
+  assert.equal(owner.store.siteById(SITE_ID).environmentMemoryMb, null);
+
+  const admin = phase2ToolHarness(t, { userId: 9, admin: true });
+  admin.store.insertSite(environmentSite({ ownerUserId: 9, projectId: 7 }));
+  const updated = await admin.call('SiteUpdate', {
+    site: SITE_ID,
+    environmentCpus: 99, environmentMemoryMb: 64, environmentPidsLimit: 2, environmentDiskSoftMb: 999999,
+  });
+  // Out-of-range values are pinned to the SAME bounds the settings screen enforces: a tool must not be
+  // the way around an instance ceiling.
+  assert.deepEqual(admin.environmentCalls.find(([name]) => name === 'limits'), ['limits', SITE_ID, {
+    environmentCpus: 8, environmentMemoryMb: 128, environmentPidsLimit: 16, environmentDiskSoftMb: 131072,
+  }]);
+  assert.deepEqual(updated.details.limits, { cpus: 8, memoryMb: 128, pidsLimit: 16, diskSoftMb: 131072 });
+  assert.match(updated.content[0].text, /131072 MB disk/);
+
+  // Null clears an override, so the environment falls back to the instance default rather than keeping a
+  // value nobody can see in the settings screen.
+  const cleared = await admin.call('SiteUpdate', { site: SITE_ID, environmentMemoryMb: null });
+  assert.equal(admin.store.siteById(SITE_ID).environmentMemoryMb, null);
+  assert.equal(cleared.details.limits.memoryMb, 1024);
+});
+
+test('SiteUpdate refuses resource limits on a site that is not an environment', async (t) => {
+  const admin = phase2ToolHarness(t, { userId: 9, admin: true });
+  admin.store.insertSite(environmentSite({ ownerUserId: 9, projectId: 7, runtime: 'static' }));
+  await assert.rejects(() => admin.call('SiteUpdate', { site: SITE_ID, environmentCpus: 2 }), /only an environment/i);
+  assert.equal(admin.environmentCalls.some(([name]) => name === 'limits'), false);
 });
 
 test('SiteSnapshot queues daemon work and SiteGet exposes pending action errors', async (t) => {
