@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { EventEmitter } from 'node:events';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { createConnection, createServer } from 'node:net';
 import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import type { PluginDb } from 'elowen/plugin-api';
@@ -985,7 +985,13 @@ describe('browser dependency report', () => {
   /** Every verdict at once, so a classification change shows up as a diff rather than as one silent row. */
   const classified = (report: BrowserDependencyReport): Record<string, BrowserDependencyStatus> =>
     Object.fromEntries(report.checks.map((check) => [check.id, check.status]));
+  beforeEach(() => {
+    // Readiness checks executable access without launching anything. Own the entire PATH so installed
+    // display packages on a developer's host cannot decide whether this unit fixture is ready.
+    vi.stubEnv('PATH', ['Xvfb', 'x11vnc'].map((name) => dirname(chromeHost(name))).join(delimiter));
+  });
   afterEach(() => {
+    vi.unstubAllEnvs();
     for (const dir of temporaryDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
@@ -1044,6 +1050,24 @@ describe('browser dependency report', () => {
     expect(checkOf(noArtifacts, 'chat-artifacts').code).toBe('artifacts.missing');
     expect(noArtifacts.status).toBe('warning');
     expect(noArtifacts.ready).toBe(noArtifacts.total - 1);
+  });
+
+  it.each(['Xvfb', 'x11vnc'])('blocks when %s is missing from the isolated PATH', async (missing) => {
+    const present = missing === 'Xvfb' ? 'x11vnc' : 'Xvfb';
+    vi.stubEnv('PATH', dirname(chromeHost(present)));
+    const report = await browserDependencyReport(input());
+    expect(checkOf(report, 'virtual-display')).toMatchObject({ status: 'blocked', code: 'display.missing', value: missing });
+    expect(report.status).toBe('blocked');
+    expect((await browserReadiness(input())).ok).toBe(false);
+  });
+
+  it('blocks when display files exist but are not executable', async () => {
+    const binaries = ['Xvfb', 'x11vnc'].map((name) => chromeHost(name));
+    for (const binary of binaries) chmodSync(binary, 0o644);
+    vi.stubEnv('PATH', binaries.map(dirname).join(delimiter));
+    const report = await browserDependencyReport(input());
+    expect(checkOf(report, 'virtual-display')).toMatchObject({ status: 'blocked', code: 'display.missing', value: 'Xvfb, x11vnc' });
+    expect(report.status).toBe('blocked');
   });
 
   it('treats a probe that throws as unproven rather than leaking why', async () => {
