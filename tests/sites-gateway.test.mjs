@@ -185,6 +185,41 @@ test('an explicit IPv6 origin produces and validates an AAAA record', async () =
   });
 });
 
+test('an expanded IPv6 destination matches the compressed form a resolver returns', async () => {
+  // A resolver answers in the compressed form and an operator types the expanded one (or the reverse).
+  // Comparing the two as lowercased strings makes a correct record look misdirected forever, so both
+  // sides go through one address parser before they are compared.
+  const harness = makeHarness({
+    gatewayDnsTarget: '2001:0DB8:0000:0000:0000:0000:0000:0020',
+    dns: { resolve6: async (hostname) => hostname === `${PROBE_HOST}.` ? ['2001:db8::20'] : await missingDns() },
+  });
+
+  assert.equal((await harness.manager.reconcile()).active, true);
+  assert.deepEqual(harness.manager.requiredRecord(), {
+    type: 'AAAA', name: `*.${HOSTNAME_BASE}`, value: '2001:db8::20',
+  });
+});
+
+test('a destination carrying a prefix, a path or a trailing-dot address is read exactly', async () => {
+  // `domainToASCII` quietly drops a CIDR suffix and a trailing dot, so `188.130.140.170/32` came back as
+  // a hostname and produced a CNAME to an address, which no registrar can accept.
+  for (const rejected of ['188.130.140.170/32', 'https://origin.example.invalid/path', '999.1.1.1', '2001:db8::1%eth0']) {
+    const harness = makeHarness({ gatewayDnsTarget: rejected });
+    const readiness = await harness.manager.readiness();
+    assert.equal(readiness.status, 'unavailable', rejected);
+    assert.match(readiness.detail, /DNS destination/i, rejected);
+    assert.equal(readiness.fix, undefined, rejected);
+    assert.equal(harness.calls.sync, 0, rejected);
+  }
+
+  // A trailing dot is how a registrar writes a fully qualified value, so the address behind it is read as
+  // the address it is, not as a hostname whose last label happens to be a number.
+  const dotted = makeHarness({ gatewayDnsTarget: '188.130.140.170.' });
+  assert.deepEqual(dotted.manager.requiredRecord(), {
+    type: 'A', name: `*.${HOSTNAME_BASE}`, value: '188.130.140.170',
+  });
+});
+
 test('an explicit DNS destination still refuses a different resolved target', async () => {
   const harness = makeHarness({
     gatewayDnsTarget: 'origin.example.invalid',

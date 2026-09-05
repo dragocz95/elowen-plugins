@@ -37,10 +37,6 @@ export interface SitesConfig {
    *  and every path that would need an address refuses instead of falling back to the app's origin —
    *  a page there would be same-origin with the app's session cookie. */
   siteHostBase: string | null;
-  /** Public DNS destination the wildcard must resolve to before certificates may be issued. */
-  gatewayDnsTarget: GatewayDnsTarget | null;
-  /** Invalid explicit values block readiness instead of silently falling back to a different target. */
-  gatewayDnsTargetError: string | null;
   /** Scheme for site URLs, following the app's own. */
   siteScheme: string;
   /** Origin the Elowen app itself is on, without a trailing slash. */
@@ -99,15 +95,46 @@ export type GatewayDnsTargetResolution = {
   error: string | null;
 };
 
-const DNS_TARGET_ERROR = 'Sites DNS destination must be one hostname, IPv4 address, or IPv6 address without a scheme, path, port, or wildcard.';
+const DNS_TARGET_ERROR = 'Sites DNS destination must be one hostname, IPv4 address or IPv6 address, with no scheme, path, port, network prefix, zone or wildcard.';
 
+/** Characters a DNS name may carry, plus everything above ASCII so an internationalised name still
+ *  reaches the IDNA conversion. Anything else — a slash, a colon, an at-sign, a space, a percent — means
+ *  the value is a URL, a prefix or a host:port, and `domainToASCII` would silently drop the difference:
+ *  it answers `188.130.140.170` for `188.130.140.170/32`, which then rendered as a CNAME to an address. */
+const DNS_NAME_CHARS = /^[a-z0-9.\-\u{80}-\u{10ffff}]+$/iu;
+
+/** One address parser for every comparison and every rendered record.
+ *
+ *  IPv6 is serialised by the WHATWG URL parser, which is the same canonical form on both sides of a
+ *  comparison: an operator typing `2001:0db8:0000:0000:0000:0000:0000:0020` and a resolver answering
+ *  `2001:db8::20` are the same address, and lowercasing the two strings never made them equal. The
+ *  parser also rejects what `isIP` alone accepts, such as a scoped `fe80::1%eth0`, which is not an
+ *  answer any public resolver can return. */
+export function canonicalDnsAddress(value: string): { kind: 'ipv4' | 'ipv6'; value: string } | null {
+  const candidate = value.trim();
+  const family = isIP(candidate);
+  if (family === 4) return { kind: 'ipv4', value: candidate };
+  if (family !== 6) return null;
+  try {
+    const serialised = new URL(`http://[${candidate}]/`).hostname;
+    return { kind: 'ipv6', value: serialised.slice(1, -1) };
+  } catch {
+    return null;
+  }
+}
+
+/** A DNS name, or null when the value is anything else. Every rejection happens BEFORE the IDNA
+ *  conversion, which is lenient in ways that matter here. */
 const dnsHostname = (value: string): string | null => {
-  const withoutDot = value.trim().replace(/\.+$/, '').toLowerCase();
-  const ascii = domainToASCII(withoutDot);
+  if (!DNS_NAME_CHARS.test(value)) return null;
+  const ascii = domainToASCII(value.toLowerCase());
   if (!ascii || ascii.length > 253 || !ascii.includes('.')) return null;
   const labels = ascii.split('.');
   if (labels.some((label) => label.length < 1 || label.length > 63
     || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) return null;
+  // A name whose last label is all digits is not a hostname (RFC 1123 §2.1). Without this an address
+  // that failed to parse — `999.1.1.1`, or the remains of a stripped prefix — became a CNAME target.
+  if (/^\d+$/.test(labels[labels.length - 1] ?? '')) return null;
   return ascii;
 };
 
@@ -117,10 +144,12 @@ export function resolveGatewayDnsTarget(value: unknown, fallbackHostname: string
   const configured = typeof value === 'string' && value.trim() !== '';
   const candidate = configured ? value.trim() : fallbackHostname?.trim() ?? '';
   if (!candidate) return { target: null, error: configured ? DNS_TARGET_ERROR : null };
-  const family = isIP(candidate);
-  if (family === 4) return { target: { kind: 'ipv4', value: candidate }, error: null };
-  if (family === 6) return { target: { kind: 'ipv6', value: candidate.toLowerCase() }, error: null };
-  const hostname = dnsHostname(candidate);
+  // A single trailing dot is how a registrar writes a fully qualified value, so it is removed before the
+  // value is read — but only once, and the address behind it stays an address.
+  const bare = candidate.endsWith('.') ? candidate.slice(0, -1) : candidate;
+  const address = canonicalDnsAddress(candidate) ?? canonicalDnsAddress(bare);
+  if (address) return { target: address, error: null };
+  const hostname = dnsHostname(bare);
   if (hostname) return { target: { kind: 'hostname', value: hostname }, error: null };
   return { target: null, error: DNS_TARGET_ERROR };
 }
@@ -161,8 +190,6 @@ export function resolveConfig(
   const appOrigin = asOrigin(publicWebUrl) ?? '';
   const appScheme = appOrigin.startsWith('http://') ? 'http:' : 'https:';
   const siteHostBase = asGatewayHost(gatewayHostBase, appScheme);
-  const appHostname = appOrigin ? new URL(appOrigin).hostname : null;
-  const gatewayDns = resolveGatewayDnsTarget(raw.gatewayDnsTarget, appHostname);
   const defaultVisibility = typeof raw.defaultVisibility === 'string' && VISIBILITY_DEFAULTS.has(raw.defaultVisibility)
     ? raw.defaultVisibility as Visibility
     : 'private';
@@ -196,8 +223,6 @@ export function resolveConfig(
     requestTimeoutSeconds: bounded(raw.requestTimeoutSeconds, 15, 1, 120),
     maxResponseBytes: bounded(raw.maxResponseMb, 8, 1, 64) * 1048576,
     siteHostBase,
-    gatewayDnsTarget: gatewayDns.target,
-    gatewayDnsTargetError: gatewayDns.error,
     siteScheme: appScheme,
     appBaseUrl: appOrigin,
   };

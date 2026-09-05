@@ -1182,7 +1182,7 @@ function phase2ToolHarness(t, { userId = 1, admin = false, projectAccess = true,
     runtime: { allocatePort: async () => 43000, stop: async () => {}, start: async () => {}, logTail: () => '', isRunning: () => false },
     environment,
   });
-  return { store, environmentCalls, call: (name, input = {}) => registered.get(name).execute('call-1', input) };
+  return { store, environment, environmentCalls, call: (name, input = {}) => registered.get(name).execute('call-1', input) };
 }
 
 test('SiteCreate creates a durable environment from a forked runner without gateway control', async (t) => {
@@ -1330,6 +1330,27 @@ test('SiteUpdate applies environment limits for an administrator, clamped to the
   const cleared = await admin.call('SiteUpdate', { site: SITE_ID, environmentMemoryMb: null });
   assert.equal(admin.store.siteById(SITE_ID).environmentMemoryMb, null);
   assert.equal(cleared.details.limits.memoryMb, 1024);
+});
+
+test('SiteUpdate leaves nothing half written when the limits cannot be applied', async (t) => {
+  // Persisting the ordinary patch first and applying limits afterwards meant a Podman failure surfaced as
+  // a bare error while the title and visibility had already changed, so the caller could not tell what
+  // had actually happened. The limits go first, and their failure names itself.
+  const admin = phase2ToolHarness(t, { userId: 9, admin: true });
+  admin.store.insertSite(environmentSite({ ownerUserId: 9, projectId: 7, title: 'Before', visibility: 'private' }));
+  admin.environment.applyLimits = async () => { throw new Error('crun refused the update'); };
+
+  await assert.rejects(
+    () => admin.call('SiteUpdate', {
+      site: SITE_ID, title: 'After', visibility: 'authenticated', environmentMemoryMb: 2048,
+    }),
+    /limits could not be applied.*crun refused the update/i,
+  );
+
+  const unchanged = admin.store.siteById(SITE_ID);
+  assert.equal(unchanged.title, 'Before', 'the ordinary patch must not survive a failed limit change');
+  assert.equal(unchanged.visibility, 'private');
+  assert.equal(unchanged.environmentMemoryMb, null);
 });
 
 test('SiteUpdate refuses resource limits on a site that is not an environment', async (t) => {

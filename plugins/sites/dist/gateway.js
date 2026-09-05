@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { Resolver } from 'node:dns/promises';
-import { resolveGatewayDnsTarget } from './config.js';
+import { canonicalDnsAddress, resolveGatewayDnsTarget } from './config.js';
 const GATEWAY_TOKEN_KEY = 'gatewayToken';
 const DNS_TIMEOUT_MS = 5_000;
 const MIN_BACKOFF_MS = 60_000;
@@ -161,10 +161,17 @@ export class SiteGatewayManager {
                 this.answer(() => this.resolver.resolve4(fqdn(hostname))),
                 this.answer(() => this.resolver.resolve6(fqdn(hostname))),
             ]);
-            for (const value of v4.values)
-                ipv4.add(value);
-            for (const value of v6.values)
-                ipv6.add(value.toLowerCase());
+            // Canonical on the way in, so a compressed answer and an expanded configured address compare equal.
+            for (const value of v4.values) {
+                const address = canonicalDnsAddress(value);
+                if (address)
+                    ipv4.add(address.value);
+            }
+            for (const value of v6.values) {
+                const address = canonicalDnsAddress(value);
+                if (address)
+                    ipv6.add(address.value);
+            }
             answered = answered || v4.values.length > 0 || v6.values.length > 0;
             if (v4.error)
                 errors.push(v4.error);
@@ -192,7 +199,7 @@ export class SiteGatewayManager {
                 }),
         ]);
         const ipv4Matches = [...probeAddresses.ipv4].some((address) => targetAddresses.ipv4.has(address));
-        const ipv6Matches = [...probeAddresses.ipv6].some((address) => targetAddresses.ipv6.has(address.toLowerCase()));
+        const ipv6Matches = [...probeAddresses.ipv6].some((address) => targetAddresses.ipv6.has(address));
         const observedTargets = [...new Set([
                 ...cname.observed,
                 ...probeAddresses.ipv4,

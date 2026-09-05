@@ -721,7 +721,7 @@ export function registerTools(deps: ToolDeps): void {
         description: 'Administrator only, environment sites: maximum processes and threads, or null for the instance default.',
       })),
       environmentDiskSoftMb: Type.Optional(Type.Union([Type.Number(), Type.Null()], {
-        description: 'Administrator only, environment sites: disk warning threshold in MB, or null for the instance default.',
+        description: 'Administrator only, environment sites: the recorded disk figure in MB reported by Sites tools, or null for the instance default. Sites does not measure or enforce it.',
       })),
     }),
     execute: async (_id, input) => {
@@ -777,9 +777,19 @@ export function registerTools(deps: ToolDeps): void {
         }
         const accessChanged = nextVisibility !== undefined && nextVisibility !== site.visibility;
         if (accessChanged) patch.visibility = nextVisibility;
+        // Limits first, and only then the ordinary patch: applying them talks to the container runtime and
+        // can fail, and a title that had already been written would leave the caller holding a bare error
+        // over a half-changed site.
+        if (limits) {
+          try {
+            await deps.environment.applyLimits(site, limits);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new ToolError(`The environment limits could not be applied, so nothing else was changed: ${message}`);
+          }
+        }
         store.updateSite(site.id, patch);
         if (accessChanged) store.bumpAccessGeneration(site.id);
-        if (limits) await deps.environment.applyLimits(store.siteById(site.id) ?? site, limits);
         const updated = store.siteById(site.id);
         if (runtimeChanged && updated?.currentReleaseId && isDaemonProcess()) {
           try {
