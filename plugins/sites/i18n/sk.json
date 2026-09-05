@@ -51,6 +51,10 @@
       "label": "Platnosť prihlásenia",
       "hint": "Ako dlho zostane návštevník k stránke prihlásený, kým ho prehliadač pošle znova cez prihlásenie. Strata prístupu sa prejaví okamžite bez ohľadu na túto hodnotu, pretože oprávnenie sa overuje pri každej požiadavke."
     },
+    "gatewayDnsTarget": {
+      "label": "Cieľ DNS pre Sites",
+      "hint": "Názov hostiteľa alebo IP adresa pre verejné DNS Sites. Prázdna hodnota použije názov hostiteľa aplikácie Elowen. Cieľ musí viesť priamo na tento hostiteľ; externá proxy potrebuje vlastnú podporu TLS."
+    },
     "contactEmail": {
       "label": "Kontaktný e-mail pre certifikáty",
       "hint": "Certifikačná autorita vyžaduje kontaktnú adresu na vydanie certifikátov a upozornenia na ich vypršanie. Odosiela sa autorite a nikde inde sa neukladá."

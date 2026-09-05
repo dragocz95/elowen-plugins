@@ -306,6 +306,25 @@ describe('environment setup settings', () => {
     await waitFor(() => expect(screen.getAllByText(label).length).toBeGreaterThan(0));
   });
 
+  it('renders the exact configured A record returned by readiness', async () => {
+    use(
+      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({
+        ready: false,
+        status: 'missing',
+        detail: '*.sites.example.com does not resolve.',
+        expectedRecord: { type: 'A', name: '*.sites.example.com', value: '198.51.100.77' },
+        observedTargets: [],
+      })),
+      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({ ready: true, canProvision: false, items: [] })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    expect(await screen.findByText('198.51.100.77')).toBeVisible();
+    expect(screen.getByText('A')).toBeVisible();
+    expect(screen.getByText('*.sites.example.com')).toBeVisible();
+  });
+
   it('shows authoritative DNS states and provisions only after one confirmed request', async () => {
     let ready = false;
     const posts: unknown[] = [];

@@ -25,7 +25,7 @@ const makeResolver = (overrides = {}) => {
   return { resolver, queries };
 };
 
-const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example.com', dns = {} } = {}) => {
+const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example.com', gatewayDnsTarget, dns = {} } = {}) => {
   const values = new Map();
   const warnings = [];
   const calls = { status: 0, sync: 0, ensure: [], remove: [] };
@@ -56,7 +56,7 @@ const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example
     },
   };
   const ctx = {
-    config: { contactEmail },
+    config: { contactEmail, ...(gatewayDnsTarget === undefined ? {} : { gatewayDnsTarget }) },
     instanceSecrets: () => bag,
     publicWebUrl: () => `https://${APP_HOST}`,
     logger: { warn: (message) => warnings.push(message), info: () => {} },
@@ -135,6 +135,89 @@ test('flattened IPv6 DNS is accepted without an IPv4 answer', async () => {
     },
   });
   assert.equal((await harness.manager.reconcile()).active, true);
+});
+
+test('an explicit origin IP accepts direct Sites DNS while the main app remains proxied', async () => {
+  const origin = '198.51.100.77';
+  const harness = makeHarness({
+    gatewayDnsTarget: origin,
+    dns: {
+      resolve4: async (hostname) => hostname === `${PROBE_HOST}.`
+        ? [origin]
+        : hostname === `${APP_HOST}.` ? ['192.0.2.10'] : await missingDns(),
+    },
+  });
+
+  const readiness = await harness.manager.readiness();
+  assert.equal(readiness.ok, true);
+  assert.equal(harness.calls.sync, 1);
+  assert.deepEqual(harness.manager.requiredRecord(), {
+    type: 'A', name: `*.${HOSTNAME_BASE}`, value: origin,
+  });
+});
+
+test('an explicit origin hostname accepts a CNAME without consulting the proxied app destination', async () => {
+  const target = 'origin.example.invalid';
+  const harness = makeHarness({
+    gatewayDnsTarget: target,
+    dns: {
+      resolveCname: async (hostname) => hostname === `${PROBE_HOST}.` ? [`${target}.`] : await missingDns(),
+    },
+  });
+
+  assert.equal((await harness.manager.reconcile()).active, true);
+  assert.deepEqual(harness.manager.requiredRecord(), {
+    type: 'CNAME', name: `*.${HOSTNAME_BASE}`, value: `${target}.`,
+  });
+  assert.equal(harness.queries.some(([, hostname]) => hostname === `${APP_HOST}.`), false);
+});
+
+test('an explicit IPv6 origin produces and validates an AAAA record', async () => {
+  const target = '2001:4860:4860::8844';
+  const harness = makeHarness({
+    gatewayDnsTarget: target,
+    dns: { resolve6: async (hostname) => hostname === `${PROBE_HOST}.` ? [target.toUpperCase()] : await missingDns() },
+  });
+
+  assert.equal((await harness.manager.reconcile()).active, true);
+  assert.deepEqual(harness.manager.requiredRecord(), {
+    type: 'AAAA', name: `*.${HOSTNAME_BASE}`, value: target,
+  });
+});
+
+test('an explicit DNS destination still refuses a different resolved target', async () => {
+  const harness = makeHarness({
+    gatewayDnsTarget: 'origin.example.invalid',
+    dns: {
+      resolveCname: async (hostname) => hostname === `${PROBE_HOST}.`
+        ? ['wrong.example.invalid.']
+        : await missingDns(),
+      resolve4: async (hostname) => hostname === `${PROBE_HOST}.`
+        ? ['203.0.113.10']
+        : hostname === 'origin.example.invalid.' ? ['192.0.2.10'] : await missingDns(),
+    },
+  });
+
+  const readiness = await harness.manager.readiness();
+  assert.equal(readiness.status, 'misdirected');
+  assert.match(readiness.detail, /origin\.example\.invalid/);
+  assert.equal(harness.calls.sync, 0);
+  assert.deepEqual(readiness.fix, [
+    { label: 'Type', value: 'CNAME' },
+    { label: 'Name', value: `*.${HOSTNAME_BASE}` },
+    { label: 'Value', value: 'origin.example.invalid.' },
+  ]);
+});
+
+test('an invalid configured DNS destination blocks readiness instead of falling back', async () => {
+  const harness = makeHarness({ gatewayDnsTarget: 'https://origin.example.invalid/path' });
+  const readiness = await harness.manager.readiness();
+
+  assert.equal(readiness.ok, false);
+  assert.equal(readiness.status, 'unavailable');
+  assert.match(readiness.detail, /DNS destination/i);
+  assert.equal(readiness.fix, undefined);
+  assert.equal(harness.calls.sync, 0);
 });
 
 test('a wildcard resolving to another destination is reported as misdirected', async () => {

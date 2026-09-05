@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+import { domainToASCII } from 'node:url';
 import type { Visibility } from './store.js';
 
 export interface SitesConfig {
@@ -35,6 +37,10 @@ export interface SitesConfig {
    *  and every path that would need an address refuses instead of falling back to the app's origin —
    *  a page there would be same-origin with the app's session cookie. */
   siteHostBase: string | null;
+  /** Public DNS destination the wildcard must resolve to before certificates may be issued. */
+  gatewayDnsTarget: GatewayDnsTarget | null;
+  /** Invalid explicit values block readiness instead of silently falling back to a different target. */
+  gatewayDnsTargetError: string | null;
   /** Scheme for site URLs, following the app's own. */
   siteScheme: string;
   /** Origin the Elowen app itself is on, without a trailing slash. */
@@ -83,6 +89,42 @@ export function environmentLimitOverrides(raw: Record<string, unknown>): Environ
 
 const VISIBILITY_DEFAULTS = new Set(['private', 'project', 'authenticated']);
 
+export type GatewayDnsTarget = {
+  kind: 'hostname' | 'ipv4' | 'ipv6';
+  value: string;
+};
+
+export type GatewayDnsTargetResolution = {
+  target: GatewayDnsTarget | null;
+  error: string | null;
+};
+
+const DNS_TARGET_ERROR = 'Sites DNS destination must be one hostname, IPv4 address, or IPv6 address without a scheme, path, port, or wildcard.';
+
+const dnsHostname = (value: string): string | null => {
+  const withoutDot = value.trim().replace(/\.+$/, '').toLowerCase();
+  const ascii = domainToASCII(withoutDot);
+  if (!ascii || ascii.length > 253 || !ascii.includes('.')) return null;
+  const labels = ascii.split('.');
+  if (labels.some((label) => label.length < 1 || label.length > 63
+    || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) return null;
+  return ascii;
+};
+
+/** Resolve the one destination used both to validate wildcard DNS and to render the registrar record.
+ *  This is an expected public DNS answer only; it never controls the host gateway proxy upstream. */
+export function resolveGatewayDnsTarget(value: unknown, fallbackHostname: string | null): GatewayDnsTargetResolution {
+  const configured = typeof value === 'string' && value.trim() !== '';
+  const candidate = configured ? value.trim() : fallbackHostname?.trim() ?? '';
+  if (!candidate) return { target: null, error: configured ? DNS_TARGET_ERROR : null };
+  const family = isIP(candidate);
+  if (family === 4) return { target: { kind: 'ipv4', value: candidate }, error: null };
+  if (family === 6) return { target: { kind: 'ipv6', value: candidate.toLowerCase() }, error: null };
+  const hostname = dnsHostname(candidate);
+  if (hostname) return { target: { kind: 'hostname', value: hostname }, error: null };
+  return { target: null, error: DNS_TARGET_ERROR };
+}
+
 /** Normalise a configured origin, or null when it is unusable.
  *
  *  A hostname that is not an absolute http(s) origin cannot be turned into a link, and guessing one from
@@ -119,6 +161,8 @@ export function resolveConfig(
   const appOrigin = asOrigin(publicWebUrl) ?? '';
   const appScheme = appOrigin.startsWith('http://') ? 'http:' : 'https:';
   const siteHostBase = asGatewayHost(gatewayHostBase, appScheme);
+  const appHostname = appOrigin ? new URL(appOrigin).hostname : null;
+  const gatewayDns = resolveGatewayDnsTarget(raw.gatewayDnsTarget, appHostname);
   const defaultVisibility = typeof raw.defaultVisibility === 'string' && VISIBILITY_DEFAULTS.has(raw.defaultVisibility)
     ? raw.defaultVisibility as Visibility
     : 'private';
@@ -152,6 +196,8 @@ export function resolveConfig(
     requestTimeoutSeconds: bounded(raw.requestTimeoutSeconds, 15, 1, 120),
     maxResponseBytes: bounded(raw.maxResponseMb, 8, 1, 64) * 1048576,
     siteHostBase,
+    gatewayDnsTarget: gatewayDns.target,
+    gatewayDnsTargetError: gatewayDns.error,
     siteScheme: appScheme,
     appBaseUrl: appOrigin,
   };

@@ -734,6 +734,15 @@ test('every site gets the root of the gateway hostname derived by core', () => {
 
   const dedicated = resolveConfig({}, 'https://elowen.example', 'sites.elowen.example');
   assert.equal(dedicated.siteHostBase, 'sites.elowen.example');
+  assert.deepEqual(dedicated.gatewayDnsTarget, { kind: 'hostname', value: 'elowen.example' });
+
+  const directGateway = resolveConfig({ gatewayDnsTarget: '203.0.113.40' }, 'https://elowen.example', 'sites.elowen.example');
+  assert.deepEqual(directGateway.gatewayDnsTarget, { kind: 'ipv4', value: '203.0.113.40' });
+  for (const invalidTarget of ['https://bad.example/path', '*.example.com', 'origin.example.com:443', 'localhost']) {
+    const invalidGateway = resolveConfig({ gatewayDnsTarget: invalidTarget }, 'https://elowen.example', 'sites.elowen.example');
+    assert.equal(invalidGateway.gatewayDnsTarget, null, invalidTarget);
+    assert.match(invalidGateway.gatewayDnsTargetError, /DNS destination/, invalidTarget);
+  }
   assert.equal(siteUrl(dedicated, 'demo'), 'https://demo.sites.elowen.example/');
   assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.elowen.example:443'), true);
   assert.equal(requestOnSiteHost(dedicated, 'demo', 'elowen.example'), false);

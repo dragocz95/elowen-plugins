@@ -113,7 +113,7 @@ export interface GatewayReadinessResponse {
   ready: boolean;
   status: 'ready' | 'missing' | 'misdirected' | 'unavailable';
   detail: string;
-  expectedRecord: { type: 'CNAME'; name: string; value: string } | null;
+  expectedRecord: { type: 'CNAME' | 'A' | 'AAAA'; name: string; value: string } | null;
   observedTargets: string[];
 }
 
