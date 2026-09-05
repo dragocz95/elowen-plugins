@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir, userInfo } from 'node:os';
@@ -337,7 +337,14 @@ function supervisorHarness(t, { statuses = [null], sealed = false, connectReady 
     },
   };
   const gateway = {
-    async removeRuntimeSocket() { lifecycle.push('remove'); rmSync(brokerDir, { recursive: true, force: true }); },
+    // The real broker directory is root-owned, so sealing it to 0510 never stops the gateway from taking
+    // it away again. Without this the stand-in would refuse its own seal and fail any test that starts an
+    // environment and then stops it.
+    async removeRuntimeSocket() {
+      lifecycle.push('remove');
+      try { chmodSync(brokerDir, 0o700); } catch { /* it may not exist yet */ }
+      rmSync(brokerDir, { recursive: true, force: true });
+    },
     async prepareRuntimeSocket() { lifecycle.push('prepare'); mkdirSync(brokerDir, { recursive: true }); return { path: socketPath }; },
     async sealRuntimeSocket() { lifecycle.push('seal'); chmodSync(brokerDir, 0o510); },
   };
@@ -802,6 +809,33 @@ test('daemon reconcile completes durable rollback and returns desired state to r
     'stop', 'remove', 'volume-export', 'volume-rm', 'volume-ensure', 'volume-import',
     'create', 'start',
   ]);
+});
+
+test('a rollback rebuilds the container over the environment files an earlier create left behind', async (t) => {
+  // The stub that masks /workspace/.git is written 0400, and `mode` applies only at creation. Writing it
+  // again could not reopen it, so the SECOND create — which is what a rollback performs after removing
+  // the first container — died with EACCES before Podman was ever called.
+  const { supervisor, calls, site, store, releases, root } = supervisorHarness(t, { statuses: [null] });
+  await supervisor.start(site);
+  const stub = join(root, 'site', 'environment', 'git-stub');
+  assert.equal(statSync(stub).mode & 0o777, 0o400, 'the stub stays read-only after the first create');
+
+  releases.push({
+    id: 'rebuild', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
+    sizeBytes: 0, note: '', kind: 'environment-snapshot',
+    imageRef: `localhost/elowen-site/${site.id}:rebuild`, dataArchive: null,
+  });
+  store.putEnvironmentAction({
+    siteId: site.id, kind: 'rollback', snapshotId: 'rebuild', restoreData: false,
+    requestedAt: new Date().toISOString(), lastError: null,
+  });
+  await supervisor.reconcile();
+
+  assert.equal(store.environmentAction(site.id), null, 'the rollback has to finish, not stall on the stub');
+  assert.equal(site.status, 'live');
+  assert.equal(site.currentReleaseId, 'rebuild');
+  assert.equal(calls.filter(([name]) => name === 'create').length, 2, 'the second create is the restored container');
+  assert.equal(statSync(stub).mode & 0o777, 0o400, 'and the stub is read-only again afterwards');
 });
 
 test('rollback restores previous data when restored rootfs fails readiness', async (t) => {

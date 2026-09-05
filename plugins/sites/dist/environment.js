@@ -158,8 +158,15 @@ export class EnvironmentSupervisor {
         const lines = [`ELOWEN_SITE_SLUG=${site.slug}`, ...(url ? [`ELOWEN_SITE_URL=${url}`] : [])];
         writeFileSync(envFile, `${lines.join('\n')}\n`, { mode: 0o600 });
         chmodSync(envFile, 0o600);
+        // `mode` applies only when a file is CREATED, and a 0400 stub cannot be reopened for writing. Every
+        // RECREATE therefore died here with EACCES before the container existed, which is exactly what a
+        // rollback does after removing the old one: an environment could never be restored at all. Reopen it
+        // deliberately, then put the read-only bit back.
         const gitStub = join(dir, 'git-stub');
+        if (existsSync(gitStub))
+            chmodSync(gitStub, 0o600);
         writeFileSync(gitStub, '', { mode: 0o400 });
+        chmodSync(gitStub, 0o400);
         return { envFile, gitStub };
     }
     async snapshotNow(site, input) {
