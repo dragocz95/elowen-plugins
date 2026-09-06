@@ -119,7 +119,9 @@ export function toolchainRow(probe: ToolchainProbe, visible: (path: string) => b
     id: `sites-toolchain-${probe.id}`,
     label: probe.label,
     ok: !probe.required,
-    detail: `Missing from the confined Sandbox: ${missing.join(', ')}.`,
+    detail: probe.required
+      ? `Missing from the confined Sandbox: ${missing.join(', ')}.`
+      : `Not available to confined users: ${missing.join(', ')}.`,
     ...(probe.required ? { hint: 'Install the required tools under /usr so Project agents can build sites.' } : {}),
   };
 }

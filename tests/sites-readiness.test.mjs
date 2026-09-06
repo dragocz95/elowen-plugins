@@ -120,7 +120,7 @@ test('each toolchain interpreter is its own row', () => {
   ]);
   // An optional interpreter reports its absence without failing the card; a required one fails.
   assert.deepEqual(rows.map((row) => row.ok), [true, true, true, true]);
-  assert.match(rows[2].detail, /Missing from the confined Sandbox: \/usr\/local\/bin\/bun\./);
+  assert.match(rows[2].detail, /Not available to confined users: \/usr\/local\/bin\/bun\./);
   for (const row of rows) assert.ok(!row.detail.includes(';'), `row ${row.id} folds several tools into one detail`);
 
   const missingNode = toolchainRow(SITES_TOOLCHAIN[0], () => false);
