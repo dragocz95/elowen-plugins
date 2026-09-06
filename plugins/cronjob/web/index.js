@@ -180,6 +180,12 @@ var MessageSquare = createLucideIcon("MessageSquare", [
   ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/messages-square.js
+var MessagesSquare = createLucideIcon("MessagesSquare", [
+  ["path", { d: "M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z", key: "p1xzt8" }],
+  ["path", { d: "M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1", key: "1cx29u" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/play.js
 var Play = createLucideIcon("Play", [
   ["polygon", { points: "6 3 20 12 6 21 6 3", key: "1oa8hb" }]
@@ -270,6 +276,19 @@ function renderActiveHours(start, end) {
 // plugins/cronjob/web-src/JobsSettings.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var PAGE_SIZE = 20;
+var JOB_PARAM = "job";
+var linkedJobId = () => {
+  const value = new URLSearchParams(window.location.search).get(JOB_PARAM);
+  return value && value.trim() !== "" ? value : null;
+};
+var writeJobParam = (id) => {
+  const url = new URL(window.location.href);
+  if (id === null) url.searchParams.delete(JOB_PARAM);
+  else url.searchParams.set(JOB_PARAM, id);
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  if (next === `${window.location.pathname}${window.location.search}${window.location.hash}`) return;
+  window.history.pushState(window.history.state, "", next);
+};
 var textareaClass = "w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-ring";
 function DestinationField({ value, onChange, destinations }) {
   const { components: C, hooks } = runtime();
@@ -312,6 +331,66 @@ function DestinationField({ value, onChange, destinations }) {
         selected: /* @__PURE__ */ new Set([value]),
         single: true,
         onSave: (next) => onChange([...next][0] ?? "")
+      }
+    )
+  ] });
+}
+function ConversationField({ value, saved, owner, myId, required, mismatch, onChange }) {
+  const { components: C, hooks } = runtime();
+  const { t } = hooks.useTranslation();
+  const s = hooks.usePluginStrings("cronjob");
+  const [open, setOpen] = (0, import_react3.useState)(false);
+  const [picked, setPicked] = (0, import_react3.useState)(null);
+  const query = owner === null ? "?scope=instance" : owner === myId ? "" : `?owner=${encodeURIComponent(String(owner))}`;
+  const list = hooks.useQuery({
+    queryKey: ["cronjob-conversations", query],
+    queryFn: () => runtime().api(`/plugins/cronjob/api/conversations${query}`),
+    enabled: open,
+    staleTime: 3e4
+  });
+  const options = list.data?.status === "available" ? list.data.conversations : [];
+  const chosen = picked?.id === value ? picked : saved?.id === value ? saved : options.find((c) => c.id === value) ?? null;
+  const unavailable = saved === null && chosen === null;
+  const icon = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessagesSquare, { size: 12, "aria-hidden": true });
+  const items = [
+    ...unavailable ? [{ id: value, label: s.conversationUnavailable, group: "", disabled: true, disabledHint: s.conversationUnavailableHint }] : chosen && !options.some((c) => c.id === chosen.id) ? [{ id: chosen.id, label: chosen.title || chosen.id, group: "", icon }] : [],
+    ...options.map((c) => ({
+      id: c.id,
+      label: c.title || c.id,
+      group: c.platform ?? "own",
+      groupLabel: c.platform ?? s.conversationOwnChat,
+      icon
+    }))
+  ];
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1.5", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      C.SelectionSummary,
+      {
+        countText: "",
+        samples: chosen ? [{ label: chosen.title || chosen.id, icon }] : unavailable ? [{ label: s.conversationUnavailable, icon }] : [],
+        moreCount: 0,
+        onManage: () => setOpen(true),
+        manageLabel: t.managePicker.manage,
+        manageAriaLabel: s.conversationManage
+      }
+    ),
+    unavailable ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-destructive", children: s.conversationUnavailableHint }) : mismatch ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-destructive", children: s.conversationOwnerHint }) : required && !chosen ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.conversationRequired }) : !value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "muted", children: s.conversationUnassigned }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      C.ManageSelectionModal,
+      {
+        title: s.conversation,
+        subtitle: list.data?.status === "unavailable" ? s.conversationDirectoryUnavailable : s.helpConversation,
+        open,
+        onClose: () => setOpen(false),
+        items,
+        selected: new Set(value ? [value] : []),
+        single: true,
+        onSave: (next) => {
+          const id = [...next][0] ?? "";
+          if (!id || id === value) return;
+          setPicked(options.find((c) => c.id === id) ?? null);
+          onChange(id);
+        }
       }
     )
   ] });
@@ -510,11 +589,23 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const deleted = (0, import_react3.useRef)(false);
   const inFlight = (0, import_react3.useRef)(null);
   const everSaved = (0, import_react3.useRef)(persisted);
-  const isSavable = (j) => j.name.trim() !== "" && j.prompt.trim() !== "" && (j.runAt ? true : utils.isValidSchedule(j.schedule));
+  const ownerOf = (j) => adminFields ? j.ownerUserId ?? null : myId;
+  const ownerConflict = (j) => {
+    const filed = job.conversation;
+    if (!filed || j.conversationSessionId !== job.conversationSessionId) return false;
+    const owner = ownerOf(j);
+    return owner !== null && filed.ownerUserId !== owner;
+  };
+  const filingReady = (j) => {
+    if (j.runAt) return true;
+    if (!persisted) return (j.conversationSessionId ?? "").trim() !== "";
+    return !ownerConflict(j);
+  };
+  const isSavable = (j) => j.name.trim() !== "" && j.prompt.trim() !== "" && (j.runAt ? true : utils.isValidSchedule(j.schedule)) && filingReady(j);
   const autosave = hooks.useAutoSaveStatus([editVersion], async () => {
     if (deleted.current) return;
     const sent = draftRef.current;
-    const { owner: _owner, expectedRevision: _expectedRevision, ...payload } = sent;
+    const { owner: _owner, conversation: _conversation, expectedRevision: _expectedRevision, ...payload } = sent;
     everSaved.current = true;
     const request = save.mutateAsync({ ...payload, expectedRevision: sent.revision ?? 0 });
     inFlight.current = request;
@@ -646,6 +737,18 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
           nowrap: true
         }
       ) }) : null,
+      !draft.runAt ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.conversation, hint: s.helpConversation, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        ConversationField,
+        {
+          value: draft.conversationSessionId ?? "",
+          saved: job.conversation,
+          owner: ownerOf(draft),
+          myId,
+          required: !persisted,
+          mismatch: ownerConflict(draft),
+          onChange: (conversationSessionId) => patch({ conversationSessionId })
+        }
+      ) }) : null,
       adminFields ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.check, hint: s.helpCheck, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "textarea",
         {
@@ -719,7 +822,10 @@ function JobsSettings({ surface }) {
   const destinations = hooks.useNotificationDestinations();
   const models = hooks.useBrainModels();
   const [drafts, setDrafts] = (0, import_react3.useState)([]);
-  const [selectedId, setSelectedId] = (0, import_react3.useState)(null);
+  const deepLink = surface === "page";
+  const [selectedId, setSelectedId] = (0, import_react3.useState)(() => deepLink ? linkedJobId() : null);
+  const [pendingLink, setPendingLink] = (0, import_react3.useState)(() => deepLink ? linkedJobId() : null);
+  const [missingLink, setMissingLink] = (0, import_react3.useState)(null);
   const [query, setQuery] = (0, import_react3.useState)("");
   const [filter, setFilter] = (0, import_react3.useState)("all");
   const [scope, setScope] = (0, import_react3.useState)("all");
@@ -753,14 +859,48 @@ function JobsSettings({ surface }) {
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const clampedPage = Math.min(page, pageCount - 1);
   const pageItems = (0, import_react3.useMemo)(() => filtered.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE), [filtered, clampedPage]);
+  const select = (id) => {
+    setSelectedId(id);
+    setMissingLink(null);
+    if (deepLink) writeJobParam(id);
+  };
+  (0, import_react3.useEffect)(() => {
+    if (!deepLink) return;
+    const follow = () => {
+      const id = linkedJobId();
+      setSelectedId(id);
+      setPendingLink(id);
+      setMissingLink(null);
+    };
+    window.addEventListener("popstate", follow);
+    return () => window.removeEventListener("popstate", follow);
+  }, [deepLink]);
+  (0, import_react3.useEffect)(() => {
+    if (pendingLink === null || !data) return;
+    if (!rows.some((j) => j.id === pendingLink)) {
+      setPendingLink(null);
+      setSelectedId(null);
+      setMissingLink(pendingLink);
+      return;
+    }
+    const at = filtered.findIndex((j) => j.id === pendingLink);
+    if (at < 0) {
+      setQuery("");
+      setFilter("all");
+      setScope("all");
+      return;
+    }
+    setPage(Math.floor(at / PAGE_SIZE));
+    setPendingLink(null);
+  }, [pendingLink, data, rows, filtered]);
   const addJob = () => {
     const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     setDrafts((cur) => [...cur, { id, name: "", schedule: "every 1h", prompt: "", enabled: false, createdAt: (/* @__PURE__ */ new Date()).toISOString() }]);
-    setSelectedId(id);
+    select(id);
   };
   const dropDraft = (id) => {
     setDrafts((cur) => cur.filter((j) => j.id !== id));
-    setSelectedId((cur) => cur === id ? null : cur);
+    if (selectedId === id) select(null);
   };
   const addButton = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: Plus, onClick: addJob, children: s.addJob });
   const toolbarFilters = [
@@ -822,8 +962,8 @@ function JobsSettings({ surface }) {
               destinations: destinations.data ?? [],
               models: models.data ?? [],
               selected: selectedId === job.id,
-              onSelect: () => setSelectedId(job.id),
-              onClose: () => setSelectedId(null),
+              onSelect: () => select(job.id),
+              onClose: () => select(null),
               onRemoved: dropDraft,
               onRefresh: refetch
             },
@@ -843,7 +983,13 @@ function JobsSettings({ surface }) {
         actions: surface === "deck" ? addButton : void 0
       }
     ),
-    isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: t.common.daemonUnreachable, onRetry: () => refetch() }) }) : isLoading || !data ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex min-w-0 flex-col gap-4", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceRegister, { className: "flex flex-col gap-4", children: rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.empty, icon: Clock, action: addButton }) : filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.emptySearch, icon: Search }) : table }) })
+    isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: t.common.daemonUnreachable, onRetry: () => refetch() }) }) : isLoading || !data ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
+      missingLink ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { role: "status", className: "flex flex-col gap-0.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-medium text-destructive", children: s.linkUnavailable }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-muted-foreground", children: s.linkUnavailableHint })
+      ] }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceRegister, { className: "flex flex-col gap-4", children: rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.empty, icon: Clock, action: addButton }) : filtered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.emptySearch, icon: Search }) : table })
+    ] })
   ] });
   if (surface === "deck") return surfaceDocument;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
