@@ -120,16 +120,32 @@ export class SiteRuntimeSupervisor {
      *
      *  Returns only once the endpoint accepts a connection, so "live" in the UI means the server is up
      *  rather than that a process was spawned. A start that never answers is stopped again and reported
-     *  with its own log tail, because a half-started runtime holding a port is worse than none. */
-    start(site) {
-        return this.serialize(site.id, () => this.startNow(site));
+     *  with its own log tail, because a half-started runtime holding a port is worse than none.
+     *
+     *  `authorized` marks the runtime conversion's own start. That operation owns the site's runtime at
+     *  the moment it runs, so it passes through the guard below rather than being stopped by it. */
+    start(site, options = {}) {
+        return this.serialize(site.id, () => this.startNow(site, options.authorized === true));
     }
-    async startNow(site) {
+    async startNow(site, authorized = false) {
         if (site.runtime !== 'command')
             return;
         if (!site.currentReleaseId)
             throw new Error('the site has no published release to run');
         if (this.isRunning(site.id))
+            return;
+        // THE SECOND ASK, and the one that actually decides.
+        //
+        // `reconcileNow` already skipped the suspended sites, but it read that list before awaiting the site
+        // ahead of this one, so a start queued from the stale list arrives here AFTER the conversion claimed
+        // the site. This check runs inside the per-site queue, once every earlier operation on this site has
+        // settled and before anything shared is touched, which is the only point where the answer cannot go
+        // stale between asking it and acting on it.
+        //
+        // Returning rather than throwing is deliberate: a suspended site has not failed, and reconcile
+        // records a thrown error as `status = 'failed'` — precisely the stale verdict that leaves a
+        // rolled-back site out of `liveCommandSites()` and therefore dark.
+        if (!authorized && this.deps.store.conversionSuspends(site.id) === 'legacy')
             return;
         await this.stopNow(site.id);
         const cwd = this.deps.releaseDir(site.id, site.currentReleaseId);
@@ -218,7 +234,9 @@ export class SiteRuntimeSupervisor {
                     await entry.release();
                 }
                 finally {
-                    if (entry.endpoint.kind === 'socket') {
+                    // Current ownership, not the captured endpoint: by the time a legacy process finally exits the
+                    // site may already be serving from a container that was handed this same broker directory.
+                    if (entry.endpoint.kind === 'socket' && this.ownsBrokerDirectory(site.id)) {
                         try {
                             await gateway?.removeRuntimeSocket(site.id);
                         }
@@ -325,12 +343,23 @@ export class SiteRuntimeSupervisor {
         }
         clearInterval(entry.heartbeat);
         await entry.release();
-        if (entry.endpoint.kind === 'socket') {
+        if (entry.endpoint.kind === 'socket' && this.ownsBrokerDirectory(siteId)) {
             if (!gateway)
                 throw new Error('the published-sites socket broker is unavailable during cleanup');
             await gateway.removeRuntimeSocket(siteId);
         }
         this.running.delete(siteId);
+    }
+    /** Whether the broker directory is still THIS runtime's to remove, asked of the site as it is NOW.
+     *
+     *  The `Running` entry records what was true when the process started, and a conversion moves the site
+     *  out from under it: the flip points the same site id at a container that is handed the very same
+     *  broker directory. A stop or a late exit that trusted the captured entry would then delete a
+     *  directory the container owns, and Podman fails to create or start it with a bare statfs error that
+     *  names a path nobody expected anything to have removed. */
+    ownsBrokerDirectory(siteId) {
+        const site = this.deps.store.siteById(siteId);
+        return site !== null && site.runtime === 'command' && site.bind === 'socket';
     }
     signalGroup(pid, signal) {
         try {
@@ -359,7 +388,16 @@ export class SiteRuntimeSupervisor {
         return run;
     }
     async reconcileNow() {
+        // FIRST ASK: skip the sites a conversion is holding down, so the sweep does not queue work for them
+        // at all. This is the cheap layer and it is not sufficient on its own — the authoritative check is
+        // inside `startNow`, because this list is read once and then awaited site by site.
+        const suspended = this.deps.store.conversionSuspensions();
         for (const site of this.deps.store.liveCommandSites()) {
+            // A half-converted site still says `command` and `live`, so it is in this list and simply looks
+            // like one that is not running. Starting it would put a second writer on the tree being captured
+            // and a second holder on the broker directory the container is being built around.
+            if (suspended.get(site.id) === 'legacy')
+                continue;
             const running = this.running.get(site.id);
             if (running
                 && running.releaseId === site.currentReleaseId

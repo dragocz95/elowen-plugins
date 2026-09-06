@@ -213,7 +213,13 @@ const harness = (options = {}) => {
       containerLive = false;
     },
     removeStaged: plainRemove,
-    startLegacyRuntime: async (site) => { calls.startLegacy.push(site.id); running = true; },
+    startLegacyRuntime: async (site) => {
+      calls.startLegacy.push(site.id);
+      // The real supervisor only resolves once the endpoint answers, so a rejection here is what a
+      // legacy runtime that will not come up looks like to the conversion.
+      if (options.startLegacyFails) throw new Error('the legacy runtime did not answer');
+      running = true;
+    },
     resolveLegacyData: async (site) => {
       calls.resolveLegacyData.push(site.id);
       if (options.noLegacyHome) return null;
@@ -2473,5 +2479,183 @@ test('I2 a failed restore leaves the container intact so a retry can export agai
     await h.service.rollback(SITE_ID);
     assert.equal(h.store.siteById(SITE_ID).runtime, 'command');
     assert.deepEqual(h.calls.discardContainer, [SITE_ID], 'discarded only once the data was back');
+  } finally { h.cleanup(); }
+});
+
+// --- Periodic reconciliation during a conversion --------------------------------------------------
+//
+// The whole operation runs against a live daemon whose two reconcilers tick every five seconds. These
+// drive an ACTUAL reconciler tick from inside the awaits the conversion is sitting in, against the same
+// real store, which is where the production incident happened: the row is still `command` and `live`
+// while the process is deliberately down, and still `environment` and `live` while the container is
+// deliberately down.
+
+test('X1 a reconciler tick during the capture does not respawn the legacy runtime', async () => {
+  const h = harness({ legacyRunning: true });
+  const observed = [];
+  try {
+    h.store.insertSite(legacySite({ runtime: 'command', startCommand: 'node server.mjs' }));
+    h.store.insertRelease(release());
+    h.seedRelease(SITE_ID, RELEASE_ID, { 'server.mjs': 'run()' });
+    mkdirSync(join(h.legacyHome, '.local/share/this-app'), { recursive: true });
+    writeFileSync(join(h.legacyHome, '.local/share/this-app/data.db'), 'ROWS');
+
+    // The barrier: the tick happens while the conversion is INSIDE the capture, holding the quiesced
+    // window open. This is the exact moment the production flip failed.
+    const capture = h.deps.captureLegacyData;
+    h.deps.captureLegacyData = async (siteId, selection) => {
+      observed.push({ at: 'capture', suspends: h.store.conversionSuspends(siteId) });
+      return capture(siteId, selection);
+    };
+    const load = h.deps.loadDataVolume;
+    h.deps.loadDataVolume = async (site, seed) => {
+      observed.push({ at: 'volume-load', suspends: h.store.conversionSuspends(site.id) });
+      return load(site, seed);
+    };
+
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+
+    // Throughout both awaits the durable answer was the same, and it is what every reconciler consults.
+    assert.deepEqual(observed, [
+      { at: 'capture', suspends: 'legacy' },
+      { at: 'volume-load', suspends: 'legacy' },
+    ]);
+    // The site is in `liveCommandSites()` for that whole window: it is not missing from the sweep, it
+    // is simply protected inside it.
+    assert.equal(h.store.siteById(SITE_ID).runtime, 'environment');
+    assert.equal(h.store.conversionSuspends(SITE_ID), null, 'and the flip released it');
+  } finally { h.cleanup(); }
+});
+
+test('X2 the quiesced legacy site is still returned by the live-command query it is protected inside', async () => {
+  const h = harness({ legacyRunning: true });
+  try {
+    h.store.insertSite(legacySite({ runtime: 'command', startCommand: 'node server.mjs' }));
+    h.store.insertRelease(release());
+    h.seedRelease(SITE_ID, RELEASE_ID, { 'server.mjs': 'run()' });
+    mkdirSync(join(h.legacyHome, '.local/share/this-app'), { recursive: true });
+    writeFileSync(join(h.legacyHome, '.local/share/this-app/data.db'), 'ROWS');
+
+    let seen = null;
+    const capture = h.deps.captureLegacyData;
+    h.deps.captureLegacyData = async (siteId, selection) => {
+      seen = {
+        inLiveQuery: h.store.liveCommandSites().some((s) => s.id === siteId),
+        suspends: h.store.conversionSuspends(siteId),
+        suspensions: [...h.store.conversionSuspensions()],
+      };
+      return capture(siteId, selection);
+    };
+
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+
+    // Deliberately NOT filtered out of the query. The runtime column is what the whole serving path
+    // dispatches on, so a conversion must not edit it early to hide the site; ownership is a separate,
+    // durable answer laid over the same row.
+    assert.equal(seen.inLiveQuery, true);
+    assert.equal(seen.suspends, 'legacy');
+    assert.deepEqual(seen.suspensions, [[SITE_ID, 'legacy']]);
+  } finally { h.cleanup(); }
+});
+
+test('X3 the container stays owned across the whole rollback export window', async () => {
+  const h = harness({ legacyRunning: true, containerWrote: true });
+  const observed = [];
+  try {
+    h.store.insertSite(legacySite({ runtime: 'command', startCommand: 'node server.mjs' }));
+    h.store.insertRelease(release());
+    h.seedRelease(SITE_ID, RELEASE_ID, { 'server.mjs': 'run()' });
+    mkdirSync(join(h.legacyHome, '.local/share/this-app'), { recursive: true });
+    writeFileSync(join(h.legacyHome, '.local/share/this-app/data.db'), 'ROWS');
+
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+    assert.equal(h.store.conversionSuspends(SITE_ID), null, 'a flipped container is meant to be running');
+
+    // The marker must already be durable INSIDE the stop, not written after it: the tick that resurrects
+    // the container arrives between the stop and the export.
+    const stop = h.deps.stopContainer;
+    h.deps.stopContainer = async (siteId) => {
+      observed.push({ at: 'stop', suspends: h.store.conversionSuspends(siteId) });
+      return stop(siteId);
+    };
+    const exportVolume = h.deps.exportDataVolume;
+    h.deps.exportDataVolume = async (site, output) => {
+      observed.push({ at: 'export', suspends: h.store.conversionSuspends(site.id) });
+      return exportVolume(site, output);
+    };
+    const restore = h.deps.restoreLegacyData;
+    h.deps.restoreLegacyData = async (selection, archive, siteId) => {
+      observed.push({ at: 'restore', suspends: h.store.conversionSuspends(siteId) });
+      return restore(selection, archive, siteId);
+    };
+
+    await h.service.rollback(SITE_ID, { restoreData: true });
+
+    assert.deepEqual(observed, [
+      { at: 'stop', suspends: 'environment' },
+      { at: 'export', suspends: 'environment' },
+      { at: 'restore', suspends: 'environment' },
+    ]);
+    assert.equal(h.store.runtimeMigration(SITE_ID), null, 'and the finished rollback released it');
+  } finally { h.cleanup(); }
+});
+
+test('X4 a rollback publishes the site as serving only after the legacy start was proven', async () => {
+  const h = harness({ legacyRunning: true, containerWrote: true });
+  try {
+    h.store.insertSite(legacySite({ runtime: 'command', startCommand: 'node server.mjs' }));
+    h.store.insertRelease(release());
+    h.seedRelease(SITE_ID, RELEASE_ID, { 'server.mjs': 'run()' });
+    mkdirSync(join(h.legacyHome, '.local/share/this-app'), { recursive: true });
+    writeFileSync(join(h.legacyHome, '.local/share/this-app/data.db'), 'ROWS');
+
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+
+    // The reconciler wrote this verdict while the conversion held the site: a site left `failed` is
+    // absent from `liveCommandSites()` and therefore dark for good, even once the rollback finishes.
+    h.store.updateSite(SITE_ID, { status: 'failed', lastError: 'left over from the reconciler' });
+
+    let statusAtStart = null;
+    const startLegacy = h.deps.startLegacyRuntime;
+    h.deps.startLegacyRuntime = async (site) => {
+      statusAtStart = h.store.siteById(site.id).status;
+      return startLegacy(site);
+    };
+
+    await h.service.rollback(SITE_ID, { restoreData: true });
+
+    assert.equal(statusAtStart, 'failed', 'nothing was published before the start was awaited');
+    const settled = h.store.siteById(SITE_ID);
+    assert.equal(settled.status, 'live', 'and the stale verdict was cleared once it answered');
+    assert.equal(settled.lastError, null);
+    assert.equal(settled.runtime, 'command');
+    assert.equal(h.store.liveCommandSites().some((s) => s.id === SITE_ID), true, 'the site is serving again');
+  } finally { h.cleanup(); }
+});
+
+test('X4 a rollback whose legacy start fails never reports the site as serving', async () => {
+  const h = harness({ legacyRunning: true, containerWrote: true, startLegacyFails: true });
+  try {
+    h.store.insertSite(legacySite({ runtime: 'command', startCommand: 'node server.mjs' }));
+    h.store.insertRelease(release());
+    h.seedRelease(SITE_ID, RELEASE_ID, { 'server.mjs': 'run()' });
+    mkdirSync(join(h.legacyHome, '.local/share/this-app'), { recursive: true });
+    writeFileSync(join(h.legacyHome, '.local/share/this-app/data.db'), 'ROWS');
+
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+    h.store.updateSite(SITE_ID, { status: 'failed', lastError: 'the legacy runtime will not come up' });
+
+    await assert.rejects(() => h.service.rollback(SITE_ID, { restoreData: true }));
+
+    // Never reported as serving, and never left failed WITHOUT a reason: the revert clears the old
+    // message because the runtime column moved back, so the start's own failure has to take its place.
+    const settled = h.store.siteById(SITE_ID);
+    assert.equal(settled.status, 'failed');
+    assert.equal(settled.lastError, 'the legacy runtime did not answer');
   } finally { h.cleanup(); }
 });

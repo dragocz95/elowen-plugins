@@ -353,10 +353,15 @@ function supervisorHarness(t, { statuses = [null], sealed = false, connectReady 
   const releases = [];
   let action = null;
   let execLease = null;
+  // What a conversion is holding down, mirroring the derived answer the real store computes from its
+  // durable migration row. Settable so a test can put the site under conversion mid-flight.
+  const suspension = { value: null };
   const store = {
     siteById: () => desired,
     liveEnvironmentSites: () => [desired],
     environmentSitesForReconcile: () => [desired],
+    conversionSuspends: (siteId) => (siteId === desired.id ? suspension.value : null),
+    conversionSuspensions: () => (suspension.value ? new Map([[desired.id, suspension.value]]) : new Map()),
     updateSite: (_id, patch) => Object.assign(desired, patch),
     insertRelease: (release) => releases.unshift(release),
     deleteRelease: (_siteId, releaseId) => {
@@ -422,7 +427,7 @@ function supervisorHarness(t, { statuses = [null], sealed = false, connectReady 
     try { chmodSync(brokerDir, 0o730); } catch {}
     rmSync(root, { recursive: true, force: true });
   });
-  return { supervisor, lifecycle, calls, socketPath, brokerDir, site: desired, store, releases, podman, root };
+  return { supervisor, lifecycle, calls, socketPath, brokerDir, site: desired, store, releases, podman, root, suspension };
 }
 
 test('environment start performs the direct broker sequence and never uses restart', async (t) => {
@@ -1700,4 +1705,65 @@ test('environment requests use the environment endpoint without the host CSP', a
   assert.equal(response.status, 200);
   assert.equal(response.headers['content-security-policy'], 'app-policy');
   assert.equal(response.headers['cache-control'], 'public, max-age=0');
+});
+
+// --- Runtime conversion ownership ----------------------------------------------------------------
+//
+// A rollback stops the container to export its volume consistently. The row still says `environment`
+// and `live` for that whole window, so to the periodic reconcile the container looks exactly like one
+// that should be up and is not. Starting it again puts a writer back on the volume being exported and
+// lets it diverge from the archive that has already become authoritative.
+
+test('a periodic reconcile does not restart a container a rollback quiesced for export', async (t) => {
+  const { supervisor, calls, suspension } = supervisorHarness(t, { statuses: ['exited'] });
+  suspension.value = 'environment';
+
+  await supervisor.reconcile();
+
+  assert.deepEqual(calls.filter(([name]) => name === 'start' || name === 'create'), [], 'nothing was started');
+});
+
+test('the fleet backstop does not restart a quiesced container either, and drops its endpoint', async (t) => {
+  const { supervisor, calls, site, suspension } = supervisorHarness(t, { statuses: ['running'] });
+  await supervisor.start(site);
+  assert.notEqual(supervisor.endpointFor(site.id), null);
+  calls.length = 0;
+
+  // `backstop` is a second, independent sweep: it asks Podman for the whole fleet and restarts anything
+  // not running, which is precisely what a deliberately quiesced container looks like.
+  suspension.value = 'environment';
+  await supervisor.backstop();
+
+  assert.deepEqual(calls.filter(([name]) => name === 'start' || name === 'create'), []);
+  assert.equal(supervisor.endpointFor(site.id), null, 'nothing keeps routing to the stopped container');
+});
+
+test('the conversion own start passes through the guard it owns', async (t) => {
+  const { supervisor, calls, site, suspension } = supervisorHarness(t, { statuses: ['exited'] });
+  suspension.value = 'environment';
+
+  // The flip starts the container it prepared. That operation is the marker's owner, so it must not be
+  // refused by its own guard; every other caller is.
+  await supervisor.start(site, { authorized: true });
+
+  assert.equal(calls.some(([name]) => name === 'start'), true, 'the authorized start ran');
+});
+
+test('a durable action does not run against a container a rollback is holding down', async (t) => {
+  const { supervisor, calls, site, store, suspension } = supervisorHarness(t, { statuses: ['exited'] });
+  // A snapshot can be requested while a conversion is in flight, and the action branch runs BEFORE the
+  // start branch: without the list-level skip, reconcile pauses and commits a container whose volume a
+  // rollback has already exported, writing a snapshot of state that is about to be thrown away.
+  store.putEnvironmentAction({
+    siteId: site.id, kind: 'snapshot', snapshotId: 'snap-during-rollback', includeData: true,
+    note: '', model: 'm', requestedAt: new Date().toISOString(), lastError: null,
+  });
+  suspension.value = 'environment';
+
+  await supervisor.reconcile();
+
+  assert.deepEqual(calls.filter(([name]) => ['pause', 'commit', 'volume-export', 'start'].includes(name)), []);
+  // Deferred and still clean. Attempting it under the rollback fails it instead, which both loses the
+  // request and writes an error the operator did not cause.
+  assert.equal(store.environmentAction(site.id)?.lastError, null, 'the action is deferred, not failed');
 });

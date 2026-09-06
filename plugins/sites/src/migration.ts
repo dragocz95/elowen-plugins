@@ -571,9 +571,16 @@ export class RuntimeMigrationService {
       // the discard may already have removed, which is how a retry used to silently lose every write the
       // container made.
       let carried = migration.rollbackArchive;
-      if (carryData && migration.rollbackStage === 'none') {
+      if (carryData && (migration.rollbackStage === 'none' || migration.rollbackStage === 'quiescing')) {
         // DEFECT 1: QUIESCE FIRST. The container is still serving and still writing; exporting its volume
         // live captures a torn SQLite page, exactly the fault the legacy quiesce exists to prevent.
+        //
+        // The marker is recorded BEFORE the stop, the same discipline `legacyStopped` follows. The row
+        // says `environment` and `live` for this whole window, so a periodic reconcile that arrives
+        // between the stop and the export sees a container it believes should be up and starts it again.
+        // Recorded first, a crash in the gap leaves a marker for a container that may still be running,
+        // which the retry resolves harmlessly; the other order leaves a stopped container nobody owns.
+        this.deps.store.recordRollbackProgress(siteId, 'quiescing');
         await this.deps.stopContainer(siteId);
         if (!await this.deps.containerStopped(siteId)) {
           throw new Error('the environment container is still running, so its data cannot be exported consistently');
@@ -581,7 +588,8 @@ export class RuntimeMigrationService {
         const output = this.deps.artifactPath(siteId, 'rollback-data.tar');
         carried = await this.deps.exportDataVolume(site, output) ? output : null;
         this.deps.store.recordRollbackProgress(siteId, 'exported', carried);
-      } else if (!carryData && migration.rollbackStage === 'none') {
+      } else if (!carryData && (migration.rollbackStage === 'none' || migration.rollbackStage === 'quiescing')) {
+        this.deps.store.recordRollbackProgress(siteId, 'quiescing');
         await this.deps.stopContainer(siteId);
         this.deps.store.recordRollbackProgress(siteId, 'exported', null);
         carried = null;
@@ -626,8 +634,15 @@ export class RuntimeMigrationService {
         throw new Error('the site runtime could not be restored');
       }
       const restored = this.deps.store.siteById(siteId);
-      if (restored?.runtime === 'command') await this.deps.startLegacyRuntime(restored);
+      // The start is AWAITED and it only returns once the endpoint actually answers, so reaching the line
+      // below is the proof that the legacy runtime is serving again.
+      if (restored?.runtime === 'command') await this.startRestoredLegacy(restored);
       this.deps.store.markLegacyStopped(siteId, false);
+      // ONLY NOW. While the conversion held this site, a periodic reconcile may have written `failed` and
+      // an error onto the row, and a site left `failed` is absent from `liveCommandSites()` and therefore
+      // dark for good. That stale verdict is cleared here, after readiness was proven and never before
+      // it: a failure above throws, and an error that is real has to survive.
+      this.deps.store.completeRuntimeRollback(siteId);
     } else {
       // Never flipped, so the container never owned anything and there is nothing to carry back.
       //
@@ -643,8 +658,11 @@ export class RuntimeMigrationService {
       // rollback that walked away from that would leave the site dark for good.
       if (migration.legacyStopped) {
         const legacy = this.deps.store.siteById(siteId);
-        if (legacy?.runtime === 'command') await this.deps.startLegacyRuntime(legacy);
+        if (legacy?.runtime === 'command') await this.startRestoredLegacy(legacy);
         this.deps.store.markLegacyStopped(siteId, false);
+        // Same rule as the flipped branch: the awaited start is the evidence, and only evidence clears a
+        // status the reconciler wrote while this site was held down.
+        this.deps.store.completeRuntimeRollback(siteId);
       }
     }
 
@@ -652,6 +670,23 @@ export class RuntimeMigrationService {
     this.deps.discardArtifacts(siteId);
     this.deps.store.clearRuntimeMigration(siteId);
     return this.status(siteId);
+  }
+
+  /** Start the legacy runtime a rollback has just restored, and make a failure VISIBLE on the site.
+   *
+   *  The revert clears `last_error` because the runtime column is moving back and the old message
+   *  described the other side. If the start then fails and nothing records why, the site is left
+   *  `failed` with no reason at all: an operator sees a dark site and no explanation, which is worse
+   *  than the stale verdict this whole path exists to clean up. The error is written before it is
+   *  rethrown, so the caller still sees the rollback fail. */
+  private async startRestoredLegacy(site: Site): Promise<void> {
+    try {
+      await this.deps.startLegacyRuntime(site);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
+      throw error;
+    }
   }
 
   /** Settle conversions a restart interrupted, so no slot stays owned by a driver that no longer exists
@@ -711,11 +746,13 @@ export class RuntimeMigrationService {
       this.deps.store.markLegacyStopped(migration.siteId, false);
       return 'restarted';
     } catch (error) {
-      // Left marked, so the next boot tries again rather than forgetting a dark site.
       this.deps.store.failRuntimeMigration(
         migration.siteId,
         `the legacy runtime could not be restarted after an interrupted conversion: ${error instanceof Error ? error.message : String(error)}`,
       );
+      // Left marked, so the next boot tries again rather than forgetting a dark site. Recording the
+      // failure above is what releases the reconcile guard: an unowned slot no longer holds the site
+      // down, so the ordinary sweep takes over the restart while this marker keeps the debt recorded.
       return 'failed';
     }
   }

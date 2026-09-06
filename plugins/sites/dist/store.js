@@ -1,7 +1,45 @@
 export const VISIBILITIES = ['private', 'project', 'authenticated', 'public'];
 const asMigrationStage = (value) => value === 'prepared' || value === 'flipped' ? value : 'preparing';
 const asConvertibleRuntime = (value) => value === 'static' || value === 'command' || value === 'php' ? value : null;
-const asRollbackStage = (value) => value === 'exported' || value === 'discarded' || value === 'restored' ? value : 'none';
+const asRollbackStage = (value) => value === 'quiescing' || value === 'exported' || value === 'discarded' || value === 'restored' ? value : 'none';
+/** Which runtime a conversion currently holds down, so that periodic reconciliation leaves it alone.
+ *
+ *  DERIVED, never a separate flag, so there is one source of truth and nothing to forget to clear. It is
+ *  also deliberately NOT "a conversion row exists": a slot that failed mid-stage keeps its row so the
+ *  site can be retried or rolled back, and treating that as ownership would quiesce the site forever.
+ *  Ownership therefore lasts exactly as long as the durable evidence that this operation took a runtime
+ *  down and still owes it something.
+ *
+ *  - `legacy`: the conversion stopped the command process and has not replaced it. The row still says
+ *    `command` and `live`, so the site is in `liveCommandSites()` and looks like one that simply is not
+ *    running. Restarting it puts a second writer on the tree being captured and a second holder on the
+ *    broker directory the container is being built around.
+ *  - `environment`: a rollback quiesced the container to export its volume. The row still says
+ *    `environment` and `live`, so reconcile reads a stopped container it believes should be up.
+ *
+ *  A `flipped` conversion whose rollback has not started owns nothing: the container is genuinely meant
+ *  to be running and its own supervisor should keep it that way.
+ *
+ *  The two sides END their ownership differently, because the safe fallback differs.
+ *
+ *  Legacy ownership additionally requires `last_error IS NULL`, the convention this row already uses for
+ *  "a driver owns this slot right now". Once a stage records its failure nobody is driving, and the safe
+ *  fallback is precisely what the ordinary reconcile does: start a live command site that is not
+ *  running. Holding the guard past the failure is what would leave a site dark until the next boot, so
+ *  the failure itself is what hands the runtime back. The `legacy_stopped` marker still stands, because
+ *  it records a debt boot recovery must settle and a retry must refuse to flip over.
+ *
+ *  Environment ownership does NOT clear on failure, and must not. By then the volume has been exported
+ *  and a restore is pending; starting the container again would let it write over data that the rollback
+ *  is about to carry back, and diverge from the archive that is now authoritative. There is no safe
+ *  automatic fallback, so the container stays down until the rollback is resumed and finishes it. */
+const suspensionOf = (row) => {
+    const stage = asMigrationStage(row.stage);
+    if (stage !== 'flipped')
+        return row.legacy_stopped === 1 && row.last_error === null ? 'legacy' : null;
+    const rollback = asRollbackStage(row.rollback_stage);
+    return rollback === 'quiescing' || rollback === 'exported' || rollback === 'restored' ? 'environment' : null;
+};
 const asVisibility = (value) => VISIBILITIES.includes(value) ? value : 'private';
 const asStatus = (value) => value === 'live' || value === 'failed' || value === 'deleting' ? value : 'draft';
 const asRuntime = (value) => {
@@ -629,6 +667,34 @@ export class SitesStore {
             .get(siteId);
         return row ? toRuntimeMigration(row) : null;
     }
+    /** Which runtime a conversion is holding down for THIS site right now, or null when it holds none.
+     *
+     *  The one question both supervisors ask. It is answered from the durable row rather than from memory
+     *  because the two supervisors have separate per-site queues and cannot see each other's work: the
+     *  command supervisor stopping a legacy process and the environment supervisor building the container
+     *  that replaces it are, to each other, invisible.
+     *
+     *  Asked TWICE per operation on purpose. Filtering a reconcile sweep is not enough by itself: a sweep
+     *  reads its site list, then awaits, and a start queued from that stale list runs after the conversion
+     *  has claimed the site. The second ask happens inside the per-site queue, immediately before the
+     *  process is spawned or the container is touched, which is the only point where the answer cannot go
+     *  stale before it is used. */
+    conversionSuspends(siteId) {
+        const row = this.db.prepare('SELECT * FROM p_sites_runtime_migrations WHERE site_id = ?')
+            .get(siteId);
+        return row ? suspensionOf(row) : null;
+    }
+    /** The same answer for every site at once, so a reconcile sweep costs one query rather than one per
+     *  site. Only sites a conversion actually holds down appear. */
+    conversionSuspensions() {
+        const suspended = new Map();
+        for (const row of this.db.prepare('SELECT * FROM p_sites_runtime_migrations').all()) {
+            const suspension = suspensionOf(row);
+            if (suspension)
+                suspended.set(row.site_id, suspension);
+        }
+        return suspended;
+    }
     /** Every conversion the daemon still owes work on, oldest first — what boot resume walks. */
     runtimeMigrations() {
         return this.db.prepare('SELECT * FROM p_sites_runtime_migrations ORDER BY requested_at')
@@ -781,6 +847,22 @@ export class SitesStore {
         WHERE id = ?
       `).run(from, row.from_start_command, row.from_bind, row.from_port, row.from_release_id, new Date().toISOString(), siteId).changes === 1;
         });
+    }
+    /** Publish a rolled-back site as serving again, and ONLY then.
+     *
+     *  Separate from {@link revertSiteRuntimeFromMigration} because the two answer different questions. The
+     *  revert moves the runtime column; this one asserts the site actually answers, so it may run only
+     *  after a legacy start has been awaited and proven. While a conversion held the site down the periodic
+     *  reconcile may have written `failed` and an error onto the row, and that stale verdict is what this
+     *  clears — a site left `failed` is absent from `liveCommandSites()` and therefore dark for good.
+     *
+     *  Refuses a site that is still an environment, so a rollback that never finished its revert cannot
+     *  report success. Never called on a failure path: an error that is real has to survive. */
+    completeRuntimeRollback(siteId) {
+        return this.db.prepare(`
+      UPDATE p_sites_sites SET status = 'live', last_error = NULL, updated_at = ?
+      WHERE id = ? AND runtime <> 'environment' AND status <> 'deleting'
+    `).run(new Date().toISOString(), siteId).changes === 1;
     }
     /** Drop the slot. Called only once the site is settled on one side or the other, because until then
      *  this row is the sole record of how to get back. */

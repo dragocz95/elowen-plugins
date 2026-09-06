@@ -204,16 +204,21 @@ export function register(published) {
     /** Runtime conversion, wired to the SAME supervisors that serve production.
      *
      *  The legacy stop and the running check are the real `SiteRuntimeSupervisor`, because nothing else in
-     *  the plugin will ever stop a converted site's process: `reconcile` walks `liveCommandSites()`, and a
-     *  flipped row has already left that set. The container side is the real `EnvironmentSupervisor`, so a
-     *  converted site is created, sized and started by exactly the code path a native environment uses. */
+     *  the plugin will ever stop a converted site's process. The container side is the real
+     *  `EnvironmentSupervisor`, so a converted site is created, sized and started by exactly the code path
+     *  a native environment uses.
+     *
+     *  Both starts below are AUTHORIZED. A conversion holds a site's runtime down through a durable marker
+     *  that both supervisors consult before they start anything, and this operation is the one that owns
+     *  that marker: it must pass through its own guard rather than be refused by it. Every other caller,
+     *  including the periodic reconcile of either runtime, goes through unauthorized and is held off. */
     const migration = new RuntimeMigrationService({
         store,
         siteDir,
         releaseDir,
         stopLegacyRuntime: (siteId) => supervisor.stop(siteId),
         legacyRunning: (siteId) => supervisor.isRunning(siteId),
-        startLegacyRuntime: async (site) => { await supervisor.start(site); },
+        startLegacyRuntime: async (site) => { await supervisor.start(site, { authorized: true }); },
         loadRecipe: (siteId) => loadAppRecipe(migrationArtifactDir(siteDir(siteId))),
         recipeBinding: (siteId) => recipeBinding(migrationArtifactDir(siteDir(siteId))),
         installRecipe: (siteId, input) => installAppRecipe(migrationArtifactDir(siteDir(siteId)), input),
@@ -223,7 +228,7 @@ export function register(published) {
             const image = await ensureConversionImage(podman, dataDir, recipe.image);
             await environment.prepareContainer(site, workspace, image, recipe.image === 'static');
         },
-        startEnvironment: (site) => environment.start(site),
+        startEnvironment: (site) => environment.start(site, { authorized: true }),
         stopContainer: (siteId) => environment.quiesce(siteId),
         containerStopped: (siteId) => environment.isStopped(siteId),
         inspectOwnership: (siteId, expect) => environment.inspectOwnership(siteId, expect),

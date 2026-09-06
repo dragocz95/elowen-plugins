@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createServer as createNetServer } from 'node:net';
@@ -82,7 +82,7 @@ test('socket runtime keeps the configured network policy and answers through the
   };
   const supervisor = new SiteRuntimeSupervisor({
     ctx,
-    store: { liveCommandSites: () => [], siteById: () => site(releaseId) },
+    store: { liveCommandSites: () => [], siteById: () => site(releaseId), conversionSuspends: () => null, conversionSuspensions: () => new Map() },
     config: () => ({ startTimeoutSeconds: 5, runtimeNetwork: 'isolated', allowLoopbackPorts: false, loopbackPortMin: 41000, loopbackPortMax: 41999 }),
     siteDir: () => root,
     releaseDir: () => release,
@@ -137,7 +137,7 @@ test('shared loopback runtime loads .env without letting it replace host-owned v
   };
   const supervisor = new SiteRuntimeSupervisor({
     ctx,
-    store: { liveCommandSites: () => [], siteById: () => null, portsInUse: () => [] },
+    store: { liveCommandSites: () => [], siteById: () => null, portsInUse: () => [], conversionSuspends: () => null, conversionSuspensions: () => new Map() },
     config: () => ({ startTimeoutSeconds: 5, runtimeNetwork: 'shared', allowLoopbackPorts: true, loopbackPortMin: 45100, loopbackPortMax: 45199 }),
     siteDir: () => root,
     releaseDir: () => release,
@@ -248,7 +248,7 @@ test('unexpected exit cleanup cannot delete a replacement runtime socket', async
   };
   const supervisor = new SiteRuntimeSupervisor({
     ctx,
-    store: { liveCommandSites: () => [], siteById: () => current },
+    store: { liveCommandSites: () => [], siteById: () => current, conversionSuspends: () => null, conversionSuspensions: () => new Map() },
     config: () => ({ startTimeoutSeconds: 5, runtimeNetwork: 'isolated', allowLoopbackPorts: false, loopbackPortMin: 41000, loopbackPortMax: 41999 }),
     siteDir: () => root,
     releaseDir: (_siteId, releaseId) => releases.get(releaseId),
@@ -266,4 +266,165 @@ test('unexpected exit cleanup cannot delete a replacement runtime socket', async
   assert.equal(supervisor.isRunning(SITE_ID), true);
   assert.equal(lstatSync(socketPath).isSocket(), true);
   await supervisor.stop(SITE_ID);
+});
+
+// --- Runtime conversion ownership -----------------------------------------------------------------
+//
+// A conversion stops a legacy process, then spends minutes capturing its data and building the
+// container that replaces it. Throughout that window the row still says `command` and `live`, so the
+// site is in `liveCommandSites()` and looks to the five-second reconcile exactly like one that simply
+// is not running. Restarting it puts a second writer on the tree being captured and a second holder on
+// the broker directory the container is being built around.
+
+/** A supervisor over a REAL store, with the spawn seam recorded rather than stubbed out. */
+const ownershipHarness = async (t, { suspends = null, siteOverrides = {} } = {}) => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-runtime-own-'));
+  const release = join(root, 'release');
+  mkdirSync(release, { recursive: true });
+  writeFileSync(join(release, 'server.mjs'), `
+    import http from 'node:http';
+    http.createServer((_req, res) => res.end('ok')).listen(process.env.SOCKET_PATH);
+  `);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const socketPath = join(root, 'broker', 'app.sock');
+  const spawns = [];
+  const removals = [];
+  const current = site('rel-own', siteOverrides);
+  /** Mirrors the derived answer the real store computes from its durable conversion row. */
+  const suspension = { value: suspends };
+
+  const sandbox = {
+    prepareExecution: async (_input, options) => {
+      spawns.push(Date.now());
+      return {
+        mode: 'confined', cwd: release, home: root, roots: options.roots, workspace: null,
+        launch: { type: 'argv', file: process.execPath, args: [join(release, 'server.mjs')], env: {} },
+        lease: { id: 'l', accountUserId: 7, workspaceId: null, homeGeneration: 1, heartbeat() {}, release() {} },
+      };
+    },
+  };
+  const gateway = {
+    async prepareRuntimeSocket() { mkdirSync(dirname(socketPath), { recursive: true }); return { path: socketPath }; },
+    async sealRuntimeSocket() {},
+    async removeRuntimeSocket(siteId) { removals.push(siteId); rmSync(dirname(socketPath), { recursive: true, force: true }); },
+  };
+  const supervisor = new SiteRuntimeSupervisor({
+    ctx: {
+      control(name) { return name === 'sandbox' ? sandbox : name === 'publishedSitesGateway' ? gateway : undefined; },
+      logger: { info() {}, warn() {}, error() {} },
+    },
+    store: {
+      liveCommandSites: () => [current],
+      siteById: () => current,
+      updateSite: (_id, patch) => Object.assign(current, patch),
+      conversionSuspends: (siteId) => (siteId === current.id ? suspension.value : null),
+      conversionSuspensions: () => (suspension.value ? new Map([[current.id, suspension.value]]) : new Map()),
+    },
+    config: () => ({ startTimeoutSeconds: 5, runtimeNetwork: 'isolated', allowLoopbackPorts: false, loopbackPortMin: 41000, loopbackPortMax: 41999 }),
+    siteDir: () => root,
+    releaseDir: () => release,
+  });
+  return { supervisor, spawns, removals, current, suspension, socketPath, release };
+};
+
+test('a periodic reconcile does not respawn a legacy runtime a conversion is holding down', async (t) => {
+  const h = await ownershipHarness(t, { suspends: 'legacy' });
+
+  await h.supervisor.reconcile();
+
+  assert.deepEqual(h.spawns, [], 'nothing was started under the conversion');
+  assert.equal(h.supervisor.isRunning(SITE_ID), false);
+  // Not a failure: reconcile records a thrown error as `status = 'failed'`, and a site left failed drops
+  // out of `liveCommandSites()` and stays dark even after the conversion releases it.
+  assert.equal(h.current.status, 'live');
+  assert.equal(h.current.lastError, null);
+});
+
+test('a start queued BEFORE the conversion claimed the site does not execute after it', async (t) => {
+  const h = await ownershipHarness(t);
+
+  // The barrier stands in for the site the sweep is already awaiting. The reconcile below reads its
+  // site list while the conversion has not claimed anything yet, so the start it queues is decided on
+  // a list that goes stale while it waits — which is why filtering the query cannot be the whole fix.
+  let releaseBarrier;
+  const barrier = new Promise((resolve) => { releaseBarrier = resolve; });
+  const queued = h.supervisor.start(h.current);
+  const behind = barrier.then(() => undefined);
+  void behind;
+
+  // The conversion claims the site and stops the legacy process AFTER the start was queued.
+  h.suspension.value = 'legacy';
+  releaseBarrier();
+  await queued;
+
+  assert.deepEqual(h.spawns, [], 'the stale start found the claim and stood down');
+  assert.equal(h.supervisor.isRunning(SITE_ID), false);
+});
+
+test('once the conversion records a failure the reconcile owns the runtime again', async (t) => {
+  const h = await ownershipHarness(t, { suspends: 'legacy' });
+  await h.supervisor.reconcile();
+  assert.deepEqual(h.spawns, []);
+
+  // A failed stage releases the guard: nobody is driving the slot, and starting a live command site
+  // that is not running is precisely the reconcile's ordinary job. A guard that outlived the failure
+  // would leave the site dark until the next daemon boot.
+  h.suspension.value = null;
+
+  await h.supervisor.reconcile();
+  assert.equal(h.spawns.length, 1, 'the ordinary sweep took the restart back');
+  assert.equal(h.supervisor.isRunning(SITE_ID), true);
+  await h.supervisor.stop(SITE_ID);
+});
+
+test('a legacy stop does not remove a broker directory the flipped environment now owns', async (t) => {
+  const h = await ownershipHarness(t);
+  await h.supervisor.start(h.current);
+  assert.equal(h.supervisor.isRunning(SITE_ID), true);
+  h.removals.length = 0;
+
+  // The flip points this same site id at a container, and the container is handed the SAME broker
+  // directory. The supervisor's `Running` entry still records a socket endpoint from before the flip.
+  h.current.runtime = 'environment';
+
+  await h.supervisor.stop(SITE_ID);
+
+  // Ownership is read from the site as it is NOW, not from the captured entry. Removing the directory
+  // here is what leaves Podman failing to create or start the container with a bare statfs error.
+  assert.deepEqual(h.removals, [], 'the container keeps the broker directory it now owns');
+  assert.equal(existsSync(dirname(h.socketPath)), true);
+  assert.equal(h.supervisor.isRunning(SITE_ID), false);
+});
+
+test('a legacy stop still removes the broker directory while the site is still a command site', async (t) => {
+  const h = await ownershipHarness(t);
+  await h.supervisor.start(h.current);
+  h.removals.length = 0;
+
+  await h.supervisor.stop(SITE_ID);
+
+  assert.deepEqual(h.removals, [SITE_ID], 'the ordinary cleanup is untouched');
+  assert.equal(existsSync(dirname(h.socketPath)), false);
+});
+
+test('the sweep leaves a suspended site alone even while its process is still up', async (t) => {
+  const h = await ownershipHarness(t);
+  await h.supervisor.start(h.current);
+  assert.equal(h.supervisor.isRunning(SITE_ID), true);
+  h.removals.length = 0;
+
+  // The real ordering: the conversion records the marker BEFORE it stops anything, so there is a window
+  // where the site is claimed and the legacy process is still up. A sweep arriving here reaches
+  // `if (running) await this.stop(...)` before it ever reaches the start guard, so without the
+  // list-level skip the reconciler stops the process out from under the conversion AND removes the
+  // broker socket, which is not something the start guard can undo.
+  h.suspension.value = 'legacy';
+  h.current.currentReleaseId = 'rel-changed';
+
+  await h.supervisor.reconcile();
+
+  assert.equal(h.supervisor.isRunning(SITE_ID), true, 'the conversion still owns its running process');
+  assert.deepEqual(h.removals, [], 'and its broker socket');
+  await h.supervisor.stop(SITE_ID);
 });

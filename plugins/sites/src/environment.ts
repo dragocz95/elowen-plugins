@@ -37,6 +37,7 @@ export interface EnvironmentDeps {
     'unpause' | 'commit' | 'exportVolume' | 'importVolume'>;
   store: Pick<SitesStore,
     'siteById' | 'environmentSitesForReconcile' | 'updateSite' | 'insertRelease' | 'deleteRelease' | 'releases' | 'release' |
+    'conversionSuspends' | 'conversionSuspensions' |
     'environmentAction' | 'tryBeginEnvironmentExec' | 'endEnvironmentExec' | 'completeEnvironmentRestart' |
     'completeEnvironmentAction' | 'updateEnvironmentActionError' | 'deleteEnvironmentAction'>;
   gateway: EnvironmentGateway;
@@ -638,13 +639,26 @@ export class EnvironmentSupervisor {
     }
   }
 
-  start(site: Site): Promise<void> {
+  /** `authorized` marks the runtime conversion's own start. The conversion owns this site's runtime at
+   *  the moment it runs, so it passes through the suspension guard rather than being stopped by it. */
+  start(site: Site, options: { authorized?: boolean } = {}): Promise<void> {
+    const authorized = options.authorized === true;
+    // Asked BEFORE the desired-state write, not only inside the queue: that write is itself a side
+    // effect, and a rollback that quiesced the container has already recorded that it must stay down.
+    if (!authorized && this.deps.store.conversionSuspends(site.id) === 'environment') return Promise.resolve();
     this.deps.store.updateSite(site.id, { environmentDesiredState: 'running' });
-    return this.serialize(site.id, () => this.startNow(site));
+    return this.serialize(site.id, () => this.startNow(site, undefined, false, authorized));
   }
 
-  private async startNow(site: Site, createImage?: string, volumePrepared = false): Promise<void> {
+  private async startNow(site: Site, createImage?: string, volumePrepared = false, authorized = false): Promise<void> {
     if (site.runtime !== 'environment') return;
+
+    // THE SECOND ASK, inside the per-site queue and immediately before the container is touched.
+    //
+    // A reconcile sweep reads its site list once and then awaits each site in turn, so a start queued
+    // from that stale list can arrive here after a rollback claimed the site and stopped its container.
+    // Restarting it mid-export is how a volume gets exported while it is being written.
+    if (!authorized && this.deps.store.conversionSuspends(site.id) === 'environment') return;
     this.detached = false;
     const name = containerName(site.id);
     let status = await this.deps.podman.inspectStatus(name);
@@ -935,7 +949,13 @@ export class EnvironmentSupervisor {
   }
 
   private async reconcileSites(sites: Site[]): Promise<void> {
+    // FIRST ASK: a rollback that quiesced this container recorded that it must stay down, but the row
+    // still says `environment` and `live`, so without this the sweep below reads a stopped container it
+    // believes should be up and starts it in the middle of the export. The authoritative check is in
+    // `startNow`; this one keeps the work from being queued at all.
+    const suspended = this.deps.store.conversionSuspensions();
     for (const site of sites) {
+      if (suspended.get(site.id) === 'environment') continue;
       const action = this.deps.store.environmentAction(site.id);
       // A durable action row is deleted only once its run COMPLETES, so a tick that arrives mid-restore
       // reads the same row and queues the identical rollback behind the one still working. The queue
@@ -1000,8 +1020,15 @@ export class EnvironmentSupervisor {
       const state = summary.state ?? summary.status ?? '';
       for (const name of names) states.set(name, state.toLowerCase());
     }
+    const suspended = this.deps.store.conversionSuspensions();
     for (const site of this.deps.store.environmentSitesForReconcile()) {
       const observed = states.get(containerName(site.id)) ?? 'missing';
+      // The fleet sweep restarts anything not running, which is exactly what a quiesced container looks
+      // like. Its endpoint is dropped so nothing keeps routing to it, but it is not started again.
+      if (suspended.get(site.id) === 'environment') {
+        this.endpoints.delete(site.id);
+        continue;
+      }
       if (this.deps.store.environmentAction(site.id)) {
         if (observed !== 'running') this.endpoints.delete(site.id);
         continue;
