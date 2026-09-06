@@ -161,6 +161,12 @@ export class PuppeteerCoreFactory implements BrowserProcessFactory {
         `--proxy-server=${options.proxyUrl}`,
         '--proxy-bypass-list=<-loopback>',
         '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1',
+        // `--host-resolver-rules` is on Chrome's bad-flags list, so every launch opened with a yellow
+        // "unsupported command-line flag … stability and security will suffer" bar across the page.
+        // `--test-type` is what skips that prompt (startup_browser_creator_impl.cc). Measured on this
+        // host at 1280x800: 143px of Chrome UI without it, 87px with it — the same 56px the automation
+        // infobar cost before `--enable-automation` was dropped above.
+        '--test-type',
         '--disable-quic',
         '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
         '--webrtc-ip-handling-policy=disable_non_proxied_udp',

@@ -285,14 +285,14 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.3.3, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.3.4, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
       version: string; userGrantable: boolean; entry: string;
       provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.3.3');
+    expect(manifest.version).toBe('0.3.4');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
     expect(manifest.provides.apiRoutes).toHaveLength(12);
@@ -318,6 +318,8 @@ describe('browser plugin contract', () => {
     const launcherSource = readFileSync(join(root, 'src', 'browser-launcher.ts'), 'utf8');
     expect(launcherSource).toContain('--proxy-bypass-list=<-loopback>');
     expect(launcherSource).toContain('--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1');
+    // The resolver rule is a bad flag in Chrome's eyes; without this the page opens under a warning bar.
+    expect(launcherSource).toContain("'--test-type'");
     expect(launcherSource).toContain('--disable-quic');
     // A real browser window, tab strip and address bar included. Kiosk would hide exactly the parts a
     // person taking over reaches for.
