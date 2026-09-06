@@ -115,7 +115,13 @@ interface RuntimeComponents {
 export interface BrowserRuntime {
   components: RuntimeComponents;
   hooks: RuntimeHooks;
-  utils: { apiErrorMessage(error: unknown): string };
+  utils: {
+    apiErrorMessage(error: unknown): string;
+    /** The host's own timestamp reading, used for the age of a session's last reply. Optional because
+     *  the panel must not break on a host that publishes neither: the age is then simply left out. */
+    parseTs?(value?: string | null): number | null;
+    compactElapsed?(ms: number): string;
+  };
   api(path: string, init?: RequestInit): Promise<unknown>;
 }
 

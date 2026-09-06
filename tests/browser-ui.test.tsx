@@ -1,5 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 // The live view's RFB client, aliased to a double for the whole runner (vitest.config.ts). The card
 // dials it, sets `viewOnly` from the lease and waits for its 'connect' event, and this is where a test
@@ -925,6 +927,52 @@ describe('browser plugin UI', () => {
     } finally {
       Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
     }
+  });
+
+  // The still says WHICH page is running; the reply says what the agent did with it. Both belong to the
+  // same record, and the reply is the only place that story reaches a reader who is not in the chat.
+  it('shows the agent\'s last reply under the still, clamped, with the whole text reachable', async () => {
+    const text = 'Signed in.\nBooked the 14:00 slot and saved the confirmation.\nline three\nline four\nline five';
+    use(
+      http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 2 })),
+      http.get('/api/plugins/browser/api/sessions', () => HttpResponse.json({
+        live: [
+          { id: 'session-alpha', state: 'agent', lease: null, lastReply: { text, at: new Date(Date.now() - 5 * 60_000).toISOString() } },
+          // A chat with nothing said in it yet, and a core with no accessor at all, reach the panel as the
+          // same absence: the row is whole and simply carries no reply block.
+          { id: 'session-beta', state: 'agent', lease: null, lastReply: null },
+        ],
+        history: [],
+      })),
+    );
+    const Wrapper = wrapper();
+    const view = render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    const reply = await waitFor(() => {
+      const node = view.container.querySelector('.browser-account__reply-text');
+      expect(node).not.toBeNull();
+      return node as HTMLElement;
+    });
+    // One reply block, for the one session that has one.
+    expect(view.container.querySelectorAll('.browser-account__reply')).toHaveLength(1);
+    // A paragraph under a browser still would read as page content, so it says what it is — and how long
+    // ago, in the host's own compact vocabulary rather than a second date format invented here.
+    expect(screen.getByText(strings.lastReply)).toBeInTheDocument();
+    expect(screen.getByText('5m')).toBeInTheDocument();
+    // Clamped on screen, whole in the tooltip: the reader loses nothing the row cannot hold.
+    expect(reply).toHaveAttribute('title', text);
+    expect(reply.textContent).toBe(text);
+    // It sits under the picture, in the same column — not on a line of its own elsewhere in the row.
+    const cell = reply.closest('.browser-account__cell');
+    expect(cell?.querySelector('.browser-account__preview')).not.toBeNull();
+
+    // The clamp and the preserved line breaks live in the plugin's stylesheet, which jsdom does not load,
+    // so the rule itself is what is checked. Without either, a five-line answer reflows into one run of
+    // prose and pushes the close button off a phone's screen.
+    const css = readFileSync(join(import.meta.dirname, '..', 'plugins', 'browser', 'web-src', 'browser.css'), 'utf8');
+    const block = css.slice(css.indexOf('.browser-account__reply-text'));
+    expect(block).toMatch(/white-space:\s*pre-wrap/);
+    expect(block).toMatch(/line-clamp:\s*4/);
   });
 
   it('closes the session the reader picked, named by who is holding it', async () => {

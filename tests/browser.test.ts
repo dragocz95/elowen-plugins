@@ -288,15 +288,20 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.3.5, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.3.6, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
       version: string; userGrantable: boolean; entry: string;
+      capabilities: { reads?: string[] };
       provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.3.5');
+    expect(manifest.version).toBe('0.3.6');
     expect(manifest.userGrantable).toBe(true);
+    // The session listing reads the agent's last reply through `host.stores()`, which the core refuses
+    // outright unless the manifest asks for it — an undeclared grant makes the whole panel fail, not the
+    // one field, so the declaration is part of the contract rather than an implementation detail.
+    expect(manifest.capabilities.reads).toContain('stores');
     expect(manifest.provides.tools).toHaveLength(17);
     expect(manifest.provides.apiRoutes).toHaveLength(13);
     expect(manifest.provides.apiRoutes).toContain('navigation');
@@ -2340,6 +2345,89 @@ describe('browser session thumbnails', () => {
     });
     expect(empty.body).toEqual({ dataUrl: null });
     expect(empty.status).toBeUndefined(); // i.e. 200
+  });
+});
+
+// The panel's list of live sessions carries, beside each still, what the agent last said in the chat the
+// session was opened from. The text itself is the core's to hand over (core commit 7b5eb6ab); what this
+// plugin owns is WHICH account it asks on behalf of, and staying whole on a core that has no accessor.
+describe('browser account session listing', () => {
+  const session = (id: string, conversationId: string) => ({
+    id, conversationId, state: 'agent', currentLease: null, controlRevision: 3, controlReason: null,
+  });
+  const listRoute = (host: unknown, live: unknown[]) => {
+    const routes: any[] = [];
+    const ctx = { registerApiRoute: (route: unknown) => routes.push(route), logger, host };
+    const registry = { listOwned: () => live, durableSessions: () => [] };
+    registerBrowserApi(ctx as any, registry as any, async () => ({}) as any, null);
+    return routes.find((item) => item.path === 'sessions' && item.method === 'GET');
+  };
+  const request = (userId: number, query: Record<string, unknown> = {}) => ({
+    auth: { userId, admin: false, tokenScope: 'user', accessibleProjects: [] },
+    query, params: {}, method: 'GET', path: '', headers: {},
+    body: async () => Buffer.alloc(0), json: async () => ({}),
+  });
+
+  it('asks the core for the reply on behalf of the signed-in account, never a caller-supplied id', async () => {
+    const asked: { sessionId: string; userId: number }[] = [];
+    const conversationsRead = {
+      // Stands in for the core's own ownership decision: it answers only for the account that owns the
+      // conversation, and null for anyone else — which is the whole reason the plugin may pass a
+      // conversation id it holds without leaking a foreign chat.
+      lastAssistantText: (sessionId: string, userId: number) => {
+        asked.push({ sessionId, userId });
+        return sessionId === 'brain-mine' && userId === 7 ? { text: 'Signed in and booked the slot.', at: '2026-09-06T18:20:00.000Z' } : null;
+      },
+    };
+    const route = listRoute({ stores: () => ({ conversationsRead }) }, [session('session-1', 'brain-mine'), session('session-2', 'brain-someone-else')]);
+    // A query string carrying another account's id changes nothing: the id that reaches the core is the
+    // one `requireApiUser` resolved from the request's auth.
+    const response = await route.handler(request(7, { userId: '1', sessionId: 'brain-someone-else' }));
+
+    expect(asked).toEqual([
+      { sessionId: 'brain-mine', userId: 7 },
+      { sessionId: 'brain-someone-else', userId: 7 },
+    ]);
+    expect(response.body.live).toEqual([
+      expect.objectContaining({ id: 'session-1', lastReply: { text: 'Signed in and booked the slot.', at: '2026-09-06T18:20:00.000Z' } }),
+      // The core refused this one, so the record is complete and the field is empty — the panel cannot
+      // tell a foreign conversation from one with nothing said in it, which is the point.
+      expect.objectContaining({ id: 'session-2', lastReply: null }),
+    ]);
+  });
+
+  it('serves the whole listing on a core that publishes no reply accessor', async () => {
+    // An older core has `stores()` but nothing on it named `conversationsRead`. The listing is the panel's
+    // only source for the rows, the stills and the close button, so it must not fail over a missing extra.
+    const route = listRoute({ stores: () => ({}) }, [session('session-1', 'brain-mine')]);
+    const response = await route.handler(request(7));
+
+    expect(response.status).toBeUndefined(); // i.e. 200
+    expect(response.body.live).toEqual([{
+      id: 'session-1', state: 'agent', lease: null, controlRevision: 3, reason: null, lastReply: null,
+    }]);
+    expect(response.body.history).toEqual([]);
+  });
+
+  it('keeps the listing whole and says so when the host refuses the read store outright', async () => {
+    // `stores()` throws rather than answering null — for an undeclared grant, and for a host with no read
+    // stores wired. Losing the agent's reply is a decoration; losing this listing costs the panel its
+    // rows, its stills and its close button, so the refusal degrades instead of becoming a 400.
+    const warnings: string[] = [];
+    const routes: any[] = [];
+    const ctx = {
+      registerApiRoute: (route: unknown) => routes.push(route),
+      logger: { ...logger, warn: (message: string) => warnings.push(message) },
+      host: { stores: () => { throw new Error("plugin \"browser\" did not declare the reads:['stores'] capability"); } },
+    };
+    registerBrowserApi(ctx as any, { listOwned: () => [session('session-1', 'brain-mine')], durableSessions: () => [] } as any, async () => ({}) as any, null);
+    const response = await routes.find((item) => item.path === 'sessions' && item.method === 'GET').handler(request(7));
+
+    expect(response.status).toBeUndefined(); // i.e. 200
+    expect(response.body.live).toEqual([expect.objectContaining({ id: 'session-1', lastReply: null })]);
+    // A missing grant is somebody's misconfiguration and looks identical to an older core from outside,
+    // so it is said in the log rather than swallowed into an empty field.
+    expect(warnings.join('\n')).toMatch(/cannot read conversation replies/);
   });
 });
 

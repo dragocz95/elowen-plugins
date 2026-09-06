@@ -17,6 +17,22 @@ function responseError(error) {
     const status = message === 'Browser session not found.' ? 404 : message === 'Browser is already under user control.' ? 409 : 400;
     return { status, body: { error: message } };
 }
+/** The accessor, or nothing at all.
+ *
+ *  `stores()` does not answer null when a host cannot serve it — it THROWS, both for an undeclared grant
+ *  and for a host with no read stores wired. The reply is a decoration on the session listing, and that
+ *  listing is the account panel's only source for the rows, the stills and the close button, so a refusal
+ *  must not take all of it down. It is said out loud rather than swallowed: a missing grant is a
+ *  misconfiguration somebody has to fix, and it would otherwise look exactly like an older core. */
+function conversationsRead(ctx) {
+    try {
+        return ctx.host.stores().conversationsRead;
+    }
+    catch (error) {
+        ctx.logger.warn(`browser session listing cannot read conversation replies: ${error instanceof Error ? error.message : String(error)}`);
+        return undefined;
+    }
+}
 function ownedSession(registry, req) {
     const userId = requireApiUser(req.auth);
     const sessionId = requiredString(req.query.sessionId, 'sessionId', 256);
@@ -56,9 +72,20 @@ export function registerBrowserApi(ctx, registry, dependencies, liveView) {
     ctx.registerApiRoute({
         path: 'sessions', method: 'GET', access: 'user', handler: async (req) => {
             try {
+                // The ACTING account, resolved from the request's own auth. Everything below is scoped by it, and
+                // it is the id handed to the core's ownership check — a session id or a user id off the query
+                // string never reaches this route's reads.
                 const userId = requireApiUser(req.auth);
-                const live = registry.listOwned(userId);
-                return { body: { live: live.map((session) => ({ id: session.id, state: session.state, lease: session.currentLease, controlRevision: session.controlRevision, reason: session.controlReason })), history: registry.durableSessions(userId) } };
+                // Resolved per request, so a host that gains the seam does not need the plugin reloaded. The core
+                // answers null for a conversation this account does not own, so a session opened from someone
+                // else's chat carries `lastReply: null` exactly like one the agent has not answered in yet.
+                const conversations = conversationsRead(ctx);
+                const live = registry.listOwned(userId).map((session) => ({
+                    id: session.id, state: session.state, lease: session.currentLease,
+                    controlRevision: session.controlRevision, reason: session.controlReason,
+                    lastReply: conversations?.lastAssistantText(session.conversationId, userId) ?? null,
+                }));
+                return { body: { live, history: registry.durableSessions(userId) } };
             }
             catch (error) {
                 return responseError(error);

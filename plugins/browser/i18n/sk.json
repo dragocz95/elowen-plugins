@@ -117,6 +117,7 @@
       "noSessionsDescription": "Relácia sa tu zobrazí, keď agent otvorí prehliadač.",
       "sessionPreview": "Náhľad relácie",
       "previewPending": "Čakám na obraz tejto relácie",
+      "lastReply": "Posledná odpoveď",
       "clearConfirmTitle": "Vymazať dáta prehliadača?",
       "clearConfirmDescription": "Uložené cookies, prihlásenia a dáta webov budú trvalo odstránené. Túto akciu nemožno vrátiť.",
       "connectingImage": "Pripájam obraz prehliadača…",

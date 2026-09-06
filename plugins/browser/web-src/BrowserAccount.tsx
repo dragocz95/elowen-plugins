@@ -4,7 +4,10 @@ import type { PluginPageProps } from 'elowen-plugin-ui-kit';
 import { apiError, jsonRequest, runtime } from './runtime';
 
 interface ProfileStatus { profileBytes: number; activeSessions: number }
-interface SessionRow { id: string; state: string; lease: { expiresAt: number } | null }
+/** `lastReply` is what the agent last said in the conversation this session was opened from, or null —
+ *  for a session whose chat has no reply yet, and equally for a host whose core does not publish the
+ *  accessor at all. Both are the same absence to the panel: nothing is drawn. */
+interface SessionRow { id: string; state: string; lease: { expiresAt: number } | null; lastReply?: { text: string; at: string } | null }
 interface SessionsResponse { live: SessionRow[]; history: { id: string; state: string; createdAt: number; closedAt: number | null; closeReason: string | null }[] }
 /** `dataUrl: null` is the ordinary answer while a page cannot be photographed — mid-navigation, or before
  *  the first capture has landed — not a failure the panel has to report. */
@@ -68,6 +71,39 @@ function SessionPreview({ sessionId, label, polling }: { sessionId: string; labe
       height={preview.data?.height}
       alt={`${strings.sessionPreview || 'Session preview'}: ${label}`}
     />
+  );
+}
+
+/** How long ago the reply landed, in the host's own compact vocabulary ("4m", "2h"), or null when this
+ *  host publishes no timestamp helpers. A missing age costs the reader a detail; a crashed panel costs
+ *  them the page, so the two helpers are treated as optional and the line is dropped without them. */
+function replyAge(at: string): string | null {
+  const { parseTs, compactElapsed } = runtime().utils;
+  const ms = parseTs?.(at) ?? null;
+  if (ms === null || !compactElapsed) return null;
+  return compactElapsed(Math.max(0, Date.now() - ms));
+}
+
+/** The end of the chat this session came from, under its picture.
+ *
+ *  Rendered as PLAIN text, deliberately. The host runtime publishes no Markdown renderer — its components
+ *  carry `MarkdownAssetEditor`, which is an editor for a stored asset, not a view of a message — and a
+ *  bundle that parsed Markdown itself would be a second renderer nobody keeps in step with the transcript,
+ *  on text that comes from a model. So the reply keeps its own line breaks (`pre-wrap`), is clamped to
+ *  four lines, and carries the whole thing in `title` for the reader who wants the rest.
+ *
+ *  A stray paragraph under a browser still would read as page content, which is the one thing it is not —
+ *  hence the caption naming what it is. */
+function SessionReply({ reply, label }: { reply: { text: string; at: string }; label: string }) {
+  const age = replyAge(reply.at);
+  return (
+    <div className="browser-account__reply">
+      <span className="browser-account__reply-caption">
+        {label}
+        {age ? <span className="browser-account__reply-age">{age}</span> : null}
+      </span>
+      <p className="browser-account__reply-text" title={reply.text}>{reply.text}</p>
+    </div>
   );
 }
 
@@ -170,7 +206,12 @@ export function BrowserAccount({ surface }: PluginPageProps) {
                   // The picture carries a second value on the trailing side, which is what `stack` is for:
                   // inline it would push the state word and the close button off a phone's width.
                   trailingLayout="stack"
-                  control={<SessionPreview sessionId={session.id} label={`${session.id.slice(0, 12)}…`} polling={visible} />}
+                  control={(
+                    <div className="browser-account__cell">
+                      <SessionPreview sessionId={session.id} label={`${session.id.slice(0, 12)}…`} polling={visible} />
+                      {session.lastReply ? <SessionReply reply={session.lastReply} label={strings.lastReply || 'Last reply'} /> : null}
+                    </div>
+                  )}
                   // Who holds the session is a short state word, so it belongs on the row's trailing line
                   // where it stays readable — the old tile showed it as plain text and it must not
                   // regress into a tooltip on the way to the shared row.

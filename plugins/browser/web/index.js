@@ -14791,6 +14791,22 @@ function SessionPreview({ sessionId, label, polling }) {
     }
   );
 }
+function replyAge(at) {
+  const { parseTs, compactElapsed } = runtime().utils;
+  const ms = parseTs?.(at) ?? null;
+  if (ms === null || !compactElapsed) return null;
+  return compactElapsed(Math.max(0, Date.now() - ms));
+}
+function SessionReply({ reply, label }) {
+  const age = replyAge(reply.at);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "browser-account__reply", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "browser-account__reply-caption", children: [
+      label,
+      age ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "browser-account__reply-age", children: age }) : null
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "browser-account__reply-text", title: reply.text, children: reply.text })
+  ] });
+}
 var bytes = (value) => {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
@@ -14885,7 +14901,10 @@ function BrowserAccount({ surface }) {
                   icon: AppWindow,
                   label: `${session.id.slice(0, 12)}\u2026`,
                   trailingLayout: "stack",
-                  control: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionPreview, { sessionId: session.id, label: `${session.id.slice(0, 12)}\u2026`, polling: visible }),
+                  control: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "browser-account__cell", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionPreview, { sessionId: session.id, label: `${session.id.slice(0, 12)}\u2026`, polling: visible }),
+                    session.lastReply ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionReply, { reply: session.lastReply, label: strings.lastReply || "Last reply" }) : null
+                  ] }),
                   status: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs text-muted-foreground", children: session.state === "user" ? strings.userControl || "User control" : strings.agentControl || "Agent control" }),
                   actions: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                     IconButton,

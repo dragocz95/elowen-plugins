@@ -117,6 +117,7 @@
       "noSessionsDescription": "Relace se zde zobrazí, jakmile agent otevře prohlížeč.",
       "sessionPreview": "Náhled relace",
       "previewPending": "Čekám na obraz této relace",
+      "lastReply": "Poslední odpověď",
       "clearConfirmTitle": "Vymazat data prohlížeče?",
       "clearConfirmDescription": "Uložené cookies, přihlášení a data webů budou trvale odstraněny. Tuto akci nelze vrátit.",
       "connectingImage": "Připojuji obraz prohlížeče…",

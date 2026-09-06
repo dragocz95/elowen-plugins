@@ -445,6 +445,37 @@
   place-items: center;
   color: var(--color-muted-foreground, #9d948e);
 }
+.browser-account__cell {
+  display: flex;
+  flex-direction: column;
+  gap: .375rem;
+  min-width: 0;
+  max-width: 22rem;
+}
+.browser-account__reply-caption {
+  display: flex;
+  align-items: baseline;
+  gap: .375rem;
+  font-size: .6875rem;
+  line-height: 1.2;
+  color: var(--color-muted-foreground, #9d948e);
+}
+.browser-account__reply-age {
+  opacity: .8;
+}
+.browser-account__reply-text {
+  margin: 0;
+  font-size: .75rem;
+  line-height: 1.35;
+  color: var(--color-foreground, #e8e2dc);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
 /*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
 @layer properties;
 @layer theme, base, components, utilities;
