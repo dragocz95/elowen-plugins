@@ -135,7 +135,22 @@
       "ownerMine": "Moje",
       "ownerFieldHint": "Inštančná úloha beží bez účtu a hlási do svojho oznamovacieho kanála. Prevzatím pobeží s vašimi oprávneniami a bude hlásiť do vašej konverzácie.",
       "filterMine": "Moje",
-      "filterInstance": "Inštančné"
+      "filterInstance": "Inštančné",
+      "conversation": "Konverzácia",
+      "helpConversation": "Kam je úloha zaradená v zozname konverzácií. Iba organizácia: nemení to, s akým kontextom úloha beží, na akom modeli, s akými oprávneniami ani kam sa doručí výsledok.",
+      "conversationManage": "Vybrať konverzáciu",
+      "conversationRequired": "Vyberte konverzáciu. Nová opakovaná úloha sa uloží po zaradení.",
+      "conversationUnassigned": "Nezaradené",
+      "conversationUnavailable": "Konverzácia nie je dostupná",
+      "conversationUnavailableHint": "Konverzácia, do ktorej bola úloha zaradená, už neexistuje. Úloha beží ďalej podľa plánu; vyberte inú konverzáciu pre nové zaradenie.",
+      "conversationOwnerHint": "Zaradená konverzácia patrí predchádzajúcemu vlastníkovi. Vyberte takú, ktorú môže použiť nový vlastník.",
+      "conversationUnresolvedHint": "Zaradenú konverzáciu sa práve nepodarilo načítať. Úloha beží ďalej podľa plánu a jej zaradenie zostáva bez zmeny.",
+      "conversationDirectoryUnavailable": "Táto inštancia nevie vypísať konverzácie.",
+      "conversationLoading": "Načítavanie konverzácií…",
+      "conversationListError": "Konverzácie sa nepodarilo načítať. Skúste to prosím znova.",
+      "conversationOwnChat": "Vlastné konverzácie",
+      "linkUnavailable": "Táto úloha nie je dostupná",
+      "linkUnavailableHint": "Bola zmazaná, alebo patrí inému účtu. Vyberte úlohu zo zoznamu."
     }
   }
 }

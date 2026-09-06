@@ -9,6 +9,7 @@ import { runWithPolicy } from 'elowen/dist/plugins/policyContext.js';
 import type { TurnIdentity } from 'elowen/dist/plugins/policyContext.js';
 import type { Policy } from 'elowen/dist/plugins/policy.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
+import { STUB_CONVERSATION_ID, stubConversationDirectory } from './helpers/conversationDirectory.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(repoRoot, 'plugins');
@@ -29,7 +30,10 @@ afterEach(() => { for (const p of dirs) rmSync(p, { recursive: true, force: true
 function fakeLogger() { return { info: vi.fn(), warn: vi.fn(), error: vi.fn() }; }
 
 async function loadCron(dataRoot: string, notify: (text: string, channelId?: string) => Promise<void>, logger = fakeLogger()) {
-  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger, notify });
+  const reg = await loadPlugins({
+    dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger, notify,
+    host: { stores: { conversationsRead: stubConversationDirectory() } } as never,
+  });
   return { reg, adapter: reg.platforms[0] as unknown as CronAdapterUnderTest, logger };
 }
 
@@ -203,7 +207,7 @@ describe('cron state durability (Tier 2 #22)', () => {
     const { reg } = await loadCron(dataRoot, async () => {});
     const add = reg.tools.find((t) => t.name === 'CronAdd')!;
     await runWithPolicy(ADMIN, async () =>
-      add.execute('t', { name: 'daily', schedule: 'daily 07:30', prompt: 'go' }, undefined as never, undefined as never),
+      add.execute('t', { name: 'daily', schedule: 'daily 07:30', prompt: 'go', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never),
     { identity: OWNER, sessionId: 'brain-1' });
     const jobs = JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8')) as { name: string }[];
     expect(jobs).toHaveLength(1);

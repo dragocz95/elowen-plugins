@@ -39,6 +39,14 @@ const loadBundleRegistration = async (): Promise<BundleRegistration> => {
 const openRow = async (name: string) =>
   fireEvent.click(await screen.findByRole('button', { name: strings.openJob.replace('{name}', name) }));
 
+/** File the open job under a conversation, through its own summary — named apart from the channel and
+ *  model summaries beside it. A new recurring job cannot be saved before this happens. */
+const fileUnder = async (title: string) => {
+  fireEvent.click(await screen.findByRole('button', { name: strings.conversationManage }));
+  fireEvent.click(await screen.findByRole('button', { name: title }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+};
+
 
 const job = (over: Partial<CronJob>): CronJob =>
   ({ id: 'j1', name: 'digest', schedule: 'daily 06:00', prompt: 'do it', enabled: true, createdAt: '2026-01-01T00:00:00Z', ...over });
@@ -51,6 +59,26 @@ const DESTINATIONS: NotificationDestinationOption[] = [
 const MODELS: BrainModelOption[] = [
   { provider: 'anthropic', providerLabel: 'Anthropic', model: 'claude-sonnet-4-5', exec: 'brain', source: 'api-key', contextWindow: 200000, contextWindowSet: false },
 ];
+
+/** What the plugin's own picker endpoint answers with — metadata only, never a message and never the
+ *  server-side immutable key. */
+const CONVERSATIONS = [
+  { id: 'conv-a', title: 'Morning planning', ownerUserId: 7, platform: null, direct: false, updatedAt: '2026-09-01T08:00:00.000Z' },
+  { id: 'conv-b', title: 'CRON JOBS', ownerUserId: 7, platform: null, direct: false, updatedAt: '2026-09-02T08:00:00.000Z' },
+  { id: 'conv-x', title: 'Amy planning', ownerUserId: 9, platform: null, direct: false, updatedAt: '2026-09-02T09:00:00.000Z' },
+];
+
+/** The picker route, recording the SCOPE each request asked for: a personal job may only be filed under
+ *  its own account's conversations, and the daemon decides that from the scope the editor asks in. */
+const conversationRoute = (asked: string[]) =>
+  http.get('/api/plugins/cronjob/api/conversations', ({ url }) => {
+    asked.push(url.search);
+    const owner = url.searchParams.get('owner');
+    const conversations = url.searchParams.get('scope') === 'instance'
+      ? CONVERSATIONS
+      : CONVERSATIONS.filter((c) => c.ownerUserId === Number(owner ?? 7));
+    return HttpResponse.json({ status: 'available', conversations });
+  });
 
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'cronjob', url: '/plugins/cronjob/web/index.js', apiVersion: 1, nav: [], settings: [], strings }])),
@@ -437,6 +465,7 @@ describe('a cron job row', () => {
       http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json(jobs)),
       http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
       http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
+      conversationRoute([]),
       http.put('/api/plugins/cronjob/jobs/:id', async ({ request, params }) => {
         const body = (await request.json()) as CronJob;
         calls.writes.push({ id: String(params.id), body });
@@ -459,16 +488,17 @@ describe('a cron job row', () => {
   const nameBox = () => screen.getByPlaceholderText('morning-digest');
   const promptBox = () => document.querySelector<HTMLTextAreaElement>('textarea[rows="8"]')!;
 
-  // A new row is invalid until it has both a name and a prompt, so the edit that finally makes it valid is
-  // the one that must be saved — and it was the one being eaten.
+  // A new row is invalid until it has a name, a prompt and the conversation it is filed under, so the
+  // edit that finally makes it valid is the one that must be saved — and it was the one being eaten.
   it('saves a newly added job once the user has filled it in', async () => {
     const calls = { writes: [] as { id: string; body: unknown }[], deletes: [] as string[] };
     mount([], calls);
     fireEvent.click((await screen.findAllByText('Add job'))[0]!);
     fireEvent.change(nameBox(), { target: { value: 'nightly' } });
     fireEvent.change(promptBox(), { target: { value: 'Summarize the day.' } });
+    await fileUnder('CRON JOBS');
     await waitFor(() => expect(calls.writes).toHaveLength(1), { timeout: 3000 });
-    expect(calls.writes[0]?.body).toMatchObject({ name: 'nightly', prompt: 'Summarize the day.' });
+    expect(calls.writes[0]?.body).toMatchObject({ name: 'nightly', prompt: 'Summarize the day.', conversationSessionId: 'conv-b' });
   });
 
   it('deletes a brand-new job that has already reached the server, so it cannot come back', async () => {
@@ -478,6 +508,7 @@ describe('a cron job row', () => {
     fireEvent.click(screen.getAllByText('Add job')[0]!);
     fireEvent.change(nameBox(), { target: { value: 'oops' } }); // the added row is the only expanded one
     fireEvent.change(promptBox(), { target: { value: 'created by mistake' } });
+    await fileUnder('CRON JOBS');
     await waitFor(() => expect(calls.writes).toHaveLength(1), { timeout: 3000 }); // it reached the server…
     await deleteJob('oops');
     // …so it must be deleted there too, or the refetch brings it back and it starts running on schedule.
@@ -555,6 +586,259 @@ describe('cronjob JobsSettings model', () => {
     expect(screen.getByText('claude-sonnet-4-5')).toBeInTheDocument(); // summary chip
     fireEvent.click(manageButtons()[1]);
     expect(await screen.findByRole('button', { name: 'claude-sonnet-4-5' })).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+/** The conversation a recurring job is FILED under. Organization only: every assertion below is about
+ *  which conversation the job is grouped in, and none of them may move its context, model, owner or the
+ *  place its result is delivered — the payloads are checked for exactly that. */
+describe('cronjob JobsSettings conversation filing', () => {
+  const mount = (jobs: CronJob[], writes: { id: string; body: Record<string, unknown> }[], asked: string[] = []) => {
+    use(
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json(jobs)),
+      http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
+      http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
+      conversationRoute(asked),
+      http.put('/api/plugins/cronjob/jobs/:id', async ({ request, params }) => {
+        writes.push({ id: String(params.id), body: (await request.json()) as Record<string, unknown> });
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+  };
+  const nameBox = () => screen.getByPlaceholderText('morning-digest');
+  const promptBox = () => document.querySelector<HTMLTextAreaElement>('textarea[rows="8"]')!;
+
+  // The daemon refuses a new recurring job that names no conversation. Firing that 400 at the user
+  // mid-typing is what the readiness gate exists to prevent — the row simply waits.
+  it('holds a new recurring job\'s autosave until it names a conversation', async () => {
+    const writes: { id: string; body: Record<string, unknown> }[] = [];
+    const asked: string[] = [];
+    mount([], writes, asked);
+    fireEvent.click((await screen.findAllByText('Add job'))[0]!);
+    fireEvent.change(nameBox(), { target: { value: 'nightly' } });
+    fireEvent.change(promptBox(), { target: { value: 'Summarize the day.' } });
+
+    expect(await screen.findByText(strings.conversationRequired)).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+    expect(writes).toEqual([]);
+
+    await fileUnder('CRON JOBS');
+    await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
+    expect(writes[0]?.body).toMatchObject({ name: 'nightly', prompt: 'Summarize the day.', conversationSessionId: 'conv-b' });
+    // An admin's new job is instance-wide until he takes it, so the picker asks in the instance scope.
+    expect(asked).toEqual(['?scope=instance']);
+  });
+
+  // A job created before filing existed stays runnable and editable, and its ordinary edits must not
+  // suddenly demand a conversation — the field is simply absent from the payload.
+  it('labels a legacy job unassigned and leaves the field out of an ordinary edit', async () => {
+    const writes: { id: string; body: Record<string, unknown> }[] = [];
+    mount([job({})], writes);
+    await openRow('digest');
+    expect(await screen.findByText(strings.conversationUnassigned)).toBeInTheDocument();
+
+    fireEvent.change(nameBox(), { target: { value: 'renamed' } });
+    await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
+    expect(writes[0]?.body).toMatchObject({ name: 'renamed' });
+    expect(writes[0]?.body).not.toHaveProperty('conversationSessionId');
+  });
+
+  // A deleted conversation is an explicit state, not a silent detach: the job keeps running, the editor
+  // says so, and an edit elsewhere in the form round-trips the reference exactly as stored.
+  it('reports an unavailable conversation and preserves the reference through an unrelated edit', async () => {
+    const writes: { id: string; body: Record<string, unknown> }[] = [];
+    mount([job({ conversationSessionId: 'gone', conversation: null })], writes);
+    await openRow('digest');
+    expect(await screen.findByText(strings.conversationUnavailable)).toBeInTheDocument();
+
+    fireEvent.change(nameBox(), { target: { value: 'renamed' } });
+    await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
+    expect(writes[0]?.body).toMatchObject({ conversationSessionId: 'gone' });
+    // The live projection is the server's to compute; sending it back would ask the daemon to trust it.
+    expect(writes[0]?.body).not.toHaveProperty('conversation');
+  });
+
+  // "Gone" and "could not be read" are different answers, and only the first is the reader's to solve.
+  // Telling them to refile a job whose filing is almost certainly intact is a wrong instruction.
+  it('says an unresolved filing is unknown rather than telling the reader it was deleted', async () => {
+    const writes: { id: string; body: Record<string, unknown> }[] = [];
+    mount([job({ conversationSessionId: 'conv-a', conversation: null, conversationUnresolved: true })], writes);
+    await openRow('digest');
+
+    expect(await screen.findByText(strings.conversationUnresolvedHint)).toBeInTheDocument();
+    expect(screen.queryByText(strings.conversationUnavailable)).toBeNull();
+    expect(screen.queryByText(strings.conversationUnavailableHint)).toBeNull();
+
+    // The reference still round-trips untouched, and the server's own projection never goes back.
+    fireEvent.change(nameBox(), { target: { value: 'renamed' } });
+    await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
+    expect(writes[0]?.body).toMatchObject({ conversationSessionId: 'conv-a' });
+    expect(writes[0]?.body).not.toHaveProperty('conversation');
+    expect(writes[0]?.body).not.toHaveProperty('conversationUnresolved');
+  });
+
+  // An empty picker reads as "you have no conversations", which is the one thing a list that failed to
+  // load does not know.
+  it('says the conversation list failed instead of showing an empty picker', async () => {
+    use(
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job({})])),
+      http.get('/api/plugins/cronjob/api/conversations', () => HttpResponse.json({ error: 'nope' }, { status: 500 })),
+      http.put('/api/plugins/cronjob/jobs/:id', () => HttpResponse.json({ ok: true })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await openRow('digest');
+
+    fireEvent.click(await screen.findByRole('button', { name: strings.conversationManage }));
+    expect(await screen.findByText(strings.conversationListError)).toBeInTheDocument();
+  });
+
+  it('files an owned job under another conversation and changes nothing else', async () => {
+    const writes: { id: string; body: Record<string, unknown> }[] = [];
+    const asked: string[] = [];
+    mount([job({
+      ownerUserId: 7, notifyChannelId: undefined, model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
+      conversationSessionId: 'conv-a',
+      conversation: { id: 'conv-a', title: 'Morning planning', ownerUserId: 7, platform: null, direct: false },
+    })], writes, asked);
+    await openRow('digest');
+    expect(await screen.findByText('Morning planning')).toBeInTheDocument();
+
+    await fileUnder('CRON JOBS');
+    await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
+    expect(writes[0]?.body).toMatchObject({
+      id: 'j1', conversationSessionId: 'conv-b',
+      // Organization only: ownership, schedule and model selection travel unchanged.
+      ownerUserId: 7, schedule: 'daily 06:00', model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
+    });
+    // A personal job may only be filed under its own account's conversations — asked in the owner's scope.
+    expect(asked).toEqual(['']);
+  });
+
+  // The daemon refuses to carry a foreign conversation across an ownership change. The editor asks for a
+  // compatible one instead of letting the autosave collect that 400.
+  it('holds the save when the new owner cannot keep the filed conversation', async () => {
+    const writes: { id: string; body: Record<string, unknown> }[] = [];
+    mount([job({
+      id: 'shared', name: 'instance digest', conversationSessionId: 'conv-x',
+      conversation: { id: 'conv-x', title: 'Amy planning', ownerUserId: 9, platform: null, direct: false },
+    })], writes);
+    await openRow('instance digest');
+    const owners = within(screen.getByRole('dialog')).getByRole('radiogroup', { name: strings.ownerColumn });
+    fireEvent.click(within(owners).getByRole('radio', { name: strings.ownerMine }));
+
+    expect(await screen.findByText(strings.conversationOwnerHint)).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+    expect(writes).toEqual([]);
+
+    await fileUnder('CRON JOBS');
+    await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
+    expect(writes[0]?.body).toMatchObject({ ownerUserId: 7, conversationSessionId: 'conv-b' });
+  });
+
+  // A one-shot wake-up is never filed anywhere: it fires once and deletes itself.
+  it('offers no filing for a one-shot wake-up', async () => {
+    mount([job({ runAt: '2026-09-01T12:00:00.000Z' })], []);
+    await openRow('digest');
+    await screen.findByText(strings.prompt);
+    expect(screen.queryByRole('button', { name: strings.conversationManage })).toBeNull();
+  });
+});
+
+/** `/p/cronjob?job=<id>` — the address a conversation's collapsed jobs branch links to. It selects an
+ *  EXISTING job in the existing editor: it creates nothing, enables nothing and saves nothing. */
+describe('cronjob JobsSettings deep link', () => {
+  const address = () => `${window.location.pathname}${window.location.search}`;
+  const goTo = (url: string) => window.history.replaceState(null, '', url);
+  afterEach(() => goTo('/'));
+
+  const mountPage = (jobs: CronJob[], calls: { writes: unknown[]; deletes: string[] } = { writes: [], deletes: [] }) => {
+    use(
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json(jobs)),
+      http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
+      http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
+      conversationRoute([]),
+      http.put('/api/plugins/cronjob/jobs/:id', async ({ request }) => {
+        calls.writes.push(await request.json());
+        return HttpResponse.json({ ok: true });
+      }),
+      http.delete('/api/plugins/cronjob/jobs/:id', ({ params }) => {
+        calls.deletes.push(String(params.id));
+        const at = jobs.findIndex((j) => j.id === String(params.id));
+        if (at >= 0) jobs.splice(at, 1);
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="page" /></ToastProvider></Wrapper>);
+  };
+
+  const many = (count: number) => Array.from({ length: count }, (_, i) =>
+    job({ id: `j${i + 1}`, name: `job ${String(i + 1).padStart(2, '0')}` }));
+
+  it('opens the linked job on the register page it actually sits on', async () => {
+    goTo('/p/cronjob?cat=plugins&job=j22');
+    const calls = { writes: [] as unknown[], deletes: [] as string[] };
+    mountPage(many(25), calls);
+
+    expect(await screen.findByRole('dialog', { name: 'job 22' })).toBeInTheDocument();
+    // The second page, not the first: the linked row has to be among the rendered ones.
+    expect(within(screen.getByRole('table')).getByText('job 22')).toBeInTheDocument();
+    expect(screen.queryByText('job 01')).toBeNull();
+    // Navigating to a job neither creates nor writes one.
+    expect(calls.writes).toEqual([]);
+    expect(address()).toBe('/p/cronjob?cat=plugins&job=j22');
+  });
+
+  it('removes only the job parameter when the detail is closed', async () => {
+    goTo('/p/cronjob?cat=plugins&job=j1');
+    mountPage([job({}), job({ id: 'j2', name: 'other' })]);
+    const dialog = await screen.findByRole('dialog', { name: 'digest' });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'digest' })).toBeNull());
+    expect(address()).toBe('/p/cronjob?cat=plugins');
+  });
+
+  it('follows the browser back button to the previously open job', async () => {
+    goTo('/p/cronjob');
+    mountPage([job({}), job({ id: 'j2', name: 'other' })]);
+    await openRow('digest');
+    await waitFor(() => expect(address()).toBe('/p/cronjob?job=j1'));
+    await openRow('other');
+    await waitFor(() => expect(address()).toBe('/p/cronjob?job=j2'));
+
+    window.history.back();
+    await waitFor(() => expect(address()).toBe('/p/cronjob?job=j1'));
+    expect(await screen.findByRole('dialog', { name: 'digest' })).toBeInTheDocument();
+  });
+
+  it('clears the parameter when the selected job is deleted', async () => {
+    goTo('/p/cronjob?job=j1');
+    const calls = { writes: [] as unknown[], deletes: [] as string[] };
+    mountPage([job({}), job({ id: 'j2', name: 'other' })], calls);
+    await screen.findByRole('dialog', { name: 'digest' });
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete job' }))[0]!);
+    const buttons = await screen.findAllByRole('button', { name: 'Delete job' });
+    fireEvent.click(buttons[buttons.length - 1]!);
+
+    await waitFor(() => expect(calls.deletes).toEqual(['j1']));
+    await waitFor(() => expect(address()).toBe('/p/cronjob'));
+  });
+
+  // An id that does not exist and one belonging to another account are the SAME answer here: the list
+  // this page loaded is already the authorized one, so a foreign job is simply not in it.
+  it('answers an unknown or foreign job id with the same unavailable notice', async () => {
+    goTo('/p/cronjob?job=someone-elses');
+    mountPage([job({})]);
+
+    expect(await screen.findByText(strings.linkUnavailable)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // The rest of the register still works.
+    expect(screen.getByText('digest')).toBeInTheDocument();
   });
 });
 

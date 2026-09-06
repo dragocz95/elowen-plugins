@@ -23,7 +23,21 @@ function loadPlugin(dataRoot) {
     currentSessionId: () => session.sessionId,
     currentDeliveryTarget: () => session.deliveryTarget,
     isAdminSession: () => session.admin,
-    host: { stores: () => ({ usersRead: { isAdmin: () => true, mayUsePlugin: () => true, list: () => [{ id: 1 }, { id: 2 }] } }) },
+    host: { stores: () => ({
+      usersRead: { isAdmin: () => true, mayUsePlugin: () => true, list: () => [{ id: 1 }, { id: 2 }] },
+    // A recurring job names the conversation it is filed under; the directory only has to answer here.
+    conversationsRead: {
+      list: () => [],
+      resolve: ({ sessionId }) => ({
+        id: sessionId, key: `ns-${sessionId}`, title: 'Chat', ownerUserId: 1,
+        platform: null, direct: false, updatedAt: '2026-07-01T00:00:00.000Z',
+      }),
+      resolveKey: (key) => ({
+        id: key.replace(/^ns-/, ''), key, title: 'Chat', ownerUserId: 1,
+        platform: null, direct: false, updatedAt: '2026-07-01T00:00:00.000Z',
+      }),
+    },
+    }) },
     registerTool: (tool) => tools.push(tool),
     registerPlatform: (platform) => platforms.push(platform),
     registerApiRoute() {},
@@ -48,7 +62,7 @@ test('cron instance scope requires the instance owner, not a foreign admin sessi
   const plugin = loadPlugin(dataRoot);
   const add = plugin.tools.find((tool) => tool.name === 'CronAdd');
 
-  const params = { name: 'instance-check', scope: 'instance', schedule: 'daily 08:00', prompt: 'p', check: 'echo fresh' };
+  const params = { name: 'instance-check', scope: 'instance', schedule: 'daily 08:00', prompt: 'p', check: 'echo fresh', conversationSessionId: 'conv-main' };
   const jobsFile = join(dataRoot, 'cronjob/jobs.json');
   const foreignAdmin = { platform: 'discord', userId: '2', elowenUserId: 2, admin: true, owner: false, conversation: 'direct' };
   const refused = await asTurn(plugin, { identity: foreignAdmin, admin: true }, () => add.execute('t', params));
@@ -74,7 +88,7 @@ test('cron persists direct delivery targets and suppresses generic notify after 
     sessionId: 'brain-ch-whatsapp-4201',
     deliveryTarget: 'destination:whatsapp:4201@s.whatsapp.net',
     admin: true,
-  }, () => add.execute('t', { name: 'personal', scope: 'personal', schedule: 'every 15m', prompt: 'p' }));
+  }, () => add.execute('t', { name: 'personal', scope: 'personal', schedule: 'every 15m', prompt: 'p', conversationSessionId: 'conv-main' }));
 
   const jobsFile = join(dataRoot, 'cronjob/jobs.json');
   const [captured] = JSON.parse(readFileSync(jobsFile, 'utf8'));

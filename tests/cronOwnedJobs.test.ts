@@ -9,6 +9,7 @@ import { runWithPolicy } from 'elowen/dist/plugins/policyContext.js';
 import type { TurnIdentity } from 'elowen/dist/plugins/policyContext.js';
 import type { Policy } from 'elowen/dist/plugins/policy.js';
 import type { SessionSource, PluginHostWiring } from 'elowen/dist/plugins/api.js';
+import { STUB_CONVERSATION_ID, stubConversationDirectory } from './helpers/conversationDirectory.js';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,6 +32,9 @@ interface CronAdapterUnderTest {
  *  job's shell guard may run, `mayUsePlugin` whether its owner may still schedule at all. */
 const hostWith = (admins: number[], scheduling: { denied?: number[]; accounts?: number[] } = {}): PluginHostWiring => ({
   stores: {
+    // A recurring job names the conversation it is filed under; eligibility itself is
+    // cronConversationGroups.test.ts's subject.
+    conversationsRead: stubConversationDirectory(),
     usersRead: {
       isAdmin: (id: number) => admins.includes(id),
       mayUsePlugin: (id: number) => !(scheduling.denied ?? []).includes(id),
@@ -303,11 +307,11 @@ describe('cron tools — scheduling for the account behind the turn', () => {
     const remove = reg.tools.find((t) => t.name === 'CronRemove')!;
 
     await runWithPolicy(LIMITED, async () => {
-      expect(asText(await add.execute('t', { name: 'mine', scope: 'personal', schedule: 'daily 07:30', prompt: 'p' }, undefined as never, undefined as never)))
+      expect(asText(await add.execute('t', { name: 'mine', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never)))
         .toContain('in your own conversation');
-      expect(asText(await add.execute('t', { name: 'guarded', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', check: 'ls /' }, undefined as never, undefined as never)))
+      expect(asText(await add.execute('t', { name: 'guarded', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', check: 'ls /', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never)))
         .toMatch(/shell check/);
-      expect(asText(await add.execute('t', { name: 'fast', scope: 'personal', schedule: 'every 1m', prompt: 'p' }, undefined as never, undefined as never)))
+      expect(asText(await add.execute('t', { name: 'fast', scope: 'personal', schedule: 'every 1m', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never)))
         .toMatch(/shortest interval/);
     }, { identity: AMY });
 
@@ -317,7 +321,7 @@ describe('cron tools — scheduling for the account behind the turn', () => {
 
     // An admin asking for an INSTANCE job gets one — no owner key at all, exactly as before ownership existed.
     await runWithPolicy(ADMIN, async () => {
-      await add.execute('t', { name: 'instance', scope: 'instance', schedule: 'daily 08:00', prompt: 'p' }, undefined as never, undefined as never);
+      await add.execute('t', { name: 'instance', scope: 'instance', schedule: 'daily 08:00', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never);
     }, { identity: { platform: 'elowen', userId: '1', elowenUserId: 1, admin: true, owner: true } });
     expect(readJobs(dataRoot).find((j) => j.name === 'instance')).not.toHaveProperty('ownerUserId');
 
@@ -353,7 +357,7 @@ describe('cron tools — scheduling for the account behind the turn', () => {
     const boss = speakingIn({ platform: 'msteams', userId: '29:x', elowenUserId: 7, admin: true, owner: true }, 'direct');
 
     await runWithPolicy(ADMIN, async () => {
-      expect(asText(await add.execute('t', { name: 'my digest', scope: 'personal', schedule: 'daily 07:30', prompt: 'p' }, undefined as never, undefined as never)))
+      expect(asText(await add.execute('t', { name: 'my digest', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never)))
         .toContain('report here');
     }, { identity: boss, sessionId: 'brain-ch-msteams-personal-1' });
 
@@ -373,7 +377,7 @@ describe('cron tools — scheduling for the account behind the turn', () => {
     const inRoom = speakingIn({ ...AMY, platform: 'discord' }, 'shared');
 
     await runWithPolicy(LIMITED, async () => {
-      expect(asText(await add.execute('t', { name: 'room job', scope: 'personal', schedule: 'daily 07:30', prompt: 'p' }, undefined as never, undefined as never)))
+      expect(asText(await add.execute('t', { name: 'room job', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never)))
         .toContain('in your own conversation');
     }, { identity: inRoom, sessionId: 'brain-ch-discord-1' });
 
@@ -389,7 +393,7 @@ describe('cron tools — scheduling for the account behind the turn', () => {
     const add = reg.tools.find((t) => t.name === 'CronAdd')!;
 
     await runWithPolicy(LIMITED, async () => {
-      expect(asText(await add.execute('t', { name: 'sneaky', scope: 'instance', schedule: 'daily 07:30', prompt: 'p' }, undefined as never, undefined as never)))
+      expect(asText(await add.execute('t', { name: 'sneaky', scope: 'instance', schedule: 'daily 07:30', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never)))
         .toMatch(/instance owner/);
     }, { identity: speakingIn(AMY, 'direct') });
     expect(readJobs(dataRoot)).toHaveLength(0);
@@ -465,7 +469,7 @@ describe('an operator owning their own jobs', () => {
     await runWithPolicy(ADMIN, async () => {
       const out = asText(await add.execute('t', {
         name: 'mine', scope: 'personal', schedule: 'every 5m', prompt: 'p',
-        check: 'curl -s example.com', notifyChannelId: 'discord-42',
+        check: 'curl -s example.com', notifyChannelId: 'discord-42', conversationSessionId: STUB_CONVERSATION_ID,
       }, undefined as never, undefined as never));
       // Every one of these was operator-only before, which is precisely why these jobs had to stay
       // ownerless. The operator's own authority already equals the instance's, so withholding them
@@ -485,11 +489,11 @@ describe('an operator owning their own jobs', () => {
     const add = reg.tools.find((t) => t.name === 'CronAdd')!;
 
     await runWithPolicy(LIMITED, async () => {
-      const shell = asText(await add.execute('t', { name: 'a', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', check: 'rm -rf /' }, undefined as never, undefined as never));
+      const shell = asText(await add.execute('t', { name: 'a', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', check: 'rm -rf /', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never));
       expect(shell).toContain('instance scope');
-      const chan = asText(await add.execute('t', { name: 'b', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', notifyChannelId: 'discord-42' }, undefined as never, undefined as never));
+      const chan = asText(await add.execute('t', { name: 'b', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', notifyChannelId: 'discord-42', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never));
       expect(chan).toContain('instance scope');
-      const fast = asText(await add.execute('t', { name: 'c', scope: 'personal', schedule: 'every 5m', prompt: 'p' }, undefined as never, undefined as never));
+      const fast = asText(await add.execute('t', { name: 'c', scope: 'personal', schedule: 'every 5m', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never));
       expect(fast).toContain('shortest interval');
     }, { identity: AMY, sessionId: 'brain-4' });
 

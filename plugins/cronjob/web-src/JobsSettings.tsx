@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, CalendarClock, Check, Clock, Hash, MessageSquare, PauseCircle, Play, Plus, Search, Timer, Trash2, X } from 'lucide-react';
-import { runtime, type BrainModelOption, type CronJob, type NotificationDestinationOption, type ManageSelectionItem } from './runtime';
+import { Activity, CalendarClock, Check, Clock, Hash, MessageSquare, MessagesSquare, PauseCircle, Play, Plus, Search, Timer, Trash2, X } from 'lucide-react';
+import {
+  runtime, type BrainModelOption, type CronConversation, type CronConversationOption,
+  type CronConversationsResponse, type CronJob, type NotificationDestinationOption, type ManageSelectionItem,
+} from './runtime';
 import {
   WEEKDAYS, builderForMode, parseActiveHours, parseBuilderSchedule, renderActiveHours,
   renderBuilderSchedule, type ScheduleBuilder, type ScheduleMode,
@@ -9,6 +12,29 @@ import {
 /** One page of jobs, matching the register size the built-in workspaces page at. */
 const PAGE_SIZE = 20;
 type Filter = 'all' | 'active' | 'paused';
+
+/** The address parameter a conversation's scheduled-jobs branch links to: `/p/cronjob?job=<id>` opens
+ *  THIS register on the job it names. It selects an existing job and nothing else — no job is created,
+ *  none is enabled and nothing is written by arriving here. */
+const JOB_PARAM = 'job';
+
+const linkedJobId = (): string | null => {
+  const value = new URLSearchParams(window.location.search).get(JOB_PARAM);
+  return value && value.trim() !== '' ? value : null;
+};
+
+/** Put the selection in the address, leaving every other parameter of the page alone. `pushState` rather
+ *  than a router push: the selection is state of a mounted page, and pushing an entry is what makes the
+ *  browser's Back button walk back through the jobs that were opened. The host's SPA router reads the
+ *  History API, so nothing here needs the router itself. */
+const writeJobParam = (id: string | null): void => {
+  const url = new URL(window.location.href);
+  if (id === null) url.searchParams.delete(JOB_PARAM);
+  else url.searchParams.set(JOB_PARAM, id);
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  if (next === `${window.location.pathname}${window.location.search}${window.location.hash}`) return;
+  window.history.pushState(window.history.state, '', next);
+};
 
 const textareaClass = 'w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-ring';
 
@@ -54,6 +80,113 @@ function DestinationField({ value, onChange, destinations }: { value: string; on
         onSave={(next: Set<string>) => onChange([...next][0] ?? '')}
       />
     </>
+  );
+}
+
+/** The conversation a recurring job is FILED under. Organization only: this picker decides where the job
+ *  appears in the conversation list and nothing else — not the context it runs with, not its model, not
+ *  its permissions, and not where its result is delivered.
+ *
+ *  The catalog comes from the plugin's own picker route, and the SCOPE it is asked in follows the job's
+ *  owner, because that is the rule the daemon validates against: a personal job may only be filed under a
+ *  conversation of its own account, an instance job under any eligible one an administrator can read.
+ *  Nothing here is ever cleared — the daemon refuses a blank value rather than reading it as "unfile". */
+function ConversationField({ value, saved, unresolved, owner, myId, required, mismatch, onChange }: {
+  /** The draft's filed conversation id; '' = nothing chosen yet. */
+  value: string;
+  /** The server's projection of the SAVED filing: `undefined` = never filed, `null` = its target is gone. */
+  saved: CronConversation | null | undefined;
+  /** The daemon could not read the conversation directory, so `saved === null` is "not known right now"
+   *  rather than "deleted" — the reader is told that instead of being sent to refile a good job. */
+  unresolved: boolean;
+  /** Who the job belongs to AFTER this edit; null = an instance job. */
+  owner: number | null;
+  myId: number | null;
+  /** A job the server does not have yet: it cannot be saved before it is filed. */
+  required: boolean;
+  /** The owner changed and the filed conversation belongs to the previous one. */
+  mismatch: boolean;
+  onChange: (id: string) => void;
+}) {
+  const { components: C, hooks } = runtime();
+  const { t } = hooks.useTranslation();
+  const s = hooks.usePluginStrings('cronjob');
+  const [open, setOpen] = useState(false);
+  /** The option the user just chose, so the summary names it before the save round-trips. */
+  const [picked, setPicked] = useState<CronConversationOption | null>(null);
+  const query = owner === null ? '?scope=instance' : owner === myId ? '' : `?owner=${encodeURIComponent(String(owner))}`;
+  // Fetched when the picker opens: the saved filing already travels with the job, so a page of rows owes
+  // the daemon no request until somebody actually files one.
+  const list = hooks.useQuery<CronConversationsResponse>({
+    queryKey: ['cronjob-conversations', query],
+    queryFn: () => runtime().api(`/plugins/cronjob/api/conversations${query}`) as Promise<CronConversationsResponse>,
+    enabled: open,
+    staleTime: 30_000,
+  });
+  const options = list.data?.status === 'available' ? list.data.conversations : [];
+  const chosen: CronConversation | null = picked?.id === value ? picked
+    : saved?.id === value ? saved
+    : options.find((c) => c.id === value) ?? null;
+  /** A filing whose conversation is GONE — an explicit state, not an empty one, and not the same as a
+   *  directory the daemon could not read, which claims nothing about the target either way. */
+  const unavailable = saved === null && chosen === null && !unresolved;
+  const icon = <MessagesSquare size={12} aria-hidden />;
+  const items: ManageSelectionItem[] = [
+    ...(unavailable
+      ? [{ id: value, label: s.conversationUnavailable, group: '', disabled: true, disabledHint: s.conversationUnavailableHint }]
+      : chosen && !options.some((c) => c.id === chosen.id)
+        ? [{ id: chosen.id, label: chosen.title || chosen.id, group: '', icon }]
+        : []),
+    ...options.map((c) => ({
+      id: c.id,
+      label: c.title || c.id,
+      group: c.platform ?? 'own',
+      groupLabel: c.platform ?? s.conversationOwnChat,
+      icon,
+    })),
+  ];
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <C.SelectionSummary
+        // No count line: one conversation is not a count, and the line below already says what an
+        // unfiled, unavailable or conflicting job needs.
+        countText=""
+        samples={chosen ? [{ label: chosen.title || chosen.id, icon }] : unavailable ? [{ label: s.conversationUnavailable, icon }] : []}
+        moreCount={0}
+        onManage={() => setOpen(true)}
+        manageLabel={t.managePicker.manage}
+        manageAriaLabel={s.conversationManage}
+      />
+      {/* One line of direction under the summary, and only when there is something to do: an unavailable
+          target, a filing the new owner cannot keep, or a new job that is not filed yet. */}
+      {unavailable ? <p className="text-xs text-destructive">{s.conversationUnavailableHint}</p>
+        : unresolved ? <p className="text-xs text-muted-foreground">{s.conversationUnresolvedHint}</p>
+        : mismatch ? <p className="text-xs text-destructive">{s.conversationOwnerHint}</p>
+        : required && !chosen ? <p className="text-xs text-muted-foreground">{s.conversationRequired}</p>
+        : !value ? <C.Badge tone="muted">{s.conversationUnassigned}</C.Badge>
+        : null}
+      <C.ManageSelectionModal
+        title={s.conversation}
+        // A list that is still coming, and one that failed to come, both render as no rows — and an empty
+        // picker reads as "you have no conversations", which is an answer neither of them gave.
+        subtitle={list.isLoading ? s.conversationLoading
+          : list.isError ? s.conversationListError
+          : list.data?.status === 'unavailable' ? s.conversationDirectoryUnavailable
+          : s.helpConversation}
+        open={open}
+        onClose={() => setOpen(false)}
+        items={items}
+        selected={new Set(value ? [value] : [])}
+        single
+        onSave={(next: Set<string>) => {
+          const id = [...next][0] ?? '';
+          if (!id || id === value) return;
+          setPicked(options.find((c) => c.id === id) ?? null);
+          onChange(id);
+        }}
+      />
+    </div>
   );
 }
 
@@ -300,15 +433,38 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const inFlight = useRef<Promise<unknown> | null>(null);
   const everSaved = useRef(persisted);
 
+  /** Who the job belongs to after this edit — the scope its filing is validated in. A non-admin always
+   *  writes his own job, whatever the draft carries, which is what the server does with it too. */
+  const ownerOf = (j: CronJob): number | null => (adminFields ? j.ownerUserId ?? null : myId);
+  /** An ownership change cannot carry a conversation that belongs to the PREVIOUS owner: the daemon
+   *  refuses it, so the row asks for a compatible one instead of collecting that 400 from the autosave.
+   *  Only a filing that is still the saved one can conflict — anything chosen since came from a picker
+   *  already scoped to the new owner. */
+  const ownerConflict = (j: CronJob): boolean => {
+    const filed = job.conversation;
+    if (!filed || j.conversationSessionId !== job.conversationSessionId) return false;
+    const owner = ownerOf(j);
+    return owner !== null && filed.ownerUserId !== owner;
+  };
+  /** Whether the job's FILING is settled. A one-shot wake-up is never filed; a new recurring job cannot
+   *  be saved before it names a conversation; an existing one preserves its filing by omission. */
+  const filingReady = (j: CronJob): boolean => {
+    if (j.runAt) return true;
+    if (!persisted) return (j.conversationSessionId ?? '').trim() !== '';
+    return !ownerConflict(j);
+  };
+
   /** A job the daemon's PUT validation would accept — auto-save holds off until the row qualifies, so a
    *  freshly added (still empty) job never fires a 400 toast mid-typing. */
   const isSavable = (j: CronJob): boolean =>
-    j.name.trim() !== '' && j.prompt.trim() !== '' && (j.runAt ? true : utils.isValidSchedule(j.schedule));
+    j.name.trim() !== '' && j.prompt.trim() !== '' && (j.runAt ? true : utils.isValidSchedule(j.schedule)) && filingReady(j);
 
   const autosave = hooks.useAutoSaveStatus([editVersion], async () => {
     if (deleted.current) return;
     const sent = draftRef.current;
-    const { owner: _owner, expectedRevision: _expectedRevision, ...payload } = sent;
+    // `conversation` is the server's live projection of the filing, resolved from an immutable key this
+    // page never sees; sending it back would ask the daemon to trust a client's copy of its own answer.
+    const { owner: _owner, conversation: _conversation, conversationUnresolved: _unresolved, expectedRevision: _expectedRevision, ...payload } = sent;
     everSaved.current = true;
     const request = save.mutateAsync({ ...payload, expectedRevision: sent.revision ?? 0 });
     inFlight.current = request;
@@ -501,6 +657,22 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
                 />
               </C.Field>
             ) : null}
+            {/* Where the job is FILED. Organization only, and never offered for a one-shot wake-up: it
+                fires once and deletes itself, so it belongs to no conversation's job branch. */}
+            {!draft.runAt ? (
+              <C.Field label={s.conversation} hint={s.helpConversation}>
+                <ConversationField
+                  value={draft.conversationSessionId ?? ''}
+                  saved={job.conversation}
+                  unresolved={job.conversationUnresolved === true}
+                  owner={ownerOf(draft)}
+                  myId={myId}
+                  required={!persisted}
+                  mismatch={ownerConflict(draft)}
+                  onChange={(conversationSessionId) => patch({ conversationSessionId })}
+                />
+              </C.Field>
+            ) : null}
             {adminFields ? (
               <C.Field label={s.check} hint={s.helpCheck}>
                 <textarea
@@ -584,7 +756,16 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
   const destinations = hooks.useNotificationDestinations();
   const models = hooks.useBrainModels();
   const [drafts, setDrafts] = useState<CronJob[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Only the page carries the selection in its address; inside the Settings deck the address belongs to
+  // the deck, and writing a job into it would leave a parameter no page reads.
+  const deepLink = surface === 'page';
+  const [selectedId, setSelectedId] = useState<string | null>(() => (deepLink ? linkedJobId() : null));
+  /** A selection that came from the ADDRESS and still has to be found: it decides which register page is
+   *  shown. Cleared once resolved, so paging away afterwards is the user's business. */
+  const [pendingLink, setPendingLink] = useState<string | null>(() => (deepLink ? linkedJobId() : null));
+  /** A linked id that is not in the loaded list. It was deleted, or it belongs to another account — the
+   *  same answer either way, because the list this page holds IS the authorized one. */
+  const [missingLink, setMissingLink] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   // Only an admin sees more than one owner's jobs, so only he is offered the scope filter.
@@ -625,15 +806,52 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
   const clampedPage = Math.min(page, pageCount - 1);
   const pageItems = useMemo(() => filtered.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE), [filtered, clampedPage]);
 
+  /** Open or close a job, and say so in the address when this surface owns one. */
+  const select = (id: string | null) => {
+    setSelectedId(id);
+    setMissingLink(null);
+    if (deepLink) writeJobParam(id);
+  };
+
+  // Back and forward move through the jobs that were opened. The page stays mounted across them, so the
+  // address is the only thing that changed and re-reading it is the whole handler.
+  useEffect(() => {
+    if (!deepLink) return;
+    const follow = () => {
+      const id = linkedJobId();
+      setSelectedId(id);
+      setPendingLink(id);
+      setMissingLink(null);
+    };
+    window.addEventListener('popstate', follow);
+    return () => window.removeEventListener('popstate', follow);
+  }, [deepLink]);
+
+  // Resolve a linked job against the loaded list: show the page it sits on, reveal it if a filter is
+  // hiding it, and report the ones this account cannot see exactly as it reports the deleted ones.
+  useEffect(() => {
+    if (pendingLink === null || !data) return;
+    if (!rows.some((j) => j.id === pendingLink)) {
+      setPendingLink(null);
+      setSelectedId(null);
+      setMissingLink(pendingLink);
+      return;
+    }
+    const at = filtered.findIndex((j) => j.id === pendingLink);
+    if (at < 0) { setQuery(''); setFilter('all'); setScope('all'); return; }
+    setPage(Math.floor(at / PAGE_SIZE));
+    setPendingLink(null);
+  }, [pendingLink, data, rows, filtered]);
+
   const addJob = () => {
     // Same id shape the plugin's own CronAdd tool generates.
     const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     setDrafts((cur) => [...cur, { id, name: '', schedule: 'every 1h', prompt: '', enabled: false, createdAt: new Date().toISOString() }]);
-    setSelectedId(id); // a job the user just added opens straight into its fields
+    select(id); // a job the user just added opens straight into its fields
   };
   const dropDraft = (id: string) => {
     setDrafts((cur) => cur.filter((j) => j.id !== id));
-    setSelectedId((cur) => (cur === id ? null : cur));
+    if (selectedId === id) select(null);
   };
 
   const addButton = <C.Button variant="accent" icon={Plus} onClick={addJob}>{s.addJob}</C.Button>;
@@ -712,8 +930,8 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
             destinations={destinations.data ?? []}
             models={models.data ?? []}
             selected={selectedId === job.id}
-            onSelect={() => setSelectedId(job.id)}
-            onClose={() => setSelectedId(null)}
+            onSelect={() => select(job.id)}
+            onClose={() => select(null)}
             onRemoved={dropDraft}
             onRefresh={refetch}
           />
@@ -735,6 +953,15 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
         : isLoading || !data ? <C.ControlSurfaceState><C.LoadingState variant="cards" /></C.ControlSurfaceState>
         : (
           <div className="flex min-w-0 flex-col gap-4">
+            {/* A link to a job this account cannot open. Deleted and foreign are the same answer: the
+                list already IS the authorized one, so naming which of the two it was would answer a
+                question about somebody else's schedule. */}
+            {missingLink ? (
+              <div role="status" className="flex flex-col gap-0.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
+                <span className="font-medium text-destructive">{s.linkUnavailable}</span>
+                <span className="text-muted-foreground">{s.linkUnavailableHint}</span>
+              </div>
+            ) : null}
             <C.ControlSurfaceRegister className="flex flex-col gap-4">
               {rows.length === 0
                 ? <C.EmptyState title={s.empty} icon={Clock} action={addButton} />

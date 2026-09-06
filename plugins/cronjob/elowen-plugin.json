@@ -1,8 +1,8 @@
 {
   "name": "cronjob",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "apiVersion": "1",
-  "requiresCore": "0.28.22",
+  "requiresCore": "0.28.33",
   "requiresSharedApi": 3,
   "description": "Scheduled prompts: recurring jobs (\"every 30m\", \"daily 07:30\") and one-shot wake-ups (\"in 20m\", \"at 18:30\"). Personal schedules run with their owner's rights and return to the originating one-person conversation; instance automation runs with owner powers and reports through the notification channel.",
   "entry": "index.mjs",
@@ -17,13 +17,15 @@
       "CronAdd",
       "ScheduleWakeup",
       "CronList",
-      "CronRemove"
+      "CronRemove",
+      "CronConversations"
     ],
     "platforms": [
       "cron"
     ],
     "apiRoutes": [
-      "/plugins/cronjob/jobs"
+      "/plugins/cronjob/jobs",
+      "conversations"
     ],
     "skills": [
       "elowen-scheduling"
@@ -33,6 +35,7 @@
     "CronAdd",
     "CronList",
     "CronRemove",
+    "CronConversations",
     "ScheduleWakeup"
   ],
   "icons": {
@@ -246,7 +249,22 @@
       "ownerMine": "Mine",
       "ownerFieldHint": "An instance job runs without an account and reports to its notification channel. Handing it to yourself makes it run with your permissions and report in your own conversation.",
       "filterMine": "Mine",
-      "filterInstance": "Instance"
+      "filterInstance": "Instance",
+      "conversation": "Conversation",
+      "helpConversation": "Where the job is filed in the conversation list. Organization only: it never changes what the job runs with, which model it uses, its permissions, or where its result is delivered.",
+      "conversationManage": "Choose conversation",
+      "conversationRequired": "Choose a conversation. A new recurring job is saved once it is filed.",
+      "conversationUnassigned": "Unassigned",
+      "conversationUnavailable": "Conversation unavailable",
+      "conversationUnavailableHint": "The conversation this job was filed under is gone. The job keeps running on its schedule; choose another conversation to file it again.",
+      "conversationOwnerHint": "The filed conversation belongs to the previous owner. Choose one the new owner can use.",
+      "conversationUnresolvedHint": "The filed conversation could not be read just now. The job keeps running on its schedule and its filing is unchanged.",
+      "conversationDirectoryUnavailable": "This instance cannot list conversations.",
+      "conversationLoading": "Loading conversations…",
+      "conversationListError": "The conversations could not be loaded. Please try again.",
+      "conversationOwnChat": "Own conversations",
+      "linkUnavailable": "That job is not available",
+      "linkUnavailableHint": "It was deleted, or it belongs to another account. Choose a job from the list."
     }
   }
 }

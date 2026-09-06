@@ -27,14 +27,36 @@ The one case that differs: a schedule created where there is no single person to
 room, or automation with no account behind it) has nowhere to reply, and reports through the
 instance's notification channel instead.
 
+## You do choose where a recurring job is FILED
+
+A recurring job also names the conversation it is organized under, through `CronAdd`'s required
+`conversationSessionId`. That is filing, and it is one of the two decisions this tool asks of you. It
+groups the job under that conversation in the conversation list so it can be found and opened again
+later, and it changes nothing else: not the context the job runs with, not its model, not its
+permissions, not its owner, not its schedule, and not where the reply lands. Moving a job to another
+conversation later makes the same promise — the grouping moves and everything else stays.
+
+Take the id from `CronConversations` and pass it explicitly. There is no default and nothing is
+inferred from the conversation you are in; that conversation is usually the right answer, but you
+still have to say so with its id. A personal job may only name a conversation of its own account, so
+somebody's reminder can never be filed under a colleague's chat.
+
+In a shared room `CronConversations` deliberately lists nothing private — only that room, if it is
+eligible at all. Do not work around it: ask again in a private chat, or point the user at the
+Automation page. For the same reason, never read a conversation's title or id back into a shared
+room; say that the job is grouped, not what it is grouped under.
+
 ## Tools
 
 - `CronAdd` — recurring self-prompt: `"every 15m"`, `"every 2h"`, `"daily 07:30"`,
-  `"weekly sun 20:00"`, or a cron expression (`"0 9 * * 1-5"`). `scope` is required and is the only
-  choice you have to make: `"personal"` for the person you are talking to, `"instance"` for the
-  whole instance (operator only). Optional `hours` active window.
+  `"weekly sun 20:00"`, or a cron expression (`"0 9 * * 1-5"`). `scope` and `conversationSessionId`
+  are both required and are the choices you have to make: `"personal"` for the person you are talking
+  to, `"instance"` for the whole instance (operator only), and the conversation the job is filed
+  under. Optional `hours` active window.
+- `CronConversations` — the conversations a job may be filed under, with their ids. Read-only.
 - `ScheduleWakeup` — ONE-SHOT wake-up (`"in 20m"`, `"at 18:30"`); it removes itself after running
-  and resumes the conversation it was scheduled from, with its full context.
+  and resumes the conversation it was scheduled from, with its full context. A wake-up is never
+  filed under a conversation — it has no `conversationSessionId` and needs none.
 - `CronList` / `CronRemove` — inspect and delete scheduled jobs.
 
 ## Choosing between them
