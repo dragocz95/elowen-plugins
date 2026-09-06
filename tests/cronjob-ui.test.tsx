@@ -660,6 +660,41 @@ describe('cronjob JobsSettings conversation filing', () => {
     expect(writes[0]?.body).not.toHaveProperty('conversation');
   });
 
+  // "Gone" and "could not be read" are different answers, and only the first is the reader's to solve.
+  // Telling them to refile a job whose filing is almost certainly intact is a wrong instruction.
+  it('says an unresolved filing is unknown rather than telling the reader it was deleted', async () => {
+    const writes: { id: string; body: Record<string, unknown> }[] = [];
+    mount([job({ conversationSessionId: 'conv-a', conversation: null, conversationUnresolved: true })], writes);
+    await openRow('digest');
+
+    expect(await screen.findByText(strings.conversationUnresolvedHint)).toBeInTheDocument();
+    expect(screen.queryByText(strings.conversationUnavailable)).toBeNull();
+    expect(screen.queryByText(strings.conversationUnavailableHint)).toBeNull();
+
+    // The reference still round-trips untouched, and the server's own projection never goes back.
+    fireEvent.change(nameBox(), { target: { value: 'renamed' } });
+    await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
+    expect(writes[0]?.body).toMatchObject({ conversationSessionId: 'conv-a' });
+    expect(writes[0]?.body).not.toHaveProperty('conversation');
+    expect(writes[0]?.body).not.toHaveProperty('conversationUnresolved');
+  });
+
+  // An empty picker reads as "you have no conversations", which is the one thing a list that failed to
+  // load does not know.
+  it('says the conversation list failed instead of showing an empty picker', async () => {
+    use(
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job({})])),
+      http.get('/api/plugins/cronjob/api/conversations', () => HttpResponse.json({ error: 'nope' }, { status: 500 })),
+      http.put('/api/plugins/cronjob/jobs/:id', () => HttpResponse.json({ ok: true })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await openRow('digest');
+
+    fireEvent.click(await screen.findByRole('button', { name: strings.conversationManage }));
+    expect(await screen.findByText(strings.conversationListError)).toBeInTheDocument();
+  });
+
   it('files an owned job under another conversation and changes nothing else', async () => {
     const writes: { id: string; body: Record<string, unknown> }[] = [];
     const asked: string[] = [];

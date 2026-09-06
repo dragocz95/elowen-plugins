@@ -1236,11 +1236,17 @@ export function register(ctx) {
   /** The client-facing shape of a stored job. The immutable key never leaves the daemon, and a live
    *  association is projected as the conversation's CURRENT id plus display metadata; an unavailable one
    *  keeps its stored id beside an explicit null, so the editor can say so and offer a reassignment
-   *  instead of quietly showing nothing. */
+   *  instead of quietly showing nothing.
+   *
+   *  "Gone" and "could not be read" are separate answers on the wire, exactly as they are above. A failed
+   *  read reported as `conversation: null` would tell the reader their conversation had been deleted and
+   *  ask them to refile a job whose filing is very probably still good — a wrong answer, where the honest
+   *  one is that nothing is known right now. */
   const publicJob = (job) => {
     const { conversationKey: _key, ...rest } = job;
     const assoc = jobAssociation(job);
     if (assoc.state === 'unset') return rest;
+    if (assoc.state === 'unknown') return { ...rest, conversation: null, conversationUnresolved: true };
     if (assoc.state !== 'linked') return { ...rest, conversation: null };
     return {
       ...rest,

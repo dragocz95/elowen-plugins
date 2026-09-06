@@ -335,7 +335,7 @@ function DestinationField({ value, onChange, destinations }) {
     )
   ] });
 }
-function ConversationField({ value, saved, owner, myId, required, mismatch, onChange }) {
+function ConversationField({ value, saved, unresolved, owner, myId, required, mismatch, onChange }) {
   const { components: C, hooks } = runtime();
   const { t } = hooks.useTranslation();
   const s = hooks.usePluginStrings("cronjob");
@@ -350,7 +350,7 @@ function ConversationField({ value, saved, owner, myId, required, mismatch, onCh
   });
   const options = list.data?.status === "available" ? list.data.conversations : [];
   const chosen = picked?.id === value ? picked : saved?.id === value ? saved : options.find((c) => c.id === value) ?? null;
-  const unavailable = saved === null && chosen === null;
+  const unavailable = saved === null && chosen === null && !unresolved;
   const icon = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessagesSquare, { size: 12, "aria-hidden": true });
   const items = [
     ...unavailable ? [{ id: value, label: s.conversationUnavailable, group: "", disabled: true, disabledHint: s.conversationUnavailableHint }] : chosen && !options.some((c) => c.id === chosen.id) ? [{ id: chosen.id, label: chosen.title || chosen.id, group: "", icon }] : [],
@@ -374,12 +374,12 @@ function ConversationField({ value, saved, owner, myId, required, mismatch, onCh
         manageAriaLabel: s.conversationManage
       }
     ),
-    unavailable ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-destructive", children: s.conversationUnavailableHint }) : mismatch ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-destructive", children: s.conversationOwnerHint }) : required && !chosen ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.conversationRequired }) : !value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "muted", children: s.conversationUnassigned }) : null,
+    unavailable ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-destructive", children: s.conversationUnavailableHint }) : unresolved ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.conversationUnresolvedHint }) : mismatch ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-destructive", children: s.conversationOwnerHint }) : required && !chosen ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.conversationRequired }) : !value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "muted", children: s.conversationUnassigned }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
       C.ManageSelectionModal,
       {
         title: s.conversation,
-        subtitle: list.data?.status === "unavailable" ? s.conversationDirectoryUnavailable : s.helpConversation,
+        subtitle: list.isLoading ? s.conversationLoading : list.isError ? s.conversationListError : list.data?.status === "unavailable" ? s.conversationDirectoryUnavailable : s.helpConversation,
         open,
         onClose: () => setOpen(false),
         items,
@@ -605,7 +605,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const autosave = hooks.useAutoSaveStatus([editVersion], async () => {
     if (deleted.current) return;
     const sent = draftRef.current;
-    const { owner: _owner, conversation: _conversation, expectedRevision: _expectedRevision, ...payload } = sent;
+    const { owner: _owner, conversation: _conversation, conversationUnresolved: _unresolved, expectedRevision: _expectedRevision, ...payload } = sent;
     everSaved.current = true;
     const request = save.mutateAsync({ ...payload, expectedRevision: sent.revision ?? 0 });
     inFlight.current = request;
@@ -742,6 +742,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
         {
           value: draft.conversationSessionId ?? "",
           saved: job.conversation,
+          unresolved: job.conversationUnresolved === true,
           owner: ownerOf(draft),
           myId,
           required: !persisted,

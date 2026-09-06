@@ -144,7 +144,10 @@
       "conversationUnavailable": "Konverzace není dostupná",
       "conversationUnavailableHint": "Konverzace, do které byla úloha zařazena, už neexistuje. Úloha běží dál podle plánu; vyberte jinou konverzaci pro nové zařazení.",
       "conversationOwnerHint": "Zařazená konverzace patří předchozímu vlastníkovi. Vyberte takovou, kterou může použít nový vlastník.",
+      "conversationUnresolvedHint": "Zařazenou konverzaci se právě nepodařilo načíst. Úloha běží dál podle plánu a její zařazení zůstává beze změny.",
       "conversationDirectoryUnavailable": "Tato instance neumí vypsat konverzace.",
+      "conversationLoading": "Načítání konverzací…",
+      "conversationListError": "Konverzace se nepodařilo načíst. Zkuste to prosím znovu.",
       "conversationOwnChat": "Vlastní konverzace",
       "linkUnavailable": "Tato úloha není dostupná",
       "linkUnavailableHint": "Byla smazána, nebo patří jinému účtu. Vyberte úlohu ze seznamu."

@@ -91,11 +91,14 @@ function DestinationField({ value, onChange, destinations }: { value: string; on
  *  owner, because that is the rule the daemon validates against: a personal job may only be filed under a
  *  conversation of its own account, an instance job under any eligible one an administrator can read.
  *  Nothing here is ever cleared — the daemon refuses a blank value rather than reading it as "unfile". */
-function ConversationField({ value, saved, owner, myId, required, mismatch, onChange }: {
+function ConversationField({ value, saved, unresolved, owner, myId, required, mismatch, onChange }: {
   /** The draft's filed conversation id; '' = nothing chosen yet. */
   value: string;
   /** The server's projection of the SAVED filing: `undefined` = never filed, `null` = its target is gone. */
   saved: CronConversation | null | undefined;
+  /** The daemon could not read the conversation directory, so `saved === null` is "not known right now"
+   *  rather than "deleted" — the reader is told that instead of being sent to refile a good job. */
+  unresolved: boolean;
   /** Who the job belongs to AFTER this edit; null = an instance job. */
   owner: number | null;
   myId: number | null;
@@ -124,8 +127,9 @@ function ConversationField({ value, saved, owner, myId, required, mismatch, onCh
   const chosen: CronConversation | null = picked?.id === value ? picked
     : saved?.id === value ? saved
     : options.find((c) => c.id === value) ?? null;
-  /** A filing whose conversation the daemon can no longer resolve — an explicit state, not an empty one. */
-  const unavailable = saved === null && chosen === null;
+  /** A filing whose conversation is GONE — an explicit state, not an empty one, and not the same as a
+   *  directory the daemon could not read, which claims nothing about the target either way. */
+  const unavailable = saved === null && chosen === null && !unresolved;
   const icon = <MessagesSquare size={12} aria-hidden />;
   const items: ManageSelectionItem[] = [
     ...(unavailable
@@ -157,13 +161,19 @@ function ConversationField({ value, saved, owner, myId, required, mismatch, onCh
       {/* One line of direction under the summary, and only when there is something to do: an unavailable
           target, a filing the new owner cannot keep, or a new job that is not filed yet. */}
       {unavailable ? <p className="text-xs text-destructive">{s.conversationUnavailableHint}</p>
+        : unresolved ? <p className="text-xs text-muted-foreground">{s.conversationUnresolvedHint}</p>
         : mismatch ? <p className="text-xs text-destructive">{s.conversationOwnerHint}</p>
         : required && !chosen ? <p className="text-xs text-muted-foreground">{s.conversationRequired}</p>
         : !value ? <C.Badge tone="muted">{s.conversationUnassigned}</C.Badge>
         : null}
       <C.ManageSelectionModal
         title={s.conversation}
-        subtitle={list.data?.status === 'unavailable' ? s.conversationDirectoryUnavailable : s.helpConversation}
+        // A list that is still coming, and one that failed to come, both render as no rows — and an empty
+        // picker reads as "you have no conversations", which is an answer neither of them gave.
+        subtitle={list.isLoading ? s.conversationLoading
+          : list.isError ? s.conversationListError
+          : list.data?.status === 'unavailable' ? s.conversationDirectoryUnavailable
+          : s.helpConversation}
         open={open}
         onClose={() => setOpen(false)}
         items={items}
@@ -454,7 +464,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
     const sent = draftRef.current;
     // `conversation` is the server's live projection of the filing, resolved from an immutable key this
     // page never sees; sending it back would ask the daemon to trust a client's copy of its own answer.
-    const { owner: _owner, conversation: _conversation, expectedRevision: _expectedRevision, ...payload } = sent;
+    const { owner: _owner, conversation: _conversation, conversationUnresolved: _unresolved, expectedRevision: _expectedRevision, ...payload } = sent;
     everSaved.current = true;
     const request = save.mutateAsync({ ...payload, expectedRevision: sent.revision ?? 0 });
     inFlight.current = request;
@@ -654,6 +664,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
                 <ConversationField
                   value={draft.conversationSessionId ?? ''}
                   saved={job.conversation}
+                  unresolved={job.conversationUnresolved === true}
                   owner={ownerOf(draft)}
                   myId={myId}
                   required={!persisted}

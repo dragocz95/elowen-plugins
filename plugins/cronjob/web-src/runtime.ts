@@ -57,6 +57,9 @@ export interface CronJob {
   /** Read-only projection of the filed conversation: `null` when its target is gone, absent when the job
    *  was never filed. Never sent back — the daemon resolves it from its own immutable key. */
   conversation?: CronConversation | null;
+  /** True when the daemon could not READ the conversation directory at all, so `conversation: null` means
+   *  "not known right now" rather than "deleted". A different answer, and a different thing to say. */
+  conversationUnresolved?: boolean;
   enabled?: boolean; runAt?: string; createdAt?: string; lastRun?: string; lastResult?: string;
   /** Server revision used as the conditional-write token; never display as editable content. */
   revision?: number;

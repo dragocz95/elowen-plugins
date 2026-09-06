@@ -59,7 +59,13 @@ const baseRows = (amyId: number, adminId: number): FakeConversationRow[] => [
 
 // ── HTTP harness: the real daemon server serving the plugin's own root mounts ────────────────────────
 
-function setupRoutes(rows?: (amyId: number, adminId: number) => FakeConversationRow[]) {
+/** `directory` is how the HOST answers about conversations: normally, not at all (a core without the
+ *  projection), or by failing (the read itself threw). The last two are different answers and the plugin
+ *  must not merge them into "your conversation is gone". */
+function setupRoutes(
+  rows?: (amyId: number, adminId: number) => FakeConversationRow[],
+  opts: { directory?: 'ok' | 'missing' | 'broken' } = {},
+) {
   const dataRoot = tmpDir('cron-groups');
   const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
@@ -72,6 +78,9 @@ function setupRoutes(rows?: (amyId: number, adminId: number) => FakeConversation
   const table = (rows ?? baseRows)(amy.id, admin.id);
   table.push({ id: 'brain-bob', key: 'ns-bob-1', title: 'Bob chat', ownerUserId: bob.id });
   const directory = conversationDirectory(table, { admins: [admin.id] });
+  const wiredDirectory = opts.directory === 'broken'
+    ? { ...directory, resolveKey: () => { throw new Error('the conversation store is unavailable'); } }
+    : directory;
   const provider = new PluginRegistryProvider(() => loadPlugins({
     dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log,
     host: {
@@ -82,7 +91,7 @@ function setupRoutes(rows?: (amyId: number, adminId: number) => FakeConversation
           allowedExecs: () => null,
           mayUsePlugin: () => true,
         },
-        conversationsRead: directory,
+        ...(opts.directory === 'missing' ? {} : { conversationsRead: wiredDirectory }),
       },
     } as never,
   }));
@@ -284,6 +293,44 @@ describe('cron HTTP save — the organizational association', () => {
     const moved = await save(app, amyTok, { ...editable(job), conversationSessionId: 'brain-amy' });
     expect(moved.status).toBe(200);
     expect(onDisk(dataRoot)[0]).toMatchObject({ conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1' });
+  });
+
+  // A host that cannot answer about conversations at all. The save must FAIL CLOSED rather than store an
+  // association nothing verified — and it must not write half a job on the way out.
+  it('refuses to create or file a job on a core with no conversation directory', async () => {
+    const { app, dataRoot, adminTok, amy, amyTok } = setupRoutes(undefined, { directory: 'missing' });
+    const created = await save(app, adminTok, {
+      id: 'new1', name: 'digest', schedule: 'daily 06:00', prompt: 'p', conversationSessionId: 'brain-admin',
+    });
+    expect(created.status).toBe(400);
+    expect(onDisk(dataRoot)).toEqual([]);
+
+    // An existing job cannot be refiled either, and the pair on disk is left exactly as it was.
+    const job = storedJob({ ownerUserId: amy.id, conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1' });
+    seedJobs(dataRoot, [job]);
+    const moved = await save(app, amyTok, { ...editable(job), conversationSessionId: 'brain-amy-2' });
+    expect(moved.status).toBe(400);
+    expect(onDisk(dataRoot)[0]).toMatchObject({ conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1', revision: 3 });
+  });
+
+  // A read that FAILED is not an answer about the conversation. Reporting it as `conversation: null` told
+  // the editor the conversation had been deleted, which is a wrong answer rather than an unknown one: the
+  // reader is asked to refile a job whose filing is very probably still perfectly good.
+  it('reports an unresolved filing as unknown rather than as a deleted conversation', async () => {
+    const { app, dataRoot, amyTok, amy } = setupRoutes(undefined, { directory: 'broken' });
+    seedJobs(dataRoot, [storedJob({ ownerUserId: amy.id, conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1' })]);
+
+    const listed = await (await app.request('/plugins/cronjob/jobs', auth(amyTok))).json() as Record<string, unknown>[];
+    expect(listed[0]).toMatchObject({ conversationSessionId: 'brain-amy', conversation: null, conversationUnresolved: true });
+    // Still no key on the wire, whatever the host did.
+    expect(listed[0]).not.toHaveProperty('conversationKey');
+
+    // And a job whose conversation really is gone stays the definite answer it was.
+    const gone = setupRoutes();
+    seedJobs(gone.dataRoot, [storedJob({ ownerUserId: gone.amy.id, conversationSessionId: 'brain-gone', conversationKey: 'ns-gone' })]);
+    const goneListed = await (await gone.app.request('/plugins/cronjob/jobs', auth(gone.amyTok))).json() as Record<string, unknown>[];
+    expect(goneListed[0]).toMatchObject({ conversation: null });
+    expect(goneListed[0]).not.toHaveProperty('conversationUnresolved');
   });
 
   // The conflict payload carries the whole previous job — prompt, schedule, last result. Answering it
