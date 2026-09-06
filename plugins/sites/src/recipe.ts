@@ -3,6 +3,7 @@ import { join, posix, resolve } from 'node:path';
 
 import type { ConversionImageKind } from './conversionImage.js';
 import { assertAppOwnedSelection } from './dataSync.js';
+import { systemdEnvironment } from './releaseEnvironment.js';
 
 /** What a converted command site needs in order to actually SERVE, and where its data lives.
  *
@@ -159,6 +160,8 @@ export function parseAppRecipe(raw: unknown): AppRecipe {
     : assertAppOwnedSelection({ home: '/', includes: secretsRaw.map((entry, index) => asString(entry, `secretFiles[${index}]`)) });
 
   const image: ConversionImageKind = kind === 'release-copy' ? 'static' : 'node';
+  // The legacy command runtime loads .env even when the application does not read it itself.
+  if (image === 'node' && !secretFiles.includes('.env')) secretFiles.push('.env');
 
   // A STATIC site has no process to hand a secret to: nginx serves the workspace as files, so anything
   // "restored" into it becomes a downloadable URL. Refusing the list outright is the only safe answer;
@@ -336,10 +339,6 @@ export function recipeBinding(artifactDir: string): { siteId: string; expectedRe
  *  path, so the proxy has somewhere to forward as soon as this unit is up, and a slow app start delays
  *  requests instead of refusing them. */
 export function appUnit(recipe: AppRecipe): string {
-  const escape = (value: string): string => value.replace(/[$]/g, '$$$$');
-  const environment = Object.entries(recipe.env)
-    .map(([key, value]) => `Environment=${key}=${escape(value)}`)
-    .sort();
   return [
     '[Unit]',
     'Description=Elowen converted site application',
@@ -351,7 +350,8 @@ export function appUnit(recipe: AppRecipe): string {
     'WorkingDirectory=/workspace',
     `Environment=HOME=${recipe.dataDir}`,
     'Environment=NODE_ENV=production',
-    ...environment,
+    'EnvironmentFile=/etc/elowen-app.env',
+    'EnvironmentFile=/etc/elowen-app-recipe.env',
     // Argv as a bare exec line with each argument quoted by systemd's own rules. `ExecStart=` takes the
     // first token as the binary, so an absolute path is required and validated by the recipe author.
     `ExecStart=${recipe.argv.map((arg) => `"${arg.replace(/(["\\])/g, '\\$1')}"`).join(' ')}`,
@@ -379,6 +379,11 @@ export function provisionScript(recipe: AppRecipe): string {
     // The application unit ships on the volume and is installed here, because the container rootfs is
     // built before the recipe is known and systemd reads units from the rootfs, not from /data.
     `install -m 0644 '${CONVERSION_STAGE}/elowen-app.service' /etc/systemd/system/elowen-app.service`,
+    `if [ -f '${CONVERSION_STAGE}/app.env' ]; then install -m 0600 '${CONVERSION_STAGE}/app.env' /etc/elowen-app.env; else test -f /etc/elowen-app.env; fi`,
+    'install -m 0600 /dev/null /etc/elowen-app-recipe.env',
+    // A separate, later file gives explicit recipe settings precedence over dotenv values.
+    `printf '%s' '${Buffer.from(systemdEnvironment(recipe.env)).toString('base64')}' | base64 -d > /etc/elowen-app-recipe.env`,
+    `rm -f '${CONVERSION_STAGE}/app.env'`,
     // The captured subtrees were archived relative to the sandbox home, so they are unpacked relative to
     // the app's data directory, which is the home the unit hands the app.
     `if [ -f '${DATA_ARCHIVE_STAGE}' ]; then tar -xf '${DATA_ARCHIVE_STAGE}' -C '${recipe.dataDir}'; fi`,

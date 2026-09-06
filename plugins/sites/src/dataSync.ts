@@ -3,6 +3,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, read
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 
 import type { CommandExecutor } from './podman.js';
+import { readReleaseEnv, systemdEnvironment } from './releaseEnvironment.js';
 
 /** Moving a legacy site's mutable state into a container, and back out again.
  *
@@ -350,6 +351,7 @@ export class DataSyncService {
       const staged = join(workspace, file);
       // Absent is normal: a release may not carry every file its recipe knows about, and refusing here
       // would block a conversion over a file the app itself treats as optional.
+      if (file === '.env') readReleaseEnv(workspace);
       if (!existsSync(staged)) continue;
       if (!statSync(staged).isFile()) throw new Error(`the staged secret ${file} is not a regular file`);
       const artifact = join(secretsDir, file);
@@ -381,6 +383,7 @@ export class DataSyncService {
     mkdirSync(stage, { recursive: true, mode: 0o700 });
     writeFileSync(join(stage, 'provision.sh'), input.provisionScript, { mode: 0o700 });
     writeFileSync(join(stage, 'elowen-app.service'), input.appUnit, { mode: 0o600 });
+    writeFileSync(join(stage, 'app.env'), systemdEnvironment(readReleaseEnv(join(this.protectedDir(siteId), 'secrets'))), { mode: 0o600 });
     if (input.dataArchive) copyFileSync(input.dataArchive, join(stage, 'legacy-data.tar'));
     const secrets = join(this.protectedDir(siteId), 'secrets');
     if (existsSync(secrets)) cpSync(secrets, join(stage, 'secrets'), { recursive: true, dereference: false });

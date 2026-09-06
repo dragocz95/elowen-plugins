@@ -1443,7 +1443,7 @@ test('the generated unit actually serves: working directory, app-owned home and 
   }));
   assert.match(unit, /WorkingDirectory=\/workspace/);
   assert.match(unit, /Environment=HOME=\/data/);
-  assert.match(unit, /Environment=DEV_PORT=80/);
+  assert.match(unit, /EnvironmentFile=\/etc\/elowen-app-recipe\.env/);
   assert.match(unit, /ExecStart="\/usr\/bin\/node" "server\.mjs"/);
   assert.match(unit, /WantedBy=multi-user\.target/);
   assert.match(unit, /Restart=always/);
@@ -1457,7 +1457,10 @@ test('a recipe value carrying unit syntax cannot inject a directive', () => {
     argv: ['/usr/bin/node', 'a b.mjs', '--flag="x"'],
     env: { TOKEN_HINT: 'literal $NOT_EXPANDED' },
   }));
-  assert.match(unit, /Environment=TOKEN_HINT=literal \$\$NOT_EXPANDED/);
+  assert.doesNotMatch(unit, /TOKEN_HINT|NOT_EXPANDED/);
+  const script = provisionScript(parseAppRecipe({ kind: 'node-app', argv: ['/x'], env: { TOKEN_HINT: 'literal $NOT_EXPANDED' } }));
+  const encoded = script.match(/printf '%s' '([^']*)'/)[1];
+  assert.equal(Buffer.from(encoded, 'base64').toString(), 'TOKEN_HINT="literal \\$NOT_EXPANDED"\n');
   assert.match(unit, /ExecStart=.*"a b\.mjs"/);
   assert.match(unit, /\\"x\\"/);
   assert.equal(unit.split('\n').filter((line) => line.startsWith('ExecStart=')).length, 1);

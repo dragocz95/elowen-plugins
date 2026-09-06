@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { readReleaseEnv, systemdEnvironment } from './releaseEnvironment.js';
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const OUTPUT_LIMIT_BYTES = 64 * 1024;
 /** A path is usable only when the sandbox itself named it. Containment is checked on RESOLVED paths with
@@ -278,6 +279,8 @@ export class DataSyncService {
             const staged = join(workspace, file);
             // Absent is normal: a release may not carry every file its recipe knows about, and refusing here
             // would block a conversion over a file the app itself treats as optional.
+            if (file === '.env')
+                readReleaseEnv(workspace);
             if (!existsSync(staged))
                 continue;
             if (!statSync(staged).isFile())
@@ -306,6 +309,7 @@ export class DataSyncService {
         mkdirSync(stage, { recursive: true, mode: 0o700 });
         writeFileSync(join(stage, 'provision.sh'), input.provisionScript, { mode: 0o700 });
         writeFileSync(join(stage, 'elowen-app.service'), input.appUnit, { mode: 0o600 });
+        writeFileSync(join(stage, 'app.env'), systemdEnvironment(readReleaseEnv(join(this.protectedDir(siteId), 'secrets'))), { mode: 0o600 });
         if (input.dataArchive)
             copyFileSync(input.dataArchive, join(stage, 'legacy-data.tar'));
         const secrets = join(this.protectedDir(siteId), 'secrets');

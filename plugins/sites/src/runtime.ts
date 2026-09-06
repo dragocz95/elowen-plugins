@@ -1,8 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { appendFileSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { connect, createServer } from 'node:net';
 import { dirname, join } from 'node:path';
-import { parseEnv } from 'node:util';
+import { readReleaseEnv } from './releaseEnvironment.js';
 import type { SitesContext } from './coreSeams.js';
 import type { Site, SitesStore } from './store.js';
 
@@ -36,8 +36,6 @@ export interface RuntimeDeps {
  *  is the explicit compatibility path for frameworks that cannot listen on a pathname. */
 export type Endpoint = { kind: 'socket'; path: string } | { kind: 'port'; port: number };
 
-const RESERVED_ENV = new Set(['HOME', 'PATH', 'NODE_ENV', 'HOST', 'PORT', 'SOCKET_PATH', 'SOCKET_ABSTRACT']);
-
 interface Running {
   siteId: string;
   releaseId: string;
@@ -51,23 +49,6 @@ interface Running {
   stopping: boolean;
   /** The home the sandbox handed THIS process, kept so a later reader does not have to ask again. */
   home: string;
-}
-
-function readReleaseEnv(releaseDir: string): Record<string, string> {
-  const file = join(releaseDir, '.env');
-  let fd: number | null = null;
-  try {
-    fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
-    if (!fstatSync(fd).isFile()) throw new Error('.env is not a regular file');
-    return Object.fromEntries(Object.entries(parseEnv(readFileSync(fd, 'utf8')))
-      .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-      .filter(([key]) => !RESERVED_ENV.has(key) && !key.startsWith('ELOWEN_')));
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return {};
-    throw new Error(`the runtime .env could not be loaded: ${error instanceof Error ? error.message : String(error)}`);
-  } finally {
-    if (fd !== null) closeSync(fd);
-  }
 }
 
 const endpointConnection = (endpoint: Endpoint): { path: string } | { host: string; port: number } =>
