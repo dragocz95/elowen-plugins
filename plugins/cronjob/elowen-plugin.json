@@ -17,13 +17,15 @@
       "CronAdd",
       "ScheduleWakeup",
       "CronList",
-      "CronRemove"
+      "CronRemove",
+      "CronConversations"
     ],
     "platforms": [
       "cron"
     ],
     "apiRoutes": [
-      "/plugins/cronjob/jobs"
+      "/plugins/cronjob/jobs",
+      "conversations"
     ],
     "skills": [
       "elowen-scheduling"
@@ -33,6 +35,7 @@
     "CronAdd",
     "CronList",
     "CronRemove",
+    "CronConversations",
     "ScheduleWakeup"
   ],
   "icons": {

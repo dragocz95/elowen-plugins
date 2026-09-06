@@ -1024,6 +1024,11 @@ export function register(ctx) {
     if (j.ownerUserId !== undefined && j.ownerUserId !== null && !Number.isInteger(j.ownerUserId)) {
       return 'ownerUserId must be omitted, null or an account id';
     }
+    // Blank is REFUSED rather than read as "detach": an editor that clears the field by accident, or one
+    // that sends an empty string where it means "unchanged", must not silently unfile a live job.
+    if (j.conversationSessionId !== undefined && (typeof j.conversationSessionId !== 'string' || !j.conversationSessionId.trim())) {
+      return 'conversationSessionId must be omitted or name a conversation';
+    }
     return null;
   };
   const jsonRes = (body, status = 200) => ({ status, body });
@@ -1082,6 +1087,174 @@ export function register(ctx) {
     return jobs.filter((j) => ownerOf(j) === me || (admin && ownerOf(j) === null));
   };
 
+  // ── The organizational conversation a recurring job is filed under ──────────────────────────────
+  // Filing, and nothing else. It never decides where a job runs, whose rights it runs with, which model
+  // it uses or where its result is delivered — `originSessionId`/`originUserId`/`originDeliveryTarget`,
+  // `ownerUserId`, `model` and `notifyChannelId` keep every one of those jobs, and the scheduler above
+  // does not read a single field below.
+  //
+  // The association is a PAIR, written only by the server. `conversationSessionId` is the conversation's
+  // CURRENT id, which is what navigation needs and what a client may name — but it is not stable: a
+  // channel's idle rollover re-keys the row and frees the deterministic id for the next conversation on
+  // that channel, possibly somebody else's. `conversationKey` is the host's immutable identity for the
+  // row, minted from the session record and never accepted from a client (it is absent from CRON_FIELDS,
+  // so a forged one is dropped with every other unknown field). Saved associations therefore resolve by
+  // KEY: the job follows the conversation it was filed under, through a rollover and into the archive,
+  // and an id that has been reused can never inherit it.
+  const CONVERSATION_UNAVAILABLE = 'that conversation is not available to organize this job under';
+  const CONVERSATION_REQUIRED = 'a new recurring job must name the conversation it is organized under (conversationSessionId)';
+  const CONVERSATION_OWNER_MISMATCH = 'the saved conversation belongs to the previous owner — name one the new owner can use';
+  const CONVERSATION_DIRECTORY_MISSING = 'this instance cannot resolve conversations, so the job was not saved';
+  const CONVERSATION_NEEDS_ACCOUNT = 'organizing a job under a conversation needs an identified Elowen account';
+
+  /** The host's read-only conversation projection, or null when this core has no such seam. Fail CLOSED:
+   *  a save that cannot verify a target must refuse, never store an unverified one. */
+  const conversationsRead = () => {
+    try { return ctx.host.stores().conversationsRead ?? null; }
+    catch (e) {
+      ctx.logger.warn(`the host exposes no conversation directory (${e instanceof Error ? e.message : e})`);
+      return null;
+    }
+  };
+
+  /** Resolve a conversation the caller NAMED, in the scope the job's ownership implies: a personal job
+   *  asks in its owner's scope (the host allows that account or an administrator), an instance job asks
+   *  in the instance scope (administrators only). Null covers "does not exist", "not an eligible target"
+   *  and "outside your scope" alike, so a save cannot be used to probe another account's conversations. */
+  const resolveNamedTarget = (actorUserId, ownerUserId, sessionId) => {
+    const read = conversationsRead();
+    if (!read) return null;
+    try { return read.resolve({ actorUserId, ownerUserId, sessionId }); }
+    catch (e) {
+      ctx.logger.warn(`conversation ${sessionId} refused for account ${actorUserId} (${e instanceof Error ? e.message : e})`);
+      return null;
+    }
+  };
+
+  /** Where a job's SAVED association points RIGHT NOW:
+   *   - 'unset'   nothing was ever filed (a legacy job, a one-shot) — not an error;
+   *   - 'linked'  the immutable key still names a conversation; `target` carries its CURRENT id;
+   *   - 'missing' the key was minted here but its conversation is gone — an explicit state, never a
+   *               silent detach and never a fall back to the stored id, which may now belong elsewhere;
+   *   - 'unknown' the host could not answer, so nothing is claimed in either direction. */
+  const savedAssociation = (job) => {
+    const key = typeof job?.conversationKey === 'string' && job.conversationKey.trim() ? job.conversationKey : '';
+    if (!key) return { state: 'unset', key: '', target: null };
+    const read = conversationsRead();
+    if (!read) return { state: 'unknown', key, target: null };
+    try {
+      const target = read.resolveKey(key);
+      return target ? { state: 'linked', key, target } : { state: 'missing', key, target: null };
+    } catch (e) {
+      ctx.logger.warn(`could not resolve the conversation of job ${job?.id} (${e instanceof Error ? e.message : e})`);
+      return { state: 'unknown', key, target: null };
+    }
+  };
+
+  /** Whether a resolved conversation may stand as THIS job's file: a personal job is organized only under
+   *  a conversation of its own account, an instance job under any eligible root the operator can read.
+   *  Re-asked at every read, so a job that changed hands can never keep pointing at the previous owner's
+   *  conversation, whatever is on disk. */
+  const targetFitsOwner = (target, owner) => owner === null || target.ownerUserId === owner;
+
+  /** The saved association as READERS must see it — the ownership rule already applied. */
+  const jobAssociation = (job) => {
+    const saved = savedAssociation(job);
+    if (saved.state === 'linked' && !targetFitsOwner(saved.target, ownerOf(job))) {
+      return { state: 'missing', key: saved.key, target: null };
+    }
+    return saved;
+  };
+
+  /** The association fields a save stores, or the reason it cannot be stored. An EMPTY `fields` means
+   *  "keep exactly what is on disk": an editor that never heard of this field, and an edit that
+   *  deliberately leaves an unavailable target in place, both preserve the stored pair. */
+  const associationEdit = ({ prev, wanted, owner, actorUserId, oneShot }) => {
+    const saved = prev ? savedAssociation(prev) : { state: 'unset', key: '', target: null };
+    // Judged against the owner the job WILL have — that is what makes an ownership change revalidate.
+    const fits = saved.state === 'linked' && targetFitsOwner(saved.target, owner);
+    if (wanted === undefined) {
+      if (!prev && !oneShot) return { error: CONVERSATION_REQUIRED };
+      if (saved.state === 'linked' && !fits) return { error: CONVERSATION_OWNER_MISMATCH };
+      return { fields: {} };
+    }
+    // The same conversation, named either by what is on disk or by the id it answers to today — a
+    // rollover moves the live id and the editor round-trips the resolved one. Not a change, so nothing is
+    // revalidated and an unavailable target stays exactly as it is.
+    const unchanged = saved.state !== 'unset'
+      && (wanted === prev?.conversationSessionId || (saved.state === 'linked' && wanted === saved.target.id));
+    if (unchanged && saved.state === 'linked' && !fits) return { error: CONVERSATION_OWNER_MISMATCH };
+    if (unchanged) return { fields: {} };
+    if (typeof actorUserId !== 'number') return { error: CONVERSATION_NEEDS_ACCOUNT };
+    if (!conversationsRead()) return { error: CONVERSATION_DIRECTORY_MISSING };
+    const target = resolveNamedTarget(actorUserId, owner, wanted);
+    if (!target) return { error: CONVERSATION_UNAVAILABLE };
+    return { fields: { conversationSessionId: target.id, conversationKey: target.key } };
+  };
+
+  /** How many conversations one tool answer names. The listing is newest-first, so the tail is the least
+   *  likely to be what somebody is filing a new job under — and an id can always be named directly. */
+  const CONVERSATION_LIST_MAX = 25;
+
+  /** Whether this turn happens where exactly ONE person reads: an own chat or a direct platform chat.
+   *  The audience test for every conversation title or id this plugin prints into a conversation. */
+  const inPrivateConversation = () => {
+    const where = ctx.currentIdentity()?.conversation;
+    return where === 'own' || where === 'direct';
+  };
+
+  /** One conversation as a tool answer names it: enough to recognize and to pass to CronAdd, never
+   *  anything that was said in it. */
+  const describeTarget = (target) => {
+    const kind = target.platform ? `${target.platform} ${target.direct ? 'direct chat' : 'room'}` : 'own chat';
+    return `- ${target.id} "${target.title || 'untitled'}" (${kind}, last active ${target.updatedAt})`;
+  };
+
+  /** The conversation this turn is happening in, when it is an eligible target. Asked in the caller's own
+   *  scope first; an administrator may also be standing in a room owned by somebody else, which the host
+   *  answers under the instance scope. */
+  const currentRoomTarget = (actorUserId) => {
+    const here = ctx.currentSessionId();
+    if (!here) return null;
+    const mine = resolveNamedTarget(actorUserId, actorUserId, here);
+    if (mine || ctx.currentIdentity()?.admin !== true) return mine;
+    return resolveNamedTarget(actorUserId, null, here);
+  };
+
+  /** How a job's filing may be described TO THIS ROOM. A conversation's title and id belong to the people
+   *  who can already see it, so a shared room is told only THAT the job is filed somewhere — except when
+   *  it is filed under this very room, which discloses nothing its audience does not already have. */
+  const groupingLabel = (job) => {
+    const assoc = jobAssociation(job);
+    if (assoc.state === 'unset') return 'unassigned';
+    if (assoc.state === 'missing') return 'conversation unavailable';
+    if (assoc.state === 'unknown') return 'assigned (the conversation directory is unavailable)';
+    if (assoc.target.id === ctx.currentSessionId()) return 'this conversation';
+    return inPrivateConversation() ? (assoc.target.title || assoc.target.id) : 'assigned';
+  };
+
+  /** The client-facing shape of a stored job. The immutable key never leaves the daemon, and a live
+   *  association is projected as the conversation's CURRENT id plus display metadata; an unavailable one
+   *  keeps its stored id beside an explicit null, so the editor can say so and offer a reassignment
+   *  instead of quietly showing nothing. */
+  const publicJob = (job) => {
+    const { conversationKey: _key, ...rest } = job;
+    const assoc = jobAssociation(job);
+    if (assoc.state === 'unset') return rest;
+    if (assoc.state !== 'linked') return { ...rest, conversation: null };
+    return {
+      ...rest,
+      conversationSessionId: assoc.target.id,
+      conversation: {
+        id: assoc.target.id,
+        title: assoc.target.title,
+        ownerUserId: assoc.target.ownerUserId,
+        platform: assoc.target.platform,
+        direct: assoc.target.direct,
+      },
+    };
+  };
+
   ctx.registerApiRoute({
     rootMount: '/plugins/cronjob/jobs', path: '', method: 'GET', access: 'user',
     handler: async (req) => {
@@ -1105,7 +1278,8 @@ export function register(ctx) {
       }
       return jsonRes(visible.map((job) => {
         const owner = ownerOf(job);
-        return owner !== null && owners.has(owner) ? { ...job, owner: owners.get(owner) } : job;
+        const projected = publicJob(job);
+        return owner !== null && owners.has(owner) ? { ...projected, owner: owners.get(owner) } : projected;
       }));
     },
   });
@@ -1133,22 +1307,13 @@ export function register(ctx) {
       try { jobs = readJobsStrict(); }
       catch { return jsonRes({ error: 'jobs file is unreadable — refusing to write over it' }, 500); }
       const prev = jobs.find((j) => j.id === job.id);
-      if (prev && expectedRevision !== undefined && expectedRevision !== prev.revision) {
-        return jsonRes({
-          error: 'job changed on the server; reload it before saving',
-          conflict: true,
-          current: prev,
-        }, 409);
-      }
-      if (!prev && expectedRevision !== undefined && expectedRevision !== 0) {
-        return jsonRes({
-          error: 'job changed on the server; reload it before saving',
-          conflict: true,
-          current: null,
-        }, 409);
-      }
       // Ownership is decided by the SERVER, never by the body: a non-admin always writes his own job, and
       // may not reach one that is not his (nor learn it exists — the refusal is the same either way).
+      //
+      // Authorization runs BEFORE the revision-conflict answer below, and that ordering is the security
+      // property, not tidiness: the conflict payload carries the whole previous job — its prompt, schedule
+      // and last result — so answering it first told anyone who could guess a job id what somebody else
+      // had scheduled, and the refusal that followed came too late to matter.
       if (!req.auth.admin) {
         if (req.auth.userId === null) return jsonRes({ error: 'forbidden' }, 403);
         if (prev && ownerOf(prev) !== req.auth.userId) return jsonRes({ error: 'forbidden' }, 403);
@@ -1163,8 +1328,29 @@ export function register(ctx) {
       } else if (job.ownerUserId === null) {
         delete job.ownerUserId;
       }
+      if (prev && expectedRevision !== undefined && expectedRevision !== prev.revision) {
+        return jsonRes({
+          error: 'job changed on the server; reload it before saving',
+          conflict: true,
+          current: publicJob(prev),
+        }, 409);
+      }
+      if (!prev && expectedRevision !== undefined && expectedRevision !== 0) {
+        return jsonRes({
+          error: 'job changed on the server; reload it before saving',
+          conflict: true,
+          current: null,
+        }, 409);
+      }
       const error = cronJobError(job) ?? (ownerOf(job) !== null ? ownedJobError(job, jobs) : null);
       if (error) return jsonRes({ error }, 400);
+      // Organization only: this decides which conversation the job is FILED under and touches nothing the
+      // scheduler reads. Omission preserves whatever is on disk, including an unavailable target.
+      const association = associationEdit({
+        prev, wanted: job.conversationSessionId, owner: ownerOf(job),
+        actorUserId: req.auth.userId, oneShot: !!job.runAt,
+      });
+      if (association.error) return jsonRes({ error: association.error }, 400);
       const edit = {};
       for (const k of CRON_FIELDS) if (job[k] !== undefined) edit[k] = job[k];
       const runtime = {};
@@ -1190,10 +1376,13 @@ export function register(ctx) {
         ...edit,
         ...runtime,
         ...(enabling ? { lastRun: new Date().toISOString() } : {}),
+        // After `runtime`, which carries the stored pair forward: a reassignment must replace BOTH halves
+        // at once, never leave yesterday's key beside today's id.
+        ...association.fields,
         revision: (prev?.revision ?? 0) + 1,
       };
       store.save(prev ? jobs.map((j) => (j.id === job.id ? saved : j)) : [...jobs, saved]);
-      return jsonRes({ ok: true, job: saved, revision: saved.revision });
+      return jsonRes({ ok: true, job: publicJob(saved), revision: saved.revision });
     },
   });
 
@@ -1243,6 +1432,38 @@ export function register(ctx) {
     },
   });
 
+  // The conversation picker the jobs editor fills its "organized under" field from. Authenticated, and
+  // scoped by the HOST: this route only states WHOSE conversations it asks for, and the host refuses a
+  // scope the caller may not have. Metadata only — never messages, and never the immutable key.
+  ctx.registerApiRoute({
+    path: 'conversations', method: 'GET', access: 'user',
+    handler: async (req) => {
+      const read = conversationsRead();
+      if (!read) return jsonRes({ status: 'unavailable', conversations: [] });
+      const actorUserId = req.auth.userId;
+      if (typeof actorUserId !== 'number') return jsonRes({ error: 'forbidden' }, 403);
+      const instance = req.query.scope === 'instance';
+      const asked = req.query.owner ? Number(req.query.owner) : null;
+      if (asked !== null && !Number.isInteger(asked)) return jsonRes({ error: 'owner must be an account id' }, 400);
+      // Both the instance-wide picker and another account's picker are administrator scopes. Refused here
+      // as well as inside the host, so the answer is a 403 rather than a thrown scope violation.
+      if ((instance || (asked !== null && asked !== actorUserId)) && !req.auth.admin) {
+        return jsonRes({ error: 'forbidden' }, 403);
+      }
+      try {
+        const conversations = read.list({ actorUserId, ownerUserId: instance ? null : asked ?? actorUserId })
+          .map((c) => ({
+            id: c.id, title: c.title, ownerUserId: c.ownerUserId,
+            platform: c.platform, direct: c.direct, updatedAt: c.updatedAt,
+          }));
+        return jsonRes({ status: 'available', conversations });
+      } catch (e) {
+        ctx.logger.warn(`conversation listing refused for account ${actorUserId} (${e instanceof Error ? e.message : e})`);
+        return jsonRes({ error: 'forbidden' }, 403);
+      }
+    },
+  });
+
   ctx.registerTool(defineTool({
     name: 'CronAdd', label: 'Schedule job',
     description: [
@@ -1250,6 +1471,7 @@ export function register(ctx) {
       'You MUST say who the job is for with `scope`. Use "personal" when a person asks for something for themselves ("remind ME every morning"): it belongs to their account, runs with their rights, and reports back into the conversation it was created in. Use "instance" only for automation that belongs to the whole instance, with no particular person behind it — that is owner-only, runs with owner powers and reports to the notification channel. When in doubt pick "personal": someone talking to you in their own chat is asking for themselves, even if they happen to be an admin.',
       'The schedule takes either a plain form — "every 15m", "every 2h", "daily 07:30", "weekly sun 20:00" — or a standard 5-field cron expression ("*/5 * * * *", "0 9 * * 1-5", "0 0 1 * *"). The format is detected automatically; reach for cron only when the plain form cannot express the timing you need.',
       'For polling work, use the `check` guard: a cheap shell command that runs BEFORE the prompt. If it prints nothing (or fails), the scheduled turn is skipped entirely — no model call. If it prints output, the brain runs and receives that output. This is how you poll for new work without paying for a model call on every tick.',
+      'You MUST also say which conversation the job is FILED under, with `conversationSessionId`. That is organization only — it groups the job in the conversation list and changes nothing about how it runs: not its context, not its model, not its permissions and not where its reply is delivered. Get an id from CronConversations; the current conversation is usually the right answer, but the id has to be passed explicitly rather than assumed.',
       'Use `hours` ("H-H", e.g. "5-21") to keep a job quiet outside active hours, `enabled: false` to create it paused, and `plain: true` to deliver the reply without the "⏰ job name" header. Returns the job id — pass it to CronRemove to cancel, and see everything currently scheduled with CronList.',
       'This tool is only for work that REPEATS on a timer. To come back to something exactly once — a reminder later today, checking on a deploy in ten minutes — use ScheduleWakeup, which fires a single time and deletes itself. A new job never fires on creation; it waits for its next natural slot.',
     ].join(' '),
@@ -1258,6 +1480,7 @@ export function register(ctx) {
       scope: Type.Union([Type.Literal('personal'), Type.Literal('instance')], { description: 'Who the job is for. "personal" = the person you are talking to; it runs with their rights and reports back into this conversation. "instance" = the whole instance, owner only. Required: broad admin access does not grant authority over instance automation, and scope must not be guessed.' }),
       schedule: Type.String({ description: '"every <N>m", "every <N>h", "daily HH:MM", "weekly <mon..sun> HH:MM", or a 5-field cron expression (e.g. "0 9 * * 1-5")' }),
       prompt: Type.String({ description: 'The prompt to run on schedule' }),
+      conversationSessionId: Type.String({ description: 'The conversation this job is organized under, by its id from CronConversations. Filing only: it groups the job in the conversation list and never changes the job\'s context, model, permissions or where its result is delivered. Required, and never guessed — a personal job may only name a conversation of its own account.' }),
       check: Type.Optional(Type.String({ description: 'OWNER ONLY (an instance job): ' + 'Optional cheap shell guard run BEFORE the prompt. If it prints nothing (or fails), the scheduled brain turn is skipped — no LLM call. If it prints output, the brain runs and receives that output. Use it to poll for new work without paying for a model call each tick, e.g. a collector script that only prints when there is something new.' })),
       hours: Type.Optional(Type.String({ description: 'Active-hours window "H-H" (e.g. "5-21") — outside it the job stays quiet' })),
       notifyChannelId: Type.Optional(Type.String({ description: 'Deliver results to this channel/thread instead of the default notification channel. Instance-owner scope only — personal jobs always report in their own conversation.' })),
@@ -1283,9 +1506,20 @@ export function register(ctx) {
         // "tell me here every morning" reports where it was promised instead of in the owner's default web
         // chat. Only where one person reads: a shared room would put the answer in front of everyone else.
         const origin = owner !== null ? conversationOrigin(owner) : undefined;
+        // WHERE the job is filed, decided explicitly and resolved by the host. Separate from `origin`
+        // above, which is the delivery binding: the two are allowed to name different conversations and
+        // neither is derived from the other. The actor is the turn's own verified account — a delegated
+        // turn carries none, and organizing on somebody's behalf is not something a tool may assume.
+        const filedUnder = typeof p.conversationSessionId === 'string' ? p.conversationSessionId.trim() : '';
+        if (!filedUnder) return ok(`Error: ${CONVERSATION_REQUIRED}.`);
+        const actor = callerId();
+        if (actor === null) return ok(`Error: ${CONVERSATION_NEEDS_ACCOUNT}.`);
+        if (!conversationsRead()) return ok(`Error: ${CONVERSATION_DIRECTORY_MISSING}.`);
+        const target = resolveNamedTarget(actor, owner, filedUnder);
+        if (!target) return ok(`Error: ${CONVERSATION_UNAVAILABLE}.`);
         // lastRun starts at creation time so a fresh job waits for its NEXT natural slot — a
         // "daily 06:00" created at 15:00 must not fire immediately.
-        const job = { id, name: p.name, schedule: p.schedule, prompt: p.prompt, check: p.check, hours: p.hours, notifyChannelId: p.notifyChannelId, plain: p.plain, model, enabled: p.enabled, ...(owner !== null ? { ownerUserId: owner } : {}), ...origin, createdAt: new Date().toISOString(), lastRun: new Date().toISOString() };
+        const job = { id, name: p.name, schedule: p.schedule, prompt: p.prompt, check: p.check, hours: p.hours, notifyChannelId: p.notifyChannelId, plain: p.plain, model, enabled: p.enabled, ...(owner !== null ? { ownerUserId: owner } : {}), ...origin, conversationSessionId: target.id, conversationKey: target.key, createdAt: new Date().toISOString(), lastRun: new Date().toISOString() };
         const denied = owner !== null ? ownedJobError(job, jobs) : null;
         if (denied) return ok(`Error: ${denied}.`);
         jobs.push(job);
@@ -1293,7 +1527,12 @@ export function register(ctx) {
         const lands = owner === null
           ? 'It will report through the notification channel.'
           : origin ? 'It will report here, in this conversation.' : 'It will report in your own conversation.';
-        return ok(`Scheduled "${p.name}" (${p.schedule}) — id ${id}. ${lands}`);
+        // Confirmed without naming the conversation: the caller supplied the id, and a title read back
+        // into a shared room would tell everyone present what that conversation is called.
+        const filed = target.id === ctx.currentSessionId()
+          ? 'It is grouped under this conversation.'
+          : 'It is grouped under the conversation you named.';
+        return ok(`Scheduled "${p.name}" (${p.schedule}) — id ${id}. ${lands} ${filed}`);
       } catch (e) { return fail(e); }
     },
   }));
@@ -1357,8 +1596,54 @@ export function register(ctx) {
           // the job's own selection beside it there is nothing to compare that against — and "pinned to
           // Opus but every footer says Sonnet" is unanswerable from a listing that never mentions models.
           const sel = storedModel(j);
-          return `- ${j.id} "${j.name}" ${j.schedule}${j.runAt ? ` (one-shot @ ${j.runAt})` : ''}${sel ? `\n  model: ${sel.provider}/${sel.model}` : ''}\n  last run: ${j.lastRun ?? 'never'}\n  last result: ${j.lastResult ?? '—'}`;
+          // Filing, not delivery: a one-shot wake-up is never grouped, so it says nothing here.
+          const grouped = j.runAt ? '' : `\n  grouped: ${groupingLabel(j)}`;
+          return `- ${j.id} "${j.name}" ${j.schedule}${j.runAt ? ` (one-shot @ ${j.runAt})` : ''}${sel ? `\n  model: ${sel.provider}/${sel.model}` : ''}${grouped}\n  last run: ${j.lastRun ?? 'never'}\n  last result: ${j.lastResult ?? '—'}`;
         }).join('\n'));
+      } catch (e) { return fail(e); }
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'CronConversations', label: 'List conversations',
+    description: [
+      'List the conversations a recurring job can be ORGANIZED under, with the id CronAdd needs for its required `conversationSessionId`. Read-only: it changes nothing and schedules nothing.',
+      'Grouping is filing, not routing. It decides where a job appears in the conversation list and nothing else — not the context the job runs with, not its model, not its permissions, and not where its result is delivered. So pick the conversation the work belongs to, which is usually the one you are in.',
+      'By default it lists the conversations of the account you are talking to, which are the only ones a personal job may be filed under. `scope: "instance"` lists every account\'s eligible conversation and is for instance-wide jobs; it is owner-only.',
+      'In a shared room it does not list anything private: it offers that room alone, if the room itself is eligible. Ask again in a private chat, or use the Automation page, when you need the full list.',
+    ].join(' '),
+    parameters: Type.Object({
+      scope: Type.Optional(Type.Union([Type.Literal('personal'), Type.Literal('instance')], {
+        description: 'Whose conversations to list. "personal" (the default) = the account you are talking to. "instance" = every account, for instance-wide jobs; owner-only.',
+      })),
+    }),
+    execute: async (_id, p) => {
+      try {
+        const read = conversationsRead();
+        if (!read) return ok(`Error: ${CONVERSATION_DIRECTORY_MISSING}.`);
+        const me = callerId();
+        if (me === null) return ok(`Error: ${CONVERSATION_NEEDS_ACCOUNT}.`);
+        // A shared room is an audience, not an identity. Listing here would read out the names and ids of
+        // conversations everybody present has no access to — being an admin says what someone may do, not
+        // who else is in the room. The room itself discloses nothing its own members do not already have.
+        if (!inPrivateConversation()) {
+          const here = currentRoomTarget(me);
+          return ok(here
+            ? `${describeTarget(here)}\nOnly this room is offered here. Ask again in a private chat, or use the Automation page, to see the rest.`
+            : 'No conversation can be offered in a shared room. Ask again in a private chat, or use the Automation page.');
+        }
+        const instance = p.scope === 'instance';
+        if (instance && ctx.currentIdentity()?.owner !== true) {
+          return ok('Error: only the instance owner may list conversations across accounts — omit `scope` for your own.');
+        }
+        const targets = read.list({ actorUserId: me, ownerUserId: instance ? null : me });
+        if (targets.length === 0) return ok('No conversation is available to organize a job under.');
+        const shown = targets.slice(0, CONVERSATION_LIST_MAX);
+        const rest = targets.length - shown.length;
+        return ok([
+          ...shown.map(describeTarget),
+          ...(rest > 0 ? [`… and ${rest} less recently used conversation(s) — name one directly by its id if you know it.`] : []),
+        ].join('\n'));
       } catch (e) { return fail(e); }
     },
   }));
@@ -1392,6 +1677,37 @@ export function register(ctx) {
     pendingWakeupOriginSessionIds: (userId) => store.all()
       .filter((j) => typeof j.runAt === 'string' && typeof j.originSessionId === 'string' && j.originUserId === userId)
       .map((j) => j.originSessionId),
+    /** The NAVIGATION seam behind a conversation listing's collapsed jobs branch: which recurring jobs are
+     *  filed under conversations the host has ALREADY authorized for this requester. Organization only —
+     *  it says nothing about where a job runs or where its result goes, and reading it changes nothing.
+     *
+     *  Optional by contract, so an older core that never calls it keeps working; core re-checks the ids
+     *  and the job visibility on the way out, and builds the link itself. Called once per listing. */
+    conversationLinks: ({ requesterUserId, requesterIsAdmin, conversationIds }) => {
+      if (typeof requesterUserId !== 'number') throw new Error('conversationLinks needs a host-verified requester');
+      const authorized = new Set((Array.isArray(conversationIds) ? conversationIds : []).filter((id) => typeof id === 'string'));
+      if (authorized.size === 0) return [];
+      // STRICT read on purpose: a jobs file that cannot be parsed must reach core as a FAILURE. Answered
+      // with an empty array it would read as "this account has nothing scheduled", which is a different
+      // claim entirely and the one thing a navigation panel must never invent.
+      const links = [];
+      for (const job of readJobsStrict()) {
+        if (!isRecord(job) || job.runAt) continue; // a one-shot wake-up is not a branch anyone navigates to
+        const owner = ownerOf(job);
+        // The same visibility rule the HTTP listing applies, re-applied here rather than assumed.
+        if (!requesterIsAdmin && owner !== requesterUserId) continue;
+        const assoc = jobAssociation(job);
+        if (assoc.state !== 'linked' || !authorized.has(assoc.target.id)) continue;
+        links.push({
+          jobId: job.id,
+          conversationId: assoc.target.id,
+          name: typeof job.name === 'string' ? job.name : '',
+          enabled: job.enabled !== false,
+          ownerUserId: owner,
+        });
+      }
+      return links;
+    },
   });
 
   adapter = new CronAdapter(store, deliveryStore, ctx.logger, ctx.notify, ctx.config, () => ctx.timezone(), ownerIsAdmin, ownerMaySchedule);

@@ -32,7 +32,21 @@ function loadPlugin(dataRoot) {
     currentSessionId: () => session.sessionId,
     currentDeliveryTarget: () => session.deliveryTarget,
     isAdminSession: () => session.admin,
-    host: { stores: () => ({ usersRead: { isAdmin: () => true, mayUsePlugin: () => true, list: () => [{ id: 1 }] } }) },
+    host: { stores: () => ({
+      usersRead: { isAdmin: () => true, mayUsePlugin: () => true, list: () => [{ id: 1 }] },
+      // A recurring job names the conversation it is filed under; the directory only has to answer here.
+      conversationsRead: {
+        list: () => [],
+        resolve: ({ sessionId }) => ({
+          id: sessionId, key: `ns-${sessionId}`, title: 'Chat', ownerUserId: 1,
+          platform: null, direct: false, updatedAt: '2026-07-01T00:00:00.000Z',
+        }),
+        resolveKey: (key) => ({
+          id: key.replace(/^ns-/, ''), key, title: 'Chat', ownerUserId: 1,
+          platform: null, direct: false, updatedAt: '2026-07-01T00:00:00.000Z',
+        }),
+      },
+    }) },
     registerTool: (tool) => tools.push(tool),
     registerPlatform: (platform) => platforms.push(platform),
     registerApiRoute() {},
@@ -126,7 +140,7 @@ test('CronAdd refuses a model that does not name both halves, and stores one tha
   const plugin = loadPlugin(dataRoot);
   const add = plugin.tools.find((tool) => tool.name === 'CronAdd');
   const call = (model) => add.execute('t', {
-    name: 'digest', scope: 'instance', schedule: 'daily 07:30', prompt: 'p',
+    name: 'digest', scope: 'instance', schedule: 'daily 07:30', prompt: 'p', conversationSessionId: 'conv-main',
     ...(model !== undefined ? { model } : {}),
   });
 

@@ -13,6 +13,7 @@ import { UserProjectStore } from 'elowen/dist/store/userProjectStore.js';
 import { openDb } from 'elowen/dist/store/db.js';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import { PluginRegistryProvider } from 'elowen/dist/plugins/pluginsProvider.js';
+import { STUB_CONVERSATION_ID, stubConversationDirectory } from './helpers/conversationDirectory.js';
 
 let dirs: string[] = [];
 const tmpDir = (tag: string): string => { const p = mkdtempSync(join(tmpdir(), `elowen-${tag}-`)); dirs.push(p); return p; };
@@ -44,6 +45,9 @@ function setup(opts: { enabled?: string[]; config?: Record<string, Record<string
             return user?.is_admin === true || user?.granted_plugins.includes(plugin) === true;
           },
         },
+        // A recurring job names the conversation it is organized under, so these cases need a directory
+        // that answers. What makes a target eligible is cronConversationGroups.test.ts's subject.
+        conversationsRead: stubConversationDirectory(),
       },
     } as never,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
@@ -68,8 +72,12 @@ const del = (t: string) => ({ method: 'DELETE', headers: { authorization: `Beare
 const post = (t: string) => ({ method: 'POST', headers: { authorization: `Bearer ${t}` } });
 
 const job = (extra: Record<string, unknown> = {}) => ({
-  id: 'j1', name: 'digest', schedule: 'daily 06:00', prompt: 'Summarize the day.', createdAt: '2026-07-01T00:00:00.000Z', ...extra,
+  id: 'j1', name: 'digest', schedule: 'daily 06:00', prompt: 'Summarize the day.', createdAt: '2026-07-01T00:00:00.000Z',
+  conversationSessionId: STUB_CONVERSATION_ID, ...extra,
 });
+/** The read-only projection GET adds for a stored association: the conversation as it stands today. */
+const conversationView = (ownerUserId = 0) =>
+  ({ id: STUB_CONVERSATION_ID, title: 'Chat', ownerUserId, platform: null, direct: false });
 /** Save one job through the route that owns it. */
 const save = (app: { request: (path: string, init: unknown) => Promise<Response> }, tok: string, j: Record<string, unknown>) =>
   app.request(`/plugins/cronjob/jobs/${j.id}`, put(tok, j));
@@ -136,10 +144,12 @@ describe('cron jobs routes', () => {
     for (const j of jobs) expect((await save(app, adminTok, j)).status).toBe(200);
     const stripped = jobs.map(({ lastRun: _lr, lastResult: _lres, ...j }: Record<string, unknown>) => ({ ...j, revision: 1 }));
     const back = await app.request('/plugins/cronjob/jobs', auth(adminTok));
-    expect(await back.json()).toEqual(stripped);
+    // The conversation the job is filed under is projected for the client as it stands TODAY; the
+    // immutable key it is stored by never leaves the daemon.
+    expect(await back.json()).toEqual(stripped.map((j) => ({ ...j, conversation: conversationView() })));
     // The plugin's scheduler reads this exact file every tick — verify it landed on disk.
     expect(existsSync(join(dataRoot, 'cronjob', 'jobs.json'))).toBe(true);
-    expect(onDisk(dataRoot)).toEqual(stripped);
+    expect(onDisk(dataRoot)).toEqual(stripped.map((j) => ({ ...j, conversationKey: `ns-${STUB_CONVERSATION_ID}` })));
   });
 
   it('a save keeps the scheduler-owned run state (lastRun, lastSlot, lastResult) over a stale client copy', async () => {

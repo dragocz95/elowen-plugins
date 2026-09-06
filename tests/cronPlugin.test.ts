@@ -9,6 +9,7 @@ import { runWithPolicy } from 'elowen/dist/plugins/policyContext.js';
 import type { TurnIdentity } from 'elowen/dist/plugins/policyContext.js';
 import type { Policy } from 'elowen/dist/plugins/policy.js';
 import { processRegistry } from 'elowen/dist/brain/processRegistry.js';
+import { STUB_CONVERSATION_ID, stubConversationDirectory } from './helpers/conversationDirectory.js';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -81,7 +82,11 @@ describe('cronjob plugin', () => {
 
   it('CronAdd/list/remove work in an admin session and are refused otherwise', async () => {
     const dataRoot = freshDataRoot();
-    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log });
+    // A recurring job names the conversation it is organized under, so the host has to answer for one.
+    const reg = await loadPlugins({
+      dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log,
+      host: { stores: { conversationsRead: stubConversationDirectory() } } as never,
+    });
     expect(reg.platforms.map((p) => p.name)).toEqual(['cron']);
     const add = reg.tools.find((t) => t.name === 'CronAdd')!;
     const list = reg.tools.find((t) => t.name === 'CronList')!;
@@ -93,7 +98,7 @@ describe('cronjob plugin', () => {
       expect(asText(await add.execute('t', { name: 'x', scope: 'instance', schedule: 'every 15m', prompt: 'p' }, undefined as never, undefined as never))).toMatch(/instance owner/);
     });
     await runWithPolicy(ADMIN, async () => {
-      expect(asText(await add.execute('t', { name: 'ranní report', scope: 'instance', schedule: 'daily 07:30', prompt: 'shrň stav' }, undefined as never, undefined as never))).toMatch(/Scheduled/);
+      expect(asText(await add.execute('t', { name: 'ranní report', scope: 'instance', schedule: 'daily 07:30', prompt: 'shrň stav', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never))).toMatch(/Scheduled/);
       expect(asText(await add.execute('t', { name: 'bad', scope: 'instance', schedule: 'every 5s', prompt: 'p' }, undefined as never, undefined as never))).toMatch(/invalid schedule/);
       const listed = asText(await list.execute('t', {}, undefined as never, undefined as never));
       expect(listed).toContain('ranní report');
