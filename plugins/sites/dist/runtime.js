@@ -49,8 +49,30 @@ export class SiteRuntimeSupervisor {
      *  them interleave is how a site ends up with two processes racing for one socket, or with a lease
      *  released while its replacement is still starting. */
     queues = new Map();
+    /** TERMINAL. Set synchronously by {@link stopAll} before a single process is touched.
+     *
+     *  The daemon stops a `criticalStop` service BEFORE it disarms the ordinary intervals, so for a window
+     *  during every reload `reconcile-site-runtimes` is still armed while this supervisor is emptying its
+     *  map. A tick in that window respawns the very runtimes the stop just took down, and the supervisor
+     *  holding those new children is discarded moments later with their heartbeats still running and their
+     *  sandbox leases still held. That is how a reload leaves an orphaned bwrap tree per site, and why the
+     *  fence has to be owned here rather than fixed by reordering core: this plugin knows when its own
+     *  runtimes are gone, and core cannot stop a plugin's interval before the plugin says it is done.
+     *
+     *  Per instance, not global. A reload builds a new supervisor from the new generation, so closing this
+     *  one is exactly the intended meaning: it never serves again. */
+    closing = false;
     constructor(deps) {
         this.deps = deps;
+    }
+    /** Whether this supervisor has been shut down and will start nothing further. */
+    isClosing() {
+        return this.closing;
+    }
+    /** The pid of the process this supervisor currently holds for a site, or null when it holds none.
+     *  Read-only, and the only way to ask the operating system whether a shutdown really took its tree. */
+    runningPid(siteId) {
+        return this.running.get(siteId)?.child.pid ?? null;
     }
     serialize(siteId, operation) {
         const previous = this.queues.get(siteId) ?? Promise.resolve();
@@ -128,7 +150,20 @@ export class SiteRuntimeSupervisor {
         return this.serialize(site.id, () => this.startNow(site, options.authorized === true));
     }
     async startNow(site, authorized = false) {
+        // The supervisor is going away. Nothing it starts from here would ever be supervised again.
+        if (this.closing)
+            return;
         if (site.runtime !== 'command')
+            return;
+        // The CURRENT runtime, not the descriptor the caller was holding.
+        //
+        // A conversion hands this method a reconstructed descriptor that says `command` on purpose, because
+        // that is what the legacy runtime was. If the site has since become an environment, spawning that
+        // process would put a second listener behind the container's ingress and hand it back the broker
+        // directory the container is bound to. The authorized seam is permission to bypass the suspension
+        // marker, never permission to contradict the column the whole serving path dispatches on.
+        const current = this.deps.store.siteById(site.id);
+        if (current !== null && current.runtime !== 'command')
             return;
         if (!site.currentReleaseId)
             throw new Error('the site has no published release to run');
@@ -172,6 +207,12 @@ export class SiteRuntimeSupervisor {
                 throw new Error('the published-sites socket broker is unavailable');
             endpoint = { kind: 'socket', path: (await gateway.prepareRuntimeSocket(site.id)).path };
         }
+        // The broker directory was just created for a runtime that is no longer going to exist.
+        if (this.closing) {
+            if (endpoint.kind === 'socket')
+                await gateway?.removeRuntimeSocket(site.id).catch(() => { });
+            return;
+        }
         let prepared;
         try {
             prepared = await sandbox.prepareExecution({ command: { type: 'shell', command: site.startCommand }, cwd, leaseKind: 'sites', network: config.runtimeNetwork }, { accountUserId: site.ownerUserId, roots: endpoint.kind === 'socket' ? [cwd, dirname(endpoint.path)] : [cwd] });
@@ -180,6 +221,21 @@ export class SiteRuntimeSupervisor {
             if (endpoint.kind === 'socket')
                 await gateway?.removeRuntimeSocket(site.id).catch(() => { });
             throw error;
+        }
+        // THE RACE THE RELOAD ACTUALLY LOSES. `prepareExecution` is the long await, so a stop that begins
+        // while it is outstanding returns before this line. Spawning now would create a child and a lease
+        // that this supervisor is about to stop tracking, which is the orphaned bwrap tree. The lease is
+        // released here because nothing else holds a reference to it yet.
+        if (this.closing) {
+            try {
+                await prepared.lease.release();
+            }
+            catch (error) {
+                this.deps.ctx.logger.warn(`site ${site.slug} lease release during shutdown failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+            if (endpoint.kind === 'socket')
+                await gateway?.removeRuntimeSocket(site.id).catch(() => { });
+            return;
         }
         // The environment is built here rather than taken from the preparation: it is the contract the
         // published app reads, and nothing of the daemon's own environment belongs in a process that
@@ -372,8 +428,38 @@ export class SiteRuntimeSupervisor {
             catch { /* already gone */ }
         }
     }
+    /** Shut this supervisor down for good, leaving no child, lease or timer behind.
+     *
+     *  The ORDER is the whole point. `closing` is set synchronously, before the first await, so that every
+     *  start already queued or already mid-await stands down instead of racing the teardown. Only then are
+     *  the queues drained, and only then is anything stopped. Stopping first and fencing afterwards is the
+     *  bug: the interval that is still armed refills the map from behind. */
     async stopAll() {
+        // SYNCHRONOUS, before any await. A tick that lands after this point observes a closed supervisor.
+        this.closing = true;
+        // Let the fenced starts unwind, including any parked on `prepareExecution`, so the map is complete
+        // before it is read. Draining after stopping would miss a process that appeared while we stopped.
+        await this.drain();
         await Promise.all([...this.running.keys()].map((siteId) => this.stop(siteId)));
+        // The exit handlers queue their own cleanup, which releases leases and removes broker directories.
+        await this.drain();
+    }
+    /** Wait for everything currently queued on every site, including work those operations queue in turn.
+     *
+     *  Bounded rather than a `while (true)`: a shutdown must finish even if something keeps re-queueing,
+     *  and by this point starts are fenced so the queues can only shrink. */
+    async drain() {
+        for (let pass = 0; pass < 8; pass += 1) {
+            const pending = [...this.queues.values()];
+            if (pending.length === 0)
+                return;
+            await Promise.allSettled(pending);
+            const settled = [...this.queues.values()];
+            if (settled.length === pending.length && settled.every((entry, index) => entry === pending[index])) {
+                this.queues.clear();
+                return;
+            }
+        }
     }
     /** True while a reconcile is in flight, so a second caller joins it rather than starting a parallel
      *  sweep over the same sites. */
@@ -388,6 +474,10 @@ export class SiteRuntimeSupervisor {
         return run;
     }
     async reconcileNow() {
+        // A sweep after the shutdown began has nothing to converge: every runtime it would start belongs to
+        // a supervisor that is being discarded. This is the tick that used to refill the map mid-stop.
+        if (this.closing)
+            return;
         // FIRST ASK: skip the sites a conversion is holding down, so the sweep does not queue work for them
         // at all. This is the cheap layer and it is not sufficient on its own — the authoritative check is
         // inside `startNow`, because this list is read once and then awaited site by site.

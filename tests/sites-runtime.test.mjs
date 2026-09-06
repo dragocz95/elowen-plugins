@@ -428,3 +428,178 @@ test('the sweep leaves a suspended site alone even while its process is still up
   assert.deepEqual(h.removals, [], 'and its broker socket');
   await h.supervisor.stop(SITE_ID);
 });
+
+// --- Shutdown contract ----------------------------------------------------------------------------
+//
+// The daemon stops a `criticalStop` service BEFORE it disarms the ordinary intervals, so during every
+// reload there is a window where `reconcile-site-runtimes` is still armed while this supervisor is
+// emptying its map. A tick in that window respawns what the stop just took down, and the supervisor
+// holding those new children is discarded seconds later with their heartbeats and leases still live.
+
+/** A supervisor whose sandbox preparation can be held open, so a shutdown can be driven into the exact
+ *  await a real reload loses the race in. */
+const shutdownHarness = (t, { holdPrepare = false } = {}) => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-runtime-shutdown-'));
+  const release = join(root, 'release');
+  mkdirSync(release, { recursive: true });
+  writeFileSync(join(release, 'server.mjs'), `
+    import http from 'node:http';
+    http.createServer((_req, res) => res.end('ok')).listen(process.env.SOCKET_PATH);
+  `);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const socketPath = join(root, 'broker', 'app.sock');
+  const spawned = [];
+  const leases = { taken: 0, released: 0 };
+  const removals = [];
+  const current = site('rel-shutdown');
+  let openPrepare = null;
+
+  const sandbox = {
+    prepareExecution: async (_input, options) => {
+      leases.taken += 1;
+      if (holdPrepare) await new Promise((resolve) => { openPrepare = resolve; });
+      return {
+        mode: 'confined', cwd: release, home: root, roots: options.roots, workspace: null,
+        launch: { type: 'argv', file: process.execPath, args: [join(release, 'server.mjs')], env: {} },
+        lease: {
+          id: 'l', accountUserId: 7, workspaceId: null, homeGeneration: 1,
+          heartbeat() {}, release() { leases.released += 1; },
+        },
+      };
+    },
+  };
+  const gateway = {
+    async prepareRuntimeSocket() { mkdirSync(dirname(socketPath), { recursive: true }); return { path: socketPath }; },
+    async sealRuntimeSocket() {},
+    async removeRuntimeSocket(siteId) { removals.push(siteId); rmSync(dirname(socketPath), { recursive: true, force: true }); },
+  };
+  const supervisor = new SiteRuntimeSupervisor({
+    ctx: {
+      control(name) { return name === 'sandbox' ? sandbox : name === 'publishedSitesGateway' ? gateway : undefined; },
+      logger: { info() {}, warn() {}, error() {} },
+    },
+    store: {
+      liveCommandSites: () => [current],
+      siteById: () => current,
+      updateSite: (_id, patch) => Object.assign(current, patch),
+      conversionSuspends: () => null,
+      conversionSuspensions: () => new Map(),
+    },
+    config: () => ({ startTimeoutSeconds: 5, runtimeNetwork: 'isolated', allowLoopbackPorts: false, loopbackPortMin: 41000, loopbackPortMax: 41999 }),
+    siteDir: () => root,
+    releaseDir: () => release,
+  });
+  return {
+    supervisor, spawned, leases, removals, current, socketPath,
+    letPrepareFinish: () => { openPrepare?.(); },
+  };
+};
+
+test('a reconcile tick fired during the shutdown starts nothing', async (t) => {
+  const h = shutdownHarness(t);
+  await h.supervisor.start(h.current);
+  assert.equal(h.supervisor.isRunning(SITE_ID), true);
+
+  // The interval is still armed while the critical service is stopping. This is that tick.
+  const stopping = h.supervisor.stopAll();
+  const tick = h.supervisor.reconcile();
+  await Promise.all([stopping, tick]);
+
+  assert.equal(h.supervisor.isRunning(SITE_ID), false, 'the map stayed empty');
+  assert.equal(h.supervisor.isClosing(), true);
+  assert.equal(h.leases.taken, h.leases.released, 'every lease this supervisor took was given back');
+});
+
+test('a tick that lands after the critical stop returned still starts nothing', async (t) => {
+  const h = shutdownHarness(t);
+  await h.supervisor.start(h.current);
+
+  // PRODUCTION ORDERING. Core stops a criticalStop service first and disarms the ordinary intervals
+  // afterwards, so `reconcile-site-runtimes` keeps firing against a supervisor that has already emptied
+  // its map and is about to be discarded. Every runtime this tick starts is one nothing will ever stop:
+  // its heartbeat keeps running, its sandbox lease stays held, and its bwrap tree outlives the reload.
+  await h.supervisor.stopAll();
+  assert.equal(h.supervisor.isRunning(SITE_ID), false);
+  const spawnsBefore = h.leases.taken;
+
+  await h.supervisor.reconcile();
+  await h.supervisor.start(h.current);
+
+  assert.equal(h.leases.taken, spawnsBefore, 'no sandbox preparation was even attempted');
+  assert.equal(h.supervisor.isRunning(SITE_ID), false, 'the discarded supervisor holds no child');
+  assert.equal(h.leases.taken, h.leases.released, 'and no lease is left held');
+});
+
+test('a start that was already queued when the shutdown began never spawns', async (t) => {
+  const h = shutdownHarness(t);
+
+  // Queued from a sweep that read its list before the stop, exactly the ordering a reload produces.
+  const queued = h.supervisor.start(h.current);
+  await h.supervisor.stopAll();
+  await queued;
+
+  assert.equal(h.supervisor.isRunning(SITE_ID), false);
+  assert.equal(h.leases.taken, h.leases.released, 'nothing was left holding a lease');
+});
+
+test('a start parked inside the sandbox preparation stands down and releases its lease', async (t) => {
+  const h = shutdownHarness(t, { holdPrepare: true });
+
+  // `prepareExecution` is the long await, so this is where a reload actually loses the race: the stop
+  // returns while the preparation is still outstanding, and the spawn lands behind it.
+  const queued = h.supervisor.start(h.current);
+  await new Promise((resolve) => { setTimeout(resolve, 20); });
+  assert.equal(h.leases.taken, 1, 'the preparation is genuinely in flight');
+
+  const stopping = h.supervisor.stopAll();
+  h.letPrepareFinish();
+  await Promise.all([queued, stopping]);
+
+  assert.equal(h.supervisor.isRunning(SITE_ID), false, 'no child was spawned after the fence');
+  assert.equal(h.leases.released, 1, 'the lease taken by the parked preparation was released');
+  // `startNow` already sweeps a stale broker directory before it prepares a fresh one, so the count is
+  // not the interesting fact; the interesting fact is that nothing was left behind for the container or
+  // the next generation to trip over.
+  assert.equal(existsSync(dirname(h.socketPath)), false, 'the broker directory it created was cleaned up');
+});
+
+test('a shutdown leaves no heartbeat or child behind for a running site', async (t) => {
+  const h = shutdownHarness(t);
+  await h.supervisor.start(h.current);
+  const before = process.getActiveResourcesInfo().filter((kind) => kind === 'Timeout').length;
+
+  await h.supervisor.stopAll();
+
+  assert.equal(h.supervisor.isRunning(SITE_ID), false);
+  assert.equal(h.leases.released, 1);
+  assert.ok(
+    process.getActiveResourcesInfo().filter((kind) => kind === 'Timeout').length <= before,
+    'the heartbeat interval was cleared rather than left armed',
+  );
+});
+
+test('a stale start is refused once the site has become an environment', async (t) => {
+  const h = shutdownHarness(t);
+
+  // A conversion hands the supervisor a descriptor that deliberately says `command`, because that is
+  // what the legacy runtime was. The row has already flipped, so spawning would put a second listener
+  // behind the container's ingress and take back the broker directory it is bound to.
+  const legacyDescriptor = { ...h.current, runtime: 'command' };
+  h.current.runtime = 'environment';
+
+  await h.supervisor.start(legacyDescriptor, { authorized: true });
+
+  assert.equal(h.supervisor.isRunning(SITE_ID), false, 'authorized is not permission to contradict the column');
+  assert.equal(h.leases.taken, 0);
+});
+
+test('an authorized restore still starts once the row really says command again', async (t) => {
+  const h = shutdownHarness(t);
+  h.current.runtime = 'command';
+
+  await h.supervisor.start({ ...h.current }, { authorized: true });
+
+  assert.equal(h.supervisor.isRunning(SITE_ID), true, 'a genuine rollback restart is unaffected');
+  await h.supervisor.stopAll();
+});
