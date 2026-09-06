@@ -15,6 +15,7 @@ import { PodmanClient, SpawnExecutor } from './podman.js';
 import { BASE_IMAGE_TAG, ensureBaseImage } from './baseImage.js';
 import { EnvironmentSupervisor } from './environment.js';
 import { EnvironmentProvisioningService } from './provisioning.js';
+import { SITES_TOOLCHAIN, environmentReadinessChecks, toolchainRow } from './readiness.js';
 import { DataSyncService, migrationArtifactDir, validateLegacyHome } from './dataSync.js';
 import { installAppRecipe, loadAppRecipe, recipeBinding, relaxStaticServingPermissions } from './recipe.js';
 import { conversionImageTag, ensureConversionImage } from './conversionImage.js';
@@ -504,37 +505,15 @@ export function register(published: PluginContext): void {
   registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people });
 
   ctx.registerReadinessCheck(() => gateway.readiness());
-  ctx.registerReadinessCheck(async () => {
-    if (!config().allowEnvironments) {
-      return { id: 'sites-environments', label: 'Sites environments', ok: true, detail: 'Persistent environments are disabled in Sites settings.' };
-    }
-    const report = await provisioning.status();
-    const items = report.items.map((item) =>
-      `${item.label}: ${item.ok ? 'ready' : 'not ready'}${item.detail ? ` (${item.detail})` : ''}`);
-    const detail = [report.detail, ...items].filter((value): value is string => Boolean(value)).join('; ')
-      || 'No environment dependency checks were returned.';
-    return {
-      id: 'sites-environments',
-      label: 'Sites environments',
-      ok: report.ready,
-      detail,
-      ...(!report.ready
-        ? { hint: 'Review the Sites settings checklist. Dependency installation is exposed by the later admin API and UI phase.' }
-        : {}),
-    };
-  });
-  ctx.registerReadinessCheck(() => {
-    const required = ['/usr/bin/node', '/usr/bin/npm', '/usr/bin/corepack'];
-    const missing = required.filter((path) => !existsSync(path) || !sandboxVisible(path));
-    const optional = [
-      `Python ${sandboxVisible('/usr/bin/python3') ? 'ready' : 'unavailable'}`,
-      `Bun ${sandboxVisible('/usr/local/bin/bun') ? 'ready' : 'unavailable to confined users'}`,
-      `PHP-CGI ${sandboxVisible('/usr/bin/php-cgi') ? 'ready' : 'unavailable'}`,
-    ].join('; ');
-    return missing.length === 0
-      ? { id: 'sites-toolchain', label: 'Sites toolchain', ok: true, detail: `Node, npm and Corepack are ready. ${optional}.` }
-      : { id: 'sites-toolchain', label: 'Sites toolchain', ok: false, detail: `Missing from the confined Sandbox: ${missing.join(', ')}.`, hint: 'Install the required tools under /usr so Project agents can build sites.' };
-  });
+  // One row per dependency and per interpreter, rather than one row carrying a paragraph: the status
+  // card lists what is checked, and a failing item shows its own cause where a reader is looking.
+  for (const check of environmentReadinessChecks({
+    enabled: () => config().allowEnvironments,
+    status: () => provisioning.status(),
+  })) ctx.registerReadinessCheck(check);
+  for (const probe of SITES_TOOLCHAIN) {
+    ctx.registerReadinessCheck(() => toolchainRow(probe, (path) => existsSync(path) && sandboxVisible(path)));
+  }
 
   // Nothing in the daemon keeps a process alive across a restart, and a confined child dies with its
   // parent by construction. Supervision of published runtimes is therefore this plugin's own job:

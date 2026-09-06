@@ -1083,15 +1083,19 @@ test('core seam, manifest and lifecycle match the final core contract', () => {
   const seams = readFileSync(new URL('../plugins/sites/src/coreSeams.ts', import.meta.url), 'utf8');
   const index = readFileSync(new URL('../plugins/sites/src/index.ts', import.meta.url), 'utf8');
   const lifecycle = readFileSync(new URL('../plugins/sites/src/environment.ts', import.meta.url), 'utf8');
+  const readiness = readFileSync(new URL('../plugins/sites/src/readiness.ts', import.meta.url), 'utf8');
   const manifest = JSON.parse(readFileSync(new URL('../plugins/sites/elowen-plugin.json', import.meta.url), 'utf8'));
   assert.match(seams, /environmentsStatus\(\)/);
   assert.match(seams, /provisionEnvironments\(\)/);
   assert.match(seams, /ready: boolean/);
   assert.match(seams, /items: PublishedSitesEnvironmentStatusItem\[\]/);
   assert.doesNotMatch(seams, /EnvironmentProvision|steps: Environment|status: Environment|error\?: string/);
-  assert.match(index, /report\.items/);
-  assert.match(index, /report\.ready/);
-  assert.doesNotMatch(index, /report\.steps|report\.available|report\.ok|report\.error/);
+  // The provisioning report is consumed where the readiness rows are built; index.ts only wires it up.
+  assert.match(readiness, /report\.items/);
+  assert.match(readiness, /report\.ready/);
+  for (const source of [index, readiness]) {
+    assert.doesNotMatch(source, /report\.steps|report\.available|report\.ok|report\.error/);
+  }
   assert.equal(manifest.requiresCore, '0.28.31');
   assert.ok(manifest.provides.tools.includes('SiteExec'));
   assert.ok(manifest.provides.tools.includes('SiteControl'));
