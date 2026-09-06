@@ -91,6 +91,93 @@ export type EnvironmentAction = {
   lastError: string | null;
 };
 
+/** The runtimes a site may be converted FROM. `environment` is the only target, so it never appears
+ *  here, and `unsupported` is refused outright: its stored runtime string is not one this plugin can
+ *  serve, so there would be nothing to roll back to. */
+export type ConvertibleRuntime = 'static' | 'command' | 'php';
+
+/** The durable, per-site slot that makes a runtime conversion resumable across a crash or a reload.
+ *
+ *  Everything needed to UNDO the conversion is captured at claim time, before anything is touched: the
+ *  original runtime plus the command-runtime fields that the flip overwrites. This row is the only thing
+ *  that can say what a converted site USED to be — `runtime` is one column, and a column cannot remember
+ *  its own history.
+ *
+ *  `lastError === null` means a driver owns this slot right now, so nothing else may touch the site.
+ *  A non-null error means the stage failed and the slot may be re-claimed to retry or to roll back: the
+ *  same convention {@link EnvironmentAction} uses, so the two read alike. */
+export interface RuntimeMigration {
+  siteId: string;
+  /** How far the conversion actually got. Each stage is committed BEFORE the side effects it unlocks,
+   *  so a resume never has to guess whether the previous stage half-happened. */
+  stage: 'preparing' | 'prepared' | 'flipped';
+  fromRuntime: ConvertibleRuntime;
+  /** The release that was live when the conversion was claimed. Legacy serving is restored from THIS,
+   *  captured rather than read back at rollback time when the row may already have moved on. */
+  fromReleaseId: string | null;
+  fromStartCommand: string;
+  fromBind: 'socket' | 'port';
+  fromPort: number | null;
+  /** Which built-in recipe staged the container: a name from a fixed set, never a path or an image. */
+  recipe: string;
+  /** SHA-256 over the staged release copy, so a flip can prove it serves the bytes it verified. */
+  contentDigest: string | null;
+  /** SHA-256 over the workspace as it will actually be MOUNTED, taken after the secrets were lifted out,
+   *  plus the secret names and the recipe. `contentDigest` proves the copy matched the release; this
+   *  proves nothing moved between preparing and flipping. */
+  finalDigest: string | null;
+  /** The home of the process that was ACTUALLY RUNNING when this conversion first resolved it. A retry
+   *  reads this rather than asking again, because by then the process is gone and a fresh answer could
+   *  name a different directory. */
+  legacyHome: string | null;
+  /** Whether THIS conversion asked the gateway to create the broker directory. Only a directory this
+   *  conversion created may be removed by it: one that was already there belongs to the live legacy
+   *  runtime, and removing it would take a serving site down. */
+  brokerPrepared: boolean;
+  /** Durable record that the legacy runtime was stopped by this conversion. Without it, a failure between
+   *  the stop and the flip leaves a site dark and NOTHING knows it is this operation's job to start it
+   *  again: the row still says `prepared`, and the supervisor's reconcile only walks live command sites. */
+  legacyStopped: boolean;
+  /** How far a rollback got. A rollback destroys the container and its volume, so it cannot simply be
+   *  retried from the top: after the discard the export can no longer answer, and a retry that silently
+   *  found nothing to carry would revert the site onto data frozen at capture time. */
+  rollbackStage: 'none' | 'exported' | 'discarded' | 'restored';
+  /** The authoritative archive of what the CONTAINER held, once exported. Recorded before anything is
+   *  destroyed and read back by a retry, so the writes survive a failure between the two. */
+  rollbackArchive: string | null;
+  requestedAt: string;
+  lastError: string | null;
+}
+
+interface RuntimeMigrationRow {
+  site_id: string;
+  stage: string;
+  from_runtime: string;
+  from_release_id: string | null;
+  from_start_command: string;
+  from_bind: string;
+  from_port: number | null;
+  recipe: string;
+  content_digest: string | null;
+  final_digest: string | null;
+  legacy_home: string | null;
+  broker_prepared: number;
+  legacy_stopped: number;
+  rollback_stage: string;
+  rollback_archive: string | null;
+  requested_at: string;
+  last_error: string | null;
+}
+
+const asMigrationStage = (value: string): RuntimeMigration['stage'] =>
+  value === 'prepared' || value === 'flipped' ? value : 'preparing';
+
+const asConvertibleRuntime = (value: string): ConvertibleRuntime | null =>
+  value === 'static' || value === 'command' || value === 'php' ? value : null;
+
+const asRollbackStage = (value: string): RuntimeMigration['rollbackStage'] =>
+  value === 'exported' || value === 'discarded' || value === 'restored' ? value : 'none';
+
 interface SiteDbRow {
   id: string;
   slug: string;
@@ -185,6 +272,28 @@ const toSite = (row: SiteDbRow): Site => {
       : row.last_error,
   };
 };
+
+const toRuntimeMigration = (row: RuntimeMigrationRow): RuntimeMigration => ({
+  siteId: row.site_id,
+  stage: asMigrationStage(row.stage),
+  // The claim refuses anything else, so a row that fails this can only come from hand-editing; treating
+  // it as static would silently pick a rollback target nobody chose.
+  fromRuntime: asConvertibleRuntime(row.from_runtime) ?? 'static',
+  fromReleaseId: row.from_release_id,
+  fromStartCommand: row.from_start_command ?? '',
+  fromBind: row.from_bind === 'port' ? 'port' : 'socket',
+  fromPort: row.from_port,
+  recipe: row.recipe,
+  contentDigest: row.content_digest,
+  finalDigest: row.final_digest,
+  legacyHome: row.legacy_home,
+  brokerPrepared: row.broker_prepared === 1,
+  legacyStopped: row.legacy_stopped === 1,
+  rollbackStage: asRollbackStage(row.rollback_stage),
+  rollbackArchive: row.rollback_archive,
+  requestedAt: row.requested_at,
+  lastError: row.last_error,
+});
 
 const toRelease = (row: ReleaseDbRow): Release => ({
   id: row.id,
@@ -359,6 +468,48 @@ export class SitesStore {
               token TEXT NOT NULL,
               expires_at INTEGER NOT NULL
             );
+          `);
+        },
+      },
+      {
+        version: 9,
+        // Converting a live site's runtime spans a container build, a legacy process stop and a column
+        // flip, so it cannot be one call: a crash between any two of those must leave the site either
+        // fully legacy or fully converted, never guessing. This slot records the undo material BEFORE
+        // the first side effect, which is the only reason a rollback can restore the exact command and
+        // release the site had. Purely additive: no existing row is read or rewritten.
+        up: (handle) => {
+          handle.exec(`
+            CREATE TABLE IF NOT EXISTS p_sites_runtime_migrations (
+              site_id TEXT PRIMARY KEY,
+              stage TEXT NOT NULL,
+              from_runtime TEXT NOT NULL,
+              from_release_id TEXT,
+              from_start_command TEXT NOT NULL DEFAULT '',
+              from_bind TEXT NOT NULL DEFAULT 'socket',
+              from_port INTEGER,
+              recipe TEXT NOT NULL,
+              content_digest TEXT,
+              requested_at TEXT NOT NULL,
+              last_error TEXT
+            );
+          `);
+        },
+      },
+      {
+        version: 10,
+        // A conversion crosses several destructive boundaries, and every one of them needs a durable
+        // answer to "did this already happen": whether the legacy runtime is stopped and owed a restart,
+        // how far a rollback got before it failed, and which archive is authoritative for the writes the
+        // container made. Purely additive.
+        up: (handle) => {
+          handle.exec(`
+            ALTER TABLE p_sites_runtime_migrations ADD COLUMN final_digest TEXT;
+            ALTER TABLE p_sites_runtime_migrations ADD COLUMN legacy_home TEXT;
+            ALTER TABLE p_sites_runtime_migrations ADD COLUMN broker_prepared INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE p_sites_runtime_migrations ADD COLUMN legacy_stopped INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE p_sites_runtime_migrations ADD COLUMN rollback_stage TEXT NOT NULL DEFAULT 'none';
+            ALTER TABLE p_sites_runtime_migrations ADD COLUMN rollback_archive TEXT;
           `);
         },
       },
@@ -541,6 +692,7 @@ export class SitesStore {
       this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE site_id = ?').run(id);
+      this.db.prepare('DELETE FROM p_sites_runtime_migrations WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_sites WHERE id = ?').run(id);
     });
   }
@@ -751,6 +903,185 @@ export class SitesStore {
 
   deleteEnvironmentAction(siteId: string): void {
     this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(siteId);
+  }
+
+  // --- Runtime conversion. Every write below is a NAMED operation with fixed SQL and an explicit
+  // precondition. There is deliberately no generic "set the runtime" method: `runtime` is the column the
+  // whole serving path dispatches on, and a caller that can set it freely can point a live hostname at a
+  // container nobody verified, or strand a running legacy process nothing will ever stop. ---
+
+  runtimeMigration(siteId: string): RuntimeMigration | null {
+    const row = this.db.prepare('SELECT * FROM p_sites_runtime_migrations WHERE site_id = ?')
+      .get(siteId) as RuntimeMigrationRow | undefined;
+    return row ? toRuntimeMigration(row) : null;
+  }
+
+  /** Every conversion the daemon still owes work on, oldest first — what boot resume walks. */
+  runtimeMigrations(): RuntimeMigration[] {
+    return (this.db.prepare('SELECT * FROM p_sites_runtime_migrations ORDER BY requested_at')
+      .all() as RuntimeMigrationRow[]).map(toRuntimeMigration);
+  }
+
+  /** Take exclusive ownership of a site's conversion, capturing the undo material in the same
+   *  transaction that publishes the claim.
+   *
+   *  Refuses, rather than overwrites, when anything else already owns the site: an in-flight exec lease,
+   *  a pending snapshot or rollback, or a conversion another driver is running. Refuses a runtime that is
+   *  not convertible and a site that is not live, because a draft has no serving to preserve and an
+   *  `unsupported` row has no runtime to return to. */
+  tryClaimRuntimeMigration(input: { siteId: string; recipe: string; requestedAt: string }): boolean {
+    return this.db.transaction(() => {
+      this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE expires_at <= ?').run(Date.now());
+      if (this.db.prepare('SELECT 1 FROM p_sites_environment_exec_leases WHERE site_id = ?').get(input.siteId)) return false;
+      if (this.db.prepare('SELECT 1 FROM p_sites_environment_actions WHERE site_id = ?').get(input.siteId)) return false;
+      const existing = this.db.prepare('SELECT last_error FROM p_sites_runtime_migrations WHERE site_id = ?')
+        .get(input.siteId) as { last_error: string | null } | undefined;
+      // An owned slot is someone else's work in flight. A failed one is re-claimable, which is how a
+      // retry and a rollback both get back in without a second table.
+      if (existing?.last_error === null) return false;
+      const site = this.db.prepare("SELECT runtime, status, start_command, bind, port, current_release_id FROM p_sites_sites WHERE id = ? AND status = 'live'")
+        .get(input.siteId) as
+        { runtime: string | null; status: string; start_command: string | null; bind: string | null; port: number | null; current_release_id: string | null } | undefined;
+      if (!site) return false;
+      const from = asConvertibleRuntime(site.runtime ?? '');
+      if (!from) return false;
+      // A legacy site with no release has nothing to stage from, and staging the editable source instead
+      // is exactly the substitution this operation exists to avoid.
+      if (site.current_release_id === null) return false;
+      if (existing) {
+        return this.db.prepare(`
+          UPDATE p_sites_runtime_migrations
+          SET stage = 'preparing', recipe = ?, requested_at = ?, last_error = NULL
+          WHERE site_id = ? AND last_error IS NOT NULL
+        `).run(input.recipe, input.requestedAt, input.siteId).changes === 1;
+      }
+      return this.db.prepare(`
+        INSERT INTO p_sites_runtime_migrations (
+          site_id, stage, from_runtime, from_release_id, from_start_command, from_bind, from_port,
+          recipe, content_digest, requested_at, last_error
+        ) VALUES (?, 'preparing', ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
+      `).run(
+        input.siteId, from, site.current_release_id, site.start_command ?? '',
+        site.bind === 'port' ? 'port' : 'socket', site.port, input.recipe, input.requestedAt,
+      ).changes === 1;
+    });
+  }
+
+  /** Record what was staged. Separate from the stage advance so a digest can never be attributed to a
+   *  stage that did not actually complete. */
+  recordRuntimeMigrationDigest(siteId: string, digest: string): void {
+    this.db.prepare('UPDATE p_sites_runtime_migrations SET content_digest = ? WHERE site_id = ? AND last_error IS NULL')
+      .run(digest, siteId);
+  }
+
+  /** Record the digest of the workspace as it will actually be mounted. Separate from the release digest
+   *  because the two answer different questions and a flip checks this one. */
+  recordRuntimeMigrationFinalDigest(siteId: string, digest: string): void {
+    this.db.prepare('UPDATE p_sites_runtime_migrations SET final_digest = ? WHERE site_id = ? AND last_error IS NULL')
+      .run(digest, siteId);
+  }
+
+  /** Record the running process's home once, at first resolution. Never overwritten: the whole point is
+   *  that a retry cannot substitute a different directory. */
+  recordLegacyHome(siteId: string, home: string): void {
+    this.db.prepare('UPDATE p_sites_runtime_migrations SET legacy_home = ? WHERE site_id = ? AND legacy_home IS NULL')
+      .run(home, siteId);
+  }
+
+  /** Record that this conversion created the broker directory, written BEFORE the create is attempted so
+   *  a crash leaves a directory that cleanup knows it owns rather than an orphan nobody will remove. */
+  markBrokerPrepared(siteId: string, prepared: boolean): void {
+    this.db.prepare('UPDATE p_sites_runtime_migrations SET broker_prepared = ? WHERE site_id = ?')
+      .run(prepared ? 1 : 0, siteId);
+  }
+
+  /** Mark that this conversion stopped the legacy runtime, BEFORE the stop is attempted.
+   *
+   *  Written first on purpose: a crash between the write and the stop leaves a marker for a runtime that
+   *  is still up, which recovery resolves by starting something already running — harmless. The reverse
+   *  order would leave a stopped site with no marker, which is a dark site nobody owns. */
+  markLegacyStopped(siteId: string, stopped: boolean): void {
+    this.db.prepare('UPDATE p_sites_runtime_migrations SET legacy_stopped = ? WHERE site_id = ?')
+      .run(stopped ? 1 : 0, siteId);
+  }
+
+  /** Advance a rollback's own durable progress, and record the archive that is authoritative for the
+   *  writes the container made. Once `exported`, a retry reads this archive instead of asking a volume
+   *  that the discard may already have removed. */
+  recordRollbackProgress(siteId: string, stage: RuntimeMigration['rollbackStage'], archive?: string | null): void {
+    if (archive === undefined) {
+      this.db.prepare('UPDATE p_sites_runtime_migrations SET rollback_stage = ? WHERE site_id = ?').run(stage, siteId);
+      return;
+    }
+    this.db.prepare('UPDATE p_sites_runtime_migrations SET rollback_stage = ?, rollback_archive = ? WHERE site_id = ?')
+      .run(stage, archive, siteId);
+  }
+
+  /** Compare-and-set on the stage. The expected value is required so a resumed driver cannot skip a
+   *  stage it only thinks it finished. */
+  advanceRuntimeMigration(siteId: string, from: RuntimeMigration['stage'], to: RuntimeMigration['stage']): boolean {
+    return this.db.prepare(`
+      UPDATE p_sites_runtime_migrations SET stage = ?
+      WHERE site_id = ? AND stage = ? AND last_error IS NULL
+    `).run(to, siteId, from).changes === 1;
+  }
+
+  /** Release the slot with a reason. The row SURVIVES: it still holds the only record of what the site
+   *  used to be, which a rollback needs and a retry re-claims. */
+  failRuntimeMigration(siteId: string, error: string): void {
+    this.db.prepare('UPDATE p_sites_runtime_migrations SET last_error = ? WHERE site_id = ?')
+      .run(error.slice(0, 500), siteId);
+  }
+
+  /** The ONE place a site becomes an environment.
+   *
+   *  Guarded by the claim, by the recorded stage and by the runtime the claim captured, so it cannot fire
+   *  twice, cannot fire on a site whose runtime moved underneath it, and cannot fire before the container
+   *  was staged. Id, slug, visibility, access generation, members, releases and `current_release_id` are
+   *  untouched on purpose: the conversion changes how the site is SERVED, not who may open it or what it
+   *  can be rolled back to. Not bumping the access generation is deliberate — a conversion changes no
+   *  access rule, and invalidating every live session would log every visitor out for nothing. */
+  flipSiteRuntimeToEnvironment(siteId: string): boolean {
+    return this.db.transaction(() => {
+      const migration = this.db.prepare("SELECT from_runtime FROM p_sites_runtime_migrations WHERE site_id = ? AND stage = 'prepared' AND last_error IS NULL")
+        .get(siteId) as { from_runtime: string } | undefined;
+      if (!migration) return false;
+      const flipped = this.db.prepare(`
+        UPDATE p_sites_sites
+        SET runtime = 'environment', environment_desired_state = 'running', last_error = NULL, updated_at = ?
+        WHERE id = ? AND runtime = ? AND status = 'live'
+      `).run(new Date().toISOString(), siteId, migration.from_runtime);
+      if (flipped.changes !== 1) return false;
+      return this.db.prepare("UPDATE p_sites_runtime_migrations SET stage = 'flipped' WHERE site_id = ?")
+        .run(siteId).changes === 1;
+    });
+  }
+
+  /** The ONE place a converted site goes back, restoring the exact runtime fields the claim captured
+   *  rather than whatever the site happens to hold now. Idempotent for a site already reverted. */
+  revertSiteRuntimeFromMigration(siteId: string): boolean {
+    return this.db.transaction(() => {
+      const row = this.db.prepare('SELECT * FROM p_sites_runtime_migrations WHERE site_id = ?')
+        .get(siteId) as RuntimeMigrationRow | undefined;
+      if (!row) return false;
+      const from = asConvertibleRuntime(row.from_runtime);
+      if (!from) return false;
+      return this.db.prepare(`
+        UPDATE p_sites_sites
+        SET runtime = ?, start_command = ?, bind = ?, port = ?, current_release_id = ?,
+            environment_desired_state = 'running', last_error = NULL, updated_at = ?
+        WHERE id = ?
+      `).run(
+        from, row.from_start_command, row.from_bind, row.from_port, row.from_release_id,
+        new Date().toISOString(), siteId,
+      ).changes === 1;
+    });
+  }
+
+  /** Drop the slot. Called only once the site is settled on one side or the other, because until then
+   *  this row is the sole record of how to get back. */
+  clearRuntimeMigration(siteId: string): void {
+    this.db.prepare('DELETE FROM p_sites_runtime_migrations WHERE site_id = ?').run(siteId);
   }
 
   putTicket(tokenHash: string, ticket: Ticket): void {

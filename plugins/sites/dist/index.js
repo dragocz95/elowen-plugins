@@ -10,10 +10,14 @@ import { registerTools } from './tools.js';
 import { SiteGatewayManager } from './gateway.js';
 import { executePhp } from './php.js';
 import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
-import { PodmanClient } from './podman.js';
+import { PodmanClient, SpawnExecutor } from './podman.js';
 import { BASE_IMAGE_TAG, ensureBaseImage } from './baseImage.js';
 import { EnvironmentSupervisor } from './environment.js';
 import { EnvironmentProvisioningService } from './provisioning.js';
+import { DataSyncService, migrationArtifactDir, validateLegacyLocation } from './dataSync.js';
+import { installAppRecipe, loadAppRecipe, recipeBinding, relaxStaticServingPermissions } from './recipe.js';
+import { conversionImageTag, ensureConversionImage } from './conversionImage.js';
+import { RuntimeMigrationService } from './migration.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
 const GATEWAY_RECONCILE_MS = 12 * 3600_000;
@@ -193,6 +197,104 @@ export function register(published) {
             detail: 'An administrator ran environment dependency provisioning.',
         }
         : null);
+    const dataSync = new DataSyncService({
+        executor: new SpawnExecutor(),
+        artifactDir: (siteId) => migrationArtifactDir(siteDir(siteId)),
+    });
+    /** Runtime conversion, wired to the SAME supervisors that serve production.
+     *
+     *  The legacy stop and the running check are the real `SiteRuntimeSupervisor`, because nothing else in
+     *  the plugin will ever stop a converted site's process: `reconcile` walks `liveCommandSites()`, and a
+     *  flipped row has already left that set. The container side is the real `EnvironmentSupervisor`, so a
+     *  converted site is created, sized and started by exactly the code path a native environment uses. */
+    const migration = new RuntimeMigrationService({
+        store,
+        siteDir,
+        releaseDir,
+        stopLegacyRuntime: (siteId) => supervisor.stop(siteId),
+        legacyRunning: (siteId) => supervisor.isRunning(siteId),
+        startLegacyRuntime: async (site) => { await supervisor.start(site); },
+        loadRecipe: (siteId) => loadAppRecipe(migrationArtifactDir(siteDir(siteId))),
+        recipeBinding: (siteId) => recipeBinding(migrationArtifactDir(siteDir(siteId))),
+        installRecipe: (siteId, input) => installAppRecipe(migrationArtifactDir(siteDir(siteId)), input),
+        prepareContainer: async ({ site, workspace, recipe }) => {
+            // The derivative carries what the app needs to answer: nginx for files, a pinned Node runtime for a
+            // command app. The shared base image is left exactly as every other environment sees it.
+            const image = await ensureConversionImage(podman, dataDir, recipe.image);
+            await environment.prepareContainer(site, workspace, image, recipe.image === 'static');
+        },
+        startEnvironment: (site) => environment.start(site),
+        stopContainer: (siteId) => environment.quiesce(siteId),
+        containerStopped: (siteId) => environment.isStopped(siteId),
+        inspectOwnership: (siteId, expect) => environment.inspectOwnership(siteId, expect),
+        conversionImageTag: (recipe) => conversionImageTag(recipe.image),
+        // Readiness is the site answering through its own sealed ingress socket, which is the same path a
+        // visitor's request takes. A running container is not evidence of that.
+        // REAL HTTP through the site's own ingress, asking the invariant the recipe declared.
+        verifyReadiness: async (site, expect) => {
+            const state = await environment.state(site);
+            if (state.state !== 'running')
+                return { ready: false, detail: `the container is ${state.state ?? 'absent'}` };
+            // The WAIT belongs to the probe, not to the caller: only it knows the difference between a
+            // transport failure worth retrying and an answer worth reporting. The failure propagates verbatim.
+            const outcome = await environment.probeReadiness(site.id, expect);
+            return { ready: outcome.ready, detail: outcome.detail };
+        },
+        discardContainer: (siteId, options) => environment.delete(siteId, options),
+        brokerDirectoryExists: (siteId) => environment.brokerDirectoryExists(siteId),
+        prepareBrokerDirectory: async (siteId) => { await environment.prepareBrokerDirectory(siteId); },
+        removeStaged: (paths) => podman.unshareRemove(paths),
+        // The sandbox is the only authority on where a confined site keeps its data: `runtime.ts` blocks HOME
+        // from `.env`, so the value can come from nowhere else. Asking for the same preparation the legacy
+        // runtime gets, then releasing the lease straight away, reads that fact without running anything.
+        resolveLegacyData: async (site) => {
+            if (site.runtime !== 'command' || !site.currentReleaseId)
+                return null;
+            // WHICH subtrees belong to this app comes from its own recipe, not from the home. Two sites can be
+            // confined to the SAME sandbox home, so a home-wide capture would carry the neighbour's database
+            // and credentials into this site's archive, volume and rollback.
+            const recipe = loadAppRecipe(migrationArtifactDir(siteDir(site.id)));
+            if (recipe.dataIncludes.length === 0)
+                return null;
+            const sandbox = ctx.control('sandbox');
+            if (!sandbox)
+                throw new Error('the Sandbox plugin is disabled, so this site\'s data directory cannot be resolved');
+            const cwd = releaseDir(site.id, site.currentReleaseId);
+            const prepared = await sandbox.prepareExecution({ command: { type: 'shell', command: site.startCommand }, cwd, leaseKind: 'sites', network: config().runtimeNetwork }, { accountUserId: site.ownerUserId, roots: [cwd] });
+            try {
+                return {
+                    home: validateLegacyLocation({ home: prepared.home, roots: prepared.roots }),
+                    includes: recipe.dataIncludes,
+                };
+            }
+            finally {
+                // Released immediately: this preparation exists to ANSWER a question, not to run a process, and a
+                // retained lease would block the very stop the conversion is about to perform.
+                try {
+                    await prepared.lease.release();
+                }
+                catch (error) {
+                    ctx.logger.warn(`site ${site.slug} data-location lease release failed: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            }
+        },
+        // The home of the process actually running, taken from the live supervisor rather than from a fresh
+        // sandbox preparation that may be handed a different one.
+        runningLegacyHome: (siteId) => supervisor.runningHome(siteId),
+        captureLegacyData: (siteId, selection) => dataSync.captureLegacyData(siteId, selection),
+        buildSeedArchive: (siteId, input) => dataSync.buildSeedArchive(siteId, input),
+        loadDataVolume: async (site, seedArchive) => { await environment.importDataVolume(site.id, seedArchive); },
+        exportDataVolume: (site, output) => environment.exportDataVolume(site.id, output),
+        restoreLegacyData: (selection, archive, siteId) => dataSync.restoreLegacyData(selection, archive, siteId),
+        recoverInterruptedRestore: (siteId) => dataSync.recoverInterruptedRestore(siteId),
+        extractSecretArtifacts: (siteId, workspace, files) => dataSync.extractSecretArtifacts(siteId, workspace, files),
+        stagedSecretDigest: (siteId) => dataSync.stagedSecretDigest(siteId),
+        // The ancestors are this site's own plugin directory and the migration directory inside it. They get
+        // traversal only; the artefact directory beside the workspace keeps the secrets and stays 0700.
+        relaxStaticServing: (siteId, workspace) => relaxStaticServingPermissions(workspace, [siteDir(siteId), join(siteDir(siteId), 'migration')]),
+        artifactPath: (siteId, name) => dataSync.archivePath(siteId, name),
+        discardArtifacts: (siteId) => dataSync.discardArtifacts(siteId),
+    });
     /** Deletion is two-phase and crash-safe. The durable marker removes access immediately; only the
      * authoritative daemon touches processes and plugin-owned files. A forked tool runner stops after the
      * marker and the daemon's five-second reconcile finishes the same operation. */
@@ -368,6 +470,7 @@ export function register(published) {
         },
         applyEnvironmentLimits: (site, limits) => environment.applyLimits(site, limits),
         provisioning,
+        migration,
     });
     ctx.registerApiRoute({ path: 'sites', method: 'GET', access: 'user', handler: handlers.list });
     ctx.registerApiRoute({ path: 'site', access: 'user', handler: handlers.site });
@@ -376,6 +479,9 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'gateway/readiness', method: 'GET', access: 'user', handler: handlers.gatewayReadiness });
     ctx.registerApiRoute({ path: 'environments/readiness', method: 'GET', access: 'user', handler: handlers.environmentsReadiness });
     ctx.registerApiRoute({ path: 'environments/provision', method: 'POST', access: 'user', handler: handlers.environmentsProvision });
+    // Admin-gated inside the handler, like the provisioning routes: core's `access` levels have no
+    // admin tier, so the check has to live where the auth is actually read.
+    ctx.registerApiRoute({ path: 'conversion', access: 'user', handler: handlers.conversion });
     registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people });
     ctx.registerReadinessCheck(() => gateway.readiness());
     ctx.registerReadinessCheck(async () => {
@@ -485,6 +591,15 @@ export function register(published) {
         store.pruneTickets(Date.now());
         await cleanupOrphans();
         await cleanupDeletingSites();
+        // A conversion is driven by an administrator across several calls, so a restart can land between any
+        // two of them. Settling the interrupted slots here releases ownership and clears the orphan container
+        // a never-verified preparation may have left; it deliberately does not resume forward, because moving
+        // a live hostname between runtimes is a decision, not a restart side effect.
+        if (isDaemonProcess()) {
+            for (const settled of await migration.recoverInterrupted()) {
+                ctx.logger.warn(`site conversion ${settled.siteId} was interrupted at ${settled.stage}: ${settled.lastError ?? 'settled'}`);
+            }
+        }
     });
     ctx.registerInterval('cleanup-deleting-sites', async () => {
         await cleanupDeletingSites();

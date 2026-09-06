@@ -17,7 +17,9 @@ export function cleanPodmanEnv(input = {}) {
         DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${uid}/bus`,
     };
 }
-class SpawnExecutor {
+/** The real process launcher. Exported because a runtime conversion also has to run `tar`, which is not
+ *  Podman and must not borrow Podman's argv handling or its deliberately stripped rootless environment. */
+export class SpawnExecutor {
     async run(file, args, options) {
         return await new Promise((resolve, reject) => {
             const grouped = process.platform !== 'win32';
@@ -134,7 +136,9 @@ export class PodmanClient {
             `--memory=${spec.memoryMb}m`, `--memory-swap=${spec.memoryMb}m`, `--cpus=${spec.cpus}`, `--pids-limit=${spec.pidsLimit}`,
             `--network=${network}`,
             '--env-file', spec.envFile,
-            '--mount', `type=bind,src=${spec.workspace},dst=/workspace`,
+            // A STATIC conversion mounts its served tree READ-ONLY: nginx only reads it, and a writable mount
+            // would let anything inside the container edit what the public downloads.
+            '--mount', `type=bind,src=${spec.workspace},dst=/workspace${spec.workspaceReadOnly ? ',ro' : ''}`,
             '--mount', `type=bind,src=${spec.gitStub},dst=/workspace/.git,ro`,
             '--mount', `type=bind,src=${spec.brokerDir},dst=/run/elowen`,
             '--mount', `type=volume,src=${spec.volume},dst=/data`,
@@ -178,6 +182,78 @@ export class PodmanClient {
         if (this.missingObject(result))
             return null;
         throw new Error(`podman inspect failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
+    }
+    /** One label of a container, or null when the container or the label is absent.
+     *
+     *  Scoped to containers for the same reason `inspectStatus` is: once a site has a snapshot image, a
+     *  bare inspect of the same name resolves to that image instead. */
+    async inspectLabel(name, label) {
+        const result = await this.run(['inspect', '--type', 'container', '--format', `{{index .Config.Labels "${label}"}}`, name], { allowFailure: true });
+        if (result.code !== 0) {
+            if (this.missingObject(result))
+                return null;
+            throw new Error(`podman inspect label failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
+        }
+        const value = result.stdout.trim();
+        // Go templates render a missing map entry as `<no value>`, which is not a label value.
+        return value === '' || value === '<no value>' ? null : value;
+    }
+    /** The host source of the bind mount at a destination, or null when the container has no such mount. */
+    async inspectMountSource(name, destination) {
+        const result = await this.run([
+            'inspect', '--type', 'container', '--format',
+            `{{range .Mounts}}{{if eq .Destination "${destination}"}}{{.Source}}{{end}}{{end}}`,
+            name,
+        ], { allowFailure: true });
+        if (result.code !== 0) {
+            if (this.missingObject(result))
+                return null;
+            throw new Error(`podman inspect mount failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
+        }
+        const value = result.stdout.trim();
+        return value === '' ? null : value;
+    }
+    /** A volume's label. `undefined` distinguishes "no such volume" from a volume with no label. */
+    async inspectVolumeLabel(name, label) {
+        const result = await this.run(['volume', 'inspect', '--format', `{{index .Labels "${label}"}}`, name], { allowFailure: true });
+        if (result.code !== 0) {
+            if (this.missingObject(result))
+                return undefined;
+            throw new Error(`podman volume inspect failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
+        }
+        const value = result.stdout.trim();
+        return value === '' || value === '<no value>' ? null : value;
+    }
+    /** The image a container was created from. */
+    async inspectImage(name) {
+        return await this.inspectField(name, '{{.ImageName}}');
+    }
+    /** The container's network mode, so a conversion can refuse one created under a different policy. */
+    async inspectNetworkMode(name) {
+        return await this.inspectField(name, '{{.HostConfig.NetworkMode}}');
+    }
+    /** Memory and PID limits as the container actually carries them, in the units the create flags used. */
+    async inspectResources(name) {
+        const raw = await this.inspectField(name, '{{.HostConfig.Memory}}|{{.HostConfig.PidsLimit}}');
+        if (raw === null)
+            return null;
+        const [memory, pids] = raw.split('|');
+        const memoryBytes = Number(memory);
+        const pidsLimit = Number(pids);
+        return {
+            memoryMb: Number.isFinite(memoryBytes) && memoryBytes > 0 ? Math.round(memoryBytes / (1024 * 1024)) : null,
+            pidsLimit: Number.isFinite(pidsLimit) && pidsLimit > 0 ? pidsLimit : null,
+        };
+    }
+    async inspectField(name, format) {
+        const result = await this.run(['inspect', '--type', 'container', '--format', format, name], { allowFailure: true });
+        if (result.code !== 0) {
+            if (this.missingObject(result))
+                return null;
+            throw new Error(`podman inspect failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`);
+        }
+        const value = result.stdout.trim();
+        return value === '' || value === '<no value>' ? null : value;
     }
     async exec(name, argv, options = {}) {
         const args = ['exec'];

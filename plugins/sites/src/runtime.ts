@@ -49,6 +49,8 @@ interface Running {
   heartbeat: NodeJS.Timeout;
   release: () => Promise<void> | void;
   stopping: boolean;
+  /** The home the sandbox handed THIS process, kept so a later reader does not have to ask again. */
+  home: string;
 }
 
 function readReleaseEnv(releaseDir: string): Record<string, string> {
@@ -98,6 +100,15 @@ export class SiteRuntimeSupervisor {
 
   endpointFor(siteId: string): Endpoint | null {
     return this.running.get(siteId)?.endpoint ?? null;
+  }
+
+  /** The HOME the running process was actually launched with, or null when nothing is running.
+   *
+   *  Recorded at spawn from the sandbox preparation that produced this process, because that is the only
+   *  value the live process really has. Asking the sandbox again later can return a different home, and a
+   *  conversion capturing from THAT one would archive the wrong directory. */
+  runningHome(siteId: string): string | null {
+    return this.running.get(siteId)?.home ?? null;
   }
 
   isRunning(siteId: string): boolean {
@@ -238,6 +249,7 @@ export class SiteRuntimeSupervisor {
       heartbeat,
       release,
       stopping: false,
+      home: prepared.home,
     };
     this.running.set(site.id, entry);
 

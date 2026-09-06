@@ -1009,7 +1009,10 @@ test('migration v5 preserves existing runtimes, exposes environment counts and f
     },
   });
   const store = new SitesStore(db);
-  assert.equal(db.appliedVersion(), 8);
+  // The schema head is pinned deliberately: a migration added without updating this line is a migration
+  // nobody reviewed against the legacy rows seeded above. v9 adds the runtime conversion slot, v10 the
+  // durable crash-recovery state on it; neither touches an existing site row.
+  assert.equal(db.appliedVersion(), 10);
   for (const runtime of ['static', 'command', 'php']) assert.equal(store.siteById(`legacy-${runtime}`).runtime, runtime);
   store.insertSite(environmentSite({ id: 'site-environment', slug: 'site-environment' }));
   assert.equal(store.countEnvironmentOwnedBy(7), 1);

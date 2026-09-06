@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { dirname, join, resolve, sep } from 'node:path';
 const STOP_TIMEOUT_SECONDS = 8;
 const LIMIT_UPDATE_ATTEMPTS = 3;
@@ -8,6 +9,8 @@ const EXIT_WAIT_MS = 30_000;
 const KILL_WAIT_MS = 5_000;
 const LOG_CAP_BYTES = 256 * 1024;
 const containerName = (siteId) => `elowen-site-${siteId}`;
+/** The site row limits are derived from. Read fresh, because an administrator may have changed them. */
+const site0 = (siteId, deps) => deps.store.siteById(siteId) ?? { id: siteId };
 const volumeName = (siteId) => `elowen-site-${siteId}-data`;
 const defaultSleep = async (milliseconds) => {
     await new Promise((resolve) => {
@@ -151,6 +154,263 @@ export class EnvironmentSupervisor {
     containerLimits(site) {
         const { cpus, memoryMb, pidsLimit } = this.effectiveLimits(site);
         return { cpus, memoryMb, pidsLimit };
+    }
+    /** Build a site's container and leave it in `created`, for a runtime conversion that has to stage the
+     *  container while the LEGACY runtime is still serving.
+     *
+     *  Deliberately create-only, and the reason is the one property the whole conversion rests on:
+     *  `startNow` treats an existing container as something to START rather than rebuild (`creating =
+     *  status === null`), so the layer built here is exactly the one that goes live, and the flip costs a
+     *  start instead of a rebuild. Starting here instead would be wrong for a command site, whose broker
+     *  directory belongs to the live process that the start sequence would remove and recreate.
+     *
+     *  The broker directory is MOUNTED but never prepared here, for the same reason.
+     *
+     *  `workspace` is passed in because a conversion mounts its own staged copy of the published release
+     *  rather than `site.sourceDir`. Every other flag comes from the same limit and network derivation a
+     *  normal start uses, so a converted site is sized exactly like one created as an environment.
+     *
+     *  `image` is the conversion's derivative when there is one. Omitted, the shared base image is used, so
+     *  this method stays usable for anything that is not a conversion.
+     *
+     *  Idempotent: an existing container is left untouched, which is what a resumed or retried preparation
+     *  needs. Runs on the site's own queue so it cannot interleave with a start or a stop. */
+    prepareContainer(site, workspace, image, workspaceReadOnly = false) {
+        return this.serialize(site.id, async () => {
+            const name = containerName(site.id);
+            if (await this.deps.podman.inspectStatus(name) !== null)
+                return { created: false };
+            const files = this.writeEnvironmentFiles(site);
+            const volume = volumeName(site.id);
+            await this.deps.podman.ensureVolume(volume, site.id);
+            const brokerDir = this.deps.brokerPath
+                ? dirname(this.deps.brokerPath(site.id))
+                : join('/var/lib/elowen/site-runtime-sockets', site.id);
+            await this.deps.podman.create({
+                name,
+                siteId: site.id,
+                ...this.containerLimits(site),
+                network: this.deps.config().environmentNetwork,
+                envFile: files.envFile,
+                workspace,
+                gitStub: files.gitStub,
+                brokerDir,
+                volume,
+                // A conversion supplies its own derivative; a plain environment gets the shared base.
+                image: image ?? await this.deps.ensureBaseImage(),
+                workspaceReadOnly,
+            });
+            this.appendLog(site.id, `prepared container for runtime conversion on ${image ?? 'the base image'}`);
+            return { created: true };
+        });
+    }
+    /** Prove a container and volume carrying this site's name were created by THIS plugin for THIS site.
+     *
+     *  A NAME IS NOT OWNERSHIP. Every object this plugin creates carries `io.elowen.site=<id>`, and nothing
+     *  else does. Without checking it, a conversion would happily adopt — or delete — a container somebody
+     *  else created that happens to share the name, and the deletion is unrecoverable.
+     *
+     *  Also reports the workspace the container actually bind-mounts, so a caller can tell a container that
+     *  is ours and current from one that is ours and pointing at a directory that has since been replaced.
+     *  Null when nothing with that name exists, which is the ordinary first-preparation case. */
+    async inspectOwnership(siteId, expect) {
+        const name = containerName(siteId);
+        const status = await this.deps.podman.inspectStatus(name);
+        const volume = volumeName(siteId);
+        const volumeLabel = await this.deps.podman.inspectVolumeLabel(volume, 'io.elowen.site');
+        const volumePresent = volumeLabel !== undefined;
+        // A VOLUME carrying this site's name is as dangerous as a container: it is imported into and deleted
+        // by name, so one belonging to somebody else would be overwritten and then destroyed.
+        if (volumePresent && volumeLabel !== siteId) {
+            return {
+                owned: false,
+                workspace: null,
+                detail: volumeLabel === null
+                    ? `volume ${volume} carries no io.elowen.site label`
+                    : `volume ${volume} is labelled for site ${volumeLabel}`,
+            };
+        }
+        if (status === null)
+            return volumePresent ? { owned: true, workspace: null, detail: `only volume ${volume} exists` } : null;
+        const label = await this.deps.podman.inspectLabel(name, 'io.elowen.site');
+        if (label !== siteId) {
+            return {
+                owned: false,
+                workspace: null,
+                detail: label === null
+                    ? `container ${name} carries no io.elowen.site label`
+                    : `container ${name} is labelled for site ${label}`,
+            };
+        }
+        const workspace = await this.deps.podman.inspectMountSource(name, '/workspace');
+        if (!expect)
+            return { owned: true, workspace, detail: `container ${name} is owned by this site` };
+        // FULL SPEC, not just the label. A container that is ours by label can still be the wrong one: built
+        // on a superseded image, mounting a replaced workspace, pointing at another site's broker directory,
+        // or created with limits and a network the current settings no longer describe. Reusing any of those
+        // serves something nobody approved.
+        const mismatches = [];
+        const image = await this.deps.podman.inspectImage(name);
+        if (image !== null && image !== expect.image)
+            mismatches.push(`image ${image} is not ${expect.image}`);
+        if (workspace !== null && resolve(workspace) !== resolve(expect.workspace)) {
+            mismatches.push(`workspace ${workspace} is not ${expect.workspace}`);
+        }
+        const broker = await this.deps.podman.inspectMountSource(name, '/run/elowen');
+        const expectedBroker = this.deps.brokerPath
+            ? dirname(this.deps.brokerPath(siteId))
+            : join('/var/lib/elowen/site-runtime-sockets', siteId);
+        if (broker !== null && resolve(broker) !== resolve(expectedBroker)) {
+            mismatches.push(`broker ${broker} is not ${expectedBroker}`);
+        }
+        const dataMount = await this.deps.podman.inspectMountSource(name, '/data');
+        if (dataMount !== null && dataMount !== volume)
+            mismatches.push(`data volume ${dataMount} is not ${volume}`);
+        const limits = this.containerLimits(site0(siteId, this.deps));
+        const observed = await this.deps.podman.inspectResources(name);
+        if (observed) {
+            if (observed.memoryMb !== null && observed.memoryMb !== limits.memoryMb) {
+                mismatches.push(`memory ${observed.memoryMb}MB is not ${limits.memoryMb}MB`);
+            }
+            if (observed.pidsLimit !== null && observed.pidsLimit !== limits.pidsLimit) {
+                mismatches.push(`pids ${observed.pidsLimit} is not ${limits.pidsLimit}`);
+            }
+        }
+        const network = await this.deps.podman.inspectNetworkMode(name);
+        const expectedNetwork = this.deps.config().environmentNetwork === 'isolated' ? 'none' : 'slirp4netns';
+        if (network !== null && !network.startsWith(expectedNetwork)) {
+            mismatches.push(`network ${network} is not ${expectedNetwork}`);
+        }
+        return mismatches.length === 0
+            ? { owned: true, workspace, detail: `container ${name} matches the expected specification` }
+            : { owned: true, workspace, detail: `container ${name} differs: ${mismatches.join('; ')}` };
+    }
+    /** Ask the site's own ingress the invariant its recipe declared, over real HTTP.
+     *
+     *  A connectable socket is not readiness: `systemd-socket-proxyd` accepts whether or not anything is
+     *  listening behind it, so a container whose application never started still looks alive. Only a
+     *  response with the expected status proves the application is serving.
+     *
+     *  Deliberately a bare request rather than the serving proxy: this is a health probe, not a visitor,
+     *  and it must not carry identity headers, count a hit or take the access path. */
+    async probeReadiness(siteId, expect, options = {}) {
+        const endpoint = this.endpoints.get(siteId);
+        if (!endpoint)
+            return { ready: false, detail: 'the ingress socket has not been adopted', attempts: 0 };
+        const perAttemptMs = options.timeoutMs ?? 5_000;
+        // BOUNDED WAIT, and it lives here rather than in the caller.
+        //
+        // The ingress socket exists before the application behind it does: `elowen-ingress.socket` is
+        // listening from boot, so the first requests through it are refused or reset while systemd is still
+        // starting the app. A single probe therefore reports ECONNRESET for a site that is merely still
+        // coming up. A fixed sleep would be the wrong fix, because it is simultaneously too long for a fast
+        // start and too short for a slow one; the honest answer is to retry until a deadline and then give
+        // up with the LAST real failure, which is what the caller needs to act on.
+        const deadline = this.now() + (options.deadlineMs ?? this.deps.config().startTimeoutSeconds * 1_000);
+        let attempts = 0;
+        let last = 'no attempt completed';
+        while (this.now() <= deadline) {
+            attempts += 1;
+            const outcome = await this.readinessAttempt(endpoint, expect, perAttemptMs);
+            if (outcome.ready)
+                return { ...outcome, attempts };
+            last = outcome.detail;
+            // A wrong STATUS is the application answering, so it is settled and retrying will not change it.
+            // Only a transport failure is worth waiting through.
+            if (outcome.answered)
+                return { ready: false, detail: outcome.detail, attempts };
+            if (this.now() > deadline)
+                break;
+            // A bounded wait that MUST complete, so it does not use the shared unref'd sleep: an unreferenced
+            // timer lets an otherwise idle process exit with this promise still pending.
+            await new Promise((wake) => { setTimeout(wake, 250); });
+        }
+        return { ready: false, detail: `${last} (gave up after ${attempts} attempt(s))`, attempts };
+    }
+    async readinessAttempt(endpoint, expect, timeoutMs) {
+        const result = await new Promise((resolveStatus) => {
+            const request = httpRequest({
+                ...(endpoint.kind === 'socket' ? { socketPath: endpoint.path } : { host: '127.0.0.1', port: endpoint.port }),
+                method: 'GET',
+                path: expect.path,
+                headers: { host: 'localhost', 'user-agent': 'elowen-conversion-readiness' },
+                timeout: timeoutMs,
+            }, (response) => {
+                response.resume();
+                resolveStatus(response.statusCode ?? 0);
+            });
+            request.once('error', (error) => resolveStatus(error.message));
+            request.once('timeout', () => { request.destroy(); resolveStatus('timed out'); });
+            request.end();
+        });
+        if (typeof result === 'string') {
+            return { ready: false, answered: false, detail: `GET ${expect.path} failed: ${result}` };
+        }
+        return result === expect.expectStatus
+            ? { ready: true, answered: true, detail: `GET ${expect.path} answered ${result}` }
+            : { ready: false, answered: true, detail: `GET ${expect.path} answered ${result}, expected ${expect.expectStatus}` };
+    }
+    /** The host directory Podman bind-mounts at `/run/elowen`. Derived, never taken from a caller. */
+    brokerDirectory(siteId) {
+        return this.deps.brokerPath
+            ? dirname(this.deps.brokerPath(siteId))
+            : join('/var/lib/elowen/site-runtime-sockets', siteId);
+    }
+    /** Whether the broker directory is already on disk.
+     *
+     *  `podman create` STATFS-es every bind source, so a missing one fails the create with 125 before the
+     *  container exists at all. A command site hides that: its live process already had the gateway create
+     *  the directory, so the conversion inherited one. A static or PHP site has none, and its create fails.
+     *
+     *  A plain stat is enough and is all the plugin may do: the directory is root-owned 0730 and only the
+     *  privileged gateway helper may create or remove it. */
+    brokerDirectoryExists(siteId) {
+        try {
+            return statSync(this.brokerDirectory(siteId)).isDirectory();
+        }
+        catch {
+            return false;
+        }
+    }
+    /** Have the GATEWAY create the broker directory, so a container can be created against it.
+     *
+     *  Routed through the privileged helper on purpose. The directory is root-owned with a mode the service
+     *  account cannot produce, and a plugin-made one would either fail the seal later or hand the container
+     *  a directory it could rewrite. This plugin never calls mkdir for it. */
+    async prepareBrokerDirectory(siteId) {
+        const prepared = await this.deps.gateway.prepareRuntimeSocket(siteId);
+        this.appendLog(siteId, 'prepared broker directory for container creation');
+        return dirname(prepared.path);
+    }
+    /** Stop the container and resolve only once it has actually left the running state. */
+    async quiesce(siteId) {
+        await this.serialize(siteId, () => this.stopNow(siteId, false));
+    }
+    /** Whether the container has reached a stopped state, observed rather than inferred. */
+    async isStopped(siteId) {
+        const status = await this.deps.podman.inspectStatus(containerName(siteId));
+        return status === null || status === 'exited' || status === 'created';
+    }
+    /** Seed a site's data volume from a tar before its container has ever run, so a converted site starts
+     *  against the data its legacy runtime had rather than an empty volume. */
+    importDataVolume(siteId, archive) {
+        return this.serialize(siteId, async () => {
+            const volume = volumeName(siteId);
+            await this.deps.podman.ensureVolume(volume, siteId);
+            await this.deps.podman.importVolume(volume, archive);
+            this.appendLog(siteId, 'seeded data volume from the legacy runtime');
+        });
+    }
+    /** Export a site's data volume so writes made while converted can travel back on a rollback. Reports
+     *  false when the volume does not exist, which is the honest answer for a container that never ran. */
+    exportDataVolume(siteId, output) {
+        return this.serialize(siteId, async () => {
+            const volume = volumeName(siteId);
+            if (!await this.deps.podman.volumeExists(volume))
+                return false;
+            await this.deps.podman.exportVolume(volume, output);
+            return true;
+        });
     }
     writeEnvironmentFiles(site) {
         const dir = this.environmentDir(site.id);
@@ -569,9 +829,15 @@ export class EnvironmentSupervisor {
         const candidate = resolve(path);
         return candidate.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
     }
-    delete(siteId) {
+    /** Remove a site's container, snapshots and volume.
+     *
+     *  `removeBroker` is false when the broker directory belongs to somebody else. A conversion rolled back
+     *  BEFORE its flip leaves the legacy command process still serving on that exact socket, and removing
+     *  the directory would take the live site down and leave a process writing to an unlinked path. */
+    delete(siteId, options = {}) {
+        const removeBroker = options.removeBroker !== false;
         return this.serialize(siteId, async () => {
-            await this.stopNow(siteId, true);
+            await this.stopNow(siteId, removeBroker);
             const name = containerName(siteId);
             if (await this.deps.podman.inspectStatus(name) !== null)
                 await this.deps.podman.remove(name);

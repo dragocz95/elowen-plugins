@@ -31,7 +31,8 @@
       "directory",
       "gateway/readiness",
       "environments/readiness",
-      "environments/provision"
+      "environments/provision",
+      "conversion"
     ]
   },
   "planSafe": [

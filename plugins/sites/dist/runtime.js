@@ -61,6 +61,14 @@ export class SiteRuntimeSupervisor {
     endpointFor(siteId) {
         return this.running.get(siteId)?.endpoint ?? null;
     }
+    /** The HOME the running process was actually launched with, or null when nothing is running.
+     *
+     *  Recorded at spawn from the sandbox preparation that produced this process, because that is the only
+     *  value the live process really has. Asking the sandbox again later can return a different home, and a
+     *  conversion capturing from THAT one would archive the wrong directory. */
+    runningHome(siteId) {
+        return this.running.get(siteId)?.home ?? null;
+    }
     isRunning(siteId) {
         const entry = this.running.get(siteId);
         return entry !== undefined && entry.child.exitCode === null && !entry.stopping;
@@ -195,6 +203,7 @@ export class SiteRuntimeSupervisor {
             heartbeat,
             release,
             stopping: false,
+            home: prepared.home,
         };
         this.running.set(site.id, entry);
         child.once('exit', (code, signal) => {

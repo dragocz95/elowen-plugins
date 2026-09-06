@@ -4,6 +4,8 @@ import { VISIBILITIES } from './store.js';
 import { mayOpen, mintTicket, normalizeReturnPath, type AccessDeps } from './access.js';
 import { environmentLimitOverrides, SITE_BASE_PATH, siteUrl, type EnvironmentLimitOverrides, type SitesConfig } from './config.js';
 import { ProvisionInProgressError, type EnvironmentProvisioningService } from './provisioning.js';
+import { MigrationRefused, type RuntimeMigrationService } from './migration.js';
+import { isRecipeKind } from './recipe.js';
 import type { EnvironmentState } from './environment.js';
 import type { RequiredRecord, SiteGatewayReadiness } from './gateway.js';
 
@@ -38,6 +40,7 @@ export interface ApiDeps {
   rollbackEnvironment(site: Site, input: { releaseId: string; restoreData: boolean }): Promise<void>;
   applyEnvironmentLimits(site: Site, limits: EnvironmentLimitOverrides): Promise<void>;
   provisioning: Pick<EnvironmentProvisioningService, 'status' | 'provision'>;
+  migration: Pick<RuntimeMigrationService, 'status' | 'prepare' | 'flip' | 'complete' | 'rollback' | 'pending' | 'registerRecipe'>;
 }
 
 const json = (status: number, body: unknown): PluginHttpResponse => ({
@@ -479,5 +482,76 @@ export function createApiHandlers(deps: ApiDeps) {
     }
   };
 
-  return { list, site, ticket, directory, gatewayReadiness, environmentsReadiness, environmentsProvision };
+  /** GET|POST /plugins/sites/api/site/<id>/conversion — the runtime conversion operation.
+   *
+   *  ADMINISTRATOR ONLY, and narrow on purpose. The body carries a step name and, for `prepare`, a recipe
+   *  name from a fixed set. It carries no path, no image, no socket, no command and no container spec:
+   *  those are the inputs that would turn an administrator's existing environment rights into arbitrary
+   *  host access, and the operation derives every one of them from the site itself.
+   *
+   *  Kept off the shared `site` handler so no future edit can let an owner reach it through the
+   *  `canManage` branch: converting a runtime is an instance-level change, not a site-owner one. */
+  const conversion = async (req: PluginApiRequest): Promise<PluginHttpResponse> => {
+    if (!req.auth.admin) return json(403, { error: 'forbidden' });
+    const segments = req.path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+    const siteId = segments[0] ?? '';
+    if (siteId === '') {
+      if (req.method !== 'GET') return json(405, { error: 'method not allowed' });
+      return json(200, { pending: deps.migration.pending() });
+    }
+    const target = deps.store.siteById(siteId);
+    if (!target) return json(404, { error: 'not found' });
+    // Project access is required on top of admin, exactly as the environment lifecycle routes require it:
+    // an administrator outside the Project has no business restarting what it serves.
+    if (!canAccessProject(target.projectId, req.auth)) return json(403, { error: 'project access is required' });
+
+    if (req.method === 'GET') return json(200, { conversion: deps.migration.status(target.id) });
+    if (req.method !== 'POST') return json(405, { error: 'method not allowed' });
+    if (!deps.config().allowEnvironments) {
+      return json(403, { error: 'persistent environments are turned off for this instance' });
+    }
+
+    const body = await req.json<{ step?: unknown; recipe?: unknown; restoreData?: unknown }>()
+      .catch(() => ({} as { step?: unknown; recipe?: unknown; restoreData?: unknown }));
+    try {
+      switch (body.step) {
+        case 'register': {
+          // The recipe is REGISTERED through the API, validated and bound to this site and the release it
+          // currently serves. There is no supported way to hand-place the file: an unvalidated,
+          // unbound artefact is an unsafe installation step, and one that could be edited between
+          // approval and flip.
+          if (!target.currentReleaseId) return json(409, { error: 'this site has no published release to bind a recipe to' });
+          try {
+            const installed = await deps.migration.registerRecipe(target.id, target.currentReleaseId, body.recipe);
+            return json(200, { registered: { image: installed.image, dataIncludes: installed.dataIncludes, readiness: installed.readiness } });
+          } catch (error) {
+            return json(400, { error: error instanceof Error ? error.message : 'the recipe was refused' });
+          }
+        }
+        case 'prepare': {
+          if (!isRecipeKind(body.recipe)) return json(400, { error: 'unknown conversion recipe' });
+          return json(200, { conversion: await deps.migration.prepare(target.id, body.recipe) });
+        }
+        case 'flip':
+          return json(200, { conversion: await deps.migration.flip(target.id) });
+        case 'complete':
+          return json(200, { conversion: await deps.migration.complete(target.id) });
+        case 'rollback':
+          // Carrying container writes back is the default, because losing them silently is the worse
+          // failure; an explicit `false` is how an operator discards a conversion that never really ran.
+          return json(200, { conversion: await deps.migration.rollback(target.id, { restoreData: body.restoreData !== false }) });
+        default:
+          return json(400, { error: 'unknown conversion step' });
+      }
+    } catch (error) {
+      // A refusal is a state the caller can act on; anything else is a fault in the machinery.
+      if (error instanceof MigrationRefused) return json(409, { error: error.message });
+      return json(502, {
+        error: error instanceof Error ? error.message : 'the conversion step failed',
+        conversion: deps.migration.status(target.id),
+      });
+    }
+  };
+
+  return { list, site, ticket, directory, gatewayReadiness, environmentsReadiness, environmentsProvision, conversion };
 }
