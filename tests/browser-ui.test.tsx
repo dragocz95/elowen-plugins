@@ -24,6 +24,9 @@ setDefaults(
   // Every card asks for one of these before it can show anything, so it is a default rather than
   // something each test has to remember.
   http.post('/api/plugins/browser/api/vnc-ticket', () => HttpResponse.json({ url: '/ws/plugins/browser/vnc?ticket=t1', expiresAt: Date.now() + 15_000, width: 1280, height: 800 })),
+  // Every account-panel test that renders a live session asks for its still, so "there is no picture
+  // right now" is the default and the tests about the picture override it.
+  http.get('/api/plugins/browser/api/thumbnail', () => HttpResponse.json({ dataUrl: null })),
 );
 beforeAll(() => listen());
 afterEach(() => { cleanup(); resetHandlers(); vi.useRealTimers(); vi.restoreAllMocks(); window.sessionStorage.clear(); resetRfbClients(); });
@@ -851,6 +854,79 @@ describe('browser plugin UI', () => {
     expect(screen.queryByText(strings.clearBlocked)).toBeNull();
   });
 
+  // A record in the list is named by a clipped session id, which tells a reader nothing about WHICH page
+  // is running. The still is what makes the row recognizable.
+  it('draws each live session as a still of its own screen, asked for by session id', async () => {
+    const asked: string[] = [];
+    use(
+      http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 2 })),
+      http.get('/api/plugins/browser/api/sessions', () => HttpResponse.json({
+        live: [{ id: 'session-alpha', state: 'agent', lease: null }, { id: 'session-beta', state: 'user', lease: null }], history: [],
+      })),
+      http.get('/api/plugins/browser/api/thumbnail', ({ url }) => {
+        const sessionId = url.searchParams.get('sessionId') ?? '';
+        asked.push(sessionId);
+        return HttpResponse.json({ dataUrl: `data:image/jpeg;base64,${sessionId}`, width: 480, height: 300, capturedAt: 1 });
+      }),
+    );
+    const Wrapper = wrapper();
+    render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    // Both rows, not just whichever answered first: the two queries settle independently.
+    const shown = new RegExp(`^${strings.sessionPreview}: session-`);
+    await waitFor(() => expect(screen.getAllByRole('img', { name: shown })).toHaveLength(2));
+    const stills = screen.getAllByRole('img', { name: shown });
+    // Each row shows ITS session, not whichever answer arrived first.
+    expect(stills.map((still) => still.getAttribute('src')))
+      .toEqual(['data:image/jpeg;base64,session-alpha', 'data:image/jpeg;base64,session-beta']);
+    // Several stills can be on screen at once, so each says WHICH session it is a picture of rather than
+    // announcing the same name twice to a screen reader.
+    expect(stills.map((still) => still.getAttribute('alt')))
+      .toEqual([`${strings.sessionPreview}: session-alph…`, `${strings.sessionPreview}: session-beta…`]);
+    // The image carries the size it actually came back at, so the box has its shape before it decodes.
+    expect(stills[0]).toHaveAttribute('width', '480');
+    expect(stills[0]).toHaveAttribute('height', '300');
+    expect([...asked].sort()).toEqual(['session-alpha', 'session-beta']);
+  });
+
+  // Two states, one box: a picture that arrives must not resize the row it lands in, and a panel nobody is
+  // looking at must not make a live browser photograph itself.
+  it('holds a placeholder until a picture exists, and asks for none while the page is hidden', async () => {
+    let asked = 0;
+    use(
+      http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 1 })),
+      http.get('/api/plugins/browser/api/sessions', () => HttpResponse.json({ live: [{ id: 'session-alpha', state: 'agent', lease: null }], history: [] })),
+      http.get('/api/plugins/browser/api/thumbnail', () => {
+        asked += 1;
+        return HttpResponse.json({ dataUrl: null });
+      }),
+    );
+    const visibility = (state: 'visible' | 'hidden') => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+      act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    };
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    try {
+      const Wrapper = wrapper();
+      render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+      // The row is drawn in full while hidden — it simply carries the placeholder, in the same box.
+      expect(await screen.findByText('session-alph…')).toBeInTheDocument();
+      expect(screen.getByRole('img', { name: `${strings.previewPending}: session-alph…` })).toBeInTheDocument();
+      expect(screen.queryByRole('img', { name: new RegExp(strings.sessionPreview) })).toBeNull();
+      expect(asked).toBe(0);
+
+      visibility('visible');
+      await waitFor(() => expect(asked).toBe(1));
+      // The answer was "no picture right now", which is the placeholder's other cause and not an error:
+      // the panel stays whole rather than dropping to the error state.
+      expect(screen.getByRole('img', { name: `${strings.previewPending}: session-alph…` })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    }
+  });
+
   it('closes the session the reader picked, named by who is holding it', async () => {
     const closed: string[] = [];
     use(
@@ -925,6 +1001,9 @@ describe('browser plugin UI', () => {
     expect(screen.getByText(csStrings.liveSessions)).toBeInTheDocument();
     expect(screen.getByText(csStrings.agentControl)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: csStrings.clearProfile })).toBeInTheDocument();
+    // The still's own two states are named for a screen reader, so they are translated like everything
+    // else on the panel rather than left as the only English on a Czech page.
+    expect(screen.getByRole('img', { name: `${csStrings.previewPending}: secret-sessi…` })).toBeInTheDocument();
     // The English originals are gone, not merely covered up.
     for (const english of [strings.profileStorage, strings.storageUsed, strings.liveSessions, strings.agentControl]) {
       expect(within(view.container).queryByText(english)).toBeNull();

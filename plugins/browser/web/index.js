@@ -14636,6 +14636,22 @@ var HardDrive = createLucideIcon("HardDrive", [
   ["line", { x1: "10", x2: "10.01", y1: "16", y2: "16", key: "1l4acy" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/image-off.js
+var ImageOff = createLucideIcon("ImageOff", [
+  ["line", { x1: "2", x2: "22", y1: "2", y2: "22", key: "a6p6uj" }],
+  ["path", { d: "M10.41 10.41a2 2 0 1 1-2.83-2.83", key: "1bzlo9" }],
+  ["line", { x1: "13.5", x2: "6", y1: "13.5", y2: "21", key: "1q0aeu" }],
+  ["line", { x1: "18", x2: "21", y1: "12", y2: "15", key: "5mozeu" }],
+  [
+    "path",
+    {
+      d: "M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59",
+      key: "mmje98"
+    }
+  ],
+  ["path", { d: "M21 15V5a2 2 0 0 0-2-2H9", key: "43el77" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/message-circle-question.js
 var MessageCircleQuestion = createLucideIcon("MessageCircleQuestion", [
   ["path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z", key: "vv11sd" }],
@@ -14733,6 +14749,48 @@ var apiError = (error) => runtime().utils.apiErrorMessage(error) || "Browser ope
 
 // plugins/browser/web-src/BrowserAccount.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+var PREVIEW_POLL_MS = 5e3;
+function usePageVisible() {
+  const [visible, setVisible] = (0, import_react3.useState)(() => typeof document === "undefined" || document.visibilityState !== "hidden");
+  (0, import_react3.useEffect)(() => {
+    const onChange = () => setVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onChange);
+    return () => document.removeEventListener("visibilitychange", onChange);
+  }, []);
+  return visible;
+}
+function SessionPreview({ sessionId, label, polling }) {
+  const host = runtime();
+  const strings = host.hooks.usePluginStrings("browser");
+  const preview = host.hooks.useQuery({
+    queryKey: ["browser", "thumbnail", sessionId],
+    queryFn: () => runtime().api(`/plugins/browser/api/thumbnail?sessionId=${encodeURIComponent(sessionId)}`),
+    refetchInterval: PREVIEW_POLL_MS,
+    enabled: polling
+  });
+  const image = preview.data?.dataUrl ?? null;
+  if (!image) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "div",
+      {
+        className: "browser-account__preview browser-account__preview--empty",
+        role: "img",
+        "aria-label": `${strings.previewPending || "Waiting for a picture of this session"}: ${label}`,
+        children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ImageOff, { size: 16, "aria-hidden": true })
+      }
+    );
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    "img",
+    {
+      className: "browser-account__preview",
+      src: image,
+      width: preview.data?.width,
+      height: preview.data?.height,
+      alt: `${strings.sessionPreview || "Session preview"}: ${label}`
+    }
+  );
+}
 var bytes = (value) => {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
@@ -14746,6 +14804,7 @@ function BrowserAccount({ surface }) {
   const toast = host.hooks.useToast();
   const client = host.hooks.useQueryClient();
   const [confirmClear, setConfirmClear] = (0, import_react3.useState)(false);
+  const visible = usePageVisible();
   const profile = runtime().hooks.useQuery({ queryKey: ["browser", "profile"], queryFn: () => runtime().api("/plugins/browser/api/profile") });
   const sessions = runtime().hooks.useQuery({ queryKey: ["browser", "sessions"], queryFn: () => runtime().api("/plugins/browser/api/sessions"), refetchInterval: 5e3 });
   const clear = runtime().hooks.useMutation({
@@ -14825,6 +14884,8 @@ function BrowserAccount({ surface }) {
                 {
                   icon: AppWindow,
                   label: `${session.id.slice(0, 12)}\u2026`,
+                  trailingLayout: "stack",
+                  control: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionPreview, { sessionId: session.id, label: `${session.id.slice(0, 12)}\u2026`, polling: visible }),
                   status: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs text-muted-foreground", children: session.state === "user" ? strings.userControl || "User control" : strings.agentControl || "Agent control" }),
                   actions: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                     IconButton,

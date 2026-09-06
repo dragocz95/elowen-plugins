@@ -22,7 +22,10 @@ import {
   type BrowserDependencyCheck, type BrowserDependencyReport, type BrowserDependencyStatus,
 } from '../plugins/browser/src/readiness.js';
 import { boundBytes, boundText, isTextualMime, pickResponseHeaders, sanitizeUrl, UNTRUSTED_NOTE } from '../plugins/browser/src/redaction.js';
-import { MAX_CAPTURE_CSS_AREA, MAX_FULL_PAGE_CSS_PX, MAX_SCREENSHOT_BYTES } from '../plugins/browser/src/capture.js';
+import {
+  MAX_CAPTURE_CSS_AREA, MAX_FULL_PAGE_CSS_PX, MAX_SCREENSHOT_BYTES, THUMBNAIL_JPEG_QUALITY, THUMBNAIL_MAX_WIDTH,
+} from '../plugins/browser/src/capture.js';
+import { ThumbnailCache, THUMBNAIL_TTL_MS } from '../plugins/browser/src/thumbnail.js';
 import { CONSOLE_BUFFER_SIZE, MAX_BODY_BYTES } from '../plugins/browser/src/page-diagnostics.js';
 import { ProcessTraceLock, summarizeTraceEvents, TraceRecorder, TraceStateUnknownError } from '../plugins/browser/src/performance-probe.js';
 import { BrowserSession } from '../plugins/browser/src/browser-session.js';
@@ -285,18 +288,21 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.3.4, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.3.5, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
       version: string; userGrantable: boolean; entry: string;
       provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.3.4');
+    expect(manifest.version).toBe('0.3.5');
     expect(manifest.userGrantable).toBe(true);
     expect(manifest.provides.tools).toHaveLength(17);
-    expect(manifest.provides.apiRoutes).toHaveLength(12);
+    expect(manifest.provides.apiRoutes).toHaveLength(13);
     expect(manifest.provides.apiRoutes).toContain('navigation');
+    // The account panel's session stills. Deny-by-default: an API route the manifest does not declare is
+    // refused at registration, so adding the handler alone would leave the panel with nothing to call.
+    expect(manifest.provides.apiRoutes).toContain('thumbnail');
     // The live view's only door. A browser WebSocket cannot carry an Authorization header, so the proof
     // of ownership is moved into a single-use ticket by an ordinary authenticated route.
     expect(manifest.provides.apiRoutes).toContain('vnc-ticket');
@@ -2117,6 +2123,223 @@ describe('browser screenshots', () => {
     await expect(session.screenshot('fullPage', 'png', undefined)).rejects.toThrow(/no measurable size/);
     expect(page.cdp.calls.some((call) => call.method === 'Page.captureScreenshot')).toBe(false);
     await session.close();
+  });
+});
+
+describe('browser session thumbnails', () => {
+  /** A session with a clock the test moves by hand, so "the cache expired" is a stated fact rather than
+   *  a race against the wall clock. */
+  async function thumbnailSession(at = { now: Date.now() }) {
+    const store = new BrowserStore(pluginDb());
+    const id = 'session-thumbnail-001';
+    store.createSession({
+      id, ownerUserId: 1, conversationId: 'brain-1', artifactRef: null, primaryTargetId: null,
+      state: 'creating', createdAt: at.now, updatedAt: at.now, lastActivityAt: at.now,
+      hardExpiresAt: at.now + 600_000, closedAt: null, closeReason: null,
+    });
+    const browser = new FakeBrowser();
+    const page = await browser.newPage() as FakePage;
+    const tabs = new TabManager(browser, () => 12, logger);
+    tabs.registerPrimary(id, page);
+    const session = await BrowserSession.create({
+      id, ownerUserId: 1, conversationId: 'brain-1', createdAt: at.now, hardExpiresAt: at.now + 600_000,
+      page, tabs, config: () => config(), store, artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
+      traceLock: new ProcessTraceLock(),
+      clock: { now: () => at.now, sleep: async () => {} }, logger,
+      releasePage: async () => { await tabs.closeSession(id); }, forceCloseBrowser: async () => {}, onClosed: () => {},
+    });
+    return { session, page, at };
+  }
+
+  it('asks Chrome for a scaled viewport JPEG through the screenshot path the tool uses', async () => {
+    const { session, page } = await thumbnailSession();
+    const image = await session.thumbnail();
+    const call = page.cdp.calls.at(-1)!;
+    expect(call.method).toBe('Page.captureScreenshot');
+    // Chrome does the downscaling in the clip it is already rasterizing. Capturing at scale 1 and
+    // shrinking afterwards would encode a megapixel image per session per poll.
+    // Literal values, not the constants restated: an assertion written as `THUMBNAIL_MAX_WIDTH / 1280`
+    // holds for any width anybody later edits the constant to, and would guard nothing.
+    expect(THUMBNAIL_MAX_WIDTH).toBe(480);
+    expect(THUMBNAIL_JPEG_QUALITY).toBe(60);
+    expect(call.params).toMatchObject({
+      format: 'jpeg',
+      quality: 60,
+      captureBeyondViewport: false,
+      clip: { x: 0, y: 0, width: 1280, height: 800, scale: 0.375 },
+    });
+    // The reported box is the picture that came back, not the viewport that was clipped — a caller laying
+    // out a slot for it must be told the size it actually got.
+    expect(image).toMatchObject({ width: 480, height: 300, mimeType: 'image/jpeg' });
+    await session.close();
+  });
+
+  it('answers while a person holds the takeover lease, and does not extend the session past its idle life', async () => {
+    const at = { now: Date.now() };
+    const { session } = await thumbnailSession(at);
+    await session.claimTakeover();
+    expect(session.state).toBe('user');
+    const idleSince = session.lastActivity;
+    at.now += 60_000;
+    // An agent operation would park here until control came back — which is exactly when someone is most
+    // likely to be looking at the panel. This one is not an agent operation.
+    await expect(session.thumbnail()).resolves.toMatchObject({ mimeType: 'image/jpeg' });
+    // Watching is not using: a panel left open must not keep an abandoned session alive forever.
+    expect(session.lastActivity).toBe(idleSince);
+    await session.close();
+  });
+
+  it('refuses to photograph a session that is closing', async () => {
+    const { session } = await thumbnailSession();
+    await session.close();
+    await expect(session.thumbnail()).rejects.toThrow(/closed/);
+  });
+
+  it('serves one capture to every reader inside the cache window, and drops it when the session ends', async () => {
+    const at = { now: 1_000_000 };
+    let captures = 0;
+    const source = {
+      id: 'session-1',
+      thumbnail: async () => {
+        captures += 1;
+        return { data: 'aGVsbG8=', mimeType: 'image/jpeg' as const, width: 480, height: 300, bytes: 5, area: 'viewport' as const };
+      },
+    };
+    const cache = new ThumbnailCache({ clock: { now: () => at.now, sleep: async () => {} }, logger });
+
+    // Two readers arriving together — a second browser tab on the panel — cost one screenshot.
+    const [first, second] = await Promise.all([cache.get(source), cache.get(source)]);
+    expect(captures).toBe(1);
+    expect(first).toEqual(second);
+    expect(first!.dataUrl).toBe('data:image/jpeg;base64,aGVsbG8=');
+
+    at.now += THUMBNAIL_TTL_MS - 1;
+    expect((await cache.get(source))!.capturedAt).toBe(first!.capturedAt);
+    expect(captures).toBe(1);
+
+    at.now += 1;
+    const fresh = await cache.get(source);
+    expect(captures).toBe(2);
+    expect(fresh!.capturedAt).toBe(at.now);
+
+    // The still is a picture of a page that has stopped existing, and no owner check will ever reach this
+    // key again to expire it.
+    cache.forget(source.id);
+    expect(cache.size).toBe(0);
+  });
+
+  it('remembers that a page could not be photographed, instead of asking a struggling browser again at once', async () => {
+    const at = { now: 2_000_000 };
+    let attempts = 0;
+    // The case this must survive is a renderer that stopped answering: the session's own capture deadline
+    // is LONGER than the cache window, so the attempt ends already past its start time.
+    const stallMs = THUMBNAIL_TTL_MS + 1_000;
+    const source = {
+      id: 'session-2',
+      thumbnail: async () => { attempts += 1; at.now += stallMs; throw new Error('renderer stopped answering'); },
+    };
+    const cache = new ThumbnailCache({ clock: { now: () => at.now, sleep: async () => {} }, logger });
+
+    expect(await cache.get(source)).toBeNull();
+    expect(await cache.get(source)).toBeNull();
+    // Timed from when the attempt ENDED. Timed from its start, the entry would already be expired the
+    // moment the failure landed, and every poll would launch another screenshot at a browser that never
+    // finished the last one — `Page.captureScreenshot` cannot be cancelled, so those accumulate.
+    expect(attempts).toBe(1);
+
+    at.now += THUMBNAIL_TTL_MS;
+    expect(await cache.get(source)).toBeNull();
+    expect(attempts).toBe(2);
+  });
+
+  it('forgets a closed session\'s still rather than keeping a picture of a page that is gone', async () => {
+    const store = new BrowserStore(pluginDb());
+    const browser = new FakeBrowser();
+    const page = await browser.newPage() as FakePage;
+    const tabs = new TabManager(browser, () => 12, logger, async () => {}, async () => {});
+    const registry = new SessionRegistry({
+      config: () => config(),
+      store,
+      pool: {
+        openPage: async () => ({ page, tabs, traceLock: new ProcessTraceLock() }),
+        releasePage: async () => {}, closeUser: async () => {}, closeAll: async () => {},
+        isHealthy: () => true, rssBytes: () => 0,
+      } as never,
+      artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
+      processInspector: { inspect: () => null, terminate: () => {} },
+      displays: { failure: () => null, get: () => null, reconcileOrphans: () => {} } as never,
+      clock: { now: () => Date.now(), sleep: async () => {} },
+      logger,
+    });
+    const session = await registry.create({ ownerUserId: 1, conversationId: 'c1', toolCallId: 't1' });
+    tabs.registerPrimary(session.id, page);
+    expect(await registry.thumbnail(session)).toMatchObject({ dataUrl: 'data:image/jpeg;base64,aGVsbG8=' });
+
+    await session.close('user_closed');
+    // Inside the cache window, so a cache that kept the entry would still be serving it. The registry
+    // drops it when the session ends: nothing will ever ask for this key again, so nothing would expire
+    // it, and what it holds is a picture of a page that has stopped existing.
+    expect(await registry.thumbnail(session)).toBeNull();
+    await registry.closeAll();
+  });
+
+  it('hands out a still only to the account that owns the session', async () => {
+    const routes: any[] = [];
+    const ctx = { registerApiRoute: (route: unknown) => routes.push(route), logger };
+    let thumbnails = 0;
+    const owned = { id: 'session-1', ownerUserId: 1 };
+    const registry = {
+      getOwned: (sessionId: string, userId: number) => {
+        if (sessionId !== owned.id || userId !== owned.ownerUserId) throw new Error('Browser session not found.');
+        return owned;
+      },
+      thumbnail: async () => {
+        thumbnails += 1;
+        return { dataUrl: 'data:image/jpeg;base64,aGVsbG8=', width: 480, height: 300, capturedAt: 1_000 };
+      },
+    };
+    registerBrowserApi(ctx as any, registry as any, async () => ({}) as any, null);
+    const route = routes.find((item) => item.path === 'thumbnail' && item.method === 'GET');
+    expect(route.access).toBe('user');
+    const request = (userId: number, sessionId: string) => ({
+      auth: { userId, admin: false, tokenScope: 'user', accessibleProjects: [] },
+      query: { sessionId }, params: {}, method: 'GET', path: '', headers: {},
+      body: async () => Buffer.alloc(0), json: async () => ({}),
+    });
+
+    const mine = await route.handler(request(1, 'session-1'));
+    expect(mine.body).toEqual({ dataUrl: 'data:image/jpeg;base64,aGVsbG8=', width: 480, height: 300, capturedAt: 1_000 });
+    // Page content on a plain GET. Nothing between the daemon and the reader may keep a copy, and the
+    // reader's own disk cache must not either.
+    expect(mine.headers).toMatchObject({ 'cache-control': 'private, no-store' });
+
+    // Another account naming the same session gets the same answer as one naming a session that does not
+    // exist — and no capture is taken on its behalf.
+    const foreign = await route.handler(request(2, 'session-1'));
+    expect(foreign.status).toBe(404);
+    expect(foreign.body).toEqual({ error: 'Browser session not found.' });
+    expect(thumbnails).toBe(1);
+
+    // An admin is not an owner here: this route is about whose browser it is, not who runs the instance.
+    const admin = await route.handler({ ...request(3, 'session-1'), auth: { userId: 3, admin: true, tokenScope: 'user', accessibleProjects: null } });
+    expect(admin.status).toBe(404);
+    expect(thumbnails).toBe(1);
+  });
+
+  it('answers a session with no picture yet with an empty still, not an error', async () => {
+    const routes: any[] = [];
+    const ctx = { registerApiRoute: (route: unknown) => routes.push(route), logger };
+    const registry = { getOwned: () => ({ id: 'session-1' }), thumbnail: async () => null };
+    registerBrowserApi(ctx as any, registry as any, async () => ({}) as any, null);
+    const route = routes.find((item) => item.path === 'thumbnail' && item.method === 'GET');
+    // A red error row every few seconds on a perfectly healthy session is worse than a placeholder.
+    const empty = await route.handler({
+      auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [] },
+      query: { sessionId: 'session-1' }, params: {}, method: 'GET', path: '', headers: {},
+      body: async () => Buffer.alloc(0), json: async () => ({}),
+    });
+    expect(empty.body).toEqual({ dataUrl: null });
+    expect(empty.status).toBeUndefined(); // i.e. 200
   });
 });
 

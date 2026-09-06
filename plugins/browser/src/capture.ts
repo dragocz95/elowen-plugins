@@ -25,6 +25,13 @@ export const MAX_SCREENSHOT_BYTES = 1_572_864; // 1.5 MiB
  *  reachable for a full page. Nobody tuned the old slider for that. */
 export const SCREENSHOT_JPEG_QUALITY = 70;
 
+/** The account panel's session thumbnail: the widest it is ever drawn, and the quality that survives
+ *  being scaled down to it. A still that only has to say WHICH page a session is on does not need the
+ *  legibility a screenshot handed to a model does — and this one is taken on a timer for every session in
+ *  a list, so its cost is paid over and over. */
+export const THUMBNAIL_MAX_WIDTH = 480;
+export const THUMBNAIL_JPEG_QUALITY = 60;
+
 export type ImageFormat = 'png' | 'jpeg';
 
 export interface CapturedImage {
@@ -160,4 +167,23 @@ export async function captureElement(
  *  explicit screenshot tool, so the caps and the failure modes cannot drift between the two. */
 export async function captureModelScreenshot(cdp: CDPSessionLike, quality: number): Promise<string> {
   return (await captureViewport(cdp, 'jpeg', quality)).data;
+}
+
+/** The small still the account panel draws beside a running session.
+ *
+ *  Chrome does the downscaling, in the clip it is already rasterizing: asking for the full viewport and
+ *  shrinking it afterwards would mean encoding a megapixel image per session per poll and decoding it
+ *  again to throw most of it away. `scale` is the same `Page.captureScreenshot` knob the other three
+ *  areas leave at 1, so this is the same code path with the same caps — not a second pipeline that could
+ *  drift from them. */
+export async function captureThumbnail(cdp: CDPSessionLike): Promise<CapturedImage> {
+  const metrics = await layoutMetrics(cdp);
+  const width = Math.round(metrics.cssLayoutViewport?.clientWidth ?? 0);
+  const height = Math.round(metrics.cssLayoutViewport?.clientHeight ?? 0);
+  assertCapturable('The viewport', width, height);
+  const scale = Math.min(1, THUMBNAIL_MAX_WIDTH / width);
+  const image = await capture(cdp, 'viewport', 'jpeg', THUMBNAIL_JPEG_QUALITY, { x: 0, y: 0, width, height, scale }, false);
+  // The clip is still in CSS pixels, so `capture` reported the viewport's size. What came back is the
+  // scaled image, and a consumer laying out a box for it must be told the box it actually got.
+  return { ...image, width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }

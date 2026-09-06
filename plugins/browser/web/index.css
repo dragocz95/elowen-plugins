@@ -428,6 +428,23 @@
     box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--color-primary, #ff5236) 45%, transparent);
   }
 }
+.browser-account__preview {
+  display: block;
+  flex: none;
+  width: 9rem;
+  max-width: 100%;
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--color-border, #2a2523);
+  border-radius: var(--radius-md, .5rem);
+  background: var(--color-muted, #17130f);
+  object-fit: cover;
+  object-position: top center;
+}
+.browser-account__preview--empty {
+  display: grid;
+  place-items: center;
+  color: var(--color-muted-foreground, #9d948e);
+}
 /*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
 @layer properties;
 @layer theme, base, components, utilities;

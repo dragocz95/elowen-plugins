@@ -4,6 +4,7 @@ import type { BrowserConfig } from './config.js';
 import { BrowserPool } from './browser-launcher.js';
 import { BrowserSession } from './browser-session.js';
 import { BrowserStore } from './store.js';
+import { ThumbnailCache, type SessionThumbnail } from './thumbnail.js';
 import type { VirtualDisplayPool } from './virtual-display.js';
 import type { VncTarget, VncTicketPayload } from './vnc-transport.js';
 import type { BrowserArtifactPublisher, BrowserClock, BrowserLogger, ProcessInspector } from './types.js';
@@ -28,6 +29,7 @@ export interface CreateBrowserSessionInput {
 export class SessionRegistry {
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly createQueue = new RegistryQueue();
+  private readonly thumbnails: ThumbnailCache;
 
   constructor(private readonly deps: {
     config: () => BrowserConfig;
@@ -41,7 +43,9 @@ export class SessionRegistry {
     /** Drop every live view of a session, because the thing they were views of has gone. Wired to the
      *  transport; absent only in tests that do not exercise the socket. */
     closeLiveViews?: (sessionId: string, reason: string) => void;
-  }) {}
+  }) {
+    this.thumbnails = new ThumbnailCache({ clock: deps.clock, logger: deps.logger });
+  }
 
   create(input: CreateBrowserSessionInput): Promise<BrowserSession> {
     return this.createQueue.run(async () => {
@@ -92,6 +96,9 @@ export class SessionRegistry {
           forceCloseBrowser: () => this.deps.pool.closeUser(input.ownerUserId),
           onClosed: (sessionId) => {
             this.sessions.delete(sessionId);
+            // The still goes with it, for the same reason: it is a picture of a page that has stopped
+            // existing, and no owner check will ever reach this key again to expire it.
+            this.thumbnails.forget(sessionId);
             // The live views go with it. Left open they would sit on a framebuffer nobody owns, showing
             // the last thing the page painted as though the session were still running.
             this.deps.closeLiveViews?.(sessionId, 'session_closed');
@@ -148,6 +155,15 @@ export class SessionRegistry {
   }
 
   profileSize(ownerUserId: number): number { return this.deps.pool.profileSize(ownerUserId); }
+
+  /** A small still of one session's screen, cached per session for a few seconds.
+   *
+   *  Takes the SESSION rather than an id: the only way to hold one is to have passed the owner check, so
+   *  a caller cannot reach another account's picture by naming its id. Null means there is nothing to
+   *  draw right now — a page that could not be photographed is not an error the panel has to report. */
+  thumbnail(session: BrowserSession): Promise<SessionThumbnail | null> {
+    return this.thumbnails.get(session);
+  }
 
   /** What the live view socket needs to know about this session, and where its framebuffer is.
    *

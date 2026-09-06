@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { captureAccessibilitySnapshot } from './accessibility.js';
 import { artifactData, serializeArtifactRef } from './artifact.js';
 import {
-  captureElement, captureFullPage, captureModelScreenshot, captureViewport, SCREENSHOT_JPEG_QUALITY,
-  type CapturedImage, type ImageFormat,
+  captureElement, captureFullPage, captureModelScreenshot, captureThumbnail, captureViewport,
+  SCREENSHOT_JPEG_QUALITY, type CapturedImage, type ImageFormat,
 } from './capture.js';
 import type { BrowserConfig } from './config.js';
 import { InputController } from './input-controller.js';
@@ -396,6 +396,22 @@ export class BrowserSession {
           : {}),
       };
     });
+  }
+
+  /** A small still of whatever this session is showing, for the account panel's session list.
+   *
+   *  Deliberately NOT an agent operation, for two reasons that both matter. It must answer while a PERSON
+   *  holds the takeover lease — that is precisely when someone is most likely to be looking at the list —
+   *  and `runAgentOperation` would park it until they gave control back. And it must not queue behind
+   *  agent work: a poll that waits out a 45 second navigation is a poll that has already been superseded
+   *  by the next one. `Page.captureScreenshot` reads pixels and changes nothing, so it is safe to ask for
+   *  alongside whatever else the session is doing — the live view reads the same picture continuously.
+   *
+   *  It also does NOT touch `lastActivityAt`: a panel left open in a tab must not keep an abandoned
+   *  session alive past its idle timeout. Watching is not using. */
+  async thumbnail(): Promise<CapturedImage> {
+    this.assertOpen();
+    return withDeadline(captureThumbnail(this.cdp), 5_000, 'Browser thumbnail did not arrive in time.');
   }
 
   async tabs(): Promise<BrowserTabInfo[]> {

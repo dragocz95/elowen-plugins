@@ -115,6 +115,8 @@
       "liveSessionsHint": "Ukončení relace karty nevymaže uložený profil prohlížeče.",
       "noSessions": "Neběží žádná relace prohlížeče",
       "noSessionsDescription": "Relace se zde zobrazí, jakmile agent otevře prohlížeč.",
+      "sessionPreview": "Náhled relace",
+      "previewPending": "Čekám na obraz této relace",
       "clearConfirmTitle": "Vymazat data prohlížeče?",
       "clearConfirmDescription": "Uložené cookies, přihlášení a data webů budou trvale odstraněny. Tuto akci nelze vrátit.",
       "connectingImage": "Připojuji obraz prohlížeče…",

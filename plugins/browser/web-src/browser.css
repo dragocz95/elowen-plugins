@@ -454,3 +454,33 @@
     box-shadow: 0 0 0 .18rem color-mix(in srgb, var(--color-primary, #ff5236) 45%, transparent);
   }
 }
+
+/* ── the account panel's session stills ──────────────────────────────────────────────────────────────
+   A record in "Live sessions" is named by a clipped session id, which identifies nothing to a reader.
+   The still is what makes the row recognizable, so it and its placeholder are ONE box of one size: a
+   picture that arrives must not resize the row it lands in. */
+
+.browser-account__preview {
+  display: block;
+  /* `flex: none` because a settings row's trailing side is a flex line: without it a narrow screen
+     shrinks the picture, the aspect ratio takes its height down with it, and the row jumps — the exact
+     thing one fixed box for both states exists to prevent. The width attribute the image carries is
+     overridden here on purpose; it is there for the moment before this sheet applies. */
+  flex: none;
+  width: 9rem;
+  max-width: 100%;
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--color-border, #2a2523);
+  border-radius: var(--radius-md, .5rem);
+  background: var(--color-muted, #17130f);
+  /* The top of a page identifies it — the site's header, its title bar — so a still that cannot fit the
+     whole viewport keeps that end rather than centring on the middle of the content. */
+  object-fit: cover;
+  object-position: top center;
+}
+
+.browser-account__preview--empty {
+  display: grid;
+  place-items: center;
+  color: var(--color-muted-foreground, #9d948e);
+}

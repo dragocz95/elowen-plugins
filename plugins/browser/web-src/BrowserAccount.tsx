@@ -1,11 +1,75 @@
-import { useState } from 'react';
-import { AppWindow, Database, Globe2, HardDrive, Trash2, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AppWindow, Database, Globe2, HardDrive, ImageOff, Trash2, X } from 'lucide-react';
 import type { PluginPageProps } from 'elowen-plugin-ui-kit';
 import { apiError, jsonRequest, runtime } from './runtime';
 
 interface ProfileStatus { profileBytes: number; activeSessions: number }
 interface SessionRow { id: string; state: string; lease: { expiresAt: number } | null }
 interface SessionsResponse { live: SessionRow[]; history: { id: string; state: string; createdAt: number; closedAt: number | null; closeReason: string | null }[] }
+/** `dataUrl: null` is the ordinary answer while a page cannot be photographed — mid-navigation, or before
+ *  the first capture has landed — not a failure the panel has to report. */
+interface ThumbnailResponse { dataUrl: string | null; width?: number; height?: number; capturedAt?: number }
+
+/** How often a visible panel asks for a new still. Deliberately calmer than the server's cache window, so
+ *  a reader gets a fresh picture on every poll without the poll itself setting the pace of the captures. */
+const PREVIEW_POLL_MS = 5_000;
+
+/** Whether this document is on screen.
+ *
+ *  Every still costs a live browser a rasterization, so a panel left open in a background tab must stop
+ *  asking. React Query already pauses interval refetches for a hidden document, but that is a default a
+ *  host is free to configure away — and this is the one poll in this plugin that reaches all the way into
+ *  Chrome, so it says so itself rather than inheriting the answer. */
+function usePageVisible(): boolean {
+  const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState !== 'hidden');
+  useEffect(() => {
+    const onChange = (): void => setVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', onChange);
+    return () => document.removeEventListener('visibilitychange', onChange);
+  }, []);
+  return visible;
+}
+
+/** The still beside one live session, and the placeholder that stands in its place.
+ *
+ *  A record in the list identifies a session by a clipped id, which tells nobody WHICH page is running.
+ *  The picture is what makes the row recognizable, so its absence needs a box of the same size rather
+ *  than a collapsed row that jumps when the first capture arrives. */
+function SessionPreview({ sessionId, label, polling }: { sessionId: string; label: string; polling: boolean }) {
+  const host = runtime();
+  const strings = host.hooks.usePluginStrings('browser');
+  const preview = host.hooks.useQuery<ThumbnailResponse>({
+    queryKey: ['browser', 'thumbnail', sessionId],
+    queryFn: () => runtime().api(`/plugins/browser/api/thumbnail?sessionId=${encodeURIComponent(sessionId)}`),
+    refetchInterval: PREVIEW_POLL_MS,
+    enabled: polling,
+  });
+  const image = preview.data?.dataUrl ?? null;
+  // Named for the session it belongs to. Several of these can be on screen at once, and a list of
+  // pictures that all announce themselves identically tells a screen reader nothing about which row it
+  // is in — which is the one thing the sighted reader gets from them for free.
+  if (!image) {
+    return (
+      <div
+        className="browser-account__preview browser-account__preview--empty"
+        role="img"
+        aria-label={`${strings.previewPending || 'Waiting for a picture of this session'}: ${label}`}
+      >
+        <ImageOff size={16} aria-hidden />
+      </div>
+    );
+  }
+  return (
+    <img
+      className="browser-account__preview"
+      src={image}
+      // The picture's own size, so the box has its aspect ratio before the bytes are decoded.
+      width={preview.data?.width}
+      height={preview.data?.height}
+      alt={`${strings.sessionPreview || 'Session preview'}: ${label}`}
+    />
+  );
+}
 
 const bytes = (value: number): string => {
   if (value < 1024) return `${value} B`;
@@ -27,6 +91,7 @@ export function BrowserAccount({ surface }: PluginPageProps) {
   const toast = host.hooks.useToast();
   const client = host.hooks.useQueryClient();
   const [confirmClear, setConfirmClear] = useState(false);
+  const visible = usePageVisible();
   const profile = runtime().hooks.useQuery<ProfileStatus>({ queryKey: ['browser', 'profile'], queryFn: () => runtime().api('/plugins/browser/api/profile') });
   const sessions = runtime().hooks.useQuery<SessionsResponse>({ queryKey: ['browser', 'sessions'], queryFn: () => runtime().api('/plugins/browser/api/sessions'), refetchInterval: 5_000 });
   const clear = runtime().hooks.useMutation<unknown, Error, void>({
@@ -102,6 +167,10 @@ export function BrowserAccount({ surface }: PluginPageProps) {
                   key={session.id}
                   icon={AppWindow}
                   label={`${session.id.slice(0, 12)}…`}
+                  // The picture carries a second value on the trailing side, which is what `stack` is for:
+                  // inline it would push the state word and the close button off a phone's width.
+                  trailingLayout="stack"
+                  control={<SessionPreview sessionId={session.id} label={`${session.id.slice(0, 12)}…`} polling={visible} />}
                   // Who holds the session is a short state word, so it belongs on the row's trailing line
                   // where it stays readable — the old tile showed it as plain text and it must not
                   // regress into a tooltip on the way to the shared row.

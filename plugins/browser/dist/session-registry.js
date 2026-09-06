@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { artifactData, parseArtifactRef } from './artifact.js';
 import { BrowserSession } from './browser-session.js';
+import { ThumbnailCache } from './thumbnail.js';
 const CLOSED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60_000;
 class RegistryQueue {
     tail = Promise.resolve();
@@ -14,8 +15,10 @@ export class SessionRegistry {
     deps;
     sessions = new Map();
     createQueue = new RegistryQueue();
+    thumbnails;
     constructor(deps) {
         this.deps = deps;
+        this.thumbnails = new ThumbnailCache({ clock: deps.clock, logger: deps.logger });
     }
     create(input) {
         return this.createQueue.run(async () => {
@@ -67,6 +70,9 @@ export class SessionRegistry {
                     forceCloseBrowser: () => this.deps.pool.closeUser(input.ownerUserId),
                     onClosed: (sessionId) => {
                         this.sessions.delete(sessionId);
+                        // The still goes with it, for the same reason: it is a picture of a page that has stopped
+                        // existing, and no owner check will ever reach this key again to expire it.
+                        this.thumbnails.forget(sessionId);
                         // The live views go with it. Left open they would sit on a framebuffer nobody owns, showing
                         // the last thing the page painted as though the session were still running.
                         this.deps.closeLiveViews?.(sessionId, 'session_closed');
@@ -122,6 +128,14 @@ export class SessionRegistry {
         this.deps.pool.clearProfile(ownerUserId);
     }
     profileSize(ownerUserId) { return this.deps.pool.profileSize(ownerUserId); }
+    /** A small still of one session's screen, cached per session for a few seconds.
+     *
+     *  Takes the SESSION rather than an id: the only way to hold one is to have passed the owner check, so
+     *  a caller cannot reach another account's picture by naming its id. Null means there is nothing to
+     *  draw right now — a page that could not be photographed is not an error the panel has to report. */
+    thumbnail(session) {
+        return this.thumbnails.get(session);
+    }
     /** What the live view socket needs to know about this session, and where its framebuffer is.
      *
      *  The caller reaching this has already been proved to own the session by an ordinary authenticated
