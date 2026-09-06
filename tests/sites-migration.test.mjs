@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -13,7 +13,8 @@ import {
   stagedWorkspace,
 } from '../plugins/sites/dist/migration.js';
 import {
-  assertAppOwnedSelection, DataSyncService, migrationArtifactDir, validateLegacyLocation, withinRoots,
+  assertAppOwnedSelection, assertContainedSubtrees, DataSyncService, migrationArtifactDir, validateLegacyHome,
+  withinRoots,
   workspaceOwnedBy,
 } from '../plugins/sites/dist/dataSync.js';
 import { EnvironmentSupervisor } from '../plugins/sites/dist/environment.js';
@@ -597,18 +598,141 @@ test('artifacts do not outlive the conversion', async () => {
 
 // --- sandbox-derived location, never a caller-supplied root -------------------------------------------
 
-test('a HOME outside the roots the sandbox granted is refused', () => {
+test('containment still catches the prefix trap wherever it is used', () => {
   assert.equal(withinRoots('/home/site-a/data', ['/home/site-a']), true);
   assert.equal(withinRoots('/home/site-a', ['/home/site-a']), true);
   // The classic prefix trap: a sibling whose name merely starts with the root.
   assert.equal(withinRoots('/home/site-a-evil', ['/home/site-a']), false);
   assert.equal(withinRoots('/etc/shadow', ['/home/site-a']), false);
   assert.equal(withinRoots('relative/path', ['/home/site-a']), false);
+});
 
-  assert.throws(() => validateLegacyLocation({ home: '/etc', roots: ['/home/site-a'] }), /outside the roots/);
-  assert.throws(() => validateLegacyLocation({ home: '/home/site-a', roots: [] }), /no roots/);
-  assert.throws(() => validateLegacyLocation({ home: 'not-absolute', roots: ['/home/site-a'] }), /absolute HOME/);
-  assert.equal(validateLegacyLocation({ home: '/home/site-a/x', roots: ['/home/site-a'] }), '/home/site-a/x');
+/** The shape `SandboxPreparedExecution` actually returns: `home` and `roots` are SEPARATE fields, and the
+ *  roots a caller names are the directories the child may see, never the home. */
+const preparedShape = (root, { home, ownerUserId = 4, leaseAccountUserId = 4 } = {}) => ({
+  mode: 'confined',
+  cwd: join(root, 'release'),
+  displayCwd: '/release',
+  home,
+  // Exactly what this plugin asks for: the release directory, and nothing else. The home is NOT here.
+  roots: [join(root, 'release')],
+  launch: { type: 'shell', command: 'node server.mjs', env: {} },
+  workspace: null,
+  lease: { id: 'lease-1', accountUserId: leaseAccountUserId, workspaceId: null, homeGeneration: 1, heartbeat() {}, release() {} },
+  sanitizeOutput: (text) => text,
+  ownerUserId,
+});
+
+test('S1 a HOME outside the granted roots is ACCEPTED, because that is the contract', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-home-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const home = join(root, 'sandbox', 'users', '2', 'home');
+  mkdirSync(home, { recursive: true });
+  mkdirSync(join(root, 'release'), { recursive: true });
+  const prepared = preparedShape(root, { home });
+
+  // THE PRODUCTION BLOCKER. Sandbox binds the home separately from the roots the caller names, so a home
+  // outside them is the normal, intended result. Requiring containment refused every correct preparation
+  // and made every data-carrying conversion impossible: prepare succeeded, flip returned 502.
+  assert.equal(withinRoots(prepared.home, prepared.roots), false, 'the real shape genuinely has home outside roots');
+  assert.equal(
+    validateLegacyHome({
+      home: prepared.home,
+      expectedOwnerUserId: 4,
+      leaseAccountUserId: prepared.lease.accountUserId,
+    }),
+    realpathSync(home),
+  );
+});
+
+test('S2 a preparation issued for the wrong account is refused', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-home-owner-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const home = join(root, 'home');
+  mkdirSync(home, { recursive: true });
+
+  // Ownership is the boundary that replaced containment. Sandbox derives the home from the account, so a
+  // lease issued for a different account means we were handed somebody else's directory.
+  assert.throws(
+    () => validateLegacyHome({ home, expectedOwnerUserId: 4, leaseAccountUserId: 2 }),
+    /prepared this execution for account 2 rather than the site owner 4/,
+  );
+  assert.throws(
+    () => validateLegacyHome({ home, expectedOwnerUserId: 4, leaseAccountUserId: null }),
+    /account none rather than the site owner 4/,
+  );
+});
+
+test('S3 a home that disagrees with the live process is refused', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-home-live-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const home = join(root, 'home');
+  const other = join(root, 'other');
+  mkdirSync(home, { recursive: true });
+  mkdirSync(other, { recursive: true });
+
+  assert.throws(
+    () => validateLegacyHome({ home, expectedOwnerUserId: 4, leaseAccountUserId: 4, expectedHome: other }),
+    /bound to .*other but the sandbox now reports/,
+  );
+  // Matching the live home, through a symlink, still resolves to one canonical answer.
+  const linked = join(root, 'link-to-home');
+  symlinkSync(home, linked);
+  assert.equal(
+    validateLegacyHome({ home: linked, expectedOwnerUserId: 4, leaseAccountUserId: 4, expectedHome: home }),
+    realpathSync(home),
+  );
+});
+
+test('S4 the basic shape checks still hold', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-home-shape-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.throws(() => validateLegacyHome({ home: 'not-absolute', expectedOwnerUserId: 4, leaseAccountUserId: 4 }), /absolute HOME/);
+  assert.throws(() => validateLegacyHome({ home: join(root, 'missing'), expectedOwnerUserId: 4, leaseAccountUserId: 4 }), /does not exist/);
+  writeFileSync(join(root, 'file'), 'x');
+  assert.throws(() => validateLegacyHome({ home: join(root, 'file'), expectedOwnerUserId: 4, leaseAccountUserId: 4 }), /not a directory/);
+});
+
+test('S5 an app-owned subtree that escapes the home through a symlink is refused', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-subtree-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const home = join(root, 'home');
+  const neighbour = join(root, 'neighbour-home', '.local', 'share', 'other-app');
+  mkdirSync(join(home, '.local', 'share'), { recursive: true });
+  mkdirSync(neighbour, { recursive: true });
+  writeFileSync(join(neighbour, 'secret.db'), 'not-ours');
+
+  // Textually impeccable, and it leaves the home anyway: the escape is on an intermediate component.
+  symlinkSync(join(root, 'neighbour-home', '.local', 'share'), join(home, '.local', 'share', 'linked'));
+  assert.throws(
+    () => assertContainedSubtrees(home, ['.local/share/linked']),
+    /is a symlink, so capturing it would leave this site's home/,
+  );
+
+  // A real subtree is kept, and one the app has not created yet is simply skipped.
+  mkdirSync(join(home, '.local', 'share', 'mine'), { recursive: true });
+  assert.deepEqual(
+    assertContainedSubtrees(home, ['.local/share/mine', '.local/share/not-yet']),
+    ['.local/share/mine'],
+  );
+});
+
+test('S6 two apps sharing ONE home stay isolated from each other', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-shared-home-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  // The real fleet shape: two command sites confined to the same sandbox home.
+  const home = join(root, 'sandbox', 'users', '2', 'home');
+  mkdirSync(join(home, '.local', 'share', 'schuzky-a-ukazky'), { recursive: true });
+  mkdirSync(join(home, '.local', 'share', 'hovory-twilio'), { recursive: true });
+  writeFileSync(join(home, '.local', 'share', 'schuzky-a-ukazky', 'data.db'), 'schuzky');
+  writeFileSync(join(home, '.local', 'share', 'hovory-twilio', 'data.db'), 'hovory');
+
+  // Each site names only its own subtree, so the shared home never widens either capture.
+  assert.deepEqual(assertContainedSubtrees(home, ['.local/share/schuzky-a-ukazky']), ['.local/share/schuzky-a-ukazky']);
+  assert.deepEqual(assertContainedSubtrees(home, ['.local/share/hovory-twilio']), ['.local/share/hovory-twilio']);
+  // And the home itself remains unrepresentable as a capture, shared or not.
+  assert.throws(() => assertAppOwnedSelection({ home, includes: ['.'] }), /not the home itself/);
+  assert.throws(() => assertAppOwnedSelection({ home, includes: [] }), /capturing a whole home is refused/);
 });
 
 test('a staged workspace is only accepted under the site\'s own plugin directory', () => {

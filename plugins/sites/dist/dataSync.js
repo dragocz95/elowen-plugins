@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const OUTPUT_LIMIT_BYTES = 64 * 1024;
@@ -49,20 +49,64 @@ export function assertAppOwnedSelection(selection) {
         return clean;
     });
 }
-export function validateLegacyLocation(location) {
-    const { home, roots } = location;
+/** Establish that a reported HOME really is this site's, and return it CANONICALISED.
+ *
+ *  Throws rather than falling back: a conversion that cannot prove where the site's data lives must stop,
+ *  because both plausible fallbacks — skip the data, or guess a path — silently produce a wrong result.
+ *
+ *  The canonical path is what every later step uses, so a symlinked home is resolved ONCE, here, and the
+ *  containment checks downstream compare like with like instead of comparing a link against its target. */
+export function validateLegacyHome(provenance) {
+    const { home, expectedOwnerUserId, leaseAccountUserId, expectedHome } = provenance;
     if (!home || !isAbsolute(home))
         throw new Error('the sandbox did not report an absolute HOME for this site');
-    if (roots.length === 0)
-        throw new Error('the sandbox reported no roots, so HOME cannot be verified as owned');
-    if (!withinRoots(home, roots)) {
-        throw new Error('the sandbox HOME is outside the roots it granted, so it is not this site\'s data');
+    // OWNERSHIP IS THE BOUNDARY. Sandbox derives the home from the account, so the lease account is the
+    // only thing that ties the directory it named to the site whose data we are about to take. A lease for
+    // a different account means we were handed someone else's home, whatever the path looks like.
+    if (leaseAccountUserId === null || leaseAccountUserId !== expectedOwnerUserId) {
+        throw new Error(`the sandbox prepared this execution for account ${leaseAccountUserId ?? 'none'} rather than the site owner ${expectedOwnerUserId}`);
     }
-    // A HOME that is not a directory is not a mistake worth working around: it means the preparation shape
-    // changed and the assumption this whole step rests on no longer holds.
-    if (existsSync(home) && !statSync(home).isDirectory())
+    // A live site's home exists. A missing one means the preparation described something that is not the
+    // directory the running process has been writing to.
+    if (!existsSync(home))
+        throw new Error('the sandbox HOME does not exist, so it is not a running site\'s data directory');
+    if (!statSync(home).isDirectory())
         throw new Error('the sandbox HOME is not a directory');
-    return resolve(home);
+    const canonical = realpathSync(resolve(home));
+    if (expectedHome !== undefined && expectedHome !== null) {
+        const pinned = existsSync(expectedHome) ? realpathSync(resolve(expectedHome)) : resolve(expectedHome);
+        if (pinned !== canonical) {
+            throw new Error(`this conversion is bound to ${expectedHome} but the sandbox now reports ${home}`);
+        }
+    }
+    return canonical;
+}
+/** Refuse an include that leaves the home through a symlink or a bind, on the RESOLVED path.
+ *
+ *  {@link assertAppOwnedSelection} rejects a path that escapes textually; this rejects one that escapes
+ *  through the filesystem. `.local/share/app` is a perfectly well-formed relative path even when `.local`
+ *  is a link into the neighbouring site that shares this home, and tar given `-C home -- .local/share/app`
+ *  follows that intermediate link without complaint. The archive would then hold the neighbour's data,
+ *  and the rollback would write this site's data over theirs.
+ *
+ *  Only paths that EXIST are resolved: an include an app has not created yet is normal and is skipped by
+ *  the capture anyway. The final component is checked with `lstat`, so a subtree that is itself a link out
+ *  is refused rather than followed. */
+export function assertContainedSubtrees(canonicalHome, includes) {
+    const base = realpathSync(canonicalHome);
+    return includes.filter((include) => {
+        const target = join(base, include);
+        if (!existsSync(target))
+            return false;
+        if (lstatSync(target).isSymbolicLink()) {
+            throw new Error(`the app-owned path ${include} is a symlink, so capturing it would leave this site's home`);
+        }
+        // The parents are resolved too: the escape usually happens on an intermediate component.
+        if (!withinRoots(realpathSync(target), [base])) {
+            throw new Error(`the app-owned path ${include} resolves outside this site's home`);
+        }
+        return true;
+    });
 }
 export class DataSyncService {
     deps;
@@ -117,7 +161,7 @@ export class DataSyncService {
             return null;
         // Only what is actually there. A missing include is normal — an app that has not written its uploads
         // directory yet still converts — but tar would fail the whole capture on the first absent path.
-        const present = includes.filter((entry) => existsSync(join(selection.home, entry)));
+        const present = assertContainedSubtrees(selection.home, includes);
         if (present.length === 0)
             return null;
         const archive = this.archivePath(siteId, 'legacy-data.tar');
@@ -146,6 +190,10 @@ export class DataSyncService {
         if (!existsSync(archive))
             throw new Error(`the archive to restore is missing: ${archive}`);
         mkdirSync(selection.home, { recursive: true });
+        // A restore WRITES, so an include that resolves out of the home is worse here than in the capture:
+        // it would replace a neighbour's subtree with this site's data. Checked after the home is known to
+        // exist, on whatever subtrees are there today; the ones being recreated cannot escape anything yet.
+        assertContainedSubtrees(selection.home, includes);
         // ATOMIC REPLACE, not an overlay.
         //
         // `tar -x` over a live tree only ADDS and OVERWRITES. A file the application deleted while the site

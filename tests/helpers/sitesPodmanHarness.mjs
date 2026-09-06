@@ -21,7 +21,7 @@ import { randomUUID } from 'node:crypto';
 
 import { SitesStore } from '../../plugins/sites/dist/store.js';
 import { MigrationRefused, RuntimeMigrationService, stagedWorkspace } from '../../plugins/sites/dist/migration.js';
-import { DataSyncService, migrationArtifactDir } from '../../plugins/sites/dist/dataSync.js';
+import { DataSyncService, migrationArtifactDir, validateLegacyHome } from '../../plugins/sites/dist/dataSync.js';
 import { EnvironmentSupervisor } from '../../plugins/sites/dist/environment.js';
 import { PodmanClient, SpawnExecutor } from '../../plugins/sites/dist/podman.js';
 import { createApiHandlers } from '../../plugins/sites/dist/api.js';
@@ -253,11 +253,39 @@ const podmanHarness = () => {
     removeStaged: (paths) => podman.unshareRemove(paths),
     // Mirrors `index.ts`, INCLUDING its `site.runtime !== 'command'` guard. A rollback reaches this with
     // the descriptor the conversion recorded rather than the flipped row, so the guard must still pass.
+    //
+    // The preparation below has the SHAPE `SandboxPreparedExecution` really returns: `home` and `roots`
+    // are separate, and the home sits OUTSIDE the roots this plugin names, because Sandbox binds it
+    // separately from the account rather than from the caller's root list. The real `validateLegacyHome`
+    // then runs on it, so this suite exercises the production trust boundary instead of stepping over it.
     resolveLegacyData: async (site) => {
       if (site.runtime !== 'command') return null;
       const recipe = loadAppRecipe(migrationArtifactDir(siteDir(site.id)));
       if (recipe.dataIncludes.length === 0) return null;
-      return { home: legacyHome, includes: recipe.dataIncludes };
+      const cwd = releaseDir(site.id, RELEASE_ID);
+      const prepared = {
+        mode: 'confined',
+        cwd,
+        displayCwd: '/release',
+        home: legacyHome,
+        roots: [cwd],
+        launch: { type: 'shell', command: site.startCommand, env: {} },
+        workspace: null,
+        lease: {
+          id: 'lease-conv', accountUserId: site.ownerUserId, workspaceId: null, homeGeneration: 1,
+          heartbeat() {}, release() {},
+        },
+        sanitizeOutput: (text) => text,
+      };
+      return {
+        home: validateLegacyHome({
+          home: prepared.home,
+          expectedOwnerUserId: site.ownerUserId,
+          leaseAccountUserId: prepared.lease.accountUserId,
+          expectedHome: legacy.running ? legacyHome : null,
+        }),
+        includes: recipe.dataIncludes,
+      };
     },
     runningLegacyHome: () => (legacy.running ? legacyHome : null),
     captureLegacyData: (siteId, selection) => dataSync.captureLegacyData(siteId, selection),

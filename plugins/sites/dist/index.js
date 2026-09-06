@@ -14,7 +14,7 @@ import { PodmanClient, SpawnExecutor } from './podman.js';
 import { BASE_IMAGE_TAG, ensureBaseImage } from './baseImage.js';
 import { EnvironmentSupervisor } from './environment.js';
 import { EnvironmentProvisioningService } from './provisioning.js';
-import { DataSyncService, migrationArtifactDir, validateLegacyLocation } from './dataSync.js';
+import { DataSyncService, migrationArtifactDir, validateLegacyHome } from './dataSync.js';
 import { installAppRecipe, loadAppRecipe, recipeBinding, relaxStaticServingPermissions } from './recipe.js';
 import { conversionImageTag, ensureConversionImage } from './conversionImage.js';
 import { RuntimeMigrationService } from './migration.js';
@@ -268,7 +268,15 @@ export function register(published) {
             const prepared = await sandbox.prepareExecution({ command: { type: 'shell', command: site.startCommand }, cwd, leaseKind: 'sites', network: config().runtimeNetwork }, { accountUserId: site.ownerUserId, roots: [cwd] });
             try {
                 return {
-                    home: validateLegacyLocation({ home: prepared.home, roots: prepared.roots }),
+                    // The OWNER is what makes this home trustworthy, not where it sits. We named the account above,
+                    // and the lease states which account Sandbox actually prepared for; `roots` is a different
+                    // question entirely and a home outside them is the normal result of asking for one.
+                    home: validateLegacyHome({
+                        home: prepared.home,
+                        expectedOwnerUserId: site.ownerUserId,
+                        leaseAccountUserId: prepared.lease.accountUserId,
+                        expectedHome: supervisor.runningHome(site.id) ?? store.runtimeMigration(site.id)?.legacyHome ?? null,
+                    }),
                     includes: recipe.dataIncludes,
                 };
             }
