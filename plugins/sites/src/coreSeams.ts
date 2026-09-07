@@ -84,9 +84,19 @@ export interface SitesUserView {
   isAdmin: boolean;
 }
 
-export type SitesHttpResponse = Omit<PluginHttpResponse, 'headers'> & {
+export type SitesHttpResponse = Omit<PluginHttpResponse, 'headers' | 'body'> & {
   headers?: Record<string, string | string[]>;
+  /** A stream body reaches the client without the daemon holding the file, which is what makes a
+   *  multi-gigabyte asset servable at all. The published package still types the body without it. */
+  body?: string | Uint8Array | ReadableStream<Uint8Array> | object;
 };
+
+/** The inbound request with the one field this plugin reads that the published package predates.
+ *
+ *  `acceptsStreamBody` is how a plugin that ships separately from the daemon learns whether THIS daemon
+ *  can send a stream. It is absent on every daemon released before the seam, where a stream body would
+ *  be JSON-serialized into `{}` — so the answer decides between streaming and the old buffered path. */
+export type SitesHttpRequest = PluginHttpRequest & { acceptsStreamBody?: boolean };
 
 /** The plugin context as this plugin actually uses it. */
 export type SitesContext = Omit<PluginContext, 'control' | 'registerHttpRoute' | 'registerService'> & {
@@ -94,7 +104,7 @@ export type SitesContext = Omit<PluginContext, 'control' | 'registerHttpRoute' |
   control(name: 'publishedSitesGateway'): SitesGatewayControl | undefined;
   registerHttpRoute(route: {
     path: string;
-    handler(req: PluginHttpRequest): SitesHttpResponse | Promise<SitesHttpResponse>;
+    handler(req: SitesHttpRequest): SitesHttpResponse | Promise<SitesHttpResponse>;
   }): void;
   registerService(service: {
     name: string;

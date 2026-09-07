@@ -1096,7 +1096,10 @@ test('core seam, manifest and lifecycle match the final core contract', () => {
   for (const source of [index, readiness]) {
     assert.doesNotMatch(source, /report\.steps|report\.available|report\.ok|report\.error/);
   }
-  assert.equal(manifest.requiresCore, '0.28.31');
+  // The newest core seam this plugin cannot work without. It was the environments contract (0.28.31);
+  // it is now the streaming response body, without which a published file over 64 MiB cannot be served
+  // at all — while the settings let an administrator publish one far larger.
+  assert.equal(manifest.requiresCore, '0.28.34');
   assert.ok(manifest.provides.tools.includes('SiteExec'));
   assert.ok(manifest.provides.tools.includes('SiteControl'));
   assert.ok(manifest.provides.tools.includes('SiteSnapshot'));

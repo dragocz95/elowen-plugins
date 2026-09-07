@@ -30,7 +30,7 @@
     },
     "maxAssetMb": {
       "label": "Největší soubor",
-      "hint": "Soubory nad tuto velikost se při zveřejnění odmítnou. Zveřejněný soubor se při servírování drží v paměti, takže jde o skutečný strop, ne o preferenci."
+      "hint": "Soubory nad tuto velikost se při zveřejnění odmítnou. Zveřejněný soubor se při servírování streamuje z disku, takže strop určuje disk, nikoli paměť démona."
     },
     "maxSiteMb": {
       "label": "Největší stránka",

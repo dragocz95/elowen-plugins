@@ -1,8 +1,9 @@
 import { timingSafeEqual } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { createReadStream, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import type { PluginHttpRequest } from 'elowen/plugin-api';
-import type { SitesHttpResponse } from './coreSeams.js';
+import type { SitesHttpRequest, SitesHttpResponse } from './coreSeams.js';
 import type { Site, SitesStore } from './store.js';
 import {
   RESERVED_PREFIX, cookieName, hashToken, mayOpen, normalizeReturnPath, readCookies, signSession, verifySession,
@@ -93,6 +94,14 @@ const misdirected = (): SitesHttpResponse => ({
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
+/** A HEAD answer carries the GET's status and headers and no body.
+ *
+ *  A stream is never produced for HEAD in the first place — the file answers from its directory entry —
+ *  so this only blanks the small documents (a 404 page, a refusal); dropping a stream here would leave
+ *  its file descriptor open with nobody to close it. */
+const withoutHeadBody = (response: SitesHttpResponse, method: string): SitesHttpResponse =>
+  (method === 'HEAD' && !(response.body instanceof ReadableStream) ? { ...response, body: '' } : response);
+
 function gatewayMarkerMatches(expected: string, actual: string | undefined): boolean {
   if (!actual) return false;
   const left = Buffer.from(expected);
@@ -139,10 +148,93 @@ const parseForm = (raw: Buffer): Record<string, string> => {
   return out;
 };
 
-/** Serve one file out of a release. */
-function serveFile(site: Site, releaseDir: string, rest: string): SitesHttpResponse {
+/** What a daemon that cannot stream may still be handed in one piece.
+ *
+ *  This plugin ships separately from the daemon, so a build with streaming in it still runs on daemons
+ *  released before the seam existed. There the body is a full copy in the daemon's heap per request, and
+ *  64 MiB was the ceiling that made that survivable — it stays the ceiling on those daemons. */
+const BUFFERED_CEILING_BYTES = 64 * 1048576;
+
+/** The answer when the file is fine but this daemon cannot send it without holding it in memory. */
+const tooLargeToBuffer = (isPublic: boolean): SitesHttpResponse => ({
+  status: 503,
+  headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(isPublic) },
+  body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This file is too large for this version of the server to send. Update Elowen to serve it.</p>',
+});
+
+/** One `bytes=` range, or `null` when the request asks for the whole file.
+ *
+ *  Only a SINGLE range is honoured. A multipart answer needs its own boundary framing for a case no
+ *  browser produces for a media element, and ignoring the header is a legal answer to any range request:
+ *  the client gets the whole file and is no worse off than before ranges were supported at all. */
+function parseRange(raw: string | undefined, size: number): { start: number; end: number } | 'unsatisfiable' | null {
+  if (!raw) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(raw.trim());
+  if (!match) return null;
+  const [, from, to] = match;
+  if (from === '' && to === '') return null;
+  // An empty file has no byte to hand out, so every range over it is unsatisfiable. Deciding that here
+  // is also what keeps a suffix range from asking for the bytes before the start of the file.
+  if (size === 0) return 'unsatisfiable';
+  if (from === '') {
+    // A suffix range: the LAST n bytes. Asking for zero of them cannot be satisfied.
+    const length = Number(to);
+    if (length === 0) return 'unsatisfiable';
+    return { start: Math.max(0, size - length), end: size - 1 };
+  }
+  const start = Number(from);
+  if (start >= size) return 'unsatisfiable';
+  const end = to === '' ? size - 1 : Math.min(Number(to), size - 1);
+  return end < start ? 'unsatisfiable' : { start, end };
+}
+
+/** Serve one file out of a release.
+ *
+ *  The bytes are streamed off the disk rather than read into the daemon: nothing here scales with the
+ *  size of the file, which is what lets a site publish something far larger than the daemon's heap.
+ *  HEAD is answered from the stat alone, so it never opens the file at all. */
+function serveFile(site: Site, releaseDir: string, rest: string, req: SitesHttpRequest): SitesHttpResponse {
   const isPublic = site.visibility === 'public';
   const headers = securityHeaders(isPublic);
+  // `no-cache` still lets a cache STORE the bytes; it just has to revalidate before reusing them.
+  // A plain max-age would keep serving a page after its visibility was narrowed back to private,
+  // because nothing on that path consults the daemon again until the age expires.
+  const cacheControl = isPublic ? 'public, no-cache' : 'private, no-store';
+
+  const answer = (resolved: string, type: string, size: number): SitesHttpResponse => {
+    const common = { ...headers, 'content-type': type, 'cache-control': cacheControl };
+    if (!req.acceptsStreamBody) {
+      // An older daemon buffers whatever it is given, so the old ceiling is the honest answer: refuse,
+      // rather than hand it a file that would take the whole instance down with it.
+      if (size > BUFFERED_CEILING_BYTES) return tooLargeToBuffer(isPublic);
+      if (req.method === 'HEAD') return { status: 200, headers: { ...common, 'content-length': String(size) }, body: '' };
+      return { status: 200, headers: common, body: new Uint8Array(readFileSync(resolved)) };
+    }
+    const streaming = { ...common, 'accept-ranges': 'bytes' };
+    // HEAD is answered from the directory entry: the same status and headers as the GET, no open file.
+    if (req.method === 'HEAD') return { status: 200, headers: { ...streaming, 'content-length': String(size) }, body: '' };
+    const range = parseRange(req.headers.range, size);
+    if (range === 'unsatisfiable') {
+      return { status: 416, headers: { ...streaming, 'content-range': `bytes */${size}` }, body: '' };
+    }
+    if (range) {
+      return {
+        status: 206,
+        headers: {
+          ...streaming,
+          'content-range': `bytes ${range.start}-${range.end}/${size}`,
+          'content-length': String(range.end - range.start + 1),
+        },
+        body: Readable.toWeb(createReadStream(resolved, { start: range.start, end: range.end })) as ReadableStream<Uint8Array>,
+      };
+    }
+    return {
+      status: 200,
+      headers: { ...streaming, 'content-length': String(size) },
+      body: Readable.toWeb(createReadStream(resolved)) as ReadableStream<Uint8Array>,
+    };
+  };
+
   const candidates = rest === '' || rest.endsWith('/')
     ? [join(rest, 'index.html')]
     : [rest, join(rest, 'index.html')];
@@ -160,28 +252,18 @@ function serveFile(site: Site, releaseDir: string, rest: string): SitesHttpRespo
     const ext = extensionOf(resolved);
     const type = CONTENT_TYPES[ext];
     if (!type) continue;
-    return {
-      status: 200,
-      headers: {
-        ...headers,
-        'content-type': type,
-        // `no-cache` still lets a cache STORE the bytes; it just has to revalidate before reusing them.
-        // A plain max-age would keep serving a page after its visibility was narrowed back to private,
-        // because nothing on that path consults the daemon again until the age expires.
-        'cache-control': isPublic ? 'public, no-cache' : 'private, no-store',
-      },
-      body: new Uint8Array(readFileSync(resolved)),
-    };
+    return answer(resolved, type, stat.size);
   }
 
   if (site.spa) {
     const fallback = resolveWithin(releaseDir, 'index.html');
     if (fallback) {
-      return {
-        status: 200,
-        headers: { ...headers, 'content-type': HTML_TYPE, 'cache-control': isPublic ? 'public, no-cache' : 'private, no-store' },
-        body: new Uint8Array(readFileSync(fallback)),
-      };
+      try {
+        const stat = statSync(fallback);
+        if (stat.isFile()) return answer(fallback, HTML_TYPE, stat.size);
+      } catch {
+        // The release lost its index.html between the walk above and here; there is nothing to fall back to.
+      }
     }
   }
   return notFound();
@@ -193,7 +275,7 @@ function serveFile(site: Site, releaseDir: string, rest: string): SitesHttpRespo
  *  trusts an inbound header for identity and never forwards one: the browser sends the app's own session
  *  cookie here too, because that cookie is scoped to the whole origin. */
 export function createSiteHandler(deps: ServeDeps) {
-  return async (req: PluginHttpRequest): Promise<SitesHttpResponse> => {
+  return async (req: SitesHttpRequest): Promise<SitesHttpResponse> => {
     const config = deps.config();
     const { slug, rest } = splitRemainder(req.path);
     if (!SLUG_PATTERN.test(slug)) return notFound();
@@ -235,8 +317,10 @@ export function createSiteHandler(deps: ServeDeps) {
 
     if (site.runtime === 'php') {
       const release = deps.releaseDir(site.id, site.currentReleaseId!);
-      const staticResponse = serveFile(site, release, rest);
-      if (staticResponse.status === 200) return req.method === 'HEAD' ? { ...staticResponse, body: '' } : staticResponse;
+      const staticResponse = serveFile(site, release, rest, req);
+      // Anything but "no such file" is the file's own answer — 200, a range answer, or a refusal — and
+      // handing it to PHP instead would run a script for a request the release already answered.
+      if (staticResponse.status !== 404) return withoutHeadBody(staticResponse, req.method);
       try {
         const response = await deps.executePhp(site, release, req, rest, viewer, siteRoot);
         return {
@@ -342,9 +426,9 @@ export function createSiteHandler(deps: ServeDeps) {
     }
 
     if (site.runtime !== 'static' || !site.currentReleaseId) return notFound();
-    const response = serveFile(site, deps.releaseDir(site.id, site.currentReleaseId), rest);
-    // A HEAD answer must carry the same headers and status as the GET, and no body.
-    return req.method === 'HEAD' ? { ...response, body: '' } : response;
+    // A served file answers HEAD from its directory entry, so no stream is opened for one; the wrapper
+    // covers the small documents serveFile returns when there is no file to serve.
+    return withoutHeadBody(serveFile(site, deps.releaseDir(site.id, site.currentReleaseId), rest, req), req.method);
   };
 }
 

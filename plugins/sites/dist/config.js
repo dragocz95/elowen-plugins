@@ -146,7 +146,10 @@ export function resolveConfig(raw, publicWebUrl, gatewayHostBase = null) {
         defaultVisibility,
         allowPublicSites: raw.allowPublicSites !== false,
         publishers: raw.publishers === 'admins' ? 'admins' : 'everyone',
-        maxAssetBytes: bounded(raw.maxAssetMb, 8, 1, 64) * 1048576,
+        // The ceiling is the disk, not the heap: a published file is streamed to the visitor rather than
+        // read into the daemon, so the only reason for an upper bound here is to keep one site from filling
+        // the volume by accident. It matches "Largest site" for that reason.
+        maxAssetBytes: bounded(raw.maxAssetMb, 8, 1, 1048576) * 1048576,
         maxSiteBytes: bounded(raw.maxSiteMb, 200, 1, 1048576) * 1048576,
         maxSitesPerAccount: bounded(raw.maxSitesPerAccount, 20, 1, 500),
         releasesKept: bounded(raw.releasesKept, 5, 1, 50),

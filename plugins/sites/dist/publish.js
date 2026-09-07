@@ -1,4 +1,4 @@
-import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, readSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, readSync, realpathSync, rmSync, symlinkSync, writeSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 /** Everything a published release may contain. An extension outside this list is refused at publish
  *  rather than served with a guessed type: the serving path must never have to decide what an unknown
@@ -44,6 +44,9 @@ export const extensionOf = (name) => {
 /** Directories never worth publishing, skipped silently so an agent pointing at a project folder does
  *  not accidentally publish its dependencies or its git history. */
 const SKIPPED_DIRECTORIES = new Set(['.git', 'node_modules', '.next', '.cache', '.DS_Store']);
+/** Copy buffer for one release file. Large enough to keep the syscall count low on a multi-gigabyte
+ *  asset, small enough that the publish costs the same memory whatever it is copying. */
+const COPY_CHUNK_BYTES = 4 * 1048576;
 const MAX_FILES = 5000;
 /** An application tree carries its dependencies, and a modest one runs to tens of thousands of files. */
 const MAX_FILES_COMMAND = 60_000;
@@ -174,15 +177,31 @@ export function snapshotRelease(sourceRoot, releaseDir, limits) {
                     warnings.push(`skipped ${rel} (it changed while publishing)`);
                     continue;
                 }
-                const buffer = Buffer.allocUnsafe(opened.size);
+                // Copied a chunk at a time rather than through one buffer the size of the file: a release may
+                // hold an asset far larger than the daemon's heap, and allocating it here would fail the publish
+                // for exactly the files the streaming serve path exists to carry.
+                const out = openSync(to, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC, opened.mode & 0o777);
                 let read = 0;
-                while (read < opened.size) {
-                    const chunk = readSync(fd, buffer, read, opened.size - read, read);
-                    if (chunk === 0)
-                        break;
-                    read += chunk;
+                try {
+                    const buffer = Buffer.allocUnsafe(Math.min(opened.size, COPY_CHUNK_BYTES) || 1);
+                    // Bounded by the size this file was MEASURED at, exactly as the whole-buffer copy was: the
+                    // limits above were decided from that number, and copying to EOF instead would let a file
+                    // still being written grow past the ceiling the publish just approved.
+                    while (read < opened.size) {
+                        const chunk = readSync(fd, buffer, 0, Math.min(buffer.length, opened.size - read), read);
+                        if (chunk === 0)
+                            break;
+                        let written = 0;
+                        // A short write is not an error; the rest of the chunk still has to go out, or the copy is
+                        // silently truncated on a nearly full volume.
+                        while (written < chunk)
+                            written += writeSync(out, buffer, written, chunk - written);
+                        read += chunk;
+                    }
                 }
-                writeFileSync(to, buffer.subarray(0, read), { mode: opened.mode & 0o777 });
+                finally {
+                    closeSync(out);
+                }
                 fileCount += 1;
                 sizeBytes += read;
             }

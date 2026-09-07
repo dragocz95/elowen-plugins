@@ -1001,6 +1001,23 @@ test('the digest is stable across walks and changes when a staged byte changes',
   } finally { h.cleanup(); }
 });
 
+test('a file larger than the hashing buffer is digested whole, without being read into memory', () => {
+  // A release may hold an asset far larger than the daemon's heap, and a conversion hashes the tree
+  // twice. Reading one file whole would fail the conversion on exactly the files sites now supports.
+  const h = harness();
+  try {
+    const big = Buffer.alloc(9 * 1048576);
+    for (let i = 0; i < big.length; i += 1) big[i] = i % 251;
+    const dir = h.seedRelease(SITE_ID, RELEASE_ID, { 'movie.mp4': big, 'empty.bin': '' });
+    const expected = createHash('sha256')
+      .update('F empty.bin 0\n')
+      .update(`F movie.mp4 ${big.length}\n`)
+      .update(big)
+      .digest('hex');
+    assert.equal(digestTree(dir), expected);
+  } finally { h.cleanup(); }
+});
+
 // --- real EnvironmentSupervisor over a Podman shim ---------------------------------------------------
 
 class ShimExecutor {

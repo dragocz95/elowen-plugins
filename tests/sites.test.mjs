@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
@@ -279,6 +279,31 @@ test('a snapshot copies the output and refuses what it must not follow', (t) => 
   assert.throws(() => readFileSync(join(release, 'r1', 'escape.html')), 'the symlink target was not copied');
 });
 
+test('a release file larger than the copy buffer is copied whole', (t) => {
+  // The copier used to allocate one buffer the size of the file, which is the other half of the memory
+  // ceiling: a release may now hold an asset far larger than the daemon's heap.
+  const source = tempDir('big-src');
+  const release = tempDir('big-rel');
+  t.after(() => { rmSync(source, { recursive: true, force: true }); rmSync(release, { recursive: true, force: true }); });
+
+  const bytes = Buffer.alloc(9 * 1048576);
+  for (let i = 0; i < bytes.length; i += 1) bytes[i] = i % 251; // not uniform: a short copy would show
+  // Exactly two whole chunks: the loop has to stop on the size it was given rather than on a short read.
+  const aligned = Buffer.alloc(8 * 1048576, 0x41);
+  writeFileSync(join(source, 'index.html'), '<!doctype html><title>ok</title>');
+  writeFileSync(join(source, 'movie.mp4'), bytes);
+  writeFileSync(join(source, 'aligned.mp4'), aligned);
+  writeFileSync(join(source, 'empty.css'), '');
+
+  const target = join(release, 'r1');
+  const result = snapshotRelease(source, target, { maxAssetBytes: 64 * 1048576, maxTotalBytes: 128 * 1048576 });
+  assert.equal(result.fileCount, 4);
+  assert.deepEqual(readFileSync(join(target, 'movie.mp4')), bytes);
+  assert.deepEqual(readFileSync(join(target, 'aligned.mp4')), aligned);
+  assert.equal(readFileSync(join(target, 'empty.css')).length, 0, 'an empty file survives the chunked copy');
+  assert.equal(result.sizeBytes, bytes.length + aligned.length + 32);
+});
+
 test('a command snapshot preserves executable files and contained relative symlinks', (t) => {
   const source = tempDir('command-src');
   const release = tempDir('command-rel');
@@ -399,6 +424,9 @@ const request = (path, extra = {}) => {
     query: {},
     body: async () => Buffer.alloc(0),
     json: async () => ({}),
+    // What every daemon carrying the streaming seam reports. A test about an OLDER daemon overrides it
+    // with undefined, which is exactly what such a daemon passes.
+    acceptsStreamBody: true,
     ...extra,
     headers: {
       accept: 'text/html',
@@ -535,6 +563,116 @@ test('a HEAD answer carries the headers and no body', async (t) => {
   assert.equal(response.status, 200);
   assert.equal(response.body, '');
   assert.match(response.headers['content-type'], /text\/html/);
+  // Answered from the directory entry: the length is stated without the file ever being opened.
+  assert.equal(response.headers['content-length'], '34');
+});
+
+// ── streaming a published file ───────────────────────────────────────────────────────────────────
+
+/** Whatever shape the body came back in, as text. */
+const bodyText = async (body) => {
+  if (typeof body === 'string') return body;
+  if (body instanceof Uint8Array) return Buffer.from(body).toString('utf8');
+  const chunks = [];
+  for await (const chunk of body) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString('utf8');
+};
+
+test('a published file is streamed off the disk instead of read into the daemon', async (t) => {
+  const { handler, release } = serveHarness(t, { visibility: 'public' });
+  writeFileSync(join(release, 'movie.mp4'), 'x'.repeat(4096));
+  const response = await handler(request('demo-abc123/movie.mp4'));
+  assert.equal(response.status, 200);
+  assert.ok(response.body instanceof ReadableStream, 'the body is a stream, not a copy of the file');
+  assert.equal(response.headers['content-type'], 'video/mp4');
+  assert.equal(response.headers['content-length'], '4096');
+  assert.equal(response.headers['accept-ranges'], 'bytes');
+  assert.equal((await bodyText(response.body)).length, 4096);
+});
+
+test('the SPA fallback document is streamed the same way', async (t) => {
+  const { handler } = serveHarness(t, { visibility: 'public', spa: true });
+  const response = await handler(request('demo-abc123/deep/route'));
+  assert.equal(response.status, 200);
+  assert.ok(response.body instanceof ReadableStream);
+  assert.match(response.headers['content-type'], /text\/html/);
+  assert.match(await bodyText(response.body), /demo/);
+});
+
+test('a range request is answered with just that slice', async (t) => {
+  const { handler, release } = serveHarness(t, { visibility: 'public' });
+  writeFileSync(join(release, 'movie.mp4'), 'abcdefghij');
+  const response = await handler(request('demo-abc123/movie.mp4', { headers: { range: 'bytes=2-5' } }));
+  assert.equal(response.status, 206);
+  assert.equal(response.headers['content-range'], 'bytes 2-5/10');
+  assert.equal(response.headers['content-length'], '4');
+  assert.equal(await bodyText(response.body), 'cdef');
+
+  const suffix = await handler(request('demo-abc123/movie.mp4', { headers: { range: 'bytes=-3' } }));
+  assert.equal(suffix.status, 206);
+  assert.equal(suffix.headers['content-range'], 'bytes 7-9/10');
+  assert.equal(await bodyText(suffix.body), 'hij');
+
+  // A range nobody can satisfy is refused with the file's size, not with a wrong slice.
+  const beyond = await handler(request('demo-abc123/movie.mp4', { headers: { range: 'bytes=99-' } }));
+  assert.equal(beyond.status, 416);
+  assert.equal(beyond.headers['content-range'], 'bytes */10');
+
+  // Anything this handler does not parse — a multi-range ask — falls back to the whole file, which is
+  // a legal answer to any range request.
+  const multi = await handler(request('demo-abc123/movie.mp4', { headers: { range: 'bytes=0-1,4-5' } }));
+  assert.equal(multi.status, 200);
+  assert.equal(await bodyText(multi.body), 'abcdefghij');
+
+  // A range answer is still a published response: it carries the same security headers as the page.
+  assert.equal(response.headers['x-content-type-options'], 'nosniff');
+  assert.ok(response.headers['content-security-policy']);
+  assert.equal(beyond.headers['x-content-type-options'], 'nosniff');
+});
+
+test('a range over an empty file is refused instead of crashing the handler', async (t) => {
+  // A build that emits a zero-byte .css and a client asking for its last byte: the slice arithmetic
+  // used to hand createReadStream an end before its start, which throws out of the whole handler.
+  const { handler, release } = serveHarness(t, { visibility: 'public' });
+  writeFileSync(join(release, 'empty.css'), '');
+  const suffix = await handler(request('demo-abc123/empty.css', { headers: { range: 'bytes=-1' } }));
+  assert.equal(suffix.status, 416);
+  assert.equal(suffix.headers['content-range'], 'bytes */0');
+  assert.equal((await handler(request('demo-abc123/empty.css', { headers: { range: 'bytes=0-' } }))).status, 416);
+
+  // Without a range the empty file is served as an empty body, not refused.
+  const whole = await handler(request('demo-abc123/empty.css'));
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers['content-length'], '0');
+  assert.equal(await bodyText(whole.body), '');
+});
+
+// The plugin ships separately from the daemon: one build has to behave on an instance that predates the
+// streaming seam, where a stream body would be JSON-serialized into '{}'.
+test('an older daemon still gets a buffered body below the old ceiling', async (t) => {
+  const { handler, release } = serveHarness(t, { visibility: 'public' });
+  writeFileSync(join(release, 'small.css'), 'body{color:red}');
+  const response = await handler(request('demo-abc123/small.css', { acceptsStreamBody: undefined }));
+  assert.equal(response.status, 200);
+  assert.ok(response.body instanceof Uint8Array, 'no stream is handed to a daemon that cannot send one');
+  assert.equal(await bodyText(response.body), 'body{color:red}');
+  assert.equal(response.headers['accept-ranges'], undefined, 'ranges are not advertised without streaming');
+});
+
+test('an older daemon refuses a file above the old ceiling rather than buffering it', async (t) => {
+  const { handler, release } = serveHarness(t, { visibility: 'public' });
+  const huge = join(release, 'huge.mp4');
+  writeFileSync(huge, '');
+  truncateSync(huge, 64 * 1048576 + 1); // sparse: the size is what the decision reads
+  const response = await handler(request('demo-abc123/huge.mp4', { acceptsStreamBody: undefined }));
+  assert.equal(response.status, 503);
+  assert.match(String(response.body), /too large/i);
+
+  // The same file on a daemon that streams is served without ever being held in memory.
+  const streamed = await handler(request('demo-abc123/huge.mp4'));
+  assert.equal(streamed.status, 200);
+  assert.equal(streamed.headers['content-length'], String(64 * 1048576 + 1));
+  streamed.body.cancel();
 });
 
 test('redeeming a ticket sets a path-scoped cookie and lands on the requested page', async (t) => {
@@ -714,7 +852,7 @@ test('configuration is re-validated, because the settings API validates nothing'
   }, 'https://elowen.example');
 
   assert.equal(config.defaultVisibility, 'private', 'public is not an allowed default');
-  assert.equal(config.maxAssetBytes, 64 * 1048576, 'clamped to the declared maximum');
+  assert.equal(config.maxAssetBytes, 99999 * 1048576, 'inside the declared maximum, which is now the disk');
   assert.equal(config.maxSiteBytes, 1048576, 'clamped to the declared minimum');
   assert.equal(config.sessionTtlHours, 12);
   assert.equal(config.releasesKept, 1);
@@ -722,6 +860,18 @@ test('configuration is re-validated, because the settings API validates nothing'
   assert.equal(config.runtimeNetwork, 'shared');
   assert.equal(config.allowLoopbackPorts, true);
   assert.deepEqual([config.loopbackPortMin, config.loopbackPortMax], [41000, 41999], 'an inverted range falls back as one unit');
+});
+
+test('the largest-file ceiling and the settings field agree, and both are disk-sized', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../plugins/sites/elowen-plugin.json', import.meta.url), 'utf8'));
+  const field = manifest.configSchema.find((entry) => entry.key === 'maxAssetMb');
+  // A field the form allows but the plugin clamps away is a setting that silently does nothing, so the
+  // two ceilings are asserted against each other rather than each against a literal.
+  assert.equal(field.max, 1048576);
+  assert.equal(resolveConfig({ maxAssetMb: field.max }, 'https://elowen.example').maxAssetBytes, field.max * 1048576);
+  assert.equal(resolveConfig({ maxAssetMb: field.max + 1 }, 'https://elowen.example').maxAssetBytes, field.max * 1048576);
+  // Nothing buffers a published file any more, so the per-file ceiling is no smaller than the per-site one.
+  assert.ok(field.max >= manifest.configSchema.find((entry) => entry.key === 'maxSiteMb').max);
 });
 
 test('every site gets the root of the gateway hostname derived by core', () => {

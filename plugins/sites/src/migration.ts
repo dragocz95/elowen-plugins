@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { closeSync, constants, cpSync, existsSync, mkdirSync, openSync, readdirSync, readSync, rmSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
+
+/** Read size for hashing one tree entry — the digest costs the same memory whatever it is hashing. */
+const DIGEST_CHUNK_BYTES = 4 * 1048576;
 
 import type { LegacyDataSelection } from './dataSync.js';
 import { appUnit, auditStaticTree, provisionScript, type AppRecipe, type RecipeKind } from './recipe.js';
@@ -158,6 +161,9 @@ export const stagedWorkspace = (deps: Pick<MigrationDeps, 'siteDir'>, siteId: st
  *  value does not encode the host's separator. */
 export function digestTree(root: string): string {
   const hash = createHash('sha256');
+  // One buffer for the whole tree: a command release runs to tens of thousands of small files, and a
+  // fresh chunk-sized allocation per file would cost far more than the reads it serves.
+  const buffer = Buffer.allocUnsafe(DIGEST_CHUNK_BYTES);
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
       const full = join(dir, entry.name);
@@ -169,7 +175,19 @@ export function digestTree(root: string): string {
       if (!entry.isFile()) continue;
       const rel = relative(root, full).split(sep).join('/');
       hash.update(`F ${rel} ${statSync(full).size}\n`);
-      hash.update(readFileSync(full));
+      // Fed to the digest a chunk at a time. A release may hold an asset far larger than the daemon's
+      // heap, and reading one whole would fail the conversion on the very files the streaming serve
+      // path exists to carry.
+      const fd = openSync(full, constants.O_RDONLY);
+      try {
+        for (;;) {
+          const read = readSync(fd, buffer, 0, buffer.length, null);
+          if (read === 0) break;
+          hash.update(buffer.subarray(0, read));
+        }
+      } finally {
+        closeSync(fd);
+      }
     }
   };
   if (existsSync(root)) walk(root);
