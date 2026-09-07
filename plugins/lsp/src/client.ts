@@ -241,7 +241,7 @@ export class LspClient {
       await this.request('initialize', {
         processId: process.pid, // let the server watchdog exit if the daemon dies
         rootUri: pathToFileURL(this.rootPath).href,
-        capabilities: { textDocument: { publishDiagnostics: { relatedInformation: false }, synchronization: { didSave: false } } },
+        capabilities: { textDocument: { publishDiagnostics: { relatedInformation: false }, synchronization: { didSave: true } } },
         workspaceFolders: [{ uri: pathToFileURL(this.rootPath).href, name: 'root' }],
       });
       this.notify('initialized', {});
@@ -345,12 +345,22 @@ export class LspClient {
       overall = setTimeout(finish, timeoutMs);
       overall.unref?.();
     });
-    if (!previous) {
-      this.notify('textDocument/didOpen', { textDocument: { uri, languageId: language, version, text } });
-    } else {
-      this.notify('textDocument/didChange', { textDocument: { uri, version }, contentChanges: [{ text }] });
-    }
+    this.pushDocument(uri, document, Boolean(previous));
     return wait;
+  }
+
+  /** Push a document's current text to the server: didOpen the first time, didChange for every later
+   *  edit — and didSave right behind that change. tsserver treats a save as the trigger for its full
+   *  check, so an edited buffer that is never "saved" can answer from the pre-edit state; the file on
+   *  disk already carries this text by the time Elowen asks, so the notification is not a lie. No `text`
+   *  field: we do not ask for includeText, so the server keeps using the buffer didChange just gave it. */
+  private pushDocument(uri: string, document: OpenDocument, alreadyOpen: boolean): void {
+    if (!alreadyOpen) {
+      this.notify('textDocument/didOpen', { textDocument: { uri, languageId: document.language, version: document.version, text: document.text } });
+      return;
+    }
+    this.notify('textDocument/didChange', { textDocument: { uri, version: document.version }, contentChanges: [{ text: document.text }] });
+    this.notify('textDocument/didSave', { textDocument: { uri } });
   }
 
   private touchDocument(uri: string, document: OpenDocument): void {
@@ -402,11 +412,7 @@ export class LspClient {
     if (!previous) this.evictDocumentsFor(uri);
     else this.documents.delete(uri);
     this.documents.set(uri, document);
-    if (!previous) {
-      this.notify('textDocument/didOpen', { textDocument: { uri, languageId: language, version, text } });
-    } else {
-      this.notify('textDocument/didChange', { textDocument: { uri, version }, contentChanges: [{ text }] });
-    }
+    this.pushDocument(uri, document, Boolean(previous));
   }
 
   /** Update the document and run one request against it as a single exclusive unit (see runOnUri), so
