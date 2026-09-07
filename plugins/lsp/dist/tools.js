@@ -132,7 +132,7 @@ export function registerLspTools(ctx, manager) {
                 if (!m)
                     return lspText(STOPPED);
                 const out = await m.definition(path, p.line, p.character, lspBoundary(ctx, path));
-                return lspText(renderOp(out, formatLocations, 'No definition found.'));
+                return lspText(renderOp(out, formatLocations, 'No definition found. This may occur if the cursor is not on a symbol, or if the definition is in an external library not indexed by the LSP server.'));
             },
         }),
         defineTool({
@@ -158,7 +158,7 @@ export function registerLspTools(ctx, manager) {
                 if (!m)
                     return lspText(STOPPED);
                 const out = await m.references(path, p.line, p.character, lspBoundary(ctx, path));
-                return lspText(renderOp(out, formatLocations, 'No references found.'));
+                return lspText(renderOp(out, formatLocations, 'No references found. This may occur if the symbol has no usages, or if the LSP server has not fully indexed the workspace.'));
             },
         }),
         defineTool({
@@ -184,7 +184,7 @@ export function registerLspTools(ctx, manager) {
                 if (!m)
                     return lspText(STOPPED);
                 const out = await m.hover(path, p.line, p.character, lspBoundary(ctx, path));
-                return lspText(renderOp(out, formatHover, 'No hover information available.'));
+                return lspText(renderOp(out, formatHover, 'No hover information available. This may occur if the cursor is not on a symbol, or if the LSP server has not fully indexed the file.'));
             },
         }),
         defineTool({
@@ -205,7 +205,7 @@ export function registerLspTools(ctx, manager) {
                 if (!m)
                     return lspText(STOPPED);
                 const out = await m.documentSymbol(path, lspBoundary(ctx, path));
-                return lspText(renderOp(out, (r) => formatDocumentSymbols(r), 'No symbols found.'));
+                return lspText(renderOp(out, (r) => formatDocumentSymbols(r), 'No symbols found in document. This may occur if the file is empty, not supported by the LSP server, or if the server has not fully indexed the file.'));
             },
         }),
         defineTool({
@@ -224,7 +224,7 @@ export function registerLspTools(ctx, manager) {
                 if (!m)
                     return lspText(STOPPED);
                 const out = await m.workspaceSymbol(p.query, boundary);
-                return lspText(renderOp(out, formatWorkspaceSymbols, 'No symbols found.'));
+                return lspText(renderOp(out, formatWorkspaceSymbols, 'No symbols found in workspace. This may occur if the workspace is empty, or if the LSP server has not finished indexing the project.'));
             },
         }),
     ])
