@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AppWindow, Database, Globe2, HardDrive, ImageOff, Trash2, X } from 'lucide-react';
+import { Database, Globe2, HardDrive, ImageOff, Trash2, X } from 'lucide-react';
 import type { PluginPageProps } from 'elowen-plugin-ui-kit';
 import { apiError, jsonRequest, runtime } from './runtime';
 
@@ -16,6 +16,20 @@ interface ThumbnailResponse { dataUrl: string | null; width?: number; height?: n
 /** How often a visible panel asks for a new still. Deliberately calmer than the server's cache window, so
  *  a reader gets a fresh picture on every poll without the poll itself setting the pace of the captures. */
 const PREVIEW_POLL_MS = 5_000;
+
+/** The session register's tracks: the still, who the session belongs to, what the agent last said, and
+ *  the one action.
+ *
+ *  The still LEADS, because it is the only part of a record a reader recognizes — the id beside it is a
+ *  clipped hash. Its track is fixed at both widths so every row's picture is the same size and the three
+ *  text columns start on one line down the whole list; a `minmax` there would let one tall reply widen
+ *  its own row's thumbnail and break exactly that.
+ *
+ *  The reply takes the remaining space rather than a fixed measure: it is the only cell whose length
+ *  varies, and it is what the register is read FOR. Below 40rem the plugin's own stylesheet re-lays these
+ *  four cells as a stacked card (browser.css) — the same DOM, a different grid. */
+const SESSION_COLUMNS = '9.5rem minmax(9rem, 14rem) minmax(0, 1fr) 2.25rem';
+const SESSION_COLUMNS_COMPACT = '8rem minmax(6rem, 9rem) minmax(0, 1fr) 2.25rem';
 
 /** Whether this document is on screen.
  *
@@ -118,11 +132,12 @@ const bytes = (value: number): string => {
  *  own. This panel sits in the Account deck between Models, Memory and Terminal, and those are records in
  *  grouped rows — so a pair of hand-built dashboard tiles with their own grid, their own borders and their
  *  own button sizing read as a different application wearing the same colours. Every piece here is the
- *  host's: SettingsDocument/SettingsGroup/SettingsRow for the geometry, Badge for the figures, IconButton
- *  for the two destructive actions, EmptyState for "nothing is running". */
+ *  host's: SettingsDocument/SettingsGroup/SettingsRow for the geometry, the shared DataTable register for
+ *  the repeated session records, Badge for the figures and the states, IconButton for the two destructive
+ *  actions. */
 export function BrowserAccount({ surface }: PluginPageProps) {
   const host = runtime();
-  const { PluginPageHeader, SettingsDocument, SettingsGroup, SettingsRow, Badge, IconButton, ConfirmDialog, LoadingState, ErrorState, EmptyState } = host.components;
+  const { PluginPageHeader, SettingsDocument, SettingsGroup, SettingsRow, DataTable, DataTableRow, DataTableCell, Badge, IconButton, ConfirmDialog, LoadingState, ErrorState } = host.components;
   const strings = host.hooks.usePluginStrings('browser');
   const toast = host.hooks.useToast();
   const client = host.hooks.useQueryClient();
@@ -166,12 +181,19 @@ export function BrowserAccount({ surface }: PluginPageProps) {
               <SettingsRow
                 icon={HardDrive}
                 label={strings.storageUsed || 'Space used'}
-                // The reason goes in the row itself, not in the label's HelpTip: a disabled destructive
-                // control has to say why on screen, and `description`/`hint` are behind a trigger nobody
-                // presses when they have already decided the button is broken.
-                trailingLayout={clearBlocked ? 'stack' : 'inline'}
-                status={<Badge tone="muted">{bytes(profile.data?.profileBytes ?? 0)}</Badge>}
-                control={clearBlocked ? <p className="text-xs text-muted-foreground">{strings.clearBlocked || 'Close every running session before the profile can be cleared.'}</p> : undefined}
+                // The RULE goes behind the row's own help mark, where every other settings row keeps its
+                // explanation. What the reader needs at a glance is not the sentence but the fact that
+                // something is running, and that is the badge below — a paragraph in the trailing area
+                // said the same thing at four times the height and in a shape no other row has.
+                hint={strings.clearBlocked || 'Close every running session before the profile can be cleared.'}
+                status={(
+                  <span className="flex flex-wrap items-center gap-2">
+                    <Badge tone="muted">{bytes(profile.data?.profileBytes ?? 0)}</Badge>
+                    {/* The same pill a risky plugin setting wears (RISK_TONE.high → danger), for the same
+                        reason: it names the condition that makes the action beside it unavailable. */}
+                    {clearBlocked ? <Badge tone="danger">{(strings.sessionsRunning || 'Sessions running: {count}').replace('{count}', String(live.length))}</Badge> : null}
+                  </span>
+                )}
                 actions={(
                   <IconButton
                     icon={Trash2}
@@ -191,42 +213,59 @@ export function BrowserAccount({ surface }: PluginPageProps) {
               actions={<Badge tone={live.length ? 'accent' : 'muted'}>{live.length}</Badge>}
             >
               {live.length === 0 ? (
-                <EmptyState
-                  title={strings.noSessions || 'No browser session is running'}
-                  description={strings.noSessionsDescription || 'A session appears here when your agent opens the browser.'}
-                  icon={Globe2}
-                />
-              ) : live.map((session) => (
-                // The session id is the record's name and is deliberately clipped: it identifies the tab
-                // to whoever is closing it and is not something anyone reads in full.
+                // Nothing is running is not an error and not a place to act, so it reads as one quiet
+                // record rather than an illustrated panel in the middle of a settings page.
                 <SettingsRow
-                  key={session.id}
-                  icon={AppWindow}
-                  label={`${session.id.slice(0, 12)}…`}
-                  // The picture carries a second value on the trailing side, which is what `stack` is for:
-                  // inline it would push the state word and the close button off a phone's width.
-                  trailingLayout="stack"
-                  control={(
-                    <div className="browser-account__cell">
-                      <SessionPreview sessionId={session.id} label={`${session.id.slice(0, 12)}…`} polling={visible} />
-                      {session.lastReply ? <SessionReply reply={session.lastReply} label={strings.lastReply || 'Last reply'} /> : null}
-                    </div>
-                  )}
-                  // Who holds the session is a short state word, so it belongs on the row's trailing line
-                  // where it stays readable — the old tile showed it as plain text and it must not
-                  // regress into a tooltip on the way to the shared row.
-                  status={<span className="text-xs text-muted-foreground">{session.state === 'user' ? strings.userControl || 'User control' : strings.agentControl || 'Agent control'}</span>}
-                  actions={(
-                    <IconButton
-                      icon={X}
-                      variant="danger"
-                      label={strings.closeSession || 'Close'}
-                      onClick={() => close.mutate(session.id)}
-                      disabled={close.isPending}
-                    />
-                  )}
+                  icon={Globe2}
+                  label={strings.noSessions || 'No browser session is running'}
+                  description={strings.noSessionsDescription || 'A session appears here when your agent opens the browser.'}
                 />
-              ))}
+              ) : (
+                // A REGISTER, not a stack of settings rows. Several sessions are the same four readings
+                // repeated, and a settings row gives each of them the trailing side's own flow — which is
+                // how the still ended up floating at a different distance from the edge in every row.
+                <DataTable
+                  ariaLabel={strings.liveSessions || 'Live sessions'}
+                  columns={SESSION_COLUMNS}
+                  compactColumns={SESSION_COLUMNS_COMPACT}
+                  className="browser-account__sessions"
+                >
+                  {live.map((session) => {
+                    // The session id is the record's name and is deliberately clipped: it identifies the
+                    // tab to whoever is closing it and is not something anyone reads in full.
+                    const name = `${session.id.slice(0, 12)}…`;
+                    const held = session.state === 'user';
+                    return (
+                      <DataTableRow key={session.id} height="tall">
+                        <DataTableCell lines="auto" className="browser-account__cell browser-account__cell--preview">
+                          <SessionPreview sessionId={session.id} label={name} polling={visible} />
+                        </DataTableCell>
+                        <DataTableCell lines="auto" className="browser-account__cell browser-account__cell--identity">
+                          <span className="browser-account__session-id">{name}</span>
+                          {/* Who holds the session stays a visible reading on the row and never becomes a
+                              tooltip. The agent holding it is the ordinary case and stays quiet; a
+                              takeover is the exception, so that is the one that carries a tone. */}
+                          <Badge tone={held ? 'warning' : 'muted'}>{held ? strings.userControl || 'User control' : strings.agentControl || 'Agent control'}</Badge>
+                        </DataTableCell>
+                        {/* The cell is rendered even with nothing in it: a row one cell short would let the
+                            close button of that row slide into the reply column of its neighbours. */}
+                        <DataTableCell lines="auto" className="browser-account__cell browser-account__cell--reply">
+                          {session.lastReply ? <SessionReply reply={session.lastReply} label={strings.lastReply || 'Last reply'} /> : null}
+                        </DataTableCell>
+                        <DataTableCell lines="auto" className="browser-account__cell browser-account__cell--actions">
+                          <IconButton
+                            icon={X}
+                            variant="danger"
+                            label={strings.closeSession || 'Close'}
+                            onClick={() => close.mutate(session.id)}
+                            disabled={close.isPending}
+                          />
+                        </DataTableCell>
+                      </DataTableRow>
+                    );
+                  })}
+                </DataTable>
+              )}
             </SettingsGroup>
           </SettingsDocument>
           <ConfirmDialog

@@ -109,6 +109,7 @@
       "profileStorageHint": "Cookies a prihlásenia sú iba vo vašom profile. Snímky živého náhľadu sa neukladajú.",
       "storageUsed": "Využité miesto",
       "clearBlocked": "Skôr než bude možné profil vymazať, ukončite všetky bežiace relácie.",
+      "sessionsRunning": "Beží relácií: {count}",
       "clearProfile": "Vymazať dáta prehliadača",
       "profileCleared": "Dáta prehliadača boli vymazané.",
       "liveSessions": "Aktívne relácie",
