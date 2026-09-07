@@ -42,6 +42,9 @@ export class LspManager {
     /** Diagnostics for one server+project share tsserver's project index. Queue them so a burst of agent
      *  probes cannot make the cold server analyze several newly opened files at once. */
     diagnosticQueues = new Map();
+    /** Consecutive crashes per client key. A server that dies on every spawn was previously respawned on
+     *  every single call; the count caps that and is cleared as soon as one client answers. */
+    restarts = new Map();
     enabled = true;
     spawnFn;
     readFile;
@@ -51,6 +54,7 @@ export class LspManager {
     recheckTimeoutMs;
     settleMs;
     maxClients;
+    maxRestarts;
     constructor(deps = {}) {
         this.spawnFn = deps.spawn ?? spawnStdioTransport;
         this.readFile = deps.readFile ?? ((p) => readFileSync(p, 'utf8'));
@@ -63,6 +67,7 @@ export class LspManager {
         // tsserver's syntax and semantic passes arrive ~50ms apart once warm; 1s absorbs slower servers.
         this.settleMs = deps.settleMs ?? 1000;
         this.maxClients = Math.max(1, Math.floor(deps.maxClients ?? 8));
+        this.maxRestarts = Math.max(1, Math.floor(deps.maxRestarts ?? 3));
     }
     isEnabled() { return this.enabled; }
     setEnabled(on) {
@@ -115,6 +120,8 @@ export class LspManager {
                 return { path, language, diagnostics: [], skipped: 'unreadable' };
             }
             const entry = this.clientFor(spec, root);
+            if (entry === 'crash-looping')
+                return { path, language, server: spec.label, diagnostics: [], skipped: 'crash-looping', maxRestarts: this.maxRestarts };
             if (!entry)
                 return { path, language, server: spec.label, diagnostics: [], skipped: 'no-server-installed' };
             entry.activeChecks++;
@@ -129,17 +136,18 @@ export class LspManager {
                     // publishDiagnostics is often unversioned. After a timeout, a delayed verdict for text A could
                     // otherwise satisfy the next check for text B on the same URI. Quarantine the whole client;
                     // the next probe starts with a fresh server and cannot consume that stale publish.
-                    this.retire(entry);
+                    this.retire(entry, 'quarantine');
                     return { path, language, server: spec.label, diagnostics: [], skipped: 'no-response' };
                 }
                 entry.warmed = true;
                 entry.checkedPaths.add(path);
+                this.restarts.delete(key); // a real verdict clears the crash budget for this server+project
                 return { path, language, server: spec.label, diagnostics };
             }
             catch {
                 // The server crashed/timed out — drop the client so the next check re-spawns, and say so honestly
                 // (NOT "no server installed", which would send the agent chasing an install it already has).
-                this.retire(entry);
+                this.retire(entry, 'crash');
                 return { path, language, server: spec.label, diagnostics: [], skipped: 'server-error' };
             }
             finally {
@@ -172,14 +180,18 @@ export class LspManager {
         }
         const root = projectRootForFile(path, boundary ?? this.root);
         const entry = this.clientFor(spec, root);
+        if (entry === 'crash-looping')
+            return { ok: false, reason: 'crash-looping', language, server: spec.label, maxRestarts: this.maxRestarts };
         if (!entry)
             return { ok: false, reason: 'no-server-installed', language, server: spec.label };
         entry.activeChecks++;
         try {
-            return { ok: true, result: await op(entry.client, text, language) };
+            const result = await op(entry.client, text, language);
+            this.restarts.delete(entry.key); // the server answered — it is not crash-looping
+            return { ok: true, result };
         }
         catch {
-            this.retire(entry);
+            this.retire(entry, 'crash');
             return { ok: false, reason: 'server-error', language, server: spec.label };
         }
         finally {
@@ -220,6 +232,8 @@ export class LspManager {
             // Cold session: spawn the first installed server for the boundary's nearest project root.
             const root = projectRootForFile(join(boundaryRoot, '_probe'), boundaryRoot);
             const entry = this.spawnAnyClientFor(root);
+            if (entry === 'crash-looping')
+                return { ok: false, reason: 'crash-looping', maxRestarts: this.maxRestarts };
             if (!entry)
                 return { ok: false, reason: 'no-server-installed' };
             inScope = [entry];
@@ -229,11 +243,12 @@ export class LspManager {
             entry.activeChecks++;
             try {
                 const res = await entry.client.workspaceSymbol(query);
+                this.restarts.delete(entry.key);
                 if (Array.isArray(res))
                     merged.push(...res);
             }
             catch {
-                this.retire(entry);
+                this.retire(entry, 'crash');
             }
             finally {
                 this.release(entry);
@@ -242,14 +257,21 @@ export class LspManager {
         return { ok: true, result: merged };
     }
     /** Spawn (or reuse) any installed language server for `root` — used by workspace/symbol on a cold
-     *  session, where there is no file to pick a language from. First registered server that spawns wins. */
+     *  session, where there is no file to pick a language from. First registered server that spawns wins.
+     *  Reports the crash cap only when it is the reason nothing came up, so a merely uninstalled registry
+     *  still reads as "no server installed". */
     spawnAnyClientFor(root) {
+        let capped = false;
         for (const spec of listServers()) {
             const entry = this.clientFor(spec, root);
+            if (entry === 'crash-looping') {
+                capped = true;
+                continue;
+            }
             if (entry)
                 return entry;
         }
-        return null;
+        return capped ? 'crash-looping' : null;
     }
     keyFor(spec, root) { return `${spec.command}\0${root}`; }
     /** Run one diagnostics probe at a time for a server+project. Different projects and server binaries
@@ -279,7 +301,12 @@ export class LspManager {
             return existing;
         }
         if (existing)
-            this.retire(existing); // a crashed/exited server client — evict and respawn below
+            this.retire(existing, 'crash'); // a crashed/exited server client — evict and respawn below
+        // A server broken enough to die on every spawn was respawned on every single call, burning a process
+        // per tool call and answering "errored or timed out (it will be retried)" forever. Give up after
+        // maxRestarts consecutive crashes and report that instead.
+        if ((this.restarts.get(key) ?? 0) >= this.maxRestarts)
+            return 'crash-looping';
         const transport = this.spawnFn(spec, root);
         if (!transport)
             return null;
@@ -314,8 +341,14 @@ export class LspManager {
         }
     }
     /** Remove a failed/no-verdict client from future lookup now, without aborting unrelated checks already
-     *  using it. Identity guards ensure an old request can never retire a replacement at the same key. */
-    retire(entry) {
+     *  using it. Identity guards ensure an old request can never retire a replacement at the same key.
+     *
+     *  Only a `crash` counts against the restart budget, and only the first time this client is retired: a
+     *  `quarantine` is a healthy but slow server whose verdict missed the window, and capping those would
+     *  leave a big project permanently unchecked. */
+    retire(entry, cause) {
+        if (cause === 'crash' && !entry.retired)
+            this.restarts.set(entry.key, (this.restarts.get(entry.key) ?? 0) + 1);
         if (this.clients.get(entry.key) === entry)
             this.clients.delete(entry.key);
         entry.retired = true;
@@ -338,6 +371,8 @@ export class LspManager {
         const all = this.allClients();
         this.clients.clear();
         this.retiredClients.clear();
+        // Toggling LSP off and on is the operator's "I fixed the server" signal — start from a clean budget.
+        this.restarts.clear();
         for (const entry of all) {
             entry.retired = true;
             entry.client.dispose();
@@ -354,6 +389,7 @@ export function formatLspFailure(f) {
         case 'unsupported-language': return `LSP doesn't cover ${f.language} (no language server registered for it).`;
         case 'no-server-installed': return `The ${f.server ?? f.language ?? 'required'} language server isn't installed — install it to use this.`;
         case 'server-error': return `The ${f.server ?? f.language} language server errored or timed out — no result this time (it will be retried).`;
+        case 'crash-looping': return `The ${f.server ?? f.language} language server exceeded max crash recovery attempts (${f.maxRestarts ?? 3}) — no result, and it will NOT be restarted again until LSP is toggled off and on (/lsp).`;
         case 'unreadable': return 'Could not read the file.';
     }
 }
@@ -369,6 +405,8 @@ export function formatCheckResult(r) {
         return `The ${r.server ?? r.language} language server isn't installed — install it to get ${r.language} diagnostics.`;
     if (r.skipped === 'server-error')
         return `The ${r.server ?? r.language} language server errored or timed out — no diagnostics this time (it will be retried).`;
+    if (r.skipped === 'crash-looping')
+        return `The ${r.server ?? r.language} language server exceeded max crash recovery attempts (${r.maxRestarts ?? 3}) — no diagnostics, and it will NOT be restarted again until LSP is toggled off and on (/lsp).`;
     if (r.skipped === 'no-response')
         return `The ${r.server ?? r.language} language server gave no verdict on ${r.path} in time (it may still be indexing) — NOT a clean bill, re-check shortly.`;
     if (r.skipped === 'unreadable')
