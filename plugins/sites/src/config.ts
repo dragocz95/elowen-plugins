@@ -203,7 +203,7 @@ export function resolveConfig(
     allowPublicSites: raw.allowPublicSites !== false,
     publishers: raw.publishers === 'admins' ? 'admins' : 'everyone',
     maxAssetBytes: bounded(raw.maxAssetMb, 8, 1, 64) * 1048576,
-    maxSiteBytes: bounded(raw.maxSiteMb, 200, 1, 4096) * 1048576,
+    maxSiteBytes: bounded(raw.maxSiteMb, 200, 1, 1048576) * 1048576,
     maxSitesPerAccount: bounded(raw.maxSitesPerAccount, 20, 1, 500),
     releasesKept: bounded(raw.releasesKept, 5, 1, 50),
     sessionTtlHours: bounded(raw.sessionTtlHours, 12, 1, 720),

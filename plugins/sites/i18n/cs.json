@@ -34,7 +34,7 @@
     },
     "maxSiteMb": {
       "label": "Největší stránka",
-      "hint": "Celková velikost jedné zveřejněné verze."
+      "hint": "Celková velikost jedné zveřejněné verze v MB. Omezuje ji jen disk, který jí dáte."
     },
     "maxSitesPerAccount": {
       "label": "Počet stránek na účet",
