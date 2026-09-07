@@ -4,7 +4,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { register } from '../plugins/lsp/src/index.js';
 import { LspManager } from '../plugins/lsp/src/manager.js';
 import type { LspTransport, JsonRpcMessage } from '../plugins/lsp/src/client.js';
-import type { PluginApiRoute, PluginContext, PluginControl, PluginService } from 'elowen/dist/plugins/api.js';
+import type { PluginApiRoute, PluginContext, PluginControl, PluginHook, PluginService } from 'elowen/dist/plugins/api.js';
 import { runWithPolicy } from 'elowen/dist/plugins/policyContext.js';
 import { allowedRoots, assertPathAllowed, defaultCwd, isAllAccess } from 'elowen/dist/plugins/pathGuard.js';
 import { currentWorkDir } from 'elowen/dist/plugins/policyContext.js';
@@ -41,14 +41,19 @@ function registerPlugin(config: Record<string, unknown> = {}) {
   const services: PluginService[] = [];
   const controls = new Map<string, PluginControl>();
   const routes: PluginApiRoute[] = [];
+  const hooks: PluginHook[] = [];
+  const turnContexts: (() => string)[] = [];
   const ctx = {
     config,
     logger: { info() {}, warn() {}, error() {} },
     assertPathAllowed, allowedRoots, defaultCwd, workDir: currentWorkDir, isAdminSession: isAllAccess,
+    currentSessionId: () => undefined,
     registerTool: (t: ToolDefinition) => { tools.push(t); },
     registerService: (s: PluginService) => { services.push(s); },
     registerControl: (name: string, c: PluginControl) => { controls.set(name, c); },
     registerApiRoute: (r: PluginApiRoute) => { routes.push(r); },
+    registerHook: (h: PluginHook) => { hooks.push(h); },
+    registerTurnContext: (render: () => string) => { turnContexts.push(render); },
   } as unknown as PluginContext;
   register(ctx, {
     createManager: () => {
@@ -61,7 +66,7 @@ function registerPlugin(config: Record<string, unknown> = {}) {
       return m;
     },
   });
-  return { tools, services, controls, routes, spawned, managers };
+  return { tools, services, controls, routes, hooks, turnContexts, spawned, managers };
 }
 
 /** Type-check one file through the registered tool, inside a turn scoped to `root`. */
@@ -75,12 +80,15 @@ async function check(tools: ToolDefinition[], root: string): Promise<void> {
 
 describe('lsp plugin lifecycle', () => {
   it('registers the tools, the grandfathered routes, the service and the state control', () => {
-    const { tools, services, controls, routes } = registerPlugin();
+    const { tools, services, controls, routes, hooks, turnContexts } = registerPlugin();
     expect(tools.map((t) => t.name)).toEqual([
       'LspDiagnostics', 'LspGoToDefinition', 'LspFindReferences', 'LspHover', 'LspDocumentSymbol', 'LspWorkspaceSymbol',
     ]);
     expect(services.map((s) => s.name)).toEqual(['diagnostics']);
     expect([...controls.keys()]).toEqual(['lsp']);
+    // The after-edit push: one collector on the file-mutation seam, one per-turn delivery provider.
+    expect(hooks.map((h) => h.name)).toEqual(['tools.call.after']);
+    expect(turnContexts).toHaveLength(1);
     // The URLs the CLI already calls, with the access levels they had as core routes.
     expect(routes.map((r) => `${r.method} ${r.rootMount} ${r.access}`)).toEqual([
       'GET /brain/lsp user',

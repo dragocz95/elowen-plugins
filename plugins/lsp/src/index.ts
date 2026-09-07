@@ -18,6 +18,7 @@ import type { PluginContext } from 'elowen/dist/plugins/api.js';
 import { LspManager } from './manager.js';
 import { registerLspTools } from './tools.js';
 import { registerLspApi } from './api.js';
+import { registerAfterEditDiagnostics } from './afterEdit.js';
 import { lspPluginConfig } from './config.js';
 
 /** Test seam, mirroring {@link LspManagerDeps}: the lifecycle test drives real teardown against a fake
@@ -55,6 +56,13 @@ export function register(ctx: PluginContext, deps: LspRegisterDeps = {}): void {
 
   registerLspTools(ctx, lsp);
   registerLspApi(ctx, lsp);
+  // The push half of the same manager: an edit that lands gets type-checked in the background and the
+  // result reaches the model with its next turn, so a model that forgets to call LspDiagnostics is still
+  // told what it broke. Delivery goes through registerTurnContext rather than the `appendContext` hook
+  // patch: `brain.turn.contextBuilt` is the only patch seam the host actually emits, its payload is the
+  // user's text alone, and it runs outside the turn's own scope — a plugin there cannot tell WHICH
+  // conversation it is contributing to, which is the one thing this must never get wrong.
+  registerAfterEditDiagnostics(ctx, lsp);
 
   // The persisted on/off state applies at start, and stop() frees every spawned server. The `/lsp`
   // toggle and the settings form both write plugins.config.lsp.diagnosticsEnabled, which hot-reloads

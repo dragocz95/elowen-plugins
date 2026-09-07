@@ -7,8 +7,9 @@ import { formatCheckResult, formatLspFailure, type LspOpFailure } from './manage
 import { containsPath } from './paths.js';
 
 /** Most-specific current-turn root containing the checked file. This is both the LSP search boundary
- *  and the security boundary: project marker discovery must never walk above a scoped user's repo. */
-function lspBoundary(ctx: PluginContext, path: string): string | undefined {
+ *  and the security boundary: project marker discovery must never walk above a scoped user's repo.
+ *  Exported for the after-edit collector, which resolves the same boundary from the same turn scope. */
+export function lspBoundary(ctx: PluginContext, path: string): string | undefined {
   // An allowed repo is the hard security floor. Prefer it over a possibly deeper client cwd so a turn
   // launched from `<repo>/src` can still discover `<repo>/tsconfig.json` without ever reaching outside
   // the repo. All-access turns have no allowed roots, so their validated cwd is the useful fallback.
