@@ -16,8 +16,8 @@ operation and do not work around it.
 This is the part most worth knowing, because it looks like a decision and is not one. A one-shot
 wake-up returns to THIS conversation. A recurring job created in a direct platform chat (a Teams or
 WhatsApp 1:1) reports back into that chat. A recurring job created anywhere else — the web chat above
-all — reports in a conversation of its own, named after the job, which is emptied before every run so
-each run starts from nothing. The binding is captured for you at creation time.
+all — reports in a conversation of its own, named after the job, where its runs accumulate. The
+binding is captured for you at creation time.
 
 So do not go looking for a channel, thread or conversation id to put in the job, and do not ask the
 user for one. There is no field for it on a personal job: `notifyChannelId` exists only for

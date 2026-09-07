@@ -56,7 +56,7 @@ const SESSION_IDLE_MIN_MS = 60_000; // an explicit value is clamped UP to a 1-mi
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** The owner-chat conversation a recurring personal job reports in. Deterministic so a job keeps ONE
  *  conversation across runs and restarts without storing a pointer that could go stale; the host owns
- *  its creation and empties it before every run. */
+ *  its creation. */
 const jobSessionId = (ownerUserId, jobId) => `brain-${ownerUserId}-job-${jobId}`;
 
 /** Identifier for a job, a pending delivery or an adapter generation — short, sortable-ish, collision-free
@@ -593,7 +593,7 @@ class CronAdapter {
       // Where the reply belongs. A one-shot wake-up returns to the conversation it was scheduled from —
       // that is the whole promise of "remind me here". A RECURRING job scheduled from a direct platform
       // chat keeps reporting into that chat through its delivery target. Every other owned recurring job
-      // runs in a conversation of its own, named after the job, which the host empties before each run:
+      // runs in a conversation of its own, named after the job, where its run history accumulates:
       // binding it to the conversation it happened to be created in put every report into whatever the
       // owner was working on at the time. Records from before 0.4.1 still carry such an owner-chat origin,
       // and it is deliberately ignored here for the same reason. An instance job has no origin at all and
