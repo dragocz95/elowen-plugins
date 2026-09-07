@@ -17,6 +17,57 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 // hygiene). Core matched routes first, so a skill with one of these names could never be edited.
 const RESERVED_NAMES = new Set(['config', 'icon', 'logs', 'contributions', 'hook-executions', 'data', 'restore', 'api', 'list', 'users']);
 
+/** Split an argument string into tokens the way a shell would, honouring single and double quotes so a
+ *  quoted phrase stays ONE argument. Nothing is expanded: `$FOO` and backticks travel through as literal
+ *  text, because these tokens are only ever substituted into markdown, never executed. */
+export function parseSkillArgs(args) {
+  const tokens = [];
+  let current = '';
+  let quote = null;
+  let started = false;
+  for (const char of String(args ?? '')) {
+    if (quote) {
+      if (char === quote) quote = null;
+      else current += char;
+      continue;
+    }
+    if (char === '"' || char === "'") { quote = char; started = true; continue; }
+    if (/\s/.test(char)) {
+      if (started || current) tokens.push(current);
+      current = '';
+      started = false;
+      continue;
+    }
+    current += char;
+  }
+  if (started || current) tokens.push(current);
+  return tokens;
+}
+
+/** Substitute the skill placeholders into a skill body, with the reference's semantics
+ *  (`utils/argumentSubstitution.ts`, `skills/loadSkillsDir.ts:344-363`):
+ *
+ *  - `${ELOWEN_SKILL_DIR}` becomes the skill's own directory, always, so a skill can point at files it
+ *    ships with. (The reference calls its variable `${CLAUDE_SKILL_DIR}`.)
+ *  - `$ARGUMENTS` becomes the whole argument string, `$ARGUMENTS[n]` and `$n` the nth token.
+ *  - When `args` were given but the body has no placeholder at all, they are appended as an
+ *    `ARGUMENTS:` line rather than silently dropped — a skill that never expected arguments still gets
+ *    to see what the caller passed.
+ *
+ *  Deliberately NOT ported: the reference also executes `!` shell commands found in the markdown. Elowen
+ *  skills are instructions handed to the model, never a script this plugin runs. */
+export function substituteSkillPlaceholders(content, args, skillDir) {
+  let out = skillDir ? content.replaceAll('${ELOWEN_SKILL_DIR}', skillDir) : content;
+  if (args === undefined || args === null) return out;
+  const before = out;
+  const tokens = parseSkillArgs(args);
+  out = out.replace(/\$ARGUMENTS\[(\d+)\]/g, (_match, index) => tokens[Number(index)] ?? '');
+  out = out.replace(/\$(\d+)(?!\w)/g, (_match, index) => tokens[Number(index)] ?? '');
+  out = out.replaceAll('$ARGUMENTS', args);
+  if (out === before && args) out = `${out}\n\nARGUMENTS: ${args}`;
+  return out;
+}
+
 /** The canonical location of `path` when it really lives inside `root`, or null when it does not.
  *
  *  Both sides go through realpath because the skill loader FOLLOWS symlinks — a link, a link on an
@@ -129,15 +180,21 @@ function buildSkillLoadTool(ctx, personalSkills, personalScopeRoot) {
   // runtime, so this is also the shape they already expect. execute() is the single gate, and its refusal
   // enumerates (see refuseSkill).
   const name = Type.String({ description: 'Exact skill name from the available-skills list.' });
+  const args = Type.Optional(Type.String({
+    description: 'Optional arguments for the skill, as one string. Quoted phrases stay one argument. The '
+      + 'skill body may place them with $ARGUMENTS, $ARGUMENTS[0] or $0; when it has no placeholder they '
+      + 'are appended as an "ARGUMENTS:" line.',
+  }));
 
   return defineTool({
     name: 'SkillLoad', label: 'Load skill',
     description: [
       'Load the complete instructions for any model-invocable skill in the available-skills list, including skills contributed by other plugins.',
-      'Pass the exact listed name. The result includes the canonical skill directory used to resolve relative paths in its instructions.',
+      'Pass the exact listed name. The result includes the canonical skill directory used to resolve relative paths in its instructions, and every ${ELOWEN_SKILL_DIR} in the instructions is already replaced with it.',
+      'Pass args when the skill takes input: $ARGUMENTS is replaced with the whole string, $ARGUMENTS[0] and $0 with individual arguments, and a skill with no placeholder receives them as a trailing "ARGUMENTS:" line.',
       'Personal skills and grant-gated plugin skills remain limited to the current contribution owner. Manual-only skills are refused; only the user can invoke one explicitly with /skill:<name>.',
     ].join(' '),
-    parameters: Type.Object({ name }),
+    parameters: Type.Object({ name, args }),
     execute: async (_id, params) => {
       const owner = ctx.currentContributionUserId();
       const { byName: loadable, manualOnly, control } = visibleCatalog();
@@ -162,7 +219,8 @@ function buildSkillLoadTool(ctx, personalSkills, personalScopeRoot) {
       }
       try {
         const content = readFileSync(file, 'utf-8');
-        return ok(`Skill: ${skill.name}\nSkill directory: ${directory}\n\n${content}`);
+        const body = substituteSkillPlaceholders(content, params.args, directory);
+        return ok(`Skill: ${skill.name}\nSkill directory: ${directory}\n\n${body}`);
       } catch (error) {
         logger.warn(`could not load skill '${skill.name}' from '${skill.filePath}': ${error instanceof Error ? error.message : error}`);
         throw new SkillLoadError(`The skill "${skill.name}" is announced but its file is missing or unreadable, so it cannot be loaded. Continue without it and tell the user.`);
@@ -298,6 +356,7 @@ export function register(ctx) {
     'SkillLoad resolves the same per-turn catalog the host advertised, including grant-gated and plugin-contributed skills.',
     'If SkillLoad refuses a name, use the loadable names in its error rather than guessing another spelling.',
     'SkillLoad returns the skill directory; resolve every relative reference in the instructions against that directory.',
+    'Pass args when the skill takes input: ${ELOWEN_SKILL_DIR} and the $ARGUMENTS placeholders are substituted before the instructions reach you.',
     '</skill_loading>',
   ].join('\n'));
 

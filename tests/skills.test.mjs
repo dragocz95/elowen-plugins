@@ -504,6 +504,35 @@ test('bundled skills plugin', async (t) => {
     assert.doesNotMatch(refusal, /second body/);
   });
 
+  await t.test('SkillLoad substitutes args and the skill directory into the loaded body', async () => {
+    const dataRoot = tmpDir('skills');
+    const skillsDir = join(dataRoot, 'skills');
+    mkdirSync(skillsDir, { recursive: true });
+    writeFileSync(join(skillsDir, 'deploy-flow.md'), '---\nname: deploy-flow\ndescription: how to deploy\n---\n\n'
+      + 'Deploy $ARGUMENTS[0] to $1 using ${ELOWEN_SKILL_DIR}/run.sh.\nAll of it: $ARGUMENTS\n');
+    writeFileSync(join(skillsDir, 'plain-flow.md'), skillMd('plain-flow', 'takes no placeholders'));
+    const reg = loadPlugin({ dataRoot });
+
+    const tool = reg.tools.find((entry) => entry.name === 'SkillLoad');
+    assert.ok(JSON.stringify(tool.parameters).includes('args'), 'SkillLoad must accept args');
+    assert.match(tool.description, /\$ARGUMENTS/);
+    assert.match(tool.description, /\$\{ELOWEN_SKILL_DIR\}/);
+
+    const escaped = skillsDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const loaded = asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'deploy-flow', args: 'api "staging two"' }));
+    assert.match(loaded, new RegExp(`Deploy api to staging two using ${escaped}/run\\.sh`));
+    assert.match(loaded, /All of it: api "staging two"/);
+    assert.doesNotMatch(loaded, /\$ARGUMENTS|ELOWEN_SKILL_DIR/);
+
+    // A skill with no placeholder still gets to see what the caller passed.
+    const appended = asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'plain-flow', args: 'one two' }));
+    assert.match(appended, /ARGUMENTS: one two$/);
+
+    // Without args nothing is appended.
+    const bare = asText(await runScopedTool(reg, 'SkillLoad', null, { name: 'plain-flow' }));
+    assert.doesNotMatch(bare, /ARGUMENTS:/);
+  });
+
   await t.test('SkillLoad fails closed when the host catalog is missing or throws', async () => {
     const withoutControl = loadPlugin({ dataRoot: tmpDir('skills'), skillCatalogControl: false });
     assert.match(await refusalOf(runScopedTool(withoutControl, 'SkillLoad', null, { name: 'skill-creation' })), /catalog is unavailable/);
