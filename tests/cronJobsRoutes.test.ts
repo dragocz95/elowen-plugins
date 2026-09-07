@@ -453,7 +453,7 @@ describe('cron jobs routes', () => {
       return ((await res.json()) as { error: string }).error;
     };
     expect(await denied({ check: 'ls /' })).toMatch(/shell check/);
-    expect(await denied({ notifyChannelId: '123' })).toMatch(/notification channel/);
+    expect(await denied({ notifyChannelId: '123' })).toMatch(/destination channel/);
     expect(await denied({ schedule: '*/5 * * * *' })).toMatch(/cron expressions/);
     expect(await denied({ schedule: 'every 1m' })).toMatch(/shortest interval/);
     // The plain forms she is meant to use go through.

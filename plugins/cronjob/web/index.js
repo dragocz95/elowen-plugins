@@ -613,7 +613,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
       await request;
       if (draftRef.current === sent) dirty.current = false;
     } catch (error) {
-      toast(s.saveError, "error");
+      toast(`${s.saveError} \u2014 ${utils.apiErrorMessage(error)}`, "error");
       throw error;
     } finally {
       if (inFlight.current === request) inFlight.current = null;
@@ -761,7 +761,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
         }
       ) }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.prompt, hint: s.helpPrompt, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", { value: draft.prompt, onChange: (e) => patch({ prompt: e.target.value }), rows: 8, className: textareaClass }) }),
-      adminFields ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.channel, hint: s.helpChannel, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      adminFields && (draft.ownerUserId == null || draft.ownerUserId === myId) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.channel, hint: s.helpChannel, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         DestinationField,
         {
           value: draft.notifyChannelId ?? "",

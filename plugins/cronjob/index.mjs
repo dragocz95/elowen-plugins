@@ -54,6 +54,11 @@ const DELIVERY_LEASE_MS = 5 * 60_000;
 // existing recurring job never silently loses its cross-run context after an upgrade. See resolveSessionIdleMs.
 const SESSION_IDLE_MIN_MS = 60_000; // an explicit value is clamped UP to a 1-min floor; there is no upper clamp
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** The owner-chat conversation a recurring personal job reports in. Deterministic so a job keeps ONE
+ *  conversation across runs and restarts without storing a pointer that could go stale; the host owns
+ *  its creation and empties it before every run. */
+const jobSessionId = (ownerUserId, jobId) => `brain-${ownerUserId}-job-${jobId}`;
+
 /** Identifier for a job, a pending delivery or an adapter generation — short, sortable-ish, collision-free
  *  enough for records that live in one small JSON file. */
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -585,10 +590,17 @@ class CronAdapter {
       let userText = checkOutput
         ? `${job.prompt}\n\n--- Check output (fresh data to act on) ---\n${checkOutput.slice(0, this.checkOutputMaxChars)}`
         : job.prompt;
-      // Where the reply belongs. A wake-up scheduled from a user conversation names that conversation; an
-      // owned job names no session, so the host delivers into its owner's own default conversation. An
-      // instance job has neither and reports through the notification channel as before.
-      const origin = job.originSessionId && job.originUserId != null
+      // Where the reply belongs. A one-shot wake-up returns to the conversation it was scheduled from —
+      // that is the whole promise of "remind me here". A RECURRING job scheduled from a direct platform
+      // chat keeps reporting into that chat through its delivery target. Every other owned recurring job
+      // runs in a conversation of its own, named after the job, which the host empties before each run:
+      // binding it to the conversation it happened to be created in put every report into whatever the
+      // owner was working on at the time. Records from before 0.4.1 still carry such an owner-chat origin,
+      // and it is deliberately ignored here for the same reason. An instance job has no origin at all and
+      // reports through the notification channel as before.
+      const boundOrigin = job.originSessionId && job.originUserId != null
+        && (job.runAt || typeof job.originDeliveryTarget === 'string');
+      const origin = boundOrigin
         ? {
             sessionId: job.originSessionId,
             userId: job.originUserId,
@@ -598,7 +610,7 @@ class CronAdapter {
         // redirect where it reports: these jobs exist to post into a specific room, and routing them into
         // the owner's own conversation instead would quietly stop every one of those reports.
         : (owner !== null && !(typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim())
-            ? { userId: owner }
+            ? { userId: owner, sessionId: jobSessionId(owner, job.id), dedicated: { title: job.name } }
             : undefined);
       // A bound run replays INTO a real conversation, so frame the prompt: without this the model reads
       // its own schedule as the user speaking just now. (The channel fallback keeps its wake-up context
@@ -944,7 +956,7 @@ export function register(ctx) {
         return 'a shell check requires an instance job; CronAdd instance scope is operator-only';
       }
       if (typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim()) {
-        return 'personal jobs report into their own conversation; CronAdd notification channel delivery requires operator-only instance scope';
+        return 'a personal job reports in its own conversation; a destination channel needs an instance job or an operator owner';
       }
       // A 5-field cron expression can express "every minute" in ways a simple bound cannot catch, so the
       // plain forms — which the interval floor below fully covers — are the ones offered per account.
@@ -1054,12 +1066,15 @@ export function register(ctx) {
   };
 
   /** Persist the current one-person conversation as an origin. Direct adapters also supply an opaque
-   *  delivery target so core can deliver the completed scheduled result through that exact adapter path. */
-  const conversationOrigin = (userId) => {
+   *  delivery target so core can deliver the completed scheduled result through that exact adapter path.
+   *  With `directOnly` an owner-chat conversation records nothing: a recurring job does not report where
+   *  it was created, it reports in its own conversation (see the scheduler's origin choice). */
+  const conversationOrigin = (userId, { directOnly = false } = {}) => {
     const sessionId = ctx.currentSessionId();
     const where = ctx.currentIdentity()?.conversation;
     if (!sessionId || (where !== 'own' && where !== 'direct')) return undefined;
     const deliveryTarget = where === 'direct' ? ctx.currentDeliveryTarget?.() : undefined;
+    if (directOnly && where !== 'direct') return undefined;
     return {
       originSessionId: sessionId,
       originUserId: userId,
@@ -1508,10 +1523,10 @@ export function register(ctx) {
         const wanted = typeof p.model === 'string' ? p.model.trim() : '';
         const model = wanted ? parseModelSpec(wanted) : undefined;
         if (wanted && !model) return ok(`Error: model "${wanted}" must name a provider AND a model as "provider/model" (e.g. "anthropic/claude-sonnet-5"). Leave it empty to run on the server default.`);
-        // A personal job remembers the conversation it was created in, exactly as ScheduleWakeup does, so
-        // "tell me here every morning" reports where it was promised instead of in the owner's default web
-        // chat. Only where one person reads: a shared room would put the answer in front of everyone else.
-        const origin = owner !== null ? conversationOrigin(owner) : undefined;
+        // A personal job scheduled from a direct platform chat remembers it, so "tell me here every
+        // morning" in a Teams DM reports where it was promised. From the web it records nothing: the job
+        // reports in a conversation of its own, not in whatever the owner was working on when they asked.
+        const origin = owner !== null ? conversationOrigin(owner, { directOnly: true }) : undefined;
         // WHERE the job is filed, decided explicitly and resolved by the host. Separate from `origin`
         // above, which is the delivery binding: the two are allowed to name different conversations and
         // neither is derived from the other. The actor is the turn's own verified account — a delegated
@@ -1532,7 +1547,7 @@ export function register(ctx) {
         store.save(jobs);
         const lands = owner === null
           ? 'It will report through the notification channel.'
-          : origin ? 'It will report here, in this conversation.' : 'It will report in your own conversation.';
+          : origin ? 'It will report here, in this chat.' : `It will report in a conversation of its own, named "${p.name}".`;
         // Confirmed without naming the conversation: the caller supplied the id, and a title read back
         // into a shared room would tell everyone present what that conversation is called.
         const filed = target.id === ctx.currentSessionId()

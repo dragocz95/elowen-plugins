@@ -81,8 +81,8 @@ describe('cron tick — a job that belongs to an account', () => {
     // No admin powers, and the account is named so the host applies THAT account's policy and tool rules.
     expect(seen?.access?.admin).toBe(false);
     expect(seen?.access?.actAsUserId).toBe(4);
-    // No session named: the host routes it into the owner's default conversation.
-    expect(seen?.origin).toEqual({ userId: 4 });
+    // The job's OWN conversation, deterministic per job, created and emptied by the host before each run.
+    expect(seen?.origin).toEqual({ userId: 4, sessionId: 'brain-4-job-r1', dedicated: { title: 'report' } });
     expect(seenText).toContain('Scheduled job "report" fires now');
     expect(delivered).toEqual([]); // the operator's channel never sees somebody else's result
     expect(readJobs(dataRoot)[0]!.lastResult).toBe('her report');
@@ -308,7 +308,7 @@ describe('cron tools — scheduling for the account behind the turn', () => {
 
     await runWithPolicy(LIMITED, async () => {
       expect(asText(await add.execute('t', { name: 'mine', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never)))
-        .toContain('in your own conversation');
+        .toContain('conversation of its own');
       expect(asText(await add.execute('t', { name: 'guarded', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', check: 'ls /', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never)))
         .toMatch(/shell check/);
       expect(asText(await add.execute('t', { name: 'fast', scope: 'personal', schedule: 'every 1m', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never)))
@@ -347,6 +347,44 @@ describe('cron tools — scheduling for the account behind the turn', () => {
   const speakingIn = (id: TurnIdentity, where: 'own' | 'direct' | 'shared'): TurnIdentity =>
     ({ ...id, conversation: where }) as TurnIdentity;
 
+  // A recurring job used to be bound to the conversation it was CREATED in, so every report landed in
+  // whatever its owner happened to be working on at the time. Such origins are still on disk.
+  it('ignores a recorded owner-chat origin on a recurring job, but keeps a direct-chat one and a one-shot one', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [
+      dueJob({ id: 'legacy', ownerUserId: 4, originSessionId: 'brain-4-workchat', originUserId: 4 }),
+      dueJob({ id: 'dm', ownerUserId: 4, originSessionId: 'brain-ch-msteams-dm', originUserId: 4, originDeliveryTarget: 'destination:msteams:dm' }),
+      { id: 'once', name: 'ping', schedule: 'in 30s', prompt: 'p', ownerUserId: 4, originSessionId: 'brain-4-workchat', originUserId: 4,
+        runAt: new Date(Date.now() - 1_000).toISOString(), createdAt: new Date().toISOString() },
+    ]);
+    const { adapter } = await loadCron(dataRoot);
+    const origins: Record<string, SessionSource['origin']> = {};
+    adapter.listen(async (src, _t, onEvent) => {
+      origins[src.channelId.replace('job-', '')] = src.origin;
+      onEvent?.({ type: 'session', sessionId: src.origin?.sessionId ?? '' });
+      onEvent?.({ type: 'delivery' });
+      return 'r';
+    });
+    await adapter.tick();
+
+    expect(origins.legacy).toEqual({ userId: 4, sessionId: 'brain-4-job-legacy', dedicated: { title: 'report' } });
+    expect(origins.dm).toEqual({ userId: 4, sessionId: 'brain-ch-msteams-dm', deliveryTarget: 'destination:msteams:dm' });
+    expect(origins.once).toEqual({ userId: 4, sessionId: 'brain-4-workchat' });
+  });
+
+  // From the web, CronAdd records no origin at all: the job reports in its own conversation.
+  it('records no origin for a recurring job asked for in the owner\'s web chat', async () => {
+    const dataRoot = freshDataRoot();
+    const { reg } = await loadCron(dataRoot);
+    const add = reg.tools.find((t) => t.name === 'CronAdd')!;
+    await runWithPolicy(ADMIN, async () => {
+      await add.execute('t', { name: 'digest', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never);
+    }, { identity: speakingIn({ platform: 'elowen', userId: '7', elowenUserId: 7, admin: true, owner: true }, 'own'), sessionId: 'brain-7-workchat' });
+    const [job] = readJobs(dataRoot);
+    expect(job!.ownerUserId).toBe(7);
+    expect(job).not.toHaveProperty('originSessionId');
+  });
+
   // The bug this all exists for: an ADMIN asking for something in their own chat used to get an
   // instance-wide job, because the plugin read "is this an admin session?" instead of asking who it was
   // for. Being an admin says what someone MAY do, never what they meant.
@@ -378,7 +416,7 @@ describe('cron tools — scheduling for the account behind the turn', () => {
 
     await runWithPolicy(LIMITED, async () => {
       expect(asText(await add.execute('t', { name: 'room job', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never)))
-        .toContain('in your own conversation');
+        .toContain('conversation of its own');
     }, { identity: inRoom, sessionId: 'brain-ch-discord-1' });
 
     const [job] = readJobs(dataRoot);
@@ -457,7 +495,7 @@ describe('an operator owning their own jobs', () => {
     adapter.listen(async (src, _t, onEvent) => { seen = src; onEvent?.({ type: 'session', sessionId: 'brain-1' }); return 'r'; });
     await adapter.tick();
 
-    expect(seen?.origin).toEqual({ userId: 1 });
+    expect(seen?.origin).toEqual({ userId: 1, sessionId: 'brain-1-job-r1', dedicated: { title: 'report' } });
     expect(delivered).toEqual([]);
   });
 
@@ -492,7 +530,7 @@ describe('an operator owning their own jobs', () => {
       const shell = asText(await add.execute('t', { name: 'a', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', check: 'rm -rf /', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never));
       expect(shell).toContain('instance scope');
       const chan = asText(await add.execute('t', { name: 'b', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', notifyChannelId: 'discord-42', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never));
-      expect(chan).toContain('instance scope');
+      expect(chan).toContain('needs an instance job');
       const fast = asText(await add.execute('t', { name: 'c', scope: 'personal', schedule: 'every 5m', prompt: 'p', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never));
       expect(fast).toContain('shortest interval');
     }, { identity: AMY, sessionId: 'brain-4' });

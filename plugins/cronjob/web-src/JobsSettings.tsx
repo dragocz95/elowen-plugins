@@ -472,7 +472,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
       await request;
       if (draftRef.current === sent) dirty.current = false; // still clean only if nothing was typed meanwhile
     } catch (error) {
-      toast(s.saveError, 'error');
+      toast(`${s.saveError} — ${utils.apiErrorMessage(error)}`, 'error');
       throw error;
     } finally {
       if (inFlight.current === request) inFlight.current = null;
@@ -687,7 +687,9 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             <C.Field label={s.prompt} hint={s.helpPrompt}>
               <textarea value={draft.prompt} onChange={(e) => patch({ prompt: e.target.value })} rows={8} className={textareaClass} />
             </C.Field>
-            {adminFields ? (
+            {/* A destination channel is an instance-job capability, or an operator's own: the server refuses it
+                on somebody else's personal job, so it is not offered there — the row shows where it reports. */}
+            {adminFields && (draft.ownerUserId == null || draft.ownerUserId === myId) ? (
               <C.Field label={s.channel} hint={s.helpChannel}>
                 <DestinationField
                   value={draft.notifyChannelId ?? ''}

@@ -457,14 +457,15 @@ describe('CronAdd — the organizational conversation is explicit', () => {
         name: 'mine', scope: 'personal', schedule: 'daily 07:30', prompt: 'p', conversationSessionId: 'brain-amy-2',
       }));
       expect(out).toContain('Scheduled');
-      // Grouping is not delivery: the reply still lands in the conversation that asked.
-      expect(out).toContain('report here');
+      // Grouping is not delivery: a recurring web job reports in a conversation of its own, and the
+      // organizational conversation is neither that nor an origin.
+      expect(out).toContain('conversation of its own');
       expect(out).not.toContain('Amy second chat');
     }, { identity: speaking(AMY, 'own'), sessionId: 'brain-amy' });
     expect(onDisk(dataRoot)[0]).toMatchObject({
-      ownerUserId: 4, originSessionId: 'brain-amy', originUserId: 4,
-      conversationSessionId: 'brain-amy-2', conversationKey: 'ns-amy-2',
+      ownerUserId: 4, conversationSessionId: 'brain-amy-2', conversationKey: 'ns-amy-2',
     });
+    expect(onDisk(dataRoot)[0]).not.toHaveProperty('originSessionId');
   });
 
   it('refuses a delegated turn that carries no account', async () => {
