@@ -455,20 +455,55 @@
   }
 }
 
-/* ── the account panel's session stills ──────────────────────────────────────────────────────────────
-   A record in "Live sessions" is named by a clipped session id, which identifies nothing to a reader.
-   The still is what makes the row recognizable, so it and its placeholder are ONE box of one size: a
-   picture that arrives must not resize the row it lands in. */
+/* ── the account panel's session register ────────────────────────────────────────────────────────────
+   "Live sessions" is a REGISTER: the still, who holds the session, what the agent last said, and the one
+   action — the same four readings in every row. The column tracks are the host DataTable's
+   (BrowserAccount.SESSION_COLUMNS), so everything here is what a track cannot say: how each cell fills
+   its own box, and how the four of them re-lay as a card on a phone. */
 
+/* Rows carry a picture, so the register is taller than a text one. Past a handful of sessions it scrolls
+   inside its own frame rather than pushing the profile card off the top of the page.
+   Keyed on the WINDOW rather than on the register's own width, because the cap is about how much screen
+   there is to spend — and a phone is left out of it deliberately: a scroll box inside a page that already
+   scrolls is two gestures for one list. */
+@media (min-height: 40rem) and (min-width: 48rem) {
+  .browser-account__sessions {
+    max-height: min(60vh, 34rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/* The register's own frame and row rhythm belong to the SKIN, which gives every register in the app the
+   same ones (`[role="table"]:has(.data-table-grid)`, `.data-table-grid`) — so nothing here touches them:
+   a plugin that redrew the border of a shared primitive would be the one table in the product that stops
+   following a repaint.
+   What a record here needs and a text record does not is air around its picture, and that goes on this
+   panel's OWN cells: the skin sets the row's padding to zero, and at zero the stills of two neighbouring
+   rows meet and the column reads as one strip. */
+.browser-account__cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: .375rem;
+  padding-block: .4rem;
+}
+
+/* The one action of the record, at the register's trailing edge in every row. */
+.browser-account__cell--actions {
+  align-items: flex-end;
+  justify-content: center;
+}
+
+/* The still and its placeholder are ONE box of one size: a picture that arrives must not resize the row
+   it lands in, and two rows whose thumbnails differ in height would take the alignment the column grid
+   exists for straight back out. The width comes from the track, the height from the ratio — so the
+   `width`/`height` attributes the image carries are overridden here on purpose; they are there for the
+   moment before this sheet applies. */
 .browser-account__preview {
   display: block;
-  /* `flex: none` because a settings row's trailing side is a flex line: without it a narrow screen
-     shrinks the picture, the aspect ratio takes its height down with it, and the row jumps — the exact
-     thing one fixed box for both states exists to prevent. The width attribute the image carries is
-     overridden here on purpose; it is there for the moment before this sheet applies. */
-  flex: none;
-  width: 9rem;
-  max-width: 100%;
+  width: 100%;
   aspect-ratio: 16 / 10;
   border: 1px solid var(--color-border, #2a2523);
   border-radius: var(--radius-md, .5rem);
@@ -485,15 +520,23 @@
   color: var(--color-muted-foreground, #9d948e);
 }
 
-/* The still and the reply are one column, because they are two readings of the SAME session and a flex
-   line would put them side by side on a wide card and break the pairing. */
-.browser-account__cell {
-  display: flex;
-  flex-direction: column;
-  gap: .375rem;
+/* A clipped hash, set as one: monospaced so the twelve characters a reader compares against a chat sit
+   in the same places in every row. */
+.browser-account__session-id {
   min-width: 0;
-  /* Wider than the still, because four clamped lines of prose at 9rem is a column of single words. */
-  max-width: 22rem;
+  overflow: hidden;
+  color: var(--color-foreground, #e8e2dc);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: .75rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The identity cell stacks two readings, so the state badge under the id keeps its own width instead of
+   being stretched to the column's by the flex cross axis. */
+.browser-account__cell--identity > *:not(.browser-account__session-id) {
+  align-self: flex-start;
 }
 
 .browser-account__reply-caption {
@@ -523,4 +566,32 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
   line-clamp: 4;
+}
+
+/* ── the register as a card ──────────────────────────────────────────────────────────────────────────
+   Below 40rem the four columns cannot be columns: a 9.5rem still would leave the reply about forty
+   characters wide. The SAME four cells become a card — the picture across the top at the card's full
+   width, the id and the close button on the line under it, the reply below both. Nothing moves in the
+   DOM; only where each cell lands in the grid does.
+
+   The query is the register's OWN width (the host's DataTable is a `@container`), not the viewport's, so
+   the panel folds when its column is narrow rather than when the window happens to be. The two-track
+   template and the placements are declared here rather than through `mobileColumns` because a card is
+   not a column arrangement: it needs the spans, and one rule that states both keeps them together. */
+@container (width < 40rem) {
+  .browser-account__sessions .data-table-grid {
+    grid-template-columns: minmax(0, 1fr) 2.25rem;
+    align-items: start;
+    gap: .5rem .75rem;
+  }
+  /* Stacked, the cells are a card's lines: their own padding would double the row gaps. */
+  .browser-account__cell { padding-block: 0; }
+  .browser-account__cell--preview { padding-top: .5rem; }
+  .browser-account__cell--reply { padding-bottom: .5rem; }
+  .browser-account__cell--preview { grid-area: 1 / 1 / 2 / 3; }
+  .browser-account__cell--identity { grid-area: 2 / 1 / 3 / 2; }
+  .browser-account__cell--actions { grid-area: 2 / 2 / 3 / 3; }
+  .browser-account__cell--reply { grid-area: 3 / 1 / 4 / 3; }
+  /* The picture is the card's header, so it takes the width and keeps its shape. */
+  .browser-account__preview { border-radius: var(--radius-lg, .75rem); }
 }

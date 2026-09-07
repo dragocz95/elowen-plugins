@@ -110,6 +110,23 @@ interface RuntimeComponents {
     className?: string;
   }>;
   PluginPageHeader: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
+  /** The app's register table (host web/components/ui/DataTable.tsx), and the reason the account panel's
+   *  session list needs no grid of its own: the column tracks are declared once on the table and every row
+   *  borrows them, which is what makes the stills line up down the list. Only the parts this panel uses are
+   *  declared — the selection, sort and row-open contracts belong to registers that are acted on, not to a
+   *  four-column read of what is running. */
+  DataTable: ComponentType<{ ariaLabel: string; columns: string; compactColumns?: string; className?: string; children: ReactNode }>;
+  DataTableRow: ComponentType<{ children: ReactNode; header?: boolean; height?: 'standard' | 'tall'; className?: string }>;
+  DataTableCell: ComponentType<{
+    children: ReactNode;
+    header?: boolean;
+    priority?: 'always' | 'wide';
+    /** `1` is the register rhythm — one line, clipped at the column edge. Every cell in this panel
+     *  composes its own content and asks for `auto`. */
+    lines?: 1 | 'auto';
+    title?: string;
+    className?: string;
+  }>;
 }
 
 export interface BrowserRuntime {

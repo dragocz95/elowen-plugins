@@ -824,12 +824,69 @@ describe('browser plugin UI', () => {
     expect(groups).toHaveLength(2);
     expect(within(groups[0] as HTMLElement).getByText(strings.profileStorage)).toBeInTheDocument();
     expect(within(groups[1] as HTMLElement).getByText(strings.liveSessions)).toBeInTheDocument();
-    // The storage figure and the running session are settings ROWS, not tiles.
-    expect(view.container.querySelectorAll('.settings-row')).toHaveLength(2);
+    // The storage figure is a settings ROW, not a tile. The sessions are not rows at all: they are the
+    // repeated four readings of a REGISTER, which is the host's other anatomy and the one that makes
+    // several of them line up.
+    expect(view.container.querySelectorAll('.settings-row')).toHaveLength(1);
+    expect(within(groups[1] as HTMLElement).getByRole('table', { name: strings.liveSessions })).toBeInTheDocument();
     // Both destructive actions are the host's square icon control, named for a screen reader rather than
     // spelled out in a wide labelled button that would set the row height.
     expect(screen.getByRole('button', { name: strings.clearProfile })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: strings.closeSession })).toBeInTheDocument();
+  });
+
+  // The complaint this register answers: the still floated on the trailing side of a settings row, so
+  // every session sat at a different distance from the edge and nothing lined up down the list. The
+  // still now LEADS its record, and the four readings are four tracks the whole table shares.
+  it('lays every session out on the same four tracks, the still first', async () => {
+    use(
+      http.get('/api/plugins/browser/api/profile', () => HttpResponse.json({ profileBytes: 2048, activeSessions: 2 })),
+      http.get('/api/plugins/browser/api/sessions', () => HttpResponse.json({
+        live: [
+          { id: 'session-alpha', state: 'agent', lease: null, lastReply: { text: 'Signed in.', at: new Date().toISOString() } },
+          // No reply yet: the cell is still rendered, or this row's close button would slide into the
+          // column its neighbour reads its reply in.
+          { id: 'session-beta', state: 'user', lease: null, lastReply: null },
+        ],
+        history: [],
+      })),
+    );
+    const Wrapper = wrapper();
+    const view = render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    const table = await screen.findByRole('table', { name: strings.liveSessions });
+    // The tracks are declared ONCE, on the table, and every row borrows them — which is the whole reason
+    // two rows can align at all. Both templates are asserted: the wide one and the one a narrow column
+    // closes ranks with.
+    expect(table.style.getPropertyValue('--data-table-columns')).toBe('9.5rem minmax(9rem, 14rem) minmax(0, 1fr) 2.25rem');
+    expect(table.style.getPropertyValue('--data-table-compact-columns')).toBe('8rem minmax(6rem, 9rem) minmax(0, 1fr) 2.25rem');
+
+    const rows = within(table).getAllByRole('row');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      const cells = within(row).getAllByRole('cell');
+      // Four cells in every row, in one order: still, identity, reply, action.
+      expect(cells).toHaveLength(4);
+      expect(cells[0]).toHaveClass('browser-account__cell--preview');
+      expect(cells[1]).toHaveClass('browser-account__cell--identity');
+      expect(cells[2]).toHaveClass('browser-account__cell--reply');
+      expect(cells[3]).toHaveClass('browser-account__cell--actions');
+      // The still is the first thing in the row, not a value hanging off its trailing side.
+      expect(cells[0]!.querySelector('.browser-account__preview')).not.toBeNull();
+      expect(within(cells[3] as HTMLElement).getByRole('button', { name: strings.closeSession })).toBeInTheDocument();
+    }
+    // The identity cell carries the clipped id AND who is holding the session, one under the other.
+    expect(within(rows[0] as HTMLElement).getByText('session-alph…')).toBeInTheDocument();
+    expect(within(rows[0] as HTMLElement).getByText(strings.agentControl)).toBeInTheDocument();
+    expect(within(rows[1] as HTMLElement).getByText(strings.userControl)).toBeInTheDocument();
+
+    // A phone cannot keep four columns: the SAME four cells are re-laid as a card by the plugin's own
+    // stylesheet, against the register's own width. jsdom runs no CSS, so the rule itself is checked.
+    const css = readFileSync(join(import.meta.dirname, '..', 'plugins', 'browser', 'web-src', 'browser.css'), 'utf8');
+    const card = css.slice(css.indexOf('@container (width < 40rem)'));
+    expect(card).toMatch(/\.browser-account__cell--preview\s*\{\s*grid-area:\s*1 \/ 1 \/ 2 \/ 3/);
+    expect(card).toMatch(/\.browser-account__cell--reply\s*\{\s*grid-area:\s*3 \/ 1 \/ 4 \/ 3/);
+    view.unmount();
   });
 
   // Clearing the profile under a running Chrome would corrupt it, so the control waits — and a disabled
@@ -843,17 +900,30 @@ describe('browser plugin UI', () => {
     const Wrapper = wrapper();
     const view = render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
 
+    const running = strings.sessionsRunning.replace('{count}', '1');
     await screen.findByText('2.0 KiB');
     expect(screen.getByRole('button', { name: strings.clearProfile })).toBeDisabled();
-    expect(screen.getByText(strings.clearBlocked)).toBeInTheDocument();
+    // WHAT blocks it is a pill on the row, in the same red the app gives a risky setting: a reader sees
+    // the condition at a glance instead of a paragraph of prose in the trailing area.
+    expect(screen.getByText(running)).toBeInTheDocument();
+    // WHY the rule exists moved behind the row's own help mark, where every other settings row keeps its
+    // explanation. The sentence is therefore no longer printed in the row — that is the regression this
+    // guards, since a paragraph in the trailing area is what made this record twice the height of any
+    // other one on the page. (The host renders the hint inside the tip; the stand-in draws the trigger
+    // only, so the trigger and the absence of the loose sentence are what can be asserted here.)
+    const storage = view.container.querySelector('.settings-row') as HTMLElement;
+    expect(within(storage).getByRole('button', { name: 'Help' })).toBeInTheDocument();
+    expect(screen.queryByText(strings.clearBlocked)).toBeNull();
 
     live = [];
     view.unmount();
     render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
     await waitFor(() => expect(screen.getByRole('button', { name: strings.clearProfile })).toBeEnabled());
-    // With nothing running, the sessions group says so in the host's empty state rather than an empty box.
+    // With nothing running, the sessions group says so in one calm record rather than an empty box.
     expect(screen.getByText(strings.noSessions)).toBeInTheDocument();
-    expect(screen.queryByText(strings.clearBlocked)).toBeNull();
+    // Nothing is blocked, so nothing claims to be: the pill is gone. The help mark stays — the rule is
+    // still true, it simply is not stopping anything right now.
+    expect(screen.queryByText(running)).toBeNull();
   });
 
   // A record in the list is named by a clipped session id, which tells a reader nothing about WHICH page
@@ -962,9 +1032,11 @@ describe('browser plugin UI', () => {
     // Clamped on screen, whole in the tooltip: the reader loses nothing the row cannot hold.
     expect(reply).toHaveAttribute('title', text);
     expect(reply.textContent).toBe(text);
-    // It sits under the picture, in the same column — not on a line of its own elsewhere in the row.
-    const cell = reply.closest('.browser-account__cell');
-    expect(cell?.querySelector('.browser-account__preview')).not.toBeNull();
+    // It has a column of its own, and that column is the same one in every row — which is what a reader
+    // scanning several sessions is actually reading down. The still it belongs to leads the same row.
+    const cell = reply.closest('.browser-account__cell--reply');
+    expect(cell).not.toBeNull();
+    expect(cell?.closest('[role="row"]')?.querySelector('.browser-account__preview')).not.toBeNull();
 
     // The clamp and the preserved line breaks live in the plugin's stylesheet, which jsdom does not load,
     // so the rule itself is what is checked. Without either, a five-line answer reflows into one run of
@@ -1049,6 +1121,9 @@ describe('browser plugin UI', () => {
     expect(screen.getByText(csStrings.liveSessions)).toBeInTheDocument();
     expect(screen.getByText(csStrings.agentControl)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: csStrings.clearProfile })).toBeInTheDocument();
+    // The count travels through the translated sentence rather than being assembled from an English
+    // word and a number, which is the only form that survives a language with different plural rules.
+    expect(screen.getByText(csStrings.sessionsRunning.replace('{count}', '1'))).toBeInTheDocument();
     // The still's own two states are named for a screen reader, so they are translated like everything
     // else on the panel rather than left as the only English on a Czech page.
     expect(screen.getByRole('img', { name: `${csStrings.previewPending}: secret-sessi…` })).toBeInTheDocument();
