@@ -598,6 +598,7 @@ class CronAdapter {
       // owner was working on at the time. Records from before 0.4.1 still carry such an owner-chat origin,
       // and it is deliberately ignored here for the same reason. An instance job has no origin at all and
       // reports through the notification channel as before.
+      // Mirrors the write-time rule in conversationOrigin({ directOnly }) — change both together.
       const boundOrigin = job.originSessionId && job.originUserId != null
         && (job.runAt || typeof job.originDeliveryTarget === 'string');
       const origin = boundOrigin
@@ -956,7 +957,7 @@ export function register(ctx) {
         return 'a shell check requires an instance job; CronAdd instance scope is operator-only';
       }
       if (typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim()) {
-        return 'a personal job reports in its own conversation; a destination channel needs an instance job or an operator owner';
+        return 'a personal job reports in its own conversation; a destination channel needs an instance job or an administrator owner';
       }
       // A 5-field cron expression can express "every minute" in ways a simple bound cannot catch, so the
       // plain forms — which the interval floor below fully covers — are the ones offered per account.
@@ -1068,7 +1069,8 @@ export function register(ctx) {
   /** Persist the current one-person conversation as an origin. Direct adapters also supply an opaque
    *  delivery target so core can deliver the completed scheduled result through that exact adapter path.
    *  With `directOnly` an owner-chat conversation records nothing: a recurring job does not report where
-   *  it was created, it reports in its own conversation (see the scheduler's origin choice). */
+   *  it was created, it reports in its own conversation. The scheduler's `boundOrigin` applies the same
+   *  rule at fire time for records written before it existed — change both together. */
   const conversationOrigin = (userId, { directOnly = false } = {}) => {
     const sessionId = ctx.currentSessionId();
     const where = ctx.currentIdentity()?.conversation;
