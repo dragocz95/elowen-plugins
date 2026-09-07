@@ -1225,7 +1225,7 @@ test('SiteCreate enforces the environment gate, separate count and environment-o
 
   const enabled = phase2ToolHarness(t);
   await assert.rejects(() => enabled.call('SiteCreate', { title: 'Bad', runtime: 'environment', startCommand: 'node app.js' }), /startCommand/);
-  await assert.rejects(() => enabled.call('SiteCreate', { title: 'Bad', runtime: 'environment', bind: 'socket' }), /bind/);
+  await assert.rejects(() => enabled.call('SiteCreate', { title: 'Bad', runtime: 'environment', bind: 'port' }), /bind/);
 });
 
 test('SiteExec enforces publisher and Project access and runs synchronously in a forked runner', async (t) => {

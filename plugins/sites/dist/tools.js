@@ -245,17 +245,22 @@ export function registerTools(deps) {
                             throw new ToolError(refusal);
                     }
                 }
-                if (runtime === 'command' && !input.startCommand?.trim()) {
+                // Some models (GPT-5.6 on Azure among them) fill every optional property with its default or an
+                // empty string — `startCommand: ""`, `bind: "socket"` — even when told to send only a title. A
+                // refusal therefore keys on the VALUE, not on the key being present: only a real instruction
+                // that contradicts the runtime is a mistake.
+                const startCommand = input.startCommand?.trim() ?? '';
+                if (runtime === 'command' && !startCommand) {
                     throw new ToolError('A command site runtime needs startCommand.');
                 }
-                if (runtime === 'php' && input.startCommand?.trim()) {
+                if (runtime === 'php' && startCommand) {
                     throw new ToolError('A PHP site runs through PHP-CGI and does not take startCommand.');
                 }
-                if (runtime === 'environment' && input.startCommand !== undefined) {
+                if (runtime === 'environment' && startCommand) {
                     throw new ToolError('An environment does not take startCommand; administer services with SiteExec and systemd inside.');
                 }
                 const bind = input.bind === 'port' ? 'port' : 'socket';
-                if (runtime !== 'command' && input.bind !== undefined) {
+                if (runtime !== 'command' && bind === 'port') {
                     throw new ToolError('Only a command site has a runtime bind mode.');
                 }
                 if (bind === 'port' && !config.allowLoopbackPorts) {
@@ -292,7 +297,7 @@ export function registerTools(deps) {
                     sourceDir: allowed,
                     spa: input.spa === true,
                     runtime,
-                    startCommand: (input.startCommand ?? '').trim(),
+                    startCommand,
                     bind,
                     port,
                     environmentCpus: null,
@@ -719,17 +724,19 @@ export function registerTools(deps) {
                 if (input.spa !== undefined)
                     patch.spa = input.spa;
                 let runtimeChanged = false;
-                if (input.startCommand !== undefined || input.bind !== undefined) {
+                // As in SiteCreate: a model that echoes every optional property sends `startCommand: ""` and the
+                // site's current bind mode along with a title change, so only a VALUE that would actually alter
+                // the runtime counts as a runtime instruction.
+                const commandInput = input.startCommand?.trim() ?? '';
+                const bindInput = input.bind !== undefined && input.bind !== site.bind ? input.bind : undefined;
+                if (commandInput || bindInput !== undefined) {
                     if (site.runtime !== 'command')
                         throw new ToolError('Only a command site has runtime settings.');
-                    if (input.startCommand !== undefined) {
-                        const command = input.startCommand.trim();
-                        if (!command)
-                            throw new ToolError('A command site needs a non-empty startCommand.');
-                        patch.startCommand = command;
-                        runtimeChanged = command !== site.startCommand;
+                    if (commandInput) {
+                        patch.startCommand = commandInput;
+                        runtimeChanged = commandInput !== site.startCommand;
                     }
-                    if (input.bind !== undefined) {
+                    if (bindInput !== undefined) {
                         const bind = input.bind === 'port' ? 'port' : 'socket';
                         const runtimeConfig = deps.config();
                         if (bind === 'port' && !runtimeConfig.allowLoopbackPorts) {

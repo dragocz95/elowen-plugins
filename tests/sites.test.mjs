@@ -1142,6 +1142,30 @@ test('loopback binding is explicit and refused unless the instance enables it', 
   assert.equal(stored.port, 43000);
 });
 
+test('a model that echoes every optional property with its default still creates and updates a static site', async (t) => {
+  // Recorded from gpt-5.6-terra on Azure, asked to call SiteCreate with a title and nothing else: it
+  // filled every optional property anyway. Presence of `bind`/`startCommand` used to be read as an
+  // instruction and refused with "Only a command site has a runtime bind mode.", which made static
+  // sites impossible to create from that model at all.
+  const { store, call } = toolHarness(t);
+  const created = await call('SiteCreate', {
+    _reason: '', title: 'Provozní přehled', summary: '', visibility: 'private', spa: false,
+    runtime: 'static', startCommand: '', bind: 'socket',
+  });
+  const stored = store.siteById(created.details.siteId);
+  assert.equal(stored.runtime, 'static');
+  assert.equal(stored.bind, 'socket');
+  assert.equal(stored.startCommand, '');
+
+  await call('SiteUpdate', { site: created.details.siteId, title: 'Nový název', summary: '', startCommand: '', bind: 'socket' });
+  assert.equal(store.siteById(created.details.siteId).title, 'Nový název');
+
+  // A value that really contradicts the runtime is still a mistake, on both tools.
+  await assert.rejects(() => call('SiteCreate', { title: 'Port', bind: 'port' }), /Only a command site has a runtime bind mode/);
+  await assert.rejects(() => call('SiteUpdate', { site: created.details.siteId, bind: 'port' }), /Only a command site has runtime settings/);
+  await assert.rejects(() => call('SiteUpdate', { site: created.details.siteId, startCommand: 'node app.js' }), /Only a command site has runtime settings/);
+});
+
 test('SiteUpdate changes command runtime settings without republishing', async (t) => {
   const { store, call } = toolHarness(t, { configRaw: { allowCommandRuntime: true, allowLoopbackPorts: true } });
   store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, runtime: 'command', startCommand: 'node old.js' }));
