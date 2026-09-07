@@ -400,16 +400,52 @@ describe('cron control — conversationLinks', () => {
     const { reg } = await loadCron({ dataRoot, rows: baseRows(4, 1), admins: [1] });
 
     const amy = links(reg, { requesterUserId: 4, requesterIsAdmin: false, conversationIds: ['brain-amy'] });
+    // Each row also says WHERE the job runs, which is what a reader following it wants: an owned web job
+    // in its own dedicated conversation, an instance job in the job's cron channel. Core builds the
+    // channel session id itself and re-checks either form before it serves them.
     expect(amy).toEqual([
-      { jobId: 'mine', conversationId: 'brain-amy', name: 'Amy digest', enabled: true, ownerUserId: 4 },
-      { jobId: 'paused', conversationId: 'brain-amy', name: 'Amy paused', enabled: false, ownerUserId: 4 },
+      { jobId: 'mine', conversationId: 'brain-amy', name: 'Amy digest', enabled: true, ownerUserId: 4, runSessionId: 'brain-4-job-mine' },
+      { jobId: 'paused', conversationId: 'brain-amy', name: 'Amy paused', enabled: false, ownerUserId: 4, runSessionId: 'brain-4-job-paused' },
     ]);
 
     // An ordinary account never receives an instance job, whatever ids it was authorized for.
     expect(links(reg, { requesterUserId: 4, requesterIsAdmin: false, conversationIds: ['brain-admin'] })).toEqual([]);
     // The operator's register sees the instance branch on the same read.
     expect(links(reg, { requesterUserId: 1, requesterIsAdmin: true, conversationIds: ['brain-admin'] }))
-      .toEqual([{ jobId: 'instance', conversationId: 'brain-admin', name: 'Instance digest', enabled: true, ownerUserId: null }]);
+      .toEqual([{ jobId: 'instance', conversationId: 'brain-admin', name: 'Instance digest', enabled: true, ownerUserId: null, runChannelId: 'job-instance' }]);
+  });
+
+  /** An explicit notification channel wins over ownership at run time, so the navigation has to follow it
+   *  to the job's cron channel rather than to a dedicated conversation that never receives anything. */
+  it('sends an owned job with a notification channel to the cron channel it actually runs in', async () => {
+    const dataRoot = tmpDir('cron-ctl');
+    seedJobs(dataRoot, [
+      storedJob({
+        id: 'room', name: 'Room digest', ownerUserId: 4, notifyChannelId: '99',
+        conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1',
+      }),
+    ]);
+    const { reg } = await loadCron({ dataRoot, rows: baseRows(4, 1), admins: [1] });
+
+    expect(links(reg, { requesterUserId: 4, requesterIsAdmin: false, conversationIds: ['brain-amy'] }))
+      .toEqual([{ jobId: 'room', conversationId: 'brain-amy', name: 'Room digest', enabled: true, ownerUserId: 4, runChannelId: 'job-room' }]);
+  });
+
+  /** A job bound to a direct platform chat runs in that room. The listing names no run target for it: the
+   *  room is not a conversation this navigation may hand out, and core would refuse it anyway. */
+  it('names no run target for a job bound to a direct platform chat', async () => {
+    const dataRoot = tmpDir('cron-ctl');
+    seedJobs(dataRoot, [
+      storedJob({
+        id: 'dm', name: 'DM digest', ownerUserId: 4,
+        originSessionId: 'brain-ch-discord-amy', originUserId: 4, originDeliveryTarget: 'destination:discord:7',
+        conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1',
+      }),
+    ]);
+    const { reg } = await loadCron({ dataRoot, rows: baseRows(4, 1), admins: [1] });
+
+    expect(links(reg, { requesterUserId: 4, requesterIsAdmin: false, conversationIds: ['brain-amy'] }))
+      .toEqual([{ jobId: 'dm', conversationId: 'brain-amy', name: 'DM digest', enabled: true, ownerUserId: 4 }]);
   });
 
   it('throws on an unreadable jobs file rather than reporting an empty job list', async () => {

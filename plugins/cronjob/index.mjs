@@ -59,6 +59,37 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  *  its creation. */
 const jobSessionId = (ownerUserId, jobId) => `brain-${ownerUserId}-job-${jobId}`;
 
+/** WHERE A JOB'S TURNS RUN, in one place, because two callers ask it and they must never disagree: the
+ *  scheduler, which routes the run itself, and the navigation seam, which tells a conversation listing
+ *  where following a schedule should land.
+ *
+ *  - `origin`    — a one-shot wake-up returns to the conversation it was scheduled from, and a recurring
+ *                  job created in a direct platform chat keeps reporting into that chat through its
+ *                  delivery target. That is the whole promise of "remind me here".
+ *  - `dedicated` — every other OWNED recurring job runs in a conversation of its own, named after the
+ *                  job, where its run history accumulates. Binding it to the conversation it happened to
+ *                  be created in put every report into whatever the owner was working on at the time, so
+ *                  an owner-chat origin recorded before 0.4.1 is deliberately ignored here.
+ *  - `channel`   — an instance job, and any job with an explicit notification channel, runs in the job's
+ *                  own cron channel and reports there. An explicit channel WINS over ownership: those
+ *                  jobs exist to post into a specific room, and quietly redirecting them into the owner's
+ *                  own conversation would stop every one of those reports. */
+function jobRunLocation(job, ownerUserId) {
+  const deliveryTarget = typeof job.originDeliveryTarget === 'string' ? job.originDeliveryTarget : undefined;
+  if (job.originSessionId && job.originUserId != null && (job.runAt || deliveryTarget !== undefined)) {
+    return {
+      kind: 'origin',
+      sessionId: job.originSessionId,
+      userId: job.originUserId,
+      ...(deliveryTarget !== undefined ? { deliveryTarget } : {}),
+    };
+  }
+  if (ownerUserId !== null && !(typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim())) {
+    return { kind: 'dedicated', sessionId: jobSessionId(ownerUserId, job.id), userId: ownerUserId, title: job.name };
+  }
+  return { kind: 'channel', channelId: `job-${job.id}` };
+}
+
 /** Identifier for a job, a pending delivery or an adapter generation — short, sortable-ish, collision-free
  *  enough for records that live in one small JSON file. */
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -590,29 +621,20 @@ class CronAdapter {
       let userText = checkOutput
         ? `${job.prompt}\n\n--- Check output (fresh data to act on) ---\n${checkOutput.slice(0, this.checkOutputMaxChars)}`
         : job.prompt;
-      // Where the reply belongs. A one-shot wake-up returns to the conversation it was scheduled from —
-      // that is the whole promise of "remind me here". A RECURRING job scheduled from a direct platform
-      // chat keeps reporting into that chat through its delivery target. Every other owned recurring job
-      // runs in a conversation of its own, named after the job, where its run history accumulates:
-      // binding it to the conversation it happened to be created in put every report into whatever the
-      // owner was working on at the time. Records from before 0.4.1 still carry such an owner-chat origin,
-      // and it is deliberately ignored here for the same reason. An instance job has no origin at all and
-      // reports through the notification channel as before.
+      // Where the reply belongs — see jobRunLocation, which is also what the navigation seam reads, so
+      // the row a reader follows and the conversation the job actually runs in can never disagree. The
+      // channel case carries no origin at all: the source's own channelId routes it, exactly as before.
       // Mirrors the write-time rule in conversationOrigin({ directOnly }) — change both together.
-      const boundOrigin = job.originSessionId && job.originUserId != null
-        && (job.runAt || typeof job.originDeliveryTarget === 'string');
-      const origin = boundOrigin
+      const location = jobRunLocation(job, owner);
+      const origin = location.kind === 'origin'
         ? {
-            sessionId: job.originSessionId,
-            userId: job.originUserId,
-            ...(typeof job.originDeliveryTarget === 'string' ? { deliveryTarget: job.originDeliveryTarget } : {}),
+            sessionId: location.sessionId,
+            userId: location.userId,
+            ...(location.deliveryTarget !== undefined ? { deliveryTarget: location.deliveryTarget } : {}),
           }
-        // An explicit notification channel WINS over ownership. Giving a job an owner must not silently
-        // redirect where it reports: these jobs exist to post into a specific room, and routing them into
-        // the owner's own conversation instead would quietly stop every one of those reports.
-        : (owner !== null && !(typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim())
-            ? { userId: owner, sessionId: jobSessionId(owner, job.id), dedicated: { title: job.name } }
-            : undefined);
+        : location.kind === 'dedicated'
+          ? { userId: location.userId, sessionId: location.sessionId, dedicated: { title: location.title } }
+          : undefined;
       // A bound run replays INTO a real conversation, so frame the prompt: without this the model reads
       // its own schedule as the user speaking just now. (The channel fallback keeps its wake-up context
       // via access.prompt; this framing reads fine there too.)
@@ -1721,12 +1743,20 @@ export function register(ctx) {
         if (!requesterIsAdmin && owner !== requesterUserId) continue;
         const assoc = jobAssociation(job);
         if (assoc.state !== 'linked' || !authorized.has(assoc.target.id)) continue;
+        // WHERE THE JOB RUNS, beside where it is filed, so a reader following the row lands in the
+        // transcript its runs produced instead of the schedule's editor. The same rule the scheduler
+        // routes by, read from the one place that decides it. A job bound to a DIRECT platform chat is
+        // deliberately silent here: its turns run in that room, which is not a conversation this listing
+        // may hand out, and core would refuse it anyway. Core re-checks whatever is named.
+        const location = jobRunLocation(job, owner);
         links.push({
           jobId: job.id,
           conversationId: assoc.target.id,
           name: typeof job.name === 'string' ? job.name : '',
           enabled: job.enabled !== false,
           ownerUserId: owner,
+          ...(location.kind === 'dedicated' ? { runSessionId: location.sessionId } : {}),
+          ...(location.kind === 'channel' ? { runChannelId: location.channelId } : {}),
         });
       }
       return links;
