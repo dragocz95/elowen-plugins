@@ -504,6 +504,19 @@ describe('CronAdd — the organizational conversation is explicit', () => {
     expect(onDisk(dataRoot)[0]).not.toHaveProperty('originSessionId');
   });
 
+  it('describes personal delivery the way the direct-only origin rule actually behaves', async () => {
+    const dataRoot = tmpDir('cron-add');
+    const { tool } = await loadCron({ dataRoot, rows: baseRows(4, 1), admins: [1] });
+    const add = tool('CronAdd') as unknown as {
+      description: string; parameters: { properties: { scope: { description: string } } };
+    };
+    // A web-created recurring job records no origin, so the schema must not promise the opposite.
+    expect(add.description).not.toContain('reports back into the conversation it was created in');
+    expect(add.parameters.properties.scope.description).not.toContain('reports back into this conversation');
+    expect(add.description).toContain('reports in a conversation of its own');
+    expect(add.parameters.properties.scope.description).toContain('conversation of its own');
+  });
+
   it('refuses a delegated turn that carries no account', async () => {
     const dataRoot = tmpDir('cron-add');
     const { tool } = await loadCron({ dataRoot, rows: baseRows(4, 1), admins: [1] });
