@@ -973,7 +973,7 @@ test('authenticated site API updates command and bind settings under the instanc
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example' } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', runtimeAvailable = false } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db);
   const registered = new Map();
@@ -995,8 +995,9 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     currentSessionId: () => 'session-1',
     workDir: () => join(dir, 'project', 'deep', 'nested'),
     assertPathAllowed: (path) => path,
-    control: () => undefined,
-    host: { stores: () => ({ projects: { list: () => roots } }) },
+    currentAccess: () => ({ projectIds: [7], admin: false, owner: false, accountUserId: 1 }),
+    control: () => runtimeAvailable ? { activeWorkspace: () => null } : undefined,
+    host: { stores: () => ({ projects: { list: () => roots, get: id => roots.find(project => project.id === id) } }) },
   };
   registerTools({
     ctx,
@@ -1041,7 +1042,7 @@ test('SiteCreate refuses a file-published site with no address before creating a
 });
 
 test('SiteCreate allows a persistent environment before its public DNS gateway is ready', async (t) => {
-  const harness = toolHarness(t, { gatewayHost: null, configRaw: { allowEnvironments: true } });
+  const harness = toolHarness(t, { gatewayHost: null, configRaw: { allowEnvironments: true }, runtimeAvailable: true });
   const created = await harness.call('SiteCreate', { title: 'Local environment', runtime: 'environment' });
   const stored = harness.store.siteById(created.details.siteId);
 

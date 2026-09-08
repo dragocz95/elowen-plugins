@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { join, posix, resolve, sep } from 'node:path';
+import { dirname, join, posix, resolve, sep } from 'node:path';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { VISIBILITIES } from './store.js';
@@ -59,6 +59,10 @@ const slugify = (title) => {
  *  fallback. There is deliberately no third option — `defaultCwd()` answers with an arbitrary allowed
  *  root, or the daemon's own working directory, and neither is a place the caller chose. */
 function resolveSourceRoot(ctx, slug) {
+    const selected = ctx.currentAccess().projectRef;
+    if (selected?.kind === 'managed') {
+        return { dir: posix.join('/workspace/sites', slug), projectId: selected.projectId };
+    }
     const workDir = ctx.workDir();
     if (!workDir) {
         throw new ToolError('This conversation is not bound to a Project. Open a Project first, and create a Sandbox workspace if you want the site under version control.');
@@ -228,6 +232,8 @@ export function registerTools(deps) {
                 const config = deps.config();
                 const runtime = input.runtime ?? 'static';
                 if (runtime === 'environment') {
+                    if (!ctx.control('sandbox'))
+                        throw new ToolError('The Sandbox environment runtime is unavailable.');
                     const refusal = environmentRefusal(config);
                     if (refusal)
                         throw new ToolError(refusal);
@@ -273,20 +279,31 @@ export function registerTools(deps) {
                 // may still be administered and locally verified while its DNS gateway is not ready yet.
                 const address = runtime === 'environment' ? siteUrl(config, slug) : addressOf(config, slug);
                 const { dir, projectId } = resolveSourceRoot(ctx, slug);
+                const managed = ctx.host.stores().projects.get(projectId)?.executionKind === 'managed';
+                const siteId = randomUUID();
                 let allowed;
-                try {
-                    allowed = ctx.assertPathAllowed(dir);
+                if (managed && runtime !== 'environment') {
+                    const sandbox = ctx.control('sandbox');
+                    if (!sandbox)
+                        throw new ToolError('The Sandbox environment runtime is unavailable.');
+                    allowed = dir;
+                    await sandbox.projectFiles({ project: { kind: 'managed', projectId }, accountUserId: userId, operation: { kind: 'mkdir', path: dir } });
                 }
-                catch {
-                    throw new ToolError(`The site folder ${dir} is outside what this account may write to.`);
+                else {
+                    try {
+                        allowed = managed ? join(deps.siteDir(siteId), 'source') : ctx.assertPathAllowed(dir);
+                    }
+                    catch {
+                        throw new ToolError(`The site folder ${dir} is outside what this account may write to.`);
+                    }
+                    if (existsSync(allowed))
+                        throw new ToolError(`${allowed} already exists.`);
+                    mkdirSync(allowed, { recursive: true });
                 }
                 const port = runtime === 'command' && bind === 'port' ? await deps.runtime.allocatePort() : null;
-                if (existsSync(allowed))
-                    throw new ToolError(`${allowed} already exists.`);
-                mkdirSync(allowed, { recursive: true });
                 const now = new Date().toISOString();
                 const site = {
-                    id: randomUUID(),
+                    id: siteId,
                     slug,
                     title: input.title.trim(),
                     summary: (input.summary ?? '').trim(),
@@ -405,7 +422,7 @@ export function registerTools(deps) {
             if (!Number.isFinite(requestedTimeout))
                 throw new ToolError('timeoutSeconds must be a finite number.');
             const timeoutSeconds = Math.min(900, Math.max(1, Math.round(requestedTimeout)));
-            const result = await deps.environment.exec(site, command, { timeoutSeconds, workdir: workdirOf(input.workdir) });
+            const result = await deps.environment.exec(site, command, { timeoutSeconds, workdir: workdirOf(input.workdir), accountUserId: userId });
             return text([
                 result.stdout,
                 result.stderr ? `\n[stderr]\n${result.stderr}` : '',
@@ -428,9 +445,7 @@ export function registerTools(deps) {
             if (site.runtime !== 'environment')
                 throw new ToolError('SiteControl works only with a persistent environment.');
             const desired = input.action === 'stop' ? 'stopped' : input.action === 'restart' ? 'restarting' : 'running';
-            if (!store.tryRequestEnvironmentControl(site.id, desired)) {
-                throw new ToolError('An environment action or command is already in progress.');
-            }
+            await deps.environment.request(site, { kind: input.action }, userId);
             return text(`Scheduled ${input.action} for "${site.title}". The daemon will perform the durable lifecycle.`, {
                 siteId: site.id, action: input.action, desiredState: desired, scheduled: true,
             });
@@ -451,26 +466,15 @@ export function registerTools(deps) {
             requireEnvironmentAuthority(deps, site, userId);
             if (site.runtime !== 'environment')
                 throw new ToolError('SiteSnapshot works only with a persistent environment.');
-            const pending = store.environmentAction(site.id);
-            if (site.environmentDesiredState !== 'running' && !pending?.lastError) {
-                throw new ToolError('The environment already has a pending lifecycle change.');
-            }
-            const snapshotId = randomUUID();
-            const scheduled = store.tryPutEnvironmentAction({
-                siteId: site.id,
-                kind: 'snapshot',
-                snapshotId,
+            const snapshot = await deps.environment.snapshot(site, {
                 includeData: input.includeData !== false,
                 note: (input.note ?? '').trim().slice(0, 200),
                 model: modelLabel(ctx),
-                requestedAt: new Date().toISOString(),
-                lastError: null,
-            });
-            if (!scheduled)
-                throw new ToolError('Another environment action is already pending.');
+            }, userId);
+            const snapshotId = snapshot.id;
             return text([
-                `Scheduled crash-consistent snapshot ${snapshotId} for "${site.title}".`,
-                'The daemon will pause, commit and resume the environment. Poll SiteGet for completion or an action error.',
+                `Created crash-consistent snapshot ${snapshotId} for "${site.title}".`,
+                'The daemon completed the snapshot.',
                 'Applications with databases still need their own database-consistent backup procedure.',
             ].join('\n'), { siteId: site.id, snapshotId, scheduled: true });
         },
@@ -504,14 +508,24 @@ export function registerTools(deps) {
                 if (source !== root && !source.startsWith(root + sep)) {
                     throw new ToolError('outputDir must stay inside the site folder.');
                 }
-                if (!existsSync(source))
-                    throw new ToolError(`${source} does not exist. Build the project first.`);
-                ctx.assertPathAllowed(source);
+                const managed = ctx.host.stores().projects.get(site.projectId)?.executionKind === 'managed';
+                if (!managed) {
+                    if (!existsSync(source))
+                        throw new ToolError(`${source} does not exist. Build the project first.`);
+                    ctx.assertPathAllowed(source);
+                }
                 const releaseId = randomUUID();
                 const target = deps.releaseDir(site.id, releaseId);
                 let snapshot;
+                const exported = join(deps.siteDir(site.id), 'exports', releaseId);
+                let exportCompleted = false;
                 try {
-                    snapshot = snapshotRelease(source, target, {
+                    if (managed) {
+                        mkdirSync(dirname(exported), { recursive: true, mode: 0o700 });
+                        await deps.environment.exportProject(site, { kind: 'managed', projectId: site.projectId }, source, exported, userId);
+                        exportCompleted = true;
+                    }
+                    snapshot = snapshotRelease(managed ? exported : source, target, {
                         maxAssetBytes: config.maxAssetBytes,
                         maxTotalBytes: config.maxSiteBytes,
                         mode: site.runtime,
@@ -521,6 +535,10 @@ export function registerTools(deps) {
                     rmSync(target, { recursive: true, force: true });
                     store.updateSite(site.id, { status: site.currentReleaseId ? 'live' : 'failed', lastError: error instanceof Error ? error.message : String(error) });
                     throw new ToolError(error instanceof PublishError ? `Publish refused: ${error.message}` : `Publish failed: ${String(error)}`);
+                }
+                finally {
+                    if (exportCompleted)
+                        rmSync(exported, { recursive: true, force: true });
                 }
                 const model = modelLabel(ctx);
                 const now = new Date().toISOString();
@@ -603,7 +621,7 @@ export function registerTools(deps) {
                     return text('This account has no sites yet.');
                 const rows = await Promise.all(sites.map(async (site) => ({
                     site,
-                    environment: site.runtime === 'environment' ? await deps.environment.state(site) : undefined,
+                    environment: site.runtime === 'environment' ? await deps.environment.state(site, userId) : undefined,
                 })));
                 return text(rows.map((row) => describe(row.site, config, row.environment, latestSnapshotAt(store, row.site))).join('\n\n'), {
                     sites: rows.map((row) => ({
@@ -635,7 +653,7 @@ export function registerTools(deps) {
                 }
                 const config = deps.config();
                 const releases = store.releases(site.id);
-                const environment = site.runtime === 'environment' ? await deps.environment.state(site) : undefined;
+                const environment = site.runtime === 'environment' ? await deps.environment.state(site, userId) : undefined;
                 const environmentAction = site.runtime === 'environment' ? store.environmentAction(site.id) : null;
                 const people = deps.people();
                 const guests = store.memberIds(site.id)
@@ -648,7 +666,7 @@ export function registerTools(deps) {
                     releases.length === 0
                         ? 'No releases yet.'
                         : ['Releases:', ...releases.map((release) => release.kind === 'environment-snapshot'
-                                ? `  ${release.id}  ${release.createdAt}  environment snapshot${release.dataArchive ? ' with /data' : ''}${release.note ? `  ${release.note}` : ''}`
+                                ? `  ${release.id}  ${release.createdAt}  environment snapshot${release.dataArchive || store.runtimeRecord(site.id, `snapshot-data:${release.id}`) === 'true' ? ' with /data' : ''}${release.note ? `  ${release.note}` : ''}`
                                 : `  ${release.id}  ${release.createdAt}  ${release.fileCount} files  ${(release.sizeBytes / 1048576).toFixed(2)} MB${release.note ? `  ${release.note}` : ''}`)].join('\n'),
                     environmentAction ? `\nPending action: ${environmentAction.kind} ${environmentAction.snapshotId}${environmentAction.lastError ? `\nAction error: ${environmentAction.lastError}` : ''}` : '',
                     site.lastError ? `\nLast error: ${site.lastError}` : '',
@@ -661,7 +679,7 @@ export function registerTools(deps) {
                     ...(environment ? { environment, environmentAction } : {}),
                     releases: releases.map((release) => ({
                         id: release.id, createdAt: release.createdAt, note: release.note, kind: release.kind,
-                        ...(release.kind === 'environment-snapshot' ? { snapshotId: release.id, includesData: Boolean(release.dataArchive) } : {}),
+                        ...(release.kind === 'environment-snapshot' ? { snapshotId: release.id, includesData: Boolean(release.dataArchive) || store.runtimeRecord(site.id, `snapshot-data:${release.id}`) === 'true' } : {}),
                     })),
                 });
             }
@@ -762,7 +780,7 @@ export function registerTools(deps) {
                 // over a half-changed site.
                 if (limits) {
                     try {
-                        await deps.environment.applyLimits(site, limits);
+                        await deps.environment.applyLimits(site, limits, userId);
                     }
                     catch (error) {
                         const message = error instanceof Error ? error.message : String(error);
@@ -789,7 +807,7 @@ export function registerTools(deps) {
                     return text('Updated.');
                 // Report what the environment now actually runs with, not what was asked for: the values were
                 // clamped, and an agent sizing a container has to read back the ceiling it was given.
-                const environment = updated.runtime === 'environment' ? await deps.environment.state(updated) : undefined;
+                const environment = updated.runtime === 'environment' ? await deps.environment.state(updated, userId) : undefined;
                 return text(`Updated.\n\n${describe(updated, deps.config(), environment, latestSnapshotAt(store, updated))}`, environment ? { limits: environment.limits } : {});
             }
             catch (error) {
@@ -815,22 +833,13 @@ export function registerTools(deps) {
                     throw new ToolError('That release is not retained for this site.');
                 if (site.runtime === 'environment') {
                     requireEnvironmentAuthority(deps, site, userId);
-                    if (release.kind !== 'environment-snapshot' || !release.imageRef) {
+                    if (release.kind !== 'environment-snapshot') {
                         throw new ToolError('That release is not an environment snapshot retained for this site.');
                     }
-                    if (input.restoreData === true && !release.dataArchive) {
-                        throw new ToolError('That snapshot does not include a /data archive.');
+                    if (input.restoreData === true && !release.dataArchive && store.runtimeRecord(site.id, `snapshot-data:${release.id}`) !== 'true') {
+                        throw new ToolError('That snapshot does not include a verified /data archive.');
                     }
-                    const scheduled = store.tryPutEnvironmentAction({
-                        siteId: site.id,
-                        kind: 'rollback',
-                        snapshotId: release.id,
-                        restoreData: input.restoreData === true,
-                        requestedAt: new Date().toISOString(),
-                        lastError: null,
-                    });
-                    if (!scheduled)
-                        throw new ToolError('Another environment restore is already scheduled.');
+                    await deps.environment.request(site, { kind: 'restore', snapshotId: release.id, restoreData: input.restoreData === true }, userId);
                     return text(`Scheduled restore of snapshot ${release.id} for "${site.title}". The daemon will perform the broker-aware rollback.`, {
                         siteId: site.id, snapshotId: release.id, restoreData: input.restoreData === true, scheduled: true,
                     });
@@ -861,8 +870,8 @@ export function registerTools(deps) {
                     if (!deps.access.isAdmin(userId) && !deps.access.canAccessProject(userId, site.projectId)) {
                         throw new ToolError('Current Project access is required to read environment logs.');
                     }
-                    const state = await deps.environment.state(site);
-                    const logs = await deps.environment.logs(site, Math.min(1000, Math.max(1, Math.round(Number(input.lines ?? 200)))));
+                    const state = await deps.environment.state(site, userId);
+                    const logs = await deps.environment.logs(site, Math.min(1000, Math.max(1, Math.round(Number(input.lines ?? 200)))), userId);
                     return text([
                         `"${site.title}" is ${state.state ?? 'not created'}; desired ${state.desiredState}.`,
                         site.lastError ? `Last error: ${site.lastError}` : '',

@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { BASE_IMAGE_TAG, ensureBaseImage } from './baseImage.js';
+import { BASE_IMAGE_TAG } from './baseImage.js';
 /** Images a CONVERTED site runs on, derived from the shared environment base.
  *
  *  WHY DERIVATIVES RATHER THAN A FATTER BASE. The base image is what every ordinary persistent
@@ -100,25 +98,11 @@ const NODE_DIGEST = digestOf(BASE_IMAGE_TAG, NODE_CONTAINERFILE);
 const STATIC_IMAGE_TAG = `localhost/elowen-site-static:${STATIC_DIGEST}`;
 const NODE_IMAGE_TAG = `localhost/elowen-site-node:${NODE_DIGEST}`;
 export const conversionImageTag = (kind) => kind === 'static' ? STATIC_IMAGE_TAG : NODE_IMAGE_TAG;
-/** Build the derivative for a recipe, reusing the base image's layers.
- *
- *  The base is ensured first so the `FROM` resolves locally rather than reaching for a registry that has
- *  never heard of it. Build-once, exactly like the base: an existing tag is the same content by
- *  construction, because the tag IS the digest of what produced it. */
-export async function ensureConversionImage(podman, dataDir, kind) {
-    const tag = conversionImageTag(kind);
-    if (await podman.imageExists(tag))
-        return tag;
-    await ensureBaseImage(podman, dataDir);
-    const contextDir = join(dataDir, 'environment-conversion', kind === 'static' ? STATIC_DIGEST : NODE_DIGEST);
-    mkdirSync(contextDir, { recursive: true, mode: 0o700 });
-    if (kind === 'static') {
-        writeFileSync(join(contextDir, 'Containerfile'), STATIC_CONTAINERFILE, { mode: 0o600 });
-        writeFileSync(join(contextDir, 'elowen-static.conf'), STATIC_SITE_CONF, { mode: 0o600 });
-    }
-    else {
-        writeFileSync(join(contextDir, 'Containerfile'), NODE_CONTAINERFILE, { mode: 0o600 });
-    }
-    await podman.build(tag, contextDir);
-    return tag;
+export function conversionImageRecipe(kind) {
+    return {
+        tag: conversionImageTag(kind), requiresBase: true,
+        files: kind === 'static'
+            ? { Containerfile: STATIC_CONTAINERFILE, 'elowen-static.conf': STATIC_SITE_CONF }
+            : { Containerfile: NODE_CONTAINERFILE },
+    };
 }

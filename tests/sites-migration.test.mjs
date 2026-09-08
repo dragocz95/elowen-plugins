@@ -18,7 +18,7 @@ import {
   workspaceOwnedBy,
 } from '../plugins/sites/dist/dataSync.js';
 import { EnvironmentSupervisor } from '../plugins/sites/dist/environment.js';
-import { PodmanClient, SpawnExecutor } from '../plugins/sites/dist/podman.js';
+import { SpawnExecutor } from '../plugins/sites/dist/podman.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
 import {
   appUnit, auditStaticTree, installAppRecipe, isRecipeKind, loadAppRecipe, parseAppRecipe, provisionScript,
@@ -1018,33 +1018,23 @@ test('a file larger than the hashing buffer is digested whole, without being rea
   } finally { h.cleanup(); }
 });
 
-// --- real EnvironmentSupervisor over a Podman shim ---------------------------------------------------
-
-class ShimExecutor {
-  calls = [];
-  constructor(reply) { this.reply = reply ?? (() => ({ stdout: '', stderr: '', code: 0 })); }
-  async run(file, args, options) {
-    this.calls.push({ file, args, options });
-    return this.reply(args) ?? { stdout: '', stderr: '', code: 0 };
-  }
-}
+// --- real Sites caller over the typed Sandbox contract ----------------------------------------------
 
 const supervisorHarness = (statuses) => {
   const root = mkdtempSync(join(tmpdir(), 'sites-supervisor-'));
   const store = new SitesStore(makeDb());
-  const queue = [...statuses];
-  const executor = new ShimExecutor((args) => {
-    if (args[0] === 'inspect') {
-      const next = queue.shift() ?? null;
-      return next === null ? { stdout: '', stderr: 'no such container', code: 125 } : { stdout: `${next}\n`, stderr: '', code: 0 };
-    }
-    if (args[0] === 'volume' && args[1] === 'exists') return { stdout: '', stderr: '', code: 1 };
-    return { stdout: '', stderr: '', code: 0 };
-  });
-  const podman = new PodmanClient({ executor, uid: 1000, home: '/home/elowen', user: 'elowen' });
+  const calls = [];
+  let authority;
+  const control = {
+    connectSitesRuntime: value => { authority = value; },
+    discoverSiteEnvironment: async () => statuses[0] ? { containerId: 'preserved', imageId: 'sha256:preserved', volumeMountpoint: '/owned-volume', state: 'stopped' } : null,
+    registerSiteEnvironment: async () => ({ state: 'stopped', generation: 1 }),
+    siteEnvironmentFor: async () => ({ state: 'stopped', desiredState: 'stopped', generation: 1, limits: {}, lastError: null }),
+    requestSiteEnvironment: async input => { calls.push(input); return { ...input, id: String(calls.length), status: 'succeeded' }; },
+  };
   const supervisor = new EnvironmentSupervisor({
-    podman,
-    store,
+    control: () => control, dataDir: root, store,
+    access: { accountExists: () => true, isAdmin: () => true, canAccessProject: () => true },
     gateway: {
       prepareRuntimeSocket: async () => { throw new Error('prepareRuntimeSocket must not be called while staging'); },
       sealRuntimeSocket: async () => { throw new Error('sealRuntimeSocket must not be called while staging'); },
@@ -1055,10 +1045,9 @@ const supervisorHarness = (statuses) => {
       environmentMemoryMb: 384, environmentPidsLimit: 128, environmentDiskSoftMb: 1024, releasesKept: 3,
     }),
     siteDir: (siteId) => join(root, 'sites', siteId),
-    ensureBaseImage: async () => 'localhost/elowen-site-base:test',
     brokerPath: (siteId) => join('/var/lib/elowen/site-runtime-sockets', siteId, 'app.sock'),
   });
-  return { root, store, supervisor, executor, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return { root, store, supervisor, calls, authority: () => authority, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 };
 
 test('the real supervisor stages a container without starting it or touching the live broker', async () => {
@@ -1066,24 +1055,20 @@ test('the real supervisor stages a container without starting it or touching the
   try {
     h.store.insertSite(legacySite({ runtime: 'environment' }));
     const site = h.store.siteById(SITE_ID);
-    const workspace = join(h.root, 'staged');
+    const workspace = join(h.root, 'sites', SITE_ID, 'staged');
     mkdirSync(workspace, { recursive: true });
 
     const result = await h.supervisor.prepareContainer(site, workspace);
 
     assert.equal(result.created, true);
-    const argv = h.executor.calls.map((call) => call.args);
-    // Never started: the whole point is that the flip starts it, after the legacy runtime is quiesced.
-    assert.equal(argv.some((args) => args[0] === 'start'), false);
-    // The gateway seams throw if touched, so reaching here already proves the broker was left alone.
-    const create = argv.find((args) => args[0] === 'create');
-    assert.notEqual(create, undefined);
-    assert.equal(create.includes('--memory=384m'), true, 'sized from the same config a native environment uses');
-    assert.equal(create.includes('--cpus=0.5'), true);
-    assert.equal(create.includes('--pids-limit=128'), true);
-    // The staged copy is the mount source, not the site's editable sourceDir.
-    assert.equal(create.includes(`type=bind,src=${workspace},dst=/workspace`), true);
-    assert.equal(create.some((arg) => arg.includes(legacySite().sourceDir)), false);
+    assert.equal(h.calls.some(call => call.action.kind === 'start'), false);
+    assert.deepEqual(h.calls.map(call => call.action.kind), ['provision-image', 'prepare']);
+    const binding = await h.authority().resolve({ siteId: SITE_ID, accountUserId: 7, access: 'manage' });
+    assert.equal(binding.limits.memoryMb, 384);
+    assert.equal(binding.limits.cpus, 0.5);
+    assert.equal(binding.limits.pidsLimit, 128);
+    assert.equal(binding.sourcePath, workspace);
+    assert.notEqual(binding.sourcePath, legacySite().sourceDir);
   } finally { h.cleanup(); }
 });
 
@@ -1093,18 +1078,19 @@ test('staging an existing container is a no-op rather than a rebuild', async () 
     h.store.insertSite(legacySite({ runtime: 'environment' }));
     const site = h.store.siteById(SITE_ID);
 
-    const result = await h.supervisor.prepareContainer(site, join(h.root, 'staged'));
+    const result = await h.supervisor.prepareContainer(site, join(h.root, 'sites', SITE_ID, 'staged'));
 
     assert.equal(result.created, false);
-    assert.equal(h.executor.calls.some((call) => call.args[0] === 'create'), false);
+    assert.deepEqual(h.calls, []);
   } finally { h.cleanup(); }
 });
 
 test('exporting a data volume that never existed reports false instead of failing the rollback', async () => {
   const h = supervisorHarness([]);
   try {
-    assert.equal(await h.supervisor.exportDataVolume(SITE_ID, join(h.root, 'out.tar')), false);
-    assert.equal(h.executor.calls.some((call) => call.args[1] === 'export'), false);
+    h.store.insertSite(legacySite({ runtime: 'environment' }));
+    assert.equal(await h.supervisor.exportDataVolume(SITE_ID, join(h.root, 'sites', SITE_ID, 'out.tar')), false);
+    assert.equal(h.calls.at(-1).action.kind, 'export-data');
   } finally { h.cleanup(); }
 });
 

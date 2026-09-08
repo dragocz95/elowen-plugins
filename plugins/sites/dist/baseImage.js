@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 export const INGRESS_SOCKET = `[Unit]
 Description=Elowen site ingress socket
 
@@ -78,17 +76,11 @@ const imageDigest = createHash('sha256')
     .digest('hex')
     .slice(0, 16);
 export const BASE_IMAGE_TAG = `localhost/elowen-site-base:${imageDigest}`;
-/** Materialise the deterministic build context and build only when this exact image is absent.
- * The plugin runs as the service account, so the image remains in that account's rootless Podman store. */
-export async function ensureBaseImage(podman, dataDir) {
-    if (await podman.imageExists(BASE_IMAGE_TAG))
-        return BASE_IMAGE_TAG;
-    const contextDir = join(dataDir, 'environment-base', imageDigest);
-    mkdirSync(contextDir, { recursive: true, mode: 0o700 });
-    writeFileSync(join(contextDir, 'Containerfile'), CONTAINERFILE, { mode: 0o600 });
-    writeFileSync(join(contextDir, 'elowen-ingress.socket'), INGRESS_SOCKET, { mode: 0o600 });
-    writeFileSync(join(contextDir, 'elowen-ingress.service'), INGRESS_SERVICE, { mode: 0o600 });
-    writeFileSync(join(contextDir, 'elowen-bootstrap.service'), BOOTSTRAP_SERVICE, { mode: 0o600 });
-    await podman.build(BASE_IMAGE_TAG, contextDir);
-    return BASE_IMAGE_TAG;
+export function baseImageRecipe() {
+    return { tag: BASE_IMAGE_TAG, files: {
+            Containerfile: CONTAINERFILE,
+            'elowen-ingress.socket': INGRESS_SOCKET,
+            'elowen-ingress.service': INGRESS_SERVICE,
+            'elowen-bootstrap.service': BOOTSTRAP_SERVICE,
+        } };
 }

@@ -1,5 +1,5 @@
 import type {
-  PluginContext, PluginHttpRequest, PluginHttpResponse, SandboxExecutionCommand, SandboxPreparedExecution,
+  PluginContext, PluginHttpRequest, PluginHttpResponse, SandboxControl,
 } from 'elowen/plugin-api';
 
 /** ⚠️ WHY THIS SHAPE IS WRITTEN OUT HERE INSTEAD OF IMPORTED.
@@ -14,30 +14,7 @@ import type {
  *  declaration below can never be wrong at runtime in the way an unchecked cast could be. When the
  *  package catches up, delete this file and import the types directly. */
 
-interface SandboxWorkspaceView {
-  workspaceId: string;
-  projectId: number;
-  path: string;
-  label: string;
-  branch: string;
-  baseRef: string;
-}
-
-interface SitesSandboxControl {
-  activeWorkspace(input: { sessionId: string; projectId: number }): SandboxWorkspaceView | null;
-  /** The explicit form, for a caller with no ambient turn to read. A background service has neither an
-   *  identity nor a set of allowed roots, so it names both. It cannot ask for unconfined execution:
-   *  an explicit request always runs under bubblewrap. */
-  prepareExecution(
-    input: {
-      command: SandboxExecutionCommand;
-      cwd: string;
-      leaseKind: 'terminal' | 'github' | 'sites';
-      network?: 'shared' | 'isolated';
-    },
-    options?: { accountUserId: number | null; roots: readonly string[] },
-  ): SandboxPreparedExecution | Promise<SandboxPreparedExecution>;
-}
+type SitesSandboxControl = SandboxControl;
 
 export interface SitesGatewayStatus {
   available: boolean;

@@ -6,6 +6,10 @@ import type { SitesStore } from './store.js';
 interface SiteRuntimeAuthorityDeps {
   store: Pick<SitesStore, 'siteById' | 'conversionSuspends'>;
   access: AccessDeps;
+  resolveArtifact?: SiteRuntimeAuthority['resolveArtifact'];
+  imageRecipe?: SiteRuntimeAuthority['imageRecipe'];
+  projectDependents?: SiteRuntimeAuthority['projectDependents'];
+  beforeCreate?: SiteRuntimeAuthority['beforeCreate'];
   /** The durable handover binding, never a model-supplied container or mount specification. */
   registration(siteId: string): SiteEnvironmentRegistration | null;
   gateway(): {
@@ -20,7 +24,7 @@ export function createSiteRuntimeAuthority(deps: SiteRuntimeAuthorityDeps): Site
     const site = deps.store.siteById(siteId);
     const binding = deps.registration(siteId);
     if (!site || !binding || binding.siteId !== site.id || binding.projectId !== site.projectId
-      || binding.sourcePath !== site.sourceDir) {
+      || (!binding.staging && binding.sourcePath !== site.sourceDir)) {
       throw new Error('the site runtime handover binding is unavailable or no longer matches the site');
     }
     return binding;
@@ -31,9 +35,14 @@ export function createSiteRuntimeAuthority(deps: SiteRuntimeAuthorityDeps): Site
     return control;
   };
   return {
+    resolveArtifact: deps.resolveArtifact,
+    imageRecipe: deps.imageRecipe,
+    projectDependents: deps.projectDependents,
+    beforeCreate: deps.beforeCreate,
     async resolve({ siteId, accountUserId }) {
       const site = deps.store.siteById(siteId);
-      if (!site || site.runtime !== 'environment' || !deps.access.accountExists(accountUserId)) return null;
+      if (!site || !deps.access.accountExists(accountUserId)) return null;
+      if (site.runtime !== 'environment' && !deps.registration(siteId)?.staging) return null;
       // Runtime logs and commands are privileged even when the published application is public.
       // Project membership grants application access, not ownership of an independently published Site.
       const admin = deps.access.isAdmin(accountUserId);
@@ -45,7 +54,7 @@ export function createSiteRuntimeAuthority(deps: SiteRuntimeAuthorityDeps): Site
       if (!site || site.runtime !== 'environment' || site.status === 'deleting') {
         throw new Error('the site is absent, deleting, or not a persistent environment');
       }
-      if (deps.store.conversionSuspends(siteId) === 'environment') {
+      if (deps.store.conversionSuspends(siteId) === 'environment' && !deps.registration(siteId)?.staging) {
         throw new Error('the site runtime is suspended by a conversion');
       }
       const binding = bindingFor(siteId);

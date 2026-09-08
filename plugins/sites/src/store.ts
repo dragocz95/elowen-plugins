@@ -556,7 +556,39 @@ export class SitesStore {
           `);
         },
       },
+      {
+        version: 11,
+        up: (handle) => handle.exec(`
+          CREATE TABLE p_sites_runtime_records (
+            site_id TEXT NOT NULL,
+            record_key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (site_id, record_key)
+          );
+        `),
+      },
     ]);
+  }
+
+  runtimeRecord(siteId: string, key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM p_sites_runtime_records WHERE site_id = ? AND record_key = ?').get(siteId, key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  claimRuntimeRecord(siteId: string, key: string, value: string): boolean {
+    return this.db.prepare('INSERT INTO p_sites_runtime_records (site_id, record_key, value) VALUES (?, ?, ?) ON CONFLICT(site_id, record_key) DO NOTHING').run(siteId, key, value).changes === 1;
+  }
+
+  compareRuntimeRecord(siteId: string, key: string, expected: string, value: string): boolean {
+    return this.db.prepare('UPDATE p_sites_runtime_records SET value = ? WHERE site_id = ? AND record_key = ? AND value = ?').run(value, siteId, key, expected).changes === 1;
+  }
+
+  putRuntimeRecord(siteId: string, key: string, value: string): void {
+    this.db.prepare('INSERT INTO p_sites_runtime_records (site_id, record_key, value) VALUES (?, ?, ?) ON CONFLICT(site_id, record_key) DO UPDATE SET value = excluded.value').run(siteId, key, value);
+  }
+
+  deleteRuntimeRecord(siteId: string, key: string): void {
+    this.db.prepare('DELETE FROM p_sites_runtime_records WHERE site_id = ? AND record_key = ?').run(siteId, key);
   }
 
   transaction<T>(fn: () => T): T {
@@ -736,6 +768,7 @@ export class SitesStore {
       this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_runtime_migrations WHERE site_id = ?').run(id);
+      this.db.prepare('DELETE FROM p_sites_runtime_records WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_sites WHERE id = ?').run(id);
     });
   }
