@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { posix } from 'node:path';
+import { GUEST_FILE_CHUNK_BYTES } from 'elowen/dist/plugins/environmentTypes.js';
 import { LspManager } from './manager.js';
 import { MessageDecoder } from './protocol.js';
 import { listServers } from './servers.js';
@@ -27,7 +28,9 @@ export class ManagedLspManager extends LspManager {
             readFile: async (path) => {
                 const sandbox = await this.authority();
                 const result = await sandbox.projectFiles({ project, accountUserId: actor, expectedGeneration: this.generation,
-                    operation: { kind: 'read', path: guestLspPath(path), maxBytes: 2 * 1024 * 1024 } });
+                    // The guest refuses a read bound above its own chunk size, so asking for more than this failed
+                    // the whole operation and every managed diagnostic degraded to skipped:'unreadable'.
+                    operation: { kind: 'read', path: guestLspPath(path), maxBytes: GUEST_FILE_CHUNK_BYTES } });
                 if (result.kind !== 'read')
                     throw new Error('Invalid guest file response.');
                 const bytes = Buffer.from(result.base64, 'base64');
@@ -213,7 +216,8 @@ export class ManagedLspManager extends LspManager {
         if (!spec?.npmPackages?.length)
             throw new Error('This language server is not npm-managed.');
         this.disposeAll();
-        await this.run('npm', [uninstall ? 'uninstall' : 'install', '--global', '--ignore-scripts', '--', ...spec.npmPackages]);
+        const packages = uninstall ? spec.npmPackages : (spec.npmInstallSpecs ?? spec.npmPackages);
+        await this.run('npm', [uninstall ? 'uninstall' : 'install', '--global', '--ignore-scripts', '--', ...packages]);
         const status = await this.statusAsync();
         if (!uninstall && !status.servers.find((server) => server.command === command)?.installed)
             throw new Error('Installed language server is not on the guest PATH.');

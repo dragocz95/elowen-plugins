@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { posix } from 'node:path';
 import type { PluginContext, SandboxControl, SandboxPreparedExecution } from 'elowen/dist/plugins/api.js';
+import { GUEST_FILE_CHUNK_BYTES } from 'elowen/dist/plugins/environmentTypes.js';
 import { LspManager, type LspStatus } from './manager.js';
 import type { LspTransport } from './client.js';
 import { MessageDecoder, type JsonRpcMessage } from './protocol.js';
@@ -18,6 +19,7 @@ export class ManagedLspManager extends LspManager {
   private generation: number | undefined;
   private readonly cleanups = new Set<Promise<void>>();
   private readonly installed = new Set<string>();
+
   /** Latched by shutdown(): a stopped manager mints NO new leases. A prepare that resolves after the
    *  owner's stop began would otherwise register a transport (and a live execution lease) in an
    *  instance that has already left the plugin's managed set — nobody would ever cancel it. */
@@ -30,7 +32,9 @@ export class ManagedLspManager extends LspManager {
       readFile: async (path) => {
         const sandbox = await this.authority();
         const result = await sandbox.projectFiles({ project, accountUserId: actor, expectedGeneration: this.generation,
-          operation: { kind: 'read', path: guestLspPath(path), maxBytes: 2 * 1024 * 1024 } });
+          // The guest refuses a read bound above its own chunk size, so asking for more than this failed
+          // the whole operation and every managed diagnostic degraded to skipped:'unreadable'.
+          operation: { kind: 'read', path: guestLspPath(path), maxBytes: GUEST_FILE_CHUNK_BYTES } });
         if (result.kind !== 'read') throw new Error('Invalid guest file response.');
         const bytes = Buffer.from(result.base64, 'base64');
         if (result.totalBytes > bytes.length) throw new Error('Guest source exceeds the language-server read limit.');
@@ -179,7 +183,8 @@ export class ManagedLspManager extends LspManager {
     const spec = listServers().find((server) => server.command === command);
     if (!spec?.npmPackages?.length) throw new Error('This language server is not npm-managed.');
     this.disposeAll();
-    await this.run('npm', [uninstall ? 'uninstall' : 'install', '--global', '--ignore-scripts', '--', ...spec.npmPackages]);
+    const packages = uninstall ? spec.npmPackages : (spec.npmInstallSpecs ?? spec.npmPackages);
+    await this.run('npm', [uninstall ? 'uninstall' : 'install', '--global', '--ignore-scripts', '--', ...packages]);
     const status = await this.statusAsync();
     if (!uninstall && !status.servers.find((server) => server.command === command)?.installed) throw new Error('Installed language server is not on the guest PATH.');
   }
