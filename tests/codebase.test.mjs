@@ -840,11 +840,14 @@ describe('managed project environments', () => {
 
   it('still answers a normal host-project turn', async () => {
     const repo = mkdtempSync(join(tmpdir(), 'cbh-'));
-    writeFileSync(join(repo, 'a.js'), 'export const search = 1;\n');
-    host.asAdmin(realpathSync(repo));
-    const result = await host.runTool('CodebaseStatus', {});
-    assert.doesNotMatch(JSON.stringify(result), /does not cover managed project environments/);
-    rmSync(repo, { recursive: true, force: true });
+    try {
+      writeFileSync(join(repo, 'a.js'), 'export const search = 1;\n');
+      host.asAdmin(realpathSync(repo));
+      const result = await host.runTool('CodebaseStatus', {});
+      assert.doesNotMatch(JSON.stringify(result), /does not cover managed project environments/);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
 
