@@ -29,7 +29,7 @@
     "check:web-types": "tsc -p tsconfig.plugins-web.json"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.3",
+    "@earendil-works/pi-coding-agent": "0.85.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@monaco-editor/react": "^4.7.0",
     "@novnc/novnc": "^1.7.0",
