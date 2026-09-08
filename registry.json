@@ -117,19 +117,6 @@
       }
     },
     {
-      "name": "mcp",
-      "version": "0.1.8",
-      "requiresCore": "0.28.24",
-      "description": "Connect external MCP servers to the assistant\u2019s tools.",
-      "category": "tools",
-      "author": "Elowen",
-      "apiVersion": "1",
-      "provides": {
-        "tools": 7,
-        "apiRoutes": 3
-      }
-    },
-    {
       "name": "msteams",
       "version": "0.7.0",
       "requiresCore": "0.28.23",
