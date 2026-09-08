@@ -1,6 +1,6 @@
 {
   "name": "cronjob",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "apiVersion": "1",
   "requiresCore": "0.28.33",
   "requiresSharedApi": 3,
@@ -254,6 +254,10 @@
       "conversationLoading": "Loading conversations…",
       "conversationListError": "The conversations could not be loaded. Please try again.",
       "conversationOwnChat": "Own conversations",
+      "conversationUnknown": "Conversation unknown",
+      "runInOwnConversation": "runs in its own conversation",
+      "runInChannel": "runs in its own channel",
+      "runInOrigin": "runs where it was created",
       "linkUnavailable": "That job is not available",
       "linkUnavailableHint": "It was deleted, or it belongs to another account. Choose a job from the list."
     }

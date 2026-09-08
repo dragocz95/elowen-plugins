@@ -38,6 +38,18 @@ const writeJobParam = (id: string | null): void => {
 
 const textareaClass = 'w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-ring';
 
+/** The fields of a job a client OWNS, i.e. everything the daemon did not derive for display. `owner`,
+ *  `conversation`, `conversationUnresolved` and `runLocation` are the daemon's projections of its own
+ *  state, resolved from keys this page never sees; sending them back would ask it to trust a client's
+ *  copy of its own answer. `expectedRevision` is re-stated per write from the draft's revision. */
+const writablePayload = (job: CronJob): CronJob => {
+  const {
+    owner: _owner, conversation: _conversation, conversationUnresolved: _unresolved,
+    runLocation: _runLocation, expectedRevision: _expectedRevision, ...payload
+  } = job;
+  return payload;
+};
+
 /** Single-select notification target across every enabled platform. A saved opaque value whose provider
  *  is currently unavailable stays pinned, so opening and saving the editor never silently drops it. */
 function DestinationField({ value, onChange, destinations }: { value: string; onChange: (v: string) => void; destinations: NotificationDestinationOption[] }) {
@@ -416,6 +428,9 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const [draft, setDraft] = useState<CronJob>(job);
   const [confirming, setConfirming] = useState(false);
   const [runPending, setRunPending] = useState(false);
+  /** The row's own enable switch is on the wire. It writes immediately rather than through the debounced
+   *  auto-save, so the row says so itself instead of borrowing the editor's indicator. */
+  const [togglePending, setTogglePending] = useState(false);
   /** Only user edits advance this value. Scheduler stamps and API refreshes may replace the clean draft,
    *  but they must never look like another edit and send the same job back in an endless PUT/refetch loop. */
   const [editVersion, setEditVersion] = useState(0);
@@ -464,7 +479,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
     const sent = draftRef.current;
     // `conversation` is the server's live projection of the filing, resolved from an immutable key this
     // page never sees; sending it back would ask the daemon to trust a client's copy of its own answer.
-    const { owner: _owner, conversation: _conversation, conversationUnresolved: _unresolved, expectedRevision: _expectedRevision, ...payload } = sent;
+    const payload = writablePayload(sent);
     everSaved.current = true;
     const request = save.mutateAsync({ ...payload, expectedRevision: sent.revision ?? 0 });
     inFlight.current = request;
@@ -511,6 +526,34 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
     }
   };
 
+  /** Enable or pause the job straight from the row. The draft flips FIRST, so the switch answers the
+   *  click at once, and the previous value comes back if the daemon refuses — with the reason it gave,
+   *  the way the editor's save path reports one. The whole draft travels, because that is what the
+   *  auto-save would have sent anyway; a partial write here would silently drop a pending edit. */
+  const toggleEnabled = async (next: boolean) => {
+    if (!persisted || !mayToggle || togglePending || deleted.current) return;
+    const before = draftRef.current;
+    const sent = { ...before, enabled: next };
+    setDraft(sent);
+    dirty.current = true;
+    setTogglePending(true);
+    everSaved.current = true;
+    const request = save.mutateAsync({ ...writablePayload(sent), expectedRevision: before.revision ?? 0 });
+    inFlight.current = request; // a DELETE must not overtake the write it would undo
+    try {
+      await request;
+      if (draftRef.current === sent) dirty.current = false;
+    } catch (error) {
+      // Only revert what is still the optimistic value: anything typed meanwhile is the user's and the
+      // auto-save owns it from here.
+      if (draftRef.current === sent) { setDraft(before); dirty.current = false; }
+      toast(`${s.saveError} — ${utils.apiErrorMessage(error)}`, 'error');
+    } finally {
+      if (inFlight.current === request) inFlight.current = null;
+      setTogglePending(false);
+    }
+  };
+
   const remove = async () => {
     deleted.current = true;
     setConfirming(false);
@@ -525,6 +568,9 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   };
 
   const enabled = draft.enabled !== false;
+  /** Who may pause this job from the row. The daemon enforces the same rule; offering a switch whose
+   *  every write comes back 403 is worse than showing the state as read-only. */
+  const mayToggle = adminFields || (job.ownerUserId != null && job.ownerUserId === myId);
   const validSchedule = draft.runAt ? true : utils.isValidSchedule(draft.schedule);
   const lastRunMs = utils.parseTs(job.lastRun);
   const destination = draft.notifyChannelId ? destinations.find((option) => option.value === draft.notifyChannelId) : undefined;
@@ -534,6 +580,20 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const dest = draft.notifyChannelId ? destination?.label ?? draft.notifyChannelId
     : job.ownerUserId != null ? s.channelOwnerChat : null;
   const name = draft.name || s.jobNew;
+  /** The conversation the job is FILED under, as the row can state it: the four answers the daemon
+   *  distinguishes, in the same words the editor uses below. A one-shot wake-up is never filed. */
+  const filed = draft.runAt ? null
+    : job.conversationUnresolved === true ? s.conversationUnknown
+    : job.conversation ? job.conversation.title || job.conversation.id
+    : job.conversation === null ? s.conversationUnavailable
+    : s.conversationUnassigned;
+  /** Where its turns actually RUN, and only when that is somewhere else. A job whose runs land in the
+   *  very conversation it is filed under would just say the same thing twice. */
+  const runsIn = job.runLocation?.kind === 'dedicated' ? s.runInOwnConversation
+    : job.runLocation?.kind === 'channel' ? s.runInChannel
+    : job.runLocation?.kind === 'origin' && job.runLocation.sessionId !== draft.conversationSessionId ? s.runInOrigin
+    : null;
+  const where = [filed, runsIn].filter(Boolean).join(' · ');
 
   return (
     <>
@@ -544,22 +604,46 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
         openLabel={s.openJob.replace('{name}', name)}
         className="group"
       >
-        {/* The dot restates in colour what the name cell already carries as the paused badge and as the
-            screen-reader text below, so it is decoration — hidden from the accessibility tree together
-            with its header, and dropped from the compact layout where its track was width the job name
-            needed. */}
-        <C.DataTableCell lines="auto" priority="wide" aria-hidden className="flex items-center justify-center">
-          <span
-            className={`inline-block h-2 w-2 shrink-0 rounded-full ${enabled ? 'bg-success' : 'bg-destructive'}`}
-            title={enabled ? s.enabled : s.paused}
+        {/* The switch stands where the state dot did, because the two state the same thing and only one
+            of them may: a control beside a read-only copy of its own value is two truths waiting to
+            disagree. It is operable, so neither it nor its header is hidden from the accessibility tree
+            any more. It keeps the dot's `wide` priority — at 320px its track is width the job name
+            needs, and the state still travels there as the paused badge and the text below, with the
+            editor's own switch a tap away. */}
+        <C.DataTableCell lines="auto" priority="wide" className="flex items-center justify-center">
+          <C.Toggle
+            checked={enabled}
+            onChange={(next: boolean) => void toggleEnabled(next)}
+            label={`${name}: ${s.enabled}`}
+            disabled={!persisted || !mayToggle || togglePending || autosave.status === 'saving'}
           />
         </C.DataTableCell>
-        <C.DataTableCell lines="auto" title={name} className="flex items-center gap-2">
-          <span className="truncate text-sm text-foreground">{name}</span>
-          {!enabled ? <C.Badge tone="muted">{s.paused}</C.Badge> : null}
-          {/* The state as text, in the column that survives every width: colour alone does not carry it,
-              `title` is not reliably announced, and an active job has no badge to speak for it. */}
-          <span className="sr-only">{enabled ? s.enabled : s.paused}</span>
+        <C.DataTableCell lines="auto" title={name} className="flex min-w-0 flex-col justify-center gap-0.5">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm text-foreground">{name}</span>
+            {!enabled ? <C.Badge tone="muted">{s.paused}</C.Badge> : null}
+            {/* The state as text, in the column that survives every width: colour alone does not carry
+                it, `title` is not reliably announced, and an active job has no badge to speak for it. */}
+            <span className="sr-only">{enabled ? s.enabled : s.paused}</span>
+          </span>
+          {/* Owner and conversation as one secondary line, so both are readable at every width instead of
+              only inside the editor or only on a wide fold. The owner half is left out where it is
+              implied: a non-admin's list is already nothing but their own jobs. */}
+          {ownerLabel !== null || where ? (
+            <span className="flex min-w-0 items-center gap-1.5 text-[11px] leading-tight text-muted-foreground">
+              {ownerLabel !== null ? (
+                job.owner ? (
+                  <span className="flex min-w-0 items-center gap-1" title={`${job.owner.name} (#${job.owner.id})`}>
+                    <C.Avatar name={job.owner.name || job.owner.username} user={job.owner} size={16} />
+                    <span className="truncate">{job.owner.name || job.owner.username}</span>
+                    <span className="shrink-0 text-[10px]">#{job.owner.id}</span>
+                  </span>
+                ) : <span className="shrink-0">{ownerLabel}</span>
+              ) : null}
+              {ownerLabel !== null && where ? <span className="shrink-0" aria-hidden>·</span> : null}
+              {where ? <span className="truncate" title={`${s.conversation}: ${where}`}>{where}</span> : null}
+            </span>
+          ) : null}
         </C.DataTableCell>
         <C.DataTableCell lines="auto" priority="wide" className="whitespace-nowrap">
           <C.Badge tone={validSchedule ? 'default' : 'danger'}>
@@ -567,19 +651,6 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
             {draft.schedule}
           </C.Badge>
         </C.DataTableCell>
-        {ownerLabel !== null ? (
-          <C.DataTableCell lines={1} priority="wide" className="text-xs text-muted-foreground">
-            {job.owner ? (
-              <span className="flex min-w-0 items-center gap-2" title={`${job.owner.name} (#${job.owner.id})`}>
-                <C.Avatar name={job.owner.name || job.owner.username} user={job.owner} size={22} />
-                <span className="flex min-w-0 flex-col leading-tight">
-                  <span className="truncate text-xs font-medium text-foreground">{job.owner.name || job.owner.username}</span>
-                  <span className="text-[10px] text-muted-foreground">#{job.owner.id}</span>
-                </span>
-              </span>
-            ) : ownerLabel}
-          </C.DataTableCell>
-        ) : null}
         {/* Destination: one line that truncates, full name on hover. A channel or thread title can be far
             longer than the column, and wrapping it pushed every other row out of alignment. Shown only to
             an admin: an owned job always reports in its owner's own conversation and they cannot change
@@ -892,25 +963,24 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
 
   const table = (
     <div className="flex min-w-0 flex-col gap-3">
-      {/* Three tracks compact: the job name, the save state and the chevron. The state dot is dropped
-          there because at 320px the row has ~194px to spend and its 2rem track plus the gap left the
-          `1fr` name column 34px — about three characters of the value that identifies the row. The state
-          itself is not lost: it travels as the paused badge and the screen-reader text inside the name
-          cell at every width. The save state stays, because the retry it offers after the editor was
-          closed exists nowhere else. */}
+      {/* Three tracks compact: the job name, the save state and the chevron. The switch column is dropped
+          there because at 320px the row has ~194px to spend and its track plus the gap left the `1fr`
+          name column about three characters of the value that identifies the row. Nothing is lost: the
+          state travels as the paused badge and the screen-reader text inside the name cell at every
+          width, and the editor carries the same switch one tap away. The save state stays, because the
+          retry it offers after the editor was closed exists nowhere else. */}
       <C.DataTable
         ariaLabel={s.title}
-        columns={isAdmin ? '2rem minmax(0,1fr) 9.5rem minmax(9rem,11rem) minmax(0,12rem) 7rem 4.5rem 1.25rem' : '2rem minmax(0,1fr) 9.5rem 7rem 4.5rem 1.25rem'}
+        columns={isAdmin ? '2.75rem minmax(0,1fr) 9.5rem minmax(0,12rem) 7rem 4.5rem 1.25rem' : '2.75rem minmax(0,1fr) 9.5rem 7rem 4.5rem 1.25rem'}
         compactColumns="minmax(0,1fr) 4.5rem 1.25rem"
       >
         <C.DataTableRow header>
-          {/* Presentational, like the dot it heads: the state is announced with the job name instead.
-              Both halves are hidden together, or a body row would run one column longer than the header
-              and every remaining column would be read against the wrong name. */}
-          <C.DataTableCell header lines={1} priority="wide" role="presentation" aria-hidden>{null}</C.DataTableCell>
+          {/* The switch column carries an operable control, so it is named rather than hidden — with the
+              name for assistive technology alone, the way the save-state column below is: the switches
+              speak for themselves on screen and a second visible "Enabled" would head a column of them. */}
+          <C.DataTableCell header lines={1} priority="wide" labelHidden>{s.enabled}</C.DataTableCell>
           <C.DataTableCell header lines={1}>{s.name}</C.DataTableCell>
           <C.DataTableCell header lines={1} priority="wide">{s.schedule}</C.DataTableCell>
-          {isAdmin ? <C.DataTableCell header lines={1} priority="wide">{s.ownerColumn}</C.DataTableCell> : null}
           {isAdmin ? <C.DataTableCell header lines={1} priority="wide">{s.channel}</C.DataTableCell> : null}
           <C.DataTableCell header lines={1} priority="wide" className="whitespace-nowrap">{s.colLastRun}</C.DataTableCell>
           {/* The save-state column holds an autosave indicator AND its Retry button, so its content is

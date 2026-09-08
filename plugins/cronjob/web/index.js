@@ -290,6 +290,17 @@ var writeJobParam = (id) => {
   window.history.pushState(window.history.state, "", next);
 };
 var textareaClass = "w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-ring";
+var writablePayload = (job) => {
+  const {
+    owner: _owner,
+    conversation: _conversation,
+    conversationUnresolved: _unresolved,
+    runLocation: _runLocation,
+    expectedRevision: _expectedRevision,
+    ...payload
+  } = job;
+  return payload;
+};
 function DestinationField({ value, onChange, destinations }) {
   const { components: C, hooks } = runtime();
   const { t } = hooks.useTranslation();
@@ -582,6 +593,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const [draft, setDraft] = (0, import_react3.useState)(job);
   const [confirming, setConfirming] = (0, import_react3.useState)(false);
   const [runPending, setRunPending] = (0, import_react3.useState)(false);
+  const [togglePending, setTogglePending] = (0, import_react3.useState)(false);
   const [editVersion, setEditVersion] = (0, import_react3.useState)(0);
   const draftRef = (0, import_react3.useRef)(draft);
   draftRef.current = draft;
@@ -591,10 +603,10 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const everSaved = (0, import_react3.useRef)(persisted);
   const ownerOf = (j) => adminFields ? j.ownerUserId ?? null : myId;
   const ownerConflict = (j) => {
-    const filed = job.conversation;
-    if (!filed || j.conversationSessionId !== job.conversationSessionId) return false;
+    const filed2 = job.conversation;
+    if (!filed2 || j.conversationSessionId !== job.conversationSessionId) return false;
     const owner = ownerOf(j);
-    return owner !== null && filed.ownerUserId !== owner;
+    return owner !== null && filed2.ownerUserId !== owner;
   };
   const filingReady = (j) => {
     if (j.runAt) return true;
@@ -605,7 +617,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const autosave = hooks.useAutoSaveStatus([editVersion], async () => {
     if (deleted.current) return;
     const sent = draftRef.current;
-    const { owner: _owner, conversation: _conversation, conversationUnresolved: _unresolved, expectedRevision: _expectedRevision, ...payload } = sent;
+    const payload = writablePayload(sent);
     everSaved.current = true;
     const request = save.mutateAsync({ ...payload, expectedRevision: sent.revision ?? 0 });
     inFlight.current = request;
@@ -642,6 +654,30 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
       setRunPending(false);
     }
   };
+  const toggleEnabled = async (next) => {
+    if (!persisted || !mayToggle || togglePending || deleted.current) return;
+    const before = draftRef.current;
+    const sent = { ...before, enabled: next };
+    setDraft(sent);
+    dirty.current = true;
+    setTogglePending(true);
+    everSaved.current = true;
+    const request = save.mutateAsync({ ...writablePayload(sent), expectedRevision: before.revision ?? 0 });
+    inFlight.current = request;
+    try {
+      await request;
+      if (draftRef.current === sent) dirty.current = false;
+    } catch (error) {
+      if (draftRef.current === sent) {
+        setDraft(before);
+        dirty.current = false;
+      }
+      toast(`${s.saveError} \u2014 ${utils.apiErrorMessage(error)}`, "error");
+    } finally {
+      if (inFlight.current === request) inFlight.current = null;
+      setTogglePending(false);
+    }
+  };
   const remove = async () => {
     deleted.current = true;
     setConfirming(false);
@@ -657,11 +693,15 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
     }
   };
   const enabled = draft.enabled !== false;
+  const mayToggle = adminFields || job.ownerUserId != null && job.ownerUserId === myId;
   const validSchedule = draft.runAt ? true : utils.isValidSchedule(draft.schedule);
   const lastRunMs = utils.parseTs(job.lastRun);
   const destination = draft.notifyChannelId ? destinations.find((option) => option.value === draft.notifyChannelId) : void 0;
   const dest = draft.notifyChannelId ? destination?.label ?? draft.notifyChannelId : job.ownerUserId != null ? s.channelOwnerChat : null;
   const name = draft.name || s.jobNew;
+  const filed = draft.runAt ? null : job.conversationUnresolved === true ? s.conversationUnknown : job.conversation ? job.conversation.title || job.conversation.id : job.conversation === null ? s.conversationUnavailable : s.conversationUnassigned;
+  const runsIn = job.runLocation?.kind === "dedicated" ? s.runInOwnConversation : job.runLocation?.kind === "channel" ? s.runInChannel : job.runLocation?.kind === "origin" && job.runLocation.sessionId !== draft.conversationSessionId ? s.runInOrigin : null;
+  const where = [filed, runsIn].filter(Boolean).join(" \xB7 ");
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       C.DataTableRow,
@@ -672,32 +712,38 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
         openLabel: s.openJob.replace("{name}", name),
         className: "group",
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", "aria-hidden": true, className: "flex items-center justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "span",
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", className: "flex items-center justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            C.Toggle,
             {
-              className: `inline-block h-2 w-2 shrink-0 rounded-full ${enabled ? "bg-success" : "bg-destructive"}`,
-              title: enabled ? s.enabled : s.paused
+              checked: enabled,
+              onChange: (next) => void toggleEnabled(next),
+              label: `${name}: ${s.enabled}`,
+              disabled: !persisted || !mayToggle || togglePending || autosave.status === "saving"
             }
           ) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableCell, { lines: "auto", title: name, className: "flex items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm text-foreground", children: name }),
-            !enabled ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "muted", children: s.paused }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sr-only", children: enabled ? s.enabled : s.paused })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableCell, { lines: "auto", title: name, className: "flex min-w-0 flex-col justify-center gap-0.5", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm text-foreground", children: name }),
+              !enabled ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "muted", children: s.paused }) : null,
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sr-only", children: enabled ? s.enabled : s.paused })
+            ] }),
+            ownerLabel !== null || where ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5 text-[11px] leading-tight text-muted-foreground", children: [
+              ownerLabel !== null ? job.owner ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-1", title: `${job.owner.name} (#${job.owner.id})`, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: job.owner.name || job.owner.username, user: job.owner, size: 16 }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", children: job.owner.name || job.owner.username }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "shrink-0 text-[10px]", children: [
+                  "#",
+                  job.owner.id
+                ] })
+              ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "shrink-0", children: ownerLabel }) : null,
+              ownerLabel !== null && where ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "shrink-0", "aria-hidden": true, children: "\xB7" }) : null,
+              where ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", title: `${s.conversation}: ${where}`, children: where }) : null
+            ] }) : null
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", className: "whitespace-nowrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Badge, { tone: validSchedule ? "default" : "danger", children: [
             draft.runAt ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CalendarClock, { size: 10, className: "mr-1 inline-block align-[-1px]", "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Clock, { size: 10, className: "mr-1 inline-block align-[-1px]", "aria-hidden": true }),
             draft.schedule
           ] }) }),
-          ownerLabel !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, priority: "wide", className: "text-xs text-muted-foreground", children: job.owner ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-2", title: `${job.owner.name} (#${job.owner.id})`, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: job.owner.name || job.owner.username, user: job.owner, size: 22 }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 flex-col leading-tight", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-xs font-medium text-foreground", children: job.owner.name || job.owner.username }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "text-[10px] text-muted-foreground", children: [
-                "#",
-                job.owner.id
-              ] })
-            ] })
-          ] }) : ownerLabel }) : null,
           adminFields ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, priority: "wide", title: dest ?? s.channelDefault, className: "text-xs text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "shrink-0", children: destination && destination.kind !== "channel" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 12, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Hash, { size: 12, "aria-hidden": true }) }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `truncate ${dest ? "" : "italic text-muted-foreground"}`, children: dest ?? s.channelDefault })
@@ -939,14 +985,13 @@ function JobsSettings({ surface }) {
       C.DataTable,
       {
         ariaLabel: s.title,
-        columns: isAdmin ? "2rem minmax(0,1fr) 9.5rem minmax(9rem,11rem) minmax(0,12rem) 7rem 4.5rem 1.25rem" : "2rem minmax(0,1fr) 9.5rem 7rem 4.5rem 1.25rem",
+        columns: isAdmin ? "2.75rem minmax(0,1fr) 9.5rem minmax(0,12rem) 7rem 4.5rem 1.25rem" : "2.75rem minmax(0,1fr) 9.5rem 7rem 4.5rem 1.25rem",
         compactColumns: "minmax(0,1fr) 4.5rem 1.25rem",
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { header: true, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", role: "presentation", "aria-hidden": true, children: null }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", labelHidden: true, children: s.enabled }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.name }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.schedule }),
-            isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.ownerColumn }) : null,
             isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.channel }) : null,
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", className: "whitespace-nowrap", children: s.colLastRun }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, lines: 1, labelHidden: true, children: s.colSaveState }),

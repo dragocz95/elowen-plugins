@@ -116,6 +116,36 @@ describe('cron jobs routes', () => {
     expect(onDisk(dataRoot)[0].prompt).toBe('Edited.');
   });
 
+  // Where a job is FILED and where it RUNS are two different facts, and a page that shows only the first
+  // sends the reader to the schedule's editor when they were looking for the transcript. The run location
+  // is derived from the one place that decides it, so the listing and the scheduler cannot disagree.
+  it('GET says where each job runs, beside the conversation it is filed under', async () => {
+    const { app, dataRoot, adminTok, amy } = setup();
+    seed(dataRoot, [
+      job({ id: 'shared', name: 'instance digest' }),
+      job({ id: 'owned', name: 'her digest', ownerUserId: amy.id }),
+      job({ id: 'channelled', name: 'to a room', ownerUserId: amy.id, notifyChannelId: 'destination:discord:100' }),
+    ]);
+    const rows = await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json() as {
+      id: string; runLocation: { kind: string; sessionId?: string; channelId?: string };
+    }[];
+    const byId = new Map(rows.map((row) => [row.id, row.runLocation]));
+    // An instance job, and any job carrying an explicit channel, runs in its own cron channel.
+    expect(byId.get('shared')).toEqual({ kind: 'channel', channelId: 'job-shared' });
+    expect(byId.get('channelled')).toEqual({ kind: 'channel', channelId: 'job-channelled' });
+    // Every other owned recurring job runs in a conversation of its own, named after the job.
+    expect(byId.get('owned')).toEqual({ kind: 'dedicated', sessionId: `brain-${amy.id}-job-owned` });
+  });
+
+  // Derived on the way out, never stored: a client that echoes the projection back must not be able to
+  // write a location the scheduler would then not honour.
+  it('never stores a run location a client sent back', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    const res = await save(app, adminTok, { ...job({}), runLocation: { kind: 'channel', channelId: 'job-elsewhere' } });
+    expect(res.status).toBe(200);
+    expect(onDisk(dataRoot)[0]).not.toHaveProperty('runLocation');
+  });
+
   it('rejects a stale revision and returns the current job snapshot', async () => {
     const { app, dataRoot, adminTok } = setup();
     seed(dataRoot, [job({ revision: 3, prompt: 'Server copy.' })]);
@@ -145,8 +175,13 @@ describe('cron jobs routes', () => {
     const stripped = jobs.map(({ lastRun: _lr, lastResult: _lres, ...j }: Record<string, unknown>) => ({ ...j, revision: 1 }));
     const back = await app.request('/plugins/cronjob/jobs', auth(adminTok));
     // The conversation the job is filed under is projected for the client as it stands TODAY; the
-    // immutable key it is stored by never leaves the daemon.
-    expect(await back.json()).toEqual(stripped.map((j) => ({ ...j, conversation: conversationView() })));
+    // immutable key it is stored by never leaves the daemon. Where the job RUNS is projected beside it,
+    // and both instance jobs here run in a cron channel of their own.
+    expect(await back.json()).toEqual(stripped.map((j) => ({
+      ...j,
+      conversation: conversationView(),
+      runLocation: { kind: 'channel', channelId: `job-${j.id}` },
+    })));
     // The plugin's scheduler reads this exact file every tick — verify it landed on disk.
     expect(existsSync(join(dataRoot, 'cronjob', 'jobs.json'))).toBe(true);
     expect(onDisk(dataRoot)).toEqual(stripped.map((j) => ({ ...j, conversationKey: `ns-${STUB_CONVERSATION_ID}` })));

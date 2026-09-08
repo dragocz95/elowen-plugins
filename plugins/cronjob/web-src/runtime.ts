@@ -60,6 +60,10 @@ export interface CronJob {
   /** True when the daemon could not READ the conversation directory at all, so `conversation: null` means
    *  "not known right now" rather than "deleted". A different answer, and a different thing to say. */
   conversationUnresolved?: boolean;
+  /** Read-only projection of WHERE this job's turns run, which is a different fact from the conversation
+   *  it is filed under: `dedicated` is the job's own conversation, `channel` its cron channel, `origin`
+   *  the conversation it was scheduled from. Derived by the daemon per response and never sent back. */
+  runLocation?: { kind: 'origin' | 'dedicated' | 'channel'; sessionId?: string; channelId?: string };
   enabled?: boolean; runAt?: string; createdAt?: string; lastRun?: string; lastResult?: string;
   /** Server revision used as the conditional-write token; never display as editable content. */
   revision?: number;

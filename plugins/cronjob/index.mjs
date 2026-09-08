@@ -1244,6 +1244,21 @@ export function register(ctx) {
     return inPrivateConversation() ? (assoc.target.title || assoc.target.id) : 'assigned';
   };
 
+  /** WHERE THE JOB'S TURNS RUN, for a reader of the job list — the same answer the scheduler routes by
+   *  and the navigation seam hands to a conversation listing, read from `jobRunLocation` so a page can
+   *  never state a location the daemon would not use. Read-only: it is derived on every response and is
+   *  not a client-writable field (it is absent from CRON_FIELDS, so a sent one is dropped).
+   *
+   *  Only the KIND and the identifier travel. A dedicated conversation and a cron channel are exactly
+   *  what the row has to distinguish from the conversation the job is FILED under, which is a different
+   *  fact and already on the wire beside this one. */
+  const publicRunLocation = (job) => {
+    const location = jobRunLocation(job, ownerOf(job));
+    return location.kind === 'channel'
+      ? { kind: 'channel', channelId: location.channelId }
+      : { kind: location.kind, sessionId: location.sessionId };
+  };
+
   /** The client-facing shape of a stored job. The immutable key never leaves the daemon, and a live
    *  association is projected as the conversation's CURRENT id plus display metadata; an unavailable one
    *  keeps its stored id beside an explicit null, so the editor can say so and offer a reassignment
@@ -1254,7 +1269,8 @@ export function register(ctx) {
    *  ask them to refile a job whose filing is very probably still good — a wrong answer, where the honest
    *  one is that nothing is known right now. */
   const publicJob = (job) => {
-    const { conversationKey: _key, ...rest } = job;
+    const { conversationKey: _key, ...base } = job;
+    const rest = { ...base, runLocation: publicRunLocation(job) };
     const assoc = jobAssociation(job);
     if (assoc.state === 'unset') return rest;
     if (assoc.state === 'unknown') return { ...rest, conversation: null, conversationUnresolved: true };

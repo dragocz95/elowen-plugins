@@ -40,14 +40,8 @@
   .table {
     display: table;
   }
-  .h-2 {
-    height: calc(var(--spacing, 0.25rem) * 2);
-  }
   .h-9 {
     height: calc(var(--spacing, 0.25rem) * 9);
-  }
-  .w-2 {
-    width: calc(var(--spacing, 0.25rem) * 2);
   }
   .w-full {
     width: 100%;
@@ -115,9 +109,6 @@
   .rounded {
     border-radius: var(--radius, 0.5rem);
   }
-  .rounded-full {
-    border-radius: calc(infinity * 1px);
-  }
   .rounded-md {
     border-radius: var(--radius-md, 0.625rem);
   }
@@ -141,17 +132,11 @@
   .bg-background {
     background-color: var(--color-background, #000000);
   }
-  .bg-destructive {
-    background-color: var(--color-destructive, #e94d42);
-  }
   .bg-destructive\/10 {
     background-color: color-mix(in srgb, #e94d42 10%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-destructive, #e94d42) 10%, transparent);
     }
-  }
-  .bg-success {
-    background-color: var(--color-success, #32c986);
   }
   .px-2 {
     padding-inline: calc(var(--spacing, 0.25rem) * 2);
@@ -187,6 +172,9 @@
   }
   .text-\[10px\] {
     font-size: 10px;
+  }
+  .text-\[11px\] {
+    font-size: 11px;
   }
   .leading-tight {
     --tw-leading: var(--leading-tight, 1.25);
