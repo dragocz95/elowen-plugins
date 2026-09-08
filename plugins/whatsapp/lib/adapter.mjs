@@ -11,7 +11,7 @@ import { collectQuestionAnswers, parseAskReply } from './ask.mjs';
 import { sameId, isGroup, isSupportedChat, numberOf, toJid, senderIsAdmin, matchPolicy } from './jid.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage } from './stream.mjs';
-import { controlCommandsFrom, localCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { PICKER_CONTEXT, SHARED_PICKERS, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
@@ -25,7 +25,6 @@ const MAX_IMAGES = 4;                    // default vision cap per message (cfg:
 // governs both, so raising it for a slow chat cannot leave the menu expiring six minutes in.
 const ASK_TTL_MS = 6 * 60_000;           // default: drop a parked prompt after this (cfg: askTimeoutMs; > the core 5-min timeout)
 const MENU_PAGE = 18;                     // numbered-menu options per page (leaves room for nav rows)
-const CONTEXT_MAX = 200;                  // upper bound of own conversations the /context picker pages over
 const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per reply (cfg: maxUploadImages)
 const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per reply — no config key: the agent
                                          // chooses what to share, so this is a transport bound, not a preference
@@ -104,7 +103,7 @@ export class WhatsAppAdapter {
     this.lastQrLogAt = 0;    // throttle the ASCII-QR log line
     this.sentStore = new Map(); // messageId → sent proto message (for getMessage retries + edits)
     this.pendingAsks = new Map(); // askId → { jid, askerJid, questions, selected, awaitingText, key, createdAt }
-    this.pendingMenus = new Map(); // jid → { kind:'model'|'thinking'|'context', title, options, entries, page, createdAt }
+    this.pendingMenus = new Map(); // jid → { kind:'model'|'thinking'|'context'|'project', title, options, entries, page, createdAt }
     this.conversationOrder = createConversationOrderTracker();
     this.msg = MESSAGES[cfg.language] ?? MESSAGES.en;
   }
@@ -478,21 +477,27 @@ export class WhatsAppAdapter {
   // ── pending menus & prompts (all text-driven — WhatsApp native buttons are unreliable on personal
   //    accounts, so pickers are numbered text menus the user replies to with a number) ──
 
-  /** Apply a numbered-menu pick id (`model:*`, `think:*`, `context:*`) — resolved from a numeric text reply. */
+  /** Apply a numbered-menu pick id (`model:*`, `think:*`, `context:*`, `project:*`) — resolved from a
+   *  numeric text reply. The shared pickers (`context:*`, `project:*`) hand the value straight to the
+   *  shared core, which owns the operator gate and the host call; the choice runs as THIS sender. */
   async handleSelection(chatJid, senderJid, id, m) {
-    if (id.startsWith('context:')) {
-      const ids = this.senderIds(senderJid, chatJid);
-      if (!senderIsAdmin(ids, this.cfg.senderPolicies)) { await this.sendText(chatJid, this.msg.controlForbidden, m); return true; }
-      const sessionId = id.slice('context:'.length);
-      this.pendingMenus.delete(chatJid);
-      if (!this.ctl?.bindContext) { await this.sendText(chatJid, this.msg.noSession, m); return true; }
-      // The MOVE is dispatched through the host control surface; ownership is re-verified server-side.
-      try {
-        const { title } = await this.ctl.bindContext(this.chatRef(chatJid), senderJid, sessionId);
-        await this.sendText(chatJid, this.msg.contextBound(title), m);
-      } catch (e) {
-        await this.sendText(chatJid, this.msg.contextError(e?.message ?? e), m);
+    const picker = SHARED_PICKERS.find((n) => id.startsWith(`${n}:`));
+    if (picker) {
+      const value = id.slice(picker.length + 1);
+      // /context is operator-gated by the shared core, but the gate must run BEFORE the pending menu is
+      // consumed: a non-admin's rejected pick must not destroy the menu an admin can still complete. The
+      // core re-checks the same gate on the accepted path.
+      if (picker === PICKER_CONTEXT && !senderIsAdmin(this.senderIds(senderJid, chatJid), this.cfg.senderPolicies)) {
+        await this.sendText(chatJid, this.msg.controlForbidden, m);
+        return true;
       }
+      this.pendingMenus.delete(chatJid);
+      await applyPickerChoice(picker, value, {
+        msg: this.msg, reply: (t) => this.sendText(chatJid, t, m),
+        isAdmin: () => senderIsAdmin(this.senderIds(senderJid, chatJid), this.cfg.senderPolicies),
+        senderPlatformId: senderJid,
+        ctl: this.ctl, ref: this.chatRef(chatJid),
+      });
       return true;
     }
     if (id.startsWith('model:')) {
@@ -687,25 +692,32 @@ export class WhatsAppAdapter {
     const arg = argParts.join(' ');
     const admin = () => senderIsAdmin(this.senderIds(senderJid, chatJid), this.cfg.senderPolicies);
     // Control commands share one transport-agnostic core. WHICH names those are is the daemon's answer,
-    // not ours: controlCommandsFrom reads `execution` off the catalog we already receive. What runs is the
-    // INTERSECTION of that with what the core implements — an unhandled name falls through to the switch
-    // below and out as an unknown /word, so a newer daemon may publish a control command this adapter
-    // cannot run. Only the pickers stay local, because their numbered-menu UI is WhatsApp-specific.
+    // not ours: controlCommandsFrom reads `execution` off the catalog we already receive, pickers
+    // included. What runs is the INTERSECTION of that with what the two cores implement — an unhandled
+    // name falls through to the switch below and out as an unknown /word, so a newer daemon may publish
+    // a control command this adapter cannot run. Only the DRAWING stays WhatsApp-specific: the shared
+    // core renders through showPicker, whose numbered menu is built from its descriptor.
     if (controlCommandsFrom(this.chatCommands()).has(command)) {
-      const handled = await runControlCommand(command, {
+      const handled = (await runControlCommand(command, {
         msg: this.msg, reply: (t) => this.sendText(chatJid, t), isAdmin: admin, arg,
         senderPlatformId: senderJid,
         state: this.state, stateId: chatJid, ctl: this.ctl, ref: this.chatRef(chatJid),
         activeModel: async () => (await this.modelForChat(chatJid)).active,
-      });
+      }))
+        || (await runPickerCommand(command, {
+          msg: this.msg, reply: (t) => this.sendText(chatJid, t), isAdmin: admin, arg,
+          senderPlatformId: senderJid,
+          ctl: this.ctl, ref: this.chatRef(chatJid),
+          showPicker: (d) => this.sendMenu(chatJid, d.picker, d.title, d.items.map((it) => ({ id: `${d.picker}:${it.value}`, label: it.label, description: it.hint }))),
+        }));
       if (handled) return true;
     }
-    // …and the same question for the half the daemon does NOT run: the pickers and /help below exist only
-    // because the catalog published them for this surface, so localCommandsFrom is what decides they may
-    // run at all. Without it a name removed from the projection stayed typeable here, and an adapter with
-    // no catalog answered its hardcoded four as if it had one. This adapter passes no `adapterOwned`
-    // names: `voice` and `display` are reserved globally, but there is no STT/TTS and no display module
-    // on this transport, so it dispatches neither.
+    // …and the same question for the half the daemon does NOT run: /model, /reasoning and /help below
+    // exist only because the catalog published them for this surface, so localCommandsFrom is what
+    // decides they may run at all. Without it a name removed from the projection stayed typeable here,
+    // and an adapter with no catalog answered its hardcoded four as if it had one. This adapter passes no
+    // `adapterOwned` names: `voice` and `display` are reserved globally, but there is no STT/TTS and no
+    // display module on this transport, so it dispatches neither.
     if (!localCommandsFrom(this.chatCommands()).has(command)) return false;
     switch (command) {
       case 'help':
@@ -722,16 +734,6 @@ export class WhatsAppAdapter {
         // via the numbered nav rows.
         const options = models.map((mo) => ({ id: `model:${mo.provider}:${mo.model}`, label: mo.model, description: mo.providerLabel }));
         await this.sendMenu(chatJid, 'model', this.msg.pickModel, options);
-        return true;
-      }
-      case 'context': {
-        // Operator-gated like /model; ownership is enforced server-side (only the invoking sender's OWN
-        // conversations are offered, and binding re-checks). Binding exposes the chosen history to this chat.
-        if (!admin()) { await this.sendText(chatJid, this.msg.controlForbidden); return true; }
-        const listing = this.ctl?.listContext?.(this.chatRef(chatJid), senderJid, { offset: 0, limit: CONTEXT_MAX }) ?? null;
-        if (!listing || !listing.items.length) { await this.sendText(chatJid, this.msg.noContextSessions); return true; }
-        const options = listing.items.map((s) => ({ id: `context:${s.id}`, label: s.title || 'Untitled', description: s.model || undefined }));
-        await this.sendMenu(chatJid, 'context', this.msg.pickContext, options);
         return true;
       }
       case 'reasoning': {

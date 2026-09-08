@@ -11,7 +11,7 @@ import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } fr
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
-import { controlCommandsFrom, localCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { PICKER_CONTEXT, PICKER_PROJECT, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
@@ -28,8 +28,7 @@ const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded pe
 const TG_CAPTION_LIMIT = 1024;           // Telegram rejects the whole sendPhoto call above this, caption included
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper's per-file limit — larger clips are just noted
 const TTS_MAX_CHARS = 4000;              // cap the spoken text (OpenAI TTS input limit is 4096)
-const PICKER_PAGE = 8;                   // inline-keyboard rows per page for the /model + /context pickers
-const CONTEXT_MAX = 200;                 // upper bound of own conversations the /context picker pages over
+const PICKER_PAGE = 8;                   // inline-keyboard rows per page for the /model + shared pickers
 // Bot API setMyCommands limits (https://core.telegram.org/bots/api#botcommand): at most 100 commands, each
 // name 1-32 chars of [a-z0-9_], each description 1-256 chars. ONE offending entry rejects the whole
 // menu update, so publishCommands drops the offender instead of leaving Telegram on a stale menu.
@@ -104,7 +103,7 @@ export class TelegramAdapter {
     this.botUsername = '';
     this.stopped = false;
     this.pendingAsks = new Map();    // token → { id, chatId, messageId, questions, askerId, selected, awaitingText, title, desc, createdAt }
-    this.pendingPickers = new Map(); // chatId → { kind:'model', models, messageId, page, createdAt } | { kind:'context', sessions, messageId, page, createdAt }
+    this.pendingPickers = new Map(); // chatId → { kind:'model', models, messageId, page, createdAt } | { kind:'context'|'project', items, messageId, page, createdAt }
     this.conversationOrder = createConversationOrderTracker();
     this.askSeq = 0;                 // short-token counter for ask callback_data (keeps it under 64 bytes)
     this.msg = MESSAGES[cfg.language] ?? MESSAGES.en; // service texts
@@ -146,10 +145,10 @@ export class TelegramAdapter {
     }));
   }
 
-  /** One inline-keyboard button per bindable conversation (callback `c:<absoluteIndex>`) for the /context
-   *  picker. */
-  contextRows(sessions) {
-    return sessions.map((s, i) => ({ text: (s.title || 'Untitled').slice(0, 64), callback_data: `c:${i}` }));
+  /** One inline-keyboard button per descriptor item for the shared pickers (callback `pk:<absoluteIndex>`
+   *  — short, and resolved against the pending descriptor below, not re-encoded into the button). */
+  pickerRows(items) {
+    return (items ?? []).map((it, i) => ({ text: String(it.label).slice(0, 64), callback_data: `pk:${i}` }));
   }
 
   /** Page a flat list of single-button rows into an inline keyboard: the `page`-th window of ≤PICKER_PAGE
@@ -572,26 +571,39 @@ export class TelegramAdapter {
   async handleCommand(chatId, from, ids, text) {
     const [cmdRaw, ...argParts] = text.slice(1).trim().split(/\s+/);
     const cmd = cmdRaw.split('@')[0].toLowerCase(); // strip a trailing @botusername (group form)
-    const arg = argParts.join(' ').trim().toLowerCase();
+    // Keep the argument's case: a slug is any non-empty string (src/api/schemas/projects.ts), and the
+    // shared core lowercases the only case-insensitive consumer (/fast) itself.
+    const arg = argParts.join(' ').trim();
     const admin = () => this.isAdmin(ids);
     // Control commands share one transport-agnostic core. WHICH names those are is the daemon's answer,
-    // not ours: controlCommandsFrom reads `execution` off the catalog we already receive. What runs is the
-    // INTERSECTION of that with what the core implements — an unhandled name falls through to the switch
-    // below and out as an unknown /word, so a newer daemon may publish a control command this adapter
-    // cannot run. Only the pickers stay local, because their inline-keyboard UI is Telegram-specific.
+    // not ours: controlCommandsFrom reads `execution` off the catalog we already receive, pickers
+    // included. What runs is the INTERSECTION of that with what the two cores implement — an unhandled
+    // name returns false twice and falls through to the switch below and out as an unknown /word, so a
+    // newer daemon may publish a control command this adapter cannot run. Only the DRAWING stays
+    // Telegram-specific: the shared core renders through showPicker, whose inline keyboard is built from
+    // its descriptor and parked in pendingPickers for the index callbacks below.
     if (controlCommandsFrom(this.chatCommands()).has(cmd)) {
-      const handled = await runControlCommand(cmd, {
+      const handled = (await runControlCommand(cmd, {
         msg: this.msg, reply: (t) => this.tgSend(chatId, t), isAdmin: admin, arg,
         senderPlatformId: String(from.id),
         state: this.state, stateId: String(chatId), ctl: this.ctl, ref: this.channelRef(chatId),
         activeModel: async () => this.modelForChannel(chatId, await this.listModels().catch(() => [])),
-      });
+      }))
+        || (await runPickerCommand(cmd, {
+          msg: this.msg, reply: (t) => this.tgSend(chatId, t), isAdmin: admin, arg,
+          senderPlatformId: String(from.id),
+          ctl: this.ctl, ref: this.channelRef(chatId),
+          showPicker: async (d) => {
+            const messageId = await this.tgSend(chatId, d.title, { reply_markup: { inline_keyboard: this.buildPagedKeyboard(this.pickerRows(d.items), 0, 'pk_page') } });
+            this.pendingPickers.set(String(chatId), { kind: d.picker, items: d.items, messageId, page: 0, createdAt: Date.now() });
+          },
+        }));
       if (handled) return true;
     }
-    // …and the same question for the half the daemon does NOT run: the pickers, /help and this adapter's
+    // …and the same question for the half the daemon does NOT run: /model, /help and this adapter's
     // own toggles below run only because the catalog published this surface at all. localCommandsFrom
-    // claims the published `surface-local` names plus the `session-control` pickers, and takes voice and
-    // display from ADAPTER_LOCAL_COMMANDS because the catalog declares those without publishing them.
+    // claims the published `surface-local` names, and takes voice and display from
+    // ADAPTER_LOCAL_COMMANDS because the catalog declares those without publishing them.
     // Against an empty projection it claims nothing, so a chat whose daemon went silent stops flipping
     // per-chat state instead of answering from a hardcoded list.
     if (!localCommandsFrom(this.chatCommands(), ADAPTER_LOCAL_COMMANDS.map((c) => c.name)).has(cmd)) return false;
@@ -608,18 +620,6 @@ export class TelegramAdapter {
         const keyboard = this.buildPagedKeyboard(this.modelRows(models, chatId), 0, 'm_page');
         const messageId = await this.tgSend(chatId, this.msg.pickModel, { reply_markup: { inline_keyboard: keyboard } });
         this.pendingPickers.set(String(chatId), { kind: 'model', models, messageId, page: 0, createdAt: Date.now() });
-        return true;
-      }
-      case 'context': {
-        // Operator-gated like /model; ownership is enforced server-side (only the invoking sender's OWN
-        // conversations are offered, and binding re-checks). Binding exposes the chosen history to this chat.
-        if (!admin()) { await this.tgSend(chatId, this.msg.controlForbidden); return true; }
-        const listing = this.ctl?.listContext?.(this.channelRef(chatId), String(from.id), { offset: 0, limit: CONTEXT_MAX }) ?? null;
-        if (!listing || !listing.items.length) { await this.tgSend(chatId, this.msg.noContextSessions); return true; }
-        const sessions = listing.items;
-        const keyboard = this.buildPagedKeyboard(this.contextRows(sessions), 0, 'c_page');
-        const messageId = await this.tgSend(chatId, this.msg.pickContext, { reply_markup: { inline_keyboard: keyboard } });
-        this.pendingPickers.set(String(chatId), { kind: 'context', sessions, messageId, page: 0, createdAt: Date.now() });
         return true;
       }
       case 'reasoning': {
@@ -639,7 +639,7 @@ export class TelegramAdapter {
       }
       case 'voice': {
         if (!admin()) { await this.tgSend(chatId, this.msg.modelForbidden); return true; }
-        const next = arg === 'on' ? true : arg === 'off' ? false : !this.voiceEnabled(String(chatId));
+        const next = arg.toLowerCase() === 'on' ? true : arg.toLowerCase() === 'off' ? false : !this.voiceEnabled(String(chatId));
         this.state.patch(String(chatId), { voice: next });
         const note = next && !this.voiceCreds() ? `\n${this.msg.voiceNeedsKey}` : '';
         await this.tgSend(chatId, `${this.msg.voiceSet(next)}${note}`);
@@ -716,39 +716,66 @@ export class TelegramAdapter {
       await this.tgEdit(chatId, messageId, this.msg.displaySet(resolved), { reply_markup: { inline_keyboard: this.displayKeyboard(resolved) } }).catch(() => {});
       return;
     }
-    // Paged-picker nav (`m_page:<n>` / `c_page:<n>`): page the list already cached in pendingPickers and
-    // swap the inline keyboard in place — no re-fetch. Operator-gated like the pickers themselves.
-    if (data.startsWith('m_page:') || data.startsWith('c_page:')) {
+    // Paged-picker nav for /model (`m_page:<n>`): page the list already cached in pendingPickers and swap
+    // the inline keyboard in place — no re-fetch. Operator-gated like the pickers themselves.
+    if (data.startsWith('m_page:')) {
       if (!this.isAdmin(ids)) { await ctx.answerCallbackQuery({ text: this.msg.modelForbidden, show_alert: true }).catch(() => {}); return; }
       await ctx.answerCallbackQuery().catch(() => {});
-      const kind = data.startsWith('m_page:') ? 'model' : 'context';
-      const navPrefix = kind === 'model' ? 'm_page' : 'c_page';
-      const rest = data.slice(navPrefix.length + 1);
+      const rest = data.slice('m_page:'.length);
       if (rest === 'noop') return;
       const page = Number(rest);
       const picker = this.pendingPickers.get(String(chatId));
-      if (!Number.isInteger(page) || !picker || picker.kind !== kind || Date.now() - picker.createdAt > this.askTtlMs()) return;
+      if (!Number.isInteger(page) || !picker || picker.kind !== 'model' || Date.now() - picker.createdAt > this.askTtlMs()) return;
       picker.page = page;
-      const rows = kind === 'model' ? this.modelRows(picker.models, chatId) : this.contextRows(picker.sessions);
-      await this.bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: { inline_keyboard: this.buildPagedKeyboard(rows, page, navPrefix) } }).catch(() => {});
+      await this.bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: { inline_keyboard: this.buildPagedKeyboard(this.modelRows(picker.models, chatId), page, 'm_page') } }).catch(() => {});
       return;
     }
-    if (data.startsWith('c:')) {
-      if (!this.isAdmin(ids)) { await ctx.answerCallbackQuery({ text: this.msg.controlForbidden, show_alert: true }).catch(() => {}); return; }
+    // Paged nav for the SHARED pickers (`pk_page:<n>`): the same cached descriptor. /context stays
+    // operator-gated here like everywhere; /project has no gate — paging a list is read-only. The gate
+    // alert must ride the ONE answer a callback query allows, so it is decided BEFORE the plain answer
+    // (an answered query can no longer carry an alert) — the /m_page branch above does the same.
+    if (data.startsWith('pk_page:')) {
+      const rest = data.slice('pk_page:'.length);
+      if (rest === 'noop') { await ctx.answerCallbackQuery().catch(() => {}); return; }
+      const page = Number(rest);
       const picker = this.pendingPickers.get(String(chatId));
-      const stale = !picker || picker.kind !== 'context' || Date.now() - picker.createdAt > this.askTtlMs();
-      const session = stale ? null : picker.sessions[Number(data.slice(2))];
+      const paged = Number.isInteger(page) && picker && picker.kind !== 'model' && Date.now() - picker.createdAt <= this.askTtlMs();
+      if (paged && picker.kind === PICKER_CONTEXT && !this.isAdmin(ids)) { await ctx.answerCallbackQuery({ text: this.msg.controlForbidden, show_alert: true }).catch(() => {}); return; }
+      await ctx.answerCallbackQuery().catch(() => {});
+      if (!paged) return;
+      picker.page = page;
+      await this.bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: { inline_keyboard: this.buildPagedKeyboard(this.pickerRows(picker.items), page, 'pk_page') } }).catch(() => {});
+      return;
+    }
+    // A pick on a SHARED picker (`pk:<index>`): resolved against the pending descriptor, then dispatched
+    // through the shared core AS THE PERSON WHO CLICKED — the gate and the host call live there. /context
+    // is operator-gated BEFORE the pending descriptor is consumed: a non-admin's rejected pick must not
+    // destroy the chooser an admin can still complete within its TTL (the shared core re-checks).
+    if (data.startsWith('pk:')) {
+      const picker = this.pendingPickers.get(String(chatId));
+      const item = picker && picker.kind !== 'model' && Date.now() - picker.createdAt <= this.askTtlMs()
+        ? picker.items[Number(data.slice(3))]
+        : null;
+      if (!item) {
+        await ctx.answerCallbackQuery().catch(() => {});
+        this.pendingPickers.delete(String(chatId));
+        const empty = picker?.kind === PICKER_PROJECT ? this.msg.noProjects : this.msg.noContextSessions;
+        await this.tgEdit(chatId, messageId, empty, { reply_markup: { inline_keyboard: [] } }).catch(() => {});
+        return;
+      }
+      if (picker.kind === PICKER_CONTEXT && !this.isAdmin(ids)) {
+        await ctx.answerCallbackQuery({ text: this.msg.controlForbidden, show_alert: true }).catch(() => {});
+        return;
+      }
       await ctx.answerCallbackQuery().catch(() => {});
       this.pendingPickers.delete(String(chatId));
-      if (!session) { await this.tgEdit(chatId, messageId, this.msg.noContextSessions, { reply_markup: { inline_keyboard: [] } }).catch(() => {}); return; }
-      if (!this.ctl?.bindContext) { await this.tgEdit(chatId, messageId, this.msg.noSession, { reply_markup: { inline_keyboard: [] } }).catch(() => {}); return; }
-      // The MOVE is dispatched through the host control surface; ownership is re-verified server-side.
-      try {
-        const { title } = await this.ctl.bindContext(this.channelRef(chatId), String(ctx.callbackQuery.from?.id ?? ''), session.id);
-        await this.tgEdit(chatId, messageId, this.msg.contextBound(title), { reply_markup: { inline_keyboard: [] } }).catch(() => {});
-      } catch (e) {
-        await this.tgEdit(chatId, messageId, this.msg.contextError(e?.message ?? e), { reply_markup: { inline_keyboard: [] } }).catch(() => {});
-      }
+      await applyPickerChoice(picker.kind, item.value, {
+        msg: this.msg,
+        reply: (t) => this.tgEdit(chatId, messageId, t, { reply_markup: { inline_keyboard: [] } }).catch(() => {}),
+        isAdmin: () => this.isAdmin(ids),
+        senderPlatformId: String(ctx.callbackQuery.from?.id ?? ''),
+        ctl: this.ctl, ref: this.channelRef(chatId),
+      });
       return;
     }
     await ctx.answerCallbackQuery().catch(() => {});

@@ -38,7 +38,7 @@
         "apiRoutes": 2,
         "skills": 1
       },
-      "requiresSharedApi": 3
+      "requiresSharedApi": 4
     },
     {
       "name": "discord",
@@ -53,7 +53,7 @@
         "tools": 25,
         "apiRoutes": 1
       },
-      "requiresSharedApi": 3
+      "requiresSharedApi": 4
     },
     {
       "name": "editor",
@@ -132,7 +132,7 @@
           "microsoftIdentity"
         ]
       },
-      "requiresSharedApi": 3
+      "requiresSharedApi": 4
     },
     {
       "name": "onedrive",
@@ -198,7 +198,7 @@
         "platforms": 1,
         "tools": 16
       },
-      "requiresSharedApi": 3
+      "requiresSharedApi": 4
     },
     {
       "name": "todo",
@@ -248,7 +248,7 @@
         "tools": 6,
         "apiRoutes": 3
       },
-      "requiresSharedApi": 3
+      "requiresSharedApi": 4
     }
   ]
 }

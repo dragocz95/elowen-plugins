@@ -158,6 +158,7 @@ const MSTEAMS_CHAT_COMMANDS = [
   { name: 'fast', description: 'Set Fast mode', kind: 'action', execution: 'session-control' },
   { name: 'stats', description: 'Session info — model, context and usage', kind: 'info', execution: 'session-control' },
   { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', execution: 'session-control' },
+  { name: 'project', description: 'Move this channel into one of your projects', kind: 'picker', execution: 'session-control' },
   { name: 'model', description: 'Switch the AI model', kind: 'picker', execution: 'surface-local' },
   { name: 'help', description: 'Show the available commands', kind: 'info', execution: 'surface-local' },
 ];
@@ -1108,6 +1109,86 @@ describe('msteams live trace + cards + commands', () => {
     await adapter.onActivity(activity({ text: '/model' }));
     const texts = calls.filter((c) => c.kind === 'reply').map((c) => (c.args[3] as { text?: string })?.text ?? '');
     expect(texts.some((t) => t.includes('operator'))).toBe(true);
+  });
+
+  /** The shared picker core draws both session-control pickers through this adapter's card renderer. The
+   *  card's owner/admin gate stays on the LOCAL pickers only (/model changes shared channel state); the
+   *  session-control ones act as the person who clicked, because bindContext and switchProject scope the
+   *  effect to the clicker's own account server-side. */
+  it('posts the /context card from the shared core and binds the picked conversation', async () => {
+    const { adapter, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', admin: true, projectIds: [] }] });
+    const listContext = vi.fn(() => ({ items: [{ id: 'brain-7-1', title: 'Refactor', model: 'gpt-5' }], total: 1, hasMore: false }));
+    const bindContext = vi.fn(async () => ({ title: 'Refactor' }));
+    adapter.control({ listContext, bindContext });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({ text: '/context' }));
+    expect(listContext).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, 'aad-1', { offset: 0, limit: 200 });
+    expect(JSON.stringify(calls)).toContain('Refactor');
+    await adapter.onCardAction(activity({ value: { ep: 'context', v: 'brain-7-1' } }));
+    expect(bindContext).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, 'aad-1', 'brain-7-1');
+    const updates = calls.filter((c) => c.kind === 'update');
+    expect(JSON.stringify(updates.at(-1))).toContain('Refactor');
+  });
+
+  it('/project is not owner/admin-gated: any linked member may open it and pick', async () => {
+    const { adapter, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] });
+    const listProjects = vi.fn(() => [{ id: 7, slug: 'kolin', path: '/srv/private/kolin' }]);
+    const switchProject = vi.fn(async () => ({ workDir: '/x', slug: 'kolin' }));
+    adapter.control({ listProjects, switchProject });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({ text: '/project' }));
+    expect(listProjects).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, 'aad-1');
+    expect(JSON.stringify(calls)).toContain('kolin');
+    expect(JSON.stringify(calls)).not.toContain('/srv');
+    await adapter.onCardAction(activity({ value: { ep: 'project', v: '7' } }));
+    expect(switchProject).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, 'aad-1', 7);
+  });
+
+  it('a rejected /context pick is refused without consuming the pending card', async () => {
+    const { adapter } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', admin: true, projectIds: [] }] });
+    const bindContext = vi.fn(async () => ({ title: 'Refactor' }));
+    adapter.control({ listContext: vi.fn(() => ({ items: [{ id: 's1', title: 'Refactor', model: 'm' }], total: 1, hasMore: false })), bindContext });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({ text: '/context' }));
+    expect(adapter.pendingPickers.has('a:conv1')).toBe(true);
+    await adapter.onCardAction(activity({ from: { id: '29:enc', aadObjectId: 'aad-2', name: 'Sam Rivera' }, value: { ep: 'context', v: 's1' } }));
+    expect(bindContext).not.toHaveBeenCalled();
+    expect(adapter.pendingPickers.has('a:conv1')).toBe(true); // the card survives a rejected pick
+  });
+
+  it('/project <slug> switches in one step without opening the chooser', async () => {
+    const { adapter, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] });
+    const switchProject = vi.fn(async () => ({ workDir: '/x', slug: 'kolin' }));
+    adapter.control({ listProjects: () => [{ id: 7, slug: 'kolin', path: '/srv/k' }], switchProject });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({ text: '/project kolin' }));
+    expect(switchProject).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, 'aad-1', 7);
+    expect(calls.some((c) => c.kind === 'reply')).toBe(true);
+  });
+
+  it('/project keeps the case of a typed mixed-case slug', async () => {
+    const { adapter } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] });
+    const switchProject = vi.fn(async () => ({ workDir: '/srv/k', slug: 'MixedCase' }));
+    adapter.control({ listProjects: vi.fn(() => [{ id: 7, slug: 'MixedCase', path: '/srv/k' }]), switchProject });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({ text: '/project MixedCase' }));
+    expect(switchProject).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, 'aad-1', 7);
+  });
+
+  it('a picker click resolves the clicker the way the command path does', async () => {
+    // The linker recognizes the Teams id, not the Entra object id — a clicker whose aadObjectId is
+    // unknown must still reach their account, exactly like the command path that reads linkedPlatformUserId.
+    const accountLinking = { linkedAccountFor: vi.fn((objectId: string) => (objectId === '29:enc' ? { id: 1 } : null)) };
+    const { adapter } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] }, { accountLinking });
+    const listProjects = vi.fn(() => [{ id: 7, slug: 'kolin' }]);
+    const switchProject = vi.fn(async () => ({ workDir: '/srv/k', slug: 'kolin' }));
+    adapter.control({ listProjects, switchProject });
+    adapter.listen(async () => 'unused');
+    const group = { conversation: { id: 'a:conv1', conversationType: 'groupChat', tenantId: 'tenant-guid' } };
+    await adapter.onActivity(activity({ ...group, text: '/project' }));
+    expect(listProjects).toHaveBeenCalledWith(expect.anything(), '29:enc'); // the command path resolves the linker
+    await adapter.onCardAction(activity({ ...group, value: { ep: 'project', v: '7' } }));
+    expect(switchProject).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, '29:enc', 7);
   });
 });
 
