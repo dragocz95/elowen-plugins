@@ -49,7 +49,7 @@ export function registerLspApi(ctx, manager) {
                 return { status: 200, body: { ok: true, message: `${spec.label} is already installed.` } };
             if (!spec.npmPackages?.length)
                 return { status: 400, body: { error: `${spec.label} ships with its toolchain — install it with: ${spec.installHint}` } };
-            const r = await npmInstallGlobal(spec.npmPackages);
+            const r = await npmInstallGlobal(spec.npmInstallSpecs ?? spec.npmPackages);
             if (r.ok && commandExists(spec.command))
                 return { status: 200, body: { ok: true, message: `${spec.label} installed.` } };
             // npm may "succeed" into a global bin dir that isn't on PATH — report honestly either way.

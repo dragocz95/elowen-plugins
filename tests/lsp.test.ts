@@ -75,6 +75,20 @@ describe('LSP server registry', () => {
     expect(serverForLanguage('nonsense')).toBeNull();
   });
 
+  it('installs a TypeScript the language server can actually drive', () => {
+    // A bare `typescript` now resolves to the 7.x native port, which ships no tsserver.js, and the
+    // server exits the handshake with "Could not find a valid TypeScript installation". The install
+    // must therefore ask for the 5.x line, while uninstall and the status check keep the bare name.
+    const spec = serverForLanguage('typescript');
+    expect(spec?.npmPackages).toEqual(['typescript-language-server', 'typescript']);
+    expect(spec?.npmInstallSpecs).toEqual(['typescript-language-server', 'typescript@^5']);
+    expect(spec?.installHint).toContain('typescript@^5');
+    // Every other npm-managed server installs exactly what it uninstalls.
+    for (const server of listServers().filter((entry) => entry.command !== 'typescript-language-server')) {
+      expect(server.npmInstallSpecs).toBeUndefined();
+    }
+  });
+
   it('lists every server once per binary (clangd covers c and cpp with one row)', () => {
     const servers = listServers();
     expect(servers.filter((s) => s.command === 'clangd')).toHaveLength(1);

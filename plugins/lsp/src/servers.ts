@@ -17,8 +17,12 @@ export interface LanguageServerSpec {
   /** Human label for menus/logs. */
   label: string;
   /** Global npm package(s) that provide the binary — set only where npm IS the canonical install
-   *  (Elowen can then install it itself: setup wizard, /lsp modal ctrl+i, POST /brain/lsp/install). */
+   *  (Elowen can then install it itself: setup wizard, /lsp modal ctrl+i, POST /brain/lsp/install).
+   *  These are the names an uninstall removes and a status check looks for. */
   npmPackages?: string[];
+  /** What an install actually asks npm for, when a bare name would resolve to something the server
+   *  cannot drive. Defaults to `npmPackages`. */
+  npmInstallSpecs?: string[];
   /** Human install command for servers Elowen can't install itself (they ship with their toolchains). */
   installHint: string;
 }
@@ -46,7 +50,10 @@ const EXTENSION_LANGUAGE: Record<string, string> = {
 /** language id → the server that handles it. One server can cover several language ids (tsserver handles
  *  js/ts/jsx/tsx). The command is resolved on PATH at spawn time; missing → that language is skipped. */
 const SERVERS: LanguageServerSpec[] = [
-  { language: 'typescript', command: 'typescript-language-server', args: ['--stdio'], label: 'TypeScript', npmPackages: ['typescript-language-server', 'typescript'], installHint: 'npm install -g typescript-language-server typescript' },
+  // The peer is pinned: `typescript` now resolves to the 7.x native port, which ships no tsserver.js at
+  // all, and typescript-language-server refuses to start against it ("Could not find a valid TypeScript
+  // installation"). 5.x is the last line that provides the tsserver the server drives.
+  { language: 'typescript', command: 'typescript-language-server', args: ['--stdio'], label: 'TypeScript', npmPackages: ['typescript-language-server', 'typescript'], npmInstallSpecs: ['typescript-language-server', 'typescript@^5'], installHint: 'npm install -g typescript-language-server typescript@^5' },
   { language: 'python', command: 'pyright-langserver', args: ['--stdio'], label: 'Pyright', npmPackages: ['pyright'], installHint: 'npm install -g pyright' },
   { language: 'go', command: 'gopls', args: [], label: 'gopls', installHint: 'go install golang.org/x/tools/gopls@latest' },
   { language: 'rust', command: 'rust-analyzer', args: [], label: 'rust-analyzer', installHint: 'rustup component add rust-analyzer' },
