@@ -110,6 +110,8 @@ export interface BrowserSessionDeps {
   releasePage(): Promise<void>;
   forceCloseBrowser(): Promise<void>;
   onClosed(id: string): void;
+  /** Managed sessions revalidate the selected project before each queued action. */
+  projectAuthority?: () => Promise<void>;
 }
 
 export class BrowserSession {
@@ -195,11 +197,16 @@ export class BrowserSession {
 
   async navigate(url: string, signal?: AbortSignal): Promise<AccessibilitySnapshot> {
     return this.agentMutation(signal, async () => {
-      const policy = new NavigationPolicy(this.deps.config().privateNetworkAllowlist);
-      const validated = policy.validateUrl(url);
-      // The proxy enforces this again at dial time. Resolving here is for the caller: a blocked literal or
-      // DNS answer must be a clear tool refusal, not a successful navigation to the proxy's generic 500 page.
-      await policy.resolve(validated.toString());
+      let validated: URL;
+      if (this.deps.projectAuthority) {
+        validated = new URL(url);
+        if (!['http:', 'https:'].includes(validated.protocol) || validated.username || validated.password) throw new Error('Project browser requires an http(s) URL without credentials.');
+        // Name resolution and loopback belong to the guest. Project networks permit internal services.
+      } else {
+        const policy = new NavigationPolicy(this.deps.config().privateNetworkAllowlist);
+        validated = policy.validateUrl(url);
+        await policy.resolve(validated.toString());
+      }
       await this.page.goto(validated.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 });
       this.emit({ kind: 'action', data: { action: 'navigate', target: validated.hostname } });
       return this.finishMutation(`Navigated to ${validated.hostname}`);
@@ -629,6 +636,7 @@ export class BrowserSession {
       this.rejectWaiters(closeError);
       this.rejectTakeoverWaiters(closeError);
       this.emit({ kind: 'closed', data: { reason } });
+      let teardownFailed = false;
       try {
         // Teardown talks to a browser that may already be unresponsive — that is often WHY we are
         // closing — so it is bounded and best effort. The `finally` below is what must always run.
@@ -651,8 +659,9 @@ export class BrowserSession {
       })(), 10_000, 'Browser teardown timed out.');
       } catch (error) {
         this.deps.logger.warn(`browser session ${this.id} teardown was incomplete: ${error instanceof Error ? error.message : String(error)}`);
+        if (this.deps.projectAuthority) { teardownFailed = true; throw error; }
       } finally {
-        this.stateValue = reason === 'browser_error' ? 'error' : 'closed';
+        this.stateValue = reason === 'browser_error' || teardownFailed ? 'error' : 'closed';
         const now = this.deps.clock.now();
         this.deps.store.updateSession(this.id, {
           state: this.stateValue, updatedAt: now, lastActivityAt: now, closedAt: now, closeReason: reason,
@@ -686,7 +695,12 @@ export class BrowserSession {
         nextCdp.send('Accessibility.enable'),
         nextCdp.send('DOM.enable'),
         nextCdp.send('Page.enable'),
-        nextCdp.send('Browser.setDownloadBehavior', { behavior: 'deny' }),
+        // The deny is the PERSONAL mode's guard against downloads into the host profile. A managed
+        // session's pages live in the default browser context, and a Browser.setDownloadBehavior with
+        // no browserContextId addresses that same context — so sending it here would override the
+        // context-level allow into /data/browser/downloads set when the project browser connected, and
+        // the documented downloads path would silently deny every file.
+        ...(this.deps.projectAuthority ? [] : [nextCdp.send('Browser.setDownloadBehavior', { behavior: 'deny' })]),
       ]);
       if (previousCdp) {
         // A trace records the browser, but it was started from the tab that is going away and stopped
@@ -755,6 +769,7 @@ export class BrowserSession {
       await this.waitForAgent(signal);
       const result = await this.queue.run(async () => {
         this.assertOpen();
+        await this.deps.projectAuthority?.();
         if (this.stateValue === 'user') return { retry: true as const };
         return { retry: false as const, value: await this.runBoundedOperation(operation) };
       });

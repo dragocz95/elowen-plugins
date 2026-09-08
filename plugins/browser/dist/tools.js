@@ -25,23 +25,44 @@ const snapshotPayload = (sessionId, snapshot) => ({
 });
 const sessionIdSchema = Type.String({ description: 'Opaque browser session ID returned by BrowserOpen', minLength: 16, maxLength: 256 });
 export function registerBrowserTools(ctx, registry) {
-    const own = () => requireBrowserToolOwner(ctx);
-    const session = (sessionId) => {
+    const project = () => { const ref = ctx.currentAccess?.().projectRef; return ref?.kind === 'managed' ? ref : undefined; };
+    const own = () => {
+        if (!project())
+            return requireBrowserToolOwner(ctx);
+        const userId = ctx.currentAccountUserId();
+        const conversationId = ctx.currentSessionId();
+        if (userId === null || !conversationId)
+            throw new Error('Project browser tools require an acting account and conversation.');
+        return { userId, conversationId };
+    };
+    const session = async (sessionId) => {
         const owner = own();
-        return { owner, session: registry.getOwned(sessionId, owner.userId) };
+        const selected = project();
+        return { owner, session: selected ? await registry.getForTool(sessionId, owner.userId, selected) : registry.getOwned(sessionId, owner.userId) };
     };
     const tools = [
         defineTool({
             name: 'BrowserOpen',
             label: 'Open browser',
-            description: 'Open a persistent private browser tab for the linked account. Browser profiles are per-account; shared rooms, unlinked senders and delegated child agents are refused.',
+            description: 'Open a browser in the selected managed project, with profile, cookies and downloads shared as project data. Otherwise open the linked account’s private browser; personal mode refuses shared rooms and delegated child agents.',
             parameters: Type.Object({ url: Type.Optional(Type.String({ description: 'Optional absolute public http(s) URL to open' })) }),
             execute: async (toolCallId, input, signal) => {
                 const owner = own();
-                const browser = await registry.create({ ownerUserId: owner.userId, conversationId: owner.conversationId, toolCallId });
+                if (signal?.aborted)
+                    throw signal.reason ?? new Error('Browser open was aborted.');
+                const browser = await registry.create({ ownerUserId: owner.userId, conversationId: owner.conversationId, toolCallId, project: project() });
                 try {
+                    // A turn cancelled while the browser was still starting must not leave the session behind: in
+                    // project mode it would hold the shared profile slot until the idle sweep, refusing the retry.
+                    // The check repeats after the first page work for an abort that fired during the navigation.
+                    if (signal?.aborted)
+                        throw signal.reason ?? new Error('Browser open was aborted.');
                     const snapshot = input.url ? await browser.navigate(input.url, signal) : (await browser.snapshot(false, signal)).snapshot;
-                    return textResult(snapshotPayload(browser.id, snapshot));
+                    if (signal?.aborted)
+                        throw signal.reason ?? new Error('Browser open was aborted.');
+                    return textResult({ ...snapshotPayload(browser.id, snapshot),
+                        ...(project() ? { mode: 'project', sharedProfile: true, downloadsPath: '/data/browser/downloads' } : {}),
+                    });
                 }
                 catch (error) {
                     await browser.close('open_failed');
@@ -55,7 +76,7 @@ export function registerBrowserTools(ctx, registry) {
             description: 'Read a bounded accessibility snapshot of the current browser page. A model-visible screenshot is returned only when explicitly requested.',
             parameters: Type.Object({ sessionId: sessionIdSchema, screenshot: Type.Optional(Type.Boolean()) }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 const captured = await current.session.snapshot(input.screenshot === true, signal);
                 const content = [
                     { type: 'text', text: JSON.stringify(snapshotPayload(current.session.id, captured.snapshot), null, 2) },
@@ -71,7 +92,7 @@ export function registerBrowserTools(ctx, registry) {
             description: 'Navigate an owned browser session to an absolute http(s) URL allowed by the enforcing network policy, then return a fresh accessibility snapshot.',
             parameters: Type.Object({ sessionId: sessionIdSchema, url: Type.String() }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 return textResult(snapshotPayload(current.session.id, await current.session.navigate(input.url, signal)));
             },
         }),
@@ -81,7 +102,7 @@ export function registerBrowserTools(ctx, registry) {
             description: 'Click an accessibility element by ref in an owned browser session. The element ref comes from the latest BrowserSnapshot or mutating browser result.',
             parameters: Type.Object({ sessionId: sessionIdSchema, ref: Type.String({ minLength: 2, maxLength: 32 }) }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 return textResult(snapshotPayload(current.session.id, await current.session.click(input.ref, signal)));
             },
         }),
@@ -91,7 +112,7 @@ export function registerBrowserTools(ctx, registry) {
             description: 'Fill an accessibility text field in an owned browser session. Filled values are never copied into live action events.',
             parameters: Type.Object({ sessionId: sessionIdSchema, ref: Type.String(), value: Type.String({ maxLength: 20_000 }) }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 return textResult(snapshotPayload(current.session.id, await current.session.fill(input.ref, input.value, signal)));
             },
         }),
@@ -105,7 +126,7 @@ export function registerBrowserTools(ctx, registry) {
                 modifiers: Type.Optional(Type.Array(Type.Union([Type.Literal('Alt'), Type.Literal('Control'), Type.Literal('Meta'), Type.Literal('Shift')]), { maxItems: 4 })),
             }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 return textResult(snapshotPayload(current.session.id, await current.session.pressKey(input.key, input.modifiers, signal)));
             },
         }),
@@ -115,7 +136,7 @@ export function registerBrowserTools(ctx, registry) {
             description: 'Scroll the current page in an owned browser session and return a fresh accessibility snapshot.',
             parameters: Type.Object({ sessionId: sessionIdSchema, deltaX: Type.Optional(Type.Number()), deltaY: Type.Number() }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 return textResult(snapshotPayload(current.session.id, await current.session.scroll(input.deltaX ?? 0, input.deltaY, signal)));
             },
         }),
@@ -125,7 +146,7 @@ export function registerBrowserTools(ctx, registry) {
             description: 'Wait until text appears in bounded accessibility snapshots of an owned browser session.',
             parameters: Type.Object({ sessionId: sessionIdSchema, text: Type.String({ maxLength: 500 }), timeoutMs: Type.Optional(Type.Number({ minimum: 100, maximum: 60_000 })) }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 return textResult(snapshotPayload(current.session.id, await current.session.waitFor(input.text, input.timeoutMs ?? 10_000, signal)));
             },
         }),
@@ -139,7 +160,7 @@ export function registerBrowserTools(ctx, registry) {
                 tabId: Type.Optional(Type.String({ maxLength: 256 })),
             }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 if (input.action === 'list')
                     return textResult({ sessionId: current.session.id, tabs: await current.session.agentTabs(signal) });
                 if (!input.tabId)
@@ -156,7 +177,9 @@ export function registerBrowserTools(ctx, registry) {
             description: 'Pause agent input and give the linked user exclusive browser control. The tool waits for release, disconnect, timeout or abort, then returns a fresh accessibility snapshot.',
             parameters: Type.Object({ sessionId: sessionIdSchema }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
+                if (project())
+                    throw new Error('Interactive takeover is available only for personal browser sessions. Project browsers are controlled through browser tools.');
                 return textResult(snapshotPayload(current.session.id, await current.session.requestTakeoverForAgent(signal)));
             },
         }),
@@ -171,7 +194,7 @@ export function registerBrowserTools(ctx, registry) {
                 format: Type.Optional(Type.Union([Type.Literal('jpeg'), Type.Literal('png')])),
             }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 const image = await current.session.screenshot(input.area ?? 'viewport', input.format ?? 'jpeg', input.ref, signal);
                 return {
                     content: [
@@ -196,7 +219,7 @@ export function registerBrowserTools(ctx, registry) {
             // here, so this is never a read-only probe a planner may run for free — the expression can submit a
             // form or clear a store as surely as a click can.
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 const result = await current.session.evaluate(input.expression, input.timeoutMs ?? 2000, input.awaitPromise !== false, signal);
                 return untrustedResult({ sessionId: current.session.id, ...result });
             },
@@ -213,7 +236,7 @@ export function registerBrowserTools(ctx, registry) {
                 since: Type.Optional(Type.Number({ description: 'Epoch milliseconds; only entries at or after this time' })),
             }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 if (input.action === 'clear') {
                     await current.session.clearConsole(signal);
                     return textResult({ sessionId: current.session.id, cleared: true });
@@ -238,7 +261,7 @@ export function registerBrowserTools(ctx, registry) {
                 since: Type.Optional(Type.Number()),
             }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 if (input.action === 'clear') {
                     await current.session.clearNetwork(signal);
                     return textResult({ sessionId: current.session.id, cleared: true });
@@ -285,7 +308,7 @@ export function registerBrowserTools(ctx, registry) {
                 action: Type.Union([Type.Literal('metrics'), Type.Literal('startTrace'), Type.Literal('stopTrace')]),
             }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 if (input.action === 'startTrace') {
                     const started = await current.session.startTrace(signal);
                     return textResult({ sessionId: current.session.id, tracing: true, ...started });
@@ -302,7 +325,7 @@ export function registerBrowserTools(ctx, registry) {
             description: 'Summarize the current state of an owned browser session in one call: recent console errors and warnings, failed or erroring requests, performance counters, and optionally a viewport screenshot. Console text and request URLs are untrusted page content.',
             parameters: Type.Object({ sessionId: sessionIdSchema, screenshot: Type.Optional(Type.Boolean()) }),
             execute: async (_toolCallId, input, signal) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 const audit = await current.session.audit(input.screenshot === true, signal);
                 const { image, ...report } = audit;
                 const text = untrustedResult({ sessionId: current.session.id, ...report }).content[0];
@@ -320,7 +343,7 @@ export function registerBrowserTools(ctx, registry) {
             description: 'Close an owned browser tab session, its streams and control lease. The persistent per-account browser profile remains on disk.',
             parameters: Type.Object({ sessionId: sessionIdSchema }),
             execute: async (_toolCallId, input) => {
-                const current = session(input.sessionId);
+                const current = await session(input.sessionId);
                 await current.session.close('agent_closed');
                 return textResult({ sessionId: input.sessionId, closed: true });
             },

@@ -50,13 +50,16 @@ export class BrowserStore {
           created_at INTEGER NOT NULL
         );
       `),
+            }, {
+                version: 3,
+                up: (migration) => migration.exec('ALTER TABLE p_browser_sessions ADD COLUMN project_id INTEGER'),
             }]);
     }
     createSession(record) {
         this.db.prepare(`INSERT INTO p_browser_sessions(
       id,owner_user_id,conversation_id,artifact_ref,primary_target_id,state,created_at,updated_at,
-      last_activity_at,hard_expires_at,closed_at,close_reason
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(record.id, record.ownerUserId, record.conversationId, record.artifactRef, record.primaryTargetId, record.state, record.createdAt, record.updatedAt, record.lastActivityAt, record.hardExpiresAt, record.closedAt, record.closeReason);
+      last_activity_at,hard_expires_at,closed_at,close_reason,project_id
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(record.id, record.ownerUserId, record.conversationId, record.artifactRef, record.primaryTargetId, record.state, record.createdAt, record.updatedAt, record.lastActivityAt, record.hardExpiresAt, record.closedAt, record.closeReason, record.projectId ?? null);
     }
     session(id) {
         const value = asRow(this.db.prepare('SELECT * FROM p_browser_sessions WHERE id=?').get(id));
@@ -64,8 +67,8 @@ export class BrowserStore {
     }
     sessionsForUser(userId, activeOnly = false) {
         const sql = activeOnly
-            ? "SELECT * FROM p_browser_sessions WHERE owner_user_id=? AND state NOT IN ('closed','error') ORDER BY created_at"
-            : 'SELECT * FROM p_browser_sessions WHERE owner_user_id=? ORDER BY created_at DESC';
+            ? "SELECT * FROM p_browser_sessions WHERE owner_user_id=? AND project_id IS NULL AND state NOT IN ('closed','error') ORDER BY created_at"
+            : 'SELECT * FROM p_browser_sessions WHERE owner_user_id=? AND project_id IS NULL ORDER BY created_at DESC';
         return this.db.prepare(sql).all(userId).map((value) => this.sessionRow(asRow(value)));
     }
     unfinishedSessions() {
