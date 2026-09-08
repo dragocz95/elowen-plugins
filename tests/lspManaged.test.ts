@@ -269,7 +269,7 @@ describe('managed lsp selection', () => {
       registerControl: vi.fn(),
     } as unknown as PluginContext;
     register(ctx);
-    const hover = (tools as { name: string; execute: (id: string, params: unknown) => Promise<{ content: { text: string }[] }[]> }[])
+    const hover = (tools as { name: string; execute: (id: string, params: unknown) => Promise<{ content: { text: string }[] }> }[])
       .find((tool) => tool.name === 'LspHover')!;
     const [first, second] = await Promise.all([
       hover.execute('c1', { path: '/workspace/a.ts', line: 1, character: 1 }),
