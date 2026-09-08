@@ -58,7 +58,7 @@ describe('lsp plugin ON', () => {
     const body = await res.json() as { enabled: boolean; running: boolean; servers: { command: string; label: string; installable: boolean; installHint: string }[] };
     expect(body).toMatchObject({ enabled: true, running: false });
     expect(body.servers.find((s) => s.command === 'typescript-language-server'))
-      .toMatchObject({ label: 'TypeScript', installable: true, installHint: 'npm install -g typescript-language-server typescript' });
+      .toMatchObject({ label: 'TypeScript', installable: true, installHint: 'npm install -g typescript-language-server typescript@^5' });
     // A server that ships with its own toolchain is reported as not self-installable, with its hint.
     expect(body.servers.find((s) => s.command === 'gopls'))
       .toMatchObject({ installable: false, installHint: 'go install golang.org/x/tools/gopls@latest' });
