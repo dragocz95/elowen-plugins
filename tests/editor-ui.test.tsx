@@ -110,6 +110,9 @@ let failing = new Set<string>();
 // A read can be parked mid-test: it is the only way to tell the write's own cache update apart from
 // the refetch that follows it.
 let holdReads = false;
+let versioned = false;
+let serverVersion = 'v1';
+let receivedVersions: unknown[] = [];
 let readGates: Array<() => void> = [];
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'editor', url: '/plugins/editor/web/index.js', apiVersion: 1, nav: [], settings: [], strings }])),
@@ -122,15 +125,18 @@ setDefaults(
   http.get('/api/projects/:id/file', async ({ url }) => {
     if (holdReads) await new Promise<void>((resolve) => readGates.push(resolve));
     const path = url.searchParams.get('path') ?? '';
-    return HttpResponse.json({ content: stored.get(path) ?? '', truncated: false });
+    return HttpResponse.json({ content: stored.get(path) ?? '', truncated: false, ...(versioned ? { version: serverVersion } : {}) });
   }),
   http.put('/api/projects/:id/file', async ({ request }) => {
-    const body = (await request.json()) as { path: string; content: string };
+    const body = (await request.json()) as { path: string; content: string; version?: string };
+    if (versioned) receivedVersions.push(body.version);
     await new Promise<void>((resolve) => gates.set(body.path, resolve));
     gates.delete(body.path);
     if (failing.has(body.path)) return HttpResponse.json({ error: 'boom' }, { status: 500 });
+    if (versioned && body.version !== serverVersion) return HttpResponse.json({ error: 'content version conflict' }, { status: 409 });
     stored.set(body.path, body.content);
-    return HttpResponse.json({ ok: true });
+    if (versioned) serverVersion = 'v2';
+    return HttpResponse.json({ ok: true, ...(versioned ? { version: serverVersion } : {}) });
   }),
   // The tree's changed-file highlighting; a save invalidates it, so it is refetched for real.
   http.get('/api/projects/:id/changed', () => HttpResponse.json({ changed: [] })),
@@ -141,6 +147,7 @@ setDefaults(
 beforeAll(() => listen());
 beforeEach(() => {
   stored = new Map(INITIAL); gates.clear(); failing = new Set(); holdReads = false; readGates = [];
+  versioned = false; serverVersion = 'v1'; receivedVersions = [];
   // Cursor listeners are registered per mount; without this they accumulate across tests and a later
   // one would drive editors that React has already thrown away.
   monaco.cursorListeners = []; monaco.position = { lineNumber: 1, column: 1 };
@@ -174,6 +181,34 @@ async function renderEditor() {
   return client;
 }
 const saveNow = async (path: string) => { act(() => monaco.save()); await waitFor(() => expect(gates.has(path)).toBe(true)); };
+
+describe('managed editor content versions', () => {
+  it('sends the read version and immediately updates the exact file cache after saving', async () => {
+    versioned = true;
+    const client = await renderEditor();
+    fireEvent.change(editorEl(), { target: { value: 'managed edit' } });
+    await saveNow('a.ts');
+    expect(receivedVersions).toEqual(['v1']);
+    holdReads = true;
+    act(() => gates.get('a.ts')?.());
+    await waitFor(() => expect(cachedContent(client, 'a.ts')).toBe('managed edit'));
+    expect(editorEl().value).toBe('managed edit');
+    expect(client.getQueryData(['project-file', 5, 'a.ts'])).toMatchObject({ version: 'v2' });
+  });
+  it('does not replace a dirty draft baseline with another member’s refetched version', async () => {
+    versioned = true;
+    const client = await renderEditor();
+    fireEvent.change(editorEl(), { target: { value: 'my draft' } });
+    serverVersion = 'v2'; stored.set('a.ts', 'another member');
+    await act(async () => { await client.invalidateQueries({ queryKey: ['project-file', 5, 'a.ts'] }); });
+    await saveNow('a.ts');
+    act(() => gates.get('a.ts')?.());
+    await screen.findByText(/content version conflict/);
+    expect(receivedVersions).toEqual(['v1']);
+    expect(stored.get('a.ts')).toBe('another member');
+    expect(editorEl().value).toBe('my draft');
+  });
+});
 
 describe('ProjectEditor copy', () => {
   // The panel used to read these off the host's `t.projects.*`. They are the plugin's own vocabulary and

@@ -33,7 +33,7 @@ describe('managed editor routing', () => {
     const projectFiles = vi.fn(async () => ({ kind: 'read', base64: Buffer.from('guest data').toString('base64'), totalBytes: 10, version: 'v1' }));
     const f = fixture(false, [7], { projectFiles });
     expect((await f.call('file')).body).toEqual({ content: 'guest data', truncated: false, version: 'v1' });
-    expect(projectFiles).toHaveBeenCalledWith({ project: { kind: 'managed', projectId: 7 }, accountUserId: 11, operation: { kind: 'read', path: '/workspace/src/a.ts', maxBytes: 2097152 } });
+    expect(projectFiles).toHaveBeenCalledWith({ project: { kind: 'managed', projectId: 7 }, accountUserId: 11, operation: { kind: 'read', path: '/workspace/src/a.ts', offset: 0, length: 262144, maxBytes: 262144 } });
     expect(f.safe).not.toHaveBeenCalled();
   });
   it('rejects traversal without asking the guest or host', async () => {

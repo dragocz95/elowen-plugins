@@ -49,6 +49,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   // `s` is this plugin's own copy (manifest `web.strings` + i18n/<lang>.json); `t` is the host's shared
   // vocabulary, which still owns the generic Save/Close/Back labels the whole app spells the same way.
   const s = usePluginStrings('editor');
+  const queryClient = hooks.useQueryClient();
   const { t } = useTranslation();
   const { toast } = useToast();
   // The system root is the whole server filesystem behind a reserved project id (admin only — the
@@ -84,6 +85,8 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   // an effect — a continuation that read a mirror one keystroke behind would retire a draft that
   // already holds newer text, so the mirror must not depend on when React flushes effects.
   const draftsRef = useRef(drafts);
+  const draftVersions = useRef<Record<string, string>>({});
+  const saveQueues = useRef(new Map<string, Promise<unknown>>());
   const updateDrafts = (fn: (d: Record<string, string>) => Record<string, string>) => {
     draftsRef.current = fn(draftsRef.current);
     setDrafts(draftsRef.current);
@@ -176,6 +179,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const selectInTree = (p: string) => { if (commit) setSelected(p); else openFile(p); };
   const onChange = (v: string) => {
     if (selected == null) return;
+    if (draftsRef.current[selected] === undefined && fileData.data?.version) draftVersions.current[selected] = fileData.data.version;
     updateDrafts((d) => ({ ...d, [selected]: v }));
     setDirtyPaths((cur) => { const n = new Set(cur); v !== serverContent ? n.add(selected) : n.delete(selected); return n; });
   };
@@ -229,7 +233,20 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     if (selected == null) return;
     const path = selected;
     const sent = value;
-    void write.mutateAsync({ id: projectId, path, content: sent }).then(
+    const version = draftVersions.current[path] ?? fileData.data?.version;
+    const operation = version === undefined
+      ? write.mutateAsync({ id: projectId, path, content: sent })
+      : (saveQueues.current.get(path) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+          const result = await runtime().api(`/projects/${projectId}/file`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, content: sent, version: draftVersions.current[path] ?? version }) });
+          if (!result || typeof result !== 'object' || !('version' in result) || typeof result.version !== 'string') throw new Error('Missing saved content version');
+          draftVersions.current[path] = result.version;
+          queryClient.setQueryData(['project-file', projectId, path], { content: sent, truncated: false, version: result.version });
+          void queryClient.invalidateQueries({ queryKey: ['project-file', projectId, path] });
+          void queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+          void queryClient.invalidateQueries({ queryKey: ['project-changed', projectId] });
+        });
+    saveQueues.current.set(path, operation);
+    void operation.then(
       () => {
         // The user can keep typing while the write is in flight, and the draft is what the pane
         // renders. Retire it only when it still holds exactly what we sent — otherwise clearing it
@@ -241,8 +258,8 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         }
         toast(s.fileSaved.replace('{path}', path));
       },
-      (e: unknown) => toast(String(e), 'error'),
-    );
+      (e: unknown) => toast(version === undefined ? String(e) : utils.apiErrorMessage(e), 'error'),
+    ).finally(() => { if (saveQueues.current.get(path) === operation) saveQueues.current.delete(path); });
   };
 
   const closeTab = (p: string) => {

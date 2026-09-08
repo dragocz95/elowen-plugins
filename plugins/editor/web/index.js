@@ -4969,6 +4969,7 @@ var MIN_EDITOR_H = 320;
 var clampEditorH = (px) => Math.max(MIN_EDITOR_H, Math.min(typeof window !== "undefined" ? window.innerHeight * 0.96 : 4e3, px));
 function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill = false }) {
   const s = usePluginStrings("editor");
+  const queryClient = hooks.useQueryClient();
   const { t } = useTranslation2();
   const { toast } = useToast();
   const system = projectId === SYSTEM_PROJECT_ID;
@@ -4994,6 +4995,8 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const [dialog, setDialog] = (0, import_react22.useState)(null);
   const [drafts, setDrafts] = (0, import_react22.useState)({});
   const draftsRef = (0, import_react22.useRef)(drafts);
+  const draftVersions = (0, import_react22.useRef)({});
+  const saveQueues = (0, import_react22.useRef)(/* @__PURE__ */ new Map());
   const updateDrafts = (fn) => {
     draftsRef.current = fn(draftsRef.current);
     setDrafts(draftsRef.current);
@@ -5083,6 +5086,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   };
   const onChange = (v3) => {
     if (selected == null) return;
+    if (draftsRef.current[selected] === void 0 && fileData.data?.version) draftVersions.current[selected] = fileData.data.version;
     updateDrafts((d) => ({ ...d, [selected]: v3 }));
     setDirtyPaths((cur) => {
       const n = new Set(cur);
@@ -5142,7 +5146,18 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     if (selected == null) return;
     const path = selected;
     const sent = value;
-    void write.mutateAsync({ id: projectId, path, content: sent }).then(
+    const version = draftVersions.current[path] ?? fileData.data?.version;
+    const operation = version === void 0 ? write.mutateAsync({ id: projectId, path, content: sent }) : (saveQueues.current.get(path) ?? Promise.resolve()).catch(() => void 0).then(async () => {
+      const result = await runtime().api(`/projects/${projectId}/file`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, content: sent, version: draftVersions.current[path] ?? version }) });
+      if (!result || typeof result !== "object" || !("version" in result) || typeof result.version !== "string") throw new Error("Missing saved content version");
+      draftVersions.current[path] = result.version;
+      queryClient.setQueryData(["project-file", projectId, path], { content: sent, truncated: false, version: result.version });
+      void queryClient.invalidateQueries({ queryKey: ["project-file", projectId, path] });
+      void queryClient.invalidateQueries({ queryKey: ["project-files", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-changed", projectId] });
+    });
+    saveQueues.current.set(path, operation);
+    void operation.then(
       () => {
         const current = draftsRef.current[path];
         if (current === void 0 || current === sent) {
@@ -5159,8 +5174,10 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
         }
         toast(s.fileSaved.replace("{path}", path));
       },
-      (e) => toast(String(e), "error")
-    );
+      (e) => toast(version === void 0 ? String(e) : utils.apiErrorMessage(e), "error")
+    ).finally(() => {
+      if (saveQueues.current.get(path) === operation) saveQueues.current.delete(path);
+    });
   };
   const closeTab = (p) => {
     if (dirtyPaths.has(p)) {

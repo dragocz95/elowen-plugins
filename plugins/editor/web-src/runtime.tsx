@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import type { QueryClient } from '@tanstack/react-query';
 
 type AnyComponent = ComponentType<any>;
 type QueryResult<T> = { data?: T; isLoading: boolean; isError: boolean; refetch(): void };
@@ -31,6 +32,7 @@ interface EditorComponents {
 interface EditorRuntime {
   components: EditorComponents;
   hooks: {
+    useQueryClient(): Pick<QueryClient, 'setQueryData' | 'invalidateQueries'>;
     useTranslation(): { t: Dict };
     usePluginStrings(plugin: string): Record<string, string>;
     useToast(): { toast(message: string, tone?: 'ok' | 'error'): void };
@@ -39,7 +41,7 @@ interface EditorRuntime {
     useMe(): QueryResult<Me>;
     useProjects(): QueryResult<Project[]>;
     useProjectFiles(id: number | null): QueryResult<FileNode[]>;
-    useProjectFile(id: number | null, path: string | null): QueryResult<{ content: string; truncated: boolean }>;
+    useProjectFile(id: number | null, path: string | null): QueryResult<{ content: string; truncated: boolean; version?: string }>;
     useProjectFileAtHead(id: number | null, path: string | null, enabled: boolean): QueryResult<{ content: string }>;
     useProjectCommit(id: number | null, hash: string | null): QueryResult<{ diff: string; files: string[] }>;
     useProjectCommitFileDiff(id: number | null, hash: string | null, path: string | null): QueryResult<{ diff: string }>;
@@ -60,6 +62,7 @@ interface EditorRuntime {
     useFillHeight(ref: { current: HTMLElement | null }, minPx?: number): number | undefined;
   };
   utils: {
+    apiErrorMessage(error: unknown): string;
     baseName(path: string): string;
     copyText(text: string): Promise<boolean>;
     /** The host's single Monaco colour table — see the note on the host side for why it is shared. */

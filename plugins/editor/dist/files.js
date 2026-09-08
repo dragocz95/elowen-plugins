@@ -426,24 +426,27 @@ export async function projectCommitLog(root, limit) {
     const n = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 500) : 30;
     try {
         const { stdout } = await run('git', ['-C', gitRoot(root), 'log', '-n', String(n), '--numstat', '--pretty=format:\x01%h\x09%ct\x09%an\x09%s'], { maxBuffer: 8 * 1024 * 1024 });
-        const commits = [];
-        let current = null;
-        for (const line of stdout.split('\n')) {
-            if (line.startsWith('\x01')) {
-                const [hash = '', ts = '', author = '', ...subject] = line.slice(1).split('\t');
-                current = { hash, author, subject: subject.join('\t'), timestamp: Number(ts) * 1000, files: [] };
-                commits.push(current);
-            }
-            else if (current && line.trim()) {
-                const [added = '', deleted = '', ...path] = line.split('\t');
-                const joined = path.join('\t').trim();
-                if (joined)
-                    current.files.push({ path: joined, added: added === '-' ? 0 : Number(added) || 0, deleted: deleted === '-' ? 0 : Number(deleted) || 0 });
-            }
-        }
-        return commits;
+        return parseProjectCommitLog(stdout);
     }
     catch {
         return [];
     }
+}
+export function parseProjectCommitLog(stdout) {
+    const commits = [];
+    let current = null;
+    for (const line of stdout.split('\n')) {
+        if (line.startsWith('\x01')) {
+            const [hash = '', ts = '', author = '', ...subject] = line.slice(1).split('\t');
+            current = { hash, author, subject: subject.join('\t'), timestamp: Number(ts) * 1000, files: [] };
+            commits.push(current);
+        }
+        else if (current && line.trim()) {
+            const [added = '', deleted = '', ...path] = line.split('\t');
+            const joined = path.join('\t').trim();
+            if (joined)
+                current.files.push({ path: joined, added: added === '-' ? 0 : Number(added) || 0, deleted: deleted === '-' ? 0 : Number(deleted) || 0 });
+        }
+    }
+    return commits;
 }
