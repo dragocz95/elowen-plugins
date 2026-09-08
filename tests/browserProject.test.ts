@@ -155,4 +155,74 @@ describe('project browser canonical transport', () => {
     await expect(browser.authorize()).rejects.toThrow(/revoked/);
     expect(h.cancel).toHaveBeenCalledOnce();
   });
+
+  it('pipes a provider stdin prefix verbatim before the first CDP message and keeps stdin open', async () => {
+    const h = fixture();
+    // Bytes that would change under any UTF-8 decode/re-encode round trip.
+    const prefix = Buffer.from([0xc3, 0x28, 0xe2, 0x82, 0xff, 0x41]);
+    const prepared = await h.sandbox.prepareExecution(undefined);
+    (prepared as { stdin?: string | Buffer }).stdin = prefix;
+    h.sandbox.prepareExecution.mockResolvedValue(prepared);
+    const chunks: Buffer[] = [];
+    h.child.stdin.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    const messages = vi.fn();
+    let transport: ProjectCdpTransport | undefined;
+    vi.mocked(connect).mockImplementation(async (options) => {
+      transport = options.transport as ProjectCdpTransport;
+      transport.onmessage = messages;
+      transport.send('{"id":1}');
+      return h.browser as unknown as Awaited<ReturnType<typeof connect>>;
+    });
+    const browser = await openProjectBrowser(h.ctx, h.project, 2, logger);
+    try {
+      // Raw stdin byte order: the opaque prefix first, then the NUL-framed CDP message. Exact equality
+      // proves no duplication, no lost bytes and no decode/re-encode of the prefix.
+      expect(Buffer.concat(chunks).equals(Buffer.concat([prefix, Buffer.from('{"id":1}\0', 'utf8')]))).toBe(true);
+      expect(h.child.stdin.writableEnded).toBe(false);
+      // Fragmented UTF-8 and multiple frames still decode on the response side after the prefix.
+      const bytes = Buffer.from('{"text":"Žluťoučký"}\0{"id":2}\0', 'utf8');
+      h.child.stdout.write(bytes.subarray(0, 10)); // splits inside the two-byte Ž
+      h.child.stdout.write(bytes.subarray(10));
+      expect(messages.mock.calls.flat()).toEqual(['{"text":"Žluťoučký"}', '{"id":2}']);
+    } finally { await browser.close(); }
+    expect(h.cancel).toHaveBeenCalledOnce();
+    expect(h.release).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the absent-prefix launch byte-identical with CDP-only stdin', async () => {
+    const h = fixture();
+    const chunks: Buffer[] = [];
+    h.child.stdin.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    vi.mocked(connect).mockImplementation(async (options) => {
+      (options.transport as ProjectCdpTransport).send('{"id":1}');
+      return h.browser as unknown as Awaited<ReturnType<typeof connect>>;
+    });
+    const browser = await openProjectBrowser(h.ctx, h.project, 2, logger);
+    try {
+      expect(Buffer.concat(chunks).equals(Buffer.from('{"id":1}\0', 'utf8'))).toBe(true);
+      expect(h.child.stdin.writableEnded).toBe(false);
+    } finally { await browser.close(); }
+    expect(h.cancel).toHaveBeenCalledOnce();
+    expect(h.release).toHaveBeenCalledOnce();
+  });
+
+  it('treats an empty provider prefix like an absent one', async () => {
+    const h = fixture();
+    const prepared = await h.sandbox.prepareExecution(undefined);
+    (prepared as { stdin?: string | Buffer }).stdin = '';
+    h.sandbox.prepareExecution.mockResolvedValue(prepared);
+    const chunks: Buffer[] = [];
+    h.child.stdin.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    vi.mocked(connect).mockImplementation(async (options) => {
+      (options.transport as ProjectCdpTransport).send('{"id":1}');
+      return h.browser as unknown as Awaited<ReturnType<typeof connect>>;
+    });
+    const browser = await openProjectBrowser(h.ctx, h.project, 2, logger);
+    try {
+      expect(Buffer.concat(chunks).equals(Buffer.from('{"id":1}\0', 'utf8'))).toBe(true);
+      expect(h.child.stdin.writableEnded).toBe(false);
+    } finally { await browser.close(); }
+    expect(h.cancel).toHaveBeenCalledOnce();
+    expect(h.release).toHaveBeenCalledOnce();
+  });
 });

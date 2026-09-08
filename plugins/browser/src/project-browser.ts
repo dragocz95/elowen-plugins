@@ -72,7 +72,8 @@ export async function openProjectBrowser(ctx: PluginContext, project: BrowserPro
   } });
   const valid = prepared.mode === 'managed' && prepared.projectRef?.kind === 'managed' && prepared.projectRef.projectId === project.projectId
     && prepared.lease.projectId === project.projectId && prepared.lease.accountUserId === actor && prepared.lease.runtimeGeneration === generation
-    && typeof prepared.lease.cancel === 'function' && prepared.launch.type === 'argv' && prepared.stdin === undefined;
+    && typeof prepared.lease.cancel === 'function' && prepared.launch.type === 'argv'
+    && (prepared.stdin === undefined || prepared.stdin instanceof Buffer || typeof prepared.stdin === 'string');
   if (!valid) {
     await prepared.lease.cancel?.();
     await prepared.lease.release();
@@ -114,6 +115,13 @@ async function connectProjectBrowser(ctx: PluginContext, prepared: SandboxPrepar
     child.on('close', stopped);
     heartbeat = setInterval(() => { void Promise.resolve().then(() => prepared.lease.heartbeat()).catch(stopped); }, 5000);
     heartbeat.unref();
+    // A provider may attach an opaque stdin prefix (prepared.stdin) that the canonical launch consumes
+    // before the debugging pipe is usable. It must reach child.stdin verbatim, exactly once and before
+    // the first CDP frame: writes on the same stream are ordered, so a single synchronous write placed
+    // here — after the error handlers, before puppeteer.connect — guarantees the byte order without
+    // decoding, framing or parsing anything. The runtime owns consuming its own prefix; stdin is never
+    // ended, because Chromium keeps reading CDP messages from the same descriptor.
+    if (prepared.stdin !== undefined) child.stdin.write(prepared.stdin);
     const moduleName = 'puppeteer-core';
     const puppeteer = await import(moduleName) as { connect(options: { transport: ConnectionTransport; defaultViewport: { width: number; height: number }; protocolTimeout: number }): Promise<BrowserLike & {
       defaultBrowserContext(): { setDownloadBehavior(options: { policy: 'allow'; downloadPath: string }): Promise<void> };
