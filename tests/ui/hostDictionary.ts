@@ -179,6 +179,7 @@ export const en = {
     nextPage: 'Next page',
     range: '{from}–{to} of {total}',
     pageLabel: 'Page {page} of {pages}',
+    perPage: 'Per page',
   },
   projects: {
     newProject: 'New project',
@@ -693,6 +694,7 @@ export const cs = {
     nextPage: 'Další strana',
     range: '{from}–{to} z {total}',
     pageLabel: 'Strana {page} z {pages}',
+    perPage: 'Na stránku',
   },
   projects: {
     newProject: 'Nový projekt',

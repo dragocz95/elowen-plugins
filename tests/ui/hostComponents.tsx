@@ -230,8 +230,13 @@ export function DataTableChevronCell({ className = '' }: { className?: string })
 /** The ONE pager: range on the left, previous / page / next on the right. `pageCount`, `from` and `to`
  *  are derived here so no caller can drift, and every label comes from the host `pagination` namespace —
  *  a caller passes none. */
-export function Pager({ page, pageSize, total, onPageChange, ariaLabel, className = '' }: {
+const PAGE_SIZE_OPTIONS = [25, 50, 100];
+
+export function Pager({ page, pageSize, total, onPageChange, onPageSizeChange, pageSizeOptions = PAGE_SIZE_OPTIONS, ariaLabel, className = '' }: {
   page: number; pageSize: number; total: number; onPageChange: (page: number) => void;
+  /** Supplying it is what MAKES the rows-per-page select appear, exactly as in the host's own pager. */
+  onPageSizeChange?: (pageSize: number) => void;
+  pageSizeOptions?: readonly number[];
   ariaLabel?: string; className?: string;
 }) {
   const { t } = useTranslation();
@@ -239,9 +244,20 @@ export function Pager({ page, pageSize, total, onPageChange, ariaLabel, classNam
   const current = Math.min(Math.max(page, 0), pageCount - 1);
   const from = total === 0 ? 0 : current * pageSize + 1;
   const to = Math.min(total, (current + 1) * pageSize);
+  // A register already on a size that is not one of the offered steps must still show the size it is on.
+  const sizes = [...new Set([...pageSizeOptions, pageSize])].sort((a, b) => a - b);
   return (
     <nav aria-label={ariaLabel ?? t.pagination.label} className={`pager ${className}`}>
       <span>{t.pagination.range.replace('{from}', String(from)).replace('{to}', String(to)).replace('{total}', String(total))}</span>
+      {onPageSizeChange ? (
+        <select
+          aria-label={t.pagination.perPage}
+          value={String(pageSize)}
+          onChange={(event) => onPageSizeChange(Number(event.target.value))}
+        >
+          {sizes.map((size) => <option key={size} value={String(size)}>{String(size)}</option>)}
+        </select>
+      ) : null}
       <div>
         <Button aria-label={t.pagination.previousPage} disabled={current === 0} onClick={() => onPageChange(current - 1)}>
           <ChevronLeft size={14} aria-hidden />
@@ -1308,10 +1324,11 @@ export function MarkdownAssetEditor(props: any) {
             <div>
               <DataTable ariaLabel={t.assetEditor.colName}>
                 <DataTableRow header>
+                  {/* The row-control column LEADS the register, mirroring the host's own editor. */}
+                  {renderRowControl ? <DataTableCell header priority="wide" role="presentation" aria-hidden>{null}</DataTableCell> : null}
                   <DataTableCell header>{t.assetEditor.colName}</DataTableCell>
                   <DataTableCell header priority="wide">{t.assetEditor.colDescription}</DataTableCell>
                   {ownership ? <DataTableCell header priority="wide">{ownership.header}</DataTableCell> : null}
-                  <DataTableCell header priority="wide" role="presentation" aria-hidden>{null}</DataTableCell>
                   <DataTableCell header priority="wide" role="presentation" aria-hidden>{null}</DataTableCell>
                   <DataTableCell header role="presentation" aria-hidden>{null}</DataTableCell>
                 </DataTableRow>
@@ -1326,6 +1343,9 @@ export function MarkdownAssetEditor(props: any) {
                   const isOpen = editing !== null && assetKey(editing) === assetKey(item);
                   return (
                     <DataTableRow key={assetKey(item)} interactive={editable} selected={isOpen} aria-selected={isOpen} className="group">
+                      {renderRowControl ? (
+                        <DataTableCell priority="wide">{editable ? renderRowControl(item) : null}</DataTableCell>
+                      ) : null}
                       <DataTableCell>
                         {editable
                           ? <button type="button" onClick={open}>{item.name}</button>
@@ -1339,7 +1359,6 @@ export function MarkdownAssetEditor(props: any) {
                         <Badge>{isUser ? labels.badgeUser : labels.badgeBuiltin}</Badge>
                         {renderBadges?.(item)}
                       </DataTableCell>
-                      <DataTableCell priority="wide">{editable ? renderRowControl?.(item) : null}</DataTableCell>
                       <DataTableCell>
                         {editable ? (
                           <>

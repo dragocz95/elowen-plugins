@@ -131,6 +131,20 @@ describe('cronjob schedule builder', () => {
   });
 });
 
+// The register's footer is the host's one pager, page-size select included, so /p/cronjob reads exactly
+// like the skills register rather than growing a footer of its own.
+describe('cronjob JobsSettings — register footer', () => {
+  it('offers the rows-per-page select beside the range', async () => {
+    use(http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job({})])));
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await screen.findByText('digest');
+
+    const pager = screen.getByRole('navigation', { name: strings.title });
+    expect(within(pager).getByRole('combobox', { name: 'Per page' })).toBeInTheDocument();
+  });
+});
+
 describe('cronjob JobsSettings — status indicator', () => {
   // The row's state is a control now, not a coloured dot beside one: a switch and a read-only copy of
   // its own value are two truths waiting to disagree. An absent `enabled` still reads as active.
@@ -152,6 +166,20 @@ describe('cronjob JobsSettings — status indicator', () => {
 });
 
 describe('cronjob JobsSettings — row enable switch', () => {
+  // Every register in the app carries its row switch at the left edge, so /p/cronjob reads the same way
+  // as the mcp and skills registers do.
+  it('leads the row with the switch, ahead of every other cell and control', async () => {
+    use(http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job({})])));
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await screen.findByText('digest');
+
+    const row = within(screen.getByRole('table')).getByText('digest').closest('[role="row"]') as HTMLElement;
+    expect(within(within(row).getAllByRole('cell')[0]).getByRole('switch')).toBe(rowSwitch('digest'));
+    // The row-open overlay is a button of its own, so "first" is measured over every control in the row.
+    expect(row.querySelectorAll('button')[0]).toBe(rowSwitch('digest'));
+  });
+
   it('pauses a job straight from the row through the job update route', async () => {
     const writes: Record<string, unknown>[] = [];
     use(

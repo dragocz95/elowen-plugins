@@ -104,6 +104,16 @@ describe('StatsView', () => {
     await waitFor(() => expect(screen.getAllByTestId('model-usage-row')).toHaveLength(2));
   });
 
+  // The register's footer is the host's one pager, page-size select included, so the usage table reads
+  // exactly like the skills register rather than growing a footer of its own.
+  it('offers the rows-per-page select beside the range', async () => {
+    renderStats();
+    await screen.findAllByTestId('model-usage-row');
+
+    const pager = screen.getByRole('navigation', { name: strings.tableTitle });
+    expect(within(pager).getByRole('combobox', { name: 'Per page' })).toBeInTheDocument();
+  });
+
   it('uses semantic host surfaces and readable chart and table tokens', async () => {
     renderStats();
     const tokenHeading = await screen.findByText(strings.tokensByModel);
