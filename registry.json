@@ -27,7 +27,7 @@
     },
     {
       "name": "cronjob",
-      "version": "0.4.5",
+      "version": "0.4.6",
       "description": "Scheduler: recurring prompts, one-shot wake-ups and shell collectors that wake the agent on a schedule, with a jobs screen in Settings.",
       "category": "automation",
       "author": "Elowen",
@@ -118,7 +118,7 @@
     },
     {
       "name": "mcp",
-      "version": "0.1.7",
+      "version": "0.1.8",
       "requiresCore": "0.28.24",
       "description": "Connect external MCP servers to the assistant\u2019s tools.",
       "category": "tools",
