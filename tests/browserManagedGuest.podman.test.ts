@@ -83,6 +83,26 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('drives a real guest Chromium t
     // PNG magic: proof this is an encoded image and not an empty or text payload.
     expect(bytes.subarray(0, 4).toString('hex')).toBe('89504e47');
 
+    stage = 'a download lands in the environment download directory';
+    // The connect sets Browser.setDownloadBehavior to /data/browser/downloads, so a download must
+    // appear THERE and nowhere on the host.
+    await page.goto('data:text/html,<a id=d download="report.txt" href="data:text/plain;base64,cmVwb3J0LWJvZHk=">get</a>');
+    await page.click('#d');
+    let downloaded: any;
+    for (let attempt = 0; attempt < 40 && !downloaded; attempt += 1) {
+      const listing = await runtime.control.projectFiles({
+        project: projectRef, accountUserId: ACTOR, operation: { kind: 'list', path: '/data/browser/downloads', limit: 100 },
+      });
+      // Chromium writes a .crdownload placeholder first, so only a settled entry counts.
+      downloaded = (listing.entries ?? []).find((entry: any) => entry.path.endsWith('report.txt'));
+      if (!downloaded) await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    expect(downloaded, 'no settled download appeared in the guest').toBeTruthy();
+    const body = await runtime.control.projectFiles({
+      project: projectRef, accountUserId: ACTOR, operation: { kind: 'read', path: '/data/browser/downloads/report.txt', maxBytes: 65536 },
+    });
+    expect(Buffer.from(body.base64, 'base64').toString('utf8')).toBe('report-body');
+
     stage = 'profile persistence lives in the environment, not on the host';
     const profile = await runtime.control.projectFiles({
       project: projectRef, accountUserId: ACTOR, operation: { kind: 'stat', path: '/data/browser/profile' },
