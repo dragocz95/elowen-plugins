@@ -5,7 +5,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { http, HttpResponse, listen, resetHandlers, close, use, setDefaults } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import {
-  allServers, canReconnect, filterServers, parseEnvironment, reconnectTargets, serverDraft, serverKey, serverPayload, McpServersPage,
+  allServers, canManageServer, canReconnect, filterServers, parseEnvironment, reconnectTargets,
+  serverDraft, serverKey, serverPayload, McpServersPage,
 } from '../plugins/mcp/web-src/McpServersPage';
 import type { McpServer } from '../plugins/mcp/web-src/runtime';
 import manifest from '../plugins/mcp/elowen-plugin.json' with { type: 'json' };
@@ -105,6 +106,17 @@ describe('MCP register rows', () => {
     expect(filterServers(rows, 'example.test', 'all').map((row) => row.name)).toEqual(['docs']);
     expect(filterServers(rows, 'HTTP', 'all').map((row) => row.name)).toEqual(['docs']);
     expect(filterServers(rows, 'nothing', 'all')).toEqual([]);
+  });
+
+  // Write authority is its own question: turning a server back ON is a write, so it cannot be gated on
+  // the server already being enabled the way reconnect is.
+  it('separates write authority from the reconnect gate', () => {
+    // A local-process server is an administrator's alone, whatever its state.
+    expect(canManageServer(server, false)).toBe(false);
+    expect(canManageServer(server, true)).toBe(true);
+    // A disabled remote server is still writable — that is the only way to turn it back on.
+    expect(canManageServer({ ...remote, enabled: false }, false)).toBe(true);
+    expect(canReconnect({ ...remote, enabled: false }, false)).toBe(false);
   });
 
   it('offers reconnect only when the current account can execute it', () => {
