@@ -1512,7 +1512,9 @@ export class MsTeamsAdapter {
   async handleCommand(m, conv, from, ids, text, linkedPlatformUserId) {
     const [cmdRaw, ...argParts] = text.slice(1).trim().split(/\s+/);
     const cmd = String(cmdRaw ?? '').toLowerCase();
-    const arg = argParts.join(' ').trim().toLowerCase();
+    // Keep the argument's case: a slug is any non-empty string (src/api/schemas/projects.ts), and the
+    // shared core lowercases the only case-insensitive consumer (/fast) itself.
+    const arg = argParts.join(' ').trim();
     const admin = () => this.isAdmin(ids);
     const reply = (t) => this.tmSend(conv.id, t, { replyToId: m.id });
     const cs = this.cfg.language === 'cs';

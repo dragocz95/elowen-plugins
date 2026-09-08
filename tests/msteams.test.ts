@@ -1153,6 +1153,15 @@ describe('msteams live trace + cards + commands', () => {
     expect(switchProject).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, 'aad-1', 7);
     expect(calls.some((c) => c.kind === 'reply')).toBe(true);
   });
+
+  it('/project keeps the case of a typed mixed-case slug', async () => {
+    const { adapter } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] });
+    const switchProject = vi.fn(async () => ({ workDir: '/srv/k', slug: 'MixedCase' }));
+    adapter.control({ listProjects: vi.fn(() => [{ id: 7, slug: 'MixedCase', path: '/srv/k' }]), switchProject });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({ text: '/project MixedCase' }));
+    expect(switchProject).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, 'aad-1', 7);
+  });
 });
 
 describe('msteams proactive notify + app package', () => {

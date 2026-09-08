@@ -571,7 +571,9 @@ export class TelegramAdapter {
   async handleCommand(chatId, from, ids, text) {
     const [cmdRaw, ...argParts] = text.slice(1).trim().split(/\s+/);
     const cmd = cmdRaw.split('@')[0].toLowerCase(); // strip a trailing @botusername (group form)
-    const arg = argParts.join(' ').trim().toLowerCase();
+    // Keep the argument's case: a slug is any non-empty string (src/api/schemas/projects.ts), and the
+    // shared core lowercases the only case-insensitive consumer (/fast) itself.
+    const arg = argParts.join(' ').trim();
     const admin = () => this.isAdmin(ids);
     // Control commands share one transport-agnostic core. WHICH names those are is the daemon's answer,
     // not ours: controlCommandsFrom reads `execution` off the catalog we already receive, pickers
@@ -637,7 +639,7 @@ export class TelegramAdapter {
       }
       case 'voice': {
         if (!admin()) { await this.tgSend(chatId, this.msg.modelForbidden); return true; }
-        const next = arg === 'on' ? true : arg === 'off' ? false : !this.voiceEnabled(String(chatId));
+        const next = arg.toLowerCase() === 'on' ? true : arg.toLowerCase() === 'off' ? false : !this.voiceEnabled(String(chatId));
         this.state.patch(String(chatId), { voice: next });
         const note = next && !this.voiceCreds() ? `\n${this.msg.voiceNeedsKey}` : '';
         await this.tgSend(chatId, `${this.msg.voiceSet(next)}${note}`);

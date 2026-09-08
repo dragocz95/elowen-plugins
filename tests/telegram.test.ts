@@ -357,6 +357,18 @@ describe('telegram paged pickers + /context', () => {
     expect(switched).toEqual({ sender: '42', id: 42 });
   });
 
+  it('/project keeps the case of a typed mixed-case slug', async () => {
+    let switched: { sender: string; id: number } | undefined;
+    const { adapter, sent } = await makeAdapter([]);
+    adapter.control({
+      listProjects: () => [{ id: 7, slug: 'MixedCase', path: '/srv/k' }],
+      switchProject: async (_ref: unknown, sender: string, id: number) => { switched = { sender, id }; return { workDir: '/x', slug: 'MixedCase' }; },
+    });
+    await adapter.handleCommand(5, { id: 42 }, adminIds, '/project MixedCase');
+    expect(switched).toEqual({ sender: '42', id: 7 });
+    expect(sent.at(-1)!.text).toContain('MixedCase');
+  });
+
   it('picking a project dispatches the switch and settles the picker message', async () => {
     const { adapter, edits } = await makeAdapter([]);
     const switchProject = vi.fn(async (_ref: unknown, sender: string, _id: number) => { expect(sender).toBe('42'); return { workDir: '/x', slug: 'kolin' }; });
@@ -366,6 +378,22 @@ describe('telegram paged pickers + /context', () => {
     expect(switchProject).toHaveBeenCalledWith({ platform: 'telegram', channelId: '5#0' }, '42', 7);
     expect(edits.at(-1)!.text).toContain('kolin');
     expect(edits.at(-1)!.extra.reply_markup.inline_keyboard).toEqual([]);
+  });
+
+  it('a rejected /context pick keeps the pending chooser for an admin', async () => {
+    const { adapter } = await makeAdapter([]);
+    const bindContext = vi.fn(async () => ({ title: 'Refactor' }));
+    adapter.control({ listContext: () => ({ items: [{ id: 's1', title: 'Refactor', model: 'm' }], total: 1, hasMore: false }), bindContext });
+    await adapter.handleCommand(5, { id: 42 }, adminIds, '/context'); // an admin opens the chooser
+    expect(adapter.pendingPickers.get('5')?.kind).toBe('context');
+    const answers: { text?: string; show_alert?: boolean }[] = [];
+    await adapter.onCallback({
+      callbackQuery: { data: 'pk:0', from: { id: 999 }, message: { chat: { id: 5 }, message_id: 111 } },
+      answerCallbackQuery: async (o: { text?: string; show_alert?: boolean } = {}) => { answers.push(o); },
+    });
+    expect(bindContext).not.toHaveBeenCalled();
+    expect(answers[0]?.text).toContain('Only the operator'); // the refusal rides the callback answer
+    expect(adapter.pendingPickers.get('5')?.kind).toBe('context'); // and the chooser survives
   });
 
   it('pages the shared pickers out of the pending descriptor without re-listing', async () => {
