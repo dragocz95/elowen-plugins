@@ -1538,7 +1538,7 @@ export class MsTeamsAdapter {
           senderPlatformId: String(linkedPlatformUserId || from.aadObjectId || from.id),
           ctl: this.ctl, ref: this.channelRef(conv.id),
           showPicker: async (d) => {
-            const options = d.items.map((it) => ({ label: it.label, value: it.value }));
+            const options = d.items.map((it) => ({ label: it.label, value: it.value, ...(it.hint ? { hint: it.hint } : {}) }));
             const activityId = await this.tmSend(conv.id, '', { replyToId: m.id, card: buildPickerCard(d.picker, d.title, options, { cs }) });
             this.pendingPickers.set(String(conv.id), { kind: d.picker, title: d.title, options, activityId, page: 0, senderId: ownerKey(from), createdAt: Date.now() });
           },
@@ -1610,6 +1610,15 @@ export class MsTeamsAdapter {
     const local = pend.kind === 'model' || pend.kind === 'reasoning' || pend.kind === 'display';
     const upn = await this.resolveUpn(m.serviceUrl, conv.id, from);
     const ids = senderIds(from, conv.id, upn);
+    // The session-control pickers act as the person who clicked, so their platform id resolves like the
+    // command path does — the candidate (Entra object id, then Teams id) the account linker recognizes,
+    // falling back to the raw ids. Personal chats skip the linker, exactly like handleActivity.
+    let senderPlatformId = String(from.aadObjectId || from.id);
+    if (conv.conversationType !== 'personal' && this.accountLinking) {
+      for (const candidate of [...new Set([from.aadObjectId, from.id].filter(Boolean).map(String))]) {
+        if (this.accountLinking.linkedAccountFor?.(candidate, upn)) { senderPlatformId = candidate; break; }
+      }
+    }
     // The LOCAL pickers change SHARED conversation state, so their cards stay owner/admin-gated. The
     // session-control pickers (/context, /project) act as the person who clicked: bindContext and
     // switchProject scope the effect to the clicker's own account server-side, so an owner/admin gate
@@ -1665,7 +1674,7 @@ export class MsTeamsAdapter {
           msg: this.msg,
           reply: (t) => this.tmEdit(conv.id, pend.activityId, '', settledCard(t)),
           isAdmin: () => this.isAdmin(ids),
-          senderPlatformId: String(from.aadObjectId || from.id),
+          senderPlatformId,
           ctl: this.ctl, ref: this.channelRef(conv.id),
         });
     }

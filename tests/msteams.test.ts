@@ -1174,6 +1174,22 @@ describe('msteams live trace + cards + commands', () => {
     await adapter.onActivity(activity({ text: '/project MixedCase' }));
     expect(switchProject).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, 'aad-1', 7);
   });
+
+  it('a picker click resolves the clicker the way the command path does', async () => {
+    // The linker recognizes the Teams id, not the Entra object id — a clicker whose aadObjectId is
+    // unknown must still reach their account, exactly like the command path that reads linkedPlatformUserId.
+    const accountLinking = { linkedAccountFor: vi.fn((objectId: string) => (objectId === '29:enc' ? { id: 1 } : null)) };
+    const { adapter } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] }, { accountLinking });
+    const listProjects = vi.fn(() => [{ id: 7, slug: 'kolin' }]);
+    const switchProject = vi.fn(async () => ({ workDir: '/srv/k', slug: 'kolin' }));
+    adapter.control({ listProjects, switchProject });
+    adapter.listen(async () => 'unused');
+    const group = { conversation: { id: 'a:conv1', conversationType: 'groupChat', tenantId: 'tenant-guid' } };
+    await adapter.onActivity(activity({ ...group, text: '/project' }));
+    expect(listProjects).toHaveBeenCalledWith(expect.anything(), '29:enc'); // the command path resolves the linker
+    await adapter.onCardAction(activity({ ...group, value: { ep: 'project', v: '7' } }));
+    expect(switchProject).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, '29:enc', 7);
+  });
 });
 
 describe('msteams proactive notify + app package', () => {
