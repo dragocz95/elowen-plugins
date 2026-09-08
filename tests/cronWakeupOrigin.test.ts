@@ -378,41 +378,53 @@ describe('cron control — pending wake-up origins (the retention seam)', () => 
       await wakeup.execute('t', { name: 'ping', when: 'in 30s', prompt: 'check' }, undefined as never, undefined as never);
     }, { identity: OWNER, sessionId: 'brain-1-abc' });
     const control = reg.control('cron')!;
-    expect(control.pendingWakeupOriginSessionIds(1)).toEqual(['brain-1-abc']);
-    expect(control.pendingWakeupOriginSessionIds(2)).toEqual([]); // another user's sweep sees nothing
+    expect(control.retainedSessionIds(1)).toEqual(['brain-1-abc']);
+    expect(control.retainedSessionIds(2)).toEqual([]); // another user's sweep sees nothing
   });
 
-  it('does not treat a recurring job origin as a pending wake-up hold', async () => {
+  it('retains the dedicated conversation of an enabled recurring job, not the owner-chat it was created in', async () => {
     const dataRoot = freshDataRoot();
     writeJobs(dataRoot, [{
-      id: 'recurring', name: 'digest', schedule: 'daily 08:00', prompt: 'p',
+      id: 'recurring', name: 'digest', schedule: 'daily 08:00', prompt: 'p', ownerUserId: 1,
       originSessionId: 'brain-1-recurring', originUserId: 1, createdAt: new Date().toISOString(),
     }]);
     const { reg } = await loadCron(dataRoot);
-    expect(reg.control('cron')!.pendingWakeupOriginSessionIds(1)).toEqual([]);
+    expect(reg.control('cron')!.retainedSessionIds(1)).toEqual(['brain-1-job-recurring']);
+    expect(reg.control('cron')!.retainedSessionIds(2)).toEqual([]);
   });
 
-  it('an originless wake-up (channel/task-scheduled) protects nothing', async () => {
+  it('a disabled recurring job and an instance job retain nothing', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [
+      { id: 'off', name: 'off', schedule: 'daily 08:00', prompt: 'p', ownerUserId: 1, enabled: false, createdAt: new Date().toISOString() },
+      { id: 'inst', name: 'instance', schedule: 'daily 08:00', prompt: 'p', ownerUserId: null, createdAt: new Date().toISOString() },
+    ]);
+    const { reg } = await loadCron(dataRoot);
+    expect(reg.control('cron')!.retainedSessionIds(1)).toEqual([]);
+  });
+
+  it('an owned originless wake-up retains the dedicated conversation it will run in, as the scheduler routes it', async () => {
     const dataRoot = freshDataRoot();
     const { reg } = await loadCron(dataRoot);
     const wakeup = reg.tools.find((t) => t.name === 'ScheduleWakeup')!;
     await runWithPolicy(ADMIN, async () => {
       await wakeup.execute('t', { name: 'ch', when: 'in 30s', prompt: 'p' }, undefined as never, undefined as never);
     }, { identity: { ...OWNER, platform: 'cron', conversation: 'shared' } as TurnIdentity, sessionId: 'brain-ch-cron-job-x' });
-    expect(reg.control('cron')!.pendingWakeupOriginSessionIds(1)).toEqual([]);
+    const [job] = JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8')) as { id: string }[];
+    expect(reg.control('cron')!.retainedSessionIds(1)).toEqual([`brain-1-job-${job!.id}`]);
   });
 
   it('a fired (consumed) wake-up no longer protects its origin', async () => {
     const dataRoot = freshDataRoot();
     writeJobs(dataRoot, [dueWakeup({ originSessionId: 'brain-1-abc', originUserId: 1 })]);
     const { reg, adapter } = await loadCron(dataRoot, async () => {});
-    expect(reg.control('cron')!.pendingWakeupOriginSessionIds(1)).toEqual(['brain-1-abc']); // pending → protected
+    expect(reg.control('cron')!.retainedSessionIds(1)).toEqual(['brain-1-abc']); // pending → protected
     adapter.listen(async (_src, _text, onEvent) => {
       onEvent?.({ type: 'session', sessionId: 'brain-1-abc' });
       return 'done';
     });
     await adapter.tick();
-    expect(reg.control('cron')!.pendingWakeupOriginSessionIds(1)).toEqual([]); // consumed → unprotected
+    expect(reg.control('cron')!.retainedSessionIds(1)).toEqual([]); // consumed → unprotected
   });
 
   it('a removed wake-up no longer protects its origin', async () => {
@@ -427,7 +439,7 @@ describe('cron control — pending wake-up origins (the retention seam)', () => 
     await runWithPolicy(ADMIN, async () => {
       await remove.execute('t', { id: job!.id }, undefined as never, undefined as never);
     }, { identity: OWNER, sessionId: 'brain-1-abc' });
-    expect(reg.control('cron')!.pendingWakeupOriginSessionIds(1)).toEqual([]);
+    expect(reg.control('cron')!.retainedSessionIds(1)).toEqual([]);
   });
 });
 

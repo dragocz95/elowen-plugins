@@ -1687,14 +1687,22 @@ export function register(ctx) {
   }));
 
   // The retention janitor's seam (the host reads it via registry.control('cron')): which of this user's
-  // conversations still have a PENDING wake-up scheduled INTO them. Recurring personal jobs may also carry
-  // origins, so the runAt filter is what makes this specifically a pending-wake-up hold. A one-shot is
-  // deleted at fire time (and by CronRemove), so presence in the store IS pendingness. The janitor must not
-  // purge these conversations — the wake-up would lose its context and delivery route.
+  // conversations a live job still RUNS IN, so an idle stretch longer than the retention horizon cannot
+  // purge them. A one-shot wake-up is deleted at fire time (and by CronRemove), so its presence in the
+  // store IS pendingness; a recurring job is pending for as long as it is enabled, and its dedicated
+  // conversation is exactly where its run history lives between runs. Read from jobRunLocation, the one
+  // place that decides where a job runs, so the janitor and the scheduler can never disagree. A channel
+  // run carries no conversation of this user's to retain.
   ctx.registerControl('cron', {
-    pendingWakeupOriginSessionIds: (userId) => store.all()
-      .filter((j) => typeof j.runAt === 'string' && typeof j.originSessionId === 'string' && j.originUserId === userId)
-      .map((j) => j.originSessionId),
+    retainedSessionIds: (userId) => {
+      const ids = [];
+      for (const job of store.all()) {
+        if (job.enabled === false) continue;
+        const location = jobRunLocation(job, ownerOf(job));
+        if (location.kind !== 'channel' && location.userId === userId) ids.push(location.sessionId);
+      }
+      return ids;
+    },
     /** The NAVIGATION seam behind a conversation listing's collapsed jobs branch: which recurring jobs are
      *  filed under conversations the host has ALREADY authorized for this requester. Organization only —
      *  it says nothing about where a job runs or where its result goes, and reading it changes nothing.

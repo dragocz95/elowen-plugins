@@ -383,7 +383,7 @@ describe('cron control — conversationLinks', () => {
     const dataRoot = tmpDir('cron-ctl');
     const { reg } = await loadCron({ dataRoot, rows: baseRows(4, 1), admins: [1] });
     const control = reg.control('cron') as Record<string, unknown>;
-    expect(typeof control.pendingWakeupOriginSessionIds).toBe('function');
+    expect(typeof control.retainedSessionIds).toBe('function');
     expect(typeof control.conversationLinks).toBe('function');
   });
 
