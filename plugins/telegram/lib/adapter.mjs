@@ -731,15 +731,18 @@ export class TelegramAdapter {
       return;
     }
     // Paged nav for the SHARED pickers (`pk_page:<n>`): the same cached descriptor. /context stays
-    // operator-gated here like everywhere; /project has no gate — paging a list is read-only.
+    // operator-gated here like everywhere; /project has no gate — paging a list is read-only. The gate
+    // alert must ride the ONE answer a callback query allows, so it is decided BEFORE the plain answer
+    // (an answered query can no longer carry an alert) — the /m_page branch above does the same.
     if (data.startsWith('pk_page:')) {
-      await ctx.answerCallbackQuery().catch(() => {});
       const rest = data.slice('pk_page:'.length);
-      if (rest === 'noop') return;
+      if (rest === 'noop') { await ctx.answerCallbackQuery().catch(() => {}); return; }
       const page = Number(rest);
       const picker = this.pendingPickers.get(String(chatId));
-      if (!Number.isInteger(page) || !picker || picker.kind === 'model' || Date.now() - picker.createdAt > this.askTtlMs()) return;
-      if (picker.kind === PICKER_CONTEXT && !this.isAdmin(ids)) { await ctx.answerCallbackQuery({ text: this.msg.controlForbidden, show_alert: true }).catch(() => {}); return; }
+      const paged = Number.isInteger(page) && picker && picker.kind !== 'model' && Date.now() - picker.createdAt <= this.askTtlMs();
+      if (paged && picker.kind === PICKER_CONTEXT && !this.isAdmin(ids)) { await ctx.answerCallbackQuery({ text: this.msg.controlForbidden, show_alert: true }).catch(() => {}); return; }
+      await ctx.answerCallbackQuery().catch(() => {});
+      if (!paged) return;
       picker.page = page;
       await this.bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: { inline_keyboard: this.buildPagedKeyboard(this.pickerRows(picker.items), page, 'pk_page') } }).catch(() => {});
       return;

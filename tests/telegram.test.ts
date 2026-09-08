@@ -408,6 +408,24 @@ describe('telegram paged pickers + /context', () => {
     expect(kb[0][0].callback_data).toBe('pk:8');
   });
 
+  it('answers a non-admin page-nav with the gate alert, not a silent ack', async () => {
+    const { adapter, markups } = await makeAdapter([]);
+    const listContext = vi.fn(() => ({ items: Array.from({ length: 12 }, (_, i) => ({ id: `s${i}`, title: `T${i}`, model: 'm' })), total: 12, hasMore: false }));
+    adapter.control({ listContext, bindContext: vi.fn() });
+    await adapter.handleCommand(5, { id: 42 }, adminIds, '/context');
+    const answers: { text?: string; show_alert?: boolean }[] = [];
+    await adapter.onCallback({
+      callbackQuery: { data: 'pk_page:1', from: { id: 999 }, message: { chat: { id: 5 }, message_id: 111 } },
+      answerCallbackQuery: async (o: { text?: string; show_alert?: boolean } = {}) => { answers.push(o); },
+    });
+    // The alert can only ride the ONE answer a callback query allows — the /m_page branch already works
+    // this way, and an earlier plain answer would swallow it.
+    expect(answers[0]?.text).toContain('Only the operator');
+    expect(answers[0]?.show_alert).toBe(true);
+    expect(listContext).toHaveBeenCalledTimes(1);
+    expect(markups).toHaveLength(0);
+  });
+
   it('/fast passes the authentic Telegram user id for two senders, not the chat id', async () => {
     const models = [{ provider: 'openai', providerLabel: 'OpenAI', model: 'gpt-5.6-sol', fastAvailable: true }];
     const { adapter, chats } = await makeAdapter(models, {}, FAST_CATALOG);
