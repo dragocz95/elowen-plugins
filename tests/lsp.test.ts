@@ -75,6 +75,31 @@ describe('LSP server registry', () => {
     expect(serverForLanguage('nonsense')).toBeNull();
   });
 
+  it('offers the server a watchdog pid only when it shares the process namespace', async () => {
+    // A guest server told to watch the daemon's pid finds no such process and exits immediately, so a
+    // managed client must send null. Captured off the wire because that is what the server reads.
+    const seen: unknown[] = [];
+    const transport: LspTransport = {
+      send: (framed) => {
+        const msg = JSON.parse(framed.split('\r\n\r\n')[1]!) as JsonRpcMessage;
+        if (msg.method === 'initialize' && typeof msg.id === 'number') {
+          seen.push((msg.params as { processId: unknown }).processId);
+          queueMicrotask(() => cb({ jsonrpc: '2.0', id: msg.id, result: { capabilities: {} } }));
+        }
+      },
+      onMessage: (handler) => { cb = handler; },
+      onExit: () => {},
+      dispose: () => {},
+    };
+    let cb: (m: JsonRpcMessage) => void = () => {};
+    await new LspClient(transport, '/p').diagnose('/p/a.ts', 'x', 'typescript', 200, 10).catch(() => undefined);
+    expect(seen).toEqual([process.pid]);
+
+    seen.length = 0;
+    await new LspClient(transport, '/p', undefined, null).diagnose('/p/a.ts', 'x', 'typescript', 200, 10).catch(() => undefined);
+    expect(seen).toEqual([null]);
+  });
+
   it('installs a TypeScript the language server can actually drive', () => {
     // A bare `typescript` now resolves to the 7.x native port, which ships no tsserver.js, and the
     // server exits the handshake with "Could not find a valid TypeScript installation". The install

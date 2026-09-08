@@ -86,12 +86,21 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('installs, runs and shuts down 
       const after = await manager.statusAsync();
       expect(after.servers.find((server) => server.command === 'typescript-language-server')?.installed).toBe(true);
 
-      const write = async (text: string) => {
+      // expectedVersion null means "must not exist", so an overwrite has to carry the version it saw.
+      const write = async (text: string, expectedVersion: string | null = null) => {
         const result = await runtime.control.projectFiles({
           project: projectRef, accountUserId: ACTOR,
-          operation: { kind: 'write', path: '/workspace/probe.ts', base64: Buffer.from(text).toString('base64'), expectedVersion: null },
+          operation: { kind: 'write', path: '/workspace/probe.ts', base64: Buffer.from(text).toString('base64'), expectedVersion },
         });
         assert.equal(result.kind, 'write');
+        return result.version as string;
+      };
+      const currentVersion = async () => {
+        const seen = await runtime.control.projectFiles({
+          project: projectRef, accountUserId: ACTOR,
+          operation: { kind: 'read', path: '/workspace/probe.ts', maxBytes: GUEST_FILE_CHUNK_BYTES },
+        });
+        return seen.version as string;
       };
 
       stage = 'seed the guest workspace';
@@ -117,7 +126,15 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('installs, runs and shuts down 
         let stdout = '';
         child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
         child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-        const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { processId: null, rootUri: 'file:///workspace', capabilities: {} } });
+        // The capability set the real client sends. An empty one is not a smaller version of this: the
+        // server then has no reason to publish diagnostics at all, and the handshake looks healthy while
+        // no verdict ever arrives.
+        const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+          // null, as the managed client sends: a host pid is not a process the guest server can watch.
+          processId: null, rootUri: 'file:///workspace',
+          capabilities: { textDocument: { publishDiagnostics: { relatedInformation: false }, synchronization: { didSave: true } } },
+          workspaceFolders: [{ uri: 'file:///workspace', name: 'root' }],
+        } });
         // Written immediately, as the real transport does: the guest launch must not lose the frames
         // that arrive before the server has attached its own stdin.
         child.stdin.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
@@ -137,7 +154,9 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('installs, runs and shuts down 
                 uri: 'file:///workspace/probe.ts', languageId: 'typescript', version: 1,
                 text: 'export const total: number = "not a number";\n' } } });
             }
-            if (stdout.includes('publishDiagnostics')) { clearTimeout(timer); clearInterval(poll); resolve('diagnosed'); }
+            // tsserver publishes a syntactic pass first, with an empty array, and the semantic verdict
+            // a moment later. Settling on the first publish would assert an all-clear it never meant.
+            if (/not assignable/i.test(stdout)) { clearTimeout(timer); clearInterval(poll); resolve('diagnosed'); }
           }, 100);
           poll.unref();
         });
@@ -149,6 +168,8 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('installs, runs and shuts down 
         // A real server verdict over the provider lease, not merely bytes on the pipe.
         expect(stdout).toContain('capabilities');
         expect(stdout).toMatch(/not assignable/i);
+        // The pin, proven where it matters: the guest drives a TypeScript that still ships tsserver.
+        expect(stdout).toMatch(/"version":"5\./);
       }
 
       stage = 'diagnostic on a genuinely broken file';
@@ -165,20 +186,13 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('installs, runs and shuts down 
         const source = 'export const total: number = "not a number";\n';
         const readied: any = await (manager as any).prepare('typescript-language-server', ['--stdio'], '/workspace');
         const transport = (manager as any).transport(readied);
-        const client = new LspClient(transport, '/workspace');
+        // The watchdog pid comes from the manager, never from this file: a client built with the default
+        // would carry the host pid into the guest and the server would exit before answering.
+        const client = new LspClient(transport, '/workspace', undefined, (manager as any).watchdogProcessId());
         try {
           const verdict = await client.diagnose('/workspace/probe.ts', source, 'typescript', 30_000, 1_500);
           expect(verdict.published).toBe(true);
           expect(verdict.diagnostics.length).toBeGreaterThan(0);
-        } catch (cause) {
-          // A server that exits mid-diagnose is usually the environment reclaiming it, so say which.
-          const forensics: any = await sandboxControl.prepareExecution({
-            projectRef, cwd: '/workspace', leaseKind: 'terminal',
-            command: { type: 'shell', command: 'cat /sys/fs/cgroup/memory.events; echo "peak=$(cat /sys/fs/cgroup/memory.peak 2>/dev/null)"; echo "max=$(cat /sys/fs/cgroup/memory.max)"; echo "pids=$(cat /sys/fs/cgroup/pids.peak 2>/dev/null)"' },
-          });
-          const { runPrepared } = await import('elowen/plugins/sandbox/lib/execution.mjs') as any;
-          const seen = await runPrepared(forensics).catch((error: unknown) => ({ stdout: String(error), stderr: '' }));
-          throw new Error(`${String(cause)} | guest cgroup: ${String(seen.stdout).replace(/\s+/g, ' ').trim()}`);
         } finally { transport.dispose(); }
       }
 
@@ -190,7 +204,7 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('installs, runs and shuts down 
       expect(broken.diagnostics.some((entry) => /not assignable/i.test(entry.message))).toBe(true);
 
       stage = 'diagnostic clears once the error is fixed';
-      await write('export const total: number = 41 + 1;\n');
+      await write('export const total: number = 41 + 1;\n', await currentVersion());
       const fixed = await manager.checkFile('/workspace/probe.ts');
       expect(fixed.skipped).toBeUndefined();
       expect(fixed.diagnostics).toEqual([]);

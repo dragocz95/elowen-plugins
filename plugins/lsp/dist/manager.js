@@ -130,6 +130,11 @@ export class LspManager {
             void done.then((value) => { signal.removeEventListener('abort', onAbort); resolve({ done: true, value }); }, (error) => { signal.removeEventListener('abort', onAbort); reject(error); });
         });
     }
+    /** The pid the server watchdog should follow. A host server shares this process namespace, so the
+     *  daemon's own pid is exactly right; a guest server does not, which is why this is overridable. */
+    watchdogProcessId() {
+        return process.pid;
+    }
     /** Type-check one file and return its diagnostics (or why it was skipped). Never throws — a spawn or
      *  server failure degrades to a `skipped`/empty result so it can't break the agent's edit loop. */
     async checkFile(path, boundary, signal) {
@@ -398,7 +403,7 @@ export class LspManager {
             return concurrent;
         }
         this.makeRoomForClient();
-        const client = new LspClient(transport, root);
+        const client = new LspClient(transport, root, undefined, this.watchdogProcessId());
         const entry = {
             key, command: spec.command, root, client, activeChecks: 0, retired: false, warmed: false, checkedPaths: new Set(),
         };

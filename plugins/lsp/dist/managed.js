@@ -50,6 +50,13 @@ export class ManagedLspManager extends LspManager {
         this.generation = generation;
     }
     get scopeKey() { return `:${this.project.projectId}:${this.actor}:${this.generation}`; }
+    /** The daemon's pid means nothing in the guest's process namespace: the server looks for it, finds
+     *  no such process, and exits(1) the moment the session starts — which surfaced as every managed
+     *  check reporting a server error. The execution lease and its heartbeat already own this server's
+     *  lifetime, so it needs no watchdog of its own. */
+    watchdogProcessId() {
+        return null;
+    }
     async authority() {
         if (this.stopped)
             throw new Error('Managed LSP manager is stopped.');

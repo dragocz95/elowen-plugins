@@ -101,6 +101,7 @@ export class LspClient {
     transport;
     rootPath;
     maxDocuments;
+    watchdogProcessId;
     static DEFAULT_MAX_DOCUMENTS = 128;
     nextId = 1;
     pending = new Map();
@@ -123,10 +124,14 @@ export class LspClient {
     uriOperations = new Map();
     starting = null;
     disposed = false;
-    constructor(transport, rootPath, maxDocuments = LspClient.DEFAULT_MAX_DOCUMENTS) {
+    constructor(transport, rootPath, maxDocuments = LspClient.DEFAULT_MAX_DOCUMENTS, 
+    /** The pid the server should watch to know its client is gone, or null for no watchdog. Only a pid
+     *  in the SERVER's own process namespace means anything here. */
+    watchdogProcessId = process.pid) {
         this.transport = transport;
         this.rootPath = rootPath;
         this.maxDocuments = maxDocuments;
+        this.watchdogProcessId = watchdogProcessId;
         transport.onMessage((msg) => this.onMessage(msg));
         transport.onExit(() => this.onExit());
     }
@@ -226,7 +231,7 @@ export class LspClient {
             return this.starting;
         this.starting = (async () => {
             await this.request('initialize', {
-                processId: process.pid, // let the server watchdog exit if the daemon dies
+                processId: this.watchdogProcessId, // let the server watchdog exit if the daemon dies
                 rootUri: pathToFileURL(this.rootPath).href,
                 capabilities: { textDocument: { publishDiagnostics: { relatedInformation: false }, synchronization: { didSave: true } } },
                 workspaceFolders: [{ uri: pathToFileURL(this.rootPath).href, name: 'root' }],
