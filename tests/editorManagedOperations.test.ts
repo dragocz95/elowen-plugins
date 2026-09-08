@@ -18,7 +18,7 @@ const GUEST_FILE_CHUNK_BYTES = 524288;
 import { registerEditorApi } from '../plugins/editor/src/api.js';
 
 const exec = promisify(execFile);
-async function fixture() {
+async function fixture(options: { office?: boolean } = { office: true }) {
   const root = await mkdtemp(join(tmpdir(), 'elowen-editor-guest-'));
   await mkdir(join(root, 'tmp'));
   await mkdir(join(root, 'src'));
@@ -32,9 +32,15 @@ async function fixture() {
       const args = input.command.args.map(guest);
       let file = `/usr/bin/${input.command.file}`;
       if (input.command.file === 'soffice') {
+        // An environment without an office suite: the converter exits non-zero exactly as a missing
+        // binary would, and the `command -v` probe that follows finds nothing either.
+        if (options.office === false) file = '/bin/false';
+        else {
         file = '/usr/bin/python3';
         args.unshift('-c', 'import pathlib,sys; a=sys.argv; out=pathlib.Path(a[a.index("--outdir")+1]); (out/(pathlib.Path(a[-1]).stem+".pdf")).write_bytes(b"%PDF-1.4 fixture")');
+        }
       }
+      if (input.command.file === 'sh' && options.office === false) file = '/bin/false';
       return { mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: root, home: '/root', displayCwd: '/workspace', roots: ['/'], workspace: null, launch: { type: 'argv', file, args, env: { PATH: '/usr/bin:/bin', HOME: root } }, lease: { id: 'test', accountUserId: 11, workspaceId: null, homeGeneration: null, heartbeat() {}, release() {} }, cancel: async () => {}, sanitizeOutput: text => text.replaceAll(root, '/workspace') };
     },
     async projectFiles({ operation }: { operation: GuestFileOperation }) {
@@ -158,6 +164,15 @@ describe('managed editor compound operations with an executable provider fixture
       expect(Buffer.from((await f.call('office-preview', 'GET', 'linked.docx')).body as Uint8Array).toString()).toBe('%PDF-1.4 fixture');
       const output = f.operations.find(op => op.kind === 'read' && op.path.endsWith('.pdf'))!;
       await expect(access(join(f.root, 'tmp', output.path.slice(5).split('/')[0]!))).rejects.toThrow();
+    } finally { await f.dispose(); }
+  });
+  it('says office preview is unavailable when the environment has no converter', async () => {
+    const f = await fixture({ office: false });
+    try {
+      await writeFile(join(f.root, 'brief.docx'), 'fixture');
+      const result = await f.call('office-preview', 'GET', 'brief.docx');
+      expect(result.status).toBe(501);
+      expect(JSON.stringify(result.body)).toContain('ships no office suite');
     } finally { await f.dispose(); }
   });
   it('inspects actual guest Git history and working changes', async () => {
