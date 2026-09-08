@@ -201,7 +201,9 @@ export function buildPickerCard(kind, title, options, { cs = false, page = 0, cu
     { type: 'TextBlock', text: clamp(title, 200), wrap: true },
     { type: 'ActionSet', actions: window.map((option) => ({
       type: 'Action.Submit',
-      title: `${current !== undefined && option.value === current ? '✅ ' : ''}${clamp(option.label)}`,
+      // The descriptor's secondary hint (a /context row's model) rides the button title — Adaptive Card
+      // actions have no description line, and dropping it would hide which model each row continues.
+      title: `${current !== undefined && option.value === current ? '✅ ' : ''}${clamp(option.label)}${option.hint ? ` · ${clamp(option.hint, 24)}` : ''}`,
       data: { ep: kind, v: option.value },
     })) },
   ];
