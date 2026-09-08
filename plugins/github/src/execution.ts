@@ -4,9 +4,11 @@ import { chmodSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { PluginContext, SandboxPreparedExecution } from 'elowen/plugin-api';
+import type { ProjectExecutionRef } from 'elowen/dist/shared/projectExecution.js';
 import { GitHubPluginError } from './errors.js';
 import { canonicalHttpsRepository } from './remotes.js';
 import type { RemoteRepositoryRef } from './types.js';
+import { publishManaged } from './staging.js';
 
 const MAX_OUTPUT = 1024 * 1024;
 const HELPER_SOURCE = String.raw`const net=require('node:net');let a=process.argv.slice(1),o=a.pop(),n=a[a.indexOf('--nonce')+1],s=a[a.indexOf('--socket')+1],d='';process.stdin.setEncoding('utf8');process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{let q={nonce:n};for(let l of d.split(/\r?\n/)){let i=l.indexOf('=');if(i>0)q[l.slice(0,i)]=l.slice(i+1)}let c=net.createConnection(s);c.end(JSON.stringify(q));let r='';c.setEncoding('utf8');c.on('data',x=>r+=x);c.on('end',()=>{let v=JSON.parse(r);if(!v.ok)process.exit(1);process.stdout.write('username='+v.username+'\npassword='+v.password+'\n\n')});c.on('error',()=>process.exit(1))})`;
@@ -15,29 +17,48 @@ interface SpawnResult { stdout: string; stderr: string }
 export type SpawnPrepared = (prepared: SandboxPreparedExecution, timeoutMs?: number, secrets?: readonly string[]) => Promise<SpawnResult>;
 
 export const spawnPrepared: SpawnPrepared = async (prepared, timeoutMs = 60_000, secrets = []) => new Promise((resolveResult, reject) => {
+  if (prepared.mode === 'managed' && !prepared.cancel) {
+    void Promise.resolve(prepared.lease.release()).then(() => reject(new Error('Managed cancellation unavailable')), reject);
+    return;
+  }
   const launch = prepared.launch;
-  const child = launch.type === 'argv'
-    ? spawn(launch.file, launch.args, { cwd: prepared.cwd, env: launch.env, stdio: ['ignore', 'pipe', 'pipe'] })
-    : spawn('/bin/bash', ['-c', launch.command], { cwd: prepared.cwd, env: launch.env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let child;
+  try {
+    child = launch.type === 'argv'
+      ? spawn(launch.file, launch.args, { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] })
+      : spawn('/bin/bash', ['-c', launch.command], { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch (error) {
+    void Promise.resolve(prepared.lease.release()).then(() => reject(error), reject);
+    return;
+  }
   let stdout = '';
   let stderr = '';
   let overflow = false;
+  let failure: unknown;
+  let cancellation: Promise<void> | undefined;
+  const stop = (error: unknown): void => {
+    failure ??= error;
+    cancellation ??= (prepared.cancel ? prepared.cancel() : Promise.resolve()).catch(error => { failure = error; }).then(() => { child.kill('SIGKILL'); });
+  };
   const append = (target: 'stdout' | 'stderr', chunk: Buffer): void => {
     const value = chunk.toString('utf8');
-    if (stdout.length + stderr.length + value.length > MAX_OUTPUT) { overflow = true; child.kill('SIGKILL'); return; }
+    if (stdout.length + stderr.length + value.length > MAX_OUTPUT) { overflow = true; stop(new Error('Git output too large')); return; }
     if (target === 'stdout') stdout += value; else stderr += value;
   };
   child.stdout.on('data', (chunk: Buffer) => append('stdout', chunk));
   child.stderr.on('data', (chunk: Buffer) => append('stderr', chunk));
-  const heartbeat = setInterval(() => void prepared.lease.heartbeat(), 10_000);
+  const heartbeat = setInterval(() => { Promise.resolve().then(() => prepared.lease.heartbeat()).catch(stop); }, 10_000);
   heartbeat.unref();
-  const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+  const timer = setTimeout(() => stop(new Error('Git command timed out')), timeoutMs);
   timer.unref();
-  const finish = async (): Promise<void> => { clearInterval(heartbeat); clearTimeout(timer); await prepared.lease.release(); };
-  child.once('error', (error) => { void finish().finally(() => reject(error)); });
+  const finish = async (): Promise<void> => { clearInterval(heartbeat); clearTimeout(timer); await cancellation; await prepared.lease.release(); };
+  child.once('error', stop);
+  child.stdin.on('error', stop);
+  child.stdin.end(prepared.stdin);
   child.once('close', (code, signal) => {
     void finish().then(() => {
       if (overflow) return reject(new GitHubPluginError('git_output_too_large', 502, 'Git produced too much output.'));
+      if (failure) return reject(sanitizedExecutionError(failure, secrets));
       if (code !== 0) return reject(new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', { code, signal, stderr: redact(stderr, secrets) }));
       resolveResult({ stdout, stderr });
     }, reject);
@@ -109,18 +130,25 @@ async function homeFor(ctx: PluginContext, cwd: string): Promise<string> {
 }
 
 export async function publishBranch(input: {
-  ctx: PluginContext; cwd: string; branch: string; token: string; repository: RemoteRepositoryRef; runner?: SpawnPrepared;
+  ctx: PluginContext; cwd: string; branch: string; token: string; repository: RemoteRepositoryRef; runner?: SpawnPrepared; expectedHead?: string; projectRef?: ProjectExecutionRef;
 }): Promise<{ head: string; remoteUrl: string }> {
   const runner = input.runner ?? spawnPrepared;
-  if (!/^elowen\/u\d+\/[A-Za-z0-9._/-]+$/.test(input.branch) || input.branch.includes('..') || input.branch.endsWith('/')) {
+  const inherited = input.ctx.currentAccess().projectRef;
+  if (input.projectRef && inherited && (input.projectRef.kind !== inherited.kind || input.projectRef.projectId !== inherited.projectId)) throw new GitHubPluginError('project_forbidden', 403, 'The publish target differs from the selected project.');
+  const projectRef = input.projectRef ?? inherited;
+  const managed = projectRef?.kind === 'managed';
+  const validBranch = managed ? input.branch.length > 0 : /^elowen\/u\d+\/[A-Za-z0-9._/-]+$/.test(input.branch);
+  if (!validBranch || input.branch.includes('..') || input.branch.endsWith('/')) {
     throw new GitHubPluginError('invalid_workspace_branch', 409, 'The active workspace branch is not a generated Elowen branch.');
   }
-  if (input.ctx.currentAccess().projectRef?.kind === 'managed') {
-    throw new GitHubPluginError('managed_publish_unavailable', 503, 'Managed publishing requires isolated validated object staging; the shared project repository cannot receive personal credentials.');
+  if (managed) {
+    if (!input.expectedHead) throw new GitHubPluginError('publish_scope_invalid', 403, 'An approved managed project commit is required.');
+    return publishManaged({ ...input, projectRef, expectedHead: input.expectedHead, runner });
   }
   await assertSafeRepositoryConfig(input.ctx, input.cwd, runner);
   const head = (await git(input.ctx, input.cwd, ['rev-parse', 'HEAD'], runner)).stdout.trim();
   if (!/^[a-f0-9]{40}$/i.test(head)) throw new GitHubPluginError('publish_requires_commit', 409, 'Commit at least one change before publishing the branch.');
+  if (input.expectedHead && head !== input.expectedHead) throw new GitHubPluginError('publish_head_changed', 409, 'The approved commit changed.');
 
   const home = await homeFor(input.ctx, input.cwd);
   const nonce = randomBytes(24).toString('base64url');
@@ -163,7 +191,7 @@ export async function publishBranch(input: {
       '-c', `core.hooksPath=${join(brokerDir, 'empty-hooks')}`,
       '-c', 'credential.helper=', '-c', `credential.helper=${helper}`,
       '-c', 'credential.useHttpPath=true',
-      'push', '--porcelain', remoteUrl, `refs/heads/${input.branch}:refs/heads/${input.branch}`,
+      'push', '--porcelain', remoteUrl, `${head}:refs/heads/${input.branch}`,
     ];
     mkdirSync(join(brokerDir, 'empty-hooks'), { mode: 0o700 });
     const prepared = await prepare(input.ctx, input.cwd, 'git', ['-C', input.cwd, ...args]);

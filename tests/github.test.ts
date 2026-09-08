@@ -195,6 +195,30 @@ function prepared(command: any, cwd: string, home: string): SandboxPreparedExecu
 }
 
 describe('GitHub plugin', () => {
+  it('reads managed repository metadata through the guest without ambient API execution identity', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'github-managed-metadata-')); roots.push(root);
+    const h = harness(root, { base: 'https://api.github.com' });
+    Object.assign(h.project, { executionKind: 'managed' });
+    const commands: string[][] = [];
+    Object.assign(h.ctx, {
+      workDir: () => '/workspace', currentAccountUserId: () => 1,
+      control: () => ({ prepareExecution: async (input: any, actor: any) => {
+        expect(input.projectRef).toEqual({ kind: 'managed', projectId: 1 });
+        expect(actor.accountUserId).toBe(1);
+        return { ...prepared(input.command, input.cwd, join(root, 'home')), mode: 'managed', projectRef: input.projectRef };
+      } }),
+      host: { ...h.ctx.host, git: () => { throw new Error('Host Git must not inspect managed repositories'); } },
+    });
+    const service = new GitHubService(h.ctx, { spawnPrepared: async launch => {
+      const args = launch.launch.type === 'argv' ? launch.launch.args : [];
+      commands.push(args);
+      return { stdout: args.includes('status') ? `# branch.head main\n# branch.oid ${'a'.repeat(40)}\n? draft.txt\n` : 'origin\thttps://user:secret@github.com/base/repo.git (fetch)\n', stderr: '' };
+    } });
+    const rows = await service.repositories(1, [1], false);
+    expect(rows).toMatchObject([{ project: { id: 1 }, remotes: [{ name: 'origin', fetchUrl: 'https://github.com/base/repo.git' }] }]);
+    expect(JSON.stringify(rows)).not.toContain('secret');
+    expect(commands).toEqual([['-C', '/workspace', 'status', '--porcelain=v2', '--branch'], ['-C', '/workspace', 'remote', '-v']]);
+  });
   it('parses only the GitHub device URL and code and sanitizes inherited credentials', () => {
     expect(parseDevicePrompt('noise\r\nhttps://github.com/login/device\r\nABCD-EFGH\r\n')).toEqual({ verificationUrl: 'https://github.com/login/device', userCode: 'ABCD-EFGH' });
     expect(parseDevicePrompt('https://github.com.evil/login/device ABCD-EFGH')).toBeNull();

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { DEVICE_FLOW_TTL, GitHubAuthAdapter, newFlowId, validateDeviceToken } from './githubAuth.js';
 import { GitHubClient, GitHubHttpError } from './githubClient.js';
 import { GitHubPluginError } from './errors.js';
-import { publishBranch } from './execution.js';
+import { publishBranch, spawnPrepared } from './execution.js';
 import { suggestedRepositories } from './remotes.js';
 import { GitHubStore, hashValue } from './store.js';
 const CLI_TOKEN_KEY = 'cli-token';
@@ -391,17 +391,85 @@ export class GitHubService {
         this.store.deactivateMappings(userId);
         this.store.disconnectAccount(userId);
     }
+    async repositorySnapshot(project, userId) {
+        if (project.executionKind !== 'managed')
+            return this.ctx.host.git().projectSnapshot(project.path);
+        const inherited = this.ctx.currentAccess().projectRef;
+        if (inherited && (inherited.kind !== 'managed' || inherited.projectId !== project.id))
+            throw new GitHubPluginError('project_forbidden', 403, 'The repository differs from the selected project.');
+        if (this.currentUserId() !== userId)
+            throw new GitHubPluginError('account_mismatch', 403, 'The GitHub account does not belong to the current Elowen account.');
+        const git = async (args) => {
+            const provider = this.ctx.control('sandbox');
+            if (!provider)
+                throw new GitHubPluginError('sandbox_unavailable', 503, 'Project environment unavailable.');
+            const prepared = await provider.prepareExecution({ projectRef: { kind: 'managed', projectId: project.id }, cwd: '/workspace', command: { type: 'argv', file: 'git', args: ['-C', '/workspace', ...args] }, leaseKind: 'github' }, { accountUserId: userId, roots: [] });
+            if (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== project.id) {
+                await prepared.lease.release();
+                throw new GitHubPluginError('project_forbidden', 403, 'The runtime returned a different project.');
+            }
+            return (await (this.spawnPrepared ?? spawnPrepared)(prepared)).stdout;
+        };
+        const statusText = await git(['status', '--porcelain=v2', '--branch']);
+        const status = { branch: '', head: '', upstream: null, ahead: 0, behind: 0, dirty: 0, untracked: 0, clean: true };
+        for (const line of statusText.split('\n')) {
+            if (line.startsWith('# branch.head '))
+                status.branch = line.slice('# branch.head '.length);
+            else if (line.startsWith('# branch.oid ')) {
+                const head = line.slice('# branch.oid '.length);
+                status.head = head === '(initial)' ? '' : head;
+            }
+            else if (line.startsWith('# branch.upstream '))
+                status.upstream = line.slice('# branch.upstream '.length);
+            else if (/^[12u] /.test(line))
+                status.dirty++;
+            else if (line.startsWith('? '))
+                status.untracked++;
+            const aheadBehind = /^# branch.ab \+(\d+) -(\d+)$/.exec(line);
+            if (aheadBehind) {
+                status.ahead = Number(aheadBehind[1]);
+                status.behind = Number(aheadBehind[2]);
+            }
+        }
+        status.clean = status.dirty + status.untracked === 0;
+        const remotes = new Map();
+        for (const line of (await git(['remote', '-v'])).split('\n')) {
+            const match = /^(\S+)\t(.*) \((fetch|push)\)$/.exec(line);
+            if (!match)
+                continue;
+            const name = match[1];
+            let safe = match[2];
+            try {
+                const url = new URL(safe);
+                url.username = '';
+                url.password = '';
+                url.search = '';
+                url.hash = '';
+                safe = url.href;
+            }
+            catch {
+                safe = safe.replace(/^[^@]+@([^:]+:)/, 'git@$1');
+            }
+            const remote = remotes.get(name) ?? { name, fetchUrl: '', pushUrl: '' };
+            if (match[3] === 'fetch')
+                remote.fetchUrl = safe;
+            else
+                remote.pushUrl = safe;
+            remotes.set(name, remote);
+        }
+        return { isRepo: true, status, remotes: [...remotes.values()] };
+    }
     async repositories(userId, accessible, admin) {
         const projects = this.ctx.host.stores().projects.list().filter((project) => accessible === null ? admin : accessible.includes(project.id));
         return Promise.all(projects.map(async (project) => {
             const mapping = this.store.mapping(userId, project.id);
-            const snapshot = await this.ctx.host.git().projectSnapshot(project.path);
+            const snapshot = await this.repositorySnapshot(project, userId);
             return { project: { id: project.id, slug: project.slug }, mapping, remotes: snapshot.remotes, detected: suggestedRepositories(snapshot.remotes) };
         }));
     }
     async detectMapping(userId, projectId, accessible, admin = false) {
         const project = this.project(userId, projectId, accessible, admin);
-        const snapshot = await this.ctx.host.git().projectSnapshot(project.path);
+        const snapshot = await this.repositorySnapshot(project, userId);
         const suggested = suggestedRepositories(snapshot.remotes);
         const verified = {};
         await this.withToken(userId, async (token) => {
@@ -437,7 +505,7 @@ export class GitHubService {
             const [base, push, snapshot] = await Promise.all([
                 this.client.repository(token, mapping.baseOwner, mapping.baseName),
                 mapping.pushRepoId === mapping.baseRepoId ? null : this.client.repository(token, mapping.pushOwner, mapping.pushName),
-                this.ctx.host.git().projectSnapshot(project.path),
+                this.repositorySnapshot(project, userId),
             ]);
             return { project: { id: project.id, slug: project.slug }, mapping, base, push: push ?? base, snapshot };
         });
@@ -556,7 +624,7 @@ export class GitHubService {
                     if (existing)
                         return { pullRequest: existing, created: false };
                 }
-                const published = await this.withToken(userId, (token) => publishBranch({ ctx: this.ctx, cwd: state.workspace.path, branch: state.workspace.branch, token, repository: { owner: state.mapping.pushOwner, name: state.mapping.pushName }, runner: this.spawnPrepared }));
+                const published = await this.withToken(userId, (token) => publishBranch({ ctx: this.ctx, cwd: state.workspace.path, branch: state.workspace.branch, expectedHead: state.head, projectRef: state.projectRef, token, repository: { owner: state.mapping.pushOwner, name: state.mapping.pushName }, runner: this.spawnPrepared }));
                 if (action.type === 'publish')
                     return { ...published, branch: state.workspace.branch, repository: `${state.mapping.pushOwner}/${state.mapping.pushName}` };
                 return this.withToken(userId, async (token) => {
@@ -630,8 +698,39 @@ export class GitHubService {
     }
     async publishState(userId, projectId, sessionId) {
         const project = this.project(userId, projectId);
-        if (project.executionKind === 'managed')
-            throw new GitHubPluginError('managed_publish_unavailable', 503, 'Managed publishing requires isolated validated object staging.');
+        if (project.executionKind === 'managed') {
+            const inherited = this.ctx.currentAccess().projectRef;
+            if (inherited && (inherited.kind !== 'managed' || inherited.projectId !== projectId))
+                throw new GitHubPluginError('project_forbidden', 403, 'Select the managed project before publishing.');
+            const selected = { kind: 'managed', projectId };
+            const provider = this.ctx.control('sandbox');
+            if (!provider)
+                throw new GitHubPluginError('sandbox_unavailable', 503, 'Project environment unavailable.');
+            const worktrees = await provider.managedWorktrees({ project: selected, accountUserId: userId, action: { kind: 'list' } });
+            const cwd = this.ctx.workDir() ?? '/workspace';
+            const workspace = worktrees.find(entry => cwd === entry.path || cwd.startsWith(entry.path + '/'));
+            const path = workspace?.path ?? (cwd === '/workspace' || cwd.startsWith('/workspace/') ? '/workspace' : null);
+            if (!path)
+                throw new GitHubPluginError('active_workspace_required', 409, 'Select the managed project repository or one of its worktrees before publishing.');
+            const git = async (args) => {
+                const live = this.ctx.control('sandbox');
+                if (!live)
+                    throw new GitHubPluginError('sandbox_unavailable', 503, 'Project environment unavailable.');
+                const prepared = await live.prepareExecution({ projectRef: selected, cwd: path, command: { type: 'argv', file: 'git', args: ['-C', path, ...args] }, leaseKind: 'github' }, { accountUserId: userId, roots: [] });
+                if (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== projectId) {
+                    await prepared.lease.release();
+                    throw new GitHubPluginError('project_forbidden', 403, 'The runtime returned a different project.');
+                }
+                return (await (this.spawnPrepared ?? spawnPrepared)(prepared)).stdout.trim();
+            };
+            const branch = await git(['symbolic-ref', '--quiet', '--short', 'HEAD']);
+            const head = await git(['rev-parse', '--verify', 'HEAD^{commit}']);
+            if (!branch || !/^[a-f0-9]{40}$/i.test(head))
+                throw new GitHubPluginError('publish_requires_commit', 409, 'Select a committed branch before publishing.');
+            const mapping = this.requireMapping(userId, projectId);
+            const base = await this.withToken(userId, token => this.client.repository(token, mapping.baseOwner, mapping.baseName));
+            return { workspace: { workspaceId: workspace?.id ?? `project:${projectId}`, path, branch, baseRef: workspace?.baseRef ?? base.defaultBranch }, mapping, base, head, projectRef: selected };
+        }
         if (!sessionId)
             throw new GitHubPluginError('session_required', 400, 'Select the conversation whose active workspace should be published.');
         const sandbox = this.ctx.control('sandbox');
