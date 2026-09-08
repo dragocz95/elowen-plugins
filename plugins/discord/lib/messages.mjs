@@ -35,7 +35,7 @@ export const MESSAGES = {
       `**${name} on Discord**`,
       'Write to me and I answer.',
       '',
-      ...renderHelpLines({ lang: 'en', commands, mono, place: 'channel' }),
+      ...renderHelpLines({ lang: 'en', commands, mono, place: 'chat' }),
     ].join('\n'),
   },
   cs: {
@@ -63,7 +63,7 @@ export const MESSAGES = {
       `**${name} na Discordu**`,
       'Napište mi a odpovím.',
       '',
-      ...renderHelpLines({ lang: 'cs', commands, mono, place: 'kanál', placeLoc: 'kanálu' }),
+      ...renderHelpLines({ lang: 'cs', commands, mono, place: 'chat', placeLoc: 'chatu' }),
     ].join('\n'),
   },
   sk: {
@@ -91,7 +91,7 @@ export const MESSAGES = {
       `**${name} na Discorde**`,
       'Napíšte mi a odpoviem.',
       '',
-      ...renderHelpLines({ lang: 'sk', commands, mono, place: 'kanál', placeLoc: 'kanáli' }),
+      ...renderHelpLines({ lang: 'sk', commands, mono, place: 'chat', placeLoc: 'chate' }),
     ].join('\n'),
   },
 };
