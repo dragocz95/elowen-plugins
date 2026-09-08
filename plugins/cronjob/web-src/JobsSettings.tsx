@@ -9,8 +9,9 @@ import {
   renderBuilderSchedule, type ScheduleBuilder, type ScheduleMode,
 } from './scheduleBuilder';
 
-/** One page of jobs, matching the register size the built-in workspaces page at. */
-const PAGE_SIZE = 20;
+/** Rows per page until the reader chooses another step in the pager's own select, matching the register
+ *  size the built-in workspaces page starts at. */
+const DEFAULT_PAGE_SIZE = 20;
 type Filter = 'all' | 'active' | 'paused';
 
 /** The address parameter a conversation's scheduled-jobs branch links to: `/p/cronjob?job=<id>` opens
@@ -844,6 +845,10 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
   // Only an admin sees more than one owner's jobs, so only he is offered the scope filter.
   const [scope, setScope] = useState<'all' | 'mine' | 'instance'>('all');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  // Back to the first page: growing the window would otherwise land the reader on a page they never
+  // asked for, and shrinking it can leave the page past the end of the register.
+  const changePageSize = (next: number) => { setPageSize(next); setPage(0); };
 
   // A draft the server has taken is the server's now. Keeping it would resurrect the job as an unsaved
   // row the moment anything else deletes it — and one keystroke there would write it straight back.
@@ -875,9 +880,9 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
   // A narrowed list can be shorter than the page the user is on; landing on an empty page reads as
   // "nothing matches" when the matches are simply on page 1.
   useEffect(() => { setPage(0); }, [query, filter, scope]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const clampedPage = Math.min(page, pageCount - 1);
-  const pageItems = useMemo(() => filtered.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE), [filtered, clampedPage]);
+  const pageItems = useMemo(() => filtered.slice(clampedPage * pageSize, clampedPage * pageSize + pageSize), [filtered, clampedPage, pageSize]);
 
   /** Open or close a job, and say so in the address when this surface owns one. */
   const select = (id: string | null) => {
@@ -912,9 +917,9 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
     }
     const at = filtered.findIndex((j) => j.id === pendingLink);
     if (at < 0) { setQuery(''); setFilter('all'); setScope('all'); return; }
-    setPage(Math.floor(at / PAGE_SIZE));
+    setPage(Math.floor(at / pageSize));
     setPendingLink(null);
-  }, [pendingLink, data, rows, filtered]);
+  }, [pendingLink, data, rows, filtered, pageSize]);
 
   const addJob = () => {
     // Same id shape the plugin's own CronAdd tool generates.
@@ -1010,7 +1015,14 @@ export function JobsSettings({ surface }: { surface: 'page' | 'deck' }) {
         ))}
       </C.DataTable>
 
-      <C.Pager page={clampedPage} pageSize={PAGE_SIZE} total={filtered.length} onPageChange={setPage} ariaLabel={s.title} />
+      <C.Pager
+        page={clampedPage}
+        pageSize={pageSize}
+        total={filtered.length}
+        onPageChange={setPage}
+        onPageSizeChange={changePageSize}
+        ariaLabel={s.title}
+      />
     </div>
   );
 

@@ -552,7 +552,7 @@ function OriginDrawer({
 
 // plugins/stats/web-src/StatsView.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
-var PAGE_SIZE = 20;
+var DEFAULT_PAGE_SIZE = 20;
 var DAY_MS = 864e5;
 var {
   Button: Button3,
@@ -656,6 +656,11 @@ function StatsView() {
   const [query, setQuery] = (0, import_react7.useState)("");
   const [filter, setFilter] = (0, import_react7.useState)("all");
   const [page, setPage] = (0, import_react7.useState)(0);
+  const [pageSize, setPageSize] = (0, import_react7.useState)(DEFAULT_PAGE_SIZE);
+  const changePageSize = (next) => {
+    setPageSize(next);
+    setPage(0);
+  };
   const [selectedExec, setSelectedExec] = (0, import_react7.useState)(null);
   const [resetOpen, setResetOpen] = (0, import_react7.useState)(false);
   const [originOpen, setOriginOpen] = (0, import_react7.useState)(false);
@@ -672,9 +677,9 @@ function StatsView() {
       return true;
     });
   }, [filter, modelByExec, query, summary.rows]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const clampedPage = Math.min(page, pageCount - 1);
-  const pageRows = filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
+  const pageRows = filtered.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize);
   const selected = selectedExec ? modelByExec.get(selectedExec) ?? null : null;
   const trendUnavailable = isTrendWindowUnavailable(window2, trendDays, now);
   const rangeSummary = (0, import_react7.useMemo)(() => {
@@ -856,7 +861,17 @@ function StatsView() {
               )) })
             ] })
           ),
-          filtered.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Pager, { page: clampedPage, pageSize: PAGE_SIZE, total: filtered.length, onPageChange: setPage, ariaLabel: s.tableTitle }) : null
+          filtered.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+            Pager,
+            {
+              page: clampedPage,
+              pageSize,
+              total: filtered.length,
+              onPageChange: setPage,
+              onPageSizeChange: changePageSize,
+              ariaLabel: s.tableTitle
+            }
+          ) : null
         ] })
       ] }) }) }),
       originOpen ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
