@@ -11,7 +11,7 @@ import { collectQuestionAnswers, parseAskReply } from './ask.mjs';
 import { sameId, isGroup, isSupportedChat, numberOf, toJid, senderIsAdmin, matchPolicy } from './jid.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage } from './stream.mjs';
-import { SHARED_PICKERS, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
+import { PICKER_CONTEXT, SHARED_PICKERS, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
@@ -484,6 +484,13 @@ export class WhatsAppAdapter {
     const picker = SHARED_PICKERS.find((n) => id.startsWith(`${n}:`));
     if (picker) {
       const value = id.slice(picker.length + 1);
+      // /context is operator-gated by the shared core, but the gate must run BEFORE the pending menu is
+      // consumed: a non-admin's rejected pick must not destroy the menu an admin can still complete. The
+      // core re-checks the same gate on the accepted path.
+      if (picker === PICKER_CONTEXT && !senderIsAdmin(this.senderIds(senderJid, chatJid), this.cfg.senderPolicies)) {
+        await this.sendText(chatJid, this.msg.controlForbidden, m);
+        return true;
+      }
       this.pendingMenus.delete(chatJid);
       await applyPickerChoice(picker, value, {
         msg: this.msg, reply: (t) => this.sendText(chatJid, t, m),

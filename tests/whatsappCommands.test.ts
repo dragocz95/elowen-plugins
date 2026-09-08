@@ -355,6 +355,18 @@ describe('whatsapp paged menus + /context', () => {
     expect(sent.at(-1)).toContain('Only the operator');
   });
 
+  it('a rejected /context pick is refused without consuming the numbered menu', async () => {
+    const { adapter, sent } = await makeAdapter([]);
+    const bindContext = vi.fn(async () => ({ title: 'Refactor' }));
+    adapter.control({ listContext: vi.fn(() => ({ items: [{ id: 's1', title: 'Refactor', model: 'm' }], total: 1, hasMore: false })), bindContext });
+    await adapter.handleCommand(CHAT, CHAT, '/context');
+    expect(adapter.pendingMenus.has(CHAT)).toBe(true);
+    await adapter.handleTextReply(CHAT, 'stranger@s.whatsapp.net', '1', {});
+    expect(bindContext).not.toHaveBeenCalled();
+    expect(sent.at(-1)).toContain('Only the operator');
+    expect(adapter.pendingMenus.has(CHAT)).toBe(true); // the menu survives a rejected pick
+  });
+
   /** /project rides the same numbered menu, and its one difference is the gate: the switch moves the
    *  conversation into a directory only the SWITCHING account reaches (the host re-validates its policy),
    *  so every linked sender may open it. The typed short form skips the chooser entirely. */

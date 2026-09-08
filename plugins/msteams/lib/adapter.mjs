@@ -15,7 +15,7 @@ import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
 import { buildAskCard, buildPickerCard, collectQuestionAnswers, settledCard } from './cards.mjs';
 import { buildAppPackage } from './appPackage.mjs';
-import { applyPickerChoice, botControlCommandsFrom, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
+import { PICKER_CONTEXT, applyPickerChoice, botControlCommandsFrom, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { observesLiveEvents, resolveDisplaySettings, updateDisplayOverrides } from 'elowen-plugin-shared/display';
 import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
@@ -1624,6 +1624,13 @@ export class MsTeamsAdapter {
       return;
     }
     const picked = String(value.v ?? '');
+    // /context is operator-gated by the shared core, but the gate must run BEFORE the pending card is
+    // consumed: a non-admin's rejected pick must not destroy the card an admin can still complete. The
+    // core re-checks the same gate on the accepted path.
+    if (!local && pend.kind === PICKER_CONTEXT && !this.isAdmin(ids)) {
+      await this.tmEdit(conv.id, pend.activityId, '', settledCard(this.msg.controlForbidden));
+      return;
+    }
     this.pendingPickers.delete(String(conv.id));
     switch (pend.kind) {
       case 'model': {

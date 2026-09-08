@@ -745,19 +745,27 @@ export class TelegramAdapter {
       return;
     }
     // A pick on a SHARED picker (`pk:<index>`): resolved against the pending descriptor, then dispatched
-    // through the shared core AS THE PERSON WHO CLICKED — the gate and the host call live there.
+    // through the shared core AS THE PERSON WHO CLICKED — the gate and the host call live there. /context
+    // is operator-gated BEFORE the pending descriptor is consumed: a non-admin's rejected pick must not
+    // destroy the chooser an admin can still complete within its TTL (the shared core re-checks).
     if (data.startsWith('pk:')) {
       const picker = this.pendingPickers.get(String(chatId));
       const item = picker && picker.kind !== 'model' && Date.now() - picker.createdAt <= this.askTtlMs()
         ? picker.items[Number(data.slice(3))]
         : null;
-      await ctx.answerCallbackQuery().catch(() => {});
-      this.pendingPickers.delete(String(chatId));
       if (!item) {
+        await ctx.answerCallbackQuery().catch(() => {});
+        this.pendingPickers.delete(String(chatId));
         const empty = picker?.kind === PICKER_PROJECT ? this.msg.noProjects : this.msg.noContextSessions;
         await this.tgEdit(chatId, messageId, empty, { reply_markup: { inline_keyboard: [] } }).catch(() => {});
         return;
       }
+      if (picker.kind === PICKER_CONTEXT && !this.isAdmin(ids)) {
+        await ctx.answerCallbackQuery({ text: this.msg.controlForbidden, show_alert: true }).catch(() => {});
+        return;
+      }
+      await ctx.answerCallbackQuery().catch(() => {});
+      this.pendingPickers.delete(String(chatId));
       await applyPickerChoice(picker.kind, item.value, {
         msg: this.msg,
         reply: (t) => this.tgEdit(chatId, messageId, t, { reply_markup: { inline_keyboard: [] } }).catch(() => {}),

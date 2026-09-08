@@ -1144,6 +1144,18 @@ describe('msteams live trace + cards + commands', () => {
     expect(switchProject).toHaveBeenCalledWith({ platform: 'msteams', channelId: 'a:conv1#0' }, 'aad-1', 7);
   });
 
+  it('a rejected /context pick is refused without consuming the pending card', async () => {
+    const { adapter } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', admin: true, projectIds: [] }] });
+    const bindContext = vi.fn(async () => ({ title: 'Refactor' }));
+    adapter.control({ listContext: vi.fn(() => ({ items: [{ id: 's1', title: 'Refactor', model: 'm' }], total: 1, hasMore: false })), bindContext });
+    adapter.listen(async () => 'unused');
+    await adapter.onActivity(activity({ text: '/context' }));
+    expect(adapter.pendingPickers.has('a:conv1')).toBe(true);
+    await adapter.onCardAction(activity({ from: { id: '29:enc', aadObjectId: 'aad-2', name: 'Sam Rivera' }, value: { ep: 'context', v: 's1' } }));
+    expect(bindContext).not.toHaveBeenCalled();
+    expect(adapter.pendingPickers.has('a:conv1')).toBe(true); // the card survives a rejected pick
+  });
+
   it('/project <slug> switches in one step without opening the chooser', async () => {
     const { adapter, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] });
     const switchProject = vi.fn(async () => ({ workDir: '/x', slug: 'kolin' }));
