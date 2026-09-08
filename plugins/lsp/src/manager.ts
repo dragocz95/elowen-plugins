@@ -14,13 +14,14 @@ import { commandExists, detectLanguage, listServers, serverForLanguage, type Lan
  *     crucially NOT reported as "no problems".
  *   - crash-looping: the server died on every spawn and hit the crash-restart cap, so it is no longer
  *     respawned (installing or re-checking won't help — the server itself is broken).
- *   - unreadable / disabled: file couldn't be read / LSP is toggled off. */
+ *   - unreadable / disabled / cancelled: file couldn't be read / LSP is toggled off / the caller's
+ *     turn was cancelled while the check was in flight. */
 export interface CheckResult {
   path: string;
   language?: string;
   server?: string;
   diagnostics: Diagnostic[];
-  skipped?: 'not-a-known-language' | 'unsupported-language' | 'no-server-installed' | 'server-error' | 'no-response' | 'crash-looping' | 'unreadable' | 'disabled';
+  skipped?: 'not-a-known-language' | 'unsupported-language' | 'no-server-installed' | 'server-error' | 'no-response' | 'crash-looping' | 'unreadable' | 'disabled' | 'cancelled';
   /** The exhausted restart budget, present only on `crash-looping` so the text can name it. */
   maxRestarts?: number;
 }
@@ -31,7 +32,7 @@ export interface CheckResult {
  *  empty/`null` answer the caller renders as "none found"). */
 export interface LspOpFailure {
   ok: false;
-  reason: 'disabled' | 'not-a-known-language' | 'unsupported-language' | 'no-server-installed' | 'server-error' | 'crash-looping' | 'unreadable';
+  reason: 'disabled' | 'not-a-known-language' | 'unsupported-language' | 'no-server-installed' | 'server-error' | 'crash-looping' | 'unreadable' | 'cancelled';
   language?: string;
   server?: string;
   /** The exhausted restart budget, present only on `crash-looping` so the text can name it. */
@@ -49,8 +50,9 @@ export interface LspStatus { enabled: boolean; running: boolean; servers: LspSer
 
 /** Injected so tests drive the manager with a fake transport instead of spawning real servers. */
 export interface LspManagerDeps {
-  spawn?: (spec: LanguageServerSpec, cwd: string) => LspTransport | null;
-  readFile?: (path: string) => string;
+  spawn?: (spec: LanguageServerSpec, cwd: string) => LspTransport | null | Promise<LspTransport | null>;
+  readFile?: (path: string) => string | Promise<string>;
+  projectRoot?: (path: string, boundary?: string) => string | Promise<string>;
   /** Optional access boundary/default project root. Production passes the current turn's allowed root;
    *  tests may pin one. The nearest project marker is selected without walking above this directory. */
   root?: string;
@@ -126,8 +128,10 @@ export class LspManager {
    *  every single call; the count caps that and is cleared as soon as one client answers. */
   private restarts = new Map<string, number>();
   private enabled = true;
-  private readonly spawnFn: (spec: LanguageServerSpec, cwd: string) => LspTransport | null;
-  private readonly readFile: (path: string) => string;
+  private epoch = 0;
+  private readonly spawnFn: NonNullable<LspManagerDeps['spawn']>;
+  private readonly readFile: NonNullable<LspManagerDeps['readFile']>;
+  private readonly projectRoot: NonNullable<LspManagerDeps['projectRoot']>;
   private readonly root?: string;
   private readonly exists: (command: string) => boolean;
   private readonly firstCheckTimeoutMs: number;
@@ -138,6 +142,7 @@ export class LspManager {
 
   constructor(deps: LspManagerDeps = {}) {
     this.spawnFn = deps.spawn ?? spawnStdioTransport;
+    this.projectRoot = deps.projectRoot ?? projectRootForFile;
     this.readFile = deps.readFile ?? ((p) => readFileSync(p, 'utf8'));
     this.root = deps.root;
     this.exists = deps.exists ?? commandExists;
@@ -179,24 +184,55 @@ export class LspManager {
     return { enabled: this.enabled, running: this.isRunning(), servers };
   }
 
+  async statusAsync(): Promise<LspStatus> { return this.status(); }
+
+  /** Wait for `operation`, or for the caller's cancellation, whichever lands first. The warm client the
+   *  operation drives outlives the call by design, so an abort-winner leaves the loser running with its
+   *  rejection observed (never unhandled) and its eventual verdict discarded. `done:false` only when the
+   *  signal fired — a discriminator, because `clientFor` and the operations can legitimately return null. */
+  private async cancellable<T>(operation: () => Promise<T>, signal: AbortSignal | undefined): Promise<{ done: true; value: T } | { done: false }> {
+    if (!signal) return { done: true, value: await operation() };
+    if (signal.aborted) return { done: false };
+    return new Promise((resolve, reject) => {
+      const onAbort = (): void => {
+        signal.removeEventListener('abort', onAbort);
+        resolve({ done: false });
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      if (signal.aborted) { onAbort(); return; }
+      let done: Promise<T>;
+      try { done = operation(); }
+      catch (error) { signal.removeEventListener('abort', onAbort); reject(error); return; }
+      void done.then(
+        (value) => { signal.removeEventListener('abort', onAbort); resolve({ done: true, value }); },
+        (error) => { signal.removeEventListener('abort', onAbort); reject(error); },
+      );
+    });
+  }
+
   /** Type-check one file and return its diagnostics (or why it was skipped). Never throws — a spawn or
    *  server failure degrades to a `skipped`/empty result so it can't break the agent's edit loop. */
-  async checkFile(path: string, boundary?: string): Promise<CheckResult> {
+  async checkFile(path: string, boundary?: string, signal?: AbortSignal): Promise<CheckResult> {
     if (!this.enabled) return { path, diagnostics: [], skipped: 'disabled' };
+    const epoch = this.epoch;
     const language = detectLanguage(path);
     if (!language) return { path, diagnostics: [], skipped: 'not-a-known-language' };
     const spec = serverForLanguage(language);
     if (!spec) return { path, language, diagnostics: [], skipped: 'unsupported-language' };
-    const root = projectRootForFile(path, boundary ?? this.root);
+    const root = await this.projectRoot(path, boundary ?? this.root);
     const key = this.keyFor(spec, root);
 
     return this.queueDiagnostic(key, async () => {
       // A queued probe may outlive an /lsp disable; do not respawn after disposeAll().
-      if (!this.enabled) return { path, diagnostics: [], skipped: 'disabled' };
+      if (!this.enabled || this.epoch !== epoch) return { path, diagnostics: [], skipped: 'disabled' };
+      if (signal?.aborted) return { path, language, diagnostics: [], skipped: 'cancelled' };
       let text: string;
-      try { text = this.readFile(path); }
+      try { text = await this.readFile(path); }
       catch { return { path, language, diagnostics: [], skipped: 'unreadable' }; }
-      const entry = this.clientFor(spec, root);
+      if (!this.enabled || this.epoch !== epoch) return { path, diagnostics: [], skipped: 'disabled' };
+      const raced = await this.cancellable(() => this.clientFor(spec, root, signal), signal);
+      if (!raced.done) return { path, language, server: spec.label, diagnostics: [], skipped: 'cancelled' };
+      const entry = raced.value;
       if (entry === 'crash-looping') return { path, language, server: spec.label, diagnostics: [], skipped: 'crash-looping', maxRestarts: this.maxRestarts };
       if (!entry) return { path, language, server: spec.label, diagnostics: [], skipped: 'no-server-installed' };
       entry.activeChecks++;
@@ -204,7 +240,14 @@ export class LspManager {
         // A file's first semantic pass can be slow even after another file warmed the project. Only an
         // already-confirmed path gets the short re-check window used for the edit loop.
         const timeoutMs = entry.warmed && entry.checkedPaths.has(path) ? this.recheckTimeoutMs : this.firstCheckTimeoutMs;
-        const { diagnostics, published } = await entry.client.diagnose(path, text, language, timeoutMs, this.settleMs);
+        const verdict = await this.cancellable(
+          () => entry.client.diagnose(path, text, language, timeoutMs, this.settleMs), signal);
+        if (!verdict.done) {
+          // Unversioned publishes from the abandoned text must never satisfy a later check.
+          this.retire(entry, 'quarantine');
+          return { path, language, server: spec.label, diagnostics: [], skipped: 'cancelled' };
+        }
+        const { diagnostics, published } = verdict.value;
         // No verdict within the window: say so instead of a false "no problems" — the worst possible
         // answer for an agent probe is a wrong all-clear.
         if (!published) {
@@ -237,24 +280,35 @@ export class LspManager {
   /** Resolve the server + client for a file and run an operation against it. Returns a discriminated
    *  outcome so the tool can report WHY nothing came back (LSP off / not code / no server installed /
    *  server crashed) instead of collapsing every failure into a misleading "not found". */
-  private async withClient<T>(path: string, boundary: string | undefined, op: (client: LspClient, text: string, language: string) => Promise<T>): Promise<LspOpResult<T>> {
+  private async withClient<T>(path: string, boundary: string | undefined, op: (client: LspClient, text: string, language: string) => Promise<T>, signal?: AbortSignal): Promise<LspOpResult<T>> {
     if (!this.enabled) return { ok: false, reason: 'disabled' };
+    const epoch = this.epoch;
     const language = detectLanguage(path);
     if (!language) return { ok: false, reason: 'not-a-known-language' };
     const spec = serverForLanguage(language);
     if (!spec) return { ok: false, reason: 'unsupported-language', language };
+    if (signal?.aborted) return { ok: false, reason: 'cancelled', language };
     let text: string;
-    try { text = this.readFile(path); } catch { return { ok: false, reason: 'unreadable', language }; }
-    const root = projectRootForFile(path, boundary ?? this.root);
-    const entry = this.clientFor(spec, root);
+    try { text = await this.readFile(path); } catch { return { ok: false, reason: 'unreadable', language }; }
+    const root = await this.projectRoot(path, boundary ?? this.root);
+    if (!this.enabled || this.epoch !== epoch) return { ok: false, reason: 'disabled' };
+    const raced = await this.cancellable(() => this.clientFor(spec, root, signal), signal);
+    if (!raced.done) return { ok: false, reason: 'cancelled', language };
+    const entry = raced.value;
     if (entry === 'crash-looping') return { ok: false, reason: 'crash-looping', language, server: spec.label, maxRestarts: this.maxRestarts };
     if (!entry) return { ok: false, reason: 'no-server-installed', language, server: spec.label };
     entry.activeChecks++;
     try {
-      const result = await op(entry.client, text, language);
+      const result = await this.cancellable(() => op(entry.client, text, language), signal);
+      // A cancelled call is the CALLER's decision, not a server fault: it must neither retire the warm
+      // client as a crash nor answer with a misleading "not found".
+      if (!result.done) return { ok: false, reason: 'cancelled', language };
       this.restarts.delete(entry.key); // the server answered — it is not crash-looping
-      return { ok: true, result };
+      return { ok: true, result: result.value };
     } catch {
+      // A cancelled call is the CALLER's decision, not a server fault: it must neither retire the warm
+      // client as a crash nor answer with a misleading "not found".
+      if (signal?.aborted) return { ok: false, reason: 'cancelled', language };
       this.retire(entry, 'crash');
       return { ok: false, reason: 'server-error', language, server: spec.label };
     } finally {
@@ -262,28 +316,30 @@ export class LspManager {
     }
   }
 
-  async definition(path: string, line: number, character: number, boundary?: string): Promise<LspOpResult<unknown>> {
-    return this.withClient(path, boundary, (c, text, lang) => c.definition(path, text, lang, line, character));
+  async definition(path: string, line: number, character: number, boundary?: string, signal?: AbortSignal): Promise<LspOpResult<unknown>> {
+    return this.withClient(path, boundary, (c, text, lang) => c.definition(path, text, lang, line, character), signal);
   }
 
-  async references(path: string, line: number, character: number, boundary?: string): Promise<LspOpResult<unknown>> {
-    return this.withClient(path, boundary, (c, text, lang) => c.references(path, text, lang, line, character));
+  async references(path: string, line: number, character: number, boundary?: string, signal?: AbortSignal): Promise<LspOpResult<unknown>> {
+    return this.withClient(path, boundary, (c, text, lang) => c.references(path, text, lang, line, character), signal);
   }
 
-  async hover(path: string, line: number, character: number, boundary?: string): Promise<LspOpResult<unknown>> {
-    return this.withClient(path, boundary, (c, text, lang) => c.hover(path, text, lang, line, character));
+  async hover(path: string, line: number, character: number, boundary?: string, signal?: AbortSignal): Promise<LspOpResult<unknown>> {
+    return this.withClient(path, boundary, (c, text, lang) => c.hover(path, text, lang, line, character), signal);
   }
 
-  async documentSymbol(path: string, boundary?: string): Promise<LspOpResult<unknown>> {
-    return this.withClient(path, boundary, (c, text, lang) => c.documentSymbol(path, text, lang));
+  async documentSymbol(path: string, boundary?: string, signal?: AbortSignal): Promise<LspOpResult<unknown>> {
+    return this.withClient(path, boundary, (c, text, lang) => c.documentSymbol(path, text, lang), signal);
   }
 
   /** workspace/symbol across the caller's project(s). SECURITY: the manager is a daemon-wide singleton
    *  shared by every user, so results are taken ONLY from clients whose root is inside `boundary` (the
    *  caller's allowed scope) — never a client rooted in another tenant's project. When nothing in scope
    *  is live yet, a server is spawned for the boundary root so the tool works on a cold session. */
-  async workspaceSymbol(query: string, boundary?: string): Promise<LspOpResult<unknown[]>> {
+  async workspaceSymbol(query: string, boundary?: string, signal?: AbortSignal): Promise<LspOpResult<unknown[]>> {
     if (!this.enabled) return { ok: false, reason: 'disabled' };
+    const epoch = this.epoch;
+    if (signal?.aborted) return { ok: false, reason: 'cancelled' };
     const boundaryRoot = boundary ?? this.root;
     const within = (root: string): boolean => {
       if (!boundaryRoot) return true; // all-access (no boundary) — every live client is in scope
@@ -295,8 +351,11 @@ export class LspManager {
     if (inScope.length === 0) {
       if (!boundaryRoot) return { ok: false, reason: 'no-server-installed' };
       // Cold session: spawn the first installed server for the boundary's nearest project root.
-      const root = projectRootForFile(join(boundaryRoot, '_probe'), boundaryRoot);
-      const entry = this.spawnAnyClientFor(root);
+      const root = await this.projectRoot(join(boundaryRoot, '_probe'), boundaryRoot);
+      if (!this.enabled || this.epoch !== epoch) return { ok: false, reason: 'disabled' };
+      const raced = await this.cancellable(() => this.spawnAnyClientFor(root, signal), signal);
+      if (!raced.done) return { ok: false, reason: 'cancelled' };
+      const entry = raced.value;
       if (entry === 'crash-looping') return { ok: false, reason: 'crash-looping', maxRestarts: this.maxRestarts };
       if (!entry) return { ok: false, reason: 'no-server-installed' };
       inScope = [entry];
@@ -305,9 +364,10 @@ export class LspManager {
     for (const entry of inScope) {
       entry.activeChecks++;
       try {
-        const res = await entry.client.workspaceSymbol(query);
+        const raced = await this.cancellable(() => entry.client.workspaceSymbol(query), signal);
+        if (!raced.done) return { ok: false, reason: 'cancelled' };
         this.restarts.delete(entry.key);
-        if (Array.isArray(res)) merged.push(...res);
+        if (Array.isArray(raced.value)) merged.push(...raced.value);
       } catch {
         this.retire(entry, 'crash');
       } finally {
@@ -321,10 +381,10 @@ export class LspManager {
    *  session, where there is no file to pick a language from. First registered server that spawns wins.
    *  Reports the crash cap only when it is the reason nothing came up, so a merely uninstalled registry
    *  still reads as "no server installed". */
-  private spawnAnyClientFor(root: string): ManagedClient | 'crash-looping' | null {
+  private async spawnAnyClientFor(root: string, signal?: AbortSignal): Promise<ManagedClient | 'crash-looping' | null> {
     let capped = false;
     for (const spec of listServers()) {
-      const entry = this.clientFor(spec, root);
+      const entry = await this.clientFor(spec, root, signal);
       if (entry === 'crash-looping') { capped = true; continue; }
       if (entry) return entry;
     }
@@ -352,7 +412,8 @@ export class LspManager {
     return [...this.clients.values(), ...this.retiredClients];
   }
 
-  private clientFor(spec: LanguageServerSpec, root: string): ManagedClient | 'crash-looping' | null {
+  private async clientFor(spec: LanguageServerSpec, root: string, signal?: AbortSignal): Promise<ManagedClient | 'crash-looping' | null> {
+    if (signal?.aborted) return null;
     const key = this.keyFor(spec, root);
     const existing = this.clients.get(key);
     if (existing && !existing.client.isDisposed()) {
@@ -366,8 +427,15 @@ export class LspManager {
     // per tool call and answering "errored or timed out (it will be retried)" forever. Give up after
     // maxRestarts consecutive crashes and report that instead.
     if ((this.restarts.get(key) ?? 0) >= this.maxRestarts) return 'crash-looping';
-    const transport = this.spawnFn(spec, root);
+    const epoch = this.epoch;
+    const transport = await this.spawnFn(spec, root);
     if (!transport) return null;
+    if (!this.enabled || this.epoch !== epoch || signal?.aborted) { transport.dispose(); return null; }
+    const concurrent = this.clients.get(key);
+    if (concurrent && !concurrent.client.isDisposed()) {
+      transport.dispose();
+      return concurrent;
+    }
     this.makeRoomForClient();
     const client = new LspClient(transport, root);
     const entry: ManagedClient = {
@@ -425,6 +493,7 @@ export class LspManager {
   }
 
   disposeAll(): void {
+    this.epoch++;
     const all = this.allClients();
     this.clients.clear();
     this.retiredClients.clear();
@@ -449,6 +518,7 @@ export function formatLspFailure(f: LspOpFailure): string | null {
     case 'server-error': return `The ${f.server ?? f.language} language server errored or timed out — no result this time (it will be retried).`;
     case 'crash-looping': return `The ${f.server ?? f.language} language server exceeded max crash recovery attempts (${f.maxRestarts ?? 3}) — no result, and it will NOT be restarted again until LSP is toggled off and on (/lsp).`;
     case 'unreadable': return 'Could not read the file.';
+    case 'cancelled': return 'LSP: the request was cancelled before the server answered — re-issue it if still needed.';
   }
 }
 
@@ -462,6 +532,7 @@ export function formatCheckResult(r: CheckResult): string {
   if (r.skipped === 'crash-looping') return `The ${r.server ?? r.language} language server exceeded max crash recovery attempts (${r.maxRestarts ?? 3}) — no diagnostics, and it will NOT be restarted again until LSP is toggled off and on (/lsp).`;
   if (r.skipped === 'no-response') return `The ${r.server ?? r.language} language server gave no verdict on ${r.path} in time (it may still be indexing) — NOT a clean bill, re-check shortly.`;
   if (r.skipped === 'unreadable') return `Could not read ${r.path}.`;
+  if (r.skipped === 'cancelled') return 'LSP: the check was cancelled before the server answered — re-issue it if still needed.';
   if (r.diagnostics.length === 0) return `✓ ${r.path}: no problems (${r.server}).`;
   const lines = r.diagnostics.slice(0, 20).map((d) => `  ${d.severity} ${r.path}:${d.line}:${d.column} — ${d.message}${d.source ? ` (${d.source})` : ''}`);
   const errors = r.diagnostics.filter((d) => d.severity === 'error').length;

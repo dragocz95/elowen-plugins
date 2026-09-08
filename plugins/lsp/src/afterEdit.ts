@@ -20,7 +20,8 @@
 import type { PluginContext } from 'elowen/dist/plugins/api.js';
 import { formatCheckResult, type CheckResult, type LspManager } from './manager.js';
 import { detectLanguage } from './servers.js';
-import { lspBoundary } from './tools.js';
+import { lspBoundary, lspPath } from './tools.js';
+import { ManagedLspManager } from './managed.js';
 
 /** The tools whose successful result means the bytes on disk changed. */
 const MUTATING_TOOLS = new Set(['Write', 'Edit']);
@@ -47,7 +48,7 @@ function renderReminder(blocks: readonly string[]): string {
 
 /** Register the collect → deliver pair. `lsp` is the same per-call manager accessor the tools use, so a
  *  reload's stop window answers null here exactly as it does there. */
-export function registerAfterEditDiagnostics(ctx: PluginContext, lsp: () => LspManager | null): void {
+export function registerAfterEditDiagnostics(ctx: PluginContext, lsp: () => LspManager | null | Promise<LspManager | null>): void {
   const sessions = new Map<string, SessionDiagnostics>();
 
   /** This session's slot, created on demand; touching it makes it newest in the LRU order. */
@@ -94,11 +95,11 @@ export function registerAfterEditDiagnostics(ctx: PluginContext, lsp: () => LspM
 
   /** One block per file, at most once per turn, then cleared. Called by the host while composing a
    *  prompt turn, inside that turn's scope. */
-  const render = (): string => {
+  const render = (scope = ''): string => {
     try {
       const sessionId = ctx.currentSessionId?.();
       if (!sessionId) return '';
-      const entry = sessions.get(sessionId);
+      const entry = sessions.get(sessionId + scope);
       if (!entry || entry.pending.size === 0) return '';
       const blocks = [...entry.pending];
       entry.pending.clear();
@@ -111,7 +112,7 @@ export function registerAfterEditDiagnostics(ctx: PluginContext, lsp: () => LspM
 
   ctx.registerHook({
     name: 'tools.call.after',
-    run: (payload) => {
+    run: async (payload) => {
       try {
         const event = payload as { tool?: unknown; params?: unknown; result?: unknown };
         if (typeof event.tool !== 'string' || !MUTATING_TOOLS.has(event.tool)) return;
@@ -124,13 +125,13 @@ export function registerAfterEditDiagnostics(ctx: PluginContext, lsp: () => LspM
         const sessionId = ctx.currentSessionId?.();
         if (!sessionId) return;
         if (!detectLanguage(requested)) return; // a pure extension lookup: markdown costs nothing here
-        const manager = lsp();
+        const manager = await lsp();
         if (!manager?.isEnabled()) return;
         // The same guard every LSP tool applies. The files plugin already allowed this path in this turn,
         // so this can only ever agree — but a check that feeds a file to a language server states its own
         // boundary rather than inheriting one it did not verify.
         let path: string;
-        try { path = ctx.assertPathAllowed(requested); } catch { return; }
+        try { path = lspPath(ctx, requested); } catch { return; }
         const boundary = lspBoundary(ctx, path);
         // Deliberately NOT awaited. This hook is awaited by the tool-result path, and a cold first check
         // budgets fifteen seconds for project indexing — in front of the edit's own result that would be
@@ -138,7 +139,7 @@ export function registerAfterEditDiagnostics(ctx: PluginContext, lsp: () => LspM
         // away, so it has time to land on its own; a check still running by then simply reports one turn
         // later instead of holding this one up.
         void manager.checkFile(path, boundary).then(
-          (result) => { record(sessionId, path, result); },
+          (result) => { record(sessionId + (manager instanceof ManagedLspManager ? manager.scopeKey : ''), path, result); },
           () => { /* checkFile is documented never to throw; if it ever does, the turn must not care */ },
         );
       } catch {
@@ -150,5 +151,8 @@ export function registerAfterEditDiagnostics(ctx: PluginContext, lsp: () => LspM
 
   // after-user: it qualifies the request the model is answering, so it belongs next to it rather than in
   // front of it, the same placement the session task list uses.
-  ctx.registerTurnContext(render, { placement: 'after-user' });
+  ctx.registerTurnContext(() => {
+    if (ctx.currentAccess?.().projectRef?.kind !== 'managed') return render();
+    return Promise.resolve(lsp()).then((manager) => manager instanceof ManagedLspManager ? render(manager.scopeKey) : '', () => '');
+  }, { placement: 'after-user' });
 }

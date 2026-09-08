@@ -29,11 +29,16 @@ export class MessageDecoder {
 
   /** Append a chunk and return every whole message now available (possibly none). */
   push(chunk: Buffer | string): JsonRpcMessage[] {
+    if (this.buffer.length + Buffer.byteLength(chunk) > 32 * 1024 * 1024 + 8192) throw new Error('Language-server frame exceeds its size limit.');
     this.buffer = Buffer.concat([this.buffer, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf8')]);
     const out: JsonRpcMessage[] = [];
     for (;;) {
       const headerEnd = this.buffer.indexOf('\r\n\r\n');
-      if (headerEnd === -1) break; // headers not fully arrived yet
+      if (headerEnd === -1) {
+        if (this.buffer.length > 8192) throw new Error('Language-server header exceeds its size limit.');
+        break;
+      }
+      if (headerEnd > 8192) throw new Error('Language-server header exceeds its size limit.');
       const header = this.buffer.subarray(0, headerEnd).toString('ascii');
       const match = /Content-Length:\s*(\d+)/i.exec(header);
       if (!match) {
@@ -42,6 +47,7 @@ export class MessageDecoder {
         continue;
       }
       const length = Number(match[1]);
+      if (!Number.isSafeInteger(length) || length > 32 * 1024 * 1024) throw new Error('Language-server frame exceeds its size limit.');
       const bodyStart = headerEnd + 4;
       if (this.buffer.length < bodyStart + length) break; // body not fully arrived yet
       const body = this.buffer.subarray(bodyStart, bodyStart + length).toString('utf8');

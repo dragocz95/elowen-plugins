@@ -1,5 +1,6 @@
 import { npmInstallGlobal, npmUninstallGlobal } from './install.js';
 import { commandExists, listServers } from './servers.js';
+import { ManagedLspManager } from './managed.js';
 /** The grandfathered `/brain/lsp*` surface, root-mounted so the URLs the CLI and any script already
  *  call keep working after the extraction:
  *   - GET  /brain/lsp            — health at a glance (enabled/running + a row per registry server)
@@ -21,9 +22,9 @@ export function registerLspApi(ctx, manager) {
     ctx.registerApiRoute({
         rootMount: '/brain/lsp', path: '', method: 'GET', access: 'user',
         handler: (req) => exact(req, async () => {
-            const m = manager();
+            const m = await manager();
             // Stopped generation (a reload's stop window): say "unavailable", never invent a status.
-            return m ? { status: 200, body: m.status() } : { status: 503, body: { error: 'lsp plugin is reloading' } };
+            return m ? { status: 200, body: await m.statusAsync() } : { status: 503, body: { error: 'lsp plugin is reloading' } };
         }),
     });
     // Admin-only — it installs software on the host. Only npm-canonical servers are self-installable; the
@@ -37,6 +38,13 @@ export function registerLspApi(ctx, manager) {
             const spec = listServers().find((s) => s.command === command);
             if (!spec)
                 return { status: 404, body: { error: 'unknown language server' } };
+            const selected = await manager();
+            if (selected instanceof ManagedLspManager) {
+                await selected.changePackages(command, false);
+                return { status: 200, body: { ok: true, message: `${spec.label} installed in the project.` } };
+            }
+            if (ctx.currentAccess?.().projectRef?.kind === 'managed')
+                return { status: 503, body: { error: 'Managed LSP is unavailable.' } };
             if (commandExists(spec.command))
                 return { status: 200, body: { ok: true, message: `${spec.label} is already installed.` } };
             if (!spec.npmPackages?.length)
@@ -61,9 +69,16 @@ export function registerLspApi(ctx, manager) {
                 return { status: 404, body: { error: 'unknown language server' } };
             if (!spec.npmPackages?.length)
                 return { status: 400, body: { error: `${spec.label} is not managed by Elowen — remove it with your toolchain (installed via: ${spec.installHint}).` } };
+            const selected = await manager();
+            if (selected instanceof ManagedLspManager) {
+                await selected.changePackages(command, true);
+                return { status: 200, body: { ok: true, message: `${spec.label} removed from the project.` } };
+            }
+            if (ctx.currentAccess?.().projectRef?.kind === 'managed')
+                return { status: 503, body: { error: 'Managed LSP is unavailable.' } };
             if (!commandExists(spec.command))
                 return { status: 200, body: { ok: true, message: `${spec.label} is not installed.` } };
-            manager()?.disposeAll(); // free any live client before its binary disappears
+            selected?.disposeAll(); // free any live client before its binary disappears
             const r = await npmUninstallGlobal(spec.npmPackages);
             if (!r.ok)
                 return { status: 502, body: { error: `Uninstall failed: ${r.detail}` } };
