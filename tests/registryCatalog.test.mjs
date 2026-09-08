@@ -99,14 +99,22 @@ for (const name of folders) {
  */
 const EXPECTED_CAPABILITIES = {
   // Browser stores per-account session/process metadata and all page traffic crosses its enforcing proxy.
-  browser: { reads: ['db'], network: true },
+  // `controls` resolves the environment provider so a project browser runs INSIDE the selected managed
+  // project, and `stores` re-checks that project membership; neither reaches the personal browser.
+  browser: { reads: ['controls', 'db', 'stores'], network: true },
   codebase: { reads: ['embeddings'], network: true },
-  cronjob: { reads: ['stores'] },
-  editor: { reads: ['project-files', 'stores'] },
+  // `controls` resolves the environment provider a scheduled project run executes in; the schedule names
+  // the project explicitly and cannot widen to another one.
+  cronjob: { reads: ['controls', 'stores'] },
+  // `controls` routes managed reads, writes and uploads through the guest boundary instead of the host
+  // filesystem; `project-files` remains the host-project path.
+  editor: { reads: ['controls', 'project-files', 'stores'] },
   github: { reads: ['controls', 'db', 'git', 'stores'], network: true },
   // EditImage downloads an optional public source and sends image bytes to the configured Images API.
   'image-edit': { network: true },
-  lsp: { network: true },
+  // `controls` resolves the environment provider so a language server for a managed project runs in that
+  // project's guest, where its sources actually are, rather than against the host filesystem.
+  lsp: { reads: ['controls'], network: true },
   // MCP persists server ownership/tool discovery in its DB and connects to remote HTTP/SSE endpoints.
   // stdio execution remains separately restricted to instance administrators by the plugin itself.
   mcp: { reads: ['db'], network: true },

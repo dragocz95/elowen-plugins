@@ -2,18 +2,29 @@ import { posix } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { editorExecute } from './execution.js';
 import { parseProjectCommitLog } from './files.js';
-import { MAX_BUFFERED_BYTES, MAX_OFFICE_BYTES, baseName, mimeTypeOf, fileKindOf } from './fileTypes.js';
+import { MAX_BUFFERED_BYTES, MAX_OFFICE_BYTES, MAX_UPLOAD_CHUNK_BYTES, baseName, mimeTypeOf, fileKindOf } from './fileTypes.js';
 const TEXT_LIMIT = 2 * 1024 * 1024;
 const RANGE_LIMIT = 8 * 1024 * 1024;
+/** Decoded bytes per guest chunk; every chunk except the last carries exactly this size. Mirrors the
+ *  canonical `GUEST_FILE_CHUNK_BYTES` until the parent refreshes the linked `elowen` package, which
+ *  does not export it yet. */
+const GUEST_CHUNK_BYTES = 512 * 1024;
 const IGNORE = new Set(['.git', 'node_modules', '.next', 'dist', '.turbo', 'coverage', '.cache']);
 class InputError extends Error {
     status;
-    constructor(message, status = 400) {
+    guestMessage;
+    constructor(message, status = 400, guestMessage) {
         super(message);
         this.status = status;
+        this.guestMessage = guestMessage;
     }
 }
 let activeConversions = 0;
+/** Sessions live with the provider instance that granted the handles: when the runtime is rewired or
+ *  the daemon restarts, its handles are gone with it, so holding them in a module map would serve
+ *  bookkeeping for a provider that no longer exists. */
+const managedUploadSessions = new WeakMap();
+const MAX_MANAGED_UPLOADS = 64;
 /** Editor paths remain workspace-relative. The provider resolves symlinks inside the guest. */
 function guestPath(value) {
     if (typeof value !== 'string' || !value || value.includes('\0') || value.includes('\\'))
@@ -37,7 +48,26 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
         const live = ctx.control('sandbox');
         if (!live)
             throw new Error('project environment unavailable');
-        return live.projectFiles({ project, accountUserId, operation });
+        try {
+            return await live.projectFiles({ project, accountUserId, operation });
+        }
+        catch (error) {
+            // The provider tags every refusal with the guest's own code. A lost CAS race is the one the
+            // editor can name precisely: the UI's conflict flow is written against the app-path shape,
+            // 409 + 'content version conflict', so a stale expectedVersion must not fall through as 503.
+            // The guest's own distinction (destination occupied vs stale version) rides along in
+            // `guestMessage` for the routes that can be more precise about it.
+            if (error?.code === 'version_conflict')
+                throw new InputError('content version conflict', 409, error instanceof Error ? error.message : undefined);
+            // The chunked-upload refusals (`upload_conflict`, `upload_forbidden`, `invalid_chunk`, …) are
+            // client-facing by design and carry their own 4xx status: surface them as that status instead
+            // of the generic 503, still without exposing process diagnostics or storage paths.
+            const status = error.status;
+            if (typeof status === 'number' && Number.isInteger(status) && status >= 400 && status < 500 && typeof operation.kind === 'string' && operation.kind.startsWith('write-')) {
+                throw new InputError(error instanceof Error ? error.message : 'upload refused', status);
+            }
+            throw error;
+        }
     };
     const readBytes = async (path, maxBytes, offset = 0, length, truncate = false) => {
         const chunks = [];
@@ -63,13 +93,15 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
         } while (remaining > 0);
         return { bytes: Buffer.concat(chunks), version, truncated: false };
     };
+    /** Canonical follow-stat: the guest resolves a symlink to its target and reports that entry, and
+     *  answers `entry: null` for a dangling one. Nothing is swallowed — a failed stat propagates, so an
+     *  access revocation or runtime outage can never masquerade as a missing link; only the explicit
+     *  `entry: null` is interpreted. This replaces the temporary realpath exec bridge that stood in
+     *  until the runtime added `followSymlinks`. */
     const followEntry = async (entry) => {
         if (entry?.kind !== 'symlink')
             return entry;
-        const target = JSON.parse(await execute('python3', ['-c', 'import json,os,sys; print(json.dumps(os.path.realpath(sys.argv[1])))', entry.path]));
-        if (typeof target !== 'string' || !target.startsWith('/') || target.includes('\0'))
-            throw new Error('invalid guest symlink target');
-        const result = await files({ kind: 'stat', path: target });
+        const result = await files({ kind: 'stat', path: entry.path, followSymlinks: true });
         if (result.kind !== 'stat')
             throw new Error('invalid guest result');
         return result.entry ? { ...result.entry, path: entry.path } : null;
@@ -80,33 +112,86 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
             throw new InputError('invalid request');
         return value;
     };
+    const currentGuestVersion = async (path) => {
+        const stat = await files({ kind: 'stat', path, followSymlinks: true });
+        if (stat.kind !== 'stat')
+            throw new Error('invalid guest result');
+        return stat.entry ? stat.entry.version : null;
+    };
+    /** Carries one browser chunk into the canonical upload protocol: begins the guest handle on the
+     *  first chunk (CAS against a fresh destination, or against the version seen here for an overwrite),
+     *  streams every full guest chunk at its aligned offset, and — on the final browser chunk — sends
+     *  the trailing partial piece as the file's last guest chunk and commits. Returns the confirmed
+     *  byte count, or the committed size. The commit is the single atomic version-checked replacement;
+     *  an interrupted upload is released by the caller's abort. */
+    const streamUploadChunk = async (session, bytes, final, overwrite) => {
+        if (!session.uploadId) {
+            const begin = await files({ kind: 'write-begin', path: session.path, expectedVersion: overwrite ? await currentGuestVersion(session.path) : null, size: session.size });
+            if (begin.kind !== 'write-begin')
+                throw new Error('invalid guest result');
+            session.uploadId = begin.uploadId;
+            session.chunkSize = begin.chunkSize;
+        }
+        let pending = session.buffered.length ? Buffer.concat([session.buffered, bytes]) : bytes;
+        while (session.received + session.chunkSize <= session.size && pending.length >= session.chunkSize) {
+            const chunk = await files({ kind: 'write-chunk', path: session.path, uploadId: session.uploadId, offset: session.received, base64: pending.subarray(0, session.chunkSize).toString('base64') });
+            if (chunk.kind !== 'write-chunk')
+                throw new Error('invalid guest result');
+            session.received = chunk.received;
+            pending = pending.subarray(session.chunkSize);
+        }
+        if (session.received + pending.length > session.size)
+            throw new InputError('file too large');
+        if (final) {
+            if (pending.length !== session.size - session.received)
+                throw new InputError('file too large');
+            if (pending.length > 0) {
+                const chunk = await files({ kind: 'write-chunk', path: session.path, uploadId: session.uploadId, offset: session.received, base64: pending.toString('base64') });
+                if (chunk.kind !== 'write-chunk')
+                    throw new Error('invalid guest result');
+                session.received = chunk.received;
+            }
+            const committed = await files({ kind: 'write-commit', path: session.path, uploadId: session.uploadId });
+            if (committed.kind !== 'write-commit')
+                throw new Error('invalid guest result');
+            return committed.entry.size;
+        }
+        session.buffered = pending;
+        return session.received + session.buffered.length;
+    };
     try {
         if (mount === '/projects/:id/files') {
             const start = req.query.path ? guestPath(req.query.path) : '/workspace';
             const nodes = [];
             const visit = async (path, depth) => {
-                const result = await files({ kind: 'list', path, limit: 1000 });
-                if (result.kind !== 'list')
-                    throw new Error('invalid guest result');
-                if (result.truncated || nodes.length + result.entries.length > 10000)
-                    throw new InputError('directory listing is too large; select a subdirectory');
-                for (const original of result.entries) {
-                    const entry = await followEntry(original);
-                    if (!entry)
-                        continue;
-                    const clean = guestPath(entry.path);
-                    if (posix.dirname(clean) !== path)
-                        throw new Error('invalid guest entry');
-                    if (IGNORE.has(posix.basename(clean)) || clean.endsWith('.elowen-upload'))
-                        continue;
-                    if (entry.kind === 'directory') {
-                        nodes.push({ path: posix.relative('/workspace', clean), type: 'dir' });
-                        if (!req.query.path && depth < 8)
-                            await visit(clean, depth + 1);
+                // Pages drive on the guest's `nextCursor`; the entry cap stays as this view's own bound.
+                let cursor;
+                do {
+                    const result = await files({ kind: 'list', path, limit: 1000, cursor });
+                    if (result.kind !== 'list')
+                        throw new Error('invalid guest result');
+                    if (nodes.length + result.entries.length > 10000)
+                        throw new InputError('directory listing is too large; select a subdirectory');
+                    for (const original of result.entries) {
+                        const clean = guestPath(original.path);
+                        if (posix.dirname(clean) !== path)
+                            throw new Error('invalid guest entry');
+                        // Filter before following: a guest probe per symlink is wasted on entries that are dropped anyway.
+                        if (IGNORE.has(posix.basename(clean)) || clean.endsWith('.elowen-upload'))
+                            continue;
+                        const entry = await followEntry(original);
+                        if (!entry)
+                            continue;
+                        if (entry.kind === 'directory') {
+                            nodes.push({ path: posix.relative('/workspace', clean), type: 'dir' });
+                            if (!req.query.path && depth < 8)
+                                await visit(clean, depth + 1);
+                        }
+                        else if (entry.kind === 'file')
+                            nodes.push({ path: posix.relative('/workspace', clean), type: 'file', size: entry.size });
                     }
-                    else if (entry.kind === 'file')
-                        nodes.push({ path: posix.relative('/workspace', clean), type: 'file', size: entry.size });
-                }
+                    cursor = result.nextCursor ?? undefined;
+                } while (cursor);
             };
             await visit(start, 0);
             return { body: nodes };
@@ -129,10 +214,38 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
                 return { status: 409, body: { error: 'read the file before saving; content version required' } };
             if (value.version === null)
                 await execute('mkdir', ['-p', '--', posix.dirname(path)]);
-            const result = await files({ kind: 'write', path, base64: Buffer.from(value.content).toString('base64'), expectedVersion: value.version });
-            if (result.kind !== 'write')
+            const size = Buffer.byteLength(value.content);
+            if (size <= GUEST_CHUNK_BYTES) {
+                const result = await files({ kind: 'write', path, base64: Buffer.from(value.content).toString('base64'), expectedVersion: value.version });
+                if (result.kind !== 'write')
+                    throw new Error('invalid guest result');
+                return { status: 200, body: { ok: true, version: result.entry.version } };
+            }
+            // Above one guest chunk the save crosses as the canonical chunked sequence: begin binds the
+            // handle to this account, Project, generation, target and base version; every chunk but the last
+            // is exactly chunkSize at an aligned offset; the commit is the single atomic CAS replacement.
+            const content = Buffer.from(value.content);
+            const begin = await files({ kind: 'write-begin', path, expectedVersion: value.version, size });
+            if (begin.kind !== 'write-begin')
                 throw new Error('invalid guest result');
-            return { body: { ok: true, version: result.entry.version } };
+            try {
+                for (let offset = 0; offset < size; offset += begin.chunkSize) {
+                    const take = Math.min(begin.chunkSize, size - offset);
+                    const chunk = await files({ kind: 'write-chunk', path, uploadId: begin.uploadId, offset, base64: content.subarray(offset, offset + take).toString('base64') });
+                    if (chunk.kind !== 'write-chunk')
+                        throw new Error('invalid guest result');
+                }
+                const committed = await files({ kind: 'write-commit', path, uploadId: begin.uploadId });
+                if (committed.kind !== 'write-commit')
+                    throw new Error('invalid guest result');
+                return { status: 200, body: { ok: true, version: committed.entry.version } };
+            }
+            catch (error) {
+                // The primary failure is what propagates; the abort only releases the guest staging and the
+                // handle so a failed save can never own the destination or leave half-written state.
+                await files({ kind: 'write-abort', path, uploadId: begin.uploadId }).catch(() => undefined);
+                throw error;
+            }
         }
         if (mount === '/projects/:id/new-file' || mount === '/projects/:id/dir') {
             const value = await input();
@@ -243,6 +356,89 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
                 activeConversions--;
                 if (created)
                     await execute('rm', ['-rf', '--', work]);
+            }
+        }
+        if (mount === '/projects/:id/upload' && method === 'PUT') {
+            const path = guestPath(req.query.path);
+            const offset = Number(req.query.offset ?? '0');
+            if (!Number.isSafeInteger(offset) || offset < 0)
+                throw new InputError('invalid offset');
+            // The browser declares the file's total size on every chunk: the canonical `write-begin` needs
+            // it up front, before the last chunk arrives.
+            const size = Number(req.query.size);
+            if (!Number.isSafeInteger(size) || size < 0)
+                throw new InputError('upload size required');
+            // What the editor hands back on download it will also accept, so the ceiling is the same one.
+            if (size > MAX_BUFFERED_BYTES)
+                throw new InputError('file too large');
+            const bytes = await req.body();
+            // A chunk larger than the split the browser agreed to means the two sides disagree about the
+            // contract, not that this one file is big — answering 413 would send the client into a retry
+            // loop at a size it will keep choosing.
+            if (bytes.length > MAX_UPLOAD_CHUNK_BYTES)
+                return { status: 400, body: { error: 'chunk too large' } };
+            const final = req.query.final === '1';
+            const overwrite = req.query.overwrite === '1';
+            let sessions = managedUploadSessions.get(provider);
+            if (!sessions) {
+                sessions = new Map();
+                managedUploadSessions.set(provider, sessions);
+            }
+            const key = `${accountUserId}:${projectId}:${path}`;
+            let session = sessions.get(key);
+            if (session) {
+                // One stream per session: the browser is strictly sequential, so parallel arrival on the same
+                // destination is a broken client racing the offset accounting.
+                if (session.busy)
+                    throw new InputError('upload already in progress', 409);
+                if (size !== session.size || offset !== session.received + session.buffered.length)
+                    throw new InputError('upload out of order');
+            }
+            else {
+                if (offset !== 0)
+                    throw new InputError('upload out of order');
+                if (sessions.size >= MAX_MANAGED_UPLOADS) {
+                    const oldest = sessions.keys().next().value;
+                    if (oldest !== undefined) {
+                        const stale = sessions.get(oldest);
+                        sessions.delete(oldest);
+                        // Best-effort: an evicted handle can no longer be advanced by anyone, and the runtime's
+                        // own TTL reclaims any staging it leaves; failing this request for an unrelated cleanup
+                        // would be worse.
+                        void files({ kind: 'write-abort', path: stale.path, uploadId: stale.uploadId }).catch(() => undefined);
+                    }
+                }
+                session = { path, uploadId: '', chunkSize: GUEST_CHUNK_BYTES, size, received: 0, buffered: Buffer.alloc(0), busy: true };
+                sessions.set(key, session);
+            }
+            session.busy = true;
+            try {
+                const written = await streamUploadChunk(session, bytes, final, overwrite);
+                if (final) {
+                    sessions.delete(key);
+                    return { body: { ok: true, written } };
+                }
+                // Keep an active upload ahead of eviction instead of letting a concurrent burst push it out.
+                sessions.delete(key);
+                sessions.set(key, session);
+                session.busy = false;
+                return { body: { ok: true, written } };
+            }
+            catch (error) {
+                sessions.delete(key);
+                // The primary failure is what propagates; the abort only releases the guest staging and the
+                // handle so a failed upload can never own the destination.
+                const granted = session.uploadId;
+                const aborted = await files({ kind: 'write-abort', path, uploadId: granted }).then(() => true, () => false);
+                // A handle that was granted and could not be released still owns the destination and blocks
+                // every later upload to it, so the request stopped being a clean client refusal. The provider
+                // transport discards a failed `write-begin` itself, so an abort carrying the empty handle id of
+                // an upload that was never granted leaks nothing and keeps the primary status.
+                if (!aborted && granted)
+                    throw new Error(`upload failed and its guest staging could not be released: ${error instanceof Error ? error.message : String(error)}`);
+                if (error instanceof InputError && error.guestMessage === 'Destination already exists')
+                    throw new InputError('already exists');
+                throw error;
             }
         }
         const git = (...args) => execute('git', ['-C', '/workspace', ...args]);

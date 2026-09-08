@@ -30,6 +30,9 @@ function loadPlugin(dataRoot) {
     timezone: () => 'Europe/Prague',
     currentIdentity: () => session.identity,
     currentSessionId: () => session.sessionId,
+    // The trusted per-turn access state a schedule reads its executable project reference from. No
+    // managed `projectRef` here, so these schedules stay bound to the host project.
+    currentAccess: () => ({ projectIds: [], admin: session.admin, owner: false, permissionBoundary: null }),
     currentDeliveryTarget: () => session.deliveryTarget,
     isAdminSession: () => session.admin,
     host: { stores: () => ({

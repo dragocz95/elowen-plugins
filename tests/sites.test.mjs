@@ -1017,6 +1017,8 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
       }),
       exec: async () => ({ stdout: '', stderr: '', code: 0 }),
       logs: async () => ({ lifecycle: '', journal: '' }),
+      // Nothing is scheduled in these cases, so the durable action slot reads empty.
+      pendingAction: async () => null,
     },
   });
   return { store, dir, call: (name, input) => registered.get(name).execute('call-1', input ?? {}) };
