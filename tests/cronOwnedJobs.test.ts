@@ -64,6 +64,32 @@ const dueJob = (extra: Record<string, unknown> = {}) => ({
 });
 
 describe('cron tick — a job that belongs to an account', () => {
+  it('refuses a managed one-shot without a provider before consuming it', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [dueJob({ ownerUserId: 4, projectRef: { kind: 'managed', projectId: 7 }, lastRun: undefined, runAt: new Date(Date.now() - 1000).toISOString() })]);
+    const { adapter } = await loadCron(dataRoot);
+    let called = false;
+    adapter.listen(async () => { called = true; return 'must not run'; });
+    await adapter.tick();
+    expect(called).toBe(false);
+    expect(readJobs(dataRoot)).toHaveLength(1);
+    expect(readJobs(dataRoot)[0]!.lastResult).toContain('environment unavailable');
+  });
+
+  it('retains the explicit project through restart dispatch independently of filing', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [dueJob({ ownerUserId: 4, projectRef: { kind: 'managed', projectId: 7 }, conversationSessionId: 'different-filing-conversation' })]);
+    const { adapter } = await loadCron(dataRoot);
+    let authorized = 0;
+    Object.assign(adapter, { projectRuntime: { authorize: async (job: { projectRef: unknown }) => { expect(job.projectRef).toEqual({ kind: 'managed', projectId: 7 }); authorized++; } } });
+    let seen: SessionSource | undefined;
+    adapter.listen(async (src, _text, onEvent) => { seen = src; onEvent?.({ type: 'session', sessionId: 'brain-4' }); return 'done'; });
+    await adapter.tick();
+    expect(authorized).toBe(1);
+    expect(seen?.access?.projectRef).toEqual({ kind: 'managed', projectId: 7 });
+    expect(seen?.access?.actAsUserId).toBe(4);
+  });
+
   it('runs AS its owner and reports into that account\'s own conversation, never the notification channel', async () => {
     const dataRoot = freshDataRoot();
     const delivered: string[] = [];

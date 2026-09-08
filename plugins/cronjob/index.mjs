@@ -12,6 +12,7 @@ import { defineTool, loadSkillsFromDir } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { executionRef, projectCheck } from './execution.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -162,15 +163,15 @@ export function slotKey(ms, timezone) {
 }
 
 /** Run a job's optional cheap guard command and classify the outcome, so the scheduler can decide
- *  whether the (expensive) brain turn is even worth running. Instance jobs only; CronAdd exposes this through
- *  owner-only instance scope. The command runs through the platform default shell like the brain's Bash. Returns:
+ *  whether the (expensive) brain turn is even worth running. Managed jobs supply their prepared runtime
+ *  runner; legacy instance guards retain the platform default shell. Returns:
  *   - { skip:true }  → nothing to do (empty stdout) or the check errored → DON'T spend an LLM turn.
  *   - { skip:false, output } → fresh data on stdout → run the brain turn and feed it this output. */
-export async function runCheck(command, logger, timeoutMs = DEFAULT_CHECK_TIMEOUT_MS) {
+export async function runCheck(command, logger, timeoutMs = DEFAULT_CHECK_TIMEOUT_MS, preparedRunner) {
   try {
-    const { stdout } = await execAsync(command, {
+    const { stdout } = await (preparedRunner ? preparedRunner() : execAsync(command, {
       timeout: timeoutMs, maxBuffer: CHECK_MAX_BUFFER, encoding: 'utf-8',
-    });
+    }));
     const output = String(stdout ?? '').trim();
     if (!output) return { skip: true, reason: 'nothing new' };
     return { skip: false, output };
@@ -450,7 +451,9 @@ class CronAdapter {
   // multiplying every cron echo into dozens of Discord messages.
   // `timezone` is a LIVE getter, not a captured string: the operator can change the zone in Settings and
   // the very next tick must schedule against it, without a plugin reload.
-  constructor(store, deliveryStore, logger, deliver, config = {}, timezone = systemZone, ownerIsAdmin = () => true, ownerMaySchedule = () => true) {
+  constructor(store, deliveryStore, logger, deliver, config = {}, timezone = systemZone, ownerIsAdmin = () => true, ownerMaySchedule = () => true, projectRuntime) {
+    this.projectRuntime = projectRuntime;
+    this.checkAbort = new AbortController();
     this.store = store; this.deliveryStore = deliveryStore; this.log = logger; this.deliver = deliver;
     // Re-asked at every fire, never captured: a job's shell guard is allowed by WHO owns it, and rights
     // can be taken away between the write that stored the guard and the tick that would run it.
@@ -490,7 +493,7 @@ class CronAdapter {
   // tick loop finishes delivering the result it already paid for, then abandons the remaining jobs to the
   // live adapter. Synchronous on purpose — the host's stopAll() cannot await, and a reload must not block
   // for the minutes an LLM turn can take.
-  disconnect() { this.stopped = true; clearInterval(this.timer); }
+  disconnect() { this.stopped = true; this.checkAbort.abort(); clearInterval(this.timer); }
   async send() { /* cron has no outbound channel; results land in the job's conversation */ }
 
   async tick() {
@@ -554,33 +557,42 @@ class CronAdapter {
         this.log.warn(`cron job ${snapshot.id} (${snapshot.name}) skipped — its model selection names no complete provider/model pair`);
         continue;
       }
+      try {
+        const ref = executionRef(snapshot.projectRef);
+        if (ref?.kind === 'managed') {
+          if (!this.projectRuntime) throw new Error('project environment unavailable');
+          await this.projectRuntime.authorize(snapshot);
+        }
+      } catch (error) {
+        this.store.patch(snapshot.id, { lastResult: `skipped: ${error.message}` });
+        continue;
+      }
       const job = manual ? this.claimManualJob(snapshot.id, now, tz) : this.claimDueJob(snapshot.id, now, tz);
       if (!job) continue;
       // Cheap guard gate: if the job has a `check` command, run it FIRST (no LLM). Only spend a brain
       // turn when the guard surfaces fresh work — an "every 5m" poll that finds nothing costs a shell
       // exec, not a model call. The guard's output is fed into the turn so the brain acts on real data.
       //
-      // This one stays BELOW the claim, and only because a `check` can exist solely on an instance job:
-      // those are never one-shots, so claiming patches them instead of deleting them and a skip here is
-      // genuinely recoverable. A guard on a one-shot would have to move above the claim like the gate
-      // above — see ownedJobError, which is what keeps `check` off owned jobs in the first place.
+      // Guards belong to recurring jobs. Managed authorization is checked before the claim so a missing
+      // provider or revoked membership cannot consume a one-shot. Checks themselves own execution leases.
       let checkOutput = null;
       if (typeof job.check === 'string' && job.check.trim()) {
         // A shell guard runs on the daemon host with the daemon's rights, so only an admin's job may carry
         // one. Re-checked HERE and not only at write time: the owner may have lost admin since. Skipping
         // (rather than deleting, or running the job without its guard) keeps a temporary demotion
         // recoverable and never turns a gated poll into an ungated one.
-        if (!this.ownerIsAdmin(owner)) {
+        if (job.projectRef?.kind !== 'managed' && !this.ownerIsAdmin(owner)) {
           this.store.patch(job.id, { lastResult: '⏭️ skipped: a shell check may only run on an admin-owned job' });
           continue;
         }
-        const res = await runCheck(job.check, this.log, this.checkTimeoutMs);
+        const res = await runCheck(job.check, this.log, this.checkTimeoutMs, job.projectRef?.kind === 'managed' ? () => this.projectRuntime.check(job, this.checkTimeoutMs, this.checkAbort.signal) : undefined);
         if (res.skip) {
           this.store.patch(job.id, { lastResult: `⏭️ ${res.reason}` });
           continue; // nothing new (or the guard errored) → skip the brain turn entirely
         }
         checkOutput = res.output;
       }
+      if (this.stopped) break;
       this.log.info(`running job ${job.id} (${job.name})`);
       // Capture the turn's idle event (model + context usage) so the proactive push can carry the same
       // runtime footer a streamed reply gets — the handler forwards this onEvent into the brain session.
@@ -620,6 +632,7 @@ class CronAdapter {
         origin,
         access: {
           projectIds: [], admin: owner === null,
+          ...(job.projectRef ? { projectRef: executionRef(job.projectRef) } : {}),
           // An owned job runs AS its owner: the host resolves the account and applies its project policy,
           // tool deny-list and plugin grants — the job can never do more than the person who scheduled it.
           ...(owner !== null ? { actAsUserId: owner } : {}),
@@ -947,7 +960,7 @@ export function register(ctx) {
       : ownerIsAdmin(owner);
     const parsed = parseSchedule(job.schedule);
     if (!privileged) {
-      if (typeof job.check === 'string' && job.check.trim()) {
+      if (typeof job.check === 'string' && job.check.trim() && job.projectRef?.kind !== 'managed') {
         return 'a shell check requires an instance job; CronAdd instance scope is operator-only';
       }
       if (typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim()) {
@@ -1050,6 +1063,11 @@ export function register(ctx) {
    *
    *  'instance' stays owner-only: an instance job runs with owner powers, may carry a shell check and may
    *  report into any channel. A foreign admin session is broad project access, not authority over the instance. */
+  const toolProjectRef = (owner) => {
+    const ref = executionRef(ctx.currentAccess().projectRef);
+    if (ref?.kind === 'managed' && owner === null) throw new Error('managed project schedules require personal scope');
+    return ref ? { projectRef: ref } : {};
+  };
   const toolOwner = (scope) => {
     if (scope === 'instance') {
       if (ctx.currentIdentity()?.owner !== true) throw new Error('only the instance owner may schedule an instance-wide job — use scope "personal" for your own');
@@ -1553,7 +1571,7 @@ export function register(ctx) {
         if (!target) return ok(`Error: ${CONVERSATION_UNAVAILABLE}.`);
         // lastRun starts at creation time so a fresh job waits for its NEXT natural slot — a
         // "daily 06:00" created at 15:00 must not fire immediately.
-        const job = { id, name: p.name, schedule: p.schedule, prompt: p.prompt, check: p.check, hours: p.hours, notifyChannelId: p.notifyChannelId, plain: p.plain, model, enabled: p.enabled, ...(owner !== null ? { ownerUserId: owner } : {}), ...origin, conversationSessionId: target.id, conversationKey: target.key, createdAt: new Date().toISOString(), lastRun: new Date().toISOString() };
+        const job = { id, ...toolProjectRef(owner), name: p.name, schedule: p.schedule, prompt: p.prompt, check: p.check, hours: p.hours, notifyChannelId: p.notifyChannelId, plain: p.plain, model, enabled: p.enabled, ...(owner !== null ? { ownerUserId: owner } : {}), ...origin, conversationSessionId: target.id, conversationKey: target.key, createdAt: new Date().toISOString(), lastRun: new Date().toISOString() };
         const denied = owner !== null ? ownedJobError(job, jobs) : null;
         if (denied) return ok(`Error: ${denied}.`);
         jobs.push(job);
@@ -1602,7 +1620,7 @@ export function register(ctx) {
         // `brain-ch-…` id, which also excluded a private 1:1 chat, because the two were indistinguishable.
         const uid = ctx.currentIdentity()?.elowenUserId;
         const origin = uid != null ? conversationOrigin(uid) : undefined;
-        const job = { id, name: p.name, schedule: p.when, prompt: p.prompt, runAt: new Date(runAt).toISOString(), ...(owner !== null ? { ownerUserId: owner } : {}), createdAt: new Date().toISOString(), ...origin };
+        const job = { id, ...toolProjectRef(owner), name: p.name, schedule: p.when, prompt: p.prompt, runAt: new Date(runAt).toISOString(), ...(owner !== null ? { ownerUserId: owner } : {}), createdAt: new Date().toISOString(), ...origin };
         const denied = owner !== null ? ownedJobError(job, jobs) : null;
         if (denied) return ok(`Error: ${denied}.`);
         jobs.push(job);
@@ -1760,7 +1778,16 @@ export function register(ctx) {
     },
   });
 
-  adapter = new CronAdapter(store, deliveryStore, ctx.logger, ctx.notify, ctx.config, () => ctx.timezone(), ownerIsAdmin, ownerMaySchedule);
+  adapter = new CronAdapter(store, deliveryStore, ctx.logger, ctx.notify, ctx.config, () => ctx.timezone(), ownerIsAdmin, ownerMaySchedule, {
+    authorize: async (job) => {
+      const project = executionRef(job.projectRef);
+      if (!Number.isSafeInteger(job.ownerUserId) || job.ownerUserId <= 0) throw new Error('managed project schedule requires an account');
+      const provider = ctx.control('sandbox');
+      if (!provider) throw new Error('project environment unavailable');
+      await provider.environmentFor({ project, accountUserId: job.ownerUserId });
+    },
+    check: (job, timeoutMs, signal) => projectCheck(ctx, job, timeoutMs, undefined, signal),
+  });
   ctx.registerPlatform(adapter);
   // The skill that teaches the model to USE those tools ships with them, the way the task domain's
   // does. Kept in the skills plugin it would keep describing CronAdd on an instance where this plugin

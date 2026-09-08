@@ -8,7 +8,8 @@
   "entry": "index.mjs",
   "capabilities": {
     "reads": [
-      "stores"
+      "stores",
+      "controls"
     ]
   },
   "userGrantable": true,
