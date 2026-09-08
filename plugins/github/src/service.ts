@@ -52,7 +52,7 @@ export class GitHubService {
     return bag;
   }
 
-  private project(userId: number, projectId: number, accessible?: readonly number[] | null, admin = false): { id: number; slug: string; path: string } {
+  private project(userId: number, projectId: number, accessible?: readonly number[] | null, admin = false): { id: number; slug: string; path: string; executionKind?: 'host' | 'managed' } {
     if (!Number.isSafeInteger(projectId) || projectId <= 0) throw new GitHubPluginError('project_not_found', 404, 'Project not found.');
     if (accessible !== undefined) {
       if (accessible === null ? !admin : !accessible.includes(projectId)) throw new GitHubPluginError('project_forbidden', 403, 'This project is not accessible.');
@@ -590,7 +590,8 @@ export class GitHubService {
   private async publishState(userId: number, projectId: number, sessionId: string): Promise<{
     workspace: { workspaceId: string; path: string; branch: string; baseRef: string }; mapping: ProjectMapping; base: GitHubRepository; head: string;
   }> {
-    this.project(userId, projectId);
+    const project = this.project(userId, projectId);
+    if (project.executionKind === 'managed') throw new GitHubPluginError('managed_publish_unavailable', 503, 'Managed publishing requires isolated validated object staging.');
     if (!sessionId) throw new GitHubPluginError('session_required', 400, 'Select the conversation whose active workspace should be published.');
     const sandbox = this.ctx.control('sandbox');
     if (!sandbox) throw new GitHubPluginError('sandbox_unavailable', 503, 'Sandbox is required to publish a branch.');

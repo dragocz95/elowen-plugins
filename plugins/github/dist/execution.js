@@ -126,6 +126,9 @@ export async function publishBranch(input) {
     if (!/^elowen\/u\d+\/[A-Za-z0-9._/-]+$/.test(input.branch) || input.branch.includes('..') || input.branch.endsWith('/')) {
         throw new GitHubPluginError('invalid_workspace_branch', 409, 'The active workspace branch is not a generated Elowen branch.');
     }
+    if (input.ctx.currentAccess().projectRef?.kind === 'managed') {
+        throw new GitHubPluginError('managed_publish_unavailable', 503, 'Managed publishing requires isolated validated object staging; the shared project repository cannot receive personal credentials.');
+    }
     await assertSafeRepositoryConfig(input.ctx, input.cwd, runner);
     const head = (await git(input.ctx, input.cwd, ['rev-parse', 'HEAD'], runner)).stdout.trim();
     if (!/^[a-f0-9]{40}$/i.test(head))

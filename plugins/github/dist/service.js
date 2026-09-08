@@ -629,7 +629,9 @@ export class GitHubService {
         }
     }
     async publishState(userId, projectId, sessionId) {
-        this.project(userId, projectId);
+        const project = this.project(userId, projectId);
+        if (project.executionKind === 'managed')
+            throw new GitHubPluginError('managed_publish_unavailable', 503, 'Managed publishing requires isolated validated object staging.');
         if (!sessionId)
             throw new GitHubPluginError('session_required', 400, 'Select the conversation whose active workspace should be published.');
         const sandbox = this.ctx.control('sandbox');
