@@ -103,7 +103,7 @@ export class WhatsAppAdapter {
     this.lastQrLogAt = 0;    // throttle the ASCII-QR log line
     this.sentStore = new Map(); // messageId → sent proto message (for getMessage retries + edits)
     this.pendingAsks = new Map(); // askId → { jid, askerJid, questions, selected, awaitingText, key, createdAt }
-    this.pendingMenus = new Map(); // jid → { kind:'model'|'thinking'|'context', title, options, entries, page, createdAt }
+    this.pendingMenus = new Map(); // jid → { kind:'model'|'thinking'|'context'|'project', title, options, entries, page, createdAt }
     this.conversationOrder = createConversationOrderTracker();
     this.msg = MESSAGES[cfg.language] ?? MESSAGES.en;
   }
