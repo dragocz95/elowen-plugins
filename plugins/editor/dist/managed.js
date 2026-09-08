@@ -63,6 +63,17 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
         } while (remaining > 0);
         return { bytes: Buffer.concat(chunks), version, truncated: false };
     };
+    const followEntry = async (entry) => {
+        if (entry?.kind !== 'symlink')
+            return entry;
+        const target = JSON.parse(await execute('python3', ['-c', 'import json,os,sys; print(json.dumps(os.path.realpath(sys.argv[1])))', entry.path]));
+        if (typeof target !== 'string' || !target.startsWith('/') || target.includes('\0'))
+            throw new Error('invalid guest symlink target');
+        const result = await files({ kind: 'stat', path: target });
+        if (result.kind !== 'stat')
+            throw new Error('invalid guest result');
+        return result.entry ? { ...result.entry, path: entry.path } : null;
+    };
     const input = async () => {
         const value = await req.json();
         if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -79,7 +90,10 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
                     throw new Error('invalid guest result');
                 if (result.truncated || nodes.length + result.entries.length > 10000)
                     throw new InputError('directory listing is too large; select a subdirectory');
-                for (const entry of result.entries) {
+                for (const original of result.entries) {
+                    const entry = await followEntry(original);
+                    if (!entry)
+                        continue;
                     const clean = guestPath(entry.path);
                     if (posix.dirname(clean) !== path)
                         throw new Error('invalid guest entry');
@@ -137,6 +151,7 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
             const stat = await files({ kind: 'stat', path });
             if (stat.kind !== 'stat')
                 throw new Error('invalid guest result');
+            stat.entry = await followEntry(stat.entry);
             if (stat.entry?.kind !== 'file')
                 return { status: 415, body: { error: 'not previewable' } };
             const size = stat.entry.size;
@@ -204,7 +219,10 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
         if (mount === '/projects/:id/office-preview') {
             const path = guestPath(req.query.path);
             const stat = await files({ kind: 'stat', path });
-            if (stat.kind !== 'stat' || stat.entry?.kind !== 'file' || fileKindOf(path) !== 'office')
+            if (stat.kind !== 'stat')
+                throw new Error('invalid guest result');
+            stat.entry = await followEntry(stat.entry);
+            if (stat.entry?.kind !== 'file' || fileKindOf(path) !== 'office')
                 return { status: 415, body: { error: 'unsupported office file' } };
             if (stat.entry.size > MAX_OFFICE_BYTES)
                 return { status: 413, body: { error: 'office file is too large to preview' } };

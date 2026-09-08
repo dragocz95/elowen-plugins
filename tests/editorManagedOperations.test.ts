@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, rm, stat, access, rename, unlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, stat, lstat, readdir, symlink, access, rename, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -35,7 +35,16 @@ async function fixture() {
       const path = guest(operation.path);
       if (operation.kind === 'mkdir') await mkdir(path);
       if (operation.kind === 'write' && operation.expectedVersion === null) await writeFile(path, Buffer.from(operation.base64, 'base64'), { flag: 'wx' });
-      const s = await stat(path);
+      if (operation.kind === 'list') {
+        const entries = await Promise.all((await readdir(path)).map(async name => {
+          const info = await lstat(join(path, name));
+          return { path: operation.path + '/' + name, kind: info.isSymbolicLink() ? 'symlink' : info.isDirectory() ? 'directory' : 'file', size: info.size, modifiedAt: info.mtime.toISOString(), version: 'listing' };
+        }));
+        return { kind: 'list', entries, truncated: false };
+      }
+      let s;
+      try { s = await (operation.kind === 'read' ? stat(path) : lstat(path)); }
+      catch (error) { if (operation.kind === 'stat' && (error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'stat', entry: null }; throw error; }
       let bytes = s.isFile() ? await readFile(path) : Buffer.alloc(0);
       let version = createHash('sha256').update(bytes).digest('hex');
       if (operation.kind === 'write' && operation.expectedVersion !== null) {
@@ -44,7 +53,7 @@ async function fixture() {
         await writeFile(path, bytes);
         version = createHash('sha256').update(bytes).digest('hex');
       }
-      const entry = { path: operation.path, kind: s.isFile() ? 'file' : 'directory', size: s.size, modifiedAt: s.mtime.toISOString(), version };
+      const entry = { path: operation.path, kind: s.isSymbolicLink() ? 'symlink' : s.isFile() ? 'file' : 'directory', size: s.size, modifiedAt: s.mtime.toISOString(), version };
       if (operation.kind === 'stat' || operation.kind === 'mkdir' || operation.kind === 'write') return { kind: operation.kind, entry };
       if (operation.kind === 'rename') {
         if (operation.expectedVersion !== version) throw new Error('version conflict');
@@ -104,6 +113,19 @@ describe('managed editor compound operations with an executable provider fixture
       expect((await f.call('file', 'GET', 'oversized.ts')).body).toMatchObject({ content: '', truncated: true });
     } finally { await f.dispose(); }
   });
+  it('lists and previews guest symlinks without traversing host paths', async () => {
+    const f = await fixture();
+    try {
+      await symlink('src', join(f.root, 'linked'));
+      await symlink('src/a.ts', join(f.root, 'linked.ts'));
+      await symlink('missing', join(f.root, 'broken'));
+      const listing = await f.call('files');
+      expect(listing.body).toEqual(expect.arrayContaining([{ path: 'linked', type: 'dir' }, { path: 'linked/a.ts', type: 'file', size: 15 }, { path: 'linked.ts', type: 'file', size: 15 }]));
+      const result = await f.call('raw', 'GET', 'linked.ts');
+      expect(Buffer.from(result.body as Uint8Array).toString()).toBe('initial content');
+      expect((await f.call('raw', 'GET', 'linked')).status).toBe(415);
+    } finally { await f.dispose(); }
+  });
   it('exports downloads in bounded version-consistent chunks', async () => {
     const f = await fixture();
     try {
@@ -122,6 +144,8 @@ describe('managed editor compound operations with an executable provider fixture
       await writeFile(join(f.root, 'brief.docx'), 'fixture');
       const result = await f.call('office-preview', 'GET', 'brief.docx');
       expect(Buffer.from(result.body as Uint8Array).toString()).toBe('%PDF-1.4 fixture');
+      await symlink('brief.docx', join(f.root, 'linked.docx'));
+      expect(Buffer.from((await f.call('office-preview', 'GET', 'linked.docx')).body as Uint8Array).toString()).toBe('%PDF-1.4 fixture');
       const output = f.operations.find(op => op.kind === 'read' && op.path.endsWith('.pdf'))!;
       await expect(access(join(f.root, 'tmp', output.path.slice(5).split('/')[0]!))).rejects.toThrow();
     } finally { await f.dispose(); }

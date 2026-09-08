@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { editorExecute } from './execution.js';
 import { parseProjectCommitLog } from './files.js';
 import type { PluginApiRequest, PluginContext, PluginHttpResponse } from 'elowen/dist/plugins/api.js';
-import type { GuestFileOperation, GuestFileResult } from 'elowen/dist/plugins/environmentTypes.js';
+import type { GuestFileOperation, GuestFileResult, GuestFileStat } from 'elowen/dist/plugins/environmentTypes.js';
 import { MAX_BUFFERED_BYTES, MAX_OFFICE_BYTES, baseName, mimeTypeOf, fileKindOf } from './fileTypes.js';
 
 const TEXT_LIMIT = 2 * 1024 * 1024;
@@ -53,6 +53,14 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
     } while (remaining > 0);
     return { bytes: Buffer.concat(chunks), version, truncated: false };
   };
+  const followEntry = async (entry: GuestFileStat | null): Promise<GuestFileStat | null> => {
+    if (entry?.kind !== 'symlink') return entry;
+    const target: unknown = JSON.parse(await execute('python3', ['-c', 'import json,os,sys; print(json.dumps(os.path.realpath(sys.argv[1])))', entry.path]));
+    if (typeof target !== 'string' || !target.startsWith('/') || target.includes('\0')) throw new Error('invalid guest symlink target');
+    const result = await files({ kind: 'stat', path: target });
+    if (result.kind !== 'stat') throw new Error('invalid guest result');
+    return result.entry ? { ...result.entry, path: entry.path } : null;
+  };
   const input = async (): Promise<Record<string, unknown>> => {
     const value = await req.json<unknown>();
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new InputError('invalid request');
@@ -66,7 +74,9 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
         const result = await files({ kind: 'list', path, limit: 1000 });
         if (result.kind !== 'list') throw new Error('invalid guest result');
         if (result.truncated || nodes.length + result.entries.length > 10000) throw new InputError('directory listing is too large; select a subdirectory');
-        for (const entry of result.entries) {
+        for (const original of result.entries) {
+          const entry = await followEntry(original);
+          if (!entry) continue;
           const clean = guestPath(entry.path);
           if (posix.dirname(clean) !== path) throw new Error('invalid guest entry');
           if (IGNORE.has(posix.basename(clean)) || clean.endsWith('.elowen-upload')) continue;
@@ -110,6 +120,7 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
       const path = guestPath(req.query.path);
       const stat = await files({ kind: 'stat', path });
       if (stat.kind !== 'stat') throw new Error('invalid guest result');
+      stat.entry = await followEntry(stat.entry);
       if (stat.entry?.kind !== 'file') return { status: 415, body: { error: 'not previewable' } };
       const size = stat.entry.size;
       const headers: Record<string, string> = { 'accept-ranges': 'bytes', 'cache-control': 'no-store', 'content-type': mimeTypeOf(path), ...(req.query.download === '1' ? { 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(baseName(path))}` } : {}) };
@@ -162,7 +173,9 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
     if (mount === '/projects/:id/office-preview') {
       const path = guestPath(req.query.path);
       const stat = await files({ kind: 'stat', path });
-      if (stat.kind !== 'stat' || stat.entry?.kind !== 'file' || fileKindOf(path) !== 'office') return { status: 415, body: { error: 'unsupported office file' } };
+      if (stat.kind !== 'stat') throw new Error('invalid guest result');
+      stat.entry = await followEntry(stat.entry);
+      if (stat.entry?.kind !== 'file' || fileKindOf(path) !== 'office') return { status: 415, body: { error: 'unsupported office file' } };
       if (stat.entry.size > MAX_OFFICE_BYTES) return { status: 413, body: { error: 'office file is too large to preview' } };
       if (activeConversions >= 2) return { status: 429, body: { error: 'office preview is busy' } };
       activeConversions++;
