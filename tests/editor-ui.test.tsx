@@ -195,6 +195,27 @@ describe('managed editor content versions', () => {
     expect(editorEl().value).toBe('managed edit');
     expect(client.getQueryData(['project-file', 5, 'a.ts'])).toMatchObject({ version: 'v2' });
   });
+  it('advances the baseline to the returned version so the next save sends the current one', async () => {
+    versioned = true;
+    const client = await renderEditor();
+
+    fireEvent.change(editorEl(), { target: { value: 'first managed edit' } });
+    await saveNow('a.ts');
+    act(() => gates.get('a.ts')?.());
+    await screen.findByText('Saved a.ts');
+
+    // The user edits again while other members may have saved in between: the second save must carry
+    // the version the first save's response returned, never the stale one it read at open time.
+    fireEvent.change(editorEl(), { target: { value: 'second managed edit' } });
+    await saveNow('a.ts');
+    expect(receivedVersions).toEqual(['v1', 'v2']);
+    act(() => gates.get('a.ts')?.());
+    await screen.findByText('Saved a.ts');
+    expect(stored.get('a.ts')).toBe('second managed edit');
+    await waitFor(() => expect(cachedContent(client, 'a.ts')).toBe('second managed edit'));
+    expect(client.getQueryData(['project-file', 5, 'a.ts'])).toMatchObject({ version: 'v2' });
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
   it('does not replace a dirty draft baseline with another member’s refetched version', async () => {
     versioned = true;
     const client = await renderEditor();

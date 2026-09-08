@@ -28,7 +28,9 @@ export async function uploadFile(
   do {
     const chunk = file.slice(offset, offset + MAX_UPLOAD_CHUNK_BYTES);
     const final = offset + chunk.size >= file.size;
-    const query = `path=${encodeURIComponent(path)}&offset=${offset}&overwrite=${overwrite}${final ? '&final=1' : ''}`;
+    // `size` declares the file's total on every chunk: the managed transport opens its guest upload
+    // with write-begin, and the canonical begin must know the size up front, before the last chunk.
+    const query = `path=${encodeURIComponent(path)}&offset=${offset}&size=${file.size}&overwrite=${overwrite}${final ? '&final=1' : ''}`;
     const response = await fetch(`/api/projects/${projectId}/upload?${query}`, {
       method: 'PUT',
       body: chunk,
