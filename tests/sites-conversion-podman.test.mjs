@@ -1,24 +1,30 @@
-// The runtime conversion against REAL rootless Podman, real containers, a real ingress socket and real
-// HTTP - the half `sites-migration.test.mjs` deliberately stands in for.
+// The runtime conversion exercised through the whole plugin route: the real Sites store, the real
+// recipe/digest/data-sync machinery, real permission scope, real HTTP over the sealed ingress socket and
+// the real `SiteEnvironmentControl` SDK seam — `sites-migration.test.mjs` deliberately stands the route
+// and the real data movement in for, and the container side belongs to the Sandbox provider, so it is
+// consumed exactly as production consumes it instead of being driven by a local Podman client.
 //
-// Opt-in: it needs a working rootless Podman and the conversion derivative images, so it is skipped
-// unless SITES_PODMAN_E2E=1. Nothing here is a production configuration knob.
+// Default: the provider is a private stand-in at the SDK seam (see the harness header). With
+// SITES_PODMAN_E2E=1 the same suite runs against the REAL provider in a private isolated Podman
+// namespace; the assertions below marked "real engine only" re-prove the container-side facts a
+// stand-in cannot (nginx's own error log, the container specification carrying no secret). The suite
+// never falls back to an account engine or to the retired Sites driver.
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, chmodSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 import {
   MigrationRefused, RELEASE_ID, SLOW_MS, httpOverSocket, httpOverSocketWhenUp, podmanHarness, release0, site0,
-  skip, stagedWorkspace,
+  stagedWorkspace,
 } from './helpers/sitesPodmanHarness.mjs';
 
 // --- static: the whole lifecycle, ending in a site that actually answers ----------------------------
 
-test('a static site converts end to end and answers over its own sealed ingress socket', { skip, timeout: SLOW_MS }, async () => {
-  const h = podmanHarness();
+const staticCutover = test('a static site converts end to end and answers over its own sealed ingress socket', { timeout: SLOW_MS }, async () => {
+  const h = await podmanHarness();
   const site = site0();
   try {
     h.store.insertSite(site);
@@ -36,7 +42,7 @@ test('a static site converts end to end and answers over its own sealed ingress 
     assert.equal(res.body.registered.image, 'static');
 
     // PREPARE. The broker directory does not exist for a static site, so the conversion must ask the
-    // gateway for one before `podman create` statfs-es the bind source.
+    // gateway for one before the runtime creates the container that binds it.
     assert.equal(existsSync(join(h.brokerRoot, site.id)), false);
     res = await h.call(site.id, { step: 'prepare', recipe: 'release-copy' });
     assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -62,8 +68,8 @@ test('a static site converts end to end and answers over its own sealed ingress 
       'no directory shared with other sites or with the plugin data root was touched');
     assert.equal(modeOf(h.releaseDir(site.id, RELEASE_ID)), releaseModeBefore, 'the published release is unchanged');
 
-    // The container exists and is NOT running: the legacy runtime is still the one serving.
-    assert.equal(await h.podman.inspectStatus(`elowen-site-${site.id}`), 'created');
+    // The persistent container exists and is NOT running: the legacy runtime is still the one serving.
+    assert.deepEqual(await h.runtimeState(site.id), { state: 'stopped', provisioned: true });
 
     // FLIP. Real cutover: the container starts, the socket is sealed, the site answers.
     res = await h.call(site.id, { step: 'flip' });
@@ -71,13 +77,17 @@ test('a static site converts end to end and answers over its own sealed ingress 
     assert.equal(res.body.conversion.stage, 'flipped');
     assert.equal(h.store.siteById(site.id).runtime, 'environment');
 
-    // The site serves its own release through the container's nginx, whose workers are unprivileged
+    // The site serves its own release through the converted runtime, whose workers are unprivileged
     // inside the container. This test changes no mode anywhere: the staged tree must arrive servable.
     const answer = await httpOverSocketWhenUp(h.brokerPath(site.id), '/');
     assert.equal(answer.status, 200, `the converted static site answered ${answer.status}`);
     assert.match(answer.body, /converted-static/);
-    assert.equal((await h.podman.exec(`elowen-site-${site.id}`, ['tail', '-20', '/var/log/nginx/error.log'])).stdout
-      .includes('Permission denied'), false, 'the serving process hit no permission failure');
+    if (h.realEngine) {
+      const log = await h.control.siteEnvironmentExec({
+        siteId: site.id, accountUserId: 7, command: 'tail -20 /var/log/nginx/error.log', timeoutMs: 30_000,
+      });
+      assert.equal(log.stdout.includes('Permission denied'), false, 'the serving process hit no permission failure');
+    }
 
     // The sealed directory has lost write permission, exactly as the helper leaves it.
     assert.equal((statSync(join(h.brokerRoot, site.id)).mode & 0o777).toString(8), '510');
@@ -105,8 +115,8 @@ test('a static site converts end to end and answers over its own sealed ingress 
 
 // --- command: a live legacy socket must survive prepare and a pre-flip rollback ---------------------
 
-test('a live legacy broker socket survives prepare and a pre-flip rollback', { skip, timeout: SLOW_MS }, async () => {
-  const h = podmanHarness();
+const legacySurvives = test('a live legacy broker socket survives prepare and a pre-flip rollback', { timeout: SLOW_MS }, async () => {
+  const h = await podmanHarness();
   const site = site0({ runtime: 'command', slug: 'conv-cmd', startCommand: 'node server.mjs' });
   try {
     h.store.insertSite(site);
@@ -146,7 +156,7 @@ test('a live legacy broker socket survives prepare and a pre-flip rollback', { s
     res = await h.call(site.id, { step: 'rollback' });
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.conversion.stage, 'none');
-    assert.equal(await h.podman.inspectStatus(`elowen-site-${site.id}`), null, 'the container was discarded');
+    assert.deepEqual(await h.runtimeState(site.id), { state: 'deleted', provisioned: false }, 'the container was discarded');
     assert.equal(statSync(join(h.brokerRoot, site.id)).ino, legacyInode);
     assert.equal((await httpOverSocket(h.brokerPath(site.id), '/')).body, 'legacy-alive',
       'a rolled-back conversion left the live site serving');
@@ -159,31 +169,37 @@ test('a live legacy broker socket survives prepare and a pre-flip rollback', { s
 
 // --- command: full cutover with real data, then a rollback that carries writes back -----------------
 
-test('a stateful command site converts, serves its carried data, and rolls back with the container writes',
-  { skip, timeout: SLOW_MS }, async () => {
-      const h = podmanHarness();
+const statefulRollback = test('a stateful command site converts, serves its carried data, and rolls back with the container writes',
+  { timeout: SLOW_MS }, async () => {
+    const appDirName = '.local/share/conv-app';
+    // The stand-in for the containerized application: the same SQLite behaviour server.mjs has, run
+    // against the private directory that stands in for the container's data volume. It boots once per
+    // start — deleting the file the app deletes, inserting the boot row — and serves /state.
+    const h = await podmanHarness({ convertedApp: {
+      open: (home) => {
+        const appDir = join(home, appDirName);
+        mkdirSync(appDir, { recursive: true });
+        rmSync(join(appDir, 'obsolete.txt'), { force: true });
+        const db = new DatabaseSync(join(appDir, 'data.db'));
+        db.exec("CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, value TEXT); INSERT INTO state(value) VALUES ('boot');");
+        return {
+          handle: (request, response) => {
+            if (request.url !== '/state') { response.writeHead(404); response.end('no'); return; }
+            db.exec("INSERT INTO state(value) VALUES ('request')");
+            const count = db.prepare('SELECT count(*) AS n FROM state').get().n;
+            response.writeHead(200, { 'content-type': 'application/json' });
+            response.end(JSON.stringify({ count }));
+          },
+          close: () => db.close(),
+        };
+      },
+    } });
     const site = site0({ runtime: 'command', slug: 'conv-state', startCommand: 'node server.mjs' });
-    const appDir = join(h.legacyHome, '.local/share/conv-app');
+    const appDir = join(h.legacyHome, appDirName);
     try {
       h.store.insertSite(site);
       h.store.insertRelease(release0(site.id));
-      const server = `import { DatabaseSync } from 'node:sqlite';
-import http from 'node:http';
-import fs from 'node:fs';
-const dir = \`\${process.env.HOME}/.local/share/conv-app\`;
-fs.mkdirSync(dir, { recursive: true });
-fs.rmSync(\`\${dir}/obsolete.txt\`, { force: true });
-const db = new DatabaseSync(\`\${dir}/data.db\`);
-db.exec("CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, value TEXT); INSERT INTO state(value) VALUES ('boot');");
-http.createServer((request, response) => {
-  if (request.url !== '/state') { response.writeHead(404); response.end('no'); return; }
-  db.exec("INSERT INTO state(value) VALUES ('request')");
-  const count = db.prepare('SELECT count(*) AS n FROM state').get().n;
-  response.writeHead(200, { 'content-type': 'application/json' });
-  response.end(JSON.stringify({ count }));
-}).listen(80, '127.0.0.1');
-`;
-      h.seedRelease(site.id, { 'server.mjs': server, '.env': 'CONV_SECRET=seeded\n' });
+      h.seedRelease(site.id, { 'server.mjs': 'export {};\n', '.env': 'CONV_SECRET=seeded\n' });
 
       // Real legacy application state, including a file the converted app deletes and a neighbour subtree
       // that must never travel.
@@ -225,13 +241,28 @@ http.createServer((request, response) => {
       assert.equal(first.status, 200);
       assert.equal(JSON.parse(first.body).count, 3, `carried legacy rows plus boot plus the request (${first.body})`);
 
-      // The secret reached the application but is nowhere in the container specification.
-      const inspected = await h.podman.run(['inspect', `elowen-site-${site.id}`]);
-      assert.equal(inspected.stdout.includes('CONV_SECRET'), false, 'no secret is published through podman inspect');
+      // No secret ever crossed the SDK seam: every request the provider received is free of it. The
+      // real-engine mode re-proves the same invariant one level lower, against the container itself.
+      assert.equal(JSON.stringify(h.requests).includes('CONV_SECRET'), false,
+        'no secret is published through the environment control seam');
+      if (h.realEngine) {
+        const env = await h.control.siteEnvironmentExec({
+          siteId: site.id, accountUserId: 7, command: 'printenv', timeoutMs: 30_000,
+        });
+        assert.equal(env.stdout.includes('CONV_SECRET'), false, 'the serving process sees no injected secret');
+      }
 
       // The neighbour subtree never entered the volume.
-      const listed = await h.podman.exec(`elowen-site-${site.id}`, ['ls', '/data/.local/share']);
-      assert.equal(listed.stdout.includes('neighbour'), false, 'only the declared subtree travelled');
+      if (h.realEngine) {
+        const listed = await h.control.siteEnvironmentExec({
+          siteId: site.id, accountUserId: 7, command: 'ls -A /data/.local/share', timeoutMs: 30_000,
+        });
+        assert.equal(listed.stdout.includes('neighbour'), false, 'only the declared subtree travelled');
+      } else {
+        const listed = readdirSync(join(h.volumeDir(site.id), '.local', 'share')).join(',');
+        assert.equal(listed.includes('neighbour'), false, 'only the declared subtree travelled');
+        assert.match(listed, /conv-app/, 'the declared subtree did travel');
+      }
 
       // ROLLBACK, in one call. It has to name the legacy home from the descriptor the conversion
       // recorded: the site row already says `environment` here, and the resolver answers only for a
@@ -260,8 +291,8 @@ http.createServer((request, response) => {
 
 // --- the route is still the guarded one --------------------------------------------------------------
 
-test('the real Podman route keeps its administrator guard', { skip, timeout: SLOW_MS }, async () => {
-  const h = podmanHarness();
+const adminGuard = test('the conversion route keeps its administrator guard', { timeout: SLOW_MS }, async () => {
+  const h = await podmanHarness();
   const site = site0();
   try {
     h.store.insertSite(site);
@@ -274,3 +305,8 @@ test('the real Podman route keeps its administrator guard', { skip, timeout: SLO
     await h.cleanup(site.id);
   }
 });
+// Every test has settled by the line above: the real ingress requests leave keep-alive sockets that the
+// bare node:http agent abandons mid-shutdown on this Node build, and they would hold the runner's
+// process open after an otherwise complete run. The exit code still reports test failures.
+await Promise.all([staticCutover, legacySurvives, statefulRollback, adminGuard]);
+setTimeout(() => process.exit(process.exitCode ?? 0), 2_000);

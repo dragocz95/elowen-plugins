@@ -449,6 +449,7 @@ export function register(published) {
         },
         environmentState: (site, actor) => environment.state(site, actor),
         environmentLogs: (site, lines, actor) => environment.logs(site, lines, actor),
+        environmentAction: (site, actor) => environment.pendingAction(site, actor),
         gatewayReadiness: () => gateway.readiness(),
         gatewayRecord: () => gateway.requiredRecord(),
         requestEnvironmentControl: async (site, action, actor) => {
@@ -456,11 +457,10 @@ export function register(published) {
         },
         snapshotEnvironment: async (site, input, actor) => {
             const model = ctx.currentModel();
-            const snapshot = await environment.snapshot(site, { ...input, model: model ? `${model.provider}/${model.model}` : '' }, actor);
-            return { id: snapshot.id };
+            return await environment.scheduleSnapshot(site, { ...input, model: model ? `${model.provider}/${model.model}` : '' }, actor);
         },
         rollbackEnvironment: async (site, input, actor) => {
-            await environment.request(site, { kind: 'restore', snapshotId: input.releaseId, restoreData: input.restoreData }, actor);
+            await environment.scheduleRestore(site, input.releaseId, input.restoreData, actor);
         },
         applyEnvironmentLimits: (site, limits, actor) => environment.applyLimits(site, limits, actor),
         provisioning,

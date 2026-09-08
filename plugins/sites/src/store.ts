@@ -906,6 +906,41 @@ export class SitesStore {
     );
   }
 
+  /** Claim the visible pending-action slot for a NEWLY ACCEPTED snapshot or restore request.
+   *
+   *  Fails while an execution lease is live or an action is still active (`last_error IS NULL`), and
+   *  otherwise replaces a terminal error row — clearing it only through this new explicit request. The
+   *  provider owns the desired state, so unlike the legacy `tryPutEnvironmentAction` this deliberately
+   *  never touches `environment_desired_state`. */
+  beginEnvironmentAction(action: EnvironmentAction): boolean {
+    return this.db.transaction(() => {
+      const now = Date.now();
+      this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE expires_at <= ?').run(now);
+      if (this.db.prepare('SELECT 1 FROM p_sites_environment_exec_leases WHERE site_id = ?').get(action.siteId)) return false;
+      const existing = this.db.prepare('SELECT last_error FROM p_sites_environment_actions WHERE site_id = ?')
+        .get(action.siteId) as { last_error: string | null } | undefined;
+      if (existing?.last_error === null) return false;
+      const snapshot = action.kind === 'snapshot';
+      const result = this.db.prepare(`
+        INSERT INTO p_sites_environment_actions (
+          site_id, kind, snapshot_id, restore_data, include_data, note, model, requested_at, last_error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(site_id) DO UPDATE SET
+          kind = excluded.kind, snapshot_id = excluded.snapshot_id, restore_data = excluded.restore_data,
+          include_data = excluded.include_data, note = excluded.note, model = excluded.model,
+          requested_at = excluded.requested_at, last_error = NULL
+      `).run(
+        action.siteId, action.kind, action.snapshotId,
+        !snapshot && action.restoreData ? 1 : 0,
+        snapshot && action.includeData ? 1 : 0,
+        snapshot ? action.note : '',
+        snapshot ? action.model : '',
+        action.requestedAt, action.lastError,
+      );
+      return result.changes === 1;
+    });
+  }
+
   tryBeginEnvironmentExec(siteId: string, token: string, expiresAt: number): boolean {
     return this.db.transaction(() => {
       const now = Date.now();

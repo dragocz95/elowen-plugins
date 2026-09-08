@@ -133,7 +133,7 @@ export function createApiHandlers(deps) {
                 environment: environment === null ? null : canManage(target, req.auth)
                     ? {
                         ...environment,
-                        action: deps.store.environmentAction(target.id),
+                        action: await deps.environmentAction(target, runtimeActor(req)),
                         limitOverrides: {
                             cpus: target.environmentCpus ?? null,
                             memoryMb: target.environmentMemoryMb ?? null,

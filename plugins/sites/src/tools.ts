@@ -24,7 +24,7 @@ export interface ToolDeps {
   releaseDir(siteId: string, releaseId: string): string;
   deleteSite(siteId: string): Promise<void>;
   runtime: SiteRuntimeSupervisor;
-  environment: Pick<EnvironmentSupervisor, 'state' | 'exec' | 'logs' | 'applyLimits' | 'request' | 'snapshot' | 'exportProject'>;
+  environment: Pick<EnvironmentSupervisor, 'state' | 'exec' | 'logs' | 'applyLimits' | 'request' | 'scheduleSnapshot' | 'scheduleRestore' | 'pendingAction' | 'exportProject'>;
 }
 
 /** A command runtime is only offered where the operator has turned it on. */
@@ -142,6 +142,20 @@ const requireManaged = (deps: ToolDeps, ref: string, userId: number): Site => {
     throw new ToolError(`No manageable site matches "${wanted}".`);
   }
   return site;
+};
+
+/** One environment action owns the durable slot at a time. The supervisor is the authority that refuses
+ *  a second one; this turns its refusal into an agent-facing message that says the work is already
+ *  running rather than reading like the request itself was malformed. */
+const scheduleExclusively = async <T>(schedule: () => Promise<T>): Promise<T> => {
+  try { return await schedule(); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/environment action or execution is in progress/.test(message)) {
+      throw new ToolError('Another environment action or execution is already in progress for this site. Wait for it to finish, or read its state with SiteGet.');
+    }
+    throw error;
+  }
 };
 
 const requireEnvironmentAuthority = (deps: ToolDeps, site: Site, userId: number): void => {
@@ -500,7 +514,7 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteSnapshot',
     label: 'Snapshot a site environment',
-    description: 'Create a crash-consistent environment snapshot. The root filesystem is committed while paused; /data is optionally exported while still paused. This is not a database-consistent backup.',
+    description: 'Schedule a crash-consistent environment snapshot and return its stable public id immediately. The root filesystem is committed while paused; /data is optionally exported while still paused. This is not a database-consistent backup.',
     parameters: Type.Object({
       site: Type.String({ description: 'Environment slug or id.' }),
       note: Type.Optional(Type.String({ maxLength: 200 })),
@@ -511,17 +525,16 @@ export function registerTools(deps: ToolDeps): void {
       const site = requireManaged(deps, input.site, userId);
       requireEnvironmentAuthority(deps, site, userId);
       if (site.runtime !== 'environment') throw new ToolError('SiteSnapshot works only with a persistent environment.');
-      const snapshot = await deps.environment.snapshot(site, {
+      const scheduled = await scheduleExclusively(() => deps.environment.scheduleSnapshot(site, {
         includeData: input.includeData !== false,
         note: (input.note ?? '').trim().slice(0, 200),
         model: modelLabel(ctx),
-      }, userId);
-      const snapshotId = snapshot.id;
+      }, userId));
       return text([
-        `Created crash-consistent snapshot ${snapshotId} for "${site.title}".`,
-        'The daemon completed the snapshot.',
+        `Scheduled crash-consistent snapshot ${scheduled.id} for "${site.title}".`,
+        'The daemon performs the snapshot; the release appears in SiteGet once it completes.',
         'Applications with databases still need their own database-consistent backup procedure.',
-      ].join('\n'), { siteId: site.id, snapshotId, scheduled: true });
+      ].join('\n'), { siteId: site.id, snapshotId: scheduled.id, scheduled: true });
     },
   }));
 
@@ -702,7 +715,7 @@ export function registerTools(deps: ToolDeps): void {
         const config = deps.config();
         const releases = store.releases(site.id);
         const environment = site.runtime === 'environment' ? await deps.environment.state(site, userId) : undefined;
-        const environmentAction = site.runtime === 'environment' ? store.environmentAction(site.id) : null;
+        const environmentAction = site.runtime === 'environment' ? await deps.environment.pendingAction(site, userId) : null;
         const people = deps.people();
         const guests = store.memberIds(site.id)
           .map((id) => ({ id, name: people.get(id)?.name || people.get(id)?.username || `#${id}` }));
@@ -881,8 +894,8 @@ export function registerTools(deps: ToolDeps): void {
           if (input.restoreData === true && !release.dataArchive && store.runtimeRecord(site.id, `snapshot-data:${release.id}`) !== 'true') {
             throw new ToolError('That snapshot does not include a verified /data archive.');
           }
-          await deps.environment.request(site, { kind: 'restore', snapshotId: release.id, restoreData: input.restoreData === true }, userId);
-          return text(`Scheduled restore of snapshot ${release.id} for "${site.title}". The daemon will perform the broker-aware rollback.`, {
+          await scheduleExclusively(() => deps.environment.scheduleRestore(site, release.id, input.restoreData === true, userId));
+          return text(`Scheduled restore of snapshot ${release.id} for "${site.title}". The daemon will perform the broker-aware rollback; the current pointer moves when the restore completes.`, {
             siteId: site.id, snapshotId: release.id, restoreData: input.restoreData === true, scheduled: true,
           });
         }

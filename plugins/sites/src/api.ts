@@ -1,5 +1,5 @@
 import type { PluginApiRequest, PluginHttpResponse } from 'elowen/plugin-api';
-import type { Site, SitesStore, Visibility } from './store.js';
+import type { Site, SitesStore, Visibility, EnvironmentAction } from './store.js';
 import { VISIBILITIES } from './store.js';
 import { mayOpen, mintTicket, normalizeReturnPath, type AccessDeps } from './access.js';
 import { environmentLimitOverrides, SITE_BASE_PATH, siteUrl, type EnvironmentLimitOverrides, type SitesConfig } from './config.js';
@@ -34,6 +34,8 @@ export interface ApiDeps {
   restartRuntime(site: Site): Promise<void>;
   environmentState(site: Site, actor: number): Promise<EnvironmentState>;
   environmentLogs(site: Site, lines: number, actor: number): Promise<{ lifecycle: string; journal: string }>;
+  /** Read-only pending-action projection from Sites receipts plus the runtime operation status. */
+  environmentAction(site: Site, actor: number): Promise<EnvironmentAction | null>;
   gatewayReadiness(): Promise<SiteGatewayReadiness>;
   gatewayRecord(): RequiredRecord | null;
   requestEnvironmentControl(site: Site, action: 'start' | 'stop' | 'restart', actor: number): Promise<void>;
@@ -204,7 +206,7 @@ export function createApiHandlers(deps: ApiDeps) {
         environment: environment === null ? null : canManage(target, req.auth)
           ? {
             ...environment,
-            action: deps.store.environmentAction(target.id),
+            action: await deps.environmentAction(target, runtimeActor(req)),
             limitOverrides: {
               cpus: target.environmentCpus ?? null,
               memoryMb: target.environmentMemoryMb ?? null,
