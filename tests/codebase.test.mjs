@@ -87,6 +87,8 @@ const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig }) => {
     registerTool: (tool) => tools.push(tool),
     registerPlatform: (platform) => platforms.push(platform),
     isAdminSession: () => session.admin,
+    // The daemon's access view; a managed project turn carries a managed projectRef here.
+    currentAccess: () => ({ projectRef: session.projectRef }),
     allowedRoots: () => session.roots,
     defaultCwd: () => session.workDir ?? session.roots[0] ?? process.cwd(),
     assertPathAllowed: (p) => {
@@ -116,8 +118,10 @@ const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig }) => {
       if (!tool) throw new Error(`tool ${name} not registered`);
       return tool.execute('t', params);
     },
-    asAdmin: (workDir) => { session.admin = true; session.roots = []; session.workDir = workDir; },
-    asUser: (roots, workDir) => { session.admin = false; session.roots = roots; session.workDir = workDir; },
+    asAdmin: (workDir) => { session.admin = true; session.roots = []; session.workDir = workDir; session.projectRef = undefined; },
+    asUser: (roots, workDir) => { session.admin = false; session.roots = roots; session.workDir = workDir; session.projectRef = undefined; },
+    // A managed project turn: the daemon reports the GUEST root, and there is no host path at all.
+    asManagedProject: (projectId) => { session.admin = true; session.roots = ['/workspace']; session.workDir = '/workspace'; session.projectRef = { kind: 'managed', projectId }; },
     indexer: () => {
       const found = platforms.find((p) => p.name === 'codebase-index');
       if (!found) throw new Error('scheduled indexer not registered');
@@ -812,3 +816,35 @@ describe('codebase plugin — scheduled reindex', () => {
     host2.indexer().disconnect();
   });
 });
+
+describe('managed project environments', () => {
+  // `allowedRoots()` on a managed turn is the GUEST path `/workspace`. This index only reads the host,
+  // so without a refusal it would resolve that guest path against the HOST filesystem: on a host that
+  // has a `/workspace` of its own, a managed project's search would return unrelated host content as
+  // though it were the project's code. All three tools must refuse instead.
+  let host;
+  let home;
+  before(() => { home = mkdtempSync(join(tmpdir(), 'cbm-')); host = makeHost(home); });
+  after(() => rmSync(home, { recursive: true, force: true }));
+
+  for (const [tool, params] of [['CodebaseSearch', { query: 'anything' }], ['CodebaseReindex', {}], ['CodebaseStatus', {}]]) {
+    it(`${tool} refuses on a managed project turn`, async () => {
+      host.asManagedProject(7);
+      const result = await host.runTool(tool, params);
+      const text = JSON.stringify(result);
+      assert.match(text, /does not cover managed project environments/);
+      // The refusal must not be a generic failure that happens to mention nothing about the guest.
+      assert.doesNotMatch(text, /\/workspace/);
+    });
+  }
+
+  it('still answers a normal host-project turn', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cbh-'));
+    writeFileSync(join(repo, 'a.js'), 'export const search = 1;\n');
+    host.asAdmin(realpathSync(repo));
+    const result = await host.runTool('CodebaseStatus', {});
+    assert.doesNotMatch(JSON.stringify(result), /does not cover managed project environments/);
+    rmSync(repo, { recursive: true, force: true });
+  });
+});
+

@@ -404,6 +404,18 @@ async function reindexRepo(ctx, db, repoAbs, opts) {
 
 // ── repo scoping ─────────────────────────────────────────────────────────────────────────────────────
 
+/** A managed project keeps its files inside its environment, and this index only ever reads the HOST
+ *  filesystem. On such a turn `allowedRoots()` is the GUEST path `/workspace`, which resolves here to a
+ *  host path of the same name: on a host that happens to have one, indexing would read unrelated host
+ *  content and serve it as the project's own code. Refuse instead, and say so. */
+function managedTurnRefusal(ctx) {
+  const ref = typeof ctx.currentAccess === 'function' ? ctx.currentAccess()?.projectRef : undefined;
+  if (ref?.kind !== 'managed') return null;
+  return new Error('the semantic code index does not cover managed project environments — its files live '
+    + 'inside the project environment, which this index cannot read. Use Search or Grep, which run in the '
+    + 'environment.');
+}
+
 /** The concrete repos to (auto)index for the current session. An explicit `repoArg` is asserted against
  *  the session's policy (throws when out of scope). Otherwise: the session's allowed roots, or — for an
  *  admin all-access session with no roots — the turn's default working directory (the current project). */
@@ -624,6 +636,8 @@ export function register(ctx) {
     }),
     execute: async (_id, p) => {
       try {
+        const managed = managedTurnRefusal(ctx);
+        if (managed) return fail('CodebaseSearch', managed);
         if (!ctx.embeddings.isConfigured()) {
           return fail('CodebaseSearch', new Error('semantic code search needs an embedding model — set one in Settings → Memory (the same model memory uses). For literal text search use Search.'));
         }
@@ -711,6 +725,8 @@ export function register(ctx) {
     }),
     execute: async (_id, p) => {
       try {
+        const managed = managedTurnRefusal(ctx);
+        if (managed) return fail('CodebaseReindex', managed);
         if (!ctx.embeddings.isConfigured()) {
           return fail('CodebaseReindex', new Error('no embedding model configured — set one in Settings → Memory'));
         }
@@ -759,6 +775,8 @@ export function register(ctx) {
     }),
     execute: async (_id, p) => {
       try {
+        const managed = managedTurnRefusal(ctx);
+        if (managed) return fail('CodebaseStatus', managed);
         const database = getDb();
         const scope = searchScope(ctx, p.repo);
         const desc = ctx.embeddings.descriptor();
