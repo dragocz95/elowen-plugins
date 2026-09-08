@@ -973,7 +973,7 @@ test('authenticated site API updates command and bind settings under the instanc
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', runtimeAvailable = false } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', runtimeAvailable = false, projectRef } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db);
   const registered = new Map();
@@ -995,7 +995,7 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     currentSessionId: () => 'session-1',
     workDir: () => join(dir, 'project', 'deep', 'nested'),
     assertPathAllowed: (path) => path,
-    currentAccess: () => ({ projectIds: [7], admin: false, owner: false, accountUserId: 1 }),
+    currentAccess: () => ({ projectIds: [7], admin: false, owner: false, accountUserId: 1, projectRef }),
     control: () => runtimeAvailable ? { activeWorkspace: () => null } : undefined,
     host: { stores: () => ({ projects: { list: () => roots, get: id => roots.find(project => project.id === id) } }) },
   };
@@ -1039,6 +1039,20 @@ test('SiteCreate refuses a file-published site with no address before creating a
   await assert.rejects(() => harness.call('SiteCreate', { title: 'No address here' }), /HTTPS domain/);
   assert.deepEqual(harness.store.allSites(), [], 'a refused create must not persist a site row');
   assert.equal(existsSync(join(harness.dir, 'project', 'sites')), false, 'not even the source folder may appear');
+});
+
+test('SitePublish refuses a removed Project without interpreting its guest source as a host path', async (t) => {
+  const harness = toolHarness(t, { projects: [] });
+  harness.store.insertSite(site({ sourceDir: '/workspace/sites/deleted-project' }));
+  await assert.rejects(harness.call('SitePublish', { site: 'site-1' }), /source Project no longer exists/);
+  assert.equal(harness.store.releases('site-1').length, 0);
+});
+
+test('SitePublish cannot cross the selected managed Project through another owned Site', async (t) => {
+  const harness = toolHarness(t, { projectRef: { kind: 'managed', projectId: 99 } });
+  harness.store.insertSite(site({ sourceDir: '/workspace/sites/other-project' }));
+  await assert.rejects(harness.call('SitePublish', { site: 'site-1' }), /outside the selected managed Project/);
+  assert.equal(harness.store.releases('site-1').length, 0);
 });
 
 test('SiteCreate allows a persistent environment before its public DNS gateway is ready', async (t) => {

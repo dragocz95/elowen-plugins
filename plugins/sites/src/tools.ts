@@ -313,7 +313,9 @@ export function registerTools(deps: ToolDeps): void {
         const address = runtime === 'environment' ? siteUrl(config, slug) : addressOf(config, slug);
 
         const { dir, projectId } = resolveSourceRoot(ctx, slug);
-        const managed = ctx.host.stores().projects.get(projectId)?.executionKind === 'managed';
+        const sourceProject = ctx.host.stores().projects.get(projectId);
+        if (!sourceProject) throw new ToolError('The source Project no longer exists.');
+        const managed = sourceProject.executionKind === 'managed';
         const siteId = randomUUID();
         let allowed: string;
         if (managed && runtime !== 'environment') {
@@ -535,7 +537,11 @@ export function registerTools(deps: ToolDeps): void {
         if (source !== root && !source.startsWith(root + sep)) {
           throw new ToolError('outputDir must stay inside the site folder.');
         }
-        const managed = ctx.host.stores().projects.get(site.projectId)?.executionKind === 'managed';
+        const sourceProject = ctx.host.stores().projects.get(site.projectId);
+        if (!sourceProject) throw new ToolError('The source Project no longer exists.');
+        const selected = ctx.currentAccess().projectRef;
+        if (selected?.kind === 'managed' && selected.projectId !== site.projectId) throw new ToolError('The publication source is outside the selected managed Project.');
+        const managed = sourceProject.executionKind === 'managed';
         if (!managed) {
           if (!existsSync(source)) throw new ToolError(`${source} does not exist. Build the project first.`);
           ctx.assertPathAllowed(source);
