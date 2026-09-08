@@ -210,6 +210,22 @@ export function registerTools(deps) {
         }
     };
     ctx.registerTool(defineTool({
+        name: 'SitePreview',
+        label: 'Preview a project',
+        description: 'Open a running managed Project application on an isolated preview origin. Only current Project members and administrators may access it; it is not a published release.',
+        parameters: Type.Object({ port: Type.Number({ minimum: 1, maximum: 65535, description: 'HTTP port inside the selected managed Project.' }) }),
+        execute: async (_id, input) => {
+            const userId = ownerOf(ctx);
+            const project = ctx.currentAccess().projectRef;
+            if (project?.kind !== 'managed')
+                throw new ToolError('Select a managed Project before opening its preview.');
+            if (!deps.previews)
+                throw new ToolError('Project previews are unavailable.');
+            const result = await deps.previews.request(project.projectId, input.port, userId);
+            return text(`Project preview: ${result.url}\nAccess requires current Project membership.`, result);
+        },
+    }));
+    ctx.registerTool(defineTool({
         name: 'SiteCreate',
         label: 'Create a site',
         description: 'Create a site and its Project source folder. Static, command and PHP sites remain drafts until SitePublish. An environment is durable immediately and the daemon schedules its persistent container to start.',

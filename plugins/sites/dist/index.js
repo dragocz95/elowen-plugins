@@ -18,6 +18,7 @@ import { DataSyncService, migrationArtifactDir, validateLegacyHome } from './dat
 import { installAppRecipe, loadAppRecipe, recipeBinding, relaxStaticServingPermissions } from './recipe.js';
 import { conversionImageTag } from './conversionImage.js';
 import { RuntimeMigrationService } from './migration.js';
+import { ProjectPreviewService } from './preview.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
 const GATEWAY_RECONCILE_MS = 12 * 3600_000;
@@ -167,6 +168,11 @@ export function register(published) {
         logger: ctx.logger,
     });
     environment.connect();
+    const previews = new ProjectPreviewService({
+        store, access, project: id => ctx.host.stores().projects.get(id),
+        control: () => ctx.control('sandbox'), config, gateway, proxyLimits,
+        usernameOf: id => people().get(id)?.username ?? null,
+    });
     const provisioning = new EnvironmentProvisioningService({
         control: () => ctx.control('publishedSitesGateway'),
         imageExists: async () => {
@@ -353,6 +359,9 @@ export function register(published) {
         const stores = ctx.host.stores();
         const users = new Set(stores.usersRead.list().map((user) => user.id));
         const projects = new Set(stores.projects.list().map((project) => project.id));
+        for (const preview of store.allPreviews())
+            if (!projects.has(preview.projectId))
+                await previews.removeProject(preview.projectId);
         for (const site of store.allSites()) {
             if (users.has(site.ownerUserId)) {
                 if (!projects.has(site.projectId))
@@ -413,12 +422,14 @@ export function register(published) {
                     pendingHits.set(siteId, (pendingHits.get(siteId) ?? 0) + 1);
             },
             endpointFor: (siteId) => environment.endpointFor(siteId) ?? supervisor.endpointFor(siteId),
+            previews,
             proxyLimits,
             usernameOf: (userId) => people().get(userId)?.username ?? null,
             executePhp: (site, release, req, rest, viewer, siteRoot) => executePhp({ ctx, siteDir, network: () => config().runtimeNetwork }, site, release, req, rest, { userId: viewer.userId, name: viewer.userId === null ? null : people().get(viewer.userId)?.username ?? null }, proxyLimits(), siteRoot),
         }),
     });
     const handlers = createApiHandlers({
+        previewSite: slug => previews.siteBySlug(slug),
         store,
         access,
         config,
@@ -455,6 +466,17 @@ export function register(published) {
         provisioning,
         migration,
     });
+    ctx.registerApiRoute({ path: 'preview', method: 'POST', access: 'user', handler: async (req) => {
+            if (req.auth.userId === null)
+                return { status: 403, body: { error: 'a linked account is required' } };
+            const input = await req.json();
+            try {
+                return { status: 200, body: await previews.request(Number(input.projectId), Number(input.port), req.auth.userId) };
+            }
+            catch (error) {
+                return { status: 409, body: { error: error instanceof Error ? error.message : 'preview unavailable' } };
+            }
+        } });
     ctx.registerApiRoute({ path: 'sites', method: 'GET', access: 'user', handler: handlers.list });
     ctx.registerApiRoute({ path: 'site', access: 'user', handler: handlers.site });
     ctx.registerApiRoute({ path: 'ticket', method: 'POST', access: 'user', handler: handlers.ticket });
@@ -465,7 +487,7 @@ export function register(published) {
     // Admin-gated inside the handler, like the provisioning routes: core's `access` levels have no
     // admin tier, so the check has to live where the auth is actually read.
     ctx.registerApiRoute({ path: 'conversion', access: 'user', handler: handlers.conversion });
-    registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people });
+    registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people, previews });
     ctx.registerReadinessCheck(() => gateway.readiness());
     // One row per dependency and per interpreter, rather than one row carrying a paragraph: the status
     // card lists what is checked, and a failing item shows its own cause where a reader is looking.
@@ -510,6 +532,7 @@ export function register(published) {
                 ctx.logger.warn(`site ${site.slug} has no certificate yet: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
+        await previews.syncGateway(issued, all);
     };
     if (isDaemonProcess()) {
         ctx.registerService({
@@ -545,6 +568,7 @@ export function register(published) {
             store.bumpAccessGeneration(siteId);
     });
     ctx.registerProjectRemoved(async (projectId) => {
+        await previews.removeProject(projectId);
         // The runtime's projectDependents preflight blocks normal deletion. Never turn an unexpected
         // post-removal callback into destruction of independently published resources.
         if (store.siteIdsInProject(projectId).length)

@@ -11,6 +11,7 @@ import { SITE_BASE_PATH, environmentLimitOverrides, siteUrl, type EnvironmentLim
 import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } from './publish.js';
 import { isDaemonProcess, type SiteRuntimeSupervisor } from './runtime.js';
 import type { EnvironmentState, EnvironmentSupervisor } from './environment.js';
+import type { ProjectPreviewService } from './preview.js';
 
 export interface ToolDeps {
   ctx: SitesContext;
@@ -18,6 +19,7 @@ export interface ToolDeps {
   access: AccessDeps;
   config(): SitesConfig;
   people(): Map<number, { id: number; username: string; name: string; avatar: string }>;
+  previews?: Pick<ProjectPreviewService, 'request'>;
   siteDir(siteId: string): string;
   releaseDir(siteId: string, releaseId: string): string;
   deleteSite(siteId: string): Promise<void>;
@@ -235,6 +237,21 @@ export function registerTools(deps: ToolDeps): void {
       throw new ToolError('This account is not allowed to publish sites on this instance.');
     }
   };
+
+  ctx.registerTool(defineTool({
+    name: 'SitePreview',
+    label: 'Preview a project',
+    description: 'Open a running managed Project application on an isolated preview origin. Only current Project members and administrators may access it; it is not a published release.',
+    parameters: Type.Object({ port: Type.Number({ minimum: 1, maximum: 65535, description: 'HTTP port inside the selected managed Project.' }) }),
+    execute: async (_id, input) => {
+      const userId = ownerOf(ctx);
+      const project = ctx.currentAccess().projectRef;
+      if (project?.kind !== 'managed') throw new ToolError('Select a managed Project before opening its preview.');
+      if (!deps.previews) throw new ToolError('Project previews are unavailable.');
+      const result = await deps.previews.request(project.projectId, input.port, userId);
+      return text(`Project preview: ${result.url}\nAccess requires current Project membership.`, result);
+    },
+  }));
 
   ctx.registerTool(defineTool({
     name: 'SiteCreate',

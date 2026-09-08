@@ -24,6 +24,7 @@ export interface ApiDeps {
   store: SitesStore;
   access: AccessDeps;
   config(): SitesConfig;
+  previewSite?(slug: string): Site | null;
   people(): Map<number, Person>;
   projectSlug(projectId: number): string | null;
   deleteSite(siteId: string): Promise<void> | void;
@@ -406,7 +407,7 @@ export function createApiHandlers(deps: ApiDeps) {
     if (req.method !== 'POST') return json(405, { error: 'method not allowed' });
     const body = await req.json<{ slug?: unknown; r?: unknown }>().catch(() => ({} as { slug?: unknown; r?: unknown }));
     const slug = typeof body.slug === 'string' ? body.slug : '';
-    const target = deps.store.siteBySlug(slug);
+    const target = deps.store.siteBySlug(slug) ?? deps.previewSite?.(slug);
     const viewer = { userId: req.auth.userId };
     if (!target || target.status !== 'live' || !mayOpen(target, viewer, deps.store, deps.access)) {
       // Deliberately the same answer for an unknown site and one this account may not open.

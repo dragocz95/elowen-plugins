@@ -8,6 +8,7 @@
   "provides": {
     "tools": [
       "SiteCreate",
+      "SitePreview",
       "SitePublish",
       "SiteGet",
       "SiteList",
@@ -32,6 +33,7 @@
       "gateway/readiness",
       "environments/readiness",
       "environments/provision",
+      "preview",
       "conversion"
     ]
   },

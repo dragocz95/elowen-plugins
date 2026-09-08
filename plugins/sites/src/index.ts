@@ -20,6 +20,7 @@ import { installAppRecipe, loadAppRecipe, recipeBinding, relaxStaticServingPermi
 import { conversionImageTag } from './conversionImage.js';
 import { RuntimeMigrationService } from './migration.js';
 import type { AccessDeps } from './access.js';
+import { ProjectPreviewService } from './preview.js';
 
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
@@ -180,6 +181,11 @@ export function register(published: PluginContext): void {
   });
 
   environment.connect();
+  const previews = new ProjectPreviewService({
+    store, access, project: id => ctx.host.stores().projects.get(id),
+    control: () => ctx.control('sandbox'), config, gateway, proxyLimits,
+    usernameOf: id => people().get(id)?.username ?? null,
+  });
 
   const provisioning = new EnvironmentProvisioningService({
     control: () => ctx.control('publishedSitesGateway'),
@@ -359,6 +365,7 @@ export function register(published: PluginContext): void {
     const stores = ctx.host.stores();
     const users = new Set(stores.usersRead.list().map((user) => user.id));
     const projects = new Set(stores.projects.list().map((project) => project.id));
+    for (const preview of store.allPreviews()) if (!projects.has(preview.projectId)) await previews.removeProject(preview.projectId);
     for (const site of store.allSites()) {
       if (users.has(site.ownerUserId)) {
         if (!projects.has(site.projectId)) ctx.logger.warn(`site ${site.slug} references a removed Project; its published resources are preserved`);
@@ -412,6 +419,7 @@ export function register(published: PluginContext): void {
         if (!deletingSiteIds.has(siteId)) pendingHits.set(siteId, (pendingHits.get(siteId) ?? 0) + 1);
       },
       endpointFor: (siteId) => environment.endpointFor(siteId) ?? supervisor.endpointFor(siteId),
+      previews,
       proxyLimits,
       usernameOf: (userId) => people().get(userId)?.username ?? null,
       executePhp: (site, release, req, rest, viewer, siteRoot) => executePhp(
@@ -428,6 +436,7 @@ export function register(published: PluginContext): void {
   });
 
   const handlers = createApiHandlers({
+    previewSite: slug => previews.siteBySlug(slug),
     store,
     access,
     config,
@@ -464,6 +473,12 @@ export function register(published: PluginContext): void {
     migration,
   });
 
+  ctx.registerApiRoute({ path: 'preview', method: 'POST', access: 'user', handler: async req => {
+    if (req.auth.userId === null) return { status: 403, body: { error: 'a linked account is required' } };
+    const input = await req.json<{ projectId?: unknown; port?: unknown }>();
+    try { return { status: 200, body: await previews.request(Number(input.projectId), Number(input.port), req.auth.userId) }; }
+    catch (error) { return { status: 409, body: { error: error instanceof Error ? error.message : 'preview unavailable' } }; }
+  } });
   ctx.registerApiRoute({ path: 'sites', method: 'GET', access: 'user', handler: handlers.list });
   ctx.registerApiRoute({ path: 'site', access: 'user', handler: handlers.site });
   ctx.registerApiRoute({ path: 'ticket', method: 'POST', access: 'user', handler: handlers.ticket });
@@ -475,7 +490,7 @@ export function register(published: PluginContext): void {
   // admin tier, so the check has to live where the auth is actually read.
   ctx.registerApiRoute({ path: 'conversion', access: 'user', handler: handlers.conversion });
 
-  registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people });
+  registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people, previews });
 
   ctx.registerReadinessCheck(() => gateway.readiness());
   // One row per dependency and per interpreter, rather than one row carrying a paragraph: the status
@@ -515,6 +530,7 @@ export function register(published: PluginContext): void {
         ctx.logger.warn(`site ${site.slug} has no certificate yet: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+    await previews.syncGateway(issued, all);
   };
 
   if (isDaemonProcess()) {
@@ -551,6 +567,7 @@ export function register(published: PluginContext): void {
   });
 
   ctx.registerProjectRemoved(async (projectId) => {
+    await previews.removeProject(projectId);
     // The runtime's projectDependents preflight blocks normal deletion. Never turn an unexpected
     // post-removal callback into destruction of independently published resources.
     if (store.siteIdsInProject(projectId).length) throw new Error('published Sites must be explicitly transferred or deleted before removing their Project');

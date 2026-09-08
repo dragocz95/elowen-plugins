@@ -1,5 +1,7 @@
 import type { PluginDb } from 'elowen/plugin-api';
 
+export interface ProjectPreview { id: string; slug: string; projectId: number; port: number; createdAt: string }
+
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
 type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
 
@@ -567,7 +569,39 @@ export class SitesStore {
           );
         `),
       },
+      {
+        version: 12,
+        up: handle => handle.exec(`CREATE TABLE p_sites_project_previews (
+          id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, project_id INTEGER NOT NULL,
+          port INTEGER NOT NULL, created_at TEXT NOT NULL, UNIQUE(project_id, port)
+        );`),
+      },
     ]);
+  }
+
+  projectPreview(projectId: number, port: number): ProjectPreview | null {
+    return this.db.prepare('SELECT id, slug, project_id AS projectId, port, created_at AS createdAt FROM p_sites_project_previews WHERE project_id = ? AND port = ?').get(projectId, port) as ProjectPreview | undefined ?? null;
+  }
+  previewBySlug(slug: string): ProjectPreview | null {
+    return this.db.prepare('SELECT id, slug, project_id AS projectId, port, created_at AS createdAt FROM p_sites_project_previews WHERE slug = ?').get(slug) as ProjectPreview | undefined ?? null;
+  }
+  previewById(id: string): ProjectPreview | null {
+    return this.db.prepare('SELECT id, slug, project_id AS projectId, port, created_at AS createdAt FROM p_sites_project_previews WHERE id = ?').get(id) as ProjectPreview | undefined ?? null;
+  }
+  insertPreview(preview: ProjectPreview): void {
+    this.db.prepare('INSERT INTO p_sites_project_previews (id, slug, project_id, port, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, port) DO NOTHING').run(preview.id, preview.slug, preview.projectId, preview.port, preview.createdAt);
+  }
+  allPreviews(): ProjectPreview[] {
+    return this.db.prepare('SELECT id, slug, project_id AS projectId, port, created_at AS createdAt FROM p_sites_project_previews').all() as ProjectPreview[];
+  }
+  previewsInProject(projectId: number): ProjectPreview[] {
+    return this.db.prepare('SELECT id, slug, project_id AS projectId, port, created_at AS createdAt FROM p_sites_project_previews WHERE project_id = ?').all(projectId) as ProjectPreview[];
+  }
+  deletePreviews(projectId: number): void {
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id IN (SELECT id FROM p_sites_project_previews WHERE project_id = ?)').run(projectId);
+      this.db.prepare('DELETE FROM p_sites_project_previews WHERE project_id = ?').run(projectId);
+    });
   }
 
   runtimeRecord(siteId: string, key: string): string | null {
