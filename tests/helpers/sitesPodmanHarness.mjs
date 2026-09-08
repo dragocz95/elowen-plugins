@@ -1,40 +1,61 @@
-// The runtime conversion against REAL rootless Podman, real containers, a real ingress socket and real
-// HTTP — the half `sites-migration.test.mjs` deliberately stands in for.
+// The runtime conversion exercised through the WHOLE plugin route, the real Sites store, the real
+// data-sync tars and real HTTP over the sealed ingress socket — with the container lifecycle behind
+// its one SDK seam, `SiteEnvironmentControl` (elowen/plugin-api).
 //
-// Opt-in: it needs a working rootless Podman and the conversion derivative images, so it is skipped
-// unless SITES_PODMAN_E2E=1. Nothing here is a production configuration knob.
+// WHY THERE IS NO PODMAN CLIENT HERE ANY MORE. Sites no longer owns a container driver: discovery,
+// provisioning, start/stop, snapshots and data-volume import/export belong to the Sandbox provider, and
+// Sites talks to it only through the typed SDK control. So the harness plugs a provider into that exact
+// seam and the conversion flow runs against it exactly as production runs it.
 //
-// ISOLATION. The broker namespace is redirected through `brokerPath`, the EnvironmentDeps seam the
-// supervisor already has, into a directory this test owns. The privileged gateway helper is NOT invoked
-// and /var/lib/elowen is never read or written. `testGateway` below reproduces the helper's three socket
-// operations exactly — rm -rf then mkdir 0730 on prepare, chmod 0510 plus an lstat socket check on seal,
-// rm -rf on remove — with one unavoidable deviation named at its call site: the helper chowns the
-// directory to root and this test cannot, so the mode is applied without the ownership change.
+// TWO PROVIDERS, ONE SUITE.
+//
+// - Default: a PRIVATE provider stand-in that models the SDK contract in process — durable desired
+//   state, the Sites authority callbacks around container create/start/stop, staging-only data import,
+//   and a private per-site directory standing in for the container's data volume. The container's
+//   application is a stand-in process bound to the same broker socket the real ingress uses. Everything
+//   is private temporary data: no Podman, no account-default storage, no privileged gateway helper.
+//
+// - SITES_PODMAN_E2E=1: the REAL provider, loaded from the LINKED elowen package (never a private
+//   worktree path), with a private isolated Podman namespace created by the runtime's own
+//   `isolatedPodmanOptions` under an mkdtemp root. The account engine is never touched, and there is no
+//   fallback to an account engine or to the old Sites driver: if the linked SDK does not ship the
+//   managed environment provider yet, the suite fails naming exactly what is missing, because a silent
+//   skip would hide the integration this suite exists to prove.
+//
+// The gateway is NOT the privileged helper: `testGateway` below reproduces the helper's three socket
+// operations — rm -rf then mkdir 0730 on prepare, chmod 0510 plus an lstat socket check on seal, rm -rf
+// on remove — with one unavoidable deviation named at its call site: the helper chowns the directory to
+// root and an unprivileged test cannot, so the mode is applied without the ownership change.
 
 import Database from 'better-sqlite3';
-import { createServer, request } from 'node:http';
+import { createServer, globalAgent, request } from 'node:http';
 import {
-  chmodSync, lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync,
+  chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 import { SitesStore } from '../../plugins/sites/dist/store.js';
 import { MigrationRefused, RuntimeMigrationService, stagedWorkspace } from '../../plugins/sites/dist/migration.js';
 import { DataSyncService, migrationArtifactDir, validateLegacyHome } from '../../plugins/sites/dist/dataSync.js';
 import { EnvironmentSupervisor } from '../../plugins/sites/dist/environment.js';
-import { PodmanClient, SpawnExecutor } from '../../plugins/sites/dist/podman.js';
+import { SpawnExecutor } from '../../plugins/sites/dist/podman.js';
 import { createApiHandlers } from '../../plugins/sites/dist/api.js';
-import { conversionImageTag, ensureConversionImage } from '../../plugins/sites/dist/conversionImage.js';
+import { conversionImageTag } from '../../plugins/sites/dist/conversionImage.js';
 import {
   installAppRecipe, loadAppRecipe, recipeBinding, relaxStaticServingPermissions,
 } from '../../plugins/sites/dist/recipe.js';
 
-const skip = process.env.SITES_PODMAN_E2E === '1' ? false : 'set SITES_PODMAN_E2E=1 to run the real Podman conversion suite';
-/** Container work is minutes, not milliseconds. */
+/** Container work is minutes, not milliseconds; the stand-in provider finishes in seconds. */
 const SLOW_MS = 300_000;
 
 const RELEASE_ID = 'rel-live-0001';
+const OWNER = 7;
+
+/** The real engine is opt-in and stays opt-in. */
+const realEngineRequested = () => process.env.SITES_PODMAN_E2E === '1';
 
 const makeDb = () => {
   const db = new Database(':memory:');
@@ -98,14 +119,16 @@ const release0 = (siteId) => ({
   dataArchive: null,
 });
 
-/** One HTTP request over a Unix socket, so a cutover is proven by an answer rather than by a status. */
+/** One HTTP request over a Unix socket, so a cutover is proven by an answer rather than by a status.
+ *  The request socket is destroyed after the answer: the default keep-alive pool would otherwise leave
+ *  the socket behind and hold the test process open after the run. */
 const httpOverSocket = (socketPath, path) => new Promise((resolve, reject) => {
   const req = request({ socketPath, path, method: 'GET', timeout: 5_000 }, (res) => {
     const chunks = [];
     res.on('data', (c) => chunks.push(c));
-    res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+    res.on('end', () => { resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }); req.socket?.destroy(); });
   });
-  req.once('error', reject);
+  req.once('error', (error) => { req.socket?.destroy(); reject(error); });
   req.once('timeout', () => { req.destroy(new Error('socket request timed out')); });
   req.end();
 });
@@ -156,9 +179,134 @@ const testGateway = (brokerRoot, calls) => ({
   },
 });
 
-/** The real plugin, wired exactly as `plugins/sites/src/index.ts` wires it, with a task-owned broker. */
-const podmanHarness = () => {
-  const root = mkdtempSync(join(process.env.SITES_PODMAN_E2E_ROOT ?? '/var/www/eo-testonly-runtime', 'conv-'));
+const runTar = async (args) => {
+  const result = await new SpawnExecutor().run('tar', args, {
+    env: { PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' },
+    timeoutMs: 120_000,
+    outputLimitBytes: 1_048_576,
+  });
+  if (result.code !== 0) throw new Error(`tar ${args[0]} failed: ${result.stderr}`);
+};
+
+/** A stand-in for the container's ingress application, bound on the same Unix socket the real app
+ *  answers on. Static sites serve the staged workspace the way the image's nginx does — regular files
+ *  only, dotfiles refused, nothing outside the tree; the real-engine mode re-proves that against real
+ *  nginx. Command apps come from the test, because only the test knows what its converted app does. */
+const bindAppServer = (socketPath, handler) => new Promise((resolve, reject) => {
+  const server = createServer(handler);
+  server.once('error', reject);
+  server.listen(socketPath, () => resolve({
+    close: async () => {
+      await new Promise((done) => server.close(done));
+      // A sealed broker directory (0510) is read-execute for its owner, so the socket inside it cannot be
+      // unlinked without restoring write permission first — the same privilege difference `testGateway`
+      // already names; it changes no path and no mode on any other object.
+      try { chmodSync(dirname(socketPath), 0o730); } catch { /* absent is the ordinary case */ }
+      rmSync(socketPath, { force: true });
+    },
+  }));
+});
+
+const staticAppHandler = (workspace) => (req, res) => {
+  const relative = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname)
+    .replace(/^\/+/, '') || 'index.html';
+  const segments = relative.split('/');
+  if (segments.some((segment) => segment === '..' || segment.startsWith('.'))) {
+    res.writeHead(404); res.end('no'); return;
+  }
+  const file = join(workspace, ...segments);
+  try {
+    if (!statSync(file).isFile()) throw new Error('not a regular file');
+  } catch {
+    res.writeHead(404); res.end('no'); return;
+  }
+  res.writeHead(200, { 'content-type': 'text/html' });
+  res.end(readFileSync(file));
+};
+
+/** A stand-in for the converted command app: the same SQLite-and-HTTP behaviour its container image
+ *  runs, executed host-side against the private directory that stands in for the container's data
+ *  volume. The test supplies `open`, which boots the app once per start (the container's systemd unit)
+ *  and whose `close` runs when the runtime stops it, so a quiesced export reads a cleanly closed
+ *  database, exactly as a stopped container would leave one. */
+const defaultConvertedApp = () => ({
+  open: () => {
+    throw new Error('this suite needs a convertedApp stand-in to start a converted command app');
+  },
+});
+
+/** The real provider, assembled exactly as `plugins/sandbox/index.mjs` assembles it, but rooted entirely
+ *  in a private mkdtemp tree with a private isolated Podman namespace minted by the runtime's own
+ *  `isolatedPodmanOptions`. Returns the typed `SiteEnvironmentControl`, wrapped so every request that
+ *  crosses the seam is recorded for the suites' seam-level assertions. */
+const realProvider = async ({ engineRoot, dataDir }) => {
+  // Locate the provider from the LINKED elowen package, never from a private worktree path.
+  const linked = dirname(fileURLToPath(import.meta.resolve('elowen/package.json')));
+  const lib = (name) => join(linked, 'plugins', 'sandbox', 'lib', name);
+  for (const name of ['environmentRuntime.mjs', 'podman.mjs', 'containerStorage.mjs', 'db.mjs']) {
+    if (!existsSync(lib(name))) {
+      throw new Error(
+        `the real-engine Sites conversion suite needs the managed environment provider: the linked elowen SDK `
+        + `does not ship plugins/sandbox/lib/${name} yet. Integrate the environments runtime provider first; `
+        + 'the suite never falls back to an account engine or to the retired Sites driver.',
+      );
+    }
+  }
+  const [{ isolatedPodmanOptions, PodmanClient }, { ContainerStorage }, { initSandboxDb }, { createEnvironmentRuntime }] =
+    await Promise.all([
+      import(lib('podman.mjs')), import(lib('containerStorage.mjs')), import(lib('db.mjs')), import(lib('environmentRuntime.mjs')),
+    ]);
+
+  // The namespace and every storage location are private to this run. isolatedPodmanOptions demands a
+  // fresh, exclusively created directory (and a short runroot path), hence the mkdtemp root.
+  const namespace = `sites-${randomUUID().slice(0, 8)}`;
+  const { isolation } = isolatedPodmanOptions(join(engineRoot, 'podman'), namespace);
+  const podman = new PodmanClient({ outputLimitBytes: 16 * 1024 * 1024, isolation });
+  // The provider's own database, private to this run, migrated through the same migrate() shape the
+  // plugin context supplies.
+  const dbFile = new Database(join(engineRoot, 'sandbox.db'));
+  let migrationVersion = 0;
+  const dbHandle = { exec: (sql) => dbFile.exec(sql), prepare: (sql) => dbFile.prepare(sql) };
+  const db = {
+    ...dbHandle,
+    migrate: (steps) => {
+      for (const step of steps) {
+        if (step.version <= migrationVersion) continue;
+        step.up(dbHandle);
+        migrationVersion = step.version;
+      }
+    },
+    transaction: (fn) => dbFile.transaction(fn)(),
+  };
+  const ctx = {
+    host: { stores: () => ({
+      usersRead: {
+        list: () => [1, 7].map((id) => ({ id })),
+        mayUsePlugin: (id, plugin) => plugin === 'sandbox' && (id === 1 || id === 7),
+        isAdmin: (id) => id === 1,
+      },
+      projects: { get: (id) => ({ id, lifecycle: 'active', executionKind: 'managed' }) },
+      userProjects: { canManage: () => true, canAccess: () => true },
+    }) },
+    currentAccountUserId: () => null,
+    currentAccess: () => ({ readOnly: false, admin: false, workspaceRef: null, projectRef: null, projectIds: [] }),
+    db: () => db,
+  };
+  initSandboxDb(ctx);
+  const runtime = createEnvironmentRuntime({ ctx, db, dataDir, namespace, podman, storage: new ContainerStorage(podman) });
+  const requests = [];
+  const control = {
+    ...runtime.control,
+    async requestSiteEnvironment(input) { requests.push(input); return runtime.control.requestSiteEnvironment(input); },
+  };
+  return { control, requests, reconcile: () => runtime.reconcile(), dispose: () => runtime.dispose() };
+};
+
+/** The real plugin, wired exactly as `plugins/sites/src/index.ts` wires it, with the provider behind the
+ *  typed SDK seam and a task-owned gateway. */
+const podmanHarness = async ({ convertedApp } = {}) => {
+  const realEngine = realEngineRequested();
+  const root = mkdtempSync(join(tmpdir(), 'sites-conv-'));
   const brokerRoot = join(root, 'broker');
   const dataDir = join(root, 'plugin-data');
   const legacyHome = join(root, 'legacy-home');
@@ -167,18 +315,190 @@ const podmanHarness = () => {
   mkdirSync(legacyHome, { recursive: true });
 
   const store = new SitesStore(makeDb());
-  const podman = new PodmanClient();
   const gatewayCalls = { prepare: [], seal: [], remove: [] };
   const gateway = testGateway(brokerRoot, gatewayCalls);
   const siteDir = (siteId) => join(root, 'sites', siteId);
   const releaseDir = (siteId, releaseId) => join(siteDir(siteId), 'releases', releaseId);
   const brokerPath = (siteId) => join(brokerRoot, siteId, 'app.sock');
+  /** The private directory standing in for the container's persistent data volume. */
+  const volumeDir = (siteId) => join(root, 'provider-volumes', siteId);
+
+  // --- the provider behind the seam ----------------------------------------------------------------
+
+  const rows = new Map();
+  const operations = new Map();
+  const apps = new Map();
+  let sequence = 0;
+  const limits = { cpus: 0.5, memoryMb: 256, pidsLimit: 256, diskSoftMb: 1024 };
+  const row = (siteId) => {
+    if (!rows.has(siteId)) rows.set(siteId, { state: 'unprovisioned', desiredState: 'running', provisioned: false });
+    return rows.get(siteId);
+  };
+
+  let control;
+  let requests = [];
+  let disposeProvider = async () => {};
+  let providerReconcile = async () => {};
+
+  if (realEngine) {
+    const engineRoot = mkdtempSync(join(tmpdir(), 'sites-pod-'));
+    try {
+      const provider = await realProvider({ engineRoot, dataDir: join(root, 'engine-data') });
+      control = provider.control;
+      requests = provider.requests;
+      providerReconcile = provider.reconcile;
+      // The daemon is the only lifecycle performer: it reconciles durable operations into containers.
+      // A test harness stands in for that loop; without it no queued operation would ever complete.
+      const loop = setInterval(() => { provider.reconcile().catch(() => { /* reported through the row */ }); }, 200);
+      loop.unref?.();
+      disposeProvider = async () => { clearInterval(loop); await provider.dispose(); rmSync(engineRoot, { recursive: true, force: true }); };
+    } catch (error) {
+      rmSync(engineRoot, { recursive: true, force: true });
+      throw error;
+    }
+  } else {
+    const fakeControl = {
+      authority: null,
+      async connectSitesRuntime(authority) { fakeControl.authority = authority; },
+      async discoverSiteEnvironment() { return null; },
+      async registerSiteEnvironment({ siteId, accountUserId }) {
+        await fakeControl.authorize(siteId, accountUserId);
+        const current = rows.get(siteId);
+        if (!current || current.state === 'deleted') {
+          rows.set(siteId, { state: 'unprovisioned', desiredState: 'running', provisioned: false });
+        }
+        return fakeControl.view(siteId);
+      },
+      view(siteId) {
+        const current = row(siteId);
+        return { siteId, generation: 1, state: current.state, desiredState: current.desiredState, limits, lastError: null };
+      },
+      async authorize(siteId, accountUserId) {
+        if (!fakeControl.authority) throw new Error('the private provider has no Sites runtime authority');
+        const registration = await fakeControl.authority.resolve({ siteId, accountUserId, access: 'manage' });
+        if (!registration) throw new Error(`site ${siteId} is not registered for account ${accountUserId}`);
+        return registration;
+      },
+      async siteEnvironmentFor({ siteId }) { return fakeControl.view(siteId); },
+      async siteEnvironmentOperation({ operationId }) { return operations.get(operationId) ?? null; },
+      async siteEnvironmentExec() {
+        throw new Error('the private provider stand-in executes no guest commands; run the real-engine suite for that');
+      },
+      async siteEnvironmentLogs() { return { lifecycle: 'private provider stand-in', journal: '' }; },
+      async siteEnvironmentSnapshots() { return []; },
+      async requestSiteEnvironment(input) {
+        requests.push({ ...input });
+        sequence += 1;
+        const operation = {
+          id: `op-${sequence}`, requestId: input.requestId, siteId: input.siteId, accountUserId: input.accountUserId,
+          generation: 1, action: input.action, status: 'succeeded', error: null,
+        };
+        if (input.action.kind === 'snapshot') operation.snapshotId = `runtime-snapshot-${sequence}`;
+        operations.set(operation.id, operation);
+        const registration = await fakeControl.authorize(input.siteId, input.accountUserId);
+        const current = row(input.siteId);
+        switch (input.action.kind) {
+          case 'provision-image':
+            // Image building belongs to the runtime and is invisible at this seam; the fake records it.
+            break;
+          case 'prepare':
+            await fakeControl.authority.beforeCreate?.(input.siteId);
+            current.provisioned = true;
+            current.state = 'stopped'; current.desiredState = 'stopped';
+            break;
+          case 'start':
+          case 'restart': {
+            await fakeControl.authority.beforeStart(input.siteId);
+            // First start of a seeded volume: the image's bootstrap installs the data the seed carried
+            // into the container's HOME, which the private directory stands in for.
+            const seedData = join(volumeDir(input.siteId), '.elowen-conversion', 'legacy-data.tar');
+            if (existsSync(seedData)) {
+              await runTar(['-xf', seedData, '-C', volumeDir(input.siteId)]);
+              rmSync(join(volumeDir(input.siteId), '.elowen-conversion'), { recursive: true, force: true });
+            }
+            await fakeControl.bindApp(input.siteId, registration);
+            current.state = 'running'; current.desiredState = 'running';
+            break;
+          }
+          case 'stop':
+            await fakeControl.unbindApp(input.siteId);
+            await fakeControl.authority.afterStop(input.siteId);
+            current.state = 'stopped'; current.desiredState = 'stopped';
+            break;
+          case 'delete':
+            await fakeControl.unbindApp(input.siteId);
+            await fakeControl.authority.afterStop(input.siteId);
+            current.state = 'deleted'; current.desiredState = 'deleted'; current.provisioned = false;
+            break;
+          case 'cleanup-stage':
+            if (!registration.staging) throw new Error('only an unpublished conversion binding may be cleaned up as staging');
+            await fakeControl.unbindApp(input.siteId);
+            await fakeControl.authority.afterStop(input.siteId);
+            rmSync(volumeDir(input.siteId), { recursive: true, force: true });
+            current.state = 'deleted'; current.desiredState = 'deleted'; current.provisioned = false;
+            break;
+          case 'import-data':
+          case 'export-data':
+          case 'remove-artifact': {
+            const artifact = await fakeControl.authority.resolveArtifact?.({
+              siteId: input.siteId, accountUserId: input.accountUserId, artifactId: input.action.artifactId, action: input.action.kind,
+            });
+            if (!artifact) throw new Error('the retained Sites artifact is unavailable');
+            if (input.action.kind === 'import-data') {
+              if (!registration.staging) throw new Error('data import requires an unpublished conversion binding');
+              if (current.state === 'running') throw new Error('stop the conversion target before seeding its data');
+              mkdirSync(volumeDir(input.siteId), { recursive: true });
+              await runTar(['-xf', artifact.archivePath, '-C', volumeDir(input.siteId)]);
+            } else if (input.action.kind === 'export-data') {
+              const volume = volumeDir(input.siteId);
+              if (!existsSync(volume)) throw new Error('the data volume does not exist');
+              const entries = readdirSync(volume);
+              if (entries.length === 0) throw new Error('the data volume is empty');
+              await runTar(['-cf', artifact.archivePath, '-C', volume, '--', ...entries]);
+            } else {
+              rmSync(artifact.archivePath, { recursive: true, force: true });
+            }
+            break;
+          }
+          default:
+            throw new Error(`the private provider stand-in does not model the ${input.action.kind} action`);
+        }
+        return operation;
+      },
+      /** Models the contract: the provider reconciles only durable pending operations, and the fake
+       *  completes its operations inline, so a sweep has nothing to perform and never resurrects. */
+      async reconcile() { fakeControl.reconciles += 1; },
+      reconciles: 0,
+      async bindApp(siteId, registration) {
+        if (apps.has(siteId)) return;
+        const socketPath = brokerPath(siteId);
+        let handle;
+        if (registration.workspaceReadOnly) {
+          handle = await bindAppServer(socketPath, staticAppHandler(registration.sourcePath));
+        } else {
+          const app = (convertedApp ?? defaultConvertedApp()).open(volumeDir(siteId));
+          handle = await bindAppServer(socketPath, app.handle);
+          handle.close = (original => async () => { await original(); app.close(); })(handle.close);
+        }
+        apps.set(siteId, handle);
+      },
+      async unbindApp(siteId) {
+        const app = apps.get(siteId);
+        if (!app) return;
+        apps.delete(siteId);
+        await app.close();
+      },
+    };
+    control = fakeControl;
+    providerReconcile = () => fakeControl.reconcile();
+  }
 
   const environment = new EnvironmentSupervisor({
-    podman,
+    control: () => control,
     store,
+    access: { accountExists: () => true, isAdmin: (id) => id === 1, canAccessProject: () => true },
+    dataDir,
     gateway,
-    brokerPath,
     config: () => ({
       startTimeoutSeconds: 60,
       environmentNetwork: 'isolated',
@@ -189,12 +509,7 @@ const podmanHarness = () => {
       releasesKept: 3,
     }),
     siteDir,
-    ensureBaseImage: async () => { throw new Error('a conversion always supplies its own derivative image'); },
-    // The supervisor's own start-poll sleep is deliberately unref'd so a long-lived daemon is never held
-    // open by it. A bare test process has nothing else on the loop, so that timer lets the run exit in
-    // the middle of a start with the await still pending. This is the `sleep` seam EnvironmentDeps
-    // already exposes, supplied with a referenced timer. Nothing on the production path changes.
-    sleep: (milliseconds) => new Promise((resolve) => { setTimeout(resolve, milliseconds); }),
+    brokerPath,
     logger: { warn: () => {} },
   });
 
@@ -233,10 +548,11 @@ const podmanHarness = () => {
     recipeBinding: (siteId) => recipeBinding(migrationArtifactDir(siteDir(siteId))),
     installRecipe: (siteId, input) => installAppRecipe(migrationArtifactDir(siteDir(siteId)), input),
     prepareContainer: async ({ site, workspace, recipe }) => {
-      const image = await ensureConversionImage(podman, dataDir, recipe.image);
-      await environment.prepareContainer(site, workspace, image, recipe.image === 'static');
+      // The derivative carries what the app needs to answer; the RUNTIME owns building it from the
+      // recipe Sites supplies. Sites only names the tag.
+      await environment.prepareContainer(site, workspace, conversionImageTag(recipe.image), recipe.image === 'static');
     },
-    startEnvironment: (site) => environment.start(site),
+    startEnvironment: (site) => environment.start(site, { authorized: true }),
     stopContainer: (siteId) => environment.quiesce(siteId),
     containerStopped: (siteId) => environment.isStopped(siteId),
     inspectOwnership: (siteId, expect) => environment.inspectOwnership(siteId, expect),
@@ -250,12 +566,12 @@ const podmanHarness = () => {
     discardContainer: (siteId, options) => environment.delete(siteId, options),
     brokerDirectoryExists: (siteId) => environment.brokerDirectoryExists(siteId),
     prepareBrokerDirectory: async (siteId) => { await environment.prepareBrokerDirectory(siteId); },
-    removeStaged: (paths) => podman.unshareRemove(paths),
+    removeStaged: (paths) => environment.removeStaged(paths),
     // Mirrors `index.ts`, INCLUDING its `site.runtime !== 'command'` guard. A rollback reaches this with
     // the descriptor the conversion recorded rather than the flipped row, so the guard must still pass.
     //
-    // The preparation below has the SHAPE `SandboxPreparedExecution` really returns: `home` and `roots`
-    // are separate, and the home sits OUTSIDE the roots this plugin names, because Sandbox binds it
+    // The preparation below has the SHAPE the Sandbox preparation really returns: `home` and `roots` are
+    // separate, and the home sits OUTSIDE the roots this plugin names, because Sandbox binds it
     // separately from the account rather than from the caller's root list. The real `validateLegacyHome`
     // then runs on it, so this suite exercises the production trust boundary instead of stepping over it.
     resolveLegacyData: async (site) => {
@@ -340,6 +656,17 @@ const podmanHarness = () => {
     json: async () => body ?? {},
   });
 
+  /** The runtime view a test asserts on, through the seam: the durable state the provider records and
+   *  whether the persistent container exists at all (created but not started reads `stopped`). */
+  const runtimeState = async (siteId) => {
+    if (realEngine) {
+      const view = await control.siteEnvironmentFor({ siteId, accountUserId: OWNER });
+      return { state: view.state, provisioned: view.state !== 'unprovisioned' };
+    }
+    const current = rows.get(siteId);
+    return { state: current?.state ?? 'unprovisioned', provisioned: current?.provisioned ?? false };
+  };
+
   const seedRelease = (siteId, files) => {
     const dir = releaseDir(siteId, RELEASE_ID);
     mkdirSync(dir, { recursive: true });
@@ -352,29 +679,38 @@ const podmanHarness = () => {
 
   /** Leave nothing behind, including after a failed assertion.
    *
-   *  The supervisor's own delete is tried first, because exercising it is part of the point. It runs on
-   *  the site queue and stops the container before removing it, so a test that failed mid-start can leave
-   *  it unable to finish — hence the unconditional force-remove behind it. Container-written files under
-   *  the root belong to a subuid, so the tree is removed through the namespace-aware path first. */
+   *  The supervisor's own delete is tried first, because exercising it is part of the point. In the
+   *  real-engine mode the provider is disposed as well, so no container, volume or lease outlives the
+   *  test inside its private namespace; the isolated storage itself lives under the removed root. */
   const cleanup = async (siteId) => {
     await stopLegacy();
     if (siteId) {
       try { await environment.delete(siteId, { removeBroker: true }); } catch { /* forced below */ }
-      await podman.run(['rm', '-f', `elowen-site-${siteId}`], { allowFailure: true });
-      await podman.run(['volume', 'rm', '-f', `elowen-site-${siteId}-data`], { allowFailure: true });
     }
-    try { await podman.unshareRemove([root]); } catch { /* fall through to plain removal */ }
+    for (const [siteId, close] of [...apps]) {
+      apps.delete(siteId);
+      await close().catch(() => {});
+    }
+    if (realEngine) await disposeProvider();
+    // The ingress requests and readiness probes ride the default HTTP agent, whose keep-alive pool
+    // would otherwise hold this test process open after the run.
+    globalAgent.destroy();
+    // A keep-alive socket caught mid-shutdown still shows as an active handle; release the loop's hold
+    // on it, the suites are done and every answer was already consumed.
+    for (const handle of process._getActiveHandles()) {
+      if (handle?.constructor?.name === 'Socket') handle.unref?.();
+    }
     try { rmSync(root, { recursive: true, force: true }); } catch { /* a leaked subuid tree is reported by the caller */ }
   };
 
   return {
     root, brokerRoot, brokerPath, store, environment, migration, handlers, call, seedRelease, cleanup,
-    podman, gatewayCalls, legacyHome, startLegacy, stopLegacy, legacy, siteDir, dataSync, releaseDir,
+    control, requests, runtimeState, volumeDir, gatewayCalls, legacyHome, startLegacy, stopLegacy, legacy,
+    siteDir, dataSync, releaseDir, realEngine, providerReconcile,
   };
 };
 
-
 export {
-  skip, SLOW_MS, RELEASE_ID, site0, release0, httpOverSocket, httpOverSocketWhenUp, podmanHarness,
+  SLOW_MS, RELEASE_ID, site0, release0, httpOverSocket, httpOverSocketWhenUp, podmanHarness,
   stagedWorkspace, MigrationRefused,
 };

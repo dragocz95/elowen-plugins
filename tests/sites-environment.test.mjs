@@ -1,15 +1,27 @@
+// Environment lifecycle tests for the Sites plugin, converted to the CURRENT architecture: the concrete
+// container driver and every lower lifecycle mutation belong to the Sandbox provider, reached through the
+// typed SiteEnvironmentControl SDK seam (SITE_ENVIRONMENT_CONTROL_METHODS). These tests assert the
+// Sites-owned behaviours — durable receipts and the visible pending-action slot, the SDK request contract
+// (actor, generation, idempotency key, action kinds), readiness adoption over the ingress socket, and the
+// authority handover — using a real EnvironmentSupervisor over a fake EXACT SDK, never a local Podman
+// client, a shallow environment stand-in or a copied provider loop. Driver-level invariants that moved
+// with the provider are preserved at that boundary in tests/sites-environment-driver.test.mjs; runtime
+// orchestration invariants (stop ordering, snapshot pause/commit/export sequencing, retention pruning,
+// fleet sweeps) belong to the Sandbox suite and are listed in the migration report.
+//
+// Until the coordinator rebuilds plugins/sites/dist, this file runs against plugins/sites/src through the
+// resolve hook in tests/helpers/sitesOwnedEnvironmentSdk.mjs, so it tracks the in-flight source directly.
+
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
-import { tmpdir, userInfo } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { BASE_IMAGE_SOURCE, BASE_IMAGE_TAG, CONTAINERFILE, INGRESS_SERVICE, INGRESS_SOCKET } from '../plugins/sites/dist/baseImage.js';
-import { EnvironmentSupervisor } from '../plugins/sites/dist/environment.js';
-import { cleanPodmanEnv, PodmanClient } from '../plugins/sites/dist/podman.js';
 import { resolveConfig } from '../plugins/sites/dist/config.js';
 import { SitesStore } from '../plugins/sites/dist/store.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
@@ -17,8 +29,9 @@ import { proxyToEnvironment } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
 import { EnvironmentProvisioningService } from '../plugins/sites/dist/provisioning.js';
-
-const SITE_ID = '123e4567-e89b-12d3-a456-426614174000';
+import {
+  SITE_ID, environmentSite, environmentConfig, modeOf, snapshotRelease, sitesSdkHarness,
+} from './helpers/sitesOwnedEnvironmentSdk.mjs';
 
 const makeDb = ({ beforeStep } = {}) => {
   const db = new Database(':memory:');
@@ -39,964 +52,527 @@ const makeDb = ({ beforeStep } = {}) => {
   };
 };
 
-const environmentSite = (overrides = {}) => ({
-  id: SITE_ID,
-  slug: 'environment-demo',
-  title: 'Environment demo',
-  summary: '',
-  projectId: 1,
-  ownerUserId: 7,
-  visibility: 'public',
-  accessGeneration: 1,
-  sourceDir: '/workspace/project',
-  spa: false,
-  runtime: 'environment',
-  unsupportedRuntime: null,
-  startCommand: '',
-  bind: 'socket',
-  port: null,
-  environmentCpus: null,
-  environmentMemoryMb: null,
-  environmentPidsLimit: null,
-  environmentDiskSoftMb: null,
-  environmentDesiredState: 'running',
-  status: 'live',
-  currentReleaseId: null,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  createdModel: 'test/model',
-  lastPublishAt: null,
-  lastPublishModel: null,
-  lastError: null,
-  ...overrides,
-});
+const iso = () => new Date().toISOString();
+const requestKinds = (control) => control.requests.map((request) => request.action.kind);
+const snapshotRequests = (control) => control.requests.filter((request) => request.action.kind === 'snapshot');
+const restoreRequests = (control) => control.requests.filter((request) => request.action.kind === 'restore');
 
-const config = (overrides = {}) => ({
-  startTimeoutSeconds: 1,
-  environmentNetwork: 'shared',
-  environmentCpus: 1,
-  environmentMemoryMb: 1024,
-  environmentPidsLimit: 512,
-  environmentDiskSoftMb: 4096,
-  releasesKept: 5,
-  ...overrides,
-});
+// --- Supervisor over the fake EXACT SDK ----------------------------------------------------------
 
-class FakeExecutor {
-  calls = [];
-  responses = [];
-
-  enqueue(stdout = '', stderr = '', code = 0) {
-    this.responses.push({ stdout, stderr, code });
-  }
-
-  async run(file, args, options) {
-    this.calls.push({ file, args, options });
-    return this.responses.shift() ?? { stdout: '', stderr: '', code: 0 };
-  }
-}
-
-test('Podman uses argv-only calls, exact clean environment and direct detached lifecycle flags', async () => {
-  const executor = new FakeExecutor();
-  const podman = new PodmanClient({ executor, uid: 1000, home: '/home/elowen', user: 'elowen' });
-  await podman.create({
-    name: `elowen-site-${SITE_ID}`,
-    siteId: SITE_ID,
-    memoryMb: 768,
-    cpus: 1.5,
-    pidsLimit: 300,
-    network: 'shared',
-    envFile: '/data/environment.env',
-    workspace: '/project/sites/demo',
-    gitStub: '/data/git-stub',
-    brokerDir: `/var/lib/elowen/site-runtime-sockets/${SITE_ID}`,
-    volume: `elowen-site-${SITE_ID}-data`,
-    image: BASE_IMAGE_TAG,
-  });
-  await podman.start(`elowen-site-${SITE_ID}`);
-
-  assert.deepEqual(executor.calls[0].args, [
-    'create', '--name', `elowen-site-${SITE_ID}`,
-    '--label', `io.elowen.site=${SITE_ID}`,
-    '--cgroups=split', '--systemd=always',
-    '--memory=768m', '--memory-swap=768m', '--cpus=1.5', '--pids-limit=300',
-    '--network=slirp4netns:allow_host_loopback=false',
-    '--env-file', '/data/environment.env',
-    '--mount', 'type=bind,src=/project/sites/demo,dst=/workspace',
-    '--mount', 'type=bind,src=/data/git-stub,dst=/workspace/.git,ro',
-    '--mount', `type=bind,src=/var/lib/elowen/site-runtime-sockets/${SITE_ID},dst=/run/elowen`,
-    '--mount', `type=volume,src=elowen-site-${SITE_ID}-data,dst=/data`,
-    BASE_IMAGE_TAG,
-  ]);
-  assert.deepEqual(executor.calls[1].args, ['start', `elowen-site-${SITE_ID}`]);
-  assert.deepEqual(executor.calls[0].options.env, cleanPodmanEnv({ uid: 1000, home: '/home/elowen', user: 'elowen' }));
-  assert.deepEqual(Object.keys(executor.calls[0].options.env).sort(), [
-    'DBUS_SESSION_BUS_ADDRESS', 'HOME', 'LOGNAME', 'PATH', 'USER', 'XDG_RUNTIME_DIR',
-  ]);
-  const allArgv = executor.calls.flatMap((call) => call.args);
-  for (const forbidden of ['--attach', 'restart', 'systemd-run', '--privileged', '--network=host', '-e', '-p']) {
-    assert.equal(allArgv.includes(forbidden), false, forbidden);
-  }
-});
-
-test('default Podman identity comes from the service account, not poisoned ambient variables', () => {
-  const previous = { HOME: process.env.HOME, USER: process.env.USER, LOGNAME: process.env.LOGNAME };
-  process.env.HOME = '/poison/home';
-  process.env.USER = 'poison-user';
-  process.env.LOGNAME = 'poison-logname';
-  try {
-    const service = userInfo();
-    const env = cleanPodmanEnv();
-    assert.equal(env.HOME, service.homedir);
-    assert.equal(env.USER, service.username);
-    assert.equal(env.LOGNAME, service.username);
-  } finally {
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  }
-});
-
-test('Podman creates labeled data volumes and updates limits with exact argv', async () => {
-  const executor = new FakeExecutor();
-  const podman = new PodmanClient({ executor, uid: 1000, home: '/home/elowen', user: 'elowen' });
-  await podman.createVolume(`elowen-site-${SITE_ID}-data`, SITE_ID);
-  await podman.update(`elowen-site-${SITE_ID}`, { memoryMb: 1536, cpus: 2.25, pidsLimit: 640 });
-  assert.deepEqual(executor.calls[0].args, [
-    'volume', 'create', '--label', `io.elowen.site=${SITE_ID}`, `elowen-site-${SITE_ID}-data`,
-  ]);
-  assert.deepEqual(executor.calls[1].args, [
-    'update', '--memory=1536m', '--memory-swap=1536m', '--cpus=2.25', '--pids-limit=640', `elowen-site-${SITE_ID}`,
-  ]);
-});
-
-test('explicitly paused snapshots commit without a second Podman pause', async () => {
-  const executor = new FakeExecutor();
-  const podman = new PodmanClient({ executor });
-  await podman.commit(`elowen-site-${SITE_ID}`, 'localhost/snapshot:test', { pause: false });
-  assert.deepEqual(executor.calls[0].args, [
-    'commit', '--pause=false', `elowen-site-${SITE_ID}`, 'localhost/snapshot:test',
-  ]);
-});
-
-test('SiteExec command bytes use stdin and never appear in host argv', async () => {
-  const executor = new FakeExecutor();
-  executor.enqueue('done');
-  const podman = new PodmanClient({ executor });
-  const command = 'printf super-secret-command';
-  const result = await podman.execInteractive(`elowen-site-${SITE_ID}`, ['/bin/bash', '-s'], command, {
-    timeoutMs: 5_000,
-    workdir: '/workspace',
-  });
-  assert.equal(result.stdout, 'done');
-  assert.deepEqual(executor.calls[0].args, [
-    'exec', '--interactive', '--workdir', '/workspace', `elowen-site-${SITE_ID}`, '/bin/bash', '-s',
-  ]);
-  assert.equal(executor.calls[0].args.some((arg) => arg.includes('super-secret-command')), false);
-  assert.equal(executor.calls[0].options.input, command);
-});
-
-test('isolated environments use no network and Podman output is bounded', async () => {
-  const executor = new FakeExecutor();
-  executor.enqueue('x'.repeat(100), 'y'.repeat(100));
-  const podman = new PodmanClient({ executor, outputLimitBytes: 16 });
-  const result = await podman.run(['ps']);
-  assert.equal(Buffer.byteLength(result.stdout), 16);
-  assert.equal(Buffer.byteLength(result.stderr), 16);
-  await podman.create({
-    name: 'n', siteId: SITE_ID, memoryMb: 64, cpus: 0.25, pidsLimit: 32,
-    network: 'isolated', envFile: '/e', workspace: '/w', gitStub: '/g', brokerDir: '/b', volume: 'v', image: 'i',
-  });
-  assert.ok(executor.calls[1].args.includes('--network=none'));
-});
-
-test('Podman ps normalizes representative 4.9 uppercase JSON fields', async () => {
-  const executor = new FakeExecutor();
-  executor.enqueue(JSON.stringify([{
-    Id: 'abc', Names: [`elowen-site-${SITE_ID}`], State: 'running', Status: 'Up 3 minutes',
-    Labels: { 'io.elowen.site': SITE_ID },
-  }]));
-  const podman = new PodmanClient({ executor });
-  assert.deepEqual(await podman.ps(), [{
-    id: 'abc', names: [`elowen-site-${SITE_ID}`], state: 'running', status: 'Up 3 minutes',
-    labels: { 'io.elowen.site': SITE_ID },
-  }]);
-});
-
-test('container status is asked of containers only, so a snapshot image cannot answer for one', async () => {
-  // Bare `podman inspect NAME` searches containers, images, volumes, networks and pods together. Once a
-  // site owned a snapshot image, the moment rollback removed its container that name resolved to the
-  // image instead and `{{.State.Status}}` died with a template error on exit 125 — no missing-object
-  // wording, so it threw mid-rollback and left the environment with no container at all.
-  const executor = new FakeExecutor();
-  executor.enqueue('running');
-  const podman = new PodmanClient({ executor });
-  assert.equal(await podman.inspectStatus(`elowen-site-${SITE_ID}`), 'running');
-  assert.deepEqual(executor.calls[0].args, [
-    'inspect', '--type', 'container', '--format', '{{.State.Status}}', `elowen-site-${SITE_ID}`,
-  ]);
-
-  const gone = new FakeExecutor();
-  gone.enqueue('', `Error: no such container elowen-site-${SITE_ID}`, 125);
-  assert.equal(
-    await new PodmanClient({ executor: gone }).inspectStatus(`elowen-site-${SITE_ID}`),
-    null,
-    'a container-scoped miss is the answer "there is none", which is what the create path waits for',
-  );
-
-  // And the failure this replaced still has to be loud: widening the missing-object wording to swallow a
-  // template error would turn every unreadable container into a silent "create a new one".
-  const templated = new FakeExecutor();
-  templated.enqueue('', 'Error: template: inspect:1:19: executing "inspect" at <.State.Status>: can\'t evaluate field State in type interface {}', 125);
-  await assert.rejects(
-    () => new PodmanClient({ executor: templated }).inspectStatus(`elowen-site-${SITE_ID}`),
-    /can't evaluate field State/,
-  );
-});
-
-test('volume removal ignores only an absent volume and surfaces structural failures', async () => {
-  const missing = new FakeExecutor();
-  missing.enqueue('', 'Error: no such volume missing', 1);
-  await new PodmanClient({ executor: missing }).removeVolume('missing');
-
-  const denied = new FakeExecutor();
-  denied.enqueue('', 'Error: permission denied', 125);
-  await assert.rejects(() => new PodmanClient({ executor: denied }).removeVolume('blocked'), /permission denied/);
-});
-
-test('executor timeout kills the detached process group', async (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'sites-podman-timeout-'));
-  const marker = join(root, 'survived');
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const grandchild = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'alive'), 250); setInterval(() => {}, 1000);`;
-  const parent = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], { stdio: 'ignore' }); setInterval(() => {}, 1000);`;
-  const podman = new PodmanClient({ binary: process.execPath, timeoutMs: 75 });
-  await assert.rejects(() => podman.run(['-e', parent]), /timed out/);
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  assert.equal(existsSync(marker), false);
-});
-
-test('base image contents are digest-pinned, deterministic and use the stable app socket', () => {
-  assert.equal(BASE_IMAGE_SOURCE, 'docker.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171');
-  assert.match(BASE_IMAGE_TAG, /^localhost\/elowen-site-base:[a-f0-9]{16}$/);
-  assert.ok(CONTAINERFILE.startsWith(`FROM ${BASE_IMAGE_SOURCE}\n`));
-  assert.doesNotMatch(CONTAINERFILE, /^FROM debian:bookworm-slim$/m);
-  for (const dependency of ['systemd', 'systemd-sysv', 'dbus', 'ca-certificates', 'curl', 'iproute2', 'procps']) {
-    assert.match(CONTAINERFILE, new RegExp(`\\b${dependency.replace('-', '\\-')}\\b`));
-  }
-  assert.match(CONTAINERFILE, /ENTRYPOINT \["\/sbin\/init"\]/);
-  assert.match(INGRESS_SOCKET, /ListenStream=\/run\/elowen\/app\.sock/);
-  assert.match(INGRESS_SERVICE, /systemd-socket-proxyd 127\.0\.0\.1:80/);
-  assert.doesNotMatch(`${CONTAINERFILE}\n${INGRESS_SOCKET}\n${INGRESS_SERVICE}`, /\/run\/elowen\/ingress\.sock/);
-});
-
-function supervisorHarness(t, { statuses = [null], sealed = false, connectReady = true, configOverrides = {} } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'sites-environment-'));
-  const brokerDir = join(root, 'broker', SITE_ID);
-  const socketPath = join(brokerDir, 'app.sock');
-  const lifecycle = [];
-  const calls = [];
-  let statusIndex = 0;
-  let currentStatus = statuses[0] ?? null;
-  const podman = {
-    async inspectStatus() {
-      const value = statusIndex < statuses.length ? statuses[statusIndex] : currentStatus;
-      statusIndex += 1;
-      calls.push(['inspect', value]);
-      return value;
-    },
-    async ensureVolume(name, siteId) { calls.push(['volume-ensure', name, siteId]); },
-    async create(spec) { calls.push(['create', spec]); currentStatus = 'created'; },
-    async update(name, limits) { calls.push(['update', name, limits]); },
-    async execInteractive(name, argv, input, options) { calls.push(['exec-interactive', name, argv, input, options]); return { stdout: 'ok', stderr: '', code: 0 }; },
-    async exec(name, argv, options) { calls.push(['exec', name, argv, options]); return { stdout: 'journal', stderr: '', code: 0 }; },
-    async pause(name) { calls.push(['pause', name]); },
-    async unpause(name) { calls.push(['unpause', name]); },
-    async commit(name, image, options) { calls.push(['commit', name, image, options]); },
-    async exportVolume(name, output) { calls.push(['volume-export', name, output]); mkdirSync(join(output, '..'), { recursive: true }); writeFileSync(output, 'archive'); },
-    async importVolume(name, input) { calls.push(['volume-import', name, input]); },
-    async removeImage(name) { calls.push(['image-rm', name]); },
-    async imageExists(name) { calls.push(['image-exists', name]); return true; },
-    async start(name) {
-      calls.push(['start', name]);
-      currentStatus = 'running';
-      mkdirSync(brokerDir, { recursive: true });
-      const server = createServer();
-      await new Promise((resolve) => server.listen(socketPath, resolve));
-      t.after(async () => { await new Promise((resolve) => server.close(resolve)); });
-    },
-    async stop(name, seconds) { calls.push(['stop', name, seconds]); currentStatus = 'stopping'; },
-    async kill(name) { calls.push(['kill', name]); currentStatus = 'exited'; },
-    async remove(name, options) { calls.push(['remove', name, options]); currentStatus = null; },
-    async removeVolume(name) { calls.push(['volume-rm', name]); },
-    async unshareRemove(paths) { calls.push(['unshare-rm', paths]); },
-    async ps() {
-      calls.push(['ps']);
-      return currentStatus === null ? [] : [{ names: [`elowen-site-${SITE_ID}`], state: currentStatus }];
-    },
-  };
-  const gateway = {
-    // The real broker directory is root-owned, so sealing it to 0510 never stops the gateway from taking
-    // it away again. Without this the stand-in would refuse its own seal and fail any test that starts an
-    // environment and then stops it.
-    async removeRuntimeSocket() {
-      lifecycle.push('remove');
-      try { chmodSync(brokerDir, 0o700); } catch { /* it may not exist yet */ }
-      rmSync(brokerDir, { recursive: true, force: true });
-    },
-    async prepareRuntimeSocket() { lifecycle.push('prepare'); mkdirSync(brokerDir, { recursive: true }); return { path: socketPath }; },
-    async sealRuntimeSocket() { lifecycle.push('seal'); chmodSync(brokerDir, 0o510); },
-  };
-  if (sealed) mkdirSync(brokerDir, { recursive: true });
-  const desired = environmentSite();
-  const releases = [];
-  let action = null;
-  let execLease = null;
-  // What a conversion is holding down, mirroring the derived answer the real store computes from its
-  // durable migration row. Settable so a test can put the site under conversion mid-flight.
-  const suspension = { value: null };
-  const store = {
-    siteById: () => desired,
-    liveEnvironmentSites: () => [desired],
-    environmentSitesForReconcile: () => [desired],
-    conversionSuspends: (siteId) => (siteId === desired.id ? suspension.value : null),
-    conversionSuspensions: () => (suspension.value ? new Map([[desired.id, suspension.value]]) : new Map()),
-    updateSite: (_id, patch) => Object.assign(desired, patch),
-    insertRelease: (release) => releases.unshift(release),
-    deleteRelease: (_siteId, releaseId) => {
-      const index = releases.findIndex((release) => release.id === releaseId);
-      if (index >= 0) releases.splice(index, 1);
-    },
-    releases: () => releases,
-    release: (siteId, releaseId) => releases.find((release) => release.siteId === siteId && release.id === releaseId) ?? null,
-    tryBeginEnvironmentExec: (_siteId, token) => {
-      if (action || execLease || desired.environmentDesiredState !== 'running') return false;
-      execLease = token;
-      return true;
-    },
-    endEnvironmentExec: (_siteId, token) => { if (execLease === token) execLease = null; },
-    tryRequestEnvironmentControl: (_siteId, desiredState) => {
-      if (execLease || action?.lastError === null) return false;
-      action = null;
-      Object.assign(desired, { environmentDesiredState: desiredState, lastError: null });
-      return true;
-    },
-    environmentAction: () => action,
-    putEnvironmentAction: (next) => { action = next; desired.environmentDesiredState = 'restarting'; },
-    completeEnvironmentRestart: () => {
-      if (desired.environmentDesiredState !== 'restarting') return false;
-      Object.assign(desired, { environmentDesiredState: 'running', status: 'live', lastError: null });
-      return true;
-    },
-    completeEnvironmentAction: (_siteId, currentReleaseId) => {
-      if (!action || desired.environmentDesiredState !== 'restarting') return false;
-      Object.assign(desired, {
-        environmentDesiredState: 'running', status: 'live', lastError: null,
-        ...(currentReleaseId === undefined ? {} : { currentReleaseId }),
-      });
-      action = null;
-      return true;
-    },
-    updateEnvironmentActionError: (_siteId, error) => { if (action) action.lastError = error; },
-    deleteEnvironmentAction: () => { action = null; },
-  };
-  const supervisor = new EnvironmentSupervisor({
-    podman,
-    store,
-    gateway,
-    config: () => config(configOverrides),
-    siteDir: () => join(root, 'site'),
-    brokerPath: () => socketPath,
-    ensureBaseImage: async () => BASE_IMAGE_TAG,
-    socketReady: async (path) => {
-      try {
-        const ready = lstatSync(path).isSocket();
-        calls.push(['socket-ready', ready]);
-        return ready;
-      } catch {
-        calls.push(['socket-ready', false]);
-        return false;
-      }
-    },
-    connectReady: async () => connectReady,
-    sleep: async () => { if (currentStatus === 'stopping') currentStatus = 'exited'; },
-    now: (() => { let value = 0; return () => (value += 100); })(),
-  });
-  t.after(() => {
-    try { chmodSync(brokerDir, 0o730); } catch {}
-    rmSync(root, { recursive: true, force: true });
-  });
-  return { supervisor, lifecycle, calls, socketPath, brokerDir, site: desired, store, releases, podman, root, suspension };
-}
-
-test('environment start performs the direct broker sequence and never uses restart', async (t) => {
-  const { supervisor, lifecycle, calls, site } = supervisorHarness(t, { statuses: [null] });
+test('environment start performs the typed SDK sequence, prepares the ingress and never issues a restart', async (t) => {
+  const { supervisor, control, gateway, site, socketPath, root } = await sitesSdkHarness(t);
   await supervisor.start(site);
-  assert.deepEqual(lifecycle, ['remove', 'prepare', 'seal']);
-  assert.equal(calls.filter(([name]) => name === 'create').length, 1);
-  assert.equal(calls.filter(([name]) => name === 'start').length, 1);
-  assert.deepEqual(calls.filter(([name]) => ['volume-ensure', 'create', 'update', 'start'].includes(name)).map(([name]) => name), [
-    'volume-ensure', 'create', 'start',
-  ]);
-  assert.equal(supervisor.endpointFor(SITE_ID)?.kind, 'socket');
-  assert.equal(calls.some(([name]) => name === 'restart'), false);
+
+  assert.deepEqual(requestKinds(control), ['provision-image', 'start']);
+  assert.equal(control.requests.some((request) => request.action.kind === 'restart'), false);
+  assert.match(control.requests[0].requestId, new RegExp(`^sites-bootstrap-image:${SITE_ID}:1$`));
+  assert.match(control.requests[1].requestId, new RegExp(`^sites-bootstrap-start:${SITE_ID}:1$`));
+  for (const request of control.requests) {
+    assert.equal(request.accountUserId, 7);
+    assert.equal(request.expectedGeneration, 1);
+  }
+  // The broker-aware ingress sequence is prepared (handover callback + start callback) and sealed by
+  // readiness; nothing removes it on a healthy start.
+  assert.deepEqual(gateway.ops.map(([name]) => name), ['prepare', 'prepare', 'seal']);
+  assert.deepEqual(supervisor.endpointFor(SITE_ID), { kind: 'socket', path: socketPath });
+  assert.equal(site.status, 'live');
+  assert.equal(site.lastError, null);
+  // The trusted handover callback wrote the environment contract for the container.
+  const environment = join(root, 'site', SITE_ID, 'environment');
+  assert.match(readFileSync(join(environment, 'container.env'), 'utf8'), /ELOWEN_SITE_SLUG=environment-demo/);
+  assert.equal(existsSync(join(environment, 'git-stub')), true);
 });
 
-test('existing environment receives effective limits after start without recreation', async (t) => {
-  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['exited'] });
+test('an adopted legacy environment starts through one typed start, with effective limits in its binding', async (t) => {
+  const { supervisor, control, site } = await sitesSdkHarness(t, {
+    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/var/lib/legacy', state: 'stopped' }) },
+  });
   site.environmentMemoryMb = 2048;
   site.environmentCpus = 1.75;
   site.environmentPidsLimit = 700;
   await supervisor.start(site);
-  assert.equal(calls.some(([name]) => name === 'create'), false);
-  assert.deepEqual(calls.filter(([name]) => ['update', 'start'].includes(name)), [
-    ['start', `elowen-site-${SITE_ID}`],
-    ['update', `elowen-site-${SITE_ID}`, { cpus: 1.75, memoryMb: 2048, pidsLimit: 700 }],
-  ]);
+
+  assert.deepEqual(requestKinds(control), ['start'], 'no provision-image, no limits action, no recreation');
+  assert.equal(control.requests[0].accountUserId, 7);
+  assert.equal(control.requests[0].expectedGeneration, 1);
+  const binding = await control.authority.resolve({ siteId: SITE_ID, accountUserId: 7, access: 'read' });
+  assert.deepEqual(binding.legacy, { containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/var/lib/legacy' });
+  assert.deepEqual(binding.limits, { cpus: 1.75, memoryMb: 2048, pidsLimit: 700, diskSoftMb: 4096 });
 });
 
-test('a previously created container retries the transient crun race through created and running states', async (t) => {
-  const name = `elowen-site-${SITE_ID}`;
-  const { supervisor, calls, site, podman } = supervisorHarness(t, { statuses: ['created', 'created', 'running'] });
-  let updates = 0;
-  podman.update = async (container, limits) => {
-    calls.push(['update', container, limits]);
-    updates += 1;
-    if (updates < 3) {
-      throw new Error('podman update failed: error opening file `/run/user/33/crun/test/status`: No such file or directory');
-    }
+test('a structural provider failure is surfaced once and never retried by the caller', async (t) => {
+  let failures = 0;
+  const { supervisor, control, site } = await sitesSdkHarness(t, {
+    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'stopped' }) },
+  });
+  await supervisor.state(site);
+  control.requestSiteEnvironment = async (input) => {
+    control.requests.push(input);
+    failures += 1;
+    throw new Error('podman update failed: permission denied');
   };
-  await supervisor.start(site);
-  const startIndex = calls.findIndex(([operation]) => operation === 'start');
-  const readyIndex = calls.findIndex(([operation, ready]) => operation === 'socket-ready' && ready === true);
-  const updateIndexes = calls.flatMap(([operation], index) => operation === 'update' ? [index] : []);
-  assert.ok(startIndex >= 0);
-  assert.ok(readyIndex > startIndex);
-  assert.equal(updateIndexes.length, 3);
-  assert.ok(updateIndexes[0] > readyIndex);
-  assert.deepEqual(
-    calls.slice(updateIndexes[0] + 1, updateIndexes[2]).filter(([operation]) => operation === 'inspect').map(([, status]) => status),
-    ['created', 'running'],
-  );
-  assert.deepEqual(calls[updateIndexes[2]], ['update', name, { cpus: 1, memoryMb: 1024, pidsLimit: 512 }]);
-});
-
-test('a structural crun update failure is not retried', async (t) => {
-  const { supervisor, site, podman } = supervisorHarness(t, { statuses: ['created'] });
-  let updates = 0;
-  podman.update = async () => { updates += 1; throw new Error('podman update failed: permission denied'); };
   await assert.rejects(() => supervisor.start(site), /permission denied/);
-  assert.equal(updates, 1);
+  assert.equal(failures, 1, 'exactly one dispatch, no caller-side retry loop');
 });
 
-test('stop waits for exactly exited before removing the broker', async (t) => {
-  const { supervisor, lifecycle, calls, site } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
-  await supervisor.stop(site.id);
-  const exitedInspect = calls.findIndex(([name, status]) => name === 'inspect' && status === 'exited');
-  assert.ok(exitedInspect >= 0);
-  assert.equal(lifecycle[0], 'remove');
-  const stopIndex = calls.findIndex(([name]) => name === 'stop');
-  assert.ok(stopIndex >= 0 && stopIndex < exitedInspect);
-  assert.deepEqual(calls[stopIndex], ['stop', `elowen-site-${SITE_ID}`, 8]);
+test('stop requests the typed stop and drops the routing endpoint', async (t) => {
+  const { supervisor, control, gateway, site } = await sitesSdkHarness(t, {
+    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'stopped' }) },
+  });
+  await supervisor.start(site);
+  await supervisor.stop(SITE_ID);
+
+  assert.deepEqual(requestKinds(control), ['start', 'stop']);
+  assert.equal(supervisor.endpointFor(SITE_ID), null);
+  // The provider stops first; Sites' own afterStop hook only then takes the broker away.
+  assert.equal(gateway.ops.some(([name]) => name === 'remove'), true);
 });
 
-test('healthy running environment is adopted and clears a stale failure without broker changes', async (t) => {
-  const { supervisor, lifecycle, calls, site, brokerDir } = supervisorHarness(t, { statuses: ['running'], sealed: true });
+test('healthy running environment is adopted and clears a stale failure without lifecycle changes', async (t) => {
+  const { supervisor, control, gateway, store, site, socketPath, brokerDir } = await sitesSdkHarness(t, { controlState: 'running' });
+  store.putRuntimeRecord(SITE_ID, 'handover', 'complete');
   site.status = 'failed';
   site.lastError = 'stale action error';
-  const socketPath = join(brokerDir, 'app.sock');
+  mkdirSync(brokerDir, { recursive: true });
   const server = createServer();
   await new Promise((resolve) => server.listen(socketPath, resolve));
-  chmodSync(brokerDir, 0o510);
   t.after(async () => { await new Promise((resolve) => server.close(resolve)); });
+  chmodSync(brokerDir, 0o510);
 
   await supervisor.start(site);
-  assert.deepEqual(lifecycle, []);
-  assert.equal(calls.some(([name]) => name === 'start' || name === 'create'), false);
+  assert.deepEqual(control.requests, [], 'a healthy environment is adopted, not restarted');
+  assert.deepEqual(gateway.ops, [], 'an already sealed broker is left alone');
   assert.deepEqual(supervisor.endpointFor(SITE_ID), { kind: 'socket', path: socketPath });
   assert.equal(site.status, 'live');
   assert.equal(site.lastError, null);
 });
 
-test('service detach never stops a running environment and backstop uses one ps call', async (t) => {
-  const { supervisor, calls, site } = supervisorHarness(t, { statuses: [null] });
+test('service detach drops routing without any lifecycle request', async (t) => {
+  const { supervisor, control, site } = await sitesSdkHarness(t, {
+    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'stopped' }) },
+  });
   await supervisor.start(site);
-  calls.length = 0;
-  await supervisor.backstop();
+  assert.notEqual(supervisor.endpointFor(SITE_ID), null);
+
   await supervisor.detach();
-  assert.equal(calls.filter(([name]) => name === 'ps').length, 1);
-  assert.equal(calls.some(([name]) => name === 'stop' || name === 'kill'), false);
+  assert.equal(supervisor.endpointFor(SITE_ID), null);
+  assert.equal(supervisor.isRunning(SITE_ID), false);
+  assert.deepEqual(requestKinds(control).filter((kind) => kind === 'stop' || kind === 'kill'), [], 'detach never stops anything');
 });
 
-test('environment limit overrides persist only after Podman update succeeds', async (t) => {
-  const { supervisor, site, podman } = supervisorHarness(t, { statuses: ['running'] });
-  podman.update = async () => { throw new Error('update denied'); };
+test('environment limit overrides persist only after the provider accepts the change', async (t) => {
+  const { supervisor, control, site } = await sitesSdkHarness(t, {
+    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'running' }) },
+  });
+  await supervisor.state(site);
+  control.requestSiteEnvironment = async (input) => {
+    control.requests.push(input);
+    return { id: 'op-limits', requestId: input.requestId, siteId: input.siteId, accountUserId: input.accountUserId,
+      generation: input.generation, action: input.action, status: 'failed', error: 'podman update denied' };
+  };
   await assert.rejects(() => supervisor.applyLimits(site, {
-    environmentCpus: 2,
-    environmentMemoryMb: 2048,
-    environmentPidsLimit: 700,
-    environmentDiskSoftMb: 8192,
+    environmentCpus: 2, environmentMemoryMb: 2048, environmentPidsLimit: 700, environmentDiskSoftMb: 8192,
   }), /update denied/);
-  assert.equal(site.environmentMemoryMb, null);
+  assert.equal(site.environmentMemoryMb, null, 'nothing persisted on provider failure');
+  assert.deepEqual(control.requests[0].action, { kind: 'limits', limits: { cpus: 2, memoryMb: 2048, pidsLimit: 700, diskSoftMb: 8192 } });
 });
 
-test('environment limit overrides persist while stopped and apply on the next start', async (t) => {
-  const { supervisor, site, calls } = supervisorHarness(t, { statuses: ['exited'] });
+test('environment limit overrides persist while stopped and the binding carries them on the next start', async (t) => {
+  const { supervisor, control, site } = await sitesSdkHarness(t, {
+    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'stopped' }) },
+  });
   await supervisor.applyLimits(site, {
-    environmentCpus: 2,
-    environmentMemoryMb: 2048,
-    environmentPidsLimit: 700,
-    environmentDiskSoftMb: 8192,
+    environmentCpus: 2, environmentMemoryMb: 2048, environmentPidsLimit: 700, environmentDiskSoftMb: 8192,
   });
-  assert.equal(calls.some(([name]) => name === 'update'), false);
   assert.equal(site.environmentMemoryMb, 2048);
+  assert.deepEqual(requestKinds(control), ['limits']);
 
-  calls.length = 0;
   await supervisor.start(site);
-  assert.deepEqual(calls.filter(([name]) => ['start', 'update'].includes(name)), [
-    ['start', `elowen-site-${SITE_ID}`],
-    ['update', `elowen-site-${SITE_ID}`, { cpus: 2, memoryMb: 2048, pidsLimit: 700 }],
-  ]);
+  assert.deepEqual(requestKinds(control), ['limits', 'start'], 'the provider applies binding limits on start; no second limits call');
+  const binding = await control.authority.resolve({ siteId: SITE_ID, accountUserId: 7, access: 'read' });
+  assert.deepEqual(binding.limits, { cpus: 2, memoryMb: 2048, pidsLimit: 700, diskSoftMb: 8192 });
 });
 
-test('environment exec refuses a stopped container', async (t) => {
-  const { supervisor, site } = supervisorHarness(t, { statuses: ['exited'] });
-  await assert.rejects(() => supervisor.exec(site, 'echo no', { timeoutSeconds: 120 }), /not running/);
-});
-
-test('environment exec serializes against a newly scheduled snapshot', async (t) => {
-  const { supervisor, site, store, podman, calls } = supervisorHarness(t, { statuses: ['running'] });
-  let finishExec;
-  podman.execInteractive = async () => await new Promise((resolve) => { finishExec = resolve; });
-  const execution = supervisor.exec(site, 'sleep', { timeoutSeconds: 120 });
-  await new Promise((resolve) => setImmediate(resolve));
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'snapshot', snapshotId: 'after-exec', includeData: false,
-    note: '', model: 'm', requestedAt: new Date().toISOString(), lastError: null,
+test('environment exec forwards the command through the typed seam with a bounded timeout', async (t) => {
+  const { supervisor, control, site } = await sitesSdkHarness(t, {
+    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'running' }) },
   });
-  const reconciliation = supervisor.reconcile();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(calls.some(([name]) => name === 'pause'), false);
-  finishExec({ stdout: '', stderr: '', code: 0 });
-  await execution;
-  await reconciliation;
-  assert.equal(calls.some(([name]) => name === 'pause'), true);
+  const result = await supervisor.exec(site, 'echo ok', { timeoutSeconds: 120, workdir: '/workspace' });
+  assert.equal(result.stdout, 'exec-ok');
+  assert.deepEqual(control.execCalls[0], {
+    siteId: SITE_ID, accountUserId: 7, command: 'echo ok', timeoutMs: 120_000, workdir: '/workspace',
+  });
 });
 
-test('environment logs use a bounded journalctl argv plus lifecycle log', async (t) => {
-  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['running'] });
+test('an active execution lease excludes a concurrent snapshot schedule and leaves nothing behind', async (t) => {
+  const { supervisor, control, store, site } = await sitesSdkHarness(t, {
+    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'running' }) },
+  });
+  await supervisor.state(site);
+  assert.equal(store.tryBeginEnvironmentExec(SITE_ID, 'exec-token', Date.now() + 60_000), true);
+  await assert.rejects(
+    () => supervisor.scheduleSnapshot(site, { includeData: true, note: 'n', model: 'm' }),
+    /another environment action or execution is in progress/,
+  );
+  assert.deepEqual(snapshotRequests(control), [], 'nothing was dispatched under the lease');
+  assert.equal(store.environmentAction(SITE_ID), null);
+  assert.deepEqual(store.runtimeRecords(SITE_ID, 'snapshot-request:'), [], 'the receipt was dropped clean');
+
+  store.endEnvironmentExec(SITE_ID, 'exec-token');
+  const scheduled = await supervisor.scheduleSnapshot(site, { includeData: true, note: 'n', model: 'm' });
+  assert.equal(store.environmentAction(SITE_ID).snapshotId, scheduled.id);
+});
+
+test('environment logs are requested with a bounded line count', async (t) => {
+  const { supervisor, control, site } = await sitesSdkHarness(t, {
+    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'running' }) },
+  });
   const logs = await supervisor.logs(site, 5000);
   assert.equal(logs.journal, 'journal');
-  assert.deepEqual(calls.find(([name]) => name === 'exec'), [
-    'exec', `elowen-site-${SITE_ID}`, ['journalctl', '--no-pager', '-n', '1000'], { timeoutMs: 30000 },
-  ]);
+  assert.equal(control.logCalls[0].lines, 1000);
+  assert.equal(control.logCalls[0].accountUserId, 7);
 });
 
-test('durable environment snapshot pauses, commits and exports data before unpausing', async (t) => {
-  const { supervisor, calls, site, releases, store } = supervisorHarness(t, { statuses: ['running'] });
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'snapshot', snapshotId: 'snap-1', includeData: true,
-    note: 'before change', model: 'test/model', requestedAt: new Date().toISOString(), lastError: null,
+// --- Durable snapshot receipts -------------------------------------------------------------------
+
+test('scheduleSnapshot returns the promised public id durably and recovery completes it under that id', async (t) => {
+  const { supervisor, control, store, site } = await sitesSdkHarness(t);
+  const scheduled = await supervisor.scheduleSnapshot(site, { includeData: true, note: 'before change', model: 'test/model' });
+
+  assert.match(scheduled.id, /^[0-9a-f-]{36}$/);
+  assert.deepEqual(store.environmentAction(SITE_ID), {
+    siteId: SITE_ID, kind: 'snapshot', snapshotId: scheduled.id, includeData: true, note: 'before change',
+    model: 'test/model', requestedAt: store.environmentAction(SITE_ID).requestedAt, lastError: null,
   });
+  const receipts = store.runtimeRecords(SITE_ID, 'snapshot-request:');
+  assert.equal(receipts.length, 1);
+  const receipt = JSON.parse(receipts[0].value);
+  assert.equal(receipt.publicId, scheduled.id);
+  assert.equal(typeof receipt.operationId, 'string', 'the runtime accepted the request before the promise was returned');
+  assert.deepEqual(store.releases(), [], 'the release appears only through completion, never synchronously');
+  assert.deepEqual(requestKinds(control).at(-1), 'snapshot');
+  assert.equal(snapshotRequests(control)[0].requestId, receipt.requestId);
+  assert.deepEqual(snapshotRequests(control)[0].action, { kind: 'snapshot', includeData: true, note: 'before change' });
+
+  const runtimeId = control.operations.get(receipt.operationId).snapshotId;
+  control.snapshots.push({ id: runtimeId, generation: 1, createdAt: iso(), consistency: 'crash-consistent', completeProject: false, note: 'before change' });
   await supervisor.reconcile();
-  assert.deepEqual(calls.filter(([name]) => ['pause', 'commit', 'volume-export', 'unpause'].includes(name)).map(([name]) => name), [
-    'pause', 'commit', 'volume-export', 'unpause',
-  ]);
-  assert.deepEqual(calls.find(([name]) => name === 'commit'), [
-    'commit', `elowen-site-${SITE_ID}`, `localhost/elowen-site/${SITE_ID}:snap-1`, { pause: false },
-  ]);
-  assert.equal(releases[0].kind, 'environment-snapshot');
-  assert.match(releases[0].dataArchive, /snapshots\/snap-1\/data\.tar$/);
-  assert.equal(store.environmentAction(site.id), null);
+
+  const release = store.release(SITE_ID, scheduled.id);
+  assert.notEqual(release, null);
+  assert.equal(release.model, 'test/model');
+  assert.equal(release.note, 'before change');
+  assert.equal(store.release(SITE_ID, runtimeId), null, 'the provider snapshot id never becomes a public release');
+  assert.equal(store.runtimeRecord(SITE_ID, `snapshot-display:${runtimeId}`), scheduled.id);
+  assert.equal(store.runtimeRecord(SITE_ID, `snapshot-runtime:${scheduled.id}`), runtimeId);
+  assert.equal(store.environmentAction(SITE_ID), null);
+  assert.equal(store.runtimeRecords(SITE_ID, 'snapshot-request:').length, 0);
+  // Merely taking a snapshot preserves the current pointer; only a completed restore moves it.
+  assert.equal(site.currentReleaseId, null);
 });
 
-test('durable snapshot resumes after release metadata was committed before a crash', async (t) => {
-  const { supervisor, calls, site, releases, store } = supervisorHarness(t, { statuses: ['running'] });
-  releases.push({
-    id: 'snap-crash', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
-    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:snap-crash`, dataArchive: null,
-  });
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'snapshot', snapshotId: 'snap-crash', includeData: false,
-    note: '', model: 'm', requestedAt: new Date().toISOString(), lastError: null,
-  });
+test('an interrupted snapshot receipt replays the same runtime request key', async (t) => {
+  const { supervisor, control, store, site } = await sitesSdkHarness(t, { controlState: 'stopped' });
+  seedHandover(store);
+  store.putRuntimeRecord(SITE_ID, 'snapshot-request:rid', JSON.stringify({
+    requestId: 'rid', accountUserId: 7, kind: 'snapshot', publicId: 'pub-1', requestedAt: iso(),
+    input: { includeData: false, note: '', model: 'm' },
+  }));
+  assert.equal(store.beginEnvironmentAction({ siteId: SITE_ID, kind: 'snapshot', snapshotId: 'pub-1', includeData: false, note: '', model: 'm', requestedAt: iso(), lastError: null }), true);
+  control.snapshots.push({ id: 'runtime-1', generation: 1, createdAt: iso(), consistency: 'crash-consistent', completeProject: false, note: '' });
+
   await supervisor.reconcile();
-  assert.equal(calls.some(([name]) => name === 'pause' || name === 'commit' || name === 'image-rm'), false);
-  assert.equal(releases.length, 1);
-  assert.equal(store.environmentAction(site.id), null);
+
+  assert.deepEqual(snapshotRequests(control).length, 1);
+  assert.equal(snapshotRequests(control)[0].requestId, 'rid', 'the same idempotency key, so the provider deduplicates');
+  assert.equal(store.release(SITE_ID, 'pub-1') !== null, true);
+  assert.equal(store.environmentAction(SITE_ID), null);
 });
 
-test('durable snapshot recovers a container left paused by a process crash', async (t) => {
-  const { supervisor, calls, site, store, root } = supervisorHarness(t, { statuses: ['paused', 'running'] });
-  mkdirSync(join(root, 'site', 'environment', 'snapshots', 'snap-paused'), { recursive: true });
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'snapshot', snapshotId: 'snap-paused', includeData: false,
-    note: '', model: 'm', requestedAt: new Date().toISOString(), lastError: null,
-  });
+test('a snapshot whose release metadata already survived a crash is completed, never re-dispatched', async (t) => {
+  const { supervisor, control, store, site } = await sitesSdkHarness(t, { controlState: 'stopped' });
+  seedHandover(store);
+  control.operations.set('op-7', { id: 'op-7', requestId: 'rid2', siteId: SITE_ID, accountUserId: 7, generation: 1,
+    action: { kind: 'snapshot' }, status: 'succeeded', error: null, snapshotId: 'runtime-3' });
+  store.putRuntimeRecord(SITE_ID, 'snapshot-request:rid2', JSON.stringify({
+    requestId: 'rid2', accountUserId: 7, kind: 'snapshot', publicId: 'pub-2', operationId: 'op-7', requestedAt: iso(),
+    input: { includeData: false, note: '', model: 'm' },
+  }));
+  store.insertRelease(snapshotRelease(site, { id: 'pub-2' }));
+  assert.equal(store.beginEnvironmentAction({ siteId: SITE_ID, kind: 'snapshot', snapshotId: 'pub-2', includeData: false, note: '', model: 'm', requestedAt: iso(), lastError: null }), true);
+  control.snapshots.push({ id: 'runtime-3', generation: 1, createdAt: iso(), consistency: 'crash-consistent', completeProject: false, note: '' });
+
   await supervisor.reconcile();
-  assert.equal(calls.some(([name]) => name === 'stop'), true);
-  assert.equal(calls.some(([name]) => name === 'start'), true);
-  assert.deepEqual(calls.filter(([name]) => name === 'unpause' || name === 'pause').map(([name]) => name), ['pause', 'unpause']);
-  assert.equal(store.environmentAction(site.id), null);
+
+  assert.deepEqual(snapshotRequests(control), [], 'a completed snapshot must not run twice');
+  assert.deepEqual(store.releases().map((release) => release.id), ['pub-2']);
+  assert.equal(store.environmentAction(SITE_ID), null);
 });
 
-test('durable snapshot failure adopts a healthy environment after daemon restart and stops retrying', async (t) => {
-  const { supervisor, calls, site, podman, store, brokerDir } = supervisorHarness(t, { statuses: ['running'], sealed: true });
-  const socketPath = join(brokerDir, 'app.sock');
+test('a failed snapshot operation marks only its own row, stops retrying and still adopts a healthy ingress', async (t) => {
+  const { supervisor, control, store, site, socketPath, brokerDir } = await sitesSdkHarness(t, { controlState: 'running' });
+  seedHandover(store);
+  control.operations.set('op-9', { id: 'op-9', requestId: 'rid3', siteId: SITE_ID, accountUserId: 7, generation: 1,
+    action: { kind: 'snapshot' }, status: 'failed', error: 'export failed' });
+  store.putRuntimeRecord(SITE_ID, 'snapshot-request:rid3', JSON.stringify({
+    requestId: 'rid3', accountUserId: 7, kind: 'snapshot', publicId: 'pub-3', operationId: 'op-9', requestedAt: iso(),
+    input: { includeData: true, note: '', model: 'm' },
+  }));
+  assert.equal(store.beginEnvironmentAction({ siteId: SITE_ID, kind: 'snapshot', snapshotId: 'pub-3', includeData: true, note: '', model: 'm', requestedAt: iso(), lastError: null }), true);
+  site.status = 'failed';
+  site.lastError = 'stale';
+  mkdirSync(brokerDir, { recursive: true });
   const server = createServer();
   await new Promise((resolve) => server.listen(socketPath, resolve));
-  chmodSync(brokerDir, 0o510);
   t.after(async () => { await new Promise((resolve) => server.close(resolve)); });
-  podman.exportVolume = async () => { calls.push(['volume-export-failed']); throw new Error('export failed'); };
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'snapshot', snapshotId: 'snap-fail', includeData: true,
-    note: '', model: 'test/model', requestedAt: new Date().toISOString(), lastError: null,
-  });
+  chmodSync(brokerDir, 0o510);
+
   await supervisor.reconcile();
-  const firstPauseCount = calls.filter(([name]) => name === 'pause').length;
-  await supervisor.reconcile();
-  assert.equal(calls.filter(([name]) => name === 'pause').length, firstPauseCount, 'errored action must not hot-retry');
-  assert.equal(calls.some(([name]) => name === 'unpause'), true);
-  assert.match(store.environmentAction(site.id).lastError, /export failed/);
-  assert.equal(site.status, 'live');
+  assert.match(store.environmentAction(SITE_ID).lastError, /export failed/);
+  assert.equal(store.runtimeRecords(SITE_ID, 'snapshot-request:').length, 0, 'the terminal receipt is settled');
+  assert.equal(site.status, 'live', 'the environment itself recovered and is adopted');
   assert.equal(site.lastError, null);
-  assert.notEqual(supervisor.endpointFor(site.id), null);
-});
+  assert.notEqual(supervisor.endpointFor(SITE_ID), null);
 
-test('durable snapshot cleans image and archive when release metadata cannot be stored', async (t) => {
-  const { supervisor, calls, site, store, releases } = supervisorHarness(t, { statuses: ['running'] });
-  store.insertRelease = () => { throw new Error('database full'); };
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'snapshot', snapshotId: 'snap-db', includeData: true,
-    note: '', model: 'test/model', requestedAt: new Date().toISOString(), lastError: null,
-  });
   await supervisor.reconcile();
-  assert.equal(calls.some(([name]) => name === 'image-rm'), true);
-  assert.equal(releases.length, 0);
-  assert.match(store.environmentAction(site.id).lastError, /database full/);
+  assert.deepEqual(snapshotRequests(control), [], 'an errored action never hot-retries');
 });
 
-test('durable snapshot marks the environment failed when unpause fails', async (t) => {
-  const { supervisor, calls, site, podman, releases, store } = supervisorHarness(t, { statuses: [null] });
-  await supervisor.start(site);
-  calls.length = 0;
-  podman.unpause = async () => { calls.push(['unpause-failed']); throw new Error('unpause failed'); };
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'snapshot', snapshotId: 'snap-unpause', includeData: false,
-    note: '', model: 'test/model', requestedAt: new Date().toISOString(), lastError: null,
-  });
-  await supervisor.reconcile();
-  assert.equal(calls.some(([name]) => name === 'image-rm'), true);
-  assert.equal(releases.length, 0);
-  assert.equal(site.status, 'failed');
-  assert.match(site.lastError, /snapshot resume failed.*unpause failed/);
-  assert.equal(supervisor.endpointFor(site.id), null);
-  assert.match(store.environmentAction(site.id).lastError, /unpause failed/);
-});
-
-test('snapshot retention keeps the new and current snapshots even when the limit is one', async (t) => {
-  const { supervisor, site, store, releases, calls, root } = supervisorHarness(t, { statuses: ['running'], configOverrides: { releasesKept: 1 } });
-  site.currentReleaseId = 'protected';
-  for (const id of ['protected', 'old']) {
-    const snapshotDir = join(root, 'site', 'environment', 'snapshots', id);
-    mkdirSync(snapshotDir, { recursive: true });
-    releases.push({
-      id, siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0, sizeBytes: 0,
-      note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:${id}`,
-      dataArchive: join(snapshotDir, 'data.tar'),
-    });
-  }
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'snapshot', snapshotId: 'new', includeData: false,
-    note: '', model: 'm', requestedAt: new Date().toISOString(), lastError: null,
-  });
-  await supervisor.reconcile();
-  assert.deepEqual(releases.map((release) => release.id).sort(), ['new', 'protected']);
-  assert.equal(calls.some(([name, image]) => name === 'image-rm' && image.endsWith(':old')), true);
-  assert.equal(site.currentReleaseId, 'protected');
-});
-
-test('snapshot retention preserves its row when structural image removal fails', async (t) => {
-  const { supervisor, site, store, releases, podman, root } = supervisorHarness(t, { statuses: ['running'], configOverrides: { releasesKept: 1 } });
-  const oldDir = join(root, 'site', 'environment', 'snapshots', 'old');
-  releases.push({
-    id: 'old', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0, sizeBytes: 0,
-    note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:old`, dataArchive: join(oldDir, 'data.tar'),
-  });
-  podman.removeImage = async () => { throw new Error('image store denied'); };
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'snapshot', snapshotId: 'new', includeData: false,
-    note: '', model: 'm', requestedAt: new Date().toISOString(), lastError: null,
-  });
-  await supervisor.reconcile();
-  assert.equal(releases.some((release) => release.id === 'old'), true);
-  assert.match(store.environmentAction(site.id).lastError, /image store denied/);
-});
-
-test('daemon reconcile performs a durable restart and atomically returns desired state to running', async (t) => {
-  const { supervisor, calls, site } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
-  site.environmentDesiredState = 'restarting';
-  await supervisor.reconcile();
-  assert.equal(site.environmentDesiredState, 'running');
-  assert.deepEqual(calls.filter(([name]) => ['stop', 'update', 'start'].includes(name)).map(([name]) => name), [
-    'stop', 'start', 'update',
-  ]);
-});
-
-test('a newer durable stop request is not overwritten when restart finishes', async (t) => {
-  const { supervisor, site, podman } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
-  site.environmentDesiredState = 'restarting';
-  const start = podman.start;
-  podman.start = async (name) => { await start(name); site.environmentDesiredState = 'stopped'; };
-  await supervisor.reconcile();
-  assert.equal(site.environmentDesiredState, 'stopped');
-});
-
-test('failed restart stays idle until explicit control permits exactly one retry', async (t) => {
-  const { supervisor, site, podman, store, calls } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
-  site.environmentDesiredState = 'restarting';
-  const start = podman.start;
-  let starts = 0;
-  podman.start = async (name) => {
-    starts += 1;
-    if (starts === 1) throw new Error('restart failed once');
-    await start(name);
+test('pendingAction projects the runtime status onto the visible row without writing anything', async (t) => {
+  const { supervisor, control, store, site } = await sitesSdkHarness(t, { controlState: 'stopped' });
+  seedHandover(store);
+  const receipt = {
+    requestId: 'rid4', accountUserId: 7, kind: 'snapshot', publicId: 'pub-4', operationId: 'op-4', requestedAt: iso(),
+    input: { includeData: false, note: '', model: 'm' },
   };
-  await supervisor.reconcile();
-  assert.equal(starts, 1);
-  assert.match(site.lastError, /restart failed once/);
-  const lifecycleCalls = () => calls.filter(([name]) => name !== 'ps').length;
-  const afterFailure = lifecycleCalls();
-  await supervisor.reconcile();
-  await supervisor.reconcile();
-  await supervisor.backstop();
-  await supervisor.backstop();
-  assert.equal(lifecycleCalls(), afterFailure);
-  assert.equal(starts, 1);
-  assert.equal(store.tryRequestEnvironmentControl(site.id, 'restarting'), true);
-  await supervisor.reconcile();
-  assert.equal(starts, 2);
-  assert.equal(site.lastError, null);
-  assert.equal(site.environmentDesiredState, 'running');
-  await supervisor.reconcile();
-  await supervisor.backstop();
-  assert.equal(starts, 2);
+  store.putRuntimeRecord(SITE_ID, 'snapshot-request:rid4', JSON.stringify(receipt));
+  assert.equal(store.beginEnvironmentAction({ siteId: SITE_ID, kind: 'snapshot', snapshotId: 'pub-4', includeData: false, note: '', model: 'm', requestedAt: iso(), lastError: null }), true);
+
+  // Still running: no error is invented.
+  control.operations.set('op-4', { id: 'op-4', requestId: 'rid4', siteId: SITE_ID, accountUserId: 7, generation: 1,
+    action: { kind: 'snapshot' }, status: 'running', error: null });
+  assert.deepEqual(await supervisor.pendingAction(site), { ...store.environmentAction(SITE_ID), lastError: null });
+  assert.equal(store.environmentAction(SITE_ID).lastError, null);
+
+  // Terminal failure is surfaced for display but never written by the projection.
+  control.operations.set('op-4', { ...control.operations.get('op-4'), status: 'failed', error: 'unpause failed' });
+  assert.match((await supervisor.pendingAction(site)).lastError, /unpause failed/);
+  assert.equal(store.environmentAction(SITE_ID).lastError, null, 'the projection is read-only');
+
+  // An already-errored row and a receipt without a dispatch are returned untouched.
+  store.updateEnvironmentActionError(SITE_ID, 'previous failure');
+  const errored = await supervisor.pendingAction(site);
+  assert.match(errored.lastError, /previous failure/);
+  assert.deepEqual(control.requests, [], 'the projection never dispatches');
+  store.deleteRuntimeRecord(SITE_ID, 'snapshot-request:rid4');
+  assert.deepEqual(await supervisor.pendingAction(site), store.environmentAction(SITE_ID));
 });
 
-test('fleet backstop never clears a durable restarting state', async (t) => {
-  const { supervisor, site, calls } = supervisorHarness(t, { statuses: ['running'] });
-  site.environmentDesiredState = 'restarting';
-  await supervisor.backstop();
-  assert.equal(site.environmentDesiredState, 'restarting');
-  assert.equal(calls.some(([name]) => name === 'start'), false);
+test('snapshot retention authority is handed to the runtime with the configured bound', async (t) => {
+  const { supervisor, control, site } = await sitesSdkHarness(t, {
+    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'running' }) },
+    config: { releasesKept: 2 },
+  });
+  await supervisor.state(site);
+  const binding = await control.authority.resolve({ siteId: SITE_ID, accountUserId: 7, access: 'read' });
+  assert.equal(binding.snapshotRetention, 2, 'the provider prunes with the Sites-configured retention');
+  assert.equal(binding.image, BASE_IMAGE_TAG);
+  assert.equal(binding.sourcePath, site.sourceDir);
+  assert.equal(binding.staging, false);
 });
 
-test('daemon reconcile completes durable rollback and returns desired state to running', async (t) => {
-  const { supervisor, calls, site, store, releases, root } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
-  const dataArchive = join(root, 'site', 'environment', 'snapshots', 'restore-1', 'data.tar');
-  releases.push({
-    id: 'restore-1', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
-    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:restore-1`,
-    dataArchive,
+// --- Durable restore receipts --------------------------------------------------------------------
+
+test('restore is durable before dispatch and a completed restore moves the public pointer exactly once', async (t) => {
+  const { supervisor, control, store, site } = await sitesSdkHarness(t, { controlState: 'stopped' });
+  seedHandover(store);
+  store.insertRelease(snapshotRelease(site, { id: 'pub-1' }));
+
+  await supervisor.scheduleRestore(site, 'pub-1', true);
+
+  assert.deepEqual(store.environmentAction(SITE_ID), {
+    siteId: SITE_ID, kind: 'rollback', snapshotId: 'pub-1', restoreData: true,
+    requestedAt: store.environmentAction(SITE_ID).requestedAt, lastError: null,
   });
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'rollback', snapshotId: 'restore-1', restoreData: true,
-    requestedAt: new Date().toISOString(), lastError: null,
-  });
+  assert.equal(site.currentReleaseId, null, 'the pointer moves only when the restore completes');
+  assert.deepEqual(restoreRequests(control).length, 1);
+  assert.deepEqual(restoreRequests(control)[0].action, { kind: 'restore', snapshotId: 'pub-1', restoreData: true });
+
   await supervisor.reconcile();
-  assert.equal(store.environmentAction(site.id), null);
-  assert.equal(site.environmentDesiredState, 'running');
-  assert.equal(site.currentReleaseId, 'restore-1');
-  assert.equal(calls.some(([name, spec]) => name === 'create' && spec.image === releases[0].imageRef), true);
-  assert.deepEqual(calls.filter(([name]) => ['stop', 'remove', 'volume-rm', 'volume-ensure', 'volume-import', 'volume-export', 'create', 'update', 'start'].includes(name)).map(([name]) => name), [
-    'volume-rm', 'volume-ensure', 'volume-import', 'volume-rm',
-    'stop', 'remove', 'volume-export', 'volume-rm', 'volume-ensure', 'volume-import',
-    'create', 'start',
-  ]);
+  assert.equal(site.currentReleaseId, 'pub-1');
+  assert.equal(store.environmentAction(SITE_ID), null);
+  assert.equal(store.runtimeRecords(SITE_ID, 'restore-request:').length, 0);
+
+  const dispatched = restoreRequests(control).length;
+  await supervisor.reconcile();
+  assert.equal(restoreRequests(control).length, dispatched, 'a completed restore is never replayed');
 });
 
-test('a second reconcile tick never replays a rollback that is still running', async (t) => {
-  // The durable action row is deleted only when the run COMPLETES, so a reconcile tick arriving while the
-  // first rollback is still restoring reads the same row and queues the whole rollback again. The queue
-  // defers that duplicate rather than dropping it: it stops and rebuilds an already restored environment,
-  // then finds the row gone and reports a false failure over a site that is running perfectly well.
-  const { supervisor, calls, site, store, releases, root, podman } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
-  const dataArchive = join(root, 'site', 'environment', 'snapshots', 'restore-1', 'data.tar');
-  releases.push({
-    id: 'restore-1', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
-    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:restore-1`,
-    dataArchive,
-  });
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'rollback', snapshotId: 'restore-1', restoreData: true,
-    requestedAt: new Date().toISOString(), lastError: null,
-  });
+test('restore dispatch maps the public snapshot id to its runtime id', async (t) => {
+  const { supervisor, control, store, site } = await sitesSdkHarness(t, { controlState: 'stopped' });
+  seedHandover(store);
+  store.insertRelease(snapshotRelease(site, { id: 'pub-1' }));
+  store.putRuntimeRecord(SITE_ID, 'snapshot-runtime:pub-1', 'runtime-1');
 
-  // Hold the first rollback open inside Podman, which is where a real restore spends its time.
-  let releaseImport = () => {};
-  const held = new Promise((resolve) => { releaseImport = resolve; });
-  const importVolume = podman.importVolume;
-  let firstImport = true;
-  podman.importVolume = async (name, input) => {
-    if (firstImport) { firstImport = false; await held; }
-    return await importVolume(name, input);
-  };
+  await supervisor.scheduleRestore(site, 'pub-1', false);
+  assert.deepEqual(restoreRequests(control)[0].action, { kind: 'restore', snapshotId: 'runtime-1', restoreData: false });
 
-  const first = supervisor.reconcile();
-  await new Promise((resolve) => setImmediate(resolve));
-  const second = supervisor.reconcile();
-  releaseImport();
-  await Promise.all([first, second]);
-
-  assert.equal(store.environmentAction(site.id), null, 'the rollback finished and cleared its own action');
-  assert.equal(site.status, 'live', 'a completed rollback must never be reported as failed');
-  assert.equal(site.lastError, null);
-  assert.equal(site.currentReleaseId, 'restore-1');
-  assert.equal(calls.filter(([name]) => name === 'create').length, 1, 'the restore ran once, not twice');
+  await supervisor.reconcile();
+  assert.equal(site.currentReleaseId, 'pub-1', 'the public id, not the runtime id, becomes the release pointer');
 });
 
-test('a rollback rebuilds the container over the environment files an earlier create left behind', async (t) => {
-  // The stub that masks /workspace/.git is written 0400, and `mode` applies only at creation. Writing it
-  // again could not reopen it, so the SECOND create — which is what a rollback performs after removing
-  // the first container — died with EACCES before Podman was ever called.
-  const { supervisor, calls, site, store, releases, root } = supervisorHarness(t, { statuses: [null] });
-  await supervisor.start(site);
-  const stub = join(root, 'site', 'environment', 'git-stub');
-  assert.equal(statSync(stub).mode & 0o777, 0o400, 'the stub stays read-only after the first create');
+test('a failed restore marks its own visible row and does not hot-retry', async (t) => {
+  const { supervisor, control, store, site } = await sitesSdkHarness(t, { controlState: 'stopped' });
+  seedHandover(store);
+  store.insertRelease(snapshotRelease(site, { id: 'pub-1' }));
+  control.operations.set('op-11', { id: 'op-11', requestId: 'rid5', siteId: SITE_ID, accountUserId: 7, generation: 1,
+    action: { kind: 'restore', snapshotId: 'pub-1', restoreData: true }, status: 'failed', error: 'snapshot import failed' });
+  store.putRuntimeRecord(SITE_ID, 'restore-request:rid5', JSON.stringify({
+    requestId: 'rid5', accountUserId: 7, kind: 'restore', publicId: 'pub-1', operationId: 'op-11', requestedAt: iso(),
+    input: { includeData: true, note: '', model: '', restoreData: true },
+  }));
+  assert.equal(store.beginEnvironmentAction({ siteId: SITE_ID, kind: 'rollback', snapshotId: 'pub-1', restoreData: true, requestedAt: iso(), lastError: null }), true);
 
-  releases.push({
-    id: 'rebuild', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
-    sizeBytes: 0, note: '', kind: 'environment-snapshot',
-    imageRef: `localhost/elowen-site/${site.id}:rebuild`, dataArchive: null,
+  await supervisor.reconcile();
+  assert.match(store.environmentAction(SITE_ID).lastError, /snapshot import failed/);
+  assert.equal(store.runtimeRecords(SITE_ID, 'restore-request:').length, 0);
+  assert.notEqual(site.currentReleaseId, 'pub-1', 'a failed restore never moves the pointer');
+
+  await supervisor.reconcile();
+  assert.deepEqual(restoreRequests(control), [], 'no hot retry of a failed restore');
+});
+
+// --- Deletion and environment files --------------------------------------------------------------
+
+test('environment delete requests the typed delete, removes the broker through authority and keeps the Project source', async (t) => {
+  const { supervisor, control, gateway, store, site } = await sitesSdkHarness(t, { controlState: 'stopped' });
+  await supervisor.state(site);
+  await supervisor.delete(SITE_ID);
+
+  assert.deepEqual(requestKinds(control).at(-1), 'delete');
+  assert.equal(supervisor.endpointFor(SITE_ID), null);
+  assert.equal(site.sourceDir, '/workspace/project', 'the Project source directory is never touched');
+  assert.notEqual(store.siteById(SITE_ID), null);
+  assert.equal(gateway.ops.some(([name]) => name === 'remove'), true, 'the broker goes only after the provider stopped the container');
+});
+
+test('a staging conversion binding deletes as cleanup-stage and takes its broker with it', async (t) => {
+  const { supervisor, control, gateway, site } = await sitesSdkHarness(t, { site: environmentSite({ runtime: 'static' }) });
+  await supervisor.state(site);
+  await supervisor.delete(SITE_ID, {});
+
+  assert.deepEqual(requestKinds(control).at(-1), 'cleanup-stage');
+  assert.deepEqual(gateway.ops.filter(([name]) => name === 'remove').length, 1);
+});
+
+test('environment files survive repeated container creation', async (t) => {
+  const { supervisor, control, site, root } = await sitesSdkHarness(t);
+  await supervisor.state(site);
+  // The handover above ran beforeCreate once; the provider may recreate the container (restore, rebuild).
+  await control.authority.beforeCreate(SITE_ID);
+  const environment = join(root, 'site', SITE_ID, 'environment');
+  const stub = join(environment, 'git-stub');
+  assert.equal(modeOf(stub), 0o400, 'the stub stays read-only after the second create');
+  assert.equal(readFileSync(stub, 'utf8'), '');
+  assert.match(readFileSync(join(environment, 'container.env'), 'utf8'), /ELOWEN_SITE_SLUG=environment-demo/);
+});
+
+// --- Conversion suspension -----------------------------------------------------------------------
+//
+// A rollback stops the container to export its volume consistently. The row still says `environment` and
+// `live` for that whole window, so to any automatic starter the container looks exactly like one that
+// should be up and is not. The conversion's own authorized start is the marker's owner.
+
+test('a reconcile tick under conversion suspension drops routing and dispatches nothing', async (t) => {
+  const suspension = { value: null };
+  const { supervisor, control, store, socketPath } = await sitesSdkHarness(t, {
+    controlState: 'running',
+    store: { conversionSuspends: (id) => (id === SITE_ID ? suspension.value : null) },
   });
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'rollback', snapshotId: 'rebuild', restoreData: false,
-    requestedAt: new Date().toISOString(), lastError: null,
-  });
+  seedHandover(store);
+  // Nothing starts the container in this tick, so the ingress directory the live socket needs is not
+  // prepared by a lifecycle callback here.
+  mkdirSync(join(socketPath, '..'), { recursive: true });
+  const server = createServer();
+  await new Promise((resolve) => server.listen(socketPath, resolve));
+  t.after(async () => { await new Promise((resolve) => server.close(resolve)); });
+  suspension.value = 'environment';
+
   await supervisor.reconcile();
 
-  assert.equal(store.environmentAction(site.id), null, 'the rollback has to finish, not stall on the stub');
-  assert.equal(site.status, 'live');
-  assert.equal(site.currentReleaseId, 'rebuild');
-  assert.equal(calls.filter(([name]) => name === 'create').length, 2, 'the second create is the restored container');
-  assert.equal(statSync(stub).mode & 0o777, 0o400, 'and the stub is read-only again afterwards');
+  assert.deepEqual(control.requests, [], 'nothing was started or dispatched');
+  assert.equal(supervisor.endpointFor(SITE_ID), null, 'nothing keeps routing to the stopped container');
 });
 
-test('rollback restores previous data when restored rootfs fails readiness', async (t) => {
-  const { supervisor, site, store, releases, root, podman, calls } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
-  const dataArchive = join(root, 'site', 'environment', 'snapshots', 'start-fail', 'data.tar');
-  releases.push({
-    id: 'start-fail', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
-    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:start-fail`, dataArchive,
+test('only the conversion own start passes its guard, and a durable action defers instead of failing', async (t) => {
+  const suspension = { value: 'environment' };
+  const { supervisor, control, store, site } = await sitesSdkHarness(t, {
+    control: { authorityLifecycle: false, discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'stopped' }) },
+    store: { conversionSuspends: (id) => (id === SITE_ID ? suspension.value : null) },
   });
-  podman.start = async () => { throw new Error('restored rootfs failed to start'); };
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'rollback', snapshotId: 'start-fail', restoreData: true,
-    requestedAt: new Date().toISOString(), lastError: null,
-  });
+  await assert.rejects(() => supervisor.start(site), /held by a runtime conversion/);
+  assert.deepEqual(control.requests, [], 'an unauthorized start never reaches the provider');
+
+  await supervisor.start(site, { authorized: true });
+  assert.deepEqual(requestKinds(control), ['start'], 'the authorized conversion start ran');
+
+  // A snapshot requested while a conversion holds the environment is deferred, not failed: the receipt
+  // stays clean for recovery instead of writing an error the operator did not cause.
+  store.putRuntimeRecord(SITE_ID, 'snapshot-request:rid6', JSON.stringify({
+    requestId: 'rid6', accountUserId: 7, kind: 'snapshot', publicId: 'pub-6', requestedAt: iso(),
+    input: { includeData: true, note: '', model: 'm' },
+  }));
+  assert.equal(store.beginEnvironmentAction({ siteId: SITE_ID, kind: 'snapshot', snapshotId: 'pub-6', includeData: true, note: '', model: 'm', requestedAt: iso(), lastError: null }), true);
   await supervisor.reconcile();
-  const backup = join(root, 'site', 'environment', 'restore', 'start-fail', 'previous-data.tar');
-  const recoveryRemove = calls.findLastIndex(([name]) => name === 'remove');
-  const backupImport = calls.findIndex(([name, _volume, input]) => name === 'volume-import' && input === backup);
-  assert.ok(recoveryRemove > calls.findIndex(([name]) => name === 'create'));
-  assert.ok(recoveryRemove < backupImport, 'failed snapshot container must be removed before restoring its attached volume');
-  assert.equal(backupImport >= 0, true);
-  assert.equal(existsSync(backup), false);
-  assert.match(store.environmentAction(site.id).lastError, /failed to start/);
+  assert.deepEqual(snapshotRequests(control).length, 0, 'the action is deferred under the rollback');
+  assert.equal(store.environmentAction(SITE_ID).lastError, null);
+  assert.equal(store.runtimeRecords(SITE_ID, 'snapshot-request:').length, 1, 'the receipt is retained for recovery');
 });
 
-test('rollback rejects stale cross-site image and archive references before stopping', async (t) => {
-  const { supervisor, site, store, releases, calls, root } = supervisorHarness(t, { statuses: ['running'] });
-  releases.push({
-    id: 'stale', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
-    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: 'localhost/elowen-site/other-site:stale',
-    dataArchive: join(root, 'site', 'environment', 'snapshots', 'other', 'data.tar'),
-  });
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'rollback', snapshotId: 'stale', restoreData: true,
-    requestedAt: new Date().toISOString(), lastError: null,
-  });
-  await supervisor.reconcile();
-  assert.equal(calls.some(([name]) => name === 'stop'), false);
-  assert.match(store.environmentAction(site.id).lastError, /not retained for this site/);
+// --- Durable store slot --------------------------------------------------------------------------
+
+test('environment exec leases exclude lifecycle actions across processes', () => {
+  const store = new SitesStore(makeDb());
+  store.insertSite(environmentSite());
+  assert.equal(store.tryBeginEnvironmentExec(SITE_ID, 'exec-token', Date.now() + 60_000), true);
+  assert.equal(store.beginEnvironmentAction({
+    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'blocked', includeData: false,
+    note: '', model: 'm', requestedAt: iso(), lastError: null,
+  }), false);
+  store.endEnvironmentExec(SITE_ID, 'wrong-token');
+  assert.equal(store.beginEnvironmentAction({
+    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'blocked', includeData: false,
+    note: '', model: 'm', requestedAt: iso(), lastError: null,
+  }), false);
+  store.endEnvironmentExec(SITE_ID, 'exec-token');
+  assert.equal(store.beginEnvironmentAction({
+    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'lost-stop', includeData: false,
+    note: '', model: 'm', requestedAt: iso(), lastError: null,
+  }), true);
 });
 
-test('rollback verifies snapshot image before stopping the current container', async (t) => {
-  const { supervisor, site, store, releases, podman, calls } = supervisorHarness(t, { statuses: ['running'] });
-  releases.push({
-    id: 'missing-image', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
-    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:missing-image`, dataArchive: null,
-  });
-  podman.imageExists = async () => false;
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'rollback', snapshotId: 'missing-image', restoreData: false,
-    requestedAt: new Date().toISOString(), lastError: null,
-  });
-  await supervisor.reconcile();
-  assert.equal(calls.some(([name]) => name === 'stop' || name === 'remove'), false);
-  assert.match(store.environmentAction(site.id).lastError, /image is missing/);
-});
-
-test('failed data restore puts the previous volume back and leaves the action durable', async (t) => {
-  const { supervisor, site, store, releases, root, podman, calls } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
-  const dataArchive = join(root, 'site', 'environment', 'snapshots', 'restore-fail', 'data.tar');
-  releases.push({
-    id: 'restore-fail', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
-    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:restore-fail`, dataArchive,
-  });
-  let imports = 0;
-  podman.importVolume = async (name, input) => {
-    imports += 1;
-    calls.push(['volume-import', name, input]);
-    if (imports === 2) throw new Error('snapshot import failed');
-  };
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'rollback', snapshotId: 'restore-fail', restoreData: true,
-    requestedAt: new Date().toISOString(), lastError: null,
-  });
-  await supervisor.reconcile();
-  assert.equal(imports, 3, 'validate snapshot, failed replacement, restore previous backup');
-  assert.match(store.environmentAction(site.id).lastError, /snapshot import failed/);
-  assert.equal(site.status, 'failed');
-});
-
-test('failed previous-data restore keeps the durable backup archive', async (t) => {
-  const { supervisor, site, store, releases, root, podman, calls } = supervisorHarness(t, { statuses: ['running', 'stopping', 'exited'] });
-  const dataArchive = join(root, 'site', 'environment', 'snapshots', 'restore-broken', 'data.tar');
-  releases.push({
-    id: 'restore-broken', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
-    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:restore-broken`, dataArchive,
-  });
-  let imports = 0;
-  podman.importVolume = async (name, input) => {
-    imports += 1;
-    calls.push(['volume-import', name, input]);
-    if (imports >= 2) throw new Error(imports === 2 ? 'snapshot import failed' : 'backup restore failed');
-  };
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'rollback', snapshotId: 'restore-broken', restoreData: true,
-    requestedAt: new Date().toISOString(), lastError: null,
-  });
-  await supervisor.reconcile();
-  assert.match(store.environmentAction(site.id).lastError, /previous data backup could not be restored/);
-  assert.equal(existsSync(join(root, 'site', 'environment', 'restore', 'restore-broken', 'previous-data.tar')), true);
-});
-
-test('environment delete removes snapshots and pending actions without deleting Project source', async (t) => {
-  const { supervisor, calls, site, releases, store } = supervisorHarness(t, { statuses: [null] });
-  releases.push({
-    id: 'delete-snapshot', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
-    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:delete-snapshot`, dataArchive: null,
-  });
-  store.putEnvironmentAction({ siteId: site.id, kind: 'rollback', snapshotId: 'delete-snapshot', restoreData: false, requestedAt: new Date().toISOString(), lastError: null });
-  await supervisor.delete(site.id);
-  assert.equal(calls.some(([name]) => name === 'image-rm'), true);
-  assert.equal(store.environmentAction(site.id), null);
-  const cleanup = calls.find(([name]) => name === 'unshare-rm');
-  assert.ok(cleanup);
-  assert.equal(cleanup[1].includes(site.sourceDir), false);
-  assert.deepEqual(cleanup[1].map((path) => path.endsWith('/environment')), [true]);
+test('the visible action slot is exclusive while clean, replaceable once errored, and never moves desired state', () => {
+  const store = new SitesStore(makeDb());
+  store.insertSite(environmentSite());
+  assert.equal(store.beginEnvironmentAction({
+    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'snap-a', includeData: true,
+    note: 'a', model: 'm', requestedAt: iso(), lastError: null,
+  }), true);
+  assert.equal(store.siteById(SITE_ID).environmentDesiredState, 'running', 'the provider owns desired state; the slot never mutates it');
+  assert.equal(store.beginEnvironmentAction({
+    siteId: SITE_ID, kind: 'rollback', snapshotId: 'snap-b', restoreData: false,
+    requestedAt: iso(), lastError: null,
+  }), false, 'a clean action stays exclusive');
+  store.updateEnvironmentActionError(SITE_ID, 'failed once');
+  assert.equal(store.beginEnvironmentAction({
+    siteId: SITE_ID, kind: 'rollback', snapshotId: 'snap-b', restoreData: false,
+    requestedAt: iso(), lastError: null,
+  }), true, 'an errored action is replaced only by a new explicit request');
+  const action = store.environmentAction(SITE_ID);
+  assert.equal(action.kind, 'rollback');
+  assert.equal(action.lastError, null);
+  store.deleteEnvironmentAction(SITE_ID);
+  assert.equal(store.environmentAction(SITE_ID), null);
 });
 
 test('migration v5 preserves existing runtimes, exposes environment counts and fails unknown runtimes', () => {
@@ -1016,8 +592,9 @@ test('migration v5 preserves existing runtimes, exposes environment counts and f
   const store = new SitesStore(db);
   // The schema head is pinned deliberately: a migration added without updating this line is a migration
   // nobody reviewed against the legacy rows seeded above. v9 adds the runtime conversion slot, v10 the
-  // durable crash-recovery state on it; neither touches an existing site row.
-  assert.equal(db.appliedVersion(), 10);
+  // durable crash-recovery state on it, and v11/v12 the runtime records and provider-owned lifecycle
+  // columns; none of them touches an existing site row.
+  assert.equal(db.appliedVersion(), 12);
   for (const runtime of ['static', 'command', 'php']) assert.equal(store.siteById(`legacy-${runtime}`).runtime, runtime);
   store.insertSite(environmentSite({ id: 'site-environment', slug: 'site-environment' }));
   assert.equal(store.countEnvironmentOwnedBy(7), 1);
@@ -1034,50 +611,13 @@ test('migration v5 preserves existing runtimes, exposes environment counts and f
   assert.match(unknown.lastError, /mystery/);
 });
 
-test('environment exec leases exclude lifecycle changes across processes', () => {
-  const store = new SitesStore(makeDb());
-  store.insertSite(environmentSite());
-  assert.equal(store.tryBeginEnvironmentExec(SITE_ID, 'exec-token', Date.now() + 60_000), true);
-  assert.equal(store.tryPutEnvironmentAction({
-    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'blocked', includeData: false,
-    note: '', model: 'm', requestedAt: new Date().toISOString(), lastError: null,
-  }), false);
-  assert.equal(store.tryRequestEnvironmentControl(SITE_ID, 'stopped'), false);
-  store.endEnvironmentExec(SITE_ID, 'wrong-token');
-  assert.equal(store.tryRequestEnvironmentControl(SITE_ID, 'stopped'), false);
-  store.endEnvironmentExec(SITE_ID, 'exec-token');
-  assert.equal(store.tryRequestEnvironmentControl(SITE_ID, 'stopped'), true);
-  assert.equal(store.tryPutEnvironmentAction({
-    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'lost-stop', includeData: false,
-    note: '', model: 'm', requestedAt: new Date().toISOString(), lastError: null,
-  }), false);
-  assert.equal(store.siteById(SITE_ID).environmentDesiredState, 'stopped');
-});
+/** Seed a completed handover so tests can exercise one operation without the bootstrap sequence. */
+function seedHandover(store) {
+  store.putRuntimeRecord(SITE_ID, 'handover', 'complete');
+  store.putRuntimeRecord(SITE_ID, 'bootstrap-intent', 'complete');
+}
 
-test('errored durable actions can be replaced while clean actions remain exclusive', () => {
-  const store = new SitesStore(makeDb());
-  store.insertSite(environmentSite());
-  assert.equal(store.tryPutEnvironmentAction({
-    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'snap-a', includeData: true,
-    note: 'a', model: 'm', requestedAt: new Date().toISOString(), lastError: null,
-  }), true);
-  assert.equal(store.tryPutEnvironmentAction({
-    siteId: SITE_ID, kind: 'rollback', snapshotId: 'snap-b', restoreData: false,
-    requestedAt: new Date().toISOString(), lastError: null,
-  }), false);
-  store.updateEnvironmentActionError(SITE_ID, 'failed once');
-  assert.equal(store.tryPutEnvironmentAction({
-    siteId: SITE_ID, kind: 'rollback', snapshotId: 'snap-b', restoreData: false,
-    requestedAt: new Date().toISOString(), lastError: null,
-  }), true);
-  assert.equal(store.environmentAction(SITE_ID).kind, 'rollback');
-  assert.equal(store.environmentAction(SITE_ID).lastError, null);
-  assert.equal(store.completeEnvironmentAction(SITE_ID, 'snap-b'), true);
-  assert.equal(store.environmentAction(SITE_ID), null);
-  assert.equal(store.siteById(SITE_ID).currentReleaseId, 'snap-b');
-  assert.equal(store.siteById(SITE_ID).environmentDesiredState, 'running');
-  assert.equal(store.siteById(SITE_ID).status, 'live');
-});
+// --- Core seam, manifest, configuration ----------------------------------------------------------
 
 test('core seam, manifest and lifecycle match the final core contract', () => {
   const seams = readFileSync(new URL('../plugins/sites/src/coreSeams.ts', import.meta.url), 'utf8');
@@ -1099,7 +639,7 @@ test('core seam, manifest and lifecycle match the final core contract', () => {
   // The newest core seam this plugin cannot work without. It was the environments contract (0.28.31);
   // it is now the streaming response body, without which a published file over 64 MiB cannot be served
   // at all — while the settings let an administrator publish one far larger.
-  assert.equal(manifest.requiresCore, '0.28.34');
+  assert.equal(manifest.requiresCore, '0.28.35');
   assert.ok(manifest.provides.tools.includes('SiteExec'));
   assert.ok(manifest.provides.tools.includes('SiteControl'));
   assert.ok(manifest.provides.tools.includes('SiteSnapshot'));
@@ -1113,7 +653,9 @@ test('core seam, manifest and lifecycle match the final core contract', () => {
   assert.match(manifest.description, /command/i);
   assert.match(manifest.description, /PHP/i);
   assert.doesNotMatch(seams, /environmentSupportStatus|installEnvironmentSupport/);
+  // All lower container lifecycle belongs to the Sandbox provider: no local driver, no second loop.
   assert.doesNotMatch(lifecycle, /systemd-run|start --attach|podman\.restart|deps\.podman\.restart/);
+  assert.doesNotMatch(lifecycle, /PodmanClient/);
 });
 
 test('environment configuration is strictly bounded and separately gated', () => {
@@ -1138,6 +680,8 @@ test('environment configuration is strictly bounded and separately gated', () =>
   assert.equal(resolved.maxEnvironmentsPerAccount, 20);
 });
 
+// --- Public tools --------------------------------------------------------------------------------
+
 function phase2ToolHarness(t, { userId = 1, admin = false, projectAccess = true, configRaw = {} } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'sites-phase2-tools-'));
   const project = join(root, 'project');
@@ -1157,37 +701,55 @@ function phase2ToolHarness(t, { userId = 1, admin = false, projectAccess = true,
     currentContributionUserId: () => userId,
     currentIdentity: () => ({ elowenUserId: userId }),
     currentSessionId: () => 'session-1',
+    // The trusted per-turn access state. No managed `projectRef` here: this harness stands for a
+    // conversation bound to a host Project, so the source root resolves through workDir.
+    currentAccess: () => ({ projectIds: [7], admin, owner: false, permissionBoundary: null, accountUserId: userId }),
     workDir: () => project,
     assertPathAllowed: (path) => path,
-    control: () => undefined,
-    host: { stores: () => ({ projects: { list: () => [{ id: 7, slug: 'demo', path: project }] } }) },
+    // SiteCreate needs the Sandbox control to exist; the environment mock below carries the behaviour.
+    // No active workspace here, so the source root falls back to the bound Project.
+    control: (name) => (name === 'sandbox' ? { activeWorkspace: () => undefined } : undefined),
+    host: { stores: () => ({ projects: {
+      list: () => [{ id: 7, slug: 'demo', path: project }],
+      get: (id) => (id === 7 ? { id: 7, slug: 'demo', path: project } : null),
+    } }) },
   };
   const resolved = () => resolveConfig({ allowEnvironments: true, ...configRaw }, 'https://elowen.example', 'sites.elowen.example');
+  const envState = (site) => ({
+    state: 'running', desiredState: site.environmentDesiredState === 'running' ? 'running' : 'stopped', lastError: null,
+    limits: {
+      cpus: site.environmentCpus ?? resolved().environmentCpus,
+      memoryMb: site.environmentMemoryMb ?? resolved().environmentMemoryMb,
+      pidsLimit: site.environmentPidsLimit ?? resolved().environmentPidsLimit,
+      diskSoftMb: site.environmentDiskSoftMb ?? resolved().environmentDiskSoftMb,
+    },
+  });
+  let scheduledSnapshot = null;
   const environment = {
-    async state(site) {
-      return {
-        state: 'running', desiredState: site.environmentDesiredState ?? 'running',
-        limits: {
-          cpus: site.environmentCpus ?? resolved().environmentCpus,
-          memoryMb: site.environmentMemoryMb ?? resolved().environmentMemoryMb,
-          pidsLimit: site.environmentPidsLimit ?? resolved().environmentPidsLimit,
-          diskSoftMb: site.environmentDiskSoftMb ?? resolved().environmentDiskSoftMb,
-        },
-      };
-    },
+    async state(site) { environmentCalls.push(['state', site.id]); return envState(site); },
     async exec(site, command, options) { environmentCalls.push(['exec', site.id, command, options]); return { stdout: 'exec-ok', stderr: '', code: 0 }; },
-    async snapshot(site, options) {
-      environmentCalls.push(['snapshot', site.id, options]);
-      const release = {
-        id: options.snapshotId, siteId: site.id, createdAt: new Date().toISOString(), model: options.model,
-        fileCount: 0, sizeBytes: 0, note: options.note, kind: 'environment-snapshot',
-        imageRef: `localhost/elowen-site/${site.id}:${options.snapshotId}`, dataArchive: null,
-      };
-      store.insertRelease(release);
-      return release;
-    },
     async logs(site, lines) { environmentCalls.push(['logs', site.id, lines]); return { lifecycle: 'life', journal: 'journal' }; },
     async applyLimits(site, limits) { environmentCalls.push(['limits', site.id, limits]); store.updateSite(site.id, limits); },
+    async request(site, action, actor) { environmentCalls.push(['request', site.id, action, actor]); },
+    /** Same durable slot the real supervisor claims, so the tool tests assert the real semantics. */
+    async scheduleSnapshot(site, input, actor) {
+      environmentCalls.push(['scheduleSnapshot', site.id, input, actor]);
+      const publicId = `public-${scheduledSnapshot = (scheduledSnapshot ?? 0) + 1}`;
+      if (!store.beginEnvironmentAction({ siteId: site.id, kind: 'snapshot', snapshotId: publicId, includeData: input.includeData, note: input.note, model: input.model, requestedAt: iso(), lastError: null })) {
+        throw new Error('another environment action or execution is in progress');
+      }
+      return { id: publicId };
+    },
+    async scheduleRestore(site, snapshotId, restoreData, actor) {
+      environmentCalls.push(['scheduleRestore', site.id, snapshotId, restoreData, actor]);
+      if (!store.beginEnvironmentAction({ siteId: site.id, kind: 'rollback', snapshotId, restoreData, requestedAt: iso(), lastError: null })) {
+        throw new Error('another environment action or execution is in progress');
+      }
+    },
+    async pendingAction(site) {
+      environmentCalls.push(['pendingAction', site.id]);
+      return store.environmentAction(site.id);
+    },
   };
   registerTools({
     ctx, store, access, config: resolved,
@@ -1213,6 +775,7 @@ test('SiteCreate creates a durable environment from a forked runner without gate
   assert.match(result.content[0].text, /\/data/);
   assert.match(result.content[0].text, /port 80/i);
   assert.match(result.content[0].text, /1 MB/);
+  assert.deepEqual(harness.environmentCalls.filter(([name]) => name === 'snapshot' || name === 'exec'), [], 'nothing runs synchronously at creation');
 });
 
 test('SiteCreate enforces the environment gate, separate count and environment-only inputs', async (t) => {
@@ -1233,7 +796,7 @@ test('SiteExec enforces publisher and Project access and runs synchronously in a
   allowed.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
   const result = await allowed.call('SiteExec', { site: SITE_ID, command: 'echo ok', timeoutSeconds: 900, workdir: '/workspace' });
   assert.equal(result.content[0].text.includes('exec-ok'), true);
-  assert.deepEqual(allowed.environmentCalls[0], ['exec', SITE_ID, 'echo ok', { timeoutSeconds: 900, workdir: '/workspace' }]);
+  assert.deepEqual(allowed.environmentCalls[0], ['exec', SITE_ID, 'echo ok', { timeoutSeconds: 900, workdir: '/workspace', accountUserId: 1 }]);
   await assert.rejects(() => allowed.call('SiteExec', { site: SITE_ID, command: 'x', workdir: '/workspace/../data' }), /workdir/i);
 
   const noProject = phase2ToolHarness(t, { projectAccess: false });
@@ -1243,6 +806,21 @@ test('SiteExec enforces publisher and Project access and runs synchronously in a
   const noPublisher = phase2ToolHarness(t, { configRaw: { publishers: 'admins' } });
   noPublisher.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
   await assert.rejects(() => noPublisher.call('SiteExec', { site: SITE_ID, command: 'echo no' }), /not allowed to publish/i);
+});
+
+test('SiteExec refuses every pending environment mutation', async (t) => {
+  for (const desiredState of ['stopped', 'restarting']) {
+    const harness = phase2ToolHarness(t);
+    harness.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7, environmentDesiredState: desiredState }));
+    await assert.rejects(() => harness.call('SiteExec', { site: SITE_ID, command: 'echo no' }), /pending/i);
+  }
+  const harness = phase2ToolHarness(t);
+  harness.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
+  harness.store.beginEnvironmentAction({
+    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'pending', includeData: false, note: '', model: 'm',
+    requestedAt: iso(), lastError: null,
+  });
+  await assert.rejects(() => harness.call('SiteExec', { site: SITE_ID, command: 'echo no' }), /pending/i);
 });
 
 test('admin can manage environments without Project assignment', async (t) => {
@@ -1258,7 +836,7 @@ test('admin can manage environments without Project assignment', async (t) => {
     const harness = phase2ToolHarness(t, { userId: 9, admin: true, projectAccess: false, configRaw: { publishers: 'admins' } });
     harness.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
     harness.store.insertRelease({
-      id: 'admin-snapshot', siteId: SITE_ID, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
+      id: 'admin-snapshot', siteId: SITE_ID, createdAt: iso(), model: 'm', fileCount: 0,
       sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${SITE_ID}:admin-snapshot`, dataArchive: null,
     });
     await harness.call(tool, { site: SITE_ID, ...input });
@@ -1276,45 +854,64 @@ test('ordinary owner loses environment operations after Project access is revoke
     const harness = phase2ToolHarness(t, { projectAccess: false });
     harness.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
     harness.store.insertRelease({
-      id: 'owner-snapshot', siteId: SITE_ID, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
+      id: 'owner-snapshot', siteId: SITE_ID, createdAt: iso(), model: 'm', fileCount: 0,
       sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${SITE_ID}:owner-snapshot`, dataArchive: null,
     });
     await assert.rejects(() => harness.call(tool, { site: SITE_ID, ...input }), /Project access/i);
   }
 });
 
-test('SiteControl clears an errored action but never a clean in-flight action', async (t) => {
+test('SiteControl and lifecycle scheduling carry durable daemon work without ambient gateway control', async (t) => {
   const harness = phase2ToolHarness(t);
-  harness.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7, status: 'failed', lastError: 'failed' }));
-  harness.store.putEnvironmentAction({
-    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'failed', includeData: false, note: '', model: 'm',
-    requestedAt: new Date().toISOString(), lastError: 'failed',
+  const site = environmentSite({ ownerUserId: 1, projectId: 7 });
+  harness.store.insertSite(site);
+  const result = await harness.call('SiteControl', { site: SITE_ID, action: 'restart' });
+  assert.equal(result.details.scheduled, true);
+  assert.deepEqual(harness.environmentCalls.find(([name]) => name === 'request'), ['request', SITE_ID, { kind: 'restart' }, 1]);
+  assert.equal(harness.environmentCalls.some(([name]) => ['exec', 'snapshot', 'scheduleSnapshot'].includes(name)), false);
+
+  harness.store.insertRelease({
+    id: 'snapshot-1', siteId: site.id, createdAt: iso(), model: 'm', fileCount: 0,
+    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:snapshot-1`, dataArchive: '/snapshot/data.tar',
   });
-  await harness.call('SiteControl', { site: SITE_ID, action: 'start' });
-  assert.equal(harness.store.environmentAction(SITE_ID), null);
-  assert.equal(harness.store.siteById(SITE_ID).status, 'failed');
-  assert.equal(harness.store.siteById(SITE_ID).lastError, null);
-  harness.store.putEnvironmentAction({
-    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'clean', includeData: false, note: '', model: 'm',
-    requestedAt: new Date().toISOString(), lastError: null,
+  await harness.call('SiteRollback', { site: SITE_ID, releaseId: 'snapshot-1', restoreData: true });
+  assert.deepEqual(harness.store.environmentAction(SITE_ID), {
+    siteId: SITE_ID, kind: 'rollback', snapshotId: 'snapshot-1', restoreData: true,
+    requestedAt: harness.store.environmentAction(SITE_ID).requestedAt, lastError: null,
   });
-  await assert.rejects(() => harness.call('SiteControl', { site: SITE_ID, action: 'stop' }), /already in progress/i);
-  assert.equal(harness.store.environmentAction(SITE_ID).snapshotId, 'clean');
+
+  harness.store.insertSite(environmentSite({ id: 'other-site', slug: 'other-site', ownerUserId: 1, projectId: 7 }));
+  await assert.rejects(() => harness.call('SiteRollback', { site: 'other-site', releaseId: 'snapshot-1' }), /not retained for this site/i);
 });
 
-test('SiteExec refuses every pending environment mutation', async (t) => {
-  for (const desiredState of ['stopped', 'restarting']) {
-    const harness = phase2ToolHarness(t);
-    harness.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7, environmentDesiredState: desiredState }));
-    await assert.rejects(() => harness.call('SiteExec', { site: SITE_ID, command: 'echo no' }), /pending/i);
-  }
+test('SiteSnapshot schedules daemon work with a stable public id and SiteGet exposes pending errors', async (t) => {
   const harness = phase2ToolHarness(t);
   harness.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
-  harness.store.putEnvironmentAction({
-    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'pending', includeData: false, note: '', model: 'm',
-    requestedAt: new Date().toISOString(), lastError: null,
-  });
-  await assert.rejects(() => harness.call('SiteExec', { site: SITE_ID, command: 'echo no' }), /pending/i);
+  const scheduled = await harness.call('SiteSnapshot', { site: SITE_ID, includeData: true, note: 'before change' });
+  const action = harness.store.environmentAction(SITE_ID);
+  assert.equal(action.kind, 'snapshot');
+  assert.equal(action.includeData, true);
+  assert.equal(action.note, 'before change');
+  assert.equal(scheduled.details.scheduled, true);
+  assert.equal(scheduled.details.snapshotId, action.snapshotId, 'the promised public id is returned immediately');
+  assert.equal(harness.environmentCalls.some(([name]) => name === 'snapshot'), false, 'no synchronous snapshot call');
+
+  harness.store.updateEnvironmentActionError(SITE_ID, 'snapshot failed once');
+  const detail = await harness.call('SiteGet', { site: SITE_ID });
+  assert.equal(detail.details.environmentAction.lastError, 'snapshot failed once');
+
+  const retried = await harness.call('SiteSnapshot', { site: SITE_ID, includeData: false, note: 'retry' });
+  assert.notEqual(retried.details.snapshotId, action.snapshotId, 'the retry promises a fresh public id');
+  assert.equal(harness.store.environmentAction(SITE_ID).lastError, null);
+  assert.equal(harness.store.environmentAction(SITE_ID).kind, 'snapshot');
+});
+
+test('a clean in-flight action refuses scheduling until it settles or errors', async (t) => {
+  const harness = phase2ToolHarness(t);
+  harness.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
+  await harness.call('SiteSnapshot', { site: SITE_ID, includeData: false });
+  await assert.rejects(() => harness.call('SiteSnapshot', { site: SITE_ID, includeData: true }), /already in progress/i);
+  assert.equal(harness.store.environmentAction(SITE_ID).snapshotId.startsWith('public-'), true, 'the clean action was not replaced');
 });
 
 test('SiteUpdate applies environment limits for an administrator, clamped to the declared caps', async (t) => {
@@ -1348,18 +945,18 @@ test('SiteUpdate applies environment limits for an administrator, clamped to the
 });
 
 test('SiteUpdate leaves nothing half written when the limits cannot be applied', async (t) => {
-  // Persisting the ordinary patch first and applying limits afterwards meant a Podman failure surfaced as
-  // a bare error while the title and visibility had already changed, so the caller could not tell what
+  // Persisting the ordinary patch first and applying limits afterwards meant a provider failure surfaced
+  // as a bare error while the title and visibility had already changed, so the caller could not tell what
   // had actually happened. The limits go first, and their failure names itself.
   const admin = phase2ToolHarness(t, { userId: 9, admin: true });
   admin.store.insertSite(environmentSite({ ownerUserId: 9, projectId: 7, title: 'Before', visibility: 'private' }));
-  admin.environment.applyLimits = async () => { throw new Error('crun refused the update'); };
+  admin.environment.applyLimits = async () => { throw new Error('the provider refused the update'); };
 
   await assert.rejects(
     () => admin.call('SiteUpdate', {
       site: SITE_ID, title: 'After', visibility: 'authenticated', environmentMemoryMb: 2048,
     }),
-    /limits could not be applied.*crun refused the update/i,
+    /limits could not be applied.*the provider refused the update/i,
   );
 
   const unchanged = admin.store.siteById(SITE_ID);
@@ -1375,45 +972,7 @@ test('SiteUpdate refuses resource limits on a site that is not an environment', 
   assert.equal(admin.environmentCalls.some(([name]) => name === 'limits'), false);
 });
 
-test('SiteSnapshot queues daemon work and SiteGet exposes pending action errors', async (t) => {
-  const harness = phase2ToolHarness(t);
-  harness.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
-  const scheduled = await harness.call('SiteSnapshot', { site: SITE_ID, includeData: true, note: 'before change' });
-  const action = harness.store.environmentAction(SITE_ID);
-  assert.equal(action.kind, 'snapshot');
-  assert.equal(action.includeData, true);
-  assert.equal(action.note, 'before change');
-  assert.equal(scheduled.details.scheduled, true);
-  assert.equal(harness.environmentCalls.some(([name]) => name === 'snapshot'), false);
-  harness.store.updateEnvironmentActionError(SITE_ID, 'snapshot failed once');
-  const detail = await harness.call('SiteGet', { site: SITE_ID });
-  assert.equal(detail.details.environmentAction.lastError, 'snapshot failed once');
-  const retried = await harness.call('SiteSnapshot', { site: SITE_ID, includeData: false, note: 'retry' });
-  assert.notEqual(retried.details.snapshotId, action.snapshotId);
-  assert.equal(harness.store.environmentAction(SITE_ID).lastError, null);
-  assert.equal(harness.store.environmentAction(SITE_ID).kind, 'snapshot');
-});
-
-test('SiteControl and SiteRollback persist durable daemon work without ambient gateway control', async (t) => {
-  const harness = phase2ToolHarness(t);
-  const site = environmentSite({ ownerUserId: 1, projectId: 7 });
-  harness.store.insertSite(site);
-  harness.store.insertRelease({
-    id: 'snapshot-1', siteId: site.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 0,
-    sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${site.id}:snapshot-1`, dataArchive: '/snapshot/data.tar',
-  });
-  await harness.call('SiteControl', { site: SITE_ID, action: 'restart' });
-  assert.equal(harness.store.siteById(SITE_ID).environmentDesiredState, 'restarting');
-  harness.store.updateSite(SITE_ID, { environmentDesiredState: 'running' });
-  await harness.call('SiteRollback', { site: SITE_ID, releaseId: 'snapshot-1', restoreData: true });
-  assert.deepEqual(harness.store.environmentAction(SITE_ID), {
-    siteId: SITE_ID, kind: 'rollback', snapshotId: 'snapshot-1', restoreData: true,
-    requestedAt: harness.store.environmentAction(SITE_ID).requestedAt, lastError: null,
-  });
-
-  harness.store.insertSite(environmentSite({ id: 'other-site', slug: 'other-site', ownerUserId: 1, projectId: 7 }));
-  await assert.rejects(() => harness.call('SiteRollback', { site: 'other-site', releaseId: 'snapshot-1' }), /not retained for this site/i);
-});
+// --- Public API ----------------------------------------------------------------------------------
 
 const apiRequest = ({ method = 'GET', path = '', admin = false, userId = 1, body = {}, query = {} } = {}) => ({
   method, path, query, headers: {}, params: {},
@@ -1434,28 +993,44 @@ function phase2ApiHarness({ provisioning } = {}) {
     people: () => new Map([[1, { id: 1, username: 'owner', name: 'Owner', avatar: '' }]]),
     projectSlug: () => 'demo', deleteSite: async () => {}, activateRelease: () => {},
     runtimeState: () => ({ running: false, logTail: '' }), allocatePort: async () => 43000, restartRuntime: async () => {},
-    environmentState: async (site) => ({
-      state: 'running', desiredState: site.environmentDesiredState,
-      limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 },
-    }),
-    environmentLogs: async (_site, lines) => { calls.push(['logs', lines]); return { lifecycle: 'life', journal: 'journal' }; },
+    environmentState: async (site, actor) => {
+      calls.push(['state', site.id, actor]);
+      return {
+        state: 'running', desiredState: site.environmentDesiredState, lastError: null,
+        limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 },
+      };
+    },
+    environmentAction: async (site, actor) => {
+      calls.push(['action', site.id, actor]);
+      return store.environmentAction(site.id);
+    },
+    environmentLogs: async (_site, lines, actor) => { calls.push(['logs', lines, actor]); return { lifecycle: 'life', journal: 'journal' }; },
     gatewayReadiness: async () => ({
       id: 'sites-gateway', label: 'Published sites gateway', ok: false, status: 'misdirected',
       detail: 'wrong target', observedTargets: ['203.0.113.5'],
     }),
     gatewayRecord: () => ({ type: 'CNAME', name: '*.sites.elowen.example', value: 'elowen.example.' }),
-    requestEnvironmentControl: async (site, action) => { calls.push(['control', site.id, action]); store.updateSite(site.id, { environmentDesiredState: action === 'stop' ? 'stopped' : action === 'restart' ? 'restarting' : 'running' }); },
-    snapshotEnvironment: async (site, input) => {
-      calls.push(['snapshot', site.id, input]);
-      if (!store.tryPutEnvironmentAction({
-        siteId: site.id, kind: 'snapshot', snapshotId: 'snap-api', includeData: input.includeData,
-        note: input.note, model: 'm', requestedAt: new Date().toISOString(), lastError: null,
-      })) throw new Error('action pending');
-      return { id: 'snap-api' };
+    requestEnvironmentControl: async (site, action, actor) => {
+      calls.push(['control', site.id, action, actor]);
+      store.updateSite(site.id, { environmentDesiredState: action === 'stop' ? 'stopped' : action === 'restart' ? 'restarting' : 'running' });
     },
-    rollbackEnvironment: async (site, input) => { calls.push(['rollback', site.id, input]); },
-    applyEnvironmentLimits: async (site, limits) => { calls.push(['limits', site.id, limits]); store.updateSite(site.id, limits); },
+    snapshotEnvironment: async (site, input, actor) => {
+      calls.push(['snapshot', site.id, input, actor]);
+      const publicId = 'snap-api';
+      if (!store.beginEnvironmentAction({ siteId: site.id, kind: 'snapshot', snapshotId: publicId, includeData: input.includeData, note: input.note, model: 'm', requestedAt: iso(), lastError: null })) {
+        throw new Error('action pending');
+      }
+      return { id: publicId };
+    },
+    rollbackEnvironment: async (site, input, actor) => {
+      calls.push(['rollback', site.id, input, actor]);
+      if (!store.beginEnvironmentAction({ siteId: site.id, kind: 'rollback', snapshotId: input.releaseId, restoreData: input.restoreData, requestedAt: iso(), lastError: null })) {
+        throw new Error('action pending');
+      }
+    },
+    applyEnvironmentLimits: async (site, limits, actor) => { calls.push(['limits', site.id, limits, actor]); store.updateSite(site.id, limits); },
     provisioning: provisioning ?? { status: async () => ({ ready: true, items: [] }), provision: async () => ({ ready: true, items: [] }) },
+    migration: { status: () => null, prepare: async () => null, flip: async () => null, complete: async () => null, rollback: async () => null, pending: () => [], registerRecipe: async () => null },
   });
   return { store, handlers, calls };
 }
@@ -1477,7 +1052,7 @@ test('gateway readiness API returns only sanitized status and expected record fi
 test('API environment detail, control, snapshot and rollback actions use durable seams', async () => {
   const { handlers, calls, store } = phase2ApiHarness();
   store.insertRelease({
-    id: 'snap', siteId: SITE_ID, createdAt: new Date().toISOString(), model: 'm', fileCount: 0, sizeBytes: 0,
+    id: 'snap', siteId: SITE_ID, createdAt: iso(), model: 'm', fileCount: 0, sizeBytes: 0,
     note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${SITE_ID}:snap`, dataArchive: null,
   });
   const detail = await handlers.site(apiRequest({ path: SITE_ID }));
@@ -1489,27 +1064,44 @@ test('API environment detail, control, snapshot and rollback actions use durable
   assert.deepEqual(detail.body.environment.limitOverrides, { cpus: null, memoryMb: null, pidsLimit: null, diskSoftMb: null });
   assert.equal(detail.body.environment.canControl, true);
   assert.equal(detail.body.environment.canSetLimits, false);
-  const adminDetail = await handlers.site(apiRequest({ path: SITE_ID, admin: true }));
-  assert.equal(adminDetail.body.environment.canSetLimits, true);
   assert.equal(detail.body.environment.transport.requestBodyLimitBytes, 1024 * 1024);
   assert.equal(detail.body.releases[0].kind, 'environment-snapshot');
-  assert.equal(detail.body.releases[0].imageRef, undefined);
-  assert.equal(detail.body.releases[0].dataArchive, undefined);
+  assert.equal(detail.body.releases[0].includesData, false);
+  assert.equal(detail.body.releases[0].imageRef, undefined, 'provider image references never leak through the API');
+  assert.equal(detail.body.releases[0].dataArchive, undefined, 'provider archive paths never leak through the API');
   const logs = await handlers.site(apiRequest({ path: `${SITE_ID}/logs`, query: { lines: '9000' } }));
   assert.equal(logs.status, 200);
   assert.deepEqual(logs.body, { lifecycle: 'life', journal: 'journal', lines: 1000 });
-  assert.deepEqual(calls.shift(), ['logs', 1000]);
+  // Not consuming: the full ordered sequence is asserted at the end of this test.
+  assert.deepEqual(calls.filter(([name]) => name === 'logs'), [['logs', 1000, 1]]);
 
   assert.equal((await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, body: { action: 'restart' } }))).status, 200);
   store.updateSite(SITE_ID, { environmentDesiredState: 'running' });
   assert.equal((await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/snapshot`, body: { includeData: true } }))).status, 200);
   store.updateEnvironmentActionError(SITE_ID, 'api snapshot failed');
   const pending = await handlers.site(apiRequest({ path: SITE_ID }));
-  assert.equal(pending.body.environment.action.lastError, 'api snapshot failed');
+  assert.equal(pending.body.environment.action.lastError, 'api snapshot failed', 'the pending projection is exposed for display');
   store.deleteEnvironmentAction(SITE_ID);
   store.updateSite(SITE_ID, { environmentDesiredState: 'running' });
   assert.equal((await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/rollback`, body: { releaseId: 'snap', restoreData: false } }))).status, 200);
-  assert.deepEqual(calls.map(([name]) => name), ['control', 'snapshot', 'rollback']);
+  assert.deepEqual(calls.map(([name]) => name), ['state', 'action', 'logs', 'control', 'snapshot', 'state', 'action', 'rollback']);
+});
+
+test('API rollback refuses an unverified /data replacement before scheduling anything', async () => {
+  const { handlers, calls, store } = phase2ApiHarness();
+  store.insertRelease({
+    id: 'snap', siteId: SITE_ID, createdAt: iso(), model: 'm', fileCount: 0, sizeBytes: 0,
+    note: '', kind: 'environment-snapshot', imageRef: `localhost/elowen-site/${SITE_ID}:snap`, dataArchive: null,
+  });
+  const refused = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/rollback`, body: { releaseId: 'snap', restoreData: true } }));
+  assert.equal(refused.status, 400);
+  assert.equal(store.environmentAction(SITE_ID), null);
+  assert.deepEqual(calls.filter(([name]) => name === 'rollback'), []);
+
+  store.putRuntimeRecord(SITE_ID, 'snapshot-data:snap', 'true');
+  const verified = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/rollback`, body: { releaseId: 'snap', restoreData: true } }));
+  assert.equal(verified.status, 200);
+  assert.equal(verified.body.scheduled, true);
 });
 
 test('API environment limit overrides are admin-only and persist through the apply seam', async () => {
@@ -1522,16 +1114,16 @@ test('API environment limit overrides are admin-only and persist through the app
     environmentMemoryMb: 2048, visibility: 'mystery',
   } }));
   assert.equal(invalidMixed.status, 400);
-  assert.equal(calls.length, 0);
+  assert.equal(calls.some(([name]) => name === 'limits'), false);
   assert.equal(store.siteById(SITE_ID).environmentMemoryMb, null);
 
   const admin = await handlers.site(apiRequest({ method: 'PATCH', path: SITE_ID, admin: true, body: {
     environmentCpus: 99, environmentMemoryMb: 64, environmentPidsLimit: 2, environmentDiskSoftMb: 999999,
   } }));
   assert.equal(admin.status, 200);
-  assert.deepEqual(calls[0], ['limits', SITE_ID, {
+  assert.deepEqual(calls.find(([name]) => name === 'limits'), ['limits', SITE_ID, {
     environmentCpus: 8, environmentMemoryMb: 128, environmentPidsLimit: 16, environmentDiskSoftMb: 131072,
-  }]);
+  }, 1]);
 });
 
 test('provisioning API is admin-only, guards concurrency and handles an old core', async () => {
@@ -1629,6 +1221,8 @@ test('provisioning API is admin-only, guards concurrency and handles an old core
   assert.deepEqual(buildAudits[0], buildStatus);
 });
 
+// --- Ingress proxy -------------------------------------------------------------------------------
+
 test('environment proxy strips forged forwarding headers and writes only verified values', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'sites-environment-proxy-'));
   const socketPath = join(root, 'app.sock');
@@ -1714,63 +1308,18 @@ test('environment requests use the environment endpoint without the host CSP', a
   assert.equal(response.headers['cache-control'], 'public, max-age=0');
 });
 
-// --- Runtime conversion ownership ----------------------------------------------------------------
-//
-// A rollback stops the container to export its volume consistently. The row still says `environment`
-// and `live` for that whole window, so to the periodic reconcile the container looks exactly like one
-// that should be up and is not. Starting it again puts a writer back on the volume being exported and
-// lets it diverge from the archive that has already become authoritative.
+// --- Base image contract -------------------------------------------------------------------------
 
-test('a periodic reconcile does not restart a container a rollback quiesced for export', async (t) => {
-  const { supervisor, calls, suspension } = supervisorHarness(t, { statuses: ['exited'] });
-  suspension.value = 'environment';
-
-  await supervisor.reconcile();
-
-  assert.deepEqual(calls.filter(([name]) => name === 'start' || name === 'create'), [], 'nothing was started');
-});
-
-test('the fleet backstop does not restart a quiesced container either, and drops its endpoint', async (t) => {
-  const { supervisor, calls, site, suspension } = supervisorHarness(t, { statuses: ['running'] });
-  await supervisor.start(site);
-  assert.notEqual(supervisor.endpointFor(site.id), null);
-  calls.length = 0;
-
-  // `backstop` is a second, independent sweep: it asks Podman for the whole fleet and restarts anything
-  // not running, which is precisely what a deliberately quiesced container looks like.
-  suspension.value = 'environment';
-  await supervisor.backstop();
-
-  assert.deepEqual(calls.filter(([name]) => name === 'start' || name === 'create'), []);
-  assert.equal(supervisor.endpointFor(site.id), null, 'nothing keeps routing to the stopped container');
-});
-
-test('the conversion own start passes through the guard it owns', async (t) => {
-  const { supervisor, calls, site, suspension } = supervisorHarness(t, { statuses: ['exited'] });
-  suspension.value = 'environment';
-
-  // The flip starts the container it prepared. That operation is the marker's owner, so it must not be
-  // refused by its own guard; every other caller is.
-  await supervisor.start(site, { authorized: true });
-
-  assert.equal(calls.some(([name]) => name === 'start'), true, 'the authorized start ran');
-});
-
-test('a durable action does not run against a container a rollback is holding down', async (t) => {
-  const { supervisor, calls, site, store, suspension } = supervisorHarness(t, { statuses: ['exited'] });
-  // A snapshot can be requested while a conversion is in flight, and the action branch runs BEFORE the
-  // start branch: without the list-level skip, reconcile pauses and commits a container whose volume a
-  // rollback has already exported, writing a snapshot of state that is about to be thrown away.
-  store.putEnvironmentAction({
-    siteId: site.id, kind: 'snapshot', snapshotId: 'snap-during-rollback', includeData: true,
-    note: '', model: 'm', requestedAt: new Date().toISOString(), lastError: null,
-  });
-  suspension.value = 'environment';
-
-  await supervisor.reconcile();
-
-  assert.deepEqual(calls.filter(([name]) => ['pause', 'commit', 'volume-export', 'start'].includes(name)), []);
-  // Deferred and still clean. Attempting it under the rollback fails it instead, which both loses the
-  // request and writes an error the operator did not cause.
-  assert.equal(store.environmentAction(site.id)?.lastError, null, 'the action is deferred, not failed');
+test('base image contents are digest-pinned, deterministic and use the stable app socket', () => {
+  assert.equal(BASE_IMAGE_SOURCE, 'docker.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171');
+  assert.match(BASE_IMAGE_TAG, /^localhost\/elowen-site-base:[a-f0-9]{16}$/);
+  assert.ok(CONTAINERFILE.startsWith(`FROM ${BASE_IMAGE_SOURCE}\n`));
+  assert.doesNotMatch(CONTAINERFILE, /^FROM debian:bookworm-slim$/m);
+  for (const dependency of ['systemd', 'systemd-sysv', 'dbus', 'ca-certificates', 'curl', 'iproute2', 'procps']) {
+    assert.match(CONTAINERFILE, new RegExp(`\\b${dependency.replace('-', '\\-')}\\b`));
+  }
+  assert.match(CONTAINERFILE, /ENTRYPOINT \["\/sbin\/init"\]/);
+  assert.match(INGRESS_SOCKET, /ListenStream=\/run\/elowen\/app\.sock/);
+  assert.match(INGRESS_SERVICE, /systemd-socket-proxyd 127\.0\.0\.1:80/);
+  assert.doesNotMatch(`${CONTAINERFILE}\n${INGRESS_SOCKET}\n${INGRESS_SERVICE}`, /\/run\/elowen\/ingress\.sock/);
 });

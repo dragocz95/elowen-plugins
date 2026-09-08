@@ -1,5 +1,5 @@
 import type { PluginApiRequest, PluginHttpResponse } from 'elowen/plugin-api';
-import type { Site, SitesStore, Visibility } from './store.js';
+import type { Site, SitesStore, Visibility, EnvironmentAction } from './store.js';
 import { VISIBILITIES } from './store.js';
 import { mayOpen, mintTicket, normalizeReturnPath, type AccessDeps } from './access.js';
 import { environmentLimitOverrides, SITE_BASE_PATH, siteUrl, type EnvironmentLimitOverrides, type SitesConfig } from './config.js';
@@ -24,6 +24,7 @@ export interface ApiDeps {
   store: SitesStore;
   access: AccessDeps;
   config(): SitesConfig;
+  previewSite?(slug: string): Site | null;
   people(): Map<number, Person>;
   projectSlug(projectId: number): string | null;
   deleteSite(siteId: string): Promise<void> | void;
@@ -31,14 +32,16 @@ export interface ApiDeps {
   runtimeState(siteId: string): { running: boolean; logTail: string };
   allocatePort(): Promise<number>;
   restartRuntime(site: Site): Promise<void>;
-  environmentState(site: Site): Promise<EnvironmentState>;
-  environmentLogs(site: Site, lines: number): Promise<{ lifecycle: string; journal: string }>;
+  environmentState(site: Site, actor: number): Promise<EnvironmentState>;
+  environmentLogs(site: Site, lines: number, actor: number): Promise<{ lifecycle: string; journal: string }>;
+  /** Read-only pending-action projection from Sites receipts plus the runtime operation status. */
+  environmentAction(site: Site, actor: number): Promise<EnvironmentAction | null>;
   gatewayReadiness(): Promise<SiteGatewayReadiness>;
   gatewayRecord(): RequiredRecord | null;
-  requestEnvironmentControl(site: Site, action: 'start' | 'stop' | 'restart'): Promise<void>;
-  snapshotEnvironment(site: Site, input: { includeData: boolean; note: string }): Promise<{ id: string }>;
-  rollbackEnvironment(site: Site, input: { releaseId: string; restoreData: boolean }): Promise<void>;
-  applyEnvironmentLimits(site: Site, limits: EnvironmentLimitOverrides): Promise<void>;
+  requestEnvironmentControl(site: Site, action: 'start' | 'stop' | 'restart', actor: number): Promise<void>;
+  snapshotEnvironment(site: Site, input: { includeData: boolean; note: string }, actor: number): Promise<{ id: string }>;
+  rollbackEnvironment(site: Site, input: { releaseId: string; restoreData: boolean }, actor: number): Promise<void>;
+  applyEnvironmentLimits(site: Site, limits: EnvironmentLimitOverrides, actor: number): Promise<void>;
   provisioning: Pick<EnvironmentProvisioningService, 'status' | 'provision'>;
   migration: Pick<RuntimeMigrationService, 'status' | 'prepare' | 'flip' | 'complete' | 'rollback' | 'pending' | 'registerRecipe'>;
 }
@@ -50,6 +53,10 @@ const json = (status: number, body: unknown): PluginHttpResponse => ({
 });
 
 const TICKET_TTL_MS = 60_000;
+const runtimeActor = (req: PluginApiRequest): number => {
+  if (req.auth.userId === null) throw new Error('a linked account is required for environment operations');
+  return req.auth.userId;
+};
 
 /** Whether the caller may change this site. Viewing is a different question, answered by `mayOpen`. */
 const canManage = (site: Site, auth: PluginApiRequest['auth']): boolean =>
@@ -164,7 +171,7 @@ export function createApiHandlers(deps: ApiDeps) {
     if (req.method === 'GET' && action === '') {
       const people = deps.people();
       const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
-      const environment = target.runtime === 'environment' ? await deps.environmentState(target) : null;
+      const environment = target.runtime === 'environment' && canManage(target, req.auth) ? await deps.environmentState(target, runtimeActor(req)) : null;
       return json(200, {
         site: toView(target, deps, req.auth),
         // Only somebody who can EDIT the guest list may read it. A guest seeing the whole list learns
@@ -180,7 +187,7 @@ export function createApiHandlers(deps: ApiDeps) {
           sizeBytes: release.sizeBytes,
           note: release.note,
           kind: release.kind,
-          ...(release.kind === 'environment-snapshot' ? { includesData: Boolean(release.dataArchive) } : {}),
+          ...(release.kind === 'environment-snapshot' ? { includesData: Boolean(release.dataArchive) || deps.store.runtimeRecord(target.id, `snapshot-data:${release.id}`) === 'true' } : {}),
         })),
         hits: deps.store.hits(target.id, since),
         sourceDir: canManage(target, req.auth) ? target.sourceDir : null,
@@ -199,7 +206,7 @@ export function createApiHandlers(deps: ApiDeps) {
         environment: environment === null ? null : canManage(target, req.auth)
           ? {
             ...environment,
-            action: deps.store.environmentAction(target.id),
+            action: await deps.environmentAction(target, runtimeActor(req)),
             limitOverrides: {
               cpus: target.environmentCpus ?? null,
               memoryMb: target.environmentMemoryMb ?? null,
@@ -222,7 +229,7 @@ export function createApiHandlers(deps: ApiDeps) {
       if (!canAccessProject(target.projectId, req.auth)) return json(403, { error: 'project access is required' });
       const requested = Number(req.query.lines ?? 200);
       const lines = Number.isFinite(requested) ? Math.min(1000, Math.max(1, Math.round(requested))) : 200;
-      const logs = await deps.environmentLogs(target, lines);
+      const logs = await deps.environmentLogs(target, lines, runtimeActor(req));
       return json(200, { ...logs, lines });
     }
     if (req.method === 'PATCH' && action === '') return patchSite(req, target);
@@ -248,7 +255,7 @@ export function createApiHandlers(deps: ApiDeps) {
       if (body.action !== 'start' && body.action !== 'stop' && body.action !== 'restart') {
         return json(400, { error: 'unknown environment action' });
       }
-      try { await deps.requestEnvironmentControl(target, body.action); }
+      try { await deps.requestEnvironmentControl(target, body.action, runtimeActor(req)); }
       catch (error) { return json(409, { error: error instanceof Error ? error.message : 'action could not be scheduled' }); }
       return json(200, { ok: true, scheduled: true, action: body.action });
     }
@@ -261,7 +268,7 @@ export function createApiHandlers(deps: ApiDeps) {
         const snapshot = await deps.snapshotEnvironment(target, {
           includeData: body.includeData !== false,
           note: typeof body.note === 'string' ? body.note.trim().slice(0, 200) : '',
-        });
+        }, runtimeActor(req));
         return json(200, { ok: true, snapshotId: snapshot.id, crashConsistent: true, scheduled: true });
       } catch (error) {
         return json(409, { error: error instanceof Error ? error.message : 'snapshot could not be scheduled' });
@@ -283,11 +290,11 @@ export function createApiHandlers(deps: ApiDeps) {
       const release = deps.store.release(target.id, releaseId);
       if (target.runtime === 'environment') {
         if (!canAccessProject(target.projectId, req.auth)) return json(403, { error: 'project access is required' });
-        if (!release || release.kind !== 'environment-snapshot' || !release.imageRef) {
+        if (!release || release.kind !== 'environment-snapshot') {
           return json(404, { error: 'unknown environment snapshot' });
         }
-        if (body.restoreData === true && !release.dataArchive) return json(400, { error: 'snapshot has no data archive' });
-        try { await deps.rollbackEnvironment(target, { releaseId, restoreData: body.restoreData === true }); }
+        if (body.restoreData === true && !release.dataArchive && deps.store.runtimeRecord(target.id, `snapshot-data:${release.id}`) !== 'true') return json(400, { error: 'snapshot has no verified data archive' });
+        try { await deps.rollbackEnvironment(target, { releaseId, restoreData: body.restoreData === true }, runtimeActor(req)); }
         catch (error) { return json(409, { error: error instanceof Error ? error.message : 'rollback could not be scheduled' }); }
         return json(200, { ok: true, scheduled: true, snapshotId: releaseId });
       }
@@ -354,7 +361,7 @@ export function createApiHandlers(deps: ApiDeps) {
       }
     }
     if (limits) {
-      try { await deps.applyEnvironmentLimits(target, limits); }
+      try { await deps.applyEnvironmentLimits(target, limits, runtimeActor(req)); }
       catch (error) { return json(502, { error: error instanceof Error ? error.message : 'Podman could not apply the limits' }); }
     }
     deps.store.updateSite(target.id, patch);
@@ -402,7 +409,7 @@ export function createApiHandlers(deps: ApiDeps) {
     if (req.method !== 'POST') return json(405, { error: 'method not allowed' });
     const body = await req.json<{ slug?: unknown; r?: unknown }>().catch(() => ({} as { slug?: unknown; r?: unknown }));
     const slug = typeof body.slug === 'string' ? body.slug : '';
-    const target = deps.store.siteBySlug(slug);
+    const target = deps.store.siteBySlug(slug) ?? deps.previewSite?.(slug);
     const viewer = { userId: req.auth.userId };
     if (!target || target.status !== 'live' || !mayOpen(target, viewer, deps.store, deps.access)) {
       // Deliberately the same answer for an unknown site and one this account may not open.

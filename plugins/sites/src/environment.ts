@@ -1,18 +1,18 @@
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { connect } from 'node:net';
+import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
+import { connect } from 'node:net';
 import { dirname, join, resolve, sep } from 'node:path';
+import type { SiteEnvironmentAction, SiteEnvironmentControl, SiteEnvironmentOperation, SiteEnvironmentRegistration, SiteRuntimeArtifact, SiteRuntimeAuthority, SiteImageKind, ManagedProjectRef } from 'elowen/plugin-api';
 import type { SitesContext } from './coreSeams.js';
+import type { AccessDeps } from './access.js';
+import type { EnvironmentLimitOverrides } from './config.js';
 import type { Endpoint } from './runtime.js';
-import type { EnvironmentAction, Release, Site, SitesStore } from './store.js';
-import type { CreateContainerSpec, PodmanClient, PodmanContainerSummary } from './podman.js';
-
-const STOP_TIMEOUT_SECONDS = 8;
-const LIMIT_UPDATE_ATTEMPTS = 3;
-const EXIT_WAIT_MS = 30_000;
-const KILL_WAIT_MS = 5_000;
-const LOG_CAP_BYTES = 256 * 1024;
+import type { Release, Site, SitesStore, EnvironmentAction } from './store.js';
+import { createSiteRuntimeAuthority } from './siteRuntimeAuthority.js';
+import { BASE_IMAGE_TAG, baseImageRecipe } from './baseImage.js';
+import { conversionImageRecipe, conversionImageTag } from './conversionImage.js';
+import { loadAppRecipe } from './recipe.js';
 
 interface EnvironmentConfig {
   startTimeoutSeconds: number;
@@ -23,1040 +23,675 @@ interface EnvironmentConfig {
   environmentDiskSoftMb: number;
   releasesKept: number;
 }
-
-interface EnvironmentGateway {
-  prepareRuntimeSocket(siteId: string): Promise<{ path: string }>;
-  sealRuntimeSocket(siteId: string): Promise<void>;
-  removeRuntimeSocket(siteId: string): Promise<void>;
-}
-
 export interface EnvironmentDeps {
-  podman: Pick<PodmanClient,
-    'inspectStatus' | 'inspectLabel' | 'inspectMountSource' | 'inspectVolumeLabel' | 'inspectImage' | 'inspectResources' | 'inspectNetworkMode' | 'ensureVolume' | 'volumeExists' | 'create' | 'update' | 'start' | 'stop' | 'kill' | 'remove' |
-    'removeVolume' | 'removeImage' | 'imageExists' | 'unshareRemove' | 'ps' | 'exec' | 'execInteractive' | 'pause' |
-    'unpause' | 'commit' | 'exportVolume' | 'importVolume'>;
-  store: Pick<SitesStore,
-    'siteById' | 'environmentSitesForReconcile' | 'updateSite' | 'insertRelease' | 'deleteRelease' | 'releases' | 'release' |
-    'conversionSuspends' | 'conversionSuspensions' |
-    'environmentAction' | 'tryBeginEnvironmentExec' | 'endEnvironmentExec' | 'completeEnvironmentRestart' |
-    'completeEnvironmentAction' | 'updateEnvironmentActionError' | 'deleteEnvironmentAction'>;
-  gateway: EnvironmentGateway;
+  control(): SiteEnvironmentControl | undefined;
+  store: SitesStore;
+  access: AccessDeps;
+  dataDir: string;
+  gateway: {
+    prepareRuntimeSocket(siteId: string): Promise<{ path: string }>;
+    sealRuntimeSocket(siteId: string): Promise<void>;
+    removeRuntimeSocket(siteId: string): Promise<void>;
+  };
   config(): EnvironmentConfig;
   siteDir(siteId: string): string;
-  ensureBaseImage(): Promise<string>;
   siteUrl?(site: Site): string | null;
+  accountUserId?(): number | null;
   brokerPath?(siteId: string): string;
-  socketReady?(path: string): Promise<boolean>;
-  connectReady?(endpoint: Endpoint): Promise<boolean>;
-  sleep?(milliseconds: number): Promise<void>;
-  now?(): number;
   logger?: Pick<SitesContext['logger'], 'warn'>;
 }
-
-export interface EnvironmentEffectiveLimits {
-  cpus: number;
-  memoryMb: number;
-  pidsLimit: number;
-  diskSoftMb: number;
-}
-
+export interface EnvironmentEffectiveLimits { cpus: number; memoryMb: number; pidsLimit: number; diskSoftMb: number }
 export interface EnvironmentState {
   state: string | null;
   desiredState: Site['environmentDesiredState'];
   limits: EnvironmentEffectiveLimits;
   lastError: string | null;
 }
-
-export interface EnvironmentSnapshotInput {
-  snapshotId: string;
-  includeData: boolean;
-  note: string;
-  model: string;
+export interface EnvironmentSnapshotInput { snapshotId: string; includeData: boolean; note: string; model: string }
+/** A durable promise for one scheduled snapshot or restore.
+ *
+ *  The receipt is persisted BEFORE dispatch, so a lost response replays the same runtime request key
+ *  and a process death mid-wait recovers without taking a second snapshot. `publicId` is the release id
+ *  promised to the caller; the runtime generates its own snapshot id and the two are linked through the
+ *  snapshot-display/snapshot-runtime records only once the operation is observed. Receipts stored before
+ *  this shape existed carry no `kind`/`publicId` and read as snapshots whose public id is the runtime id. */
+interface SnapshotReceipt {
+  requestId: string;
+  accountUserId: number;
+  kind: 'snapshot' | 'restore';
+  /** Snapshot: the promised public release id. Restore: the restored snapshot's public id. */
+  publicId?: string;
+  /** Absent until the runtime accepted a dispatch; while absent recovery may replay the request. */
+  operationId?: string;
+  requestedAt: string;
+  input: { includeData: boolean; note: string; model: string; restoreData?: boolean };
 }
 
-const containerName = (siteId: string): string => `elowen-site-${siteId}`;
-
-/** The site row limits are derived from. Read fresh, because an administrator may have changed them. */
-const site0 = (siteId: string, deps: EnvironmentDeps): Site =>
-  deps.store.siteById(siteId) ?? ({ id: siteId } as Site);
-const volumeName = (siteId: string): string => `elowen-site-${siteId}-data`;
-
-const defaultSleep = async (milliseconds: number): Promise<void> => {
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, milliseconds);
-    timer.unref?.();
-  });
-};
-
-const defaultSocketReady = async (path: string): Promise<boolean> => {
-  try { return lstatSync(path).isSocket(); }
-  catch { return false; }
-};
-
-const defaultConnectReady = async (endpoint: Endpoint): Promise<boolean> => await new Promise((resolve) => {
-  const socket = connect(endpoint.kind === 'socket' ? { path: endpoint.path } : { host: '127.0.0.1', port: endpoint.port });
-  socket.setTimeout(1_000);
-  const finish = (ready: boolean): void => { socket.destroy(); resolve(ready); };
-  socket.once('connect', () => finish(true));
-  socket.once('error', () => finish(false));
-  socket.once('timeout', () => finish(false));
-});
-
+/** Application readiness and Sites records only. All container mutations belong to Sandbox. */
 export class EnvironmentSupervisor {
   private readonly endpoints = new Map<string, Endpoint>();
-  private readonly settledStopped = new Set<string>();
-  /** Sites whose durable action this process is executing right now. See `reconcileSites`. */
-  private readonly actionsInFlight = new Set<string>();
-  private readonly queues = new Map<string, Promise<unknown>>();
-  private readonly sleep: (milliseconds: number) => Promise<void>;
-  private readonly now: () => number;
-  private readonly socketReady: (path: string) => Promise<boolean>;
-  private readonly connectReady: (endpoint: Endpoint) => Promise<boolean>;
-  private detached = false;
+  private readonly authority: SiteRuntimeAuthority;
+  private connected: SiteEnvironmentControl | undefined;
+  private readonly handovers = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: EnvironmentDeps) {
-    this.sleep = deps.sleep ?? defaultSleep;
-    this.now = deps.now ?? Date.now;
-    this.socketReady = deps.socketReady ?? defaultSocketReady;
-    this.connectReady = deps.connectReady ?? defaultConnectReady;
-  }
-
-  private serialize<T>(siteId: string, operation: () => Promise<T>): Promise<T> {
-    const previous = this.queues.get(siteId) ?? Promise.resolve();
-    const next = previous.then(operation, operation);
-    this.queues.set(siteId, next.then(() => undefined, () => undefined));
-    return next;
-  }
-
-  endpointFor(siteId: string): Endpoint | null {
-    return this.endpoints.get(siteId) ?? null;
-  }
-
-  isRunning(siteId: string): boolean {
-    return this.endpoints.has(siteId);
-  }
-
-  private environmentDir(siteId: string): string {
-    return join(this.deps.siteDir(siteId), 'environment');
-  }
-
-  private logFile(siteId: string): string {
-    const dir = this.environmentDir(siteId);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    return join(dir, 'lifecycle.log');
-  }
-
-  private appendLog(siteId: string, message: string): void {
-    try {
-      const file = this.logFile(siteId);
-      appendFileSync(file, `${new Date(this.now()).toISOString()} ${message}\n`, { mode: 0o600 });
-      const content = readFileSync(file);
-      if (content.length > LOG_CAP_BYTES * 2) writeFileSync(file, content.subarray(content.length - LOG_CAP_BYTES), { mode: 0o600 });
-    } catch {
-      // Lifecycle must not fail because its diagnostic tail could not be written.
-    }
-  }
-
-  logTail(siteId: string, bytes = 8192): string {
-    try { return readFileSync(this.logFile(siteId), 'utf8').slice(-bytes); }
-    catch { return ''; }
-  }
-
-  async state(site: Site): Promise<EnvironmentState> {
-    const state = site.runtime === 'environment'
-      ? await this.deps.podman.inspectStatus(containerName(site.id))
-      : null;
-    return {
-      state,
-      desiredState: site.environmentDesiredState ?? 'running',
-      limits: this.effectiveLimits(site),
-      lastError: site.lastError,
-    };
-  }
-
-  async exec(
-    site: Site,
-    command: string,
-    options: { timeoutSeconds: number; workdir?: string },
-  ): Promise<{ stdout: string; stderr: string; code: number }> {
-    return await this.serialize(site.id, async () => {
-      if (site.runtime !== 'environment') throw new Error('this site is not a persistent environment');
-      const token = randomUUID();
-      const expiresAt = Date.now() + (options.timeoutSeconds + 60) * 1000;
-      if (!this.deps.store.tryBeginEnvironmentExec(site.id, token, expiresAt)) {
-        throw new Error('the environment has a pending lifecycle action or command');
-      }
-      try {
-        if (await this.deps.podman.inspectStatus(containerName(site.id)) !== 'running') {
-          throw new Error('the environment is not running');
+    this.authority = createSiteRuntimeAuthority({
+      store: deps.store, access: deps.access,
+      registration: id => this.registration(id), gateway: () => deps.gateway,
+      beforeCreate: async id => {
+        this.writeEnvironmentFiles(this.site(id));
+        if (!this.brokerDirectoryExists(id)) await this.prepareBrokerDirectory(id);
+      },
+      imageRecipe: kind => kind === 'base' ? baseImageRecipe() : conversionImageRecipe(kind),
+      projectDependents: async projectId => deps.store.allSites().filter(site => site.projectId === projectId).map(site => ({ siteId: site.id })),
+      resolveArtifact: async ({ siteId, accountUserId, artifactId, action }) => {
+        if (!await this.authority.resolve({ siteId, accountUserId, access: 'manage' })) return null;
+        const raw = deps.store.runtimeRecord(siteId, `artifact:${artifactId}`);
+        if (!raw) return null;
+        const record: { action: string; artifact: SiteRuntimeArtifact } = JSON.parse(raw);
+        if (record.action !== action) {
+          // Runtime retention prunes a retained snapshot through the SAME trusted record that imported
+          // it: the record is the artifact's identity, and removal is a later operation on it. Nothing
+          // else crosses, and no image id is invented here.
+          if (!(action === 'remove-artifact' && record.action === 'import-snapshot' && record.artifact.kind === 'snapshot')) return null;
         }
-        this.appendLog(site.id, `exec requested (${command.length} bytes)`);
-        return await this.deps.podman.execInteractive(
-          containerName(site.id),
-          ['/bin/bash', '-s'],
-          command,
-          { timeoutMs: options.timeoutSeconds * 1000, workdir: options.workdir },
-        );
-      } finally {
-        this.deps.store.endEnvironmentExec(site.id, token);
-      }
+        return record.artifact;
+      },
     });
   }
 
-  async logs(site: Site, lines = 200): Promise<{ lifecycle: string; journal: string }> {
-    const lifecycle = this.logTail(site.id);
-    if (site.runtime !== 'environment' || await this.deps.podman.inspectStatus(containerName(site.id)) !== 'running') {
-      return { lifecycle, journal: '' };
+  connect(): void { if (this.deps.control()) this.control(); }
+
+  private control(): SiteEnvironmentControl {
+    const control = this.deps.control();
+    if (!control) throw new Error('the Sandbox environment runtime is unavailable');
+    if (this.connected !== control) {
+      control.connectSitesRuntime(this.authority);
+      this.connected = control;
     }
-    const bounded = Math.min(1000, Math.max(1, Math.round(lines)));
-    const result = await this.deps.podman.exec(
-      containerName(site.id),
-      ['journalctl', '--no-pager', '-n', String(bounded)],
-      { timeoutMs: 30_000 },
-    );
-    return { lifecycle, journal: result.stdout || result.stderr };
+    return control;
+  }
+  private site(id: string): Site {
+    const site = this.deps.store.siteById(id);
+    if (!site) throw new Error('the site no longer exists');
+    return site;
+  }
+  private actor(site: Site, supplied?: number): number {
+    return supplied ?? this.deps.accountUserId?.() ?? site.ownerUserId;
+  }
+  private registration(id: string): SiteEnvironmentRegistration | null {
+    const raw = this.deps.store.runtimeRecord(id, 'binding');
+    if (!raw) return null;
+    const binding: SiteEnvironmentRegistration = JSON.parse(raw);
+    const site = this.deps.store.siteById(id);
+    if (!site) return null;
+    return { ...binding, limits: this.effectiveLimits(site), snapshotRetention: this.deps.config().releasesKept };
+  }
+  private saveBinding(binding: SiteEnvironmentRegistration): void {
+    this.deps.store.putRuntimeRecord(binding.siteId, 'binding', JSON.stringify(binding));
+  }
+  private defaultBinding(site: Site): SiteEnvironmentRegistration {
+    const migration = this.deps.store.runtimeMigration(site.id);
+    const converted = migration !== null;
+    const recipe = converted ? loadAppRecipe(join(this.deps.siteDir(site.id), 'migration', 'artifacts')) : null;
+    return {
+      siteId: site.id, projectId: site.projectId, sourcePath: converted ? join(this.deps.siteDir(site.id), 'migration', 'workspace') : site.runtime === 'environment' ? site.sourceDir : this.deps.siteDir(site.id),
+      sitesDataDir: this.deps.dataDir, brokerDir: this.brokerDirectory(site.id),
+      image: recipe ? conversionImageTag(recipe.image) : BASE_IMAGE_TAG,
+      workspaceReadOnly: recipe?.image === 'static', network: this.deps.config().environmentNetwork,
+      limits: this.effectiveLimits(site), snapshotRetention: this.deps.config().releasesKept,
+      staging: converted || site.runtime !== 'environment',
+      initialIntent: { desiredState: site.runtime !== 'environment' || site.environmentDesiredState === 'stopped' ? 'stopped' : 'running',
+        pendingAction: site.environmentDesiredState === 'restarting' ? 'restart' : null },
+    };
   }
 
-  private brokerSealed(socketPath: string): boolean {
-    try { return (statSync(dirname(socketPath)).mode & 0o777) === 0o510; }
-    catch { return false; }
+  /** Persist pins before registration. Retrying after a lost response adopts the same resource. */
+  private async handover(site: Site, accountUserId: number): Promise<void> {
+    const inFlight = this.handovers.get(site.id);
+    if (inFlight) return inFlight;
+    const task = this.handoverNow(site, accountUserId);
+    this.handovers.set(site.id, task);
+    try { await task; } finally { this.handovers.delete(site.id); }
   }
-
+  private async handoverNow(site: Site, accountUserId: number): Promise<void> {
+    const control = this.control();
+    if (this.deps.store.runtimeRecord(site.id, 'handover') === 'complete') return;
+    let binding = this.registration(site.id);
+    if (!binding) {
+      this.deps.store.claimRuntimeRecord(site.id, 'binding', JSON.stringify(this.defaultBinding(site)));
+      binding = this.registration(site.id)!;
+    }
+    if (this.deps.store.runtimeRecord(site.id, 'handover') !== 'discovered') {
+      const expected = this.deps.store.runtimeRecord(site.id, 'binding')!;
+      const discovered = await control.discoverSiteEnvironment({ siteId: site.id, accountUserId });
+      if (discovered) binding.legacy = { containerId: discovered.containerId, imageId: discovered.imageId, volumeMountpoint: discovered.volumeMountpoint };
+      const next = JSON.stringify(binding);
+      if (!this.deps.store.compareRuntimeRecord(site.id, 'binding', expected, next)
+        && this.deps.store.runtimeRecord(site.id, 'binding') !== next) {
+        throw new Error('the Site handover binding changed during ownership discovery');
+      }
+      this.deps.store.putRuntimeRecord(site.id, 'handover', 'discovered');
+    }
+    if (!binding.legacy && site.runtime === 'environment' && binding.initialIntent?.desiredState === 'running') {
+      this.deps.store.claimRuntimeRecord(site.id, 'bootstrap-intent', 'running');
+      binding.initialIntent = { desiredState: 'stopped', pendingAction: null };
+      this.saveBinding(binding);
+    }
+    const registered = await control.registerSiteEnvironment({ siteId: site.id, accountUserId });
+    if (this.deps.store.runtimeRecord(site.id, 'bootstrap-intent') === 'running') {
+      const imageKind = binding.image === BASE_IMAGE_TAG ? 'base' : binding.workspaceReadOnly ? 'static' : 'node';
+      await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
+        action: { kind: 'provision-image', imageKind }, expectedGeneration: registered.generation,
+        requestId: `sites-bootstrap-image:${site.id}:${registered.generation}` }), accountUserId);
+      await control.requestSiteEnvironment({ siteId: site.id, accountUserId, action: { kind: 'start' },
+        expectedGeneration: registered.generation, requestId: `sites-bootstrap-start:${site.id}:${registered.generation}` });
+      this.deps.store.putRuntimeRecord(site.id, 'bootstrap-intent', 'complete');
+    }
+    // Legacy release metadata is retained. The runtime validates the referenced image/archive itself.
+    for (const release of this.deps.store.releases(site.id)) {
+      if (release.kind !== 'environment-snapshot' || !release.imageRef) continue;
+      const key = `imported:${release.id}`;
+      if (this.deps.store.runtimeRecord(site.id, key)) continue;
+      if (!/^(sha256:)?[a-f0-9]{64}$/.test(release.imageRef)) {
+        throw new Error(`legacy snapshot ${release.id} needs a verified image ID; the SDK exposes container discovery but not retained-image discovery`);
+      }
+      const operation = await this.artifactOperation(site, 'import-snapshot', {
+        kind: 'snapshot', snapshotId: release.id, imageReference: release.imageRef,
+        imageId: release.imageRef, ...(release.dataArchive ? { archivePath: this.ownedPath(site.id, release.dataArchive) } : {}),
+        note: release.note, createdAt: release.createdAt,
+      }, accountUserId, `legacy-snapshot:${release.id}`, false);
+      await this.wait(operation, accountUserId);
+      this.deps.store.putRuntimeRecord(site.id, key, 'complete');
+    }
+    const pending = this.deps.store.environmentAction(site.id);
+    if (pending && !pending.lastError) {
+      const operation = await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
+        requestId: `sites-handover:${site.id}:${pending.kind}:${pending.snapshotId}`,
+        action: pending.kind === 'snapshot' ? { kind: 'snapshot', includeData: pending.includeData, note: pending.note }
+          : { kind: 'restore', snapshotId: this.deps.store.runtimeRecord(site.id, `snapshot-runtime:${pending.snapshotId}`) ?? pending.snapshotId, restoreData: pending.restoreData },
+      }), accountUserId);
+      if (pending.kind === 'snapshot') {
+        if (!operation.snapshotId) throw new Error('the migrated snapshot operation completed without its snapshot ID');
+        this.deps.store.putRuntimeRecord(site.id, `snapshot-display:${operation.snapshotId}`, pending.snapshotId);
+        this.deps.store.putRuntimeRecord(site.id, `snapshot-runtime:${pending.snapshotId}`, operation.snapshotId);
+        this.deps.store.putRuntimeRecord(site.id, `snapshot-model:${pending.snapshotId}`, pending.model);
+        this.deps.store.putRuntimeRecord(site.id, `snapshot-data:${pending.snapshotId}`, String(pending.includeData));
+        await this.syncSnapshots(site, accountUserId);
+      } else if (this.deps.store.release(site.id, pending.snapshotId)) {
+        // A completed restore moves the public snapshot pointer; a completed snapshot never does.
+        this.deps.store.updateSite(site.id, { currentReleaseId: pending.snapshotId });
+      }
+      this.deps.store.deleteEnvironmentAction(site.id);
+    }
+    this.deps.store.putRuntimeRecord(site.id, 'handover', 'complete');
+  }
+  async request(site: Site, action: SiteEnvironmentAction, actor?: number, requestId: string = randomUUID(), authorizedConversion = false): Promise<SiteEnvironmentOperation> {
+    if (!authorizedConversion && this.deps.store.conversionSuspends(site.id) === 'environment') throw new Error('the environment is held by a runtime conversion');
+    const accountUserId = this.actor(site, actor);
+    await this.handover(site, accountUserId);
+    const control = this.control();
+    const state = await control.siteEnvironmentFor({ siteId: site.id, accountUserId });
+    const binding = this.registration(site.id)!;
+    if ((action.kind === 'start' || action.kind === 'restart') && !binding.legacy
+      && this.deps.store.runtimeRecord(site.id, 'bootstrap-intent') !== 'complete') {
+      await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
+        action: { kind: 'provision-image', imageKind: binding.image === BASE_IMAGE_TAG ? 'base' : binding.workspaceReadOnly ? 'static' : 'node' },
+        expectedGeneration: state.generation, requestId: `${requestId}:image` }), accountUserId);
+    }
+    const resolvedAction = action.kind === 'restore' ? { ...action,
+      snapshotId: this.deps.store.runtimeRecord(site.id, `snapshot-runtime:${action.snapshotId}`) ?? action.snapshotId } : action;
+    return control.requestSiteEnvironment({ siteId: site.id, accountUserId, action: resolvedAction, expectedGeneration: state.generation, requestId });
+  }
+  private async wait(operation: SiteEnvironmentOperation, accountUserId: number): Promise<SiteEnvironmentOperation> {
+    const deadline = Date.now() + Math.max(120_000, this.deps.config().startTimeoutSeconds * 1000);
+    while (operation.status === 'pending' || operation.status === 'running') {
+      if (Date.now() >= deadline) throw new Error(`environment operation ${operation.id} remains ${operation.status}; it was not cancelled`);
+      await new Promise<void>(wake => setTimeout(wake, 100));
+      const next = await this.control().siteEnvironmentOperation({ operationId: operation.id, accountUserId });
+      if (!next) throw new Error(`environment operation ${operation.id} is unavailable`);
+      operation = next;
+    }
+    if (operation.status !== 'succeeded') throw new Error(operation.error ?? `environment operation ${operation.status}`);
+    return operation;
+  }
+  private async perform(site: Site, action: SiteEnvironmentAction, actor?: number, authorizedConversion = false): Promise<SiteEnvironmentOperation> {
+    const accountUserId = this.actor(site, actor);
+    return this.wait(await this.request(site, action, accountUserId, randomUUID(), authorizedConversion), accountUserId);
+  }
+  private ownedPath(siteId: string, path: string): string {
+    const root = resolve(this.deps.siteDir(siteId));
+    const absolute = resolve(path);
+    if (!absolute.startsWith(root + sep)) throw new Error('runtime artifact is outside the owning Site');
+    const existing = existsSync(absolute) ? absolute : dirname(absolute);
+    if (existsSync(existing)) {
+      const realRoot = realpathSync(root);
+      const real = realpathSync(existing);
+      if (real !== realRoot && !real.startsWith(realRoot + sep)) throw new Error('runtime artifact escapes the owning Site');
+    }
+    return absolute;
+  }
+  private async artifactOperation(site: Site, action: 'import-data' | 'export-data' | 'import-snapshot' | 'remove-artifact' | 'export-project', artifact: SiteRuntimeArtifact, actor: number, artifactId: string = randomUUID(), register = true): Promise<SiteEnvironmentOperation> {
+    this.deps.store.putRuntimeRecord(site.id, `artifact:${artifactId}`, JSON.stringify({ action, artifact }));
+    return register ? this.request(site, { kind: action, artifactId }, actor, artifactId, true)
+      : this.control().requestSiteEnvironment({ siteId: site.id, accountUserId: actor, action: { kind: action, artifactId }, requestId: artifactId });
+  }
+  async exportProject(site: Site, project: ManagedProjectRef, guestPath: string, destinationPath: string, actor: number): Promise<void> {
+    if (site.runtime === 'environment' || this.deps.store.runtimeMigration(site.id)) throw new Error('a persistent environment or runtime conversion cannot be used as publication staging');
+    const destination = this.ownedPath(site.id, destinationPath);
+    this.control();
+    const previous = this.registration(site.id);
+    if (previous && previous.sourcePath !== destination) {
+      if (!previous.staging) throw new Error('publication cannot replace a live Site binding');
+      await this.perform(site, { kind: 'cleanup-stage' }, actor);
+      this.deps.store.deleteRuntimeRecord(site.id, 'handover');
+      this.deps.store.deleteRuntimeRecord(site.id, 'binding');
+    }
+    if (!this.registration(site.id)) this.saveBinding({ ...this.defaultBinding(site), sourcePath: destination,
+      staging: true, initialIntent: { desiredState: 'stopped', pendingAction: null } });
+    const artifact: SiteRuntimeArtifact = { kind: 'project-source', project, guestPath, destinationPath: destination };
+    await this.wait(await this.artifactOperation(site, 'export-project', artifact, actor), actor);
+  }
+  endpointFor(id: string): Endpoint | null { return this.endpoints.get(id) ?? null; }
+  isRunning(id: string): boolean { return this.endpoints.has(id); }
   effectiveLimits(site: Site): EnvironmentEffectiveLimits {
     const config = this.deps.config();
-    return {
-      cpus: site.environmentCpus ?? config.environmentCpus,
-      memoryMb: site.environmentMemoryMb ?? config.environmentMemoryMb,
-      pidsLimit: site.environmentPidsLimit ?? config.environmentPidsLimit,
-      diskSoftMb: site.environmentDiskSoftMb ?? config.environmentDiskSoftMb,
-    };
+    return { cpus: site.environmentCpus ?? config.environmentCpus, memoryMb: site.environmentMemoryMb ?? config.environmentMemoryMb,
+      pidsLimit: site.environmentPidsLimit ?? config.environmentPidsLimit, diskSoftMb: site.environmentDiskSoftMb ?? config.environmentDiskSoftMb };
   }
-
-  private containerLimits(site: Site): Pick<CreateContainerSpec, 'cpus' | 'memoryMb' | 'pidsLimit'> {
-    const { cpus, memoryMb, pidsLimit } = this.effectiveLimits(site);
-    return { cpus, memoryMb, pidsLimit };
+  async state(site: Site, actor?: number): Promise<EnvironmentState> {
+    const accountUserId = this.actor(site, actor);
+    await this.handover(site, accountUserId);
+    const state = await this.control().siteEnvironmentFor({ siteId: site.id, accountUserId });
+    return { state: state.state, desiredState: state.desiredState === 'running' ? 'running' : 'stopped', limits: state.limits, lastError: state.lastError };
   }
-
-  /** Build a site's container and leave it in `created`, for a runtime conversion that has to stage the
-   *  container while the LEGACY runtime is still serving.
-   *
-   *  Deliberately create-only, and the reason is the one property the whole conversion rests on:
-   *  `startNow` treats an existing container as something to START rather than rebuild (`creating =
-   *  status === null`), so the layer built here is exactly the one that goes live, and the flip costs a
-   *  start instead of a rebuild. Starting here instead would be wrong for a command site, whose broker
-   *  directory belongs to the live process that the start sequence would remove and recreate.
-   *
-   *  The broker directory is MOUNTED but never prepared here, for the same reason.
-   *
-   *  `workspace` is passed in because a conversion mounts its own staged copy of the published release
-   *  rather than `site.sourceDir`. Every other flag comes from the same limit and network derivation a
-   *  normal start uses, so a converted site is sized exactly like one created as an environment.
-   *
-   *  `image` is the conversion's derivative when there is one. Omitted, the shared base image is used, so
-   *  this method stays usable for anything that is not a conversion.
-   *
-   *  Idempotent: an existing container is left untouched, which is what a resumed or retried preparation
-   *  needs. Runs on the site's own queue so it cannot interleave with a start or a stop. */
-  prepareContainer(site: Site, workspace: string, image?: string, workspaceReadOnly = false): Promise<{ created: boolean }> {
-    return this.serialize(site.id, async () => {
-      const name = containerName(site.id);
-      if (await this.deps.podman.inspectStatus(name) !== null) return { created: false };
-      const files = this.writeEnvironmentFiles(site);
-      const volume = volumeName(site.id);
-      await this.deps.podman.ensureVolume(volume, site.id);
-      const brokerDir = this.deps.brokerPath
-        ? dirname(this.deps.brokerPath(site.id))
-        : join('/var/lib/elowen/site-runtime-sockets', site.id);
-      await this.deps.podman.create({
-        name,
-        siteId: site.id,
-        ...this.containerLimits(site),
-        network: this.deps.config().environmentNetwork,
-        envFile: files.envFile,
-        workspace,
-        gitStub: files.gitStub,
-        brokerDir,
-        volume,
-        // A conversion supplies its own derivative; a plain environment gets the shared base.
-        image: image ?? await this.deps.ensureBaseImage(),
-        workspaceReadOnly,
-      });
-      this.appendLog(site.id, `prepared container for runtime conversion on ${image ?? 'the base image'}`);
-      return { created: true };
-    });
+  async exec(site: Site, command: string, options: { timeoutSeconds: number; workdir?: string; accountUserId?: number }): Promise<{ stdout: string; stderr: string; code: number }> {
+    const accountUserId = this.actor(site, options.accountUserId);
+    await this.handover(site, accountUserId);
+    return this.control().siteEnvironmentExec({ siteId: site.id, accountUserId, command, timeoutMs: options.timeoutSeconds * 1000, workdir: options.workdir });
   }
-
-  /** Prove a container and volume carrying this site's name were created by THIS plugin for THIS site.
-   *
-   *  A NAME IS NOT OWNERSHIP. Every object this plugin creates carries `io.elowen.site=<id>`, and nothing
-   *  else does. Without checking it, a conversion would happily adopt — or delete — a container somebody
-   *  else created that happens to share the name, and the deletion is unrecoverable.
-   *
-   *  Also reports the workspace the container actually bind-mounts, so a caller can tell a container that
-   *  is ours and current from one that is ours and pointing at a directory that has since been replaced.
-   *  Null when nothing with that name exists, which is the ordinary first-preparation case. */
-  async inspectOwnership(
-    siteId: string,
-    expect?: { workspace: string; image: string },
-  ): Promise<{ owned: boolean; workspace: string | null; detail: string } | null> {
-    const name = containerName(siteId);
-    const status = await this.deps.podman.inspectStatus(name);
-    const volume = volumeName(siteId);
-    const volumeLabel = await this.deps.podman.inspectVolumeLabel(volume, 'io.elowen.site');
-    const volumePresent = volumeLabel !== undefined;
-
-    // A VOLUME carrying this site's name is as dangerous as a container: it is imported into and deleted
-    // by name, so one belonging to somebody else would be overwritten and then destroyed.
-    if (volumePresent && volumeLabel !== siteId) {
-      return {
-        owned: false,
-        workspace: null,
-        detail: volumeLabel === null
-          ? `volume ${volume} carries no io.elowen.site label`
-          : `volume ${volume} is labelled for site ${volumeLabel}`,
-      };
+  async logs(site: Site, lines = 200, actor?: number): Promise<{ lifecycle: string; journal: string }> {
+    const accountUserId = this.actor(site, actor);
+    await this.handover(site, accountUserId);
+    return this.control().siteEnvironmentLogs({ siteId: site.id, accountUserId, lines: Math.min(1000, Math.max(1, Math.round(lines))) });
+  }
+  async provision(site: Site, imageKind: SiteImageKind): Promise<void> { await this.perform(site, { kind: 'provision-image', imageKind }); }
+  async prepareContainer(site: Site, workspace: string, image = BASE_IMAGE_TAG, workspaceReadOnly = false): Promise<{ created: boolean }> {
+    this.control();
+    const binding = this.defaultBinding(site);
+    binding.sourcePath = this.ownedPath(site.id, workspace);
+    binding.image = image; binding.workspaceReadOnly = workspaceReadOnly; binding.staging = true;
+    binding.initialIntent = { desiredState: 'stopped', pendingAction: null };
+    const previous = this.registration(site.id);
+    if (previous && (previous.sourcePath !== binding.sourcePath || previous.image !== binding.image)) {
+      if (site.runtime === 'environment' || !previous.staging) throw new Error('a live Site binding cannot be replaced by conversion preparation');
+      await this.perform(site, { kind: 'cleanup-stage' });
+      this.deps.store.deleteRuntimeRecord(site.id, 'handover');
+      this.deps.store.deleteRuntimeRecord(site.id, 'binding');
     }
-    if (status === null) return volumePresent ? { owned: true, workspace: null, detail: `only volume ${volume} exists` } : null;
-
-    const label = await this.deps.podman.inspectLabel(name, 'io.elowen.site');
-    if (label !== siteId) {
-      return {
-        owned: false,
-        workspace: null,
-        detail: label === null
-          ? `container ${name} carries no io.elowen.site label`
-          : `container ${name} is labelled for site ${label}`,
-      };
-    }
-
-    const workspace = await this.deps.podman.inspectMountSource(name, '/workspace');
-    if (!expect) return { owned: true, workspace, detail: `container ${name} is owned by this site` };
-
-    // FULL SPEC, not just the label. A container that is ours by label can still be the wrong one: built
-    // on a superseded image, mounting a replaced workspace, pointing at another site's broker directory,
-    // or created with limits and a network the current settings no longer describe. Reusing any of those
-    // serves something nobody approved.
-    const mismatches: string[] = [];
-    const image = await this.deps.podman.inspectImage(name);
-    if (image !== null && image !== expect.image) mismatches.push(`image ${image} is not ${expect.image}`);
-    if (workspace !== null && resolve(workspace) !== resolve(expect.workspace)) {
-      mismatches.push(`workspace ${workspace} is not ${expect.workspace}`);
-    }
-    const broker = await this.deps.podman.inspectMountSource(name, '/run/elowen');
-    const expectedBroker = this.deps.brokerPath
-      ? dirname(this.deps.brokerPath(siteId))
-      : join('/var/lib/elowen/site-runtime-sockets', siteId);
-    if (broker !== null && resolve(broker) !== resolve(expectedBroker)) {
-      mismatches.push(`broker ${broker} is not ${expectedBroker}`);
-    }
-    const dataMount = await this.deps.podman.inspectMountSource(name, '/data');
-    if (dataMount !== null && dataMount !== volume) mismatches.push(`data volume ${dataMount} is not ${volume}`);
-    const limits = this.containerLimits(site0(siteId, this.deps));
-    const observed = await this.deps.podman.inspectResources(name);
-    if (observed) {
-      if (observed.memoryMb !== null && observed.memoryMb !== limits.memoryMb) {
-        mismatches.push(`memory ${observed.memoryMb}MB is not ${limits.memoryMb}MB`);
-      }
-      if (observed.pidsLimit !== null && observed.pidsLimit !== limits.pidsLimit) {
-        mismatches.push(`pids ${observed.pidsLimit} is not ${limits.pidsLimit}`);
-      }
-    }
-    const network = await this.deps.podman.inspectNetworkMode(name);
-    const expectedNetwork = this.deps.config().environmentNetwork === 'isolated' ? 'none' : 'slirp4netns';
-    if (network !== null && !network.startsWith(expectedNetwork)) {
-      mismatches.push(`network ${network} is not ${expectedNetwork}`);
-    }
-
-    return mismatches.length === 0
-      ? { owned: true, workspace, detail: `container ${name} matches the expected specification` }
-      : { owned: true, workspace, detail: `container ${name} differs: ${mismatches.join('; ')}` };
+    this.saveBinding(binding);
+    const existing = await this.control().discoverSiteEnvironment({ siteId: site.id, accountUserId: this.actor(site) });
+    if (existing) return { created: false };
+    await this.provision(site, image === BASE_IMAGE_TAG ? 'base' : workspaceReadOnly ? 'static' : 'node');
+    await this.perform(site, { kind: 'prepare' });
+    return { created: true };
   }
-
-  /** Ask the site's own ingress the invariant its recipe declared, over real HTTP.
-   *
-   *  A connectable socket is not readiness: `systemd-socket-proxyd` accepts whether or not anything is
-   *  listening behind it, so a container whose application never started still looks alive. Only a
-   *  response with the expected status proves the application is serving.
-   *
-   *  Deliberately a bare request rather than the serving proxy: this is a health probe, not a visitor,
-   *  and it must not carry identity headers, count a hit or take the access path. */
-  async probeReadiness(
-    siteId: string,
-    expect: { path: string; expectStatus: number },
-    options: { timeoutMs?: number; deadlineMs?: number } = {},
-  ): Promise<{ ready: boolean; detail: string; attempts: number }> {
-    const endpoint = this.endpoints.get(siteId);
-    if (!endpoint) return { ready: false, detail: 'the ingress socket has not been adopted', attempts: 0 };
-
-    const perAttemptMs = options.timeoutMs ?? 5_000;
-    // BOUNDED WAIT, and it lives here rather than in the caller.
-    //
-    // The ingress socket exists before the application behind it does: `elowen-ingress.socket` is
-    // listening from boot, so the first requests through it are refused or reset while systemd is still
-    // starting the app. A single probe therefore reports ECONNRESET for a site that is merely still
-    // coming up. A fixed sleep would be the wrong fix, because it is simultaneously too long for a fast
-    // start and too short for a slow one; the honest answer is to retry until a deadline and then give
-    // up with the LAST real failure, which is what the caller needs to act on.
-    const deadline = this.now() + (options.deadlineMs ?? this.deps.config().startTimeoutSeconds * 1_000);
-    let attempts = 0;
-    let last = 'no attempt completed';
-    while (this.now() <= deadline) {
-      attempts += 1;
-      const outcome = await this.readinessAttempt(endpoint, expect, perAttemptMs);
-      if (outcome.ready) return { ...outcome, attempts };
-      last = outcome.detail;
-      // A wrong STATUS is the application answering, so it is settled and retrying will not change it.
-      // Only a transport failure is worth waiting through.
-      if (outcome.answered) return { ready: false, detail: outcome.detail, attempts };
-      if (this.now() > deadline) break;
-      // A bounded wait that MUST complete, so it does not use the shared unref'd sleep: an unreferenced
-      // timer lets an otherwise idle process exit with this promise still pending.
-      await new Promise<void>((wake) => { setTimeout(wake, 250); });
-    }
-    return { ready: false, detail: `${last} (gave up after ${attempts} attempt(s))`, attempts };
+  async inspectOwnership(id: string, expect?: { workspace: string; image: string }): Promise<{ owned: boolean; workspace: string | null; detail: string } | null> {
+    const site = this.site(id);
+    if (!this.registration(id)) this.saveBinding(this.defaultBinding(site));
+    const discovered = await this.control().discoverSiteEnvironment({ siteId: id, accountUserId: this.actor(site) });
+    if (!discovered) return null;
+    const binding = this.registration(id)!;
+    if (expect && (expect.workspace !== binding.sourcePath || expect.image !== binding.image)) return { owned: false, workspace: binding.sourcePath, detail: 'container binding differs from the expected conversion' };
+    return { owned: true, workspace: binding.sourcePath, detail: `container ${discovered.containerId} matches the expected specification` };
   }
-
-  private async readinessAttempt(
-    endpoint: Endpoint,
-    expect: { path: string; expectStatus: number },
-    timeoutMs: number,
-  ): Promise<{ ready: boolean; answered: boolean; detail: string }> {
-    const result = await new Promise<number | string>((resolveStatus) => {
-      const request = httpRequest({
-        ...(endpoint.kind === 'socket' ? { socketPath: endpoint.path } : { host: '127.0.0.1', port: endpoint.port }),
-        method: 'GET',
-        path: expect.path,
-        headers: { host: 'localhost', 'user-agent': 'elowen-conversion-readiness' },
-        timeout: timeoutMs,
-      }, (response) => {
-        response.resume();
-        resolveStatus(response.statusCode ?? 0);
-      });
-      request.once('error', (error: Error) => resolveStatus(error.message));
-      request.once('timeout', () => { request.destroy(); resolveStatus('timed out'); });
-      request.end();
-    });
-    if (typeof result === 'string') {
-      return { ready: false, answered: false, detail: `GET ${expect.path} failed: ${result}` };
-    }
-    return result === expect.expectStatus
-      ? { ready: true, answered: true, detail: `GET ${expect.path} answered ${result}` }
-      : { ready: false, answered: true, detail: `GET ${expect.path} answered ${result}, expected ${expect.expectStatus}` };
-  }
-
-  /** The host directory Podman bind-mounts at `/run/elowen`. Derived, never taken from a caller. */
-  brokerDirectory(siteId: string): string {
-    return this.deps.brokerPath
-      ? dirname(this.deps.brokerPath(siteId))
-      : join('/var/lib/elowen/site-runtime-sockets', siteId);
-  }
-
-  /** Whether the broker directory is already on disk.
-   *
-   *  `podman create` STATFS-es every bind source, so a missing one fails the create with 125 before the
-   *  container exists at all. A command site hides that: its live process already had the gateway create
-   *  the directory, so the conversion inherited one. A static or PHP site has none, and its create fails.
-   *
-   *  A plain stat is enough and is all the plugin may do: the directory is root-owned 0730 and only the
-   *  privileged gateway helper may create or remove it. */
-  brokerDirectoryExists(siteId: string): boolean {
-    try { return statSync(this.brokerDirectory(siteId)).isDirectory(); }
-    catch { return false; }
-  }
-
-  /** Have the GATEWAY create the broker directory, so a container can be created against it.
-   *
-   *  Routed through the privileged helper on purpose. The directory is root-owned with a mode the service
-   *  account cannot produce, and a plugin-made one would either fail the seal later or hand the container
-   *  a directory it could rewrite. This plugin never calls mkdir for it. */
-  async prepareBrokerDirectory(siteId: string): Promise<string> {
-    const prepared = await this.deps.gateway.prepareRuntimeSocket(siteId);
-    this.appendLog(siteId, 'prepared broker directory for container creation');
-    return dirname(prepared.path);
-  }
-
-  /** Stop the container and resolve only once it has actually left the running state. */
-  async quiesce(siteId: string): Promise<void> {
-    await this.serialize(siteId, () => this.stopNow(siteId, false));
-  }
-
-  /** Whether the container has reached a stopped state, observed rather than inferred. */
-  async isStopped(siteId: string): Promise<boolean> {
-    const status = await this.deps.podman.inspectStatus(containerName(siteId));
-    return status === null || status === 'exited' || status === 'created';
-  }
-
-  /** Seed a site's data volume from a tar before its container has ever run, so a converted site starts
-   *  against the data its legacy runtime had rather than an empty volume. */
-  importDataVolume(siteId: string, archive: string): Promise<void> {
-    return this.serialize(siteId, async () => {
-      const volume = volumeName(siteId);
-      await this.deps.podman.ensureVolume(volume, siteId);
-      await this.deps.podman.importVolume(volume, archive);
-      this.appendLog(siteId, 'seeded data volume from the legacy runtime');
-    });
-  }
-
-  /** Export a site's data volume so writes made while converted can travel back on a rollback. Reports
-   *  false when the volume does not exist, which is the honest answer for a container that never ran. */
-  exportDataVolume(siteId: string, output: string): Promise<boolean> {
-    return this.serialize(siteId, async () => {
-      const volume = volumeName(siteId);
-      if (!await this.deps.podman.volumeExists(volume)) return false;
-      await this.deps.podman.exportVolume(volume, output);
-      return true;
-    });
-  }
-
-  private writeEnvironmentFiles(site: Site): { envFile: string; gitStub: string } {
-    const dir = this.environmentDir(site.id);
+  brokerDirectory(id: string): string { return this.deps.brokerPath ? dirname(this.deps.brokerPath(id)) : join('/var/lib/elowen/site-runtime-sockets', id); }
+  brokerDirectoryExists(id: string): boolean { try { return statSync(this.brokerDirectory(id)).isDirectory(); } catch { return false; } }
+  async prepareBrokerDirectory(id: string): Promise<string> { return dirname((await this.deps.gateway.prepareRuntimeSocket(id)).path); }
+  private writeEnvironmentFiles(site: Site): void {
+    const dir = join(this.deps.siteDir(site.id), 'environment');
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const envFile = join(dir, 'container.env');
     const url = this.deps.siteUrl?.(site);
-    const lines = [`ELOWEN_SITE_SLUG=${site.slug}`, ...(url ? [`ELOWEN_SITE_URL=${url}`] : [])];
-    writeFileSync(envFile, `${lines.join('\n')}\n`, { mode: 0o600 });
-    chmodSync(envFile, 0o600);
-    // `mode` applies only when a file is CREATED, and a 0400 stub cannot be reopened for writing. Every
-    // RECREATE therefore died here with EACCES before the container existed, which is exactly what a
-    // rollback does after removing the old one: an environment could never be restored at all. Reopen it
-    // deliberately, then put the read-only bit back.
-    const gitStub = join(dir, 'git-stub');
-    if (existsSync(gitStub)) chmodSync(gitStub, 0o600);
-    writeFileSync(gitStub, '', { mode: 0o400 });
-    chmodSync(gitStub, 0o400);
-    return { envFile, gitStub };
+    writeFileSync(join(dir, 'container.env'), `ELOWEN_SITE_SLUG=${site.slug}\n${url ? `ELOWEN_SITE_URL=${url}\n` : ''}`, { mode: 0o600 });
+    const stub = join(dir, 'git-stub');
+    if (existsSync(stub)) chmodSync(stub, 0o600);
+    writeFileSync(stub, '', { mode: 0o400 }); chmodSync(stub, 0o400);
+  }
+  async start(site: Site, options: { authorized?: boolean } = {}): Promise<void> {
+    if (!options.authorized && this.deps.store.conversionSuspends(site.id) === 'environment') throw new Error('the environment is held by a runtime conversion');
+    if ((await this.state(site)).state !== 'running') await this.perform(site, { kind: 'start' }, undefined, options.authorized);
+    await this.refreshReadiness(site);
+  }
+  async stop(id: string): Promise<void> { await this.perform(this.site(id), { kind: 'stop' }); this.endpoints.delete(id); }
+  async quiesce(id: string): Promise<void> { await this.perform(this.site(id), { kind: 'stop' }, undefined, true); this.endpoints.delete(id); }
+  async isStopped(id: string): Promise<boolean> { const state = await this.state(this.site(id)); return state.state === 'stopped' || state.state === 'unprovisioned' || state.state === 'deleted'; }
+  async restart(site: Site): Promise<void> { await this.perform(site, { kind: 'restart' }); await this.refreshReadiness(site); }
+  async applyLimits(site: Site, overrides: EnvironmentLimitOverrides, actor?: number): Promise<void> {
+    await this.perform(site, { kind: 'limits', limits: this.effectiveLimits({ ...site, ...overrides }) }, actor);
+    this.deps.store.updateSite(site.id, overrides);
+  }
+  async importDataVolume(id: string, archive: string): Promise<void> {
+    const site = this.site(id), actor = this.actor(site);
+    await this.wait(await this.artifactOperation(site, 'import-data', { kind: 'data', archivePath: this.ownedPath(id, archive) }, actor), actor);
+  }
+  async exportDataVolume(id: string, output: string): Promise<boolean> {
+    const site = this.site(id), actor = this.actor(site);
+    await this.wait(await this.artifactOperation(site, 'export-data', { kind: 'data', archivePath: this.ownedPath(id, output) }, actor), actor);
+    return existsSync(output);
+  }
+  async removeStaged(paths: readonly string[]): Promise<void> {
+    for (const path of paths) {
+      const site = this.deps.store.allSites().find(entry => resolve(path).startsWith(resolve(this.deps.siteDir(entry.id)) + sep));
+      if (!site) throw new Error('staging artifact has no owning Site');
+      const actor = this.actor(site);
+      await this.wait(await this.artifactOperation(site, 'remove-artifact', { kind: 'data', archivePath: this.ownedPath(site.id, path) }, actor), actor);
+    }
+  }
+  async delete(id: string, options: { removeBroker?: boolean } = {}): Promise<void> {
+    const site = this.site(id);
+    await this.perform(site, { kind: site.runtime === 'environment' ? 'delete' : 'cleanup-stage' }, undefined, true);
+    this.endpoints.delete(id);
+    if (this.registration(id)?.staging && options.removeBroker !== false) await this.deps.gateway.removeRuntimeSocket(id);
+  }
+  /** Schedule a snapshot and return its stable public id immediately, after the receipt is durable and
+   *  the runtime has accepted the request under that request id. Completion is observed by the
+   *  reconcile recovery, never by blocking the caller. */
+  async scheduleSnapshot(site: Site, input: { includeData: boolean; note: string; model: string }, actor?: number): Promise<{ id: string }> {
+    const { key, receipt } = await this.openSnapshotReceipt(site, input, actor);
+    try {
+      const operation = await this.request(site, { kind: 'snapshot', includeData: input.includeData, note: input.note }, receipt.accountUserId, receipt.requestId);
+      receipt.operationId = operation.id;
+      this.deps.store.putRuntimeRecord(site.id, key, JSON.stringify(receipt));
+    } catch (error) {
+      this.abandonReceipt(site, key, receipt);
+      throw error;
+    }
+    return { id: receipt.publicId! };
   }
 
-  private async snapshotNow(site: Site, input: EnvironmentSnapshotInput): Promise<Release> {
-      if (site.runtime !== 'environment') throw new Error('this site is not a persistent environment');
-      const snapshotDir = join(this.environmentDir(site.id), 'snapshots', input.snapshotId);
-      const imageRef = `localhost/elowen-site/${site.id}:${input.snapshotId}`;
-      const dataArchive = input.includeData ? join(snapshotDir, 'data.tar') : null;
-      const existing = this.deps.store.release(site.id, input.snapshotId);
-      if (existing) {
-        if (existing.kind !== 'environment-snapshot' || existing.imageRef !== imageRef || existing.dataArchive !== dataArchive) {
-          throw new Error('the durable snapshot action conflicts with an existing release');
-        }
-        if (!await this.deps.podman.imageExists(imageRef) || (dataArchive !== null && !existsSync(dataArchive))) {
-          throw new Error('the recorded environment snapshot is incomplete');
-        }
-        await this.pruneEnvironmentSnapshots(site.id, input.snapshotId);
-        return existing;
-      }
-      const name = containerName(site.id);
-      let status = await this.deps.podman.inspectStatus(name);
-      if (status === 'paused') {
-        try { await this.deps.podman.unpause(name); }
-        catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          this.endpoints.delete(site.id);
-          this.deps.store.updateSite(site.id, { status: 'failed', lastError: `snapshot resume failed: ${message}` });
-          throw error;
-        }
-        status = await this.deps.podman.inspectStatus(name);
-      }
-      if (status !== 'running') {
-        this.endpoints.delete(site.id);
-        this.deps.store.updateSite(site.id, { status: 'failed', lastError: 'the environment is not running' });
-        throw new Error('the environment is not running');
-      }
-      if (existsSync(snapshotDir)) {
-        if (await this.deps.podman.imageExists(imageRef)) await this.deps.podman.removeImage(imageRef);
-        rmSync(snapshotDir, { recursive: true, force: true });
-      }
-      mkdirSync(snapshotDir, { recursive: true, mode: 0o700 });
-      let paused = false;
-      let resumeFailed = false;
-      let failure: unknown = null;
-      try {
-        await this.deps.podman.pause(name);
-        paused = true;
-        await this.deps.podman.commit(name, imageRef, { pause: false });
-        if (dataArchive) await this.deps.podman.exportVolume(volumeName(site.id), dataArchive);
-      } catch (error) {
-        failure = error;
-      } finally {
-        if (paused) {
-          try { await this.deps.podman.unpause(name); }
-          catch (error) { resumeFailed = true; failure ??= error; }
-        }
-      }
-      if (failure) {
-        await this.deps.podman.removeImage(imageRef).catch(() => {});
-        rmSync(snapshotDir, { recursive: true, force: true });
-        const message = failure instanceof Error ? failure.message : String(failure);
-        if (resumeFailed) {
-          this.endpoints.delete(site.id);
-          this.deps.store.updateSite(site.id, { status: 'failed', lastError: `snapshot resume failed: ${message}` });
-        }
-        this.appendLog(site.id, `snapshot ${input.snapshotId} failed: ${message}`);
-        throw failure;
-      }
-      const release: Release = {
-        id: input.snapshotId,
-        siteId: site.id,
-        createdAt: new Date(this.now()).toISOString(),
-        model: input.model,
-        fileCount: 0,
-        sizeBytes: 0,
-        note: input.note,
-        kind: 'environment-snapshot',
-        imageRef,
-        dataArchive,
-      };
-      try {
-        this.deps.store.insertRelease(release);
-      } catch (error) {
-        await this.deps.podman.removeImage(imageRef).catch(() => {});
-        rmSync(snapshotDir, { recursive: true, force: true });
-        throw error;
-      }
-      this.appendLog(site.id, `created crash-consistent snapshot ${input.snapshotId}`);
-      await this.pruneEnvironmentSnapshots(site.id, input.snapshotId);
+  /** Blocking convenience over the SAME receipt the scheduled path uses. */
+  async snapshot(site: Site, input: { includeData: boolean; note: string; model: string }, actor?: number): Promise<Release> {
+    const { receipt } = await this.openSnapshotReceipt(site, input, actor);
+    try {
+      const operation = await this.request(site, { kind: 'snapshot', includeData: input.includeData, note: input.note }, receipt.accountUserId, receipt.requestId);
+      receipt.operationId = operation.id;
+      this.deps.store.putRuntimeRecord(site.id, `snapshot-request:${receipt.requestId}`, JSON.stringify(receipt));
+      const release = await this.awaitReceipt(site, 'snapshot-request:', receipt.publicId!);
+      if (!release) throw new Error('the snapshot is still pending');
       return release;
-  }
-
-  private async pruneEnvironmentSnapshots(siteId: string, createdSnapshotId: string): Promise<void> {
-    const snapshots = this.deps.store.releases(siteId).filter((release) => release.kind === 'environment-snapshot');
-    const limit = Math.max(1, this.deps.config().releasesKept);
-    if (snapshots.length <= limit) return;
-    const currentReleaseId = this.deps.store.siteById(siteId)?.currentReleaseId ?? null;
-    const keep = new Set(snapshots.slice(0, limit).map((snapshot) => snapshot.id));
-    keep.add(createdSnapshotId);
-    if (currentReleaseId && snapshots.some((release) => release.id === currentReleaseId)) keep.add(currentReleaseId);
-    for (const snapshot of snapshots) {
-      if (keep.has(snapshot.id)) continue;
-      const expectedImage = `localhost/elowen-site/${siteId}:${snapshot.id}`;
-      if (snapshot.imageRef !== expectedImage) throw new Error(`snapshot ${snapshot.id} has an invalid image reference`);
-      const snapshotDir = join(this.environmentDir(siteId), 'snapshots', snapshot.id);
-      const expectedArchive = join(snapshotDir, 'data.tar');
-      if (snapshot.dataArchive !== null && snapshot.dataArchive !== expectedArchive) {
-        throw new Error(`snapshot ${snapshot.id} has an invalid data archive`);
-      }
-      await this.deps.podman.removeImage(expectedImage);
-      await this.deps.podman.unshareRemove([snapshotDir]);
-      this.deps.store.deleteRelease(siteId, snapshot.id);
-    }
-  }
-
-  /** `authorized` marks the runtime conversion's own start. The conversion owns this site's runtime at
-   *  the moment it runs, so it passes through the suspension guard rather than being stopped by it. */
-  start(site: Site, options: { authorized?: boolean } = {}): Promise<void> {
-    const authorized = options.authorized === true;
-    // Asked BEFORE the desired-state write, not only inside the queue: that write is itself a side
-    // effect, and a rollback that quiesced the container has already recorded that it must stay down.
-    if (!authorized && this.deps.store.conversionSuspends(site.id) === 'environment') return Promise.resolve();
-    this.deps.store.updateSite(site.id, { environmentDesiredState: 'running' });
-    return this.serialize(site.id, () => this.startNow(site, undefined, false, authorized));
-  }
-
-  private async startNow(site: Site, createImage?: string, volumePrepared = false, authorized = false): Promise<void> {
-    if (site.runtime !== 'environment') return;
-
-    // THE SECOND ASK, inside the per-site queue and immediately before the container is touched.
-    //
-    // A reconcile sweep reads its site list once and then awaits each site in turn, so a start queued
-    // from that stale list can arrive here after a rollback claimed the site and stopped its container.
-    // Restarting it mid-export is how a volume gets exported while it is being written.
-    if (!authorized && this.deps.store.conversionSuspends(site.id) === 'environment') return;
-    this.detached = false;
-    const name = containerName(site.id);
-    let status = await this.deps.podman.inspectStatus(name);
-    const knownSocket = this.deps.brokerPath?.(site.id)
-      ?? join('/var/lib/elowen/site-runtime-sockets', site.id, 'app.sock');
-
-    if (status === 'running'
-      && this.brokerSealed(knownSocket)
-      && await this.socketReady(knownSocket)
-      && await this.connectReady({ kind: 'socket', path: knownSocket })) {
-      this.endpoints.set(site.id, { kind: 'socket', path: knownSocket });
-      this.settledStopped.delete(site.id);
-      this.deps.store.updateSite(site.id, { status: 'live', lastError: null });
-      this.appendLog(site.id, 'adopted running container');
-      return;
-    }
-
-    if (status !== null && status !== 'exited' && status !== 'created') {
-      await this.stopNow(site.id, true);
-      status = await this.deps.podman.inspectStatus(name);
-    }
-
-    await this.deps.gateway.removeRuntimeSocket(site.id);
-    const prepared = await this.deps.gateway.prepareRuntimeSocket(site.id);
-    const endpoint: Endpoint = { kind: 'socket', path: prepared.path };
-
-    try {
-      const limits = this.containerLimits(site);
-      const creating = status === null;
-      if (creating) {
-        const image = createImage ?? await this.deps.ensureBaseImage();
-        const files = this.writeEnvironmentFiles(site);
-        const volume = volumeName(site.id);
-        if (!volumePrepared) await this.deps.podman.ensureVolume(volume, site.id);
-        await this.deps.podman.create({
-          name,
-          siteId: site.id,
-          ...limits,
-          network: this.deps.config().environmentNetwork,
-          envFile: files.envFile,
-          workspace: site.sourceDir,
-          gitStub: files.gitStub,
-          brokerDir: dirname(prepared.path),
-          volume,
-          image,
-        });
-      }
-      await this.deps.podman.start(name);
-      const ready = await this.waitForReady(endpoint, this.deps.config().startTimeoutSeconds * 1_000);
-      if (!ready) throw new Error(`the environment did not expose ${prepared.path} in time`);
-      // Create already persisted these limits. Podman delegates `update` to crun, whose status file can
-      // briefly lag behind the systemd ingress, so retry only that known startup race before exposure.
-      if (!creating) await this.updateStartedContainer(name, limits);
-      await this.deps.gateway.sealRuntimeSocket(site.id);
-      if (!await this.connectReady(endpoint)) throw new Error('the environment ingress socket did not answer after sealing');
-      this.endpoints.set(site.id, endpoint);
-      this.settledStopped.delete(site.id);
-      this.deps.store.updateSite(site.id, { status: 'live', lastError: null });
-      this.appendLog(site.id, 'started container');
     } catch (error) {
-      try { await this.stopContainerAndWait(name); } catch { /* keep the original start failure */ }
-      await this.deps.gateway.removeRuntimeSocket(site.id).catch(() => {});
-      const message = error instanceof Error ? error.message : String(error);
-      this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
-      this.appendLog(site.id, `start failed: ${message}`);
+      this.abandonReceipt(site, `snapshot-request:${receipt.requestId}`, receipt);
       throw error;
     }
   }
 
-  private async updateStartedContainer(
-    name: string,
-    limits: Pick<CreateContainerSpec, 'cpus' | 'memoryMb' | 'pidsLimit'>,
-  ): Promise<void> {
-    for (let attempt = 1; attempt <= LIMIT_UPDATE_ATTEMPTS; attempt += 1) {
-      try {
-        await this.deps.podman.update(name, limits);
-        return;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const transient = message.includes('/crun/')
-          && message.includes('/status')
-          && message.includes('No such file or directory');
-        if (!transient || attempt === LIMIT_UPDATE_ATTEMPTS) throw error;
-        const status = await this.deps.podman.inspectStatus(name);
-        if (status !== 'running' && status !== 'created') throw error;
-        await this.sleep(attempt * 1_000);
-      }
+  /** The receipt and the visible action row precede dispatch. A lost response replays the same runtime
+   *  request key; a structural rejection leaves nothing behind for recovery to re-dispatch. */
+  private async openSnapshotReceipt(site: Site, input: { includeData: boolean; note: string; model: string }, actor?: number): Promise<{ key: string; receipt: SnapshotReceipt }> {
+    const accountUserId = this.actor(site, actor);
+    await this.handover(site, accountUserId);
+    const receipt: SnapshotReceipt = {
+      requestId: randomUUID(), accountUserId, kind: 'snapshot', publicId: randomUUID(),
+      requestedAt: new Date().toISOString(),
+      input: { includeData: input.includeData, note: input.note, model: input.model },
+    };
+    const key = `snapshot-request:${receipt.requestId}`;
+    this.deps.store.putRuntimeRecord(site.id, key, JSON.stringify(receipt));
+    if (!this.deps.store.beginEnvironmentAction({ siteId: site.id, kind: 'snapshot', snapshotId: receipt.publicId!,
+      includeData: input.includeData, note: input.note, model: input.model, requestedAt: receipt.requestedAt, lastError: null })) {
+      this.deps.store.deleteRuntimeRecord(site.id, key);
+      throw new Error('another environment action or execution is in progress');
     }
+    return { key, receipt };
   }
 
-  private async waitForReady(endpoint: Endpoint, timeoutMs: number): Promise<boolean> {
-    const deadline = this.now() + timeoutMs;
-    while (this.now() <= deadline) {
-      if (endpoint.kind === 'socket' && await this.socketReady(endpoint.path)) return true;
-      await this.sleep(200);
+  /** Schedule a restore through the provider without touching the second desired-state authority, and
+   *  remember the receipt so a completed restore moves the public snapshot pointer exactly once. */
+  async scheduleRestore(site: Site, snapshotId: string, restoreData: boolean, actor?: number): Promise<void> {
+    const accountUserId = this.actor(site, actor);
+    await this.handover(site, accountUserId);
+    const receipt: SnapshotReceipt = {
+      requestId: randomUUID(), accountUserId, kind: 'restore', publicId: snapshotId,
+      requestedAt: new Date().toISOString(),
+      input: { includeData: true, note: '', model: '', restoreData },
+    };
+    const key = `restore-request:${receipt.requestId}`;
+    this.deps.store.putRuntimeRecord(site.id, key, JSON.stringify(receipt));
+    if (!this.deps.store.beginEnvironmentAction({ siteId: site.id, kind: 'rollback', snapshotId, restoreData,
+      requestedAt: receipt.requestedAt, lastError: null })) {
+      this.deps.store.deleteRuntimeRecord(site.id, key);
+      throw new Error('another environment action or execution is in progress');
     }
-    return false;
-  }
-
-  stop(siteId: string): Promise<void> {
-    return this.serialize(siteId, async () => {
-      const site = this.deps.store.siteById(siteId);
-      if (site?.runtime === 'environment') this.deps.store.updateSite(siteId, { environmentDesiredState: 'stopped' });
-      await this.stopNow(siteId, true);
-    });
-  }
-
-  private async stopNow(siteId: string, removeBroker: boolean): Promise<void> {
-    const name = containerName(siteId);
-    await this.stopContainerAndWait(name);
-    this.endpoints.delete(siteId);
-    this.settledStopped.add(siteId);
-    if (removeBroker) await this.deps.gateway.removeRuntimeSocket(siteId);
-    this.appendLog(siteId, 'stopped container');
-  }
-
-  private async stopContainerAndWait(name: string): Promise<void> {
-    const initial = await this.deps.podman.inspectStatus(name);
-    if (initial === null || initial === 'exited' || initial === 'created') return;
-    await this.deps.podman.stop(name, STOP_TIMEOUT_SECONDS);
-    if (await this.waitForExited(name, EXIT_WAIT_MS)) return;
-    await this.deps.podman.kill(name);
-    if (!await this.waitForExited(name, KILL_WAIT_MS)) {
-      throw new Error(`${name} did not reach exited after stop and kill`);
-    }
-  }
-
-  private async waitForExited(name: string, timeoutMs: number): Promise<boolean> {
-    const deadline = this.now() + timeoutMs;
-    while (this.now() <= deadline) {
-      if (await this.deps.podman.inspectStatus(name) === 'exited') return true;
-      await this.sleep(200);
-    }
-    return false;
-  }
-
-  restart(site: Site): Promise<void> {
-    return this.serialize(site.id, async () => {
-      await this.stopNow(site.id, true);
-      const current = this.deps.store.siteById(site.id) ?? site;
-      await this.startNow(current);
-      this.deps.store.completeEnvironmentRestart(site.id);
-    });
-  }
-
-  applyLimits(
-    site: Site,
-    patch: Pick<Site, 'environmentCpus' | 'environmentMemoryMb' | 'environmentPidsLimit' | 'environmentDiskSoftMb'>,
-  ): Promise<void> {
-    return this.serialize(site.id, async () => {
-      const next = { ...site, ...patch };
-      const status = await this.deps.podman.inspectStatus(containerName(site.id));
-      // crun can update only a running container. For a stopped/created container persist the override;
-      // startNow applies it immediately after the next start and before ingress is accepted.
-      if (status === 'running') {
-        await this.deps.podman.update(containerName(site.id), this.containerLimits(next));
-      }
-      this.deps.store.updateSite(site.id, patch);
-    });
-  }
-
-  private async rollbackNow(site: Site, action: Extract<EnvironmentAction, { kind: 'rollback' }>): Promise<void> {
-    const snapshot = this.deps.store.release(site.id, action.snapshotId);
-    const expectedImage = `localhost/elowen-site/${site.id}:${action.snapshotId}`;
-    if (!snapshot || snapshot.kind !== 'environment-snapshot' || snapshot.imageRef !== expectedImage) {
-      throw new Error('the requested environment snapshot is not retained for this site');
-    }
-    const expectedArchive = join(this.environmentDir(site.id), 'snapshots', action.snapshotId, 'data.tar');
-    if (snapshot.dataArchive !== null && snapshot.dataArchive !== expectedArchive) {
-      throw new Error('the requested environment snapshot has an invalid data archive');
-    }
-    if (!await this.deps.podman.imageExists(expectedImage)) {
-      throw new Error('the requested environment snapshot image is missing');
-    }
-    if (action.restoreData) {
-      if (snapshot.dataArchive !== expectedArchive || !this.safeSnapshotPath(site.id, snapshot.dataArchive)) {
-        throw new Error('the requested snapshot has no valid data archive');
-      }
-      await this.validateDataArchive(site.id, action.snapshotId, snapshot.dataArchive);
-    }
-    await this.stopNow(site.id, true);
-    const name = containerName(site.id);
-    if (await this.deps.podman.inspectStatus(name) !== null) await this.deps.podman.remove(name);
-    const backupDir = action.restoreData && snapshot.dataArchive
-      ? await this.replaceDataVolume(site.id, action.snapshotId, snapshot.dataArchive)
-      : null;
     try {
-      await this.startNow(site, expectedImage, action.restoreData);
+      const operation = await this.request(site, { kind: 'restore', snapshotId: this.runtimeSnapshotId(site, snapshotId), restoreData }, accountUserId, receipt.requestId);
+      receipt.operationId = operation.id;
+      this.deps.store.putRuntimeRecord(site.id, key, JSON.stringify(receipt));
     } catch (error) {
-      if (backupDir) {
-        try {
-          if (await this.deps.podman.inspectStatus(name) !== null) await this.deps.podman.remove(name);
-          await this.restorePreviousData(site.id, backupDir);
-        } catch (restoreError) {
-          const message = restoreError instanceof Error ? restoreError.message : String(restoreError);
-          throw new Error(`rollback failed and the previous data volume could not be restored: ${message}`, { cause: error });
-        }
-      }
+      this.abandonReceipt(site, key, receipt);
       throw error;
     }
-    if (backupDir) rmSync(backupDir, { recursive: true, force: true });
-    if (!this.deps.store.completeEnvironmentAction(site.id, snapshot.id)) {
-      throw new Error('the rollback completed but its durable action state changed unexpectedly');
-    }
-    this.appendLog(site.id, `restored snapshot ${snapshot.id}${action.restoreData ? ' with data' : ''}`);
   }
 
-  private async validateDataArchive(siteId: string, snapshotId: string, archive: string): Promise<void> {
-    const temporaryVolume = `${volumeName(siteId)}-validate-${snapshotId}`;
-    await this.deps.podman.removeVolume(temporaryVolume);
+  /** Blocking convenience over the same restore receipt. */
+  async rollback(site: Site, snapshotId: string, restoreData: boolean, actor?: number): Promise<void> {
+    await this.scheduleRestore(site, snapshotId, restoreData, actor);
+    await this.awaitReceipt(site, 'restore-request:', snapshotId);
+  }
+
+  /** Read-only projection of the visible action row against the runtime operation its receipt stands
+   *  for. It never dispatches, claims or writes anything: durable answers belong to recovery. */
+  async pendingAction(site: Site, actor?: number): Promise<EnvironmentAction | null> {
+    const action = this.deps.store.environmentAction(site.id);
+    if (!action || action.lastError !== null) return action;
+    const prefix = action.kind === 'snapshot' ? 'snapshot-request:' : 'restore-request:';
+    const entry = this.deps.store.runtimeRecords(site.id, prefix).find((candidate) => {
+      const receipt = JSON.parse(candidate.value) as SnapshotReceipt;
+      return receipt.publicId === action.snapshotId && typeof receipt.operationId === 'string';
+    });
+    if (!entry) return action;
     try {
-      await this.deps.podman.ensureVolume(temporaryVolume, siteId);
-      await this.deps.podman.importVolume(temporaryVolume, archive);
-    } finally {
-      await this.deps.podman.removeVolume(temporaryVolume);
-    }
-  }
-
-  private async replaceDataVolume(siteId: string, snapshotId: string, archive: string): Promise<string> {
-    const volume = volumeName(siteId);
-    const backupDir = join(this.environmentDir(siteId), 'restore', snapshotId);
-    const backup = join(backupDir, 'previous-data.tar');
-    const backupTemp = join(backupDir, 'previous-data.tar.partial');
-    mkdirSync(backupDir, { recursive: true, mode: 0o700 });
-    if (!existsSync(backup)) {
-      rmSync(backupTemp, { force: true });
-      await this.deps.podman.exportVolume(volume, backupTemp);
-      renameSync(backupTemp, backup);
-    }
-    await this.deps.podman.removeVolume(volume);
-    try {
-      await this.deps.podman.ensureVolume(volume, siteId);
-      await this.deps.podman.importVolume(volume, archive);
-    } catch (error) {
-      try {
-        await this.deps.podman.removeVolume(volume);
-        await this.deps.podman.ensureVolume(volume, siteId);
-        await this.deps.podman.importVolume(volume, backup);
-      } catch (restoreError) {
-        const message = restoreError instanceof Error ? restoreError.message : String(restoreError);
-        throw new Error(`snapshot import failed and the previous data backup could not be restored: ${message}`, { cause: error });
+      const receipt = JSON.parse(entry.value) as SnapshotReceipt;
+      const operation = await this.control().siteEnvironmentOperation({ operationId: receipt.operationId!, accountUserId: this.actor(site, actor) });
+      if (!operation || operation.status === 'pending' || operation.status === 'running' || operation.status === 'succeeded') {
+        return { ...action, lastError: null };
       }
-      rmSync(backupDir, { recursive: true, force: true });
-      throw error;
+      return { ...action, lastError: operation.error ?? `environment operation ${operation.status}` };
+    } catch {
+      return action;
     }
-    return backupDir;
   }
 
-  private async restorePreviousData(siteId: string, backupDir: string): Promise<void> {
-    const backup = join(backupDir, 'previous-data.tar');
-    const volume = volumeName(siteId);
-    await this.deps.podman.removeVolume(volume);
-    await this.deps.podman.ensureVolume(volume, siteId);
-    await this.deps.podman.importVolume(volume, backup);
-    rmSync(backupDir, { recursive: true, force: true });
+  /** Poll the receipt of an already-scheduled action until the runtime reports it terminal. */
+  private async awaitReceipt(site: Site, prefix: string, publicId: string): Promise<Release | null> {
+    const entry = this.deps.store.runtimeRecords(site.id, prefix).find((candidate) => {
+      const receipt = JSON.parse(candidate.value) as SnapshotReceipt;
+      return receipt.publicId === publicId;
+    });
+    if (!entry) throw new Error('the scheduled environment action is no longer tracked');
+    return this.settleReceipt(site, entry.key, JSON.parse(entry.value) as SnapshotReceipt, true);
   }
 
-  private safeSnapshotPath(siteId: string, path: string): boolean {
-    const root = resolve(this.environmentDir(siteId), 'snapshots');
-    const candidate = resolve(path);
-    return candidate.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
+  /** Resolve one receipt against the runtime. Pending leaves everything for the next recovery sweep. A
+   *  terminal result maps the runtime snapshot id to the promised public id, makes the view metadata
+   *  durable, and only then finalizes the receipt and the visible action row. */
+  private async settleReceipt(site: Site, key: string, receipt: SnapshotReceipt, block: boolean): Promise<Release | null> {
+    let operation = receipt.operationId
+      ? await this.control().siteEnvironmentOperation({ operationId: receipt.operationId, accountUserId: receipt.accountUserId })
+      : await this.request(site, receipt.kind === 'restore'
+        ? { kind: 'restore', snapshotId: this.runtimeSnapshotId(site, receipt.publicId ?? ''), restoreData: receipt.input.restoreData === true }
+        : { kind: 'snapshot', includeData: receipt.input.includeData, note: receipt.input.note },
+        receipt.accountUserId, receipt.requestId);
+    if (!operation) throw new Error(`environment operation ${receipt.operationId} is unavailable`);
+    if (!receipt.operationId) {
+      receipt.operationId = operation.id;
+      this.deps.store.putRuntimeRecord(site.id, key, JSON.stringify(receipt));
+    }
+    if (block) operation = await this.wait(operation, receipt.accountUserId);
+    if (operation.status === 'pending' || operation.status === 'running') return null;
+    if (operation.status !== 'succeeded') {
+      const error = operation.error ?? `environment operation ${operation.status}`;
+      this.failEnvironmentAction(site, receipt, error);
+      this.deps.store.deleteRuntimeRecord(site.id, key);
+      throw new Error(error);
+    }
+    if (receipt.kind === 'restore') {
+      this.completeRestoreReceipt(site, key, receipt);
+      return null;
+    }
+    return this.completeSnapshotReceipt(site, key, receipt, operation);
   }
 
-  /** Remove a site's container, snapshots and volume.
-   *
-   *  `removeBroker` is false when the broker directory belongs to somebody else. A conversion rolled back
-   *  BEFORE its flip leaves the legacy command process still serving on that exact socket, and removing
-   *  the directory would take the live site down and leave a process writing to an unlinked path. */
-  delete(siteId: string, options: { removeBroker?: boolean } = {}): Promise<void> {
-    const removeBroker = options.removeBroker !== false;
-    return this.serialize(siteId, async () => {
-      await this.stopNow(siteId, removeBroker);
-      const name = containerName(siteId);
-      if (await this.deps.podman.inspectStatus(name) !== null) await this.deps.podman.remove(name);
-      for (const snapshot of this.deps.store.releases(siteId).filter((release) => release.kind === 'environment-snapshot')) {
-        const expectedPrefix = `localhost/elowen-site/${siteId}:`;
-        if (snapshot.imageRef?.startsWith(expectedPrefix)) await this.deps.podman.removeImage(snapshot.imageRef);
+  private async completeSnapshotReceipt(site: Site, key: string, receipt: SnapshotReceipt, operation: SiteEnvironmentOperation): Promise<Release> {
+    const runtimeId = operation.snapshotId;
+    if (!runtimeId) throw new Error(`environment operation ${operation.id} completed without a snapshot ID`);
+    const publicId = receipt.publicId ?? runtimeId;
+    if (publicId !== runtimeId) {
+      this.deps.store.putRuntimeRecord(site.id, `snapshot-display:${runtimeId}`, publicId);
+      this.deps.store.putRuntimeRecord(site.id, `snapshot-runtime:${publicId}`, runtimeId);
+    }
+    this.deps.store.putRuntimeRecord(site.id, `snapshot-model:${publicId}`, receipt.input.model);
+    this.deps.store.putRuntimeRecord(site.id, `snapshot-data:${publicId}`, String(receipt.input.includeData));
+    await this.syncSnapshots(site, receipt.accountUserId);
+    const release = this.deps.store.release(site.id, publicId);
+    if (!release) {
+      this.deps.store.deleteRuntimeRecord(site.id, key);
+      this.deps.store.deleteRuntimeRecord(site.id, `snapshot-model:${publicId}`);
+      this.deps.store.deleteRuntimeRecord(site.id, `snapshot-data:${publicId}`);
+      throw new Error(`completed snapshot ${publicId} is no longer retained`);
+    }
+    // Merely taking a snapshot preserves the current pointer; only a completed restore moves it.
+    this.deps.store.deleteRuntimeRecord(site.id, key);
+    const action = this.deps.store.environmentAction(site.id);
+    if (action?.kind === 'snapshot' && action.snapshotId === publicId) this.deps.store.deleteEnvironmentAction(site.id);
+    return release;
+  }
+
+  private completeRestoreReceipt(site: Site, key: string, receipt: SnapshotReceipt): null {
+    if (receipt.publicId && this.deps.store.release(site.id, receipt.publicId)) {
+      this.deps.store.updateSite(site.id, { currentReleaseId: receipt.publicId });
+    }
+    this.deps.store.deleteRuntimeRecord(site.id, key);
+    const action = this.deps.store.environmentAction(site.id);
+    if (action?.kind === 'rollback' && action.snapshotId === receipt.publicId) this.deps.store.deleteEnvironmentAction(site.id);
+    return null;
+  }
+
+  /** The failed operation may only mark its OWN visible row: a newer accepted request owns the slot by
+   *  then, and an active operation is never wiped by an older one. */
+  private failEnvironmentAction(site: Site, receipt: SnapshotReceipt, error: string): void {
+    const action = this.deps.store.environmentAction(site.id);
+    if (!action || action.lastError !== null || action.snapshotId !== receipt.publicId) return;
+    this.deps.store.updateEnvironmentActionError(site.id, error);
+  }
+
+  /** A structural rejection happened before the runtime recorded an operation. The request must not be
+   *  re-dispatched later, so the receipt and the just-claimed visible row are dropped. */
+  private abandonReceipt(site: Site, key: string, receipt: SnapshotReceipt): void {
+    if (receipt.operationId) return;
+    this.deps.store.deleteRuntimeRecord(site.id, key);
+    const action = this.deps.store.environmentAction(site.id);
+    if (action && action.lastError === null && action.snapshotId === receipt.publicId) {
+      this.deps.store.deleteEnvironmentAction(site.id);
+    }
+  }
+
+  private async recoverSnapshots(site: Site): Promise<void> {
+    for (const prefix of ['snapshot-request:', 'restore-request:']) {
+      for (const entry of this.deps.store.runtimeRecords(site.id, prefix)) {
+        const receipt: SnapshotReceipt = JSON.parse(entry.value);
+        try { await this.settleReceipt(site, entry.key, receipt, false); }
+        catch (error) {
+          this.deps.logger?.warn(`site ${site.slug} environment action recovery failed: ${String(error)}`);
+        }
       }
-      this.deps.store.deleteEnvironmentAction(siteId);
-      await this.deps.podman.removeVolume(volumeName(siteId));
-      this.appendLog(siteId, 'deleting container, snapshots and data volume');
-      await this.deps.podman.unshareRemove([this.environmentDir(siteId)]);
+    }
+  }
+  /** The runtime id a public release stands for. They differ only where a promised public id was linked
+   *  to the id the runtime minted; an unlinked release is its own runtime id. */
+  private runtimeSnapshotId(site: Site, publicId: string): string {
+    return this.deps.store.runtimeRecord(site.id, `snapshot-runtime:${publicId}`) ?? publicId;
+  }
+
+  /** The public id a retained runtime snapshot is shown as. The forward and reverse records are written
+   *  as two rows, so a crash between them can leave only the reverse one; reading both directions keeps
+   *  retention from mistaking a still-retained release for a pruned one and deleting it. */
+  private displaySnapshotId(site: Site, runtimeId: string): string {
+    const forward = this.deps.store.runtimeRecord(site.id, `snapshot-display:${runtimeId}`);
+    if (forward) return forward;
+    const reverse = this.deps.store.runtimeRecords(site.id, 'snapshot-runtime:').find((record) => record.value === runtimeId);
+    return reverse ? reverse.key.slice('snapshot-runtime:'.length) : runtimeId;
+  }
+
+  private async syncSnapshots(site: Site, actor: number): Promise<void> {
+    const snapshots = await this.control().siteEnvironmentSnapshots({ siteId: site.id, accountUserId: actor });
+    this.deps.store.transaction(() => {
+      const retained = new Set<string>();
+      for (const snapshot of snapshots) {
+        const publicId = this.displaySnapshotId(site, snapshot.id);
+        retained.add(publicId);
+        if (this.deps.store.release(site.id, publicId)) continue;
+        this.deps.store.insertRelease({ id: publicId, siteId: site.id, createdAt: snapshot.createdAt, model: this.deps.store.runtimeRecord(site.id, `snapshot-model:${publicId}`) ?? '', fileCount: 0, sizeBytes: 0, note: snapshot.note, kind: 'environment-snapshot' });
+      }
+      for (const release of this.deps.store.releases(site.id)) {
+        if (release.kind !== 'environment-snapshot' || retained.has(release.id)) continue;
+        this.deps.store.deleteRelease(site.id, release.id);
+        const runtimeId = this.deps.store.runtimeRecord(site.id, `snapshot-runtime:${release.id}`) ?? release.id;
+        this.deps.store.deleteRuntimeRecord(site.id, `snapshot-display:${runtimeId}`);
+        for (const prefix of ['snapshot-model:', 'snapshot-data:', 'snapshot-runtime:']) this.deps.store.deleteRuntimeRecord(site.id, prefix + release.id);
+        if (this.site(site.id).currentReleaseId === release.id) this.deps.store.updateSite(site.id, { currentReleaseId: [...retained][0] ?? null });
+      }
     });
   }
-
-  reconcile(): Promise<void> {
-    return this.reconcileSites(this.deps.store.environmentSitesForReconcile());
+  private async refreshReadiness(site: Site): Promise<void> {
+    const state = await this.state(site);
+    const path = join(this.brokerDirectory(site.id), 'app.sock');
+    if (state.state !== 'running') { this.endpoints.delete(site.id); return; }
+    if (!lstatSync(path).isSocket()) throw new Error('the environment ingress is not a socket');
+    if ((statSync(this.brokerDirectory(site.id)).mode & 0o777) !== 0o510) await this.deps.gateway.sealRuntimeSocket(site.id);
+    const ready = await new Promise<boolean>(done => {
+      const socket = connect({ path });
+      const finish = (value: boolean): void => { socket.destroy(); done(value); };
+      socket.setTimeout(1000); socket.once('connect', () => finish(true)); socket.once('error', () => finish(false)); socket.once('timeout', () => finish(false));
+    });
+    if (!ready) throw new Error('the sealed environment ingress did not answer');
+    this.endpoints.set(site.id, { kind: 'socket', path });
+    this.deps.store.updateSite(site.id, { status: 'live', lastError: null });
   }
-
-  private async reconcileSites(sites: Site[]): Promise<void> {
-    // FIRST ASK: a rollback that quiesced this container recorded that it must stay down, but the row
-    // still says `environment` and `live`, so without this the sweep below reads a stopped container it
-    // believes should be up and starts it in the middle of the export. The authoritative check is in
-    // `startNow`; this one keeps the work from being queued at all.
-    const suspended = this.deps.store.conversionSuspensions();
-    for (const site of sites) {
-      if (suspended.get(site.id) === 'environment') continue;
-      const action = this.deps.store.environmentAction(site.id);
-      // A durable action row is deleted only once its run COMPLETES, so a tick that arrives mid-restore
-      // reads the same row and queues the identical rollback behind the one still working. The queue
-      // defers a duplicate rather than dropping it, so the replay rebuilt an already restored environment
-      // and then reported `completeEnvironmentAction` returning false as a failure over a healthy site.
-      // The row still drives recovery after a daemon restart: nothing is in flight there.
-      const dispatchable = action !== null && action.lastError === null;
-      if (dispatchable) {
-        if (this.actionsInFlight.has(site.id)) continue;
-        this.actionsInFlight.add(site.id);
-      }
-      try {
-        if (action && action.lastError === null) {
-          if (action.kind === 'snapshot') {
-            await this.serialize(site.id, async () => {
-              if (!this.endpoints.has(site.id)) await this.startNow(site);
-              await this.snapshotNow(site, {
-                snapshotId: action.snapshotId,
-                includeData: action.includeData,
-                note: action.note,
-                model: action.model,
-              });
-              if (!this.deps.store.completeEnvironmentAction(site.id)) {
-                throw new Error('the snapshot completed but its durable action state changed unexpectedly');
-              }
-            });
-          } else {
-            await this.serialize(site.id, () => this.rollbackNow(site, action));
-          }
-        } else if (action) {
-          continue;
-        } else if (site.environmentDesiredState === 'restarting') {
-          if (site.lastError === null) await this.restart(site);
-        } else if (site.environmentDesiredState === 'stopped') {
-          if (!this.settledStopped.has(site.id)) await this.serialize(site.id, () => this.stopNow(site.id, true));
-        } else if (site.lastError === null && (!this.endpoints.has(site.id) || site.status === 'failed')) {
-          await this.start(site);
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (action) {
-          this.deps.store.updateEnvironmentActionError(site.id, message);
-          if (action.kind === 'rollback') this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
-        } else {
-          this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
-        }
-        this.deps.logger?.warn(`site ${site.slug} environment reconciliation failed: ${message}`);
-      } finally {
-        if (dispatchable) this.actionsInFlight.delete(site.id);
-      }
-    }
+  async probeReadiness(id: string, expect: { path: string; expectStatus: number }, options: { timeoutMs?: number; deadlineMs?: number } = {}): Promise<{ ready: boolean; detail: string; attempts: number }> {
+    const endpoint = this.endpoints.get(id);
+    if (!endpoint) return { ready: false, detail: 'the ingress socket has not been adopted', attempts: 0 };
+    const deadline = Date.now() + (options.deadlineMs ?? this.deps.config().startTimeoutSeconds * 1000);
+    let attempts = 0, detail = 'no response';
+    do {
+      attempts++;
+      const result = await new Promise<number | string>(done => {
+        const req = httpRequest({ ...(endpoint.kind === 'socket' ? { socketPath: endpoint.path } : { host: '127.0.0.1', port: endpoint.port }), path: expect.path,
+          headers: { host: 'localhost', 'user-agent': 'elowen-conversion-readiness' }, timeout: options.timeoutMs ?? 5000 }, response => { response.resume(); done(response.statusCode ?? 0); });
+        req.once('error', error => done(error.message)); req.once('timeout', () => { req.destroy(); done('timed out'); }); req.end();
+      });
+      if (typeof result === 'number') return { ready: result === expect.expectStatus, detail: `GET ${expect.path} answered ${result}, expected ${expect.expectStatus}`, attempts };
+      detail = result;
+      if (Date.now() >= deadline) break;
+      await new Promise<void>(wake => setTimeout(wake, 250));
+    } while (Date.now() <= deadline);
+    return { ready: false, detail: `${detail} (gave up after ${attempts} attempt(s))`, attempts };
   }
-
-  /** One fleet-wide Podman call. Inspect remains reserved for the sites whose observed state differs from
-   * the database or whose endpoint has to be adopted again. */
-  async backstop(): Promise<PodmanContainerSummary[]> {
-    if (this.detached) return [];
-    const summaries = await this.deps.podman.ps();
-    const states = new Map<string, string>();
-    for (const summary of summaries) {
-      const names = Array.isArray(summary.names) ? summary.names : summary.names ? [summary.names] : [];
-      const state = summary.state ?? summary.status ?? '';
-      for (const name of names) states.set(name, state.toLowerCase());
-    }
-    const suspended = this.deps.store.conversionSuspensions();
+  /** Observe application readiness only. Sandbox independently reconciles durable container intent. */
+  async reconcile(): Promise<void> {
     for (const site of this.deps.store.environmentSitesForReconcile()) {
-      const observed = states.get(containerName(site.id)) ?? 'missing';
-      // The fleet sweep restarts anything not running, which is exactly what a quiesced container looks
-      // like. Its endpoint is dropped so nothing keeps routing to it, but it is not started again.
-      if (suspended.get(site.id) === 'environment') {
+      if (this.deps.store.conversionSuspends(site.id) === 'environment') { this.endpoints.delete(site.id); continue; }
+      try {
+        await this.handover(site, this.actor(site));
+        await this.recoverSnapshots(site);
+        await this.syncSnapshots(site, this.actor(site));
+        await this.refreshReadiness(site);
+      } catch (error) {
         this.endpoints.delete(site.id);
-        continue;
+        const message = error instanceof Error ? error.message : String(error);
+        this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
+        this.deps.logger?.warn(`site ${site.slug} readiness failed: ${message}`);
       }
-      if (this.deps.store.environmentAction(site.id)) {
-        if (observed !== 'running') this.endpoints.delete(site.id);
-        continue;
-      }
-      if (site.environmentDesiredState === 'stopped') {
-        if (observed !== 'exited' && observed !== 'missing') {
-          this.settledStopped.delete(site.id);
-          await this.serialize(site.id, () => this.stopNow(site.id, true));
-        } else {
-          this.settledStopped.add(site.id);
-        }
-        continue;
-      }
-      if (site.lastError !== null || site.environmentDesiredState === 'restarting') {
-        if (observed !== 'running') this.endpoints.delete(site.id);
-        continue;
-      }
-      if (observed !== 'running') this.endpoints.delete(site.id);
-      if (!this.endpoints.has(site.id)) await this.start(site);
     }
-    return summaries;
   }
-
-  /** Plugin reload detaches supervision only. Rootless containers intentionally outlive the daemon. */
-  async detach(): Promise<void> {
-    this.detached = true;
-    this.endpoints.clear();
-    this.settledStopped.clear();
-    this.queues.clear();
-  }
+  async detach(): Promise<void> { this.endpoints.clear(); this.connected = undefined; }
 }

@@ -1,5 +1,7 @@
 import type { PluginDb } from 'elowen/plugin-api';
 
+export interface ProjectPreview { id: string; slug: string; projectId: number; port: number; createdAt: string }
+
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
 type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
 
@@ -556,7 +558,75 @@ export class SitesStore {
           `);
         },
       },
+      {
+        version: 11,
+        up: (handle) => handle.exec(`
+          CREATE TABLE p_sites_runtime_records (
+            site_id TEXT NOT NULL,
+            record_key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (site_id, record_key)
+          );
+        `),
+      },
+      {
+        version: 12,
+        up: handle => handle.exec(`CREATE TABLE p_sites_project_previews (
+          id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, project_id INTEGER NOT NULL,
+          port INTEGER NOT NULL, created_at TEXT NOT NULL, UNIQUE(project_id, port)
+        );`),
+      },
     ]);
+  }
+
+  projectPreview(projectId: number, port: number): ProjectPreview | null {
+    return this.db.prepare('SELECT id, slug, project_id AS projectId, port, created_at AS createdAt FROM p_sites_project_previews WHERE project_id = ? AND port = ?').get(projectId, port) as ProjectPreview | undefined ?? null;
+  }
+  previewBySlug(slug: string): ProjectPreview | null {
+    return this.db.prepare('SELECT id, slug, project_id AS projectId, port, created_at AS createdAt FROM p_sites_project_previews WHERE slug = ?').get(slug) as ProjectPreview | undefined ?? null;
+  }
+  previewById(id: string): ProjectPreview | null {
+    return this.db.prepare('SELECT id, slug, project_id AS projectId, port, created_at AS createdAt FROM p_sites_project_previews WHERE id = ?').get(id) as ProjectPreview | undefined ?? null;
+  }
+  insertPreview(preview: ProjectPreview): void {
+    this.db.prepare('INSERT INTO p_sites_project_previews (id, slug, project_id, port, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, port) DO NOTHING').run(preview.id, preview.slug, preview.projectId, preview.port, preview.createdAt);
+  }
+  allPreviews(): ProjectPreview[] {
+    return this.db.prepare('SELECT id, slug, project_id AS projectId, port, created_at AS createdAt FROM p_sites_project_previews').all() as ProjectPreview[];
+  }
+  previewsInProject(projectId: number): ProjectPreview[] {
+    return this.db.prepare('SELECT id, slug, project_id AS projectId, port, created_at AS createdAt FROM p_sites_project_previews WHERE project_id = ?').all(projectId) as ProjectPreview[];
+  }
+  deletePreviews(projectId: number): void {
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id IN (SELECT id FROM p_sites_project_previews WHERE project_id = ?)').run(projectId);
+      this.db.prepare('DELETE FROM p_sites_project_previews WHERE project_id = ?').run(projectId);
+    });
+  }
+
+  runtimeRecord(siteId: string, key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM p_sites_runtime_records WHERE site_id = ? AND record_key = ?').get(siteId, key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  runtimeRecords(siteId: string, prefix: string): { key: string; value: string }[] {
+    return this.db.prepare('SELECT record_key AS key, value FROM p_sites_runtime_records WHERE site_id = ? AND substr(record_key, 1, ?) = ? ORDER BY record_key').all(siteId, prefix.length, prefix) as { key: string; value: string }[];
+  }
+
+  claimRuntimeRecord(siteId: string, key: string, value: string): boolean {
+    return this.db.prepare('INSERT INTO p_sites_runtime_records (site_id, record_key, value) VALUES (?, ?, ?) ON CONFLICT(site_id, record_key) DO NOTHING').run(siteId, key, value).changes === 1;
+  }
+
+  compareRuntimeRecord(siteId: string, key: string, expected: string, value: string): boolean {
+    return this.db.prepare('UPDATE p_sites_runtime_records SET value = ? WHERE site_id = ? AND record_key = ? AND value = ?').run(value, siteId, key, expected).changes === 1;
+  }
+
+  putRuntimeRecord(siteId: string, key: string, value: string): void {
+    this.db.prepare('INSERT INTO p_sites_runtime_records (site_id, record_key, value) VALUES (?, ?, ?) ON CONFLICT(site_id, record_key) DO UPDATE SET value = excluded.value').run(siteId, key, value);
+  }
+
+  deleteRuntimeRecord(siteId: string, key: string): void {
+    this.db.prepare('DELETE FROM p_sites_runtime_records WHERE site_id = ? AND record_key = ?').run(siteId, key);
   }
 
   transaction<T>(fn: () => T): T {
@@ -736,6 +806,7 @@ export class SitesStore {
       this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_runtime_migrations WHERE site_id = ?').run(id);
+      this.db.prepare('DELETE FROM p_sites_runtime_records WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_sites WHERE id = ?').run(id);
     });
   }
@@ -833,6 +904,41 @@ export class SitesStore {
       snapshot ? action.model : '',
       action.requestedAt, action.lastError,
     );
+  }
+
+  /** Claim the visible pending-action slot for a NEWLY ACCEPTED snapshot or restore request.
+   *
+   *  Fails while an execution lease is live or an action is still active (`last_error IS NULL`), and
+   *  otherwise replaces a terminal error row — clearing it only through this new explicit request. The
+   *  provider owns the desired state, so unlike the legacy `tryPutEnvironmentAction` this deliberately
+   *  never touches `environment_desired_state`. */
+  beginEnvironmentAction(action: EnvironmentAction): boolean {
+    return this.db.transaction(() => {
+      const now = Date.now();
+      this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE expires_at <= ?').run(now);
+      if (this.db.prepare('SELECT 1 FROM p_sites_environment_exec_leases WHERE site_id = ?').get(action.siteId)) return false;
+      const existing = this.db.prepare('SELECT last_error FROM p_sites_environment_actions WHERE site_id = ?')
+        .get(action.siteId) as { last_error: string | null } | undefined;
+      if (existing?.last_error === null) return false;
+      const snapshot = action.kind === 'snapshot';
+      const result = this.db.prepare(`
+        INSERT INTO p_sites_environment_actions (
+          site_id, kind, snapshot_id, restore_data, include_data, note, model, requested_at, last_error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(site_id) DO UPDATE SET
+          kind = excluded.kind, snapshot_id = excluded.snapshot_id, restore_data = excluded.restore_data,
+          include_data = excluded.include_data, note = excluded.note, model = excluded.model,
+          requested_at = excluded.requested_at, last_error = NULL
+      `).run(
+        action.siteId, action.kind, action.snapshotId,
+        !snapshot && action.restoreData ? 1 : 0,
+        snapshot && action.includeData ? 1 : 0,
+        snapshot ? action.note : '',
+        snapshot ? action.model : '',
+        action.requestedAt, action.lastError,
+      );
+      return result.changes === 1;
+    });
   }
 
   tryBeginEnvironmentExec(siteId: string, token: string, expiresAt: number): boolean {

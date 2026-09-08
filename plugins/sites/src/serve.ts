@@ -13,6 +13,7 @@ import { CONTENT_TYPES, HTML_TYPE, extensionOf, resolveWithin } from './publish.
 import { requestOnSiteHost } from './config.js';
 import { ProxyError, proxyToEnvironment, proxyToRuntime, type ProxyLimits, type ProxyViewer } from './proxy.js';
 import type { Endpoint } from './runtime.js';
+import type { ProjectPreviewService } from './preview.js';
 
 interface ServeConfig {
   /** Base hostname each site gets a subdomain under, or null while the gateway is unprovisioned — in
@@ -38,6 +39,7 @@ export interface ServeDeps {
   countHit(siteId: string): void;
   /** Where a command site's process is listening, or null when it is not running. */
   endpointFor(siteId: string): Endpoint | null;
+  previews?: Pick<ProjectPreviewService, 'siteBySlug' | 'isPreview' | 'serve'>;
   proxyLimits(): ProxyLimits;
   proxyEnvironment?(
     endpoint: Endpoint,
@@ -287,7 +289,7 @@ export function createSiteHandler(deps: ServeDeps) {
     if (!gatewayMarkerMatches(config.gatewayToken, req.headers['x-elowen-site-gateway'])) return notFound();
     const siteRoot = `${config.siteScheme}//${slug}.${config.siteHostBase}/`;
 
-    const site = deps.store.siteBySlug(slug);
+    const site = deps.store.siteBySlug(slug) ?? deps.previews?.siteBySlug(slug);
     // A durable delete marker must disappear immediately and stay a flat tombstone while cleanup retries.
     if (site?.status === 'deleting') return notFound();
     // A site nobody shared with this visitor must be indistinguishable from a slug that was never
@@ -313,6 +315,7 @@ export function createSiteHandler(deps: ServeDeps) {
       return bounceOrNotFound(req, site.slug, rest, config);
     }
 
+    if (deps.previews?.isPreview(site.id)) return deps.previews.serve(site, req, rest, viewer, siteRoot);
     deps.countHit(site.id);
 
     if (site.runtime === 'php') {

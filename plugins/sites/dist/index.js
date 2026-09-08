@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { existsSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { asSitesContext, asUserViews } from './coreSeams.js';
@@ -10,15 +10,15 @@ import { registerTools } from './tools.js';
 import { SiteGatewayManager } from './gateway.js';
 import { executePhp } from './php.js';
 import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
-import { PodmanClient, SpawnExecutor } from './podman.js';
-import { BASE_IMAGE_TAG, ensureBaseImage } from './baseImage.js';
+import { SpawnExecutor } from './podman.js';
 import { EnvironmentSupervisor } from './environment.js';
 import { EnvironmentProvisioningService } from './provisioning.js';
 import { SITES_TOOLCHAIN, environmentReadinessChecks, toolchainRow } from './readiness.js';
 import { DataSyncService, migrationArtifactDir, validateLegacyHome } from './dataSync.js';
 import { installAppRecipe, loadAppRecipe, recipeBinding, relaxStaticServingPermissions } from './recipe.js';
-import { conversionImageTag, ensureConversionImage } from './conversionImage.js';
+import { conversionImageTag } from './conversionImage.js';
 import { RuntimeMigrationService } from './migration.js';
+import { ProjectPreviewService } from './preview.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
 const GATEWAY_RECONCILE_MS = 12 * 3600_000;
@@ -126,20 +126,10 @@ export function register(published) {
         siteDir,
         releaseDir,
     });
-    const podman = new PodmanClient();
-    let baseImage = null;
-    const ensureEnvironmentBaseImage = () => {
-        if (baseImage)
-            return baseImage;
-        const building = ensureBaseImage(podman, dataDir).finally(() => {
-            if (baseImage === building)
-                baseImage = null;
-        });
-        baseImage = building;
-        return building;
-    };
     const environment = new EnvironmentSupervisor({
-        podman,
+        control: () => ctx.control('sandbox'),
+        dataDir,
+        access,
         store,
         gateway: {
             prepareRuntimeSocket: async (siteId) => {
@@ -174,14 +164,26 @@ export function register(published) {
             };
         },
         siteDir,
-        ensureBaseImage: ensureEnvironmentBaseImage,
         siteUrl: (site) => siteUrl(config(), site.slug),
         logger: ctx.logger,
     });
+    environment.connect();
+    const previews = new ProjectPreviewService({
+        store, access, project: id => ctx.host.stores().projects.get(id),
+        control: () => ctx.control('sandbox'), config, gateway, proxyLimits,
+        usernameOf: id => people().get(id)?.username ?? null,
+    });
     const provisioning = new EnvironmentProvisioningService({
         control: () => ctx.control('publishedSitesGateway'),
-        imageExists: () => podman.imageExists(BASE_IMAGE_TAG),
-        buildImage: async () => { await ensureEnvironmentBaseImage(); },
+        imageExists: async () => {
+            throw new Error('the environment SDK does not expose read-only base-image readiness');
+        },
+        buildImage: async () => {
+            const site = store.allSites().find(entry => entry.runtime === 'environment');
+            if (!site)
+                throw new Error('image provisioning requires a registered Site environment');
+            await environment.provision(site, 'base');
+        },
         audit: (status, actorUserId) => ctx.publishEvent({
             type: 'plugin',
             plugin: 'sites',
@@ -226,8 +228,7 @@ export function register(published) {
         prepareContainer: async ({ site, workspace, recipe }) => {
             // The derivative carries what the app needs to answer: nginx for files, a pinned Node runtime for a
             // command app. The shared base image is left exactly as every other environment sees it.
-            const image = await ensureConversionImage(podman, dataDir, recipe.image);
-            await environment.prepareContainer(site, workspace, image, recipe.image === 'static');
+            await environment.prepareContainer(site, workspace, conversionImageTag(recipe.image), recipe.image === 'static');
         },
         startEnvironment: (site) => environment.start(site, { authorized: true }),
         stopContainer: (siteId) => environment.quiesce(siteId),
@@ -249,7 +250,7 @@ export function register(published) {
         discardContainer: (siteId, options) => environment.delete(siteId, options),
         brokerDirectoryExists: (siteId) => environment.brokerDirectoryExists(siteId),
         prepareBrokerDirectory: async (siteId) => { await environment.prepareBrokerDirectory(siteId); },
-        removeStaged: (paths) => podman.unshareRemove(paths),
+        removeStaged: (paths) => environment.removeStaged(paths),
         // The sandbox is the only authority on where a confined site keeps its data: `runtime.ts` blocks HOME
         // from `.env`, so the value can come from nowhere else. Asking for the same preparation the legacy
         // runtime gets, then releasing the lease straight away, reads that fact without running anything.
@@ -323,10 +324,10 @@ export function register(published) {
         if (!isDaemonProcess())
             return;
         try {
-            if (site.runtime === 'environment')
-                await environment.delete(siteId);
-            else
+            if (site.runtime !== 'environment')
                 await supervisor.stop(siteId);
+            if (site.runtime === 'environment' || store.runtimeRecord(siteId, 'binding'))
+                await environment.delete(siteId);
             rmSync(siteDir(siteId), { recursive: true, force: true });
             store.deleteSite(siteId);
             // Last, and never fatal: the hostname and its certificate are the gateway's copy of a site that no
@@ -358,9 +359,15 @@ export function register(published) {
         const stores = ctx.host.stores();
         const users = new Set(stores.usersRead.list().map((user) => user.id));
         const projects = new Set(stores.projects.list().map((project) => project.id));
+        for (const preview of store.allPreviews())
+            if (!projects.has(preview.projectId))
+                await previews.removeProject(preview.projectId);
         for (const site of store.allSites()) {
-            if (users.has(site.ownerUserId) && projects.has(site.projectId))
+            if (users.has(site.ownerUserId)) {
+                if (!projects.has(site.projectId))
+                    ctx.logger.warn(`site ${site.slug} references a removed Project; its published resources are preserved`);
                 continue;
+            }
             try {
                 await deleteSite(site.id);
             }
@@ -415,12 +422,14 @@ export function register(published) {
                     pendingHits.set(siteId, (pendingHits.get(siteId) ?? 0) + 1);
             },
             endpointFor: (siteId) => environment.endpointFor(siteId) ?? supervisor.endpointFor(siteId),
+            previews,
             proxyLimits,
             usernameOf: (userId) => people().get(userId)?.username ?? null,
             executePhp: (site, release, req, rest, viewer, siteRoot) => executePhp({ ctx, siteDir, network: () => config().runtimeNetwork }, site, release, req, rest, { userId: viewer.userId, name: viewer.userId === null ? null : people().get(viewer.userId)?.username ?? null }, proxyLimits(), siteRoot),
         }),
     });
     const handlers = createApiHandlers({
+        previewSite: slug => previews.siteBySlug(slug),
         store,
         access,
         config,
@@ -438,54 +447,36 @@ export function register(published) {
             await supervisor.start(next);
             store.updateSite(site.id, { status: 'live', lastError: null });
         },
-        environmentState: (site) => environment.state(site),
-        environmentLogs: (site, lines) => environment.logs(site, lines),
+        environmentState: (site, actor) => environment.state(site, actor),
+        environmentLogs: (site, lines, actor) => environment.logs(site, lines, actor),
+        environmentAction: (site, actor) => environment.pendingAction(site, actor),
         gatewayReadiness: () => gateway.readiness(),
         gatewayRecord: () => gateway.requiredRecord(),
-        requestEnvironmentControl: async (site, action) => {
-            const desired = action === 'stop' ? 'stopped' : action === 'restart' ? 'restarting' : 'running';
-            if (!store.tryRequestEnvironmentControl(site.id, desired)) {
-                throw new Error('an environment action or command is already in progress');
-            }
+        requestEnvironmentControl: async (site, action, actor) => {
+            await environment.request(site, { kind: action }, actor);
         },
-        snapshotEnvironment: async (site, input) => {
-            const current = store.siteById(site.id);
-            const pending = store.environmentAction(site.id);
-            if (!current || (current.environmentDesiredState !== 'running' && !pending?.lastError)) {
-                throw new Error('the environment has a pending lifecycle change');
-            }
+        snapshotEnvironment: async (site, input, actor) => {
             const model = ctx.currentModel();
-            const snapshotId = randomUUID();
-            const scheduled = store.tryPutEnvironmentAction({
-                siteId: site.id,
-                kind: 'snapshot',
-                snapshotId,
-                includeData: input.includeData,
-                note: input.note,
-                model: model ? (model.provider ? `${model.provider}/${model.model}` : model.model) : '',
-                requestedAt: new Date().toISOString(),
-                lastError: null,
-            });
-            if (!scheduled)
-                throw new Error('another environment action is already pending');
-            return { id: snapshotId };
+            return await environment.scheduleSnapshot(site, { ...input, model: model ? `${model.provider}/${model.model}` : '' }, actor);
         },
-        rollbackEnvironment: async (site, input) => {
-            const scheduled = store.tryPutEnvironmentAction({
-                siteId: site.id,
-                kind: 'rollback',
-                snapshotId: input.releaseId,
-                restoreData: input.restoreData,
-                requestedAt: new Date().toISOString(),
-                lastError: null,
-            });
-            if (!scheduled)
-                throw new Error('another environment restore is already scheduled');
+        rollbackEnvironment: async (site, input, actor) => {
+            await environment.scheduleRestore(site, input.releaseId, input.restoreData, actor);
         },
-        applyEnvironmentLimits: (site, limits) => environment.applyLimits(site, limits),
+        applyEnvironmentLimits: (site, limits, actor) => environment.applyLimits(site, limits, actor),
         provisioning,
         migration,
     });
+    ctx.registerApiRoute({ path: 'preview', method: 'POST', access: 'user', handler: async (req) => {
+            if (req.auth.userId === null)
+                return { status: 403, body: { error: 'a linked account is required' } };
+            const input = await req.json();
+            try {
+                return { status: 200, body: await previews.request(Number(input.projectId), Number(input.port), req.auth.userId) };
+            }
+            catch (error) {
+                return { status: 409, body: { error: error instanceof Error ? error.message : 'preview unavailable' } };
+            }
+        } });
     ctx.registerApiRoute({ path: 'sites', method: 'GET', access: 'user', handler: handlers.list });
     ctx.registerApiRoute({ path: 'site', access: 'user', handler: handlers.site });
     ctx.registerApiRoute({ path: 'ticket', method: 'POST', access: 'user', handler: handlers.ticket });
@@ -496,7 +487,7 @@ export function register(published) {
     // Admin-gated inside the handler, like the provisioning routes: core's `access` levels have no
     // admin tier, so the check has to live where the auth is actually read.
     ctx.registerApiRoute({ path: 'conversion', access: 'user', handler: handlers.conversion });
-    registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people });
+    registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people, previews });
     ctx.registerReadinessCheck(() => gateway.readiness());
     // One row per dependency and per interpreter, rather than one row carrying a paragraph: the status
     // card lists what is checked, and a failing item shows its own cause where a reader is looking.
@@ -541,6 +532,7 @@ export function register(published) {
                 ctx.logger.warn(`site ${site.slug} has no certificate yet: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
+        await previews.syncGateway(issued, all);
     };
     if (isDaemonProcess()) {
         ctx.registerService({
@@ -576,10 +568,11 @@ export function register(published) {
             store.bumpAccessGeneration(siteId);
     });
     ctx.registerProjectRemoved(async (projectId) => {
-        // A site's Project is where its access rule points. Without it there is nothing left to decide
-        // "the Project's people" against, so the site stops being served rather than falling open.
-        for (const siteId of store.siteIdsInProject(projectId))
-            await deleteSite(siteId);
+        await previews.removeProject(projectId);
+        // The runtime's projectDependents preflight blocks normal deletion. Never turn an unexpected
+        // post-removal callback into destruction of independently published resources.
+        if (store.siteIdsInProject(projectId).length)
+            throw new Error('published Sites must be explicitly transferred or deleted before removing their Project');
     });
     ctx.registerBootReconcile(async () => {
         store.pruneTickets(Date.now());
@@ -604,9 +597,6 @@ export function register(published) {
         await supervisor.reconcile();
         await environment.reconcile();
     }, 2_000);
-    ctx.registerInterval('backstop-site-environments', async () => {
-        await environment.backstop();
-    }, 60_000);
     // A publish almost always arrives from a forked tool runner, which has no gateway of its own and never
     // reconciles, so the daemon has to notice the new site itself. Without this the page is `live` in the
     // store while nginx has no server block for it, and stays unreachable until the 12-hour renewal sweep.

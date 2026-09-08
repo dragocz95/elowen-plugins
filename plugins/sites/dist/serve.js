@@ -233,7 +233,7 @@ export function createSiteHandler(deps) {
         if (!gatewayMarkerMatches(config.gatewayToken, req.headers['x-elowen-site-gateway']))
             return notFound();
         const siteRoot = `${config.siteScheme}//${slug}.${config.siteHostBase}/`;
-        const site = deps.store.siteBySlug(slug);
+        const site = deps.store.siteBySlug(slug) ?? deps.previews?.siteBySlug(slug);
         // A durable delete marker must disappear immediately and stay a flat tombstone while cleanup retries.
         if (site?.status === 'deleting')
             return notFound();
@@ -257,6 +257,8 @@ export function createSiteHandler(deps) {
         if (!mayOpen(site, viewer, deps.store, deps.access)) {
             return bounceOrNotFound(req, site.slug, rest, config);
         }
+        if (deps.previews?.isPreview(site.id))
+            return deps.previews.serve(site, req, rest, viewer, siteRoot);
         deps.countHit(site.id);
         if (site.runtime === 'php') {
             const release = deps.releaseDir(site.id, site.currentReleaseId);

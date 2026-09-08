@@ -10,6 +10,11 @@ const json = (status, body) => ({
     body: body,
 });
 const TICKET_TTL_MS = 60_000;
+const runtimeActor = (req) => {
+    if (req.auth.userId === null)
+        throw new Error('a linked account is required for environment operations');
+    return req.auth.userId;
+};
 /** Whether the caller may change this site. Viewing is a different question, answered by `mayOpen`. */
 const canManage = (site, auth) => auth.admin || (auth.userId !== null && auth.userId === site.ownerUserId);
 const canAccessProject = (projectId, auth) => auth.admin || (auth.accessibleProjects !== null && auth.accessibleProjects.includes(projectId));
@@ -93,7 +98,7 @@ export function createApiHandlers(deps) {
         if (req.method === 'GET' && action === '') {
             const people = deps.people();
             const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
-            const environment = target.runtime === 'environment' ? await deps.environmentState(target) : null;
+            const environment = target.runtime === 'environment' && canManage(target, req.auth) ? await deps.environmentState(target, runtimeActor(req)) : null;
             return json(200, {
                 site: toView(target, deps, req.auth),
                 // Only somebody who can EDIT the guest list may read it. A guest seeing the whole list learns
@@ -109,7 +114,7 @@ export function createApiHandlers(deps) {
                     sizeBytes: release.sizeBytes,
                     note: release.note,
                     kind: release.kind,
-                    ...(release.kind === 'environment-snapshot' ? { includesData: Boolean(release.dataArchive) } : {}),
+                    ...(release.kind === 'environment-snapshot' ? { includesData: Boolean(release.dataArchive) || deps.store.runtimeRecord(target.id, `snapshot-data:${release.id}`) === 'true' } : {}),
                 })),
                 hits: deps.store.hits(target.id, since),
                 sourceDir: canManage(target, req.auth) ? target.sourceDir : null,
@@ -128,7 +133,7 @@ export function createApiHandlers(deps) {
                 environment: environment === null ? null : canManage(target, req.auth)
                     ? {
                         ...environment,
-                        action: deps.store.environmentAction(target.id),
+                        action: await deps.environmentAction(target, runtimeActor(req)),
                         limitOverrides: {
                             cpus: target.environmentCpus ?? null,
                             memoryMb: target.environmentMemoryMb ?? null,
@@ -152,7 +157,7 @@ export function createApiHandlers(deps) {
                 return json(403, { error: 'project access is required' });
             const requested = Number(req.query.lines ?? 200);
             const lines = Number.isFinite(requested) ? Math.min(1000, Math.max(1, Math.round(requested))) : 200;
-            const logs = await deps.environmentLogs(target, lines);
+            const logs = await deps.environmentLogs(target, lines, runtimeActor(req));
             return json(200, { ...logs, lines });
         }
         if (req.method === 'PATCH' && action === '')
@@ -184,7 +189,7 @@ export function createApiHandlers(deps) {
                 return json(400, { error: 'unknown environment action' });
             }
             try {
-                await deps.requestEnvironmentControl(target, body.action);
+                await deps.requestEnvironmentControl(target, body.action, runtimeActor(req));
             }
             catch (error) {
                 return json(409, { error: error instanceof Error ? error.message : 'action could not be scheduled' });
@@ -202,7 +207,7 @@ export function createApiHandlers(deps) {
                 const snapshot = await deps.snapshotEnvironment(target, {
                     includeData: body.includeData !== false,
                     note: typeof body.note === 'string' ? body.note.trim().slice(0, 200) : '',
-                });
+                }, runtimeActor(req));
                 return json(200, { ok: true, snapshotId: snapshot.id, crashConsistent: true, scheduled: true });
             }
             catch (error) {
@@ -228,13 +233,13 @@ export function createApiHandlers(deps) {
             if (target.runtime === 'environment') {
                 if (!canAccessProject(target.projectId, req.auth))
                     return json(403, { error: 'project access is required' });
-                if (!release || release.kind !== 'environment-snapshot' || !release.imageRef) {
+                if (!release || release.kind !== 'environment-snapshot') {
                     return json(404, { error: 'unknown environment snapshot' });
                 }
-                if (body.restoreData === true && !release.dataArchive)
-                    return json(400, { error: 'snapshot has no data archive' });
+                if (body.restoreData === true && !release.dataArchive && deps.store.runtimeRecord(target.id, `snapshot-data:${release.id}`) !== 'true')
+                    return json(400, { error: 'snapshot has no verified data archive' });
                 try {
-                    await deps.rollbackEnvironment(target, { releaseId, restoreData: body.restoreData === true });
+                    await deps.rollbackEnvironment(target, { releaseId, restoreData: body.restoreData === true }, runtimeActor(req));
                 }
                 catch (error) {
                     return json(409, { error: error instanceof Error ? error.message : 'rollback could not be scheduled' });
@@ -316,7 +321,7 @@ export function createApiHandlers(deps) {
         }
         if (limits) {
             try {
-                await deps.applyEnvironmentLimits(target, limits);
+                await deps.applyEnvironmentLimits(target, limits, runtimeActor(req));
             }
             catch (error) {
                 return json(502, { error: error instanceof Error ? error.message : 'Podman could not apply the limits' });
@@ -369,7 +374,7 @@ export function createApiHandlers(deps) {
             return json(405, { error: 'method not allowed' });
         const body = await req.json().catch(() => ({}));
         const slug = typeof body.slug === 'string' ? body.slug : '';
-        const target = deps.store.siteBySlug(slug);
+        const target = deps.store.siteBySlug(slug) ?? deps.previewSite?.(slug);
         const viewer = { userId: req.auth.userId };
         if (!target || target.status !== 'live' || !mayOpen(target, viewer, deps.store, deps.access)) {
             // Deliberately the same answer for an unknown site and one this account may not open.
