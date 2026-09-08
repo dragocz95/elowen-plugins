@@ -341,6 +341,9 @@ export class SitesStore {
         const row = this.db.prepare('SELECT value FROM p_sites_runtime_records WHERE site_id = ? AND record_key = ?').get(siteId, key);
         return row?.value ?? null;
     }
+    runtimeRecords(siteId, prefix) {
+        return this.db.prepare('SELECT record_key AS key, value FROM p_sites_runtime_records WHERE site_id = ? AND substr(record_key, 1, ?) = ? ORDER BY record_key').all(siteId, prefix.length, prefix);
+    }
     claimRuntimeRecord(siteId, key, value) {
         return this.db.prepare('INSERT INTO p_sites_runtime_records (site_id, record_key, value) VALUES (?, ?, ?) ON CONFLICT(site_id, record_key) DO NOTHING').run(siteId, key, value).changes === 1;
     }

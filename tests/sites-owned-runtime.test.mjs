@@ -20,6 +20,8 @@ function fixture(overrides = {}) {
     store: {
       siteById: () => site, runtimeMigration: () => null, conversionSuspends: () => null,
       runtimeRecord: (id, key) => records.get(id + ':' + key) ?? null,
+      runtimeRecords: (id, prefix) => [...records].filter(([key]) => key.startsWith(id + ':' + prefix)).map(([key, value]) => ({ key: key.slice(id.length + 1), value })),
+      transaction: fn => fn(),
       putRuntimeRecord: (id, key, value) => records.set(id + ':' + key, value),
       claimRuntimeRecord: (id, key, value) => { const k = id + ':' + key; if (records.has(k)) return false; records.set(k, value); return true; },
       compareRuntimeRecord: (id, key, expected, value) => { const k = id + ':' + key; if (records.get(k) !== expected) return false; records.set(k, value); return true; },
@@ -116,6 +118,26 @@ test('a queued legacy snapshot retains its public ID and translates restoration 
   await f.environment.request(f.site, { kind: 'restore', snapshotId: 'promised-id', restoreData: true }, 2);
   assert.equal(f.calls.at(-1).action.snapshotId, 'runtime-id');
   assert.equal(f.calls.at(-1).action.restoreData, true);
+});
+
+test('an interrupted snapshot wait recovers model and data metadata and reconciles retention', async () => {
+  const releases = new Map([['expired', { id: 'expired', siteId: 'a', kind: 'environment-snapshot' }], ['files', { id: 'files', siteId: 'a', kind: 'files' }]]);
+  const f = fixture({ store: {
+    releases: () => [...releases.values()],
+    release: (siteId, id) => releases.get(id),
+    insertRelease: release => releases.set(release.id, release),
+    deleteRelease: (siteId, id) => releases.delete(id),
+  } });
+  await f.environment.state(f.site);
+  f.records.set('a:snapshot-request:request-1', JSON.stringify({ requestId: 'request-1', accountUserId: 2, operationId: 'operation-1', input: { includeData: true, model: 'original/model', note: 'original note' } }));
+  f.control.siteEnvironmentOperation = async () => ({ id: 'operation-1', status: 'succeeded', snapshotId: 'retained' });
+  f.control.siteEnvironmentSnapshots = async () => [{ id: 'retained', createdAt: '2026-09-08T00:00:00Z', note: 'original note', consistency: 'crash-consistent', completeProject: false }];
+  await f.environment.reconcile();
+  assert.equal(releases.get('retained').model, 'original/model');
+  assert.equal(f.records.get('a:snapshot-data:retained'), 'true');
+  assert.equal(f.records.has('a:snapshot-request:request-1'), false);
+  assert.equal(releases.has('expired'), false);
+  assert.equal(releases.has('files'), true);
 });
 
 test('project deletion dependencies include published Sites independently of runtime state', async () => {

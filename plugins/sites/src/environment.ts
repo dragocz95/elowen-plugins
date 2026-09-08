@@ -357,24 +357,78 @@ export class EnvironmentSupervisor {
     if (this.registration(id)?.staging && options.removeBroker !== false) await this.deps.gateway.removeRuntimeSocket(id);
   }
   async snapshot(site: Site, input: { includeData: boolean; note: string; model: string }, actor?: number): Promise<Release> {
-    const result = await this.perform(site, { kind: 'snapshot', includeData: input.includeData, note: input.note }, actor);
-    if (!result.snapshotId) throw new Error(`snapshot operation ${result.id} completed without a snapshot ID`);
-    this.deps.store.putRuntimeRecord(site.id, `snapshot-model:${result.snapshotId}`, input.model);
-    this.deps.store.putRuntimeRecord(site.id, `snapshot-data:${result.snapshotId}`, String(input.includeData));
-    await this.syncSnapshots(site, this.actor(site, actor));
-    this.deps.store.updateSite(site.id, { currentReleaseId: result.snapshotId });
-    const release = this.deps.store.release(site.id, result.snapshotId);
-    if (!release) throw new Error('the completed snapshot is not present in the runtime snapshot inventory');
+    const requestId = randomUUID();
+    const record = { requestId, accountUserId: this.actor(site, actor), input };
+    const key = `snapshot-request:${requestId}`;
+    // The receipt precedes dispatch, so a lost response can be replayed with the same runtime key.
+    this.deps.store.putRuntimeRecord(site.id, key, JSON.stringify(record));
+    const release = await this.settleSnapshot(site, key, record, true);
+    if (!release) throw new Error('the snapshot is still pending');
     return release;
+  }
+  private async settleSnapshot(site: Site, key: string, record: { requestId: string; accountUserId: number; operationId?: string; input: { includeData: boolean; note: string; model: string } }, block: boolean): Promise<Release | null> {
+    let operation = record.operationId
+      ? await this.control().siteEnvironmentOperation({ operationId: record.operationId, accountUserId: record.accountUserId })
+      : await this.request(site, { kind: 'snapshot', includeData: record.input.includeData, note: record.input.note }, record.accountUserId, record.requestId);
+    if (!operation) throw new Error(`snapshot operation ${record.operationId} is unavailable`);
+    if (!record.operationId) {
+      record.operationId = operation.id;
+      this.deps.store.putRuntimeRecord(site.id, key, JSON.stringify(record));
+    }
+    if (block) operation = await this.wait(operation, record.accountUserId);
+    if (operation.status === 'pending' || operation.status === 'running') return null;
+    if (operation.status !== 'succeeded') {
+      this.deps.store.putRuntimeRecord(site.id, 'snapshot-error', operation.error ?? `snapshot ${operation.status}`);
+      this.deps.store.deleteRuntimeRecord(site.id, key);
+      throw new Error(operation.error ?? `snapshot ${operation.status}`);
+    }
+    if (!operation.snapshotId) throw new Error(`snapshot operation ${operation.id} completed without a snapshot ID`);
+    const id = operation.snapshotId;
+    this.deps.store.putRuntimeRecord(site.id, `snapshot-model:${id}`, record.input.model);
+    this.deps.store.putRuntimeRecord(site.id, `snapshot-data:${id}`, String(record.input.includeData));
+    await this.syncSnapshots(site, record.accountUserId);
+    const release = this.deps.store.release(site.id, id);
+    if (!release) {
+      this.deps.store.putRuntimeRecord(site.id, 'snapshot-error', `completed snapshot ${id} is no longer retained`);
+      this.deps.store.deleteRuntimeRecord(site.id, key);
+      this.deps.store.deleteRuntimeRecord(site.id, `snapshot-model:${id}`);
+      this.deps.store.deleteRuntimeRecord(site.id, `snapshot-data:${id}`);
+      throw new Error(`completed snapshot ${id} is no longer retained`);
+    }
+    this.deps.store.updateSite(site.id, { currentReleaseId: id });
+    this.deps.store.deleteRuntimeRecord(site.id, key);
+    return release;
+  }
+  private async recoverSnapshots(site: Site): Promise<void> {
+    for (const entry of this.deps.store.runtimeRecords(site.id, 'snapshot-request:')) {
+      const record: Parameters<EnvironmentSupervisor['settleSnapshot']>[2] = JSON.parse(entry.value);
+      try { await this.settleSnapshot(site, entry.key, record, false); }
+      catch (error) {
+        this.deps.store.putRuntimeRecord(site.id, 'snapshot-error', error instanceof Error ? error.message : String(error));
+        this.deps.logger?.warn(`site ${site.slug} snapshot recovery failed: ${String(error)}`);
+      }
+    }
   }
   async rollback(site: Site, snapshotId: string, restoreData: boolean, actor?: number): Promise<void> { await this.perform(site, { kind: 'restore', snapshotId, restoreData }, actor); }
   private async syncSnapshots(site: Site, actor: number): Promise<void> {
     const snapshots = await this.control().siteEnvironmentSnapshots({ siteId: site.id, accountUserId: actor });
-    for (const snapshot of snapshots) {
-      const publicId = this.deps.store.runtimeRecord(site.id, `snapshot-display:${snapshot.id}`) ?? snapshot.id;
-      if (this.deps.store.release(site.id, publicId)) continue;
-      this.deps.store.insertRelease({ id: publicId, siteId: site.id, createdAt: snapshot.createdAt, model: this.deps.store.runtimeRecord(site.id, `snapshot-model:${publicId}`) ?? '', fileCount: 0, sizeBytes: 0, note: snapshot.note, kind: 'environment-snapshot' });
-    }
+    this.deps.store.transaction(() => {
+      const retained = new Set<string>();
+      for (const snapshot of snapshots) {
+        const publicId = this.deps.store.runtimeRecord(site.id, `snapshot-display:${snapshot.id}`) ?? snapshot.id;
+        retained.add(publicId);
+        if (this.deps.store.release(site.id, publicId)) continue;
+        this.deps.store.insertRelease({ id: publicId, siteId: site.id, createdAt: snapshot.createdAt, model: this.deps.store.runtimeRecord(site.id, `snapshot-model:${publicId}`) ?? '', fileCount: 0, sizeBytes: 0, note: snapshot.note, kind: 'environment-snapshot' });
+      }
+      for (const release of this.deps.store.releases(site.id)) {
+        if (release.kind !== 'environment-snapshot' || retained.has(release.id)) continue;
+        this.deps.store.deleteRelease(site.id, release.id);
+        const runtimeId = this.deps.store.runtimeRecord(site.id, `snapshot-runtime:${release.id}`) ?? release.id;
+        this.deps.store.deleteRuntimeRecord(site.id, `snapshot-display:${runtimeId}`);
+        for (const prefix of ['snapshot-model:', 'snapshot-data:', 'snapshot-runtime:']) this.deps.store.deleteRuntimeRecord(site.id, prefix + release.id);
+        if (this.site(site.id).currentReleaseId === release.id) this.deps.store.updateSite(site.id, { currentReleaseId: [...retained][0] ?? null });
+      }
+    });
   }
   private async refreshReadiness(site: Site): Promise<void> {
     const state = await this.state(site);
@@ -415,6 +469,7 @@ export class EnvironmentSupervisor {
     for (const site of this.deps.store.environmentSitesForReconcile()) {
       try {
         await this.handover(site, this.actor(site));
+        await this.recoverSnapshots(site);
         await this.syncSnapshots(site, this.actor(site));
         await this.refreshReadiness(site);
       } catch (error) {
