@@ -8,7 +8,7 @@ import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } fr
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, imageMimeType, resolveSharedFiles, fileMimeType } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
-import { applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
+import { SHARED_PICKERS, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
@@ -809,7 +809,7 @@ export class DiscordAdapter {
       }
       // The shared pickers re-list through the shared core (which re-applies their gates — /context's
       // operator gate here, none for /project), exactly like the invocations that opened them.
-      const sharedPicker = prefix === 'pick_context' ? 'context' : prefix === 'pick_project' ? 'project' : null;
+      const sharedPicker = SHARED_PICKERS.find((n) => prefix === `pick_${n}`) ?? null;
       if (sharedPicker) {
         await runPickerCommand(sharedPicker, {
           msg: this.msg, reply: (content) => this.respond(i, 7, { content, components: [] }),
@@ -822,7 +822,7 @@ export class DiscordAdapter {
       }
       return this.respond(i, 6, {});
     }
-    const sharedChoice = i.type === 3 ? { pick_context: 'context', pick_project: 'project' }[i.data?.custom_id] : undefined;
+    const sharedChoice = i.type === 3 ? SHARED_PICKERS.find((n) => i.data?.custom_id === `pick_${n}`) : undefined;
     if (sharedChoice) {
       // Re-checks the operator gate on submit (the component round-trips independently) and dispatches
       // the bind/switch through the host control surface as the person who chose; ownership is

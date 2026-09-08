@@ -11,7 +11,7 @@ import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } fr
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
-import { applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
+import { PICKER_CONTEXT, PICKER_PROJECT, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
@@ -737,7 +737,7 @@ export class TelegramAdapter {
       const page = Number(rest);
       const picker = this.pendingPickers.get(String(chatId));
       if (!Number.isInteger(page) || !picker || picker.kind === 'model' || Date.now() - picker.createdAt > this.askTtlMs()) return;
-      if (picker.kind === 'context' && !this.isAdmin(ids)) { await ctx.answerCallbackQuery({ text: this.msg.controlForbidden, show_alert: true }).catch(() => {}); return; }
+      if (picker.kind === PICKER_CONTEXT && !this.isAdmin(ids)) { await ctx.answerCallbackQuery({ text: this.msg.controlForbidden, show_alert: true }).catch(() => {}); return; }
       picker.page = page;
       await this.bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: { inline_keyboard: this.buildPagedKeyboard(this.pickerRows(picker.items), page, 'pk_page') } }).catch(() => {});
       return;
@@ -752,7 +752,7 @@ export class TelegramAdapter {
       await ctx.answerCallbackQuery().catch(() => {});
       this.pendingPickers.delete(String(chatId));
       if (!item) {
-        const empty = picker?.kind === 'project' ? this.msg.noProjects : this.msg.noContextSessions;
+        const empty = picker?.kind === PICKER_PROJECT ? this.msg.noProjects : this.msg.noContextSessions;
         await this.tgEdit(chatId, messageId, empty, { reply_markup: { inline_keyboard: [] } }).catch(() => {});
         return;
       }

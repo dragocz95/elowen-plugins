@@ -11,7 +11,7 @@ import { collectQuestionAnswers, parseAskReply } from './ask.mjs';
 import { sameId, isGroup, isSupportedChat, numberOf, toJid, senderIsAdmin, matchPolicy } from './jid.mjs';
 import { MESSAGES } from './messages.mjs';
 import { LiveMessage } from './stream.mjs';
-import { applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
+import { SHARED_PICKERS, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
@@ -481,8 +481,8 @@ export class WhatsAppAdapter {
    *  numeric text reply. The shared pickers (`context:*`, `project:*`) hand the value straight to the
    *  shared core, which owns the operator gate and the host call; the choice runs as THIS sender. */
   async handleSelection(chatJid, senderJid, id, m) {
-    if (id.startsWith('context:') || id.startsWith('project:')) {
-      const picker = id.slice(0, id.indexOf(':'));
+    const picker = SHARED_PICKERS.find((n) => id.startsWith(`${n}:`));
+    if (picker) {
       const value = id.slice(picker.length + 1);
       this.pendingMenus.delete(chatJid);
       await applyPickerChoice(picker, value, {
