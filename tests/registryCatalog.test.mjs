@@ -107,9 +107,6 @@ const EXPECTED_CAPABILITIES = {
   // EditImage downloads an optional public source and sends image bytes to the configured Images API.
   'image-edit': { network: true },
   lsp: { network: true },
-  // MCP persists server ownership/tool discovery in its DB and connects to remote HTTP/SSE endpoints.
-  // stdio execution remains separately restricted to instance administrators by the plugin itself.
-  mcp: { reads: ['db'], network: true },
   msteams: { reads: ['project-files', 'stores'], mutates: ['users'] },
   // Reads only, and each one is load-bearing: `controls` reaches the Microsoft identity and the
   // account-explicit sandbox lookup, `stores` re-checks project tenancy outside a request, `db` holds the
@@ -144,8 +141,8 @@ const normalizeCapabilities = (capabilities) =>
 
 test('every plugin that asks for capabilities is pinned', () => {
   // Both directions. A plugin that GAINS a capabilities block is the interesting case: it would be
-  // granted whatever it declares, unpinned, because no expectation below names it. Eight of the fifteen
-  // plugins declare one today.
+  // granted whatever it declares, unpinned, because no expectation below names it. Thirteen of the
+  // nineteen plugins declare one today.
   const declaring = folders.filter((name) => manifestOf(name).capabilities).sort();
   assert.ok(declaring.length >= 8, `expected the manifests to declare capabilities, found ${declaring.length}`);
   assert.deepEqual(

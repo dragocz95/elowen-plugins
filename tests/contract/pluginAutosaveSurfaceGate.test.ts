@@ -20,7 +20,6 @@ const SURFACES: readonly SurfaceContract[] = [
   { path: 'plugins/editor/web-src/editor/upload.ts', mode: 'explicit-save', reason: 'explicit file upload transfer' },
   { path: 'plugins/github/web-src/GitHubConnectionPanel.tsx', mode: 'explicit-save', reason: 'OAuth/device flow and external account actions' },
   { path: 'plugins/github/web-src/GitHubProjectPanel.tsx', mode: 'explicit-save', reason: 'external publish/review/merge actions and mapping form' },
-  { path: 'plugins/mcp/web-src/McpServersPage.tsx', mode: 'explicit-save', reason: 'credentials, process lifecycle and multi-field atomic configuration' },
   { path: 'plugins/onedrive/web-src/OneDriveProjectPanel.tsx', mode: 'explicit-save', reason: 'external connection, sync and conflict actions' },
   { path: 'plugins/sites/web-src/EnvironmentsSetup.tsx', mode: 'explicit-save', reason: 'confirmed one-shot administrator provisioning of host container dependencies' },
   { path: 'plugins/sites/web-src/SiteDetail.tsx', mode: 'explicit-save', reason: 'publication, guest replacement and destructive site actions' },
@@ -69,7 +68,6 @@ describe('server-backed plugin edit persistence gate', () => {
     expect(discoveredWrites).toEqual(expect.arrayContaining([
       'plugins/cronjob/web-src/JobsSettings.tsx',
       'plugins/editor/web-src/editor/ProjectEditor.tsx',
-      'plugins/mcp/web-src/McpServersPage.tsx',
     ]));
   });
 
