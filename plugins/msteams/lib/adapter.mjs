@@ -15,7 +15,7 @@ import { MESSAGES } from './messages.mjs';
 import { LiveMessage, postWithImages } from './stream.mjs';
 import { buildAskCard, buildPickerCard, collectQuestionAnswers, settledCard } from './cards.mjs';
 import { buildAppPackage } from './appPackage.mjs';
-import { botControlCommandsFrom, controlCommandsFrom, localCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { applyPickerChoice, botControlCommandsFrom, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { observesLiveEvents, resolveDisplaySettings, updateDisplayOverrides } from 'elowen-plugin-shared/display';
 import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
@@ -71,7 +71,6 @@ const MAX_ROSTER_SWEEP = 25;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const FILE_TTL_MS = 900000;
 const SHARED_SIGN_IN_TTL_MS = 15 * 60 * 1000;
-const CONTEXT_MAX = 40;
 const REACTION_PROCESSING = '1f440_eyes';
 const REACTION_DONE = '2705_whiteheavycheckmark';
 const REACTION_FAILED = '274c_crossmark';
@@ -1519,23 +1518,35 @@ export class MsTeamsAdapter {
     const cs = this.cfg.language === 'cs';
 
     // Control commands share one transport-agnostic core. WHICH names those are is the daemon's answer,
-    // not ours: controlCommandsFrom reads `execution` off the catalog we already receive. What runs is the
-    // INTERSECTION of that with what the core implements — an unhandled name falls through to the switch
-    // below and out as an unknown /word, so a newer daemon may publish a control command this adapter
-    // cannot run. Only the pickers stay local, because their Adaptive Card UI is Teams-specific.
+    // not ours: controlCommandsFrom reads `execution` off the catalog we already receive, pickers
+    // included. What runs is the INTERSECTION of that with what the two cores implement — an unhandled
+    // name falls through to the switch below and out as an unknown /word, so a newer daemon may publish
+    // a control command this adapter cannot run. Only the DRAWING stays Teams-specific: the shared core
+    // renders through showPicker, whose Adaptive Card is built from its descriptor and parked in
+    // pendingPickers for the card actions below.
     if (controlCommandsFrom(this.chatCommands()).has(cmd)) {
-      const handled = await runControlCommand(cmd, {
+      const handled = (await runControlCommand(cmd, {
         msg: this.msg, reply, isAdmin: admin, arg,
         senderPlatformId: String(linkedPlatformUserId || from.aadObjectId || from.id),
         state: this.state, stateId: String(conv.id), ctl: this.ctl, ref: this.channelRef(conv.id),
         activeModel: async () => this.modelForChannel(conv.id, await this.listModels().catch(() => [])),
-      });
+      }))
+        || (await runPickerCommand(cmd, {
+          msg: this.msg, reply, isAdmin: admin, arg,
+          senderPlatformId: String(linkedPlatformUserId || from.aadObjectId || from.id),
+          ctl: this.ctl, ref: this.channelRef(conv.id),
+          showPicker: async (d) => {
+            const options = d.items.map((it) => ({ label: it.label, value: it.value }));
+            const activityId = await this.tmSend(conv.id, '', { replyToId: m.id, card: buildPickerCard(d.picker, d.title, options, { cs }) });
+            this.pendingPickers.set(String(conv.id), { kind: d.picker, title: d.title, options, activityId, page: 0, senderId: ownerKey(from), createdAt: Date.now() });
+          },
+        }));
       if (handled) return true;
     }
-    // …and the same question for the half the daemon does NOT run: the Adaptive Card pickers, /help and
-    // this adapter's own /display below run only because the catalog published this surface at all.
-    // localCommandsFrom claims the published `surface-local` names plus the `session-control` pickers, and
-    // takes /display from ADAPTER_STATE_COMMANDS because the catalog declares it without publishing it.
+    // …and the same question for the half the daemon does NOT run: the /model + /reasoning Adaptive Card
+    // pickers, /help and this adapter's own /display below run only because the catalog published this
+    // surface at all. localCommandsFrom claims the published `surface-local` names, and takes /display
+    // from ADAPTER_STATE_COMMANDS because the catalog declares it without publishing it.
     // Against an empty projection it claims nothing, so a conversation whose daemon went silent stops
     // flipping per-conversation state instead of answering from a hardcoded list.
     if (!localCommandsFrom(this.chatCommands(), ADAPTER_STATE_COMMANDS.map((c) => c.name)).has(cmd)) return false;
@@ -1571,15 +1582,6 @@ export class MsTeamsAdapter {
         await this.postDisplayPicker(conv.id, m.id, from);
         return true;
       }
-      case 'context': {
-        if (!admin()) { await reply(this.msg.controlForbidden); return true; }
-        const listing = this.ctl?.listContext?.(this.channelRef(conv.id), String(from.aadObjectId || from.id), { offset: 0, limit: CONTEXT_MAX }) ?? null;
-        if (!listing || !listing.items.length) { await reply(this.msg.noContextSessions); return true; }
-        const options = listing.items.map((s) => ({ label: `${s.title || s.id} · ${s.model}`, value: s.id }));
-        const activityId = await this.tmSend(conv.id, '', { replyToId: m.id, card: buildPickerCard('context', this.msg.pickContext, options, { cs }) });
-        this.pendingPickers.set(String(conv.id), { kind: 'context', options, activityId, page: 0, senderId: ownerKey(from), createdAt: Date.now() });
-        return true;
-      }
       default:
         return false; // unknown → falls through (a prompt macro reaches the brain raw; anything else is chat)
     }
@@ -1603,18 +1605,24 @@ export class MsTeamsAdapter {
   async onPickerAction(m, conv, from, value) {
     const pend = this.pendingPickers.get(String(conv.id));
     if (!pend || pend.kind !== value.ep) return;
+    const local = pend.kind === 'model' || pend.kind === 'reasoning' || pend.kind === 'display';
     const upn = await this.resolveUpn(m.serviceUrl, conv.id, from);
     const ids = senderIds(from, conv.id, upn);
-    if (!this.isAdmin(ids) && !isOwner(pend.senderId, from)) return;
+    // The LOCAL pickers change SHARED conversation state, so their cards stay owner/admin-gated. The
+    // session-control pickers (/context, /project) act as the person who clicked: bindContext and
+    // switchProject scope the effect to the clicker's own account server-side, so an owner/admin gate
+    // here would only break that person's own choice.
+    if (local && !this.isAdmin(ids) && !isOwner(pend.senderId, from)) return;
     const cs = this.cfg.language === 'cs';
 
     if (value.p !== undefined) { // page turn — re-render the same card window
       pend.page = Number(value.p) || 0;
-      const title = pend.kind === 'model' ? this.msg.pickModel : pend.kind === 'reasoning' ? this.msg.pickThinking : pend.kind === 'context' ? this.msg.pickContext : this.msg.pickDisplay;
+      const title = pend.title ?? (pend.kind === 'model' ? this.msg.pickModel : pend.kind === 'reasoning' ? this.msg.pickThinking : this.msg.pickDisplay);
       await this.tmEdit(conv.id, pend.activityId, '', buildPickerCard(pend.kind, title, pend.options, { cs, page: pend.page }));
       return;
     }
     const picked = String(value.v ?? '');
+    this.pendingPickers.delete(String(conv.id));
     switch (pend.kind) {
       case 'model': {
         const sep = picked.indexOf(' ');
@@ -1623,13 +1631,11 @@ export class MsTeamsAdapter {
         const model = picked.slice(sep + 1);
         if (!model) return;
         this.state.patch(String(conv.id), { model: { provider, model } });
-        this.pendingPickers.delete(String(conv.id));
         await this.tmEdit(conv.id, pend.activityId, '', settledCard(this.msg.modelSet(model)));
         return;
       }
       case 'reasoning': {
         this.state.patch(String(conv.id), { thinkingLevel: picked || undefined });
-        this.pendingPickers.delete(String(conv.id));
         await this.tmEdit(conv.id, pend.activityId, '', settledCard(this.msg.thinkingSet(picked || this.msg.reasoningDefaultValue)));
         return;
       }
@@ -1641,21 +1647,18 @@ export class MsTeamsAdapter {
         if (!v) return;
         const st = this.state.get(String(conv.id));
         this.state.patch(String(conv.id), { display: updateDisplayOverrides(st.display, { [axis]: v }) });
-        this.pendingPickers.delete(String(conv.id));
         await this.tmEdit(conv.id, pend.activityId, '', settledCard(this.msg.displaySet(resolveDisplaySettings(this.cfg, this.state.get(String(conv.id))))));
         return;
       }
-      case 'context': {
-        this.pendingPickers.delete(String(conv.id));
-        try {
-          const bound = await this.ctl?.bindContext?.(this.channelRef(conv.id), String(from.aadObjectId || from.id), picked);
-          await this.tmEdit(conv.id, pend.activityId, '', settledCard(this.msg.contextBound(bound?.title)));
-        } catch (e) {
-          await this.tmEdit(conv.id, pend.activityId, '', settledCard(this.msg.contextError(e?.message ?? e)));
-        }
-        return;
-      }
       default:
+        // A session-control picker: the shared core owns the gate and the host call, as the clicker.
+        await applyPickerChoice(pend.kind, picked, {
+          msg: this.msg,
+          reply: (t) => this.tmEdit(conv.id, pend.activityId, '', settledCard(t)),
+          isAdmin: () => this.isAdmin(ids),
+          senderPlatformId: String(from.aadObjectId || from.id),
+          ctl: this.ctl, ref: this.channelRef(conv.id),
+        });
     }
   }
 }
