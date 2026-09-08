@@ -147,7 +147,21 @@ export class EnvironmentSupervisor {
       }
       this.deps.store.putRuntimeRecord(site.id, 'handover', 'discovered');
     }
-    await control.registerSiteEnvironment({ siteId: site.id, accountUserId });
+    if (!binding.legacy && site.runtime === 'environment' && binding.initialIntent?.desiredState === 'running') {
+      this.deps.store.claimRuntimeRecord(site.id, 'bootstrap-intent', 'running');
+      binding.initialIntent = { desiredState: 'stopped', pendingAction: null };
+      this.saveBinding(binding);
+    }
+    const registered = await control.registerSiteEnvironment({ siteId: site.id, accountUserId });
+    if (this.deps.store.runtimeRecord(site.id, 'bootstrap-intent') === 'running') {
+      const imageKind = binding.image === BASE_IMAGE_TAG ? 'base' : binding.workspaceReadOnly ? 'static' : 'node';
+      await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
+        action: { kind: 'provision-image', imageKind }, expectedGeneration: registered.generation,
+        requestId: `sites-bootstrap-image:${site.id}:${registered.generation}` }), accountUserId);
+      await control.requestSiteEnvironment({ siteId: site.id, accountUserId, action: { kind: 'start' },
+        expectedGeneration: registered.generation, requestId: `sites-bootstrap-start:${site.id}:${registered.generation}` });
+      this.deps.store.putRuntimeRecord(site.id, 'bootstrap-intent', 'complete');
+    }
     // Legacy release metadata is retained. The runtime validates the referenced image/archive itself.
     for (const release of this.deps.store.releases(site.id)) {
       if (release.kind !== 'environment-snapshot' || !release.imageRef) continue;
@@ -166,11 +180,19 @@ export class EnvironmentSupervisor {
     }
     const pending = this.deps.store.environmentAction(site.id);
     if (pending && !pending.lastError) {
-      await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
+      const operation = await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
         requestId: `sites-handover:${site.id}:${pending.kind}:${pending.snapshotId}`,
         action: pending.kind === 'snapshot' ? { kind: 'snapshot', includeData: pending.includeData, note: pending.note }
-          : { kind: 'restore', snapshotId: pending.snapshotId, restoreData: pending.restoreData },
-      });
+          : { kind: 'restore', snapshotId: this.deps.store.runtimeRecord(site.id, `snapshot-runtime:${pending.snapshotId}`) ?? pending.snapshotId, restoreData: pending.restoreData },
+      }), accountUserId);
+      if (pending.kind === 'snapshot') {
+        if (!operation.snapshotId) throw new Error('the migrated snapshot operation completed without its snapshot ID');
+        this.deps.store.putRuntimeRecord(site.id, `snapshot-display:${operation.snapshotId}`, pending.snapshotId);
+        this.deps.store.putRuntimeRecord(site.id, `snapshot-runtime:${pending.snapshotId}`, operation.snapshotId);
+        this.deps.store.putRuntimeRecord(site.id, `snapshot-model:${pending.snapshotId}`, pending.model);
+        this.deps.store.putRuntimeRecord(site.id, `snapshot-data:${pending.snapshotId}`, String(pending.includeData));
+        await this.syncSnapshots(site, accountUserId);
+      }
       this.deps.store.deleteEnvironmentAction(site.id);
     }
     this.deps.store.putRuntimeRecord(site.id, 'handover', 'complete');
@@ -180,7 +202,16 @@ export class EnvironmentSupervisor {
     await this.handover(site, accountUserId);
     const control = this.control();
     const state = await control.siteEnvironmentFor({ siteId: site.id, accountUserId });
-    return control.requestSiteEnvironment({ siteId: site.id, accountUserId, action, expectedGeneration: state.generation, requestId });
+    const binding = this.registration(site.id)!;
+    if ((action.kind === 'start' || action.kind === 'restart') && !binding.legacy
+      && this.deps.store.runtimeRecord(site.id, 'bootstrap-intent') !== 'complete') {
+      await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
+        action: { kind: 'provision-image', imageKind: binding.image === BASE_IMAGE_TAG ? 'base' : binding.workspaceReadOnly ? 'static' : 'node' },
+        expectedGeneration: state.generation, requestId: `${requestId}:image` }), accountUserId);
+    }
+    const resolvedAction = action.kind === 'restore' ? { ...action,
+      snapshotId: this.deps.store.runtimeRecord(site.id, `snapshot-runtime:${action.snapshotId}`) ?? action.snapshotId } : action;
+    return control.requestSiteEnvironment({ siteId: site.id, accountUserId, action: resolvedAction, expectedGeneration: state.generation, requestId });
   }
   private async wait(operation: SiteEnvironmentOperation, accountUserId: number): Promise<SiteEnvironmentOperation> {
     const deadline = Date.now() + Math.max(120_000, this.deps.config().startTimeoutSeconds * 1000);
@@ -216,7 +247,19 @@ export class EnvironmentSupervisor {
       : this.control().requestSiteEnvironment({ siteId: site.id, accountUserId: actor, action: { kind: action, artifactId }, requestId: artifactId });
   }
   async exportProject(site: Site, project: ManagedProjectRef, guestPath: string, destinationPath: string, actor: number): Promise<void> {
-    const artifact: SiteRuntimeArtifact = { kind: 'project-source', project, guestPath, destinationPath: this.ownedPath(site.id, destinationPath) };
+    if (site.runtime === 'environment' || this.deps.store.runtimeMigration(site.id)) throw new Error('a persistent environment or runtime conversion cannot be used as publication staging');
+    const destination = this.ownedPath(site.id, destinationPath);
+    this.control();
+    const previous = this.registration(site.id);
+    if (previous && previous.sourcePath !== destination) {
+      if (!previous.staging) throw new Error('publication cannot replace a live Site binding');
+      await this.perform(site, { kind: 'cleanup-stage' }, actor);
+      this.deps.store.deleteRuntimeRecord(site.id, 'handover');
+      this.deps.store.deleteRuntimeRecord(site.id, 'binding');
+    }
+    if (!this.registration(site.id)) this.saveBinding({ ...this.defaultBinding(site), sourcePath: destination,
+      staging: true, initialIntent: { desiredState: 'stopped', pendingAction: null } });
+    const artifact: SiteRuntimeArtifact = { kind: 'project-source', project, guestPath, destinationPath: destination };
     await this.wait(await this.artifactOperation(site, 'export-project', artifact, actor), actor);
   }
   endpointFor(id: string): Endpoint | null { return this.endpoints.get(id) ?? null; }
@@ -249,6 +292,13 @@ export class EnvironmentSupervisor {
     binding.sourcePath = this.ownedPath(site.id, workspace);
     binding.image = image; binding.workspaceReadOnly = workspaceReadOnly; binding.staging = true;
     binding.initialIntent = { desiredState: 'stopped', pendingAction: null };
+    const previous = this.registration(site.id);
+    if (previous && (previous.sourcePath !== binding.sourcePath || previous.image !== binding.image)) {
+      if (site.runtime === 'environment' || !previous.staging) throw new Error('a live Site binding cannot be replaced by conversion preparation');
+      await this.perform(site, { kind: 'cleanup-stage' });
+      this.deps.store.deleteRuntimeRecord(site.id, 'handover');
+      this.deps.store.deleteRuntimeRecord(site.id, 'binding');
+    }
     this.saveBinding(binding);
     const existing = await this.control().discoverSiteEnvironment({ siteId: site.id, accountUserId: this.actor(site) });
     if (existing) return { created: false };
@@ -300,10 +350,11 @@ export class EnvironmentSupervisor {
       await this.wait(await this.artifactOperation(site, 'remove-artifact', { kind: 'data', archivePath: this.ownedPath(site.id, path) }, actor), actor);
     }
   }
-  async delete(id: string, _options: { removeBroker?: boolean } = {}): Promise<void> {
+  async delete(id: string, options: { removeBroker?: boolean } = {}): Promise<void> {
     const site = this.site(id);
     await this.perform(site, { kind: site.runtime === 'environment' ? 'delete' : 'cleanup-stage' });
     this.endpoints.delete(id);
+    if (this.registration(id)?.staging && options.removeBroker !== false) await this.deps.gateway.removeRuntimeSocket(id);
   }
   async snapshot(site: Site, input: { includeData: boolean; note: string; model: string }, actor?: number): Promise<Release> {
     const result = await this.perform(site, { kind: 'snapshot', includeData: input.includeData, note: input.note }, actor);
@@ -320,8 +371,9 @@ export class EnvironmentSupervisor {
   private async syncSnapshots(site: Site, actor: number): Promise<void> {
     const snapshots = await this.control().siteEnvironmentSnapshots({ siteId: site.id, accountUserId: actor });
     for (const snapshot of snapshots) {
-      if (this.deps.store.release(site.id, snapshot.id)) continue;
-      this.deps.store.insertRelease({ id: snapshot.id, siteId: site.id, createdAt: snapshot.createdAt, model: this.deps.store.runtimeRecord(site.id, `snapshot-model:${snapshot.id}`) ?? '', fileCount: 0, sizeBytes: 0, note: snapshot.note, kind: 'environment-snapshot' });
+      const publicId = this.deps.store.runtimeRecord(site.id, `snapshot-display:${snapshot.id}`) ?? snapshot.id;
+      if (this.deps.store.release(site.id, publicId)) continue;
+      this.deps.store.insertRelease({ id: publicId, siteId: site.id, createdAt: snapshot.createdAt, model: this.deps.store.runtimeRecord(site.id, `snapshot-model:${publicId}`) ?? '', fileCount: 0, sizeBytes: 0, note: snapshot.note, kind: 'environment-snapshot' });
     }
   }
   private async refreshReadiness(site: Site): Promise<void> {

@@ -67,3 +67,10 @@ test('broker preparation must return the pinned socket and stop removes only its
   f.setGateway({ prepareRuntimeSocket: async () => ({ path: '/broker/other/app.sock' }), removeRuntimeSocket: async () => {} });
   await assert.rejects(f.authority.beforeStart(f.site.id), /socket/);
 });
+
+test('stopping a conversion leaves its legacy broker for explicit checkpointed cleanup', async () => {
+  const f = fixture();
+  f.binding.staging = true;
+  await f.authority.afterStop(f.site.id);
+  assert.deepEqual(f.calls, []);
+});

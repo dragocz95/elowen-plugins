@@ -50,7 +50,11 @@ export function createSiteRuntimeAuthority(deps) {
             // Socket sealing and application probes happen after startup, in Sites readiness handling.
         },
         async afterStop(siteId) {
-            bindingFor(siteId);
+            const binding = bindingFor(siteId);
+            // A conversion may still owe its legacy runtime this broker. Its explicit cleanup decides
+            // whether it created the directory and may remove it after the runtime has stopped.
+            if (binding.staging)
+                return;
             await gateway().removeRuntimeSocket(siteId);
         },
     };
