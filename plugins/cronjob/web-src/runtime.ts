@@ -7,6 +7,7 @@
  */
 import type { ComponentType, ReactNode } from 'react';
 import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
+import type { ProjectExecutionRef } from 'elowen/dist/shared/projectExecution.js';
 import type { AutoSaveStatusProps, UseAutoSaveStatus } from '../../autoSaveContract';
 
 // ---- data shapes (structural mirrors of the daemon's wire types) --------------------------------
@@ -47,6 +48,7 @@ export interface CronJob {
   model?: { provider: string; model: string };
   /** The account this job belongs to; absent/null = an instance job (admin-created, admin-powered). */
   ownerUserId?: number | null;
+  projectRef?: ProjectExecutionRef;
   /** Read-only display projection supplied by GET; never persisted or returned in PUT payloads. */
   owner?: CronJobOwner;
   /** The conversation this recurring job is FILED under, by the conversation's CURRENT id — organization

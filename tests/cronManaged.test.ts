@@ -21,6 +21,13 @@ describe('managed cron execution', () => {
     await expect(projectCheck({ control: () => null }, { projectRef: { kind: 'managed', projectId: 7 }, ownerUserId: 11, check: 'true' }, 1000, spawn)).rejects.toThrow('unavailable');
     expect(spawn).not.toHaveBeenCalled();
   });
+  it('routes an explicit legacy project through prepared confinement at that project cwd', async () => {
+    const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn() });
+    const prepareExecution = vi.fn(async () => ({ mode: 'confined', cwd: '/legacy/project', launch: { type: 'argv', file: '/usr/bin/bwrap', args: ['fixture'], env: {} }, lease: { heartbeat: vi.fn(), release: vi.fn() }, sanitizeOutput: (text: string) => text }));
+    const ctx = { control: () => ({ prepareExecution }), host: { stores: () => ({ projects: { get: () => ({ path: '/legacy/project', executionKind: 'host' }) }, usersRead: { isAdmin: () => true } }) } };
+    await projectCheck(ctx, { projectRef: { kind: 'host', projectId: 7 }, ownerUserId: 11, check: 'pwd' }, 1000, () => { setTimeout(() => child.emit('close', 0), 0); return child; });
+    expect(prepareExecution).toHaveBeenCalledWith({ command: { type: 'shell', command: 'pwd' }, cwd: '/legacy/project', leaseKind: 'cron', projectRef: { kind: 'host', projectId: 7 } }, { accountUserId: 11, roots: ['/legacy/project'] });
+  });
   it('verifies guest cancellation before stopping the host client and releasing its lease', async () => {
     const events: string[] = [];
     const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => { events.push('host-kill'); child.emit('close', null); } });

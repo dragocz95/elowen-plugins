@@ -426,6 +426,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const save = hooks.useSaveCronJob();
   const del = hooks.useDeleteCronJob();
   const [draft, setDraft] = useState<CronJob>(job);
+  const projects = hooks.useQuery<{ id: number; slug: string; executionKind: 'host' | 'managed' }[]>({ queryKey: ['projects'], queryFn: () => runtime().api('/projects') });
   const [confirming, setConfirming] = useState(false);
   const [runPending, setRunPending] = useState(false);
   /** The row's own enable switch is on the wire. It writes immediately rather than through the debounced
@@ -465,7 +466,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
    *  be saved before it names a conversation; an existing one preserves its filing by omission. */
   const filingReady = (j: CronJob): boolean => {
     if (j.runAt) return true;
-    if (!persisted) return (j.conversationSessionId ?? '').trim() !== '';
+    if (!persisted) return j.projectRef !== undefined && (j.conversationSessionId ?? '').trim() !== '';
     return !ownerConflict(j);
   };
 
@@ -728,6 +729,26 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
                 />
               </C.Field>
             ) : null}
+            <C.Field label={s.executionProject} hint={s.helpExecutionProject}>
+              <C.ChoiceField
+                title={s.executionProject}
+                manageAriaLabel={s.executionProject}
+                picker="always"
+                value={draft.projectRef ? `${draft.projectRef.kind}:${draft.projectRef.projectId ?? ''}` : ''}
+                options={[
+                  { value: '', label: persisted ? s.executionLegacy : s.executionSelect },
+                  ...(adminFields && ownerOf(draft) === null ? [{ value: 'host:', label: s.executionHost }] : []),
+                  ...(projects.data ?? []).filter(project => project.executionKind !== 'managed' || ownerOf(draft) !== null).map(project => ({ value: `${project.executionKind}:${project.id}`, label: project.slug })),
+                ]}
+                onChange={(value: string) => {
+                  if (value === 'host:') { patch({ projectRef: { kind: 'host' } }); return; }
+                  const project = projects.data?.find(project => `${project.executionKind}:${project.id}` === value);
+                  if (project) patch({ projectRef: { kind: project.executionKind, projectId: project.id } });
+                }}
+                aria-label={s.executionProject}
+              />
+              {projects.isError ? <p role="alert" className="text-sm text-destructive">{s.executionUnavailable}</p> : null}
+            </C.Field>
             {/* Where the job is FILED. Organization only, and never offered for a one-shot wake-up: it
                 fires once and deletes itself, so it belongs to no conversation's job branch. */}
             {!draft.runAt ? (
@@ -744,7 +765,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
                 />
               </C.Field>
             ) : null}
-            {adminFields ? (
+            {adminFields || draft.projectRef?.kind === 'managed' ? (
               <C.Field label={s.check} hint={s.helpCheck}>
                 <textarea
                   value={draft.check ?? ''}

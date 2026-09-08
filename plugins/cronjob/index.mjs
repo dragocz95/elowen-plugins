@@ -559,7 +559,7 @@ class CronAdapter {
       }
       try {
         const ref = executionRef(snapshot.projectRef);
-        if (ref?.kind === 'managed') {
+        if (ref?.projectId) {
           if (!this.projectRuntime) throw new Error('project environment unavailable');
           await this.projectRuntime.authorize(snapshot);
         }
@@ -585,7 +585,7 @@ class CronAdapter {
           this.store.patch(job.id, { lastResult: '⏭️ skipped: a shell check may only run on an admin-owned job' });
           continue;
         }
-        const res = await runCheck(job.check, this.log, this.checkTimeoutMs, job.projectRef?.kind === 'managed' ? () => this.projectRuntime.check(job, this.checkTimeoutMs, this.checkAbort.signal) : undefined);
+        const res = await runCheck(job.check, this.log, this.checkTimeoutMs, job.projectRef?.projectId ? () => this.projectRuntime.check(job, this.checkTimeoutMs, this.checkAbort.signal) : undefined);
         if (res.skip) {
           this.store.patch(job.id, { lastResult: `⏭️ ${res.reason}` });
           continue; // nothing new (or the guard errored) → skip the brain turn entirely
@@ -1023,7 +1023,7 @@ export function register(ctx) {
    *  lastSlot, lastResult, wake-up origin) and is merged back from the file — writing a stale lastRun
    *  back would make an interval job due again on the next tick, and a dropped lastSlot would re-fire
    *  a slot already run. */
-  const CRON_FIELDS = ['id', 'name', 'schedule', 'prompt', 'check', 'hours', 'notifyChannelId', 'plain', 'model', 'enabled', 'runAt', 'createdAt', 'ownerUserId'];
+  const CRON_FIELDS = ['id', 'name', 'schedule', 'prompt', 'check', 'hours', 'notifyChannelId', 'plain', 'model', 'enabled', 'runAt', 'createdAt', 'ownerUserId', 'projectRef'];
   /** Why this job is not storable, or null when it is. */
   const cronJobError = (j) => {
     for (const k of ['id', 'name', 'schedule', 'prompt']) {
@@ -1393,6 +1393,29 @@ export function register(ctx) {
           current: null,
         }, 409);
       }
+      if (job.projectRef === undefined && prev?.projectRef !== undefined) job.projectRef = prev.projectRef;
+      try {
+        const ref = executionRef(job.projectRef);
+        if (ref) {
+          job.projectRef = ref;
+          const changed = JSON.stringify(ref) !== JSON.stringify(prev?.projectRef) || ownerOf(job) !== ownerOf(prev ?? {});
+          if (changed) {
+            if (ref.projectId === undefined) {
+              if (!req.auth.admin || ownerOf(job) !== null) return jsonRes({ error: 'host administration requires an instance job' }, 403);
+            } else {
+              if (!req.auth.admin && !req.auth.accessibleProjects?.includes(ref.projectId)) return jsonRes({ error: 'project forbidden' }, 403);
+              const project = ctx.host.stores().projects.get(ref.projectId);
+              if (!project || (project.executionKind ?? 'host') !== ref.kind) return jsonRes({ error: 'invalid project execution target' }, 400);
+              if (ref.kind === 'managed') {
+                if (ownerOf(job) === null) return jsonRes({ error: 'managed project schedules require personal scope' }, 400);
+                const provider = ctx.control('sandbox');
+                if (!provider) return jsonRes({ error: 'project environment unavailable' }, 503);
+                await provider.environmentFor({ project: ref, accountUserId: ownerOf(job) });
+              } else if (ownerOf(job) !== null && !ownerIsAdmin(ownerOf(job)) && !ctx.host.stores().userProjects.canAccess(ownerOf(job), ref.projectId)) return jsonRes({ error: 'project forbidden' }, 403);
+            }
+          }
+        }
+      } catch { return jsonRes({ error: 'project execution target unavailable or forbidden' }, 403); }
       const error = cronJobError(job) ?? (ownerOf(job) !== null ? ownedJobError(job, jobs) : null);
       if (error) return jsonRes({ error }, 400);
       // Organization only: this decides which conversation the job is FILED under and touches nothing the
@@ -1533,7 +1556,7 @@ export function register(ctx) {
       schedule: Type.String({ description: '"every <N>m", "every <N>h", "daily HH:MM", "weekly <mon..sun> HH:MM", or a 5-field cron expression (e.g. "0 9 * * 1-5")' }),
       prompt: Type.String({ description: 'The prompt to run on schedule' }),
       conversationSessionId: Type.String({ description: 'The conversation this job is organized under, by its id from CronConversations. Filing only: it groups the job in the conversation list and never changes the job\'s context, model, permissions or where its result is delivered. Required, and never guessed — a personal job may only name a conversation of its own account.' }),
-      check: Type.Optional(Type.String({ description: 'OWNER ONLY (an instance job): ' + 'Optional cheap shell guard run BEFORE the prompt. If it prints nothing (or fails), the scheduled brain turn is skipped — no LLM call. If it prints output, the brain runs and receives that output. Use it to poll for new work without paying for a model call each tick, e.g. a collector script that only prints when there is something new.' })),
+      check: Type.Optional(Type.String({ description: 'Host guards require instance-owner authority. Personal managed-project guards run inside the selected project. Optional cheap shell guard run BEFORE the prompt. If it prints nothing (or fails), the scheduled brain turn is skipped — no LLM call. If it prints output, the brain runs and receives that output. Use it to poll for new work without paying for a model call each tick, e.g. a collector script that only prints when there is something new.' })),
       hours: Type.Optional(Type.String({ description: 'Active-hours window "H-H" (e.g. "5-21") — outside it the job stays quiet' })),
       notifyChannelId: Type.Optional(Type.String({ description: 'Deliver results to this channel/thread instead of the default notification channel. Instance-owner scope only — personal jobs always report in their own conversation.' })),
       plain: Type.Optional(Type.Boolean({ description: 'true = deliver the reply as-is, without the "⏰ job name" header line — for persona messages in a dedicated channel' })),
@@ -1781,6 +1804,14 @@ export function register(ctx) {
   adapter = new CronAdapter(store, deliveryStore, ctx.logger, ctx.notify, ctx.config, () => ctx.timezone(), ownerIsAdmin, ownerMaySchedule, {
     authorize: async (job) => {
       const project = executionRef(job.projectRef);
+      if (project.kind === 'host') {
+        const stores = ctx.host.stores();
+        const record = stores.projects.get(project.projectId);
+        if (!record || (record.executionKind ?? 'host') !== 'host') throw new Error('host project execution target changed');
+        const owner = job.ownerUserId ?? null;
+        if (owner !== null && !stores.usersRead.isAdmin(owner) && !stores.userProjects.canAccess(owner, project.projectId)) throw new Error('project access revoked');
+        return;
+      }
       if (!Number.isSafeInteger(job.ownerUserId) || job.ownerUserId <= 0) throw new Error('managed project schedule requires an account');
       const provider = ctx.control('sandbox');
       if (!provider) throw new Error('project environment unavailable');

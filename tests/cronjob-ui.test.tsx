@@ -1,6 +1,6 @@
 import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { JobsSettings } from '../plugins/cronjob/web-src/JobsSettings';
@@ -53,6 +53,12 @@ const fileUnder = async (title: string) => {
 };
 
 
+const chooseExecution = async () => {
+  fireEvent.click(await screen.findByRole('button', { name: strings.executionProject }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Scheduled work' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+};
+
 const job = (over: Partial<CronJob>): CronJob =>
   ({ id: 'j1', name: 'digest', schedule: 'daily 06:00', prompt: 'do it', enabled: true, createdAt: '2026-01-01T00:00:00Z', ...over });
 
@@ -93,6 +99,7 @@ setDefaults(
   // Individual tests still shadow them — the 503 destinations case is the point of that.
   http.get('/api/plugins/destinations', () => HttpResponse.json(DESTINATIONS)),
   http.get('/api/brain/models', () => HttpResponse.json(MODELS)),
+  http.get('/api/projects', () => HttpResponse.json([{ id: 17, slug: 'Scheduled work', executionKind: 'host' }, { id: 18, slug: 'Shared managed work', executionKind: 'managed' }])),
 );
 beforeAll(() => listen()); afterEach(() => { cleanup(); resetHandlers(); }); afterAll(() => close());
 
@@ -633,6 +640,7 @@ describe('a cron job row', () => {
     fireEvent.click((await screen.findAllByText('Add job'))[0]!);
     fireEvent.change(nameBox(), { target: { value: 'nightly' } });
     fireEvent.change(promptBox(), { target: { value: 'Summarize the day.' } });
+    await chooseExecution();
     await fileUnder('CRON JOBS');
     await waitFor(() => expect(calls.writes).toHaveLength(1), { timeout: 3000 });
     expect(calls.writes[0]?.body).toMatchObject({ name: 'nightly', prompt: 'Summarize the day.', conversationSessionId: 'conv-b' });
@@ -645,6 +653,7 @@ describe('a cron job row', () => {
     fireEvent.click(screen.getAllByText('Add job')[0]!);
     fireEvent.change(nameBox(), { target: { value: 'oops' } }); // the added row is the only expanded one
     fireEvent.change(promptBox(), { target: { value: 'created by mistake' } });
+    await chooseExecution();
     await fileUnder('CRON JOBS');
     await waitFor(() => expect(calls.writes).toHaveLength(1), { timeout: 3000 }); // it reached the server…
     await deleteJob('oops');
@@ -758,12 +767,14 @@ describe('cronjob JobsSettings conversation filing', () => {
     fireEvent.change(promptBox(), { target: { value: 'Summarize the day.' } });
 
     expect(await screen.findByText(strings.conversationRequired)).toBeInTheDocument();
-    await new Promise((resolve) => setTimeout(resolve, 1400));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1400)); });
     expect(writes).toEqual([]);
 
     await fileUnder('CRON JOBS');
+    expect(writes).toEqual([]);
+    await chooseExecution();
     await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
-    expect(writes[0]?.body).toMatchObject({ name: 'nightly', prompt: 'Summarize the day.', conversationSessionId: 'conv-b' });
+    expect(writes[0]?.body).toMatchObject({ name: 'nightly', prompt: 'Summarize the day.', conversationSessionId: 'conv-b', projectRef: { kind: 'host', projectId: 17 } });
     // An admin's new job is instance-wide until he takes it, so the picker asks in the instance scope.
     expect(asked).toEqual(['?scope=instance']);
   });
@@ -868,7 +879,7 @@ describe('cronjob JobsSettings conversation filing', () => {
     fireEvent.click(within(owners).getByRole('radio', { name: strings.ownerMine }));
 
     expect(await screen.findByText(strings.conversationOwnerHint)).toBeInTheDocument();
-    await new Promise((resolve) => setTimeout(resolve, 1400));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1400)); });
     expect(writes).toEqual([]);
 
     await fileUnder('CRON JOBS');

@@ -14,15 +14,30 @@ export function executionRef(value) {
 export async function projectCheck(ctx, job, timeoutMs, launch = spawn, signal) {
   signal?.throwIfAborted();
   const projectRef = executionRef(job.projectRef);
-  if (projectRef?.kind !== 'managed') throw new Error('managed project execution reference required');
+  if (!projectRef?.projectId) throw new Error('project execution reference required');
+  let cwd = '/workspace';
+  let roots = [];
+  if (projectRef.kind === 'host') {
+    const stores = ctx.host.stores();
+    const project = stores.projects.get(projectRef.projectId);
+    if (!project || (project.executionKind ?? 'host') !== 'host') throw new Error('host project execution target changed');
+    const owner = job.ownerUserId ?? null;
+    if (owner !== null && !stores.usersRead.isAdmin(owner) && !stores.userProjects.canAccess(owner, projectRef.projectId)) throw new Error('project access revoked');
+    cwd = project.path;
+    roots = [cwd];
+  }
   const provider = ctx.control('sandbox');
   if (!provider) throw new Error('project environment unavailable');
-  const prepared = await provider.prepareExecution({ command: { type: 'shell', command: job.check }, cwd: '/workspace', leaseKind: 'cron', projectRef }, { accountUserId: job.ownerUserId ?? null, roots: [] });
-  if (projectRef.kind === 'managed' && (prepared.mode !== 'managed' || prepared.projectRef?.projectId !== projectRef.projectId)) {
+  const prepared = await provider.prepareExecution({ command: { type: 'shell', command: job.check }, cwd, leaseKind: 'cron', projectRef }, { accountUserId: job.ownerUserId ?? null, roots });
+  if (projectRef.kind === 'managed' && (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== projectRef.projectId)) {
     await prepared.lease.release();
     throw new Error('project environment returned a different execution target');
   }
-  if (typeof prepared.cancel !== 'function') {
+  if (projectRef.kind === 'host' && prepared.mode !== 'confined') {
+    await prepared.lease.release();
+    throw new Error('host project check requires confined execution');
+  }
+  if (projectRef.kind === 'managed' && typeof prepared.cancel !== 'function') {
     await prepared.lease.release();
     throw new Error('managed execution cancellation unavailable');
   }
@@ -44,7 +59,7 @@ export async function projectCheck(ctx, job, timeoutMs, launch = spawn, signal) 
       let cancellation;
       const stop = error => {
         failure ??= error;
-        cancellation ??= prepared.cancel().then(() => { child.kill('SIGKILL'); }, cancelError => {
+        cancellation ??= (prepared.cancel ? prepared.cancel() : Promise.resolve()).then(() => { child.kill('SIGKILL'); }, cancelError => {
           failure = new AggregateError([failure, cancelError], 'project check cancellation could not be verified');
           child.kill('SIGKILL');
         });

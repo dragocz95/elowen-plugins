@@ -21,6 +21,7 @@ setDefaults(
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 7, username: 'filip', is_admin: true } })),
   http.get('/api/plugins/destinations', () => HttpResponse.json([])),
   http.get('/api/brain/models', () => HttpResponse.json([])),
+  http.get('/api/projects', () => HttpResponse.json([])),
 );
 beforeAll(() => listen());
 afterEach(() => { cleanup(); resetHandlers(); });

@@ -34,6 +34,8 @@ function setup(opts: { enabled?: string[]; config?: Record<string, Record<string
     dirs: [pluginsDir], enabled: opts.enabled ?? ['cronjob'], dataRoot, config: opts.config,
     host: {
       stores: {
+        projects: new ProjectStore(db),
+        userProjects: new UserProjectStore(db),
         usersRead: {
           list: () => users.list().map((user) => ({
             id: user.id, username: user.username, name: user.name, avatar: user.avatar, isAdmin: user.is_admin,
@@ -90,6 +92,28 @@ const seed = (dataRoot: string, jobs: unknown[]): string => {
 const onDisk = (dataRoot: string) => JSON.parse(readFileSync(join(dataRoot, 'cronjob', 'jobs.json'), 'utf-8'));
 
 describe('cron jobs routes', () => {
+  it('persists an explicit execution project independently of filing and preserves it on legacy edits', async () => {
+    const { app, adminTok, dataRoot } = setup();
+    const first = await save(app, adminTok, job({ projectRef: { kind: 'host', projectId: 1 } }));
+    expect(first.status).toBe(200);
+    expect(onDisk(dataRoot)[0]).toMatchObject({ projectRef: { kind: 'host', projectId: 1 }, conversationSessionId: STUB_CONVERSATION_ID });
+    expect((await save(app, adminTok, job({ prompt: 'updated' }))).status).toBe(200);
+    expect(onDisk(dataRoot)[0].projectRef).toEqual({ kind: 'host', projectId: 1 });
+  });
+  it('refuses another project and explicit host administration for a non-admin', async () => {
+    const { app, amyTok, amy, users } = setup();
+    users.setGrantedPlugins(amy.id, ['cronjob']);
+    expect((await save(app, amyTok, job({ projectRef: { kind: 'managed', projectId: 999 } }))).status).toBe(403);
+    expect((await save(app, amyTok, job({ projectRef: { kind: 'host' } }))).status).toBe(403);
+  });
+  it('refuses a managed execution target without its provider instead of saving a host fallback', async () => {
+    const { app, adminTok, users, db, dataRoot } = setup();
+    db.prepare("UPDATE projects SET execution_kind='managed' WHERE id=1").run();
+    const response = await save(app, adminTok, job({ ownerUserId: users.list()[0]!.id, projectRef: { kind: 'managed', projectId: 1 } }));
+    expect(response.status).toBe(503);
+    expect(existsSync(join(dataRoot, 'cronjob', 'jobs.json'))).toBe(false);
+  });
+
   it('GET returns [] when the jobs file does not exist yet', async () => {
     const { app, adminTok } = setup();
     const res = await app.request('/plugins/cronjob/jobs', auth(adminTok));

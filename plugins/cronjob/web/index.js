@@ -591,6 +591,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   const save = hooks.useSaveCronJob();
   const del = hooks.useDeleteCronJob();
   const [draft, setDraft] = (0, import_react3.useState)(job);
+  const projects = hooks.useQuery({ queryKey: ["projects"], queryFn: () => runtime().api("/projects") });
   const [confirming, setConfirming] = (0, import_react3.useState)(false);
   const [runPending, setRunPending] = (0, import_react3.useState)(false);
   const [togglePending, setTogglePending] = (0, import_react3.useState)(false);
@@ -610,7 +611,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
   };
   const filingReady = (j) => {
     if (j.runAt) return true;
-    if (!persisted) return (j.conversationSessionId ?? "").trim() !== "";
+    if (!persisted) return j.projectRef !== void 0 && (j.conversationSessionId ?? "").trim() !== "";
     return !ownerConflict(j);
   };
   const isSavable = (j) => j.name.trim() !== "" && j.prompt.trim() !== "" && (j.runAt ? true : utils.isValidSchedule(j.schedule)) && filingReady(j);
@@ -783,6 +784,32 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
           nowrap: true
         }
       ) }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Field, { label: s.executionProject, hint: s.helpExecutionProject, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          C.ChoiceField,
+          {
+            title: s.executionProject,
+            manageAriaLabel: s.executionProject,
+            picker: "always",
+            value: draft.projectRef ? `${draft.projectRef.kind}:${draft.projectRef.projectId ?? ""}` : "",
+            options: [
+              { value: "", label: persisted ? s.executionLegacy : s.executionSelect },
+              ...adminFields && ownerOf(draft) === null ? [{ value: "host:", label: s.executionHost }] : [],
+              ...(projects.data ?? []).filter((project) => project.executionKind !== "managed" || ownerOf(draft) !== null).map((project) => ({ value: `${project.executionKind}:${project.id}`, label: project.slug }))
+            ],
+            onChange: (value) => {
+              if (value === "host:") {
+                patch({ projectRef: { kind: "host" } });
+                return;
+              }
+              const project = projects.data?.find((project2) => `${project2.executionKind}:${project2.id}` === value);
+              if (project) patch({ projectRef: { kind: project.executionKind, projectId: project.id } });
+            },
+            "aria-label": s.executionProject
+          }
+        ),
+        projects.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { role: "alert", className: "text-sm text-destructive", children: s.executionUnavailable }) : null
+      ] }),
       !draft.runAt ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.conversation, hint: s.helpConversation, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         ConversationField,
         {
@@ -796,7 +823,7 @@ function CronJobRow({ job, persisted, ownerLabel, adminFields, myId, destination
           onChange: (conversationSessionId) => patch({ conversationSessionId })
         }
       ) }) : null,
-      adminFields ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.check, hint: s.helpCheck, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      adminFields || draft.projectRef?.kind === "managed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.check, hint: s.helpCheck, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "textarea",
         {
           value: draft.check ?? "",
