@@ -103,11 +103,18 @@ function scopeLabel(scope: McpScope, strings: Record<string, string>): string {
   return scope === 'instance' ? strings.scopeInstance : strings.scopePersonal;
 }
 
-/** The API only returns scopes the current account can manage. A disabled server is explicitly refused by
- *  the reconnect endpoint, and a legacy personal stdio row still needs the owner gate before it could
- *  start a local process. Do not render a control that the current identity cannot safely execute. */
+/** Who may WRITE this server at all. Ownership scope needs no clause here: the API returns only the
+ *  scopes the current account can manage. What it does add is the daemon's local-process rule — a stdio
+ *  server can start a process on the host, so even a personal one is an administrator's alone. Do not
+ *  render a control whose every write would come back refused. */
+export function canManageServer(server: McpServer, canManageInstance: boolean): boolean {
+  return server.transport !== 'stdio' || canManageInstance;
+}
+
+/** A disabled server is explicitly refused by the reconnect endpoint, on top of the write authority
+ *  above. Turning one back ON is a write, not a reconnect, so it is deliberately not gated on this. */
 export function canReconnect(server: McpServer, canManageInstance: boolean): boolean {
-  return server.enabled && (server.transport !== 'stdio' || canManageInstance);
+  return server.enabled && canManageServer(server, canManageInstance);
 }
 
 /** The CLI's reconnect-all action intentionally targets only servers that are not live. Keep this
@@ -126,11 +133,15 @@ export function reconnectTargets(servers: McpServer[], canManageInstance: boolea
  *  Opening the editor is the ROW's contract (`onOpen` + a short `openLabel`), not a button around the
  *  name: one tab stop per row, a target the width of the row, and an accessible name that says what
  *  activating it does rather than repeating the server name alone. */
-function McpServerRow({ server, showScope, selected, onOpen }: {
+function McpServerRow({ server, showScope, selected, canToggle, toggling, onOpen, onToggle }: {
   server: McpServer;
   showScope: boolean;
   selected: boolean;
+  /** Whether this identity may write the server at all — see canManageServer. */
+  canToggle: boolean;
+  toggling: boolean;
   onOpen?: () => void;
+  onToggle: (enabled: boolean) => void;
 }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('mcp');
@@ -170,6 +181,19 @@ function McpServerRow({ server, showScope, selected, onOpen }: {
           <span className="shrink-0">{server.lastError ? <TriangleAlert size={DATA_TABLE_ICON_SIZE} aria-hidden /> : <PlugZap size={DATA_TABLE_ICON_SIZE} aria-hidden />}</span>
           <span className={`truncate ${server.lastError ? 'text-destructive' : ''}`}>{server.lastError ?? label}</span>
         </span>
+      </C.DataTableCell>
+      {/* The switch states whether the server is CONFIGURED on, which is not what the leading dot says:
+          that one reports the live connection, and an enabled server can still be disconnected or
+          failing. Two facts, two controls, neither restating the other. It keeps the `wide` priority of
+          the columns around it — the compact fold is the name and its state, and the editor carries the
+          same switch. */}
+      <C.DataTableCell priority="wide" lines="auto" className="flex items-center justify-center">
+        <C.Toggle
+          checked={server.enabled}
+          onChange={onToggle}
+          label={`${server.name}: ${s.enabled}`}
+          disabled={!canToggle || toggling}
+        />
       </C.DataTableCell>
       <C.DataTableChevronCell />
     </C.DataTableRow>
@@ -340,6 +364,7 @@ export function McpServersPage() {
   const [editor, setEditor] = useState<{ key: string | null; draft: ServerDraft }>();
   const [saving, setSaving] = useState(false);
   const [reconnectingKey, setReconnectingKey] = useState<string>();
+  const [togglingKey, setTogglingKey] = useState<string>();
   const [reconnectingAll, setReconnectingAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string>();
@@ -423,6 +448,37 @@ export function McpServersPage() {
       await load();
     }
     finally { busyRef.current = false; setSaving(false); setBusy(false); }
+  };
+
+  /** Show a server as enabled or disabled before the daemon has answered. Only the local register moves;
+   *  the reload that follows every outcome is what makes it true. */
+  const showEnabled = (target: McpServer, enabled: boolean) => {
+    const key = serverKey(target);
+    const apply = (list: McpServer[]) => list.map((row) => (serverKey(row) === key ? { ...row, enabled } : row));
+    setData((current) => (current ? { ...current, personal: apply(current.personal), instance: apply(current.instance) } : current));
+  };
+
+  /** Enable or disable one server from its row. The switch answers the click at once, the previous value
+   *  comes back with the daemon's own reason if it refuses, and either way the register is re-read: this
+   *  write connects or disconnects the server, so its live status and bridged tools change with it. */
+  const toggleEnabled = async (target: McpServer, enabled: boolean) => {
+    if (busyRef.current || !canManageServer(target, canManageInstance)) return;
+    busyRef.current = true;
+    setTogglingKey(serverKey(target)); setBusy(true); setActionError(undefined);
+    showEnabled(target, enabled);
+    try {
+      await apiJson(`/plugins/mcp/api/servers/${encodeURIComponent(target.name)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ scope: target.scope, enabled, expectedRevision: target.revision ?? 0 }),
+      });
+    } catch (error) {
+      showEnabled(target, target.enabled);
+      toast(utils.apiErrorMessage(error) || s.saveError, 'error');
+    } finally {
+      busyRef.current = false; setTogglingKey(undefined); setBusy(false);
+      await load();
+    }
   };
 
   const reconnect = async () => {
@@ -558,7 +614,7 @@ export function McpServersPage() {
     <div className="flex min-w-0 flex-col gap-3">
       <C.DataTable
         ariaLabel={s.title}
-        columns={canManageInstance ? '2rem minmax(0,1fr) 6rem 7rem 5rem minmax(0,10rem) 1.25rem' : '2rem minmax(0,1fr) 6rem 5rem minmax(0,10rem) 1.25rem'}
+        columns={canManageInstance ? '2rem minmax(0,1fr) 6rem 7rem 5rem minmax(0,10rem) 2.75rem 1.25rem' : '2rem minmax(0,1fr) 6rem 5rem minmax(0,10rem) 2.75rem 1.25rem'}
         compactColumns="2rem minmax(0,1fr)"
       >
         <C.DataTableRow header>
@@ -571,6 +627,9 @@ export function McpServersPage() {
           {canManageInstance ? <C.DataTableCell header priority="wide" lines={1}>{s.scope}</C.DataTableCell> : null}
           <C.DataTableCell header priority="wide" lines={1}>{s.tools}</C.DataTableCell>
           <C.DataTableCell header priority="wide" lines={1}>{s.colStatus}</C.DataTableCell>
+          {/* Named for assistive technology alone, like the dot column above: the switches speak for
+              themselves on screen and a visible "Enabled" would head a column of them. */}
+          <C.DataTableCell header priority="wide" labelHidden lines={1}>{s.enabled}</C.DataTableCell>
           {/* The chevron track carries no header: its cell is decorative. */}
         </C.DataTableRow>
         {pageItems.map((server) => (
@@ -579,7 +638,10 @@ export function McpServersPage() {
             server={server}
             showScope={canManageInstance}
             selected={editor?.key === serverKey(server)}
+            canToggle={canManageServer(server, canManageInstance)}
+            toggling={togglingKey === serverKey(server)}
             onOpen={busy ? undefined : () => openServer(server)}
+            onToggle={(enabled) => void toggleEnabled(server, enabled)}
           />
         ))}
       </C.DataTable>

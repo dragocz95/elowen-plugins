@@ -39,6 +39,11 @@ const loadBundleRegistration = async (): Promise<BundleRegistration> => {
 const openRow = async (name: string) =>
   fireEvent.click(await screen.findByRole('button', { name: strings.openJob.replace('{name}', name) }));
 
+/** The enable switch on a collapsed row, named after the job it belongs to. The editor's own switch
+ *  carries the same name inside the drawer, so this deliberately queries the register only. */
+const rowSwitch = (name: string) =>
+  within(screen.getByRole('table')).getByRole('switch', { name: `${name}: ${strings.enabled}` });
+
 /** File the open job under a conversation, through its own summary — named apart from the channel and
  *  model summaries beside it. A new recurring job cannot be saved before this happens. */
 const fileUnder = async (title: string) => {
@@ -127,7 +132,9 @@ describe('cronjob schedule builder', () => {
 });
 
 describe('cronjob JobsSettings — status indicator', () => {
-  it('uses the semantic active and paused status colours', async () => {
+  // The row's state is a control now, not a coloured dot beside one: a switch and a read-only copy of
+  // its own value are two truths waiting to disagree. An absent `enabled` still reads as active.
+  it('states active and paused on the row itself, without relying on colour', async () => {
     use(http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([
       job({ id: 'implicit', name: 'implicit active', enabled: undefined }),
       job({ id: 'paused', name: 'paused job', enabled: false }),
@@ -136,8 +143,138 @@ describe('cronjob JobsSettings — status indicator', () => {
     render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
 
     await screen.findByText('implicit active');
-    expect(screen.getByTitle(strings.enabled)).toHaveClass('inline-block', 'h-2', 'w-2', 'bg-success');
-    expect(screen.getByTitle(strings.paused)).toHaveClass('inline-block', 'h-2', 'w-2', 'bg-destructive');
+    expect(rowSwitch('implicit active')).toHaveAttribute('aria-checked', 'true');
+    expect(rowSwitch('paused job')).toHaveAttribute('aria-checked', 'false');
+    // The compact fold drops the switch's track, so the state also travels inside the name cell — as the
+    // badge a sighted reader sees and as the text a screen reader hears with the row.
+    expect(screen.getAllByText(strings.paused)).toHaveLength(2);
+  });
+});
+
+describe('cronjob JobsSettings — row enable switch', () => {
+  it('pauses a job straight from the row through the job update route', async () => {
+    const writes: Record<string, unknown>[] = [];
+    use(
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job({ revision: 4 })])),
+      http.put('/api/plugins/cronjob/jobs/:id', async ({ request }) => {
+        writes.push(await request.json() as Record<string, unknown>);
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await screen.findByText('digest');
+
+    fireEvent.click(rowSwitch('digest'));
+    // Optimistic: the switch answers the click rather than the round-trip.
+    expect(rowSwitch('digest')).toHaveAttribute('aria-checked', 'false');
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toMatchObject({ id: 'j1', enabled: false, expectedRevision: 4 });
+    // The daemon's own projections are never handed back to it as if they were client state.
+    expect(writes[0]).not.toHaveProperty('runLocation');
+    expect(writes[0]).not.toHaveProperty('conversation');
+  });
+
+  it('puts the job back as it was, with the daemon\'s reason, when the write is refused', async () => {
+    use(
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job({})])),
+      http.put('/api/plugins/cronjob/jobs/:id', () => HttpResponse.json({ error: 'job changed on the server' }, { status: 409 })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await screen.findByText('digest');
+
+    fireEvent.click(rowSwitch('digest'));
+    await waitFor(() => expect(rowSwitch('digest')).toHaveAttribute('aria-checked', 'true'));
+    expect(await screen.findByText(`${strings.saveError} — job changed on the server`)).toBeInTheDocument();
+  });
+
+  // The daemon refuses a foreign job to a non-admin, so the row shows the state and offers no write.
+  it('does not offer a non-admin the switch on a job that is not theirs', async () => {
+    use(
+      http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 9, username: 'amy', is_admin: false } })),
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([
+        job({ id: 'mine', name: 'my digest', ownerUserId: 9 }),
+        job({ id: 'theirs', name: 'their digest', ownerUserId: 7 }),
+      ])),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await screen.findByText('their digest');
+
+    expect(rowSwitch('my digest')).toBeEnabled();
+    expect(rowSwitch('their digest')).toBeDisabled();
+  });
+});
+
+describe('cronjob JobsSettings — row owner and conversation', () => {
+  // Both facts used to live only in the editor or in a column an admin alone saw, so a reader of the
+  // list could not tell whose job it was or where its runs land without opening it.
+  it('names the owner, the conversation it is filed under and where it runs', async () => {
+    use(http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([
+      job({
+        id: 'owned', name: 'her digest', ownerUserId: 9,
+        owner: { id: 9, username: 'amy', name: 'Amy Adams', avatar: '9.png' },
+        conversationSessionId: 'conv-x',
+        conversation: { id: 'conv-x', title: 'Amy planning', ownerUserId: 9, platform: null, direct: false },
+        runLocation: { kind: 'dedicated', sessionId: 'brain-9-job-owned' },
+      }),
+      job({
+        id: 'shared', name: 'instance digest',
+        conversationSessionId: 'conv-a',
+        conversation: { id: 'conv-a', title: 'Morning planning', ownerUserId: 7, platform: null, direct: false },
+        runLocation: { kind: 'channel', channelId: 'job-shared' },
+      }),
+    ])));
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await screen.findByText('her digest');
+
+    expect(screen.getByText('Amy Adams')).toBeInTheDocument();
+    expect(screen.getByText('#9')).toBeInTheDocument();
+    // An instance job belongs to nobody in particular, and says so rather than showing an empty cell.
+    expect(screen.getByText(strings.ownerInstance)).toBeInTheDocument();
+    // Filed HERE, running THERE: two different facts, both on the collapsed row.
+    expect(screen.getByText(`Amy planning · ${strings.runInOwnConversation}`)).toBeInTheDocument();
+    expect(screen.getByText(`Morning planning · ${strings.runInChannel}`)).toBeInTheDocument();
+  });
+
+  it('says a filing is unassigned, gone or unreadable rather than showing nothing', async () => {
+    use(http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([
+      job({ id: 'legacy', name: 'legacy job', runLocation: { kind: 'channel', channelId: 'job-legacy' } }),
+      job({ id: 'gone', name: 'gone filing', conversationSessionId: 'conv-dead', conversation: null, runLocation: { kind: 'channel', channelId: 'job-gone' } }),
+      job({
+        id: 'unread', name: 'unreadable filing', conversationSessionId: 'conv-a', conversation: null,
+        conversationUnresolved: true, runLocation: { kind: 'channel', channelId: 'job-unread' },
+      }),
+    ])));
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await screen.findByText('legacy job');
+
+    expect(screen.getByText(`${strings.conversationUnassigned} · ${strings.runInChannel}`)).toBeInTheDocument();
+    expect(screen.getByText(`${strings.conversationUnavailable} · ${strings.runInChannel}`)).toBeInTheDocument();
+    // "Could not be read" is not "deleted", and the row must not tell the reader it was.
+    expect(screen.getByText(`${strings.conversationUnknown} · ${strings.runInChannel}`)).toBeInTheDocument();
+  });
+
+  it('leaves the owner out of a non-admin\'s rows, where it is implied', async () => {
+    use(
+      http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 9, username: 'amy', is_admin: false } })),
+      http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([
+        job({
+          id: 'mine', name: 'my digest', ownerUserId: 9,
+          owner: { id: 9, username: 'amy', name: 'Amy Adams', avatar: '9.png' },
+          runLocation: { kind: 'dedicated', sessionId: 'brain-9-job-mine' },
+        }),
+      ])),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><JobsSettings surface="deck" /></ToastProvider></Wrapper>);
+    await screen.findByText('my digest');
+
+    expect(screen.queryByText('Amy Adams')).toBeNull();
+    expect(screen.getByText(`${strings.conversationUnassigned} · ${strings.runInOwnConversation}`)).toBeInTheDocument();
   });
 });
 
@@ -637,7 +774,8 @@ describe('cronjob JobsSettings conversation filing', () => {
     const writes: { id: string; body: Record<string, unknown> }[] = [];
     mount([job({})], writes);
     await openRow('digest');
-    expect(await screen.findByText(strings.conversationUnassigned)).toBeInTheDocument();
+    // Scoped to the EDITOR: the collapsed row states the filing too, so the page carries it twice.
+    expect(within(await screen.findByRole('dialog')).getByText(strings.conversationUnassigned)).toBeInTheDocument();
 
     fireEvent.change(nameBox(), { target: { value: 'renamed' } });
     await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
@@ -651,7 +789,7 @@ describe('cronjob JobsSettings conversation filing', () => {
     const writes: { id: string; body: Record<string, unknown> }[] = [];
     mount([job({ conversationSessionId: 'gone', conversation: null })], writes);
     await openRow('digest');
-    expect(await screen.findByText(strings.conversationUnavailable)).toBeInTheDocument();
+    expect(within(await screen.findByRole('dialog')).getByText(strings.conversationUnavailable)).toBeInTheDocument();
 
     fireEvent.change(nameBox(), { target: { value: 'renamed' } });
     await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });
@@ -704,7 +842,7 @@ describe('cronjob JobsSettings conversation filing', () => {
       conversation: { id: 'conv-a', title: 'Morning planning', ownerUserId: 7, platform: null, direct: false },
     })], writes, asked);
     await openRow('digest');
-    expect(await screen.findByText('Morning planning')).toBeInTheDocument();
+    expect(within(await screen.findByRole('dialog')).getByText('Morning planning')).toBeInTheDocument();
 
     await fileUnder('CRON JOBS');
     await waitFor(() => expect(writes).toHaveLength(1), { timeout: 3000 });

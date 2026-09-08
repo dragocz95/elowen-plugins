@@ -300,13 +300,16 @@ function statusDot(server) {
 function scopeLabel(scope, strings) {
   return scope === "instance" ? strings.scopeInstance : strings.scopePersonal;
 }
+function canManageServer(server, canManageInstance) {
+  return server.transport !== "stdio" || canManageInstance;
+}
 function canReconnect(server, canManageInstance) {
-  return server.enabled && (server.transport !== "stdio" || canManageInstance);
+  return server.enabled && canManageServer(server, canManageInstance);
 }
 function reconnectTargets(servers, canManageInstance) {
   return servers.filter((server) => canReconnect(server, canManageInstance) && (server.status === "disconnected" || server.status === "error"));
 }
-function McpServerRow({ server, showScope, selected, onOpen }) {
+function McpServerRow({ server, showScope, selected, canToggle, toggling, onOpen, onToggle }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("mcp");
   const label = statusLabel(server, s);
@@ -335,6 +338,15 @@ function McpServerRow({ server, showScope, selected, onOpen }) {
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "shrink-0", children: server.lastError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TriangleAlert, { size: DATA_TABLE_ICON_SIZE, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PlugZap, { size: DATA_TABLE_ICON_SIZE, "aria-hidden": true }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `truncate ${server.lastError ? "text-destructive" : ""}`, children: server.lastError ?? label })
         ] }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { priority: "wide", lines: "auto", className: "flex items-center justify-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          C.Toggle,
+          {
+            checked: server.enabled,
+            onChange: onToggle,
+            label: `${server.name}: ${s.enabled}`,
+            disabled: !canToggle || toggling
+          }
+        ) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableChevronCell, {})
       ]
     }
@@ -445,6 +457,7 @@ function McpServersPage() {
   const [editor, setEditor] = (0, import_react3.useState)();
   const [saving, setSaving] = (0, import_react3.useState)(false);
   const [reconnectingKey, setReconnectingKey] = (0, import_react3.useState)();
+  const [togglingKey, setTogglingKey] = (0, import_react3.useState)();
   const [reconnectingAll, setReconnectingAll] = (0, import_react3.useState)(false);
   const [busy, setBusy] = (0, import_react3.useState)(false);
   const [actionError, setActionError] = (0, import_react3.useState)();
@@ -520,6 +533,34 @@ function McpServersPage() {
       busyRef.current = false;
       setSaving(false);
       setBusy(false);
+    }
+  };
+  const showEnabled = (target, enabled) => {
+    const key = serverKey(target);
+    const apply = (list) => list.map((row) => serverKey(row) === key ? { ...row, enabled } : row);
+    setData((current) => current ? { ...current, personal: apply(current.personal), instance: apply(current.instance) } : current);
+  };
+  const toggleEnabled = async (target, enabled) => {
+    if (busyRef.current || !canManageServer(target, canManageInstance)) return;
+    busyRef.current = true;
+    setTogglingKey(serverKey(target));
+    setBusy(true);
+    setActionError(void 0);
+    showEnabled(target, enabled);
+    try {
+      await apiJson(`/plugins/mcp/api/servers/${encodeURIComponent(target.name)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scope: target.scope, enabled, expectedRevision: target.revision ?? 0 })
+      });
+    } catch (error) {
+      showEnabled(target, target.enabled);
+      toast(utils.apiErrorMessage(error) || s.saveError, "error");
+    } finally {
+      busyRef.current = false;
+      setTogglingKey(void 0);
+      setBusy(false);
+      await load();
     }
   };
   const reconnect = async () => {
@@ -662,7 +703,7 @@ function McpServersPage() {
       C.DataTable,
       {
         ariaLabel: s.title,
-        columns: canManageInstance ? "2rem minmax(0,1fr) 6rem 7rem 5rem minmax(0,10rem) 1.25rem" : "2rem minmax(0,1fr) 6rem 5rem minmax(0,10rem) 1.25rem",
+        columns: canManageInstance ? "2rem minmax(0,1fr) 6rem 7rem 5rem minmax(0,10rem) 2.75rem 1.25rem" : "2rem minmax(0,1fr) 6rem 5rem minmax(0,10rem) 2.75rem 1.25rem",
         compactColumns: "2rem minmax(0,1fr)",
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { header: true, children: [
@@ -671,7 +712,8 @@ function McpServersPage() {
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, priority: "wide", lines: 1, children: s.transport }),
             canManageInstance ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, priority: "wide", lines: 1, children: s.scope }) : null,
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, priority: "wide", lines: 1, children: s.tools }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, priority: "wide", lines: 1, children: s.colStatus })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, priority: "wide", lines: 1, children: s.colStatus }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { header: true, priority: "wide", labelHidden: true, lines: 1, children: s.enabled })
           ] }),
           pageItems.map((server) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             McpServerRow,
@@ -679,7 +721,10 @@ function McpServersPage() {
               server,
               showScope: canManageInstance,
               selected: editor?.key === serverKey(server),
-              onOpen: busy ? void 0 : () => openServer(server)
+              canToggle: canManageServer(server, canManageInstance),
+              toggling: togglingKey === serverKey(server),
+              onOpen: busy ? void 0 : () => openServer(server),
+              onToggle: (enabled) => void toggleEnabled(server, enabled)
             },
             serverKey(server)
           ))

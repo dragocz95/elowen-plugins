@@ -75,6 +75,74 @@ describe('MCP drawer status toggle', () => {
   });
 });
 
+describe('MCP register row switch', () => {
+  const remote: McpServer = {
+    ...server, name: 'docs', transport: 'http', command: undefined, args: undefined, env: undefined,
+    url: 'https://mcp.example.test/', revision: 3,
+  };
+  /** The switch on the collapsed row. The drawer's carries the same name, so this stays in the register. */
+  const rowSwitch = (name: string) =>
+    within(screen.getByRole('table')).getByRole('switch', { name: `${name}: ${strings.enabled}` });
+
+  it('disables a server from its row and re-reads the register the write changed', async () => {
+    let enabled = true;
+    let body: Record<string, unknown> | undefined;
+    let loads = 0;
+    use(
+      http.get('/api/plugins/mcp/api/servers', () => {
+        loads += 1;
+        return HttpResponse.json({
+          personal: [{ ...remote, enabled, status: enabled ? 'connected' : 'disabled', toolCount: enabled ? 2 : 0 }],
+          instance: [], canManageInstance: false,
+        });
+      }),
+      http.patch('/api/plugins/mcp/api/servers/docs', async ({ request }) => {
+        body = await request.json() as Record<string, unknown>;
+        enabled = false;
+        return HttpResponse.json({ server: { ...remote, enabled: false } });
+      }),
+    );
+    mount();
+    await screen.findByText('docs');
+
+    fireEvent.click(rowSwitch('docs'));
+    // Optimistic: the switch answers the click, not the round-trip.
+    expect(rowSwitch('docs')).toHaveAttribute('aria-checked', 'false');
+    await waitFor(() => expect(body).toMatchObject({ scope: 'personal', enabled: false, expectedRevision: 3 }));
+    // Disabling disconnects the server, so its live status and tool count are re-read rather than guessed.
+    await waitFor(() => expect(loads).toBe(2));
+    // The row states it as the name-cell badge, as the status column and as the status text beside it.
+    await waitFor(() => expect(screen.getAllByText(strings.statusDisabled).length).toBeGreaterThan(0));
+  });
+
+  it('puts the switch back, with the daemon\'s reason, when the write is refused', async () => {
+    use(
+      http.get('/api/plugins/mcp/api/servers', () => HttpResponse.json({ personal: [remote], instance: [], canManageInstance: false })),
+      http.patch('/api/plugins/mcp/api/servers/docs', () => HttpResponse.json({ error: 'server changed on the server' }, { status: 409 })),
+    );
+    mount();
+    await screen.findByText('docs');
+
+    fireEvent.click(rowSwitch('docs'));
+    await waitFor(() => expect(rowSwitch('docs')).toHaveAttribute('aria-checked', 'true'));
+    expect(await screen.findByText('server changed on the server')).toBeInTheDocument();
+  });
+
+  // A local-process server can start a process on the host, so the daemon lets only an administrator of
+  // this instance write one — even a personal one. A switch whose write always comes back refused is
+  // worse than showing the state as read-only.
+  it('offers no row switch on a local-process server to a non-administrator', async () => {
+    use(http.get('/api/plugins/mcp/api/servers', () => HttpResponse.json({
+      personal: [server, remote], instance: [], canManageInstance: false,
+    })));
+    mount();
+    await screen.findByText('github');
+
+    expect(rowSwitch('github')).toBeDisabled();
+    expect(rowSwitch('docs')).toBeEnabled();
+  });
+});
+
 describe('MCP drawer reconnect', () => {
   const reconnectable: McpServer = {
     ...server,

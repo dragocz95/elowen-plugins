@@ -145,6 +145,10 @@
       "conversationLoading": "Načítání konverzací…",
       "conversationListError": "Konverzace se nepodařilo načíst. Zkuste to prosím znovu.",
       "conversationOwnChat": "Vlastní konverzace",
+      "conversationUnknown": "Konverzace není známa",
+      "runInOwnConversation": "běží ve vlastní konverzaci",
+      "runInChannel": "běží ve vlastním kanálu",
+      "runInOrigin": "běží tam, kde vznikla",
       "linkUnavailable": "Tato úloha není dostupná",
       "linkUnavailableHint": "Byla smazána, nebo patří jinému účtu. Vyberte úlohu ze seznamu."
     }
