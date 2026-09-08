@@ -1,6 +1,6 @@
 {
   "name": "cronjob",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "apiVersion": "1",
   "requiresCore": "0.28.33",
   "requiresSharedApi": 3,
@@ -114,15 +114,6 @@
       "placeholder": "86400000",
       "default": 86400000,
       "hint": "How far back a 5-field cron job looks for a run it missed while the daemon was down. Only the most recent missed occurrence is replayed, never a backlog. Range 1 hour to 7 days, default 24 hours."
-    },
-    {
-      "key": "sessionIdleMs",
-      "label": "Fresh-session idle threshold (ms)",
-      "type": "number",
-      "min": 0,
-      "step": 30000,
-      "placeholder": "host default (30 min)",
-      "hint": "Optional. A job idle longer than this between runs starts a fresh conversation on its next tick — past the model's prompt-cache window, reusing the old context is pure cost with no cache benefit. Leave empty to use the host default (like Discord). Set a smaller value for frequent jobs, a larger one to keep continuity longer, or 0 to never start fresh (always keep the running context)."
     },
     {
       "key": "sec_user_limits",

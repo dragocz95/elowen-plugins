@@ -48,11 +48,6 @@ const MAX_PENDING_DELIVERIES = 50;
 // claimed forever and never delivered. It is deliberately long relative to a send: re-delivering after a
 // falsely expired lease is exactly the duplicate the claim exists to prevent.
 const DELIVERY_LEASE_MS = 5 * 60_000;
-// The per-turn idle rollover forwarded to the host as access.sessionIdleMs. It is OPT-IN, not defaulted:
-// leaving the config key unset means the job's channel session rolls over under the host's own shared
-// default (SESSION_IDLE_ROLLOVER_MS, Discord's 30 min) — the same as every other channel — so an
-// existing recurring job never silently loses its cross-run context after an upgrade. See resolveSessionIdleMs.
-const SESSION_IDLE_MIN_MS = 60_000; // an explicit value is clamped UP to a 1-min floor; there is no upper clamp
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** The owner-chat conversation a recurring personal job reports in. Deterministic so a job keeps ONE
  *  conversation across runs and restarts without storing a pointer that could go stale; the host owns
@@ -164,21 +159,6 @@ export function slotKey(ms, timezone) {
   const p = zonedParts(ms, timezone);
   const pad = (n) => String(n).padStart(2, '0');
   return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
-}
-
-/** Resolve the optional per-job session-idle knob into what the host expects as access.sessionIdleMs:
- *   - unset / blank / invalid → undefined: the override is OMITTED, so the host applies its shared
- *     SESSION_IDLE_ROLLOVER_MS default (same rollover behavior as Discord — never wipes context per tick).
- *   - explicit 0 → Infinity: rollover DISABLED for this job's channel, so a slow job that must keep
- *     continuity across runs is never rotated.
- *   - explicit > 0 → clamped UP to a 1-min floor (SESSION_IDLE_MIN_MS), with NO upper clamp, so an
- *     operator can set an arbitrarily long window to opt back into keep-continuity behavior. */
-export function resolveSessionIdleMs(value) {
-  if (value === undefined || value === null || value === '') return undefined;
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return undefined; // garbage → treat as unset (host default)
-  if (n === 0) return Infinity; // explicit off
-  return Math.max(n, SESSION_IDLE_MIN_MS);
 }
 
 /** Run a job's optional cheap guard command and classify the outcome, so the scheduler can decide
@@ -498,10 +478,6 @@ class CronAdapter {
     this.checkTimeoutMs = clampConfig(config.checkTimeoutMs, DEFAULT_CHECK_TIMEOUT_MS, 10_000, 300_000);
     this.checkOutputMaxChars = clampConfig(config.checkOutputChars, DEFAULT_CHECK_OUTPUT_CHARS, 2_000, 200_000);
     this.cronLookbackMs = clampConfig(config.cronLookbackMs, DEFAULT_CRON_LOOKBACK_MS, 3_600_000, 604_800_000);
-    // Idle cutoff forwarded per turn to the host (access.sessionIdleMs). Unset → undefined (host default,
-    // like Discord); explicit 0 → Infinity (rollover off); explicit > 0 → clamped up to a 1-min floor,
-    // no upper clamp. See resolveSessionIdleMs.
-    this.sessionIdleMs = resolveSessionIdleMs(config.sessionIdleMs);
   }
   listen(onMessage) { this.handler = onMessage; }
   async connect() {
@@ -657,10 +633,6 @@ class CronAdapter {
           // Gated above, so this forwards the job's EXACT pair or nothing at all: core never receives a
           // partial it would silently complete with a different provider's or model's identity.
           model: storedModel(job) ?? undefined,
-          // Per-job idle rollover, forwarded ONLY when configured: unset → key omitted, so the host applies
-          // its shared default (like Discord) and cross-run context is preserved; a shorter value rotates a
-          // frequent job past the cache window; Infinity (config 0) disables rollover for this job entirely.
-          ...(this.sessionIdleMs !== undefined ? { sessionIdleMs: this.sessionIdleMs } : {}),
         },
       };
       const onEvent = (e) => {
