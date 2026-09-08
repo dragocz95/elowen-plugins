@@ -1,6 +1,7 @@
 import { EditorFileError, copyProjectEntry, createProjectDir, createProjectFile, deleteProjectEntry, listProjectFiles, projectChangedFiles, projectCommitDiff, projectCommitFileDiff, projectCommitFiles, projectCommitLog, convertOfficeToPdf, OfficePreviewError, projectFileAtHead, projectFileDiff, projectFileSize, projectWorkingDiff, readProjectByteRange, readProjectBytes, readProjectFile, renameProjectEntry, safeSystemPath, uploadProjectChunk, writeProjectFile, } from './files.js';
 import { baseName, mimeTypeOf, MAX_UPLOAD_CHUNK_BYTES } from './fileTypes.js';
 import { SYSTEM_LIST_DEPTH, SYSTEM_PROJECT_ID, SYSTEM_ROOT } from './systemRoot.js';
+import { managedEditorRequest } from './managed.js';
 function projectFor(ctx, req) {
     const id = Number(req.params.id);
     // The system root is an administrator capability and nothing else. Guessing the reserved id buys a
@@ -14,7 +15,7 @@ function projectFor(ctx, req) {
     if (req.auth.accessibleProjects === null ? !req.auth.admin : !req.auth.accessibleProjects.includes(id))
         return { status: 403, body: { error: 'forbidden' } };
     const project = ctx.host.stores().projects.get(id);
-    return project ? { path: project.path, system: false } : { status: 404, body: { error: 'project not found' } };
+    return project ? { path: project.path, system: false, ...(project.executionKind === 'managed' ? { managedProjectId: id } : {}) } : { status: 404, body: { error: 'project not found' } };
 }
 function isResponse(value) { return !('path' in value); }
 async function body(req) {
@@ -56,7 +57,11 @@ export function registerEditorApi(ctx) {
                 if (req.path !== '')
                     return { status: 404, body: { error: 'not found' } };
                 const project = projectFor(ctx, req);
-                return isResponse(project) ? project : handler(req, project, guardFor(project));
+                if (isResponse(project))
+                    return project;
+                if (project.managedProjectId)
+                    return managedEditorRequest(ctx, req, project.managedProjectId, rootMount, method);
+                return handler(req, project, guardFor(project));
             } });
     };
     // `?path` lists ONE directory instead of the whole tree, confined by the same guard as every other

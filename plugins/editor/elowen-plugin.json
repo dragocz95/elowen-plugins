@@ -7,7 +7,8 @@
   "capabilities": {
     "reads": [
       "stores",
-      "project-files"
+      "project-files",
+      "controls"
     ]
   },
   "provides": {

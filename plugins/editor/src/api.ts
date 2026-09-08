@@ -9,12 +9,13 @@ import {
 } from './files.js';
 import { baseName, mimeTypeOf, MAX_UPLOAD_CHUNK_BYTES } from './fileTypes.js';
 import { SYSTEM_LIST_DEPTH, SYSTEM_PROJECT_ID, SYSTEM_ROOT } from './systemRoot.js';
+import { managedEditorRequest } from './managed.js';
 
 /** The root one request operates on. `system` is deliberately NOT derived from `path`: it is the record
  *  that this request came through the reserved id and cleared the admin check. A project row registered
  *  at `/` must not pick up the system root's relaxed path guard just by matching the string — that would
  *  hand the whole filesystem to whoever is assigned to that project. */
-interface EditorRoot { path: string; system: boolean }
+interface EditorRoot { path: string; system: boolean; managedProjectId?: number }
 
 function projectFor(ctx: PluginContext, req: PluginApiRequest): EditorRoot | PluginHttpResponse {
   const id = Number(req.params.id);
@@ -27,7 +28,7 @@ function projectFor(ctx: PluginContext, req: PluginApiRequest): EditorRoot | Plu
   if (!Number.isSafeInteger(id) || id <= 0) return { status: 404, body: { error: 'project not found' } };
   if (req.auth.accessibleProjects === null ? !req.auth.admin : !req.auth.accessibleProjects.includes(id)) return { status: 403, body: { error: 'forbidden' } };
   const project = ctx.host.stores().projects.get(id);
-  return project ? { path: project.path, system: false } : { status: 404, body: { error: 'project not found' } };
+  return project ? { path: project.path, system: false, ...(project.executionKind === 'managed' ? { managedProjectId: id } : {}) } : { status: 404, body: { error: 'project not found' } };
 }
 function isResponse(value: EditorRoot | PluginHttpResponse): value is PluginHttpResponse { return !('path' in value); }
 async function body(req: PluginApiRequest): Promise<Record<string, unknown> | null> {
@@ -67,7 +68,9 @@ export function registerEditorApi(ctx: PluginContext): void {
     ctx.registerApiRoute({ rootMount, path: '', method, access: 'user', handler: async (req) => {
       if (req.path !== '') return { status: 404, body: { error: 'not found' } };
       const project = projectFor(ctx, req);
-      return isResponse(project) ? project : handler(req, project, guardFor(project));
+      if (isResponse(project)) return project;
+      if (project.managedProjectId) return managedEditorRequest(ctx, req, project.managedProjectId, rootMount, method);
+      return handler(req, project, guardFor(project));
     } });
   };
   // `?path` lists ONE directory instead of the whole tree, confined by the same guard as every other
