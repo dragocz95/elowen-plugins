@@ -20,6 +20,7 @@ import { registerLspTools } from './tools.js';
 import { registerLspApi } from './api.js';
 import { registerAfterEditDiagnostics } from './afterEdit.js';
 import { lspPluginConfig } from './config.js';
+import { ManagedLspManager } from './managed.js';
 
 /** Test seam, mirroring {@link LspManagerDeps}: the lifecycle test drives real teardown against a fake
  *  transport instead of spawning tsserver. The host only ever calls `register(ctx)`. */
@@ -32,6 +33,51 @@ export function register(ctx: PluginContext, deps: LspRegisterDeps = {}): void {
   // the tools, never the services) — so the manager appears on the first tool call there.
   const create = deps.createManager ?? (() => new LspManager());
   let manager: LspManager | null = null;
+  const managed = new Map<string, ManagedLspManager>();
+  // Single-flight per (project, actor): two concurrent tool calls on a cold first use would otherwise
+  // both resolve the environment, both construct an instance for the same key and both mint an
+  // execution lease for the same server — one of them an orphan that no stop() will ever reach.
+  const building = new Map<string, Promise<LspManager | null>>();
+  const selectedManager = async (): Promise<LspManager | null> => {
+    if (stopped) return null;
+    const project = ctx.currentAccess?.().projectRef;
+    if (project?.kind !== 'managed') return lsp();
+    const actor = ctx.currentAccountUserId();
+    const sandbox = ctx.control('sandbox');
+    if (!sandbox || actor === null) throw new Error('Managed LSP environment provider or actor is unavailable.');
+    const actorKey = `${project.projectId}:${actor}`;
+    const inflight = building.get(actorKey);
+    if (inflight) return inflight;
+    const build = (async (): Promise<LspManager | null> => {
+      const state = await sandbox.environmentFor({ project, accountUserId: actor });
+      if (state.projectId !== project.projectId) throw new Error('Environment provider returned another project.');
+      if (stopped) return null;
+      const key = `${project.projectId}:${actor}:${state.generation}`;
+      for (const [oldKey, old] of managed) {
+        if (old.project.projectId === project.projectId && old.actor === actor && oldKey !== key) {
+          await old.shutdown();
+          managed.delete(oldKey);
+        }
+      }
+      let selected = managed.get(key);
+      if (!selected) {
+        selected = new ManagedLspManager(ctx, project, actor, state.generation);
+        selected.setEnabled(lspPluginConfig(ctx.config).diagnosticsEnabled);
+        managed.set(key, selected);
+      }
+      // The stop() below snapshots `managed` before its shutdowns; an entry set after that snapshot
+      // would otherwise survive the clear as an instance nobody will ever shut down.
+      if (stopped) {
+        managed.delete(key);
+        await selected.shutdown();
+        return null;
+      }
+      return selected;
+    })();
+    building.set(actorKey, build);
+    try { return await build; }
+    finally { if (building.get(actorKey) === build) building.delete(actorKey); }
+  };
   // A STOPPED generation stays stopped. Without this latch the accessor would happily rebuild the
   // manager after the service went down — and a reload runs stopAll() BEFORE the registry swap, so a
   // status poll or an in-flight tool call landing in that window would spawn servers into an instance
@@ -51,18 +97,18 @@ export function register(ctx: PluginContext, deps: LspRegisterDeps = {}): void {
   // nothing else would ever dispose them. Best effort by nature — 'exit' does not fire on SIGKILL, and
   // a server that ignores its stdin closing outlives the process either way — so it narrows the window
   // rather than closing it. Removed on stop so reloads cannot pile listeners up.
-  const disposeOnExit = (): void => { manager?.disposeAll(); };
+  const disposeOnExit = (): void => { manager?.disposeAll(); for (const entry of managed.values()) entry.disposeAll(); };
   process.on('exit', disposeOnExit);
 
-  registerLspTools(ctx, lsp);
-  registerLspApi(ctx, lsp);
+  registerLspTools(ctx, selectedManager);
+  registerLspApi(ctx, selectedManager);
   // The push half of the same manager: an edit that lands gets type-checked in the background and the
   // result reaches the model with its next turn, so a model that forgets to call LspDiagnostics is still
   // told what it broke. Delivery goes through registerTurnContext rather than the `appendContext` hook
   // patch: `brain.turn.contextBuilt` is the only patch seam the host actually emits, its payload is the
   // user's text alone, and it runs outside the turn's own scope — a plugin there cannot tell WHICH
   // conversation it is contributing to, which is the one thing this must never get wrong.
-  registerAfterEditDiagnostics(ctx, lsp);
+  registerAfterEditDiagnostics(ctx, selectedManager);
 
   // The persisted on/off state applies at start, and stop() frees every spawned server. The `/lsp`
   // toggle and the settings form both write plugins.config.lsp.diagnosticsEnabled, which hot-reloads
@@ -77,11 +123,13 @@ export function register(ctx: PluginContext, deps: LspRegisterDeps = {}): void {
       lsp()?.setEnabled(diagnosticsEnabled);
       ctx.logger.info(`live diagnostics ${diagnosticsEnabled ? 'on' : 'off'}`);
     },
-    stop: () => {
+    stop: async () => {
       stopped = true;
       manager?.disposeAll();
       manager = null;
       process.off('exit', disposeOnExit);
+      await Promise.all([...managed.values()].map((entry) => entry.shutdown()));
+      managed.clear();
     },
   });
 

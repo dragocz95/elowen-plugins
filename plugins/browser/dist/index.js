@@ -46,7 +46,7 @@ export function register(ctx, deps = {}) {
         ctx.logger.warn('browser live view is unavailable: this Elowen core does not offer registerWebSocketRoute/issueWebSocketTicket');
     }
     const registry = new SessionRegistry({
-        config, store, pool, artifacts, processInspector, displays, clock, logger: ctx.logger,
+        config, projectContext: ctx, store, pool, artifacts, processInspector, displays, clock, logger: ctx.logger,
         closeLiveViews: (sessionId, reason) => transport?.closeSession(sessionId, reason),
     });
     const service = new BrowserService(registry);

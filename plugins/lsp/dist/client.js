@@ -67,9 +67,17 @@ export function spawnStdioTransport(spec, cwd) {
         cb(); };
     child.on('error', die); // a late ENOENT (race) or spawn failure still fails the client fast
     child.on('exit', die);
-    child.stdout.on('data', (chunk) => { for (const m of decoder.push(chunk))
-        for (const cb of messageCbs)
-            cb(m); });
+    child.stdout.on('data', (chunk) => {
+        try {
+            for (const m of decoder.push(chunk))
+                for (const cb of messageCbs)
+                    cb(m);
+        }
+        catch {
+            die();
+            child.kill();
+        }
+    });
     child.stdin.on('error', () => { });
     return {
         send: (framed) => { if (alive) {

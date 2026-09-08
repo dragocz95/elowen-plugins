@@ -1,5 +1,5 @@
 {
-  "description": "Súkromná automatizácia prehliadača pre prepojené účty Elowen. Každý účet má vlastný trvalý profil a proces Chrome na súkromnom virtuálnom displeji, viac kariet, typované akcie cez strom prístupnosti, živý náhľad prenášaný cez VNC so skutočným vstupom z klávesnice a myši, výhradné prevzatie ovládania a sieťovú proxy, ktorá všetky ciele pred pripojením overí a pripne na schválenú IP adresu.",
+  "description": "Automatizácia prehliadača pre spravované projekty a súkromné účty. Projektové prehliadače bežia vnútri svojho prostredia, zdieľajú profily, cookies a stiahnuté súbory a ovládajú sa nástrojmi prehliadača. Osobné prehliadače zachovávajú súkromné profily účtov, virtuálne displeje, živý náhľad VNC, výhradné prevzatie ovládania a vynucujúcu sieťovú proxy. Nastavenia na tejto stránke sa vzťahujú na osobné prehliadače.",
   "fields": {
     "runtime": { "label": "Behové prostredie", "hint": "Detekcia Chrome a limity procesov na úrovni účtov. Prehliadač sa nespustí bez vynucujúcej proxy a bezpečnej cesty so sandboxom Chrome." },
     "chromeExecutable": { "label": "Spustiteľný súbor Chrome", "hint": "Voliteľná absolútna cesta k Chrome alebo Chromiu. Ponechajte prázdne pre automatickú detekciu podporovaného systémového prehliadača." },

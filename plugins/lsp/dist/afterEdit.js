@@ -1,6 +1,7 @@
 import { formatCheckResult } from './manager.js';
 import { detectLanguage } from './servers.js';
-import { lspBoundary } from './tools.js';
+import { lspBoundary, lspPath } from './tools.js';
+import { ManagedLspManager } from './managed.js';
 /** The tools whose successful result means the bytes on disk changed. */
 const MUTATING_TOOLS = new Set(['Write', 'Edit']);
 /** Per-session bound on tracked files, and on tracked sessions. Both are LRU-trimmed: this is a cache of
@@ -63,12 +64,12 @@ export function registerAfterEditDiagnostics(ctx, lsp) {
     };
     /** One block per file, at most once per turn, then cleared. Called by the host while composing a
      *  prompt turn, inside that turn's scope. */
-    const render = () => {
+    const render = (scope = '') => {
         try {
             const sessionId = ctx.currentSessionId?.();
             if (!sessionId)
                 return '';
-            const entry = sessions.get(sessionId);
+            const entry = sessions.get(sessionId + scope);
             if (!entry || entry.pending.size === 0)
                 return '';
             const blocks = [...entry.pending];
@@ -83,7 +84,7 @@ export function registerAfterEditDiagnostics(ctx, lsp) {
     };
     ctx.registerHook({
         name: 'tools.call.after',
-        run: (payload) => {
+        run: async (payload) => {
             try {
                 const event = payload;
                 if (typeof event.tool !== 'string' || !MUTATING_TOOLS.has(event.tool))
@@ -101,7 +102,7 @@ export function registerAfterEditDiagnostics(ctx, lsp) {
                     return;
                 if (!detectLanguage(requested))
                     return; // a pure extension lookup: markdown costs nothing here
-                const manager = lsp();
+                const manager = await lsp();
                 if (!manager?.isEnabled())
                     return;
                 // The same guard every LSP tool applies. The files plugin already allowed this path in this turn,
@@ -109,7 +110,7 @@ export function registerAfterEditDiagnostics(ctx, lsp) {
                 // boundary rather than inheriting one it did not verify.
                 let path;
                 try {
-                    path = ctx.assertPathAllowed(requested);
+                    path = lspPath(ctx, requested);
                 }
                 catch {
                     return;
@@ -120,7 +121,7 @@ export function registerAfterEditDiagnostics(ctx, lsp) {
                 // a visible stall on every single write. The verdict is read by the NEXT turn, a model round trip
                 // away, so it has time to land on its own; a check still running by then simply reports one turn
                 // later instead of holding this one up.
-                void manager.checkFile(path, boundary).then((result) => { record(sessionId, path, result); }, () => { });
+                void manager.checkFile(path, boundary).then((result) => { record(sessionId + (manager instanceof ManagedLspManager ? manager.scopeKey : ''), path, result); }, () => { });
             }
             catch {
                 // An observer that throws would be caught by the host bus anyway. Swallowing it here keeps the
@@ -130,5 +131,9 @@ export function registerAfterEditDiagnostics(ctx, lsp) {
     });
     // after-user: it qualifies the request the model is answering, so it belongs next to it rather than in
     // front of it, the same placement the session task list uses.
-    ctx.registerTurnContext(render, { placement: 'after-user' });
+    ctx.registerTurnContext(() => {
+        if (ctx.currentAccess?.().projectRef?.kind !== 'managed')
+            return render();
+        return Promise.resolve(lsp()).then((manager) => manager instanceof ManagedLspManager ? render(manager.scopeKey) : '', () => '');
+    }, { placement: 'after-user' });
 }

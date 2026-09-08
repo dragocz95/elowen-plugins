@@ -5,11 +5,17 @@ import type { PluginContext } from 'elowen/dist/plugins/api.js';
 import type { LspManager } from './manager.js';
 import { formatCheckResult, formatLspFailure, type LspOpFailure } from './manager.js';
 import { containsPath } from './paths.js';
+import { guestLspPath } from './managed.js';
+
+export function lspPath(ctx: PluginContext, path: string): string {
+  return ctx.currentAccess?.().projectRef?.kind === 'managed' ? guestLspPath(path) : ctx.assertPathAllowed(path);
+}
 
 /** Most-specific current-turn root containing the checked file. This is both the LSP search boundary
  *  and the security boundary: project marker discovery must never walk above a scoped user's repo.
  *  Exported for the after-edit collector, which resolves the same boundary from the same turn scope. */
 export function lspBoundary(ctx: PluginContext, path: string): string | undefined {
+  if (ctx.currentAccess?.().projectRef?.kind === 'managed') return '/workspace';
   // An allowed repo is the hard security floor. Prefer it over a possibly deeper client cwd so a turn
   // launched from `<repo>/src` can still discover `<repo>/tsconfig.json` without ever reaching outside
   // the repo. All-access turns have no allowed roots, so their validated cwd is the useful fallback.
@@ -35,6 +41,7 @@ export function lspBoundary(ctx: PluginContext, path: string): string | undefine
  *  tenant's project. That is only ever correct for an all-access turn, so the caller must pair this with
  *  {@link unscopedSymbolSearch}. Exported for the boundary unit test. */
 export function workspaceBoundary(ctx: PluginContext): string | undefined {
+  if (ctx.currentAccess?.().projectRef?.kind === 'managed') return '/workspace';
   const roots = ctx.allowedRoots();
   const workDir = ctx.workDir();
   if (roots.length === 0) return workDir;
@@ -89,24 +96,24 @@ function renderOp(out: { ok: true; result: unknown } | LspOpFailure, format: (r:
  *  that replaced it can never leave a tool talking to language servers nobody will stop. It answers null
  *  once that generation has been stopped — a call landing in a reload's stop window reports that instead
  *  of spawning servers into an instance whose teardown has already run. */
-export function registerLspTools(ctx: PluginContext, manager: () => LspManager | null): void {
-  const assertPathAllowed = (path: string): string => ctx.assertPathAllowed(path);
+export function registerLspTools(ctx: PluginContext, manager: () => LspManager | null | Promise<LspManager | null>): void {
+  const assertPathAllowed = (path: string): string => lspPath(ctx, path);
   const STOPPED = 'LSP: the language-server plugin is reloading — retry in a moment.';
   for (const tool of [
     defineTool({
       name: 'LspDiagnostics', label: 'Check diagnostics',
       description: 'Type-check a file with its language server (LSP) and return errors/warnings with exact line:column. Call this right after editing a code file to immediately confirm it still compiles. Returns "no problems" for a clean file, and a clear note when LSP is off (/lsp) or no server is installed for the language.',
       parameters: Type.Object({ path: Type.String({ description: 'Absolute path to the file to check' }) }),
-      execute: async (_id: string, p: { path: string }) => {
+      execute: async (_id: string, p: { path: string }, signal?: AbortSignal) => {
         // Same per-user path policy as every other file tool — without it a user scoped to one project
         // could feed ANY file on disk to a language server and read its content back through quoted
         // diagnostics. Reject with a plain error text (tools report, they don't throw).
         let path: string;
         try { path = assertPathAllowed(p.path); }
         catch (e) { return { content: [{ type: 'text' as const, text: `LSP: ${(e as Error).message}` }], details: {} }; }
-        const m = manager();
+        const m = await manager();
         if (!m) return lspText(STOPPED);
-        const result = await m.checkFile(path, lspBoundary(ctx, path));
+        const result = await m.checkFile(path, lspBoundary(ctx, path), signal);
         const text = formatCheckResult(result) || `LSP: nothing to check for ${p.path}.`;
         return { content: [{ type: 'text' as const, text }], details: {} };
       },
@@ -119,15 +126,15 @@ export function registerLspTools(ctx: PluginContext, manager: () => LspManager |
         line: Type.Number({ description: 'Line number (1-based) of the symbol' }),
         character: Type.Number({ description: 'Character offset (1-based) of the symbol' }),
       }),
-      execute: async (_id: string, p: { path: string; line: number; character: number }) => {
+      execute: async (_id: string, p: { path: string; line: number; character: number }, signal?: AbortSignal) => {
         const bad = badPosition(p.line, p.character);
         if (bad) return lspText(bad);
         let path: string;
         try { path = assertPathAllowed(p.path); }
         catch (e) { return lspText(`LSP: ${(e as Error).message}`); }
-        const m = manager();
+        const m = await manager();
         if (!m) return lspText(STOPPED);
-        const out = await m.definition(path, p.line, p.character, lspBoundary(ctx, path));
+        const out = await m.definition(path, p.line, p.character, lspBoundary(ctx, path), signal);
         return lspText(renderOp(out, formatLocations, 'No definition found. This may occur if the cursor is not on a symbol, or if the definition is in an external library not indexed by the LSP server.'));
       },
     }),
@@ -139,15 +146,15 @@ export function registerLspTools(ctx: PluginContext, manager: () => LspManager |
         line: Type.Number({ description: 'Line number (1-based) of the symbol' }),
         character: Type.Number({ description: 'Character offset (1-based) of the symbol' }),
       }),
-      execute: async (_id: string, p: { path: string; line: number; character: number }) => {
+      execute: async (_id: string, p: { path: string; line: number; character: number }, signal?: AbortSignal) => {
         const bad = badPosition(p.line, p.character);
         if (bad) return lspText(bad);
         let path: string;
         try { path = assertPathAllowed(p.path); }
         catch (e) { return lspText(`LSP: ${(e as Error).message}`); }
-        const m = manager();
+        const m = await manager();
         if (!m) return lspText(STOPPED);
-        const out = await m.references(path, p.line, p.character, lspBoundary(ctx, path));
+        const out = await m.references(path, p.line, p.character, lspBoundary(ctx, path), signal);
         return lspText(renderOp(out, formatLocations, 'No references found. This may occur if the symbol has no usages, or if the LSP server has not fully indexed the workspace.'));
       },
     }),
@@ -159,15 +166,15 @@ export function registerLspTools(ctx: PluginContext, manager: () => LspManager |
         line: Type.Number({ description: 'Line number (1-based) of the symbol' }),
         character: Type.Number({ description: 'Character offset (1-based) of the symbol' }),
       }),
-      execute: async (_id: string, p: { path: string; line: number; character: number }) => {
+      execute: async (_id: string, p: { path: string; line: number; character: number }, signal?: AbortSignal) => {
         const bad = badPosition(p.line, p.character);
         if (bad) return lspText(bad);
         let path: string;
         try { path = assertPathAllowed(p.path); }
         catch (e) { return lspText(`LSP: ${(e as Error).message}`); }
-        const m = manager();
+        const m = await manager();
         if (!m) return lspText(STOPPED);
-        const out = await m.hover(path, p.line, p.character, lspBoundary(ctx, path));
+        const out = await m.hover(path, p.line, p.character, lspBoundary(ctx, path), signal);
         return lspText(renderOp(out, formatHover, 'No hover information available. This may occur if the cursor is not on a symbol, or if the LSP server has not fully indexed the file.'));
       },
     }),
@@ -177,13 +184,13 @@ export function registerLspTools(ctx: PluginContext, manager: () => LspManager |
       parameters: Type.Object({
         path: Type.String({ description: 'Absolute path to the file' }),
       }),
-      execute: async (_id: string, p: { path: string }) => {
+      execute: async (_id: string, p: { path: string }, signal?: AbortSignal) => {
         let path: string;
         try { path = assertPathAllowed(p.path); }
         catch (e) { return lspText(`LSP: ${(e as Error).message}`); }
-        const m = manager();
+        const m = await manager();
         if (!m) return lspText(STOPPED);
-        const out = await m.documentSymbol(path, lspBoundary(ctx, path));
+        const out = await m.documentSymbol(path, lspBoundary(ctx, path), signal);
         return lspText(renderOp(out, (r) => formatDocumentSymbols(r), 'No symbols found in document. This may occur if the file is empty, not supported by the LSP server, or if the server has not fully indexed the file.'));
       },
     }),
@@ -193,14 +200,14 @@ export function registerLspTools(ctx: PluginContext, manager: () => LspManager |
       parameters: Type.Object({
         query: Type.String({ description: 'Symbol name to search for (fuzzy match)' }),
       }),
-      execute: async (_id: string, p: { query: string }) => {
+      execute: async (_id: string, p: { query: string }, signal?: AbortSignal) => {
         const boundary = workspaceBoundary(ctx);
         // Refuse rather than search everything: an unbounded merge would hand a scoped caller symbols
         // (names AND file paths) out of other tenants' projects. See unscopedSymbolSearch.
         if (unscopedSymbolSearch(ctx, boundary)) return lspText('LSP: this session has no workspace in scope to search.');
-        const m = manager();
+        const m = await manager();
         if (!m) return lspText(STOPPED);
-        const out = await m.workspaceSymbol(p.query, boundary);
+        const out = await m.workspaceSymbol(p.query, boundary, signal);
         return lspText(renderOp(out, formatWorkspaceSymbols, 'No symbols found in workspace. This may occur if the workspace is empty, or if the LSP server has not finished indexing the project.'));
       },
     }),

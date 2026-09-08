@@ -80,7 +80,10 @@ export function spawnStdioTransport(spec: LanguageServerSpec, cwd: string): LspT
   const die = (): void => { if (!alive) return; alive = false; for (const cb of exitCbs) cb(); };
   child.on('error', die); // a late ENOENT (race) or spawn failure still fails the client fast
   child.on('exit', die);
-  child.stdout.on('data', (chunk: Buffer) => { for (const m of decoder.push(chunk)) for (const cb of messageCbs) cb(m); });
+  child.stdout.on('data', (chunk: Buffer) => {
+    try { for (const m of decoder.push(chunk)) for (const cb of messageCbs) cb(m); }
+    catch { die(); child.kill(); }
+  });
   child.stdin.on('error', () => { /* broken pipe — die() fires via exit */ });
   return {
     send: (framed) => { if (alive) { try { child.stdin.write(framed); } catch { /* pipe closing */ } } },
