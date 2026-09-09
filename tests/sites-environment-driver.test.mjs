@@ -4,7 +4,7 @@
 // no real Podman engine, no isolation namespace and no account-default storage is ever touched.
 //
 // Dependency statement: the driver source lives in the environments runtime checkout
-// (/var/www/elowen-environments-runtime/plugins/sandbox/lib, read-only here). When the parent combines
+// (the installed elowen SDK's plugins/sandbox/lib, read-only here). When the parent combines
 // the real runtime this import stays valid; it is the one deliberate Sites-side coupling to that path.
 //
 // Runtime-orchestration invariants that sit ABOVE the driver (stop waits for `exited` before broker

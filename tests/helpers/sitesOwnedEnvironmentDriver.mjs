@@ -1,18 +1,20 @@
 // Fixtures for the Sandbox-owned container driver boundary. The concrete Podman driver now lives in the
-// Sandbox plugin (/var/www/elowen-environments-runtime/plugins/sandbox/lib — read-only runtime source
+// Sandbox plugin (the installed elowen SDK's plugins/sandbox/lib — read-only runtime source
 // referenced by the linked environments checkout); these fixtures drive the REAL driver classes with an
 // injected fake executor so no real engine, isolation namespace or account-default storage is ever used.
 //
 // Dependency statement: this suite preserves the driver-level invariants that used to live in the Sites
 // PodmanClient tests. It imports the actual Sandbox driver source; when the parent combines the real
-// runtime this file keeps working, and the import path is the onlySites-side coupling.
+// runtime this file keeps working, and the import path is the only Sites-side coupling. It resolves
+// through the installed SDK, the way every other podman-backed test here does: an absolute path into a
+// task worktree stops resolving the moment that worktree is merged and removed.
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { PodmanClient, SpawnExecutor, cleanPodmanEnv } from '/var/www/elowen-environments-runtime/plugins/sandbox/lib/podman.mjs';
-import { createBoundSiteSpec } from '/var/www/elowen-environments-runtime/plugins/sandbox/lib/containerSpec.mjs';
+import { PodmanClient, SpawnExecutor, cleanPodmanEnv } from 'elowen/plugins/sandbox/lib/podman.mjs';
+import { createBoundSiteSpec } from 'elowen/plugins/sandbox/lib/containerSpec.mjs';
 
 export { PodmanClient, SpawnExecutor, cleanPodmanEnv };
 

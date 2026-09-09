@@ -26,7 +26,7 @@ const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 interface UploadedChunk { offset: number; final: boolean; overwrite: boolean; size: number | null; bytes: Buffer }
 
 /** A managed guest emulation that follows the LANDED canonical contract
- *  (`elowen-environments-runtime/src/plugins/environmentTypes.ts` + `guestFiles.py` + the provider's
+ *  (`elowen/dist/plugins/environmentTypes.js` + `guestFiles.py` + the provider's
  *  `guestFileTransport.mjs`): whole-file `write` with CAS and a 512 KiB transport cap, chunked uploads
  *  via `write-begin`/`write-chunk`/`write-commit`/`write-abort` whose handles are bound to the acting
  *  account, project and target path, one active upload per destination, chunk offsets aligned to
