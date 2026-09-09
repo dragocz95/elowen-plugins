@@ -146,12 +146,14 @@ describe('the copy of the daemon dictionary that the UI suites assert against', 
   });
 
   it('is large enough to be worth guarding', () => {
-    // 495 leaves per locale today, down from 778: the daemon's catalog lost its `tasks` and `missions`
-    // sections when the work and agents plugins moved into this repository and took their own i18n with
-    // them, so the copy narrowed to match. A copy that quietly shrank to a handful would otherwise
-    // satisfy every assertion below while covering almost none of the text the suites read.
-    expect(flatten(copiedEn as unknown as Dict).size).toBeGreaterThanOrEqual(450);
-    expect(flatten(copiedCs as unknown as Dict).size).toBeGreaterThanOrEqual(450);
+    // 426 leaves per locale today, down from 495 and 778 before that. The first narrowing came when the
+    // work and agents plugins moved into this repository and took their `tasks` and `missions` i18n with
+    // them; this one is `chore(i18n): drop dictionary keys no code reads any more`, which removed 91 key
+    // lines from the daemon's own catalog, so the copy narrowed to match a package that really is
+    // smaller. The floor exists to catch a copy that quietly shrank to a handful while still satisfying
+    // every assertion below, and it still does.
+    expect(flatten(copiedEn as unknown as Dict).size).toBeGreaterThanOrEqual(400);
+    expect(flatten(copiedCs as unknown as Dict).size).toBeGreaterThanOrEqual(400);
   });
 
   const locales: [string, Dict][] = [

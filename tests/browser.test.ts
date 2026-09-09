@@ -288,7 +288,7 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.3.7, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.3.8, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
       version: string; userGrantable: boolean; entry: string;
@@ -296,7 +296,7 @@ describe('browser plugin contract', () => {
       provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.3.7');
+    expect(manifest.version).toBe('0.3.8');
     expect(manifest.userGrantable).toBe(true);
     // The session listing reads the agent's last reply through `host.stores()`, which the core refuses
     // outright unless the manifest asks for it — an undeclared grant makes the whole panel fail, not the
@@ -354,9 +354,11 @@ describe('browser plugin contract', () => {
       requiresCore: string; web: { settings: { id: string; placement?: string }[] };
     };
     expect(manifest.web.settings).toEqual([expect.objectContaining({ id: 'runtime', placement: 'pluginDetail' })]);
-    // The release that carries plugin WebSocket routes. Below it the daemon cannot hand a socket to a
-    // plugin at all, and a live view is the only live view there is now.
-    expect(manifest.requiresCore).toBe('0.28.30');
+    // The floor was 0.28.30, the release that carries plugin WebSocket routes: below it the daemon
+    // cannot hand a socket to a plugin at all, and a live view is the only live view there is now. It
+    // moved to 0.28.35 because a project browser now runs inside the project's environment and needs the
+    // Sandbox environment control, which is strictly later. Both properties hold at the higher floor.
+    expect(manifest.requiresCore).toBe('0.28.35');
   });
 });
 

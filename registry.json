@@ -3,8 +3,8 @@
   "plugins": [
     {
       "name": "browser",
-      "version": "0.3.7",
-      "requiresCore": "0.28.30",
+      "version": "0.3.8",
+      "requiresCore": "0.28.35",
       "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, a live view served over VNC that carries native keyboard and mouse input, exclusive user takeover and a deny-by-default enforcing network boundary.",
       "category": "tools",
       "author": "Elowen",
@@ -16,7 +16,8 @@
     },
     {
       "name": "codebase",
-      "version": "0.1.3",
+      "version": "0.1.4",
+      "requiresCore": "0.28.35",
       "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings \u2192 Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",
       "category": "tools",
       "author": "Elowen",
@@ -27,12 +28,12 @@
     },
     {
       "name": "cronjob",
-      "version": "0.4.6",
+      "version": "0.4.7",
       "description": "Scheduler: recurring prompts, one-shot wake-ups and shell collectors that wake the agent on a schedule, with a jobs screen in Settings.",
       "category": "automation",
       "author": "Elowen",
       "apiVersion": "1",
-      "requiresCore": "0.28.33",
+      "requiresCore": "0.28.35",
       "provides": {
         "tools": 5,
         "apiRoutes": 2,
@@ -57,7 +58,8 @@
     },
     {
       "name": "editor",
-      "version": "0.3.6",
+      "version": "0.3.7",
+      "requiresCore": "0.28.35",
       "description": "Project file editor with Monaco, file management, previews for Markdown, images, PDF, media, Office and CSV files, a binary download fallback, and read-only Git history. Administrators may also browse and edit persisted host files through the System (/) root; kernel virtual filesystems are excluded. Disabling it removes the editor UI and makes its grandfathered file API unavailable while project registration and task Git history remain available.",
       "category": "tools",
       "author": "Elowen",
@@ -68,8 +70,8 @@
     },
     {
       "name": "github",
-      "version": "0.1.14",
-      "requiresCore": "0.28.13",
+      "version": "0.1.15",
+      "requiresCore": "0.28.35",
       "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
       "category": "productivity",
       "author": "Elowen",
@@ -106,7 +108,8 @@
     },
     {
       "name": "lsp",
-      "version": "0.1.4",
+      "version": "0.1.5",
+      "requiresCore": "0.28.35",
       "description": "Language-server code intelligence: type-check an edit the moment it lands (LspDiagnostics), jump to a definition, find every reference, read a hover signature and list document or workspace symbols \u2014 all answered by the real language server for the file, not a text search. Elowen drives the servers it knows (TypeScript, Pyright, gopls, rust-analyzer, clangd, \u2026) and can install the npm-based ones into its own prefix. Disabling it stops every language server and withdraws the tools.",
       "category": "tools",
       "author": "Elowen",

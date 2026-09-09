@@ -1,5 +1,29 @@
 # Changelog
 
+## lsp 0.1.5 - 2026-09-09
+
+- Requires core 0.28.35: this plugin reaches a managed project through the Sandbox environment control, which no earlier core provides.
+
+## github 0.1.15 - 2026-09-09
+
+- Requires core 0.28.35: this plugin reaches a managed project through the Sandbox environment control, which no earlier core provides.
+
+## editor 0.3.7 - 2026-09-09
+
+- Requires core 0.28.35 and rebuilds the web bundle, whose committed copy still omitted the upload size a managed project's chunked upload requires.
+
+## cronjob 0.4.7 - 2026-09-09
+
+- Requires core 0.28.35: this plugin reaches a managed project through the Sandbox environment control, which no earlier core provides.
+
+## codebase 0.1.4 - 2026-09-09
+
+- Requires core 0.28.35 and declares the controls grant: the semantic index now reads a managed project through its environment instead of the host filesystem.
+
+## browser 0.3.8 - 2026-09-09
+
+- Requires core 0.28.35: this plugin reaches a managed project through the Sandbox environment control, which no earlier core provides.
+
 ## whatsapp 0.2.17 - 2026-09-05
 
 - Collect every question's numbered or permitted custom answer before submission, retain questions beyond the initial preview, and preserve pending answers when delivery is refused.

@@ -1950,7 +1950,7 @@ async function uploadFile(projectId, path, file, options) {
   do {
     const chunk = file.slice(offset, offset + MAX_UPLOAD_CHUNK_BYTES);
     const final = offset + chunk.size >= file.size;
-    const query = `path=${encodeURIComponent(path)}&offset=${offset}&overwrite=${overwrite}${final ? "&final=1" : ""}`;
+    const query = `path=${encodeURIComponent(path)}&offset=${offset}&size=${file.size}&overwrite=${overwrite}${final ? "&final=1" : ""}`;
     const response = await fetch(`/api/projects/${projectId}/upload?${query}`, {
       method: "PUT",
       body: chunk,
