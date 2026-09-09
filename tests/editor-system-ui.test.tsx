@@ -55,10 +55,14 @@ const picker = () => screen.getByLabelText(strings.project) as HTMLSelectElement
 const optionLabels = () => [...picker().options].map((option) => option.textContent);
 
 describe('EditorPage system root', () => {
-  it('marks the standalone editor as the wide workspace variant', async () => {
+  it('renders its workbench inside the host page without restyling the frame', async () => {
+    // The measure is declared as `web.layout: "workbench"` in the manifest and applied by the shell,
+    // which is an ancestor of this bundle. The page must not try to win the width back from in here.
     renderPage();
     const workbench = await screen.findByTestId('workbench');
-    expect(workbench.closest('.workspace-page')).toHaveClass('editor-workspace-page');
+    const page = workbench.closest('.workspace-page');
+    expect(page).not.toBeNull();
+    expect(page, 'the retired width override came back on the plugin side').not.toHaveClass('editor-workspace-page');
   });
 
   it('offers the system root to an administrator, alongside the projects', async () => {

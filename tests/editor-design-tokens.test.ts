@@ -61,10 +61,14 @@ describe('Editor design-token contract', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('owns the wide page and hover scrollbar as authored plugin CSS', () => {
+  it('asks the host for the wide page and owns only the hover scrollbar', () => {
+    // The host frame is an ancestor of everything the bundle renders, so width is declared, not
+    // out-specified. The plugin says it is a workbench in its manifest and the shell frames it.
+    const manifest = JSON.parse(readFileSync(resolve(registryRoot, 'plugins/editor/elowen-plugin.json'), 'utf8')) as { web?: { layout?: string } };
+    expect(manifest.web?.layout, 'the editor stopped declaring the measure its page is read at').toBe('workbench');
+
     const css = readFileSync(editorAuthoredCssPath, 'utf8');
-    expect(css).toContain('.workspace-page.editor-workspace-page');
-    expect(css).toContain('max-width: min(max(var(--content-max), 80%), 118rem)');
+    expect(css, 'the retired width override came back and cannot win against the host frame').not.toContain('editor-workspace-page');
     expect(css).toContain('.editor-file-tree-scroll:is(:hover, :focus-within)');
     expect(css).toContain('@media (hover: hover) and (pointer: fine)');
   });
