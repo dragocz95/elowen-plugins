@@ -799,70 +799,36 @@ test('one TaskCreate call plans the whole batch, wires prerequisites and pushes 
   assert.deepEqual(json(await list.execute('4', {})).tasks[3].blockedBy, ['3']);
 });
 
-// Production planned a whole fresh-list batch and wired prerequisites with numbers in blockedBy — the
-// only form that can name a sibling before any id exists — and every such call was refused with
-// "dependency task not found". A number is now a 0-based position in THIS call, while a string stays an
-// existing id, so both readings keep exactly one meaning.
-test('blockedBy numbers name siblings by 0-based position inside one batch', async (t) => {
+// A blockedBy entry is the string id of a task that already exists, and nothing else: ids are strings,
+// so a number is neither an id nor a position — blockedByIndex is the ONE sibling form — and the number
+// is refused with the same clear error as any other dependency that does not resolve, leaving the list
+// untouched.
+test('numeric blockedBy is refused with the clear missing-dependency error', async (t) => {
   const h = harness(t);
   const create = h.tool('TaskCreate');
   const list = h.tool('TaskList');
 
-  const created = json(await create.execute('1', {
-    tasks: [
-      { subject: 'Read the code', description: 'Find the callers' },
-      { subject: 'Fix it', description: 'Smallest coherent change', blockedBy: [0] },
-      { subject: 'Ship it', description: 'Only after review', blockedBy: [0, 1] },
-    ],
-  })).tasks;
-  assert.deepEqual(created.map((task) => task.id), ['1', '2', '3']);
-  // The positions resolved to the real ids, and the auto-start rule saw the wiring: only #1 runs.
-  assert.deepEqual(json(await list.execute('2', {})).tasks.map((task) => task.blockedBy), [[], ['1'], ['1', '2']]);
-  assert.deepEqual(json(await list.execute('3', {})).tasks.map((task) => task.status), ['in_progress', 'pending', 'pending']);
-
-  // A later batch mixes the two forms: an existing id as a string, a sibling as a number.
-  assert.deepEqual(json(await create.execute('4', {
-    tasks: [
-      { subject: 'Announce', description: 'Tell the team', blockedBy: ['3'] },
-      { subject: 'Prep notes', description: 'After the announce', blockedBy: [0] },
-    ],
-  })).tasks.map((task) => task.id), ['4', '5']);
-  assert.deepEqual(json(await list.execute('5', {})).tasks.map((task) => task.blockedBy), [[], ['1'], ['1', '2'], ['3'], ['4']]);
-
-  // The surfaces the model reads must carry the numeric form, or callers keep writing ids and failing.
-  assert.match(h.tool('TaskCreate').description, /0-based position/);
-  assert.match(h.prompts.join('\n'), /0-based position/);
-});
-
-test('numeric blockedBy misuses are refused whole, and strings stay id references', async (t) => {
-  const h = harness(t);
-  const create = h.tool('TaskCreate');
-  const list = h.tool('TaskList');
-
-  // A number equal to the task's own index is a self-dependency…
+  // On a fresh list, where the numeric form used to read as a sibling position…
   assert.match(text(await create.execute('1', {
     tasks: [{ subject: 'A', description: 'a', blockedBy: [0] }],
-  })), /a task cannot depend on itself/);
-  // …siblings pointing at each other are a cycle, and an out-of-range number or an unknown string id
-  // is refused like any other missing dependency — a string never becomes a position.
-  assert.match(text(await create.execute('2', {
-    tasks: [
-      { subject: 'A', description: 'a', blockedBy: [1] },
-      { subject: 'B', description: 'b', blockedBy: [0] },
-    ],
-  })), /dependency cycle detected/);
-  assert.match(text(await create.execute('3', {
-    tasks: [{ subject: 'A', description: 'a', blockedBy: [2] }, { subject: 'B', description: 'b' }],
   })), /dependency task not found/);
-  assert.match(text(await create.execute('4', {
-    tasks: [{ subject: 'A', description: 'a', blockedBy: ['0'] }],
+  // …and where the number equals an id that really exists: task "1" is on the list, and the number is
+  // still refused instead of silently resolving to it.
+  assert.deepEqual(json(await create.execute('2', {
+    tasks: [{ subject: 'First', description: 'first' }],
+  })).tasks, [{ id: '1', subject: 'First' }]);
+  assert.match(text(await create.execute('3', {
+    tasks: [{ subject: 'B', description: 'b', blockedBy: [1] }],
   })), /dependency task not found/);
 
   // None of the refused batches wrote a row or burned an id.
-  assert.deepEqual(json(await list.execute('5', {})).tasks, []);
-  assert.deepEqual(json(await create.execute('6', {
-    tasks: [{ subject: 'First real task', description: 'after the failures' }],
-  })).tasks, [{ id: '1', subject: 'First real task' }]);
+  assert.deepEqual(json(await list.execute('4', {})).tasks.map((task) => task.id), ['1']);
+
+  // The surfaces the model reads must point sibling references at blockedByIndex, not a numeric blockedBy.
+  assert.doesNotMatch(h.tool('TaskCreate').description, /0-based/);
+  assert.match(h.tool('TaskCreate').description, /blockedByIndex/);
+  assert.doesNotMatch(h.prompts.join('\n'), /0-based/);
+  assert.match(h.prompts.join('\n'), /blockedByIndex/);
 });
 
 test('a batch is rejected whole, leaving the list exactly as it was', async (t) => {
@@ -876,20 +842,24 @@ test('a batch is rejected whole, leaving the list exactly as it was', async (t) 
       { subject: 'B', description: 'b', blockedByIndex: [1] },
     ],
   })), /dependency cycle detected/);
+  // A sibling naming its own position is a self-dependency, refused under the same shared rules.
   assert.match(text(await create.execute('2', {
+    tasks: [{ subject: 'A', description: 'a', blockedByIndex: [1] }],
+  })), /a task cannot depend on itself/);
+  assert.match(text(await create.execute('3', {
     tasks: [{ subject: 'A', description: 'a', blockedBy: ['99'] }],
   })), /dependency task not found/);
-  assert.match(text(await create.execute('3', {
+  assert.match(text(await create.execute('4', {
     tasks: [{ subject: 'A', description: 'a', blockedByIndex: [7] }],
   })), /dependency task not found/);
-  assert.match(text(await create.execute('4', { tasks: [] })), /non-empty array/);
-  assert.match(text(await create.execute('5', {
+  assert.match(text(await create.execute('5', { tasks: [] })), /non-empty array/);
+  assert.match(text(await create.execute('6', {
     tasks: [{ subject: 'Fine', description: 'ok' }, { subject: '  ', description: 'blank subject' }],
   })), /subject and description/);
 
-  assert.deepEqual(json(await list.execute('6', {})).tasks, []);
+  assert.deepEqual(json(await list.execute('7', {})).tasks, []);
   // The rejected batches must not have burned ids either.
-  assert.deepEqual(json(await create.execute('7', {
+  assert.deepEqual(json(await create.execute('8', {
     tasks: [{ subject: 'First real task', description: 'after the failures' }],
   })).tasks, [{ id: '1', subject: 'First real task' }]);
 });
