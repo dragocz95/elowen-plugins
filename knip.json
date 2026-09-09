@@ -21,7 +21,6 @@
     "readlink"
   ],
   "ignoreDependencies": [
-    "puppeteer-core",
     "proxy-chain"
   ]
 }
