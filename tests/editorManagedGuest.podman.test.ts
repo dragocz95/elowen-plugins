@@ -4,7 +4,7 @@
  *  provider, so they say nothing about the guest actually holding the bytes. Opt-in, private store. */
 import { it, expect } from 'vitest';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -105,6 +105,28 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('serves the editor from a real 
     const ranged: any = await call('/projects/:id/raw', 'GET', { query: { path: '/workspace/upload.bin' }, headers: { range: 'bytes=0-9' } });
     expect(ranged.status).toBe(206);
     expect(Buffer.from(ranged.body).length).toBe(10);
+
+    stage = 'office preview converts a document with the converter inside the guest';
+    // A real docx through the real upload route, then the preview route: the PDF comes back from the
+    // guest's own soffice, and the converter's scratch directory does not survive the request.
+    const docx = readFileSync(new URL('./fixtures/office-preview.docx', import.meta.url));
+    const uploadedDocx: any = await call('/projects/:id/upload', 'PUT', {
+      query: { path: '/workspace/preview.docx', offset: '0', size: String(docx.length), final: '1' },
+      body: async () => docx,
+    });
+    expect(uploadedDocx.status ?? 200, JSON.stringify(uploadedDocx.body)).toBe(200);
+    const preview: any = await call('/projects/:id/office-preview', 'GET', { query: { path: '/workspace/preview.docx' } });
+    expect(preview.status ?? 200, JSON.stringify(preview.body)).toBe(200);
+    expect(preview.headers?.['content-type']).toBe('application/pdf');
+    const pdf = Buffer.from(preview.body);
+    expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    expect(pdf.length).toBeGreaterThan(1000);
+    const scratchDirs = await runtime.control.projectFiles({ project: projectRef, accountUserId: ACTOR, operation: { kind: 'list', path: '/tmp', limit: 1000 } });
+    expect(scratchDirs.kind === 'list' && scratchDirs.entries.map((entry) => entry.path).filter((path) => path.startsWith('/tmp/elowen-office-'))).toEqual([]);
+
+    stage = 'office preview refuses a file that is not an office document';
+    const notOffice: any = await call('/projects/:id/office-preview', 'GET', { query: { path: '/workspace/note.txt' } });
+    expect(notOffice.status).toBe(415);
 
     stage = 'a managed editor request without a provider refuses';
     const orphan: any = await managedEditorRequest(

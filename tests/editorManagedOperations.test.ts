@@ -172,7 +172,7 @@ describe('managed editor compound operations with an executable provider fixture
       await writeFile(join(f.root, 'brief.docx'), 'fixture');
       const result = await f.call('office-preview', 'GET', 'brief.docx');
       expect(result.status).toBe(501);
-      expect(JSON.stringify(result.body)).toContain('ships no office suite');
+      expect(JSON.stringify(result.body)).toContain('no office converter (soffice)');
     } finally { await f.dispose(); }
   });
   it('inspects actual guest Git history and working changes', async () => {

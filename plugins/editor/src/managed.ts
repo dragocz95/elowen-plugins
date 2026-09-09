@@ -294,12 +294,13 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
           await execute('soffice', [`-env:UserInstallation=file://${work}/profile`, '--headless', '--convert-to', 'pdf', '--outdir', work, path]);
         } catch (error) {
           // The executor reports every non-zero exit as one generic failure, so a missing converter and
-          // a genuine conversion error arrive identically. The project image ships no office suite, and
-          // that case deserves a comprehensible answer rather than "project command failed"; probe only
-          // now, so the working path never pays for it.
+          // a genuine conversion error arrive identically. The current project image ships LibreOffice,
+          // but an environment created from an earlier image keeps its root filesystem until it is
+          // rebuilt, so the missing converter is still a real case and deserves a comprehensible answer
+          // rather than "project command failed"; probe only now, so the working path never pays for it.
           const present = await execute('sh', ['-c', 'command -v soffice']).then(() => true, () => false);
           if (present) throw error;
-          return { status: 501, body: { error: 'office preview is not available in a project environment: the project image ships no office suite. Download the file to preview it locally.' } };
+          return { status: 501, body: { error: 'office preview is not available in this project environment: it has no office converter (soffice). Rebuild the environment from the current project image, or download the file to preview it locally.' } };
         }
         const output = `${work}/${posix.parse(path).name}.pdf`;
         const { bytes } = await readBytes(output, MAX_BUFFERED_BYTES);
