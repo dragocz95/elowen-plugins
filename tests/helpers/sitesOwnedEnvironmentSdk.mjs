@@ -134,6 +134,11 @@ function sitesSdkControl({
   snapshots = [],
   authorityLifecycle = true,
   onStart = null,
+  /** What the durable runtime row reports as its own failure, so a test can model a container that never
+   *  came up rather than only the healthy and stopped states. */
+  lastError = null,
+  /** Every start attempt leaves the runtime `failed` with intent `running`. */
+  failStart = false,
 } = {}) {
   const requests = [];
   const operations = new Map();
@@ -156,6 +161,10 @@ function sitesSdkControl({
           }
           authority?.beforeStart(siteId);
         }
+        // A container create that cannot be satisfied leaves the durable row `failed` while intent stays
+        // `running` — the production shape when a bind source is missing. Without this the fake could only
+        // model healthy and stopped, which is why a stale `live` Site row had no test at all.
+        if (failStart) { current = { state: 'failed', desiredState: 'running' }; break; }
         current = { state: 'running', desiredState: 'running' };
         onStart?.(siteId);
         break;
@@ -192,7 +201,7 @@ function sitesSdkControl({
     view(siteId) {
       return {
         siteId, generation, state: current.state, desiredState: current.desiredState,
-        limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 }, lastError: null,
+        limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 }, lastError,
       };
     },
     connectSitesRuntime(authority) { control.authority = authority; },
@@ -297,7 +306,12 @@ export async function sitesSdkHarness(t, {
     dataDir: join(root, 'data'),
     gateway,
     config: () => environmentConfig(configOverrides),
-    siteDir: (id) => join(root, 'site', id),
+    // The REAL plugin layout: index.ts derives `siteDir` as `<dataDir>/sites/<id>`, so the source root
+    // sits INSIDE the same dataDir that Sandbox receives as `sitesDataDir`. The previous fixture put it
+    // in an unrelated `<root>/site/<id>` tree, which made writing the container contract at
+    // `siteDir/environment` look correct in tests while production wrote it one level too deep and every
+    // container create failed lstat-ing its git-stub bind source.
+    siteDir: (id) => join(root, 'data', 'sites', id),
     siteUrl: () => null,
     accountUserId: () => 7,
     brokerPath: () => socketPath,

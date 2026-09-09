@@ -4,8 +4,13 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { spawn } from 'node:child_process';
 import { connect } from 'puppeteer-core';
-import type { PluginContext } from 'elowen/plugin-api';
+import Database from 'better-sqlite3';
+import type { PluginContext, PluginDb } from 'elowen/plugin-api';
 import { openProjectBrowser, ProjectCdpTransport } from '../plugins/browser/src/project-browser.js';
+import { SessionRegistry } from '../plugins/browser/src/session-registry.js';
+import { BrowserStore } from '../plugins/browser/src/store.js';
+import { resolveConfig } from '../plugins/browser/src/config.js';
+import { UNAVAILABLE_ARTIFACT_PUBLISHER } from '../plugins/browser/src/artifact.js';
 
 vi.mock('node:child_process', async (original) => ({ ...await original<typeof import('node:child_process')>(), spawn: vi.fn() }));
 vi.mock('puppeteer-core', () => ({ connect: vi.fn() }));
@@ -330,4 +335,100 @@ describe('project browser guest storage', () => {
       }
     } finally { await browser.close(); }
   });
+});
+
+/** Recovery after a teardown that did not finish, exercised through a REAL project attachment behind a
+ *  real SessionRegistry rather than a stub close.
+ *
+ *  Two defects met on this path in the audit. The session memoized its closed promise even when the
+ *  bounded teardown had only TIMED OUT, and the attachment memoized its cleanup promise even when the
+ *  cleanup had REJECTED — so the sandbox lease was left held while every retry replayed the original
+ *  error without touching the browser again. A close that fails must resume, not repeat: the stages that
+ *  completed stay completed, and the ones that did not are attempted again. */
+describe('project browser teardown recovery', () => {
+  function pluginDb(): PluginDb {
+    const raw = new Database(':memory:');
+    raw.exec('CREATE TABLE plugin_migrations(version INTEGER PRIMARY KEY)');
+    const handle = {
+      exec: (sql: string) => raw.exec(sql),
+      prepare: (sql: string) => {
+        const statement = raw.prepare(sql);
+        return {
+          run: (...params: unknown[]) => statement.run(...params),
+          get: (...params: unknown[]) => statement.get(...params),
+          all: (...params: unknown[]) => statement.all(...params),
+        };
+      },
+      migrate: (steps: { version: number; up(db: PluginDb): void }[]) => {
+        for (const step of steps) if (!raw.prepare('SELECT 1 FROM plugin_migrations WHERE version=?').get(step.version)) {
+          raw.transaction(() => { step.up(handle as PluginDb); raw.prepare('INSERT INTO plugin_migrations(version) VALUES (?)').run(step.version); })();
+        }
+      },
+      appliedVersion: () => Number((raw.prepare('SELECT max(version) version FROM plugin_migrations').get() as { version: number | null }).version ?? 0),
+      transaction: <T>(fn: () => T) => raw.transaction(fn)(),
+    };
+    return handle as PluginDb;
+  }
+
+  /** The smallest page the real BrowserSession attaches to: one CDP session that answers the domain
+   *  enables, and a stable target id for the tab manager. This test is about teardown, so nothing here
+   *  needs to render. */
+  function fakePage() {
+    const cdp = Object.assign(new EventEmitter(), {
+      send: vi.fn(async () => ({})),
+      off: function (event: string, listener: (...args: unknown[]) => void) { this.removeListener(event, listener); return this; },
+      detach: vi.fn(async () => {}),
+    });
+    return {
+      createCDPSession: async () => cdp,
+      target: () => ({ targetId: () => 'target-1' }),
+      url: () => 'about:blank',
+      title: async () => 'blank',
+    };
+  }
+
+  it('finishes the lease after a close that timed out and then rejected, without repeating what succeeded', async () => {
+    const h = fixture();
+    const page = fakePage();
+    Object.assign(h.browser, { newPage: async () => page });
+    // The first release neither confirms nor refuses while the deadline runs, then rejects the way an
+    // unverifiable guest termination does. The second is the retry, and it succeeds.
+    let failFirstRelease: (() => void) | undefined;
+    h.release.mockImplementationOnce(async () => {
+      await new Promise<void>((_resolve, reject) => {
+        failFirstRelease = () => reject(new Error('Guest termination could not be verified'));
+      });
+    });
+    const attachment = await openProjectBrowser(h.ctx, h.project, 2, logger);
+    const registry = new SessionRegistry({
+      config: () => resolveConfig({ browserCloseGraceSeconds: 0 }),
+      store: new BrowserStore(pluginDb()),
+      pool: { openPage: vi.fn(), releasePage: async () => {}, closeUser: async () => {}, closeAll: async () => {} } as never,
+      projectContext: h.ctx as never,
+      openProject: (async () => attachment) as never,
+      artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
+      processInspector: { inspect: () => null, terminate: () => {} },
+      displays: { get: () => null, failure: () => null, reconcileOrphans: () => {} } as never,
+      clock: { now: () => Date.now(), sleep: async () => {} }, logger,
+    });
+
+    const session = await registry.create({ ownerUserId: 2, conversationId: 'c1', toolCallId: 't1', project: h.project });
+    const timedOut = session.close('closed');
+    await vi.waitFor(() => expect(h.cancel).toHaveBeenCalledOnce());
+    await expect(timedOut).rejects.toThrow(/timed out/i);
+    // The lease is still held and the record is still addressable, which is what makes a retry possible.
+    expect(h.release).toHaveBeenCalledOnce();
+    expect(registry.get(session.id)).not.toBeNull();
+
+    failFirstRelease!();
+    await vi.waitFor(() => expect(logger.warn).toHaveBeenCalled());
+
+    await session.close('closed');
+
+    // Resumed, not replayed: the cancel that already succeeded is not repeated, and the release that
+    // failed is attempted again and completes, so no lease is left behind.
+    expect(h.cancel).toHaveBeenCalledOnce();
+    expect(h.release).toHaveBeenCalledTimes(2);
+    expect(registry.get(session.id)).toBeNull();
+  }, 30_000);
 });

@@ -29,6 +29,7 @@ function safeJson(value) {
  *  fires. Everything a PERSON drives needs the opposite: free the caller — and with it the serial queue
  *  slot — while leaving the session alive, because a wedged CDP call must not make "take control",
  *  "release" or "close" unreachable. The abandoned work still runs; only the waiting stops. */
+const TEARDOWN_DEADLINE = 'Browser teardown timed out.';
 async function withDeadline(work, ms, message) {
     let timer = null;
     try {
@@ -85,6 +86,9 @@ export class BrowserSession {
     /** Undo for the listeners this session put on the CURRENT tab's CDP session, in registration order. */
     disposeCdpListeners = () => { };
     closedPromise = null;
+    /** Set only when the bounded teardown hit its DEADLINE under project authority: cleanup may still be in
+     *  flight, so the record stays addressable and the close stays retryable. */
+    teardownOutstanding = false;
     constructor(deps) {
         this.deps = deps;
         this.diagnostics = new PageDiagnostics(() => deps.clock.now());
@@ -534,7 +538,14 @@ export class BrowserSession {
         // page that is being detached.
         if (this.stateValue !== 'closed')
             this.stateValue = 'closing';
-        this.closedPromise = this.closeSession(reason);
+        this.closedPromise = this.closeSession(reason).catch((error) => {
+            // Outstanding cleanup is not a decided outcome. Memoizing the rejection would make every retry
+            // replay the same error without touching the browser again, so the memo is released and the next
+            // close genuinely re-runs teardown. A decided failure and a successful close both stay memoized.
+            if (this.teardownOutstanding)
+                this.closedPromise = null;
+            throw error;
+        });
         return this.closedPromise;
     }
     /** Tear the session down, waiting only briefly for an orderly turn.
@@ -547,6 +558,9 @@ export class BrowserSession {
         return (async () => {
             if (this.stateValue === 'closed')
                 return;
+            // Each attempt decides its own outcome, so a retry that completes retires the record the previous
+            // deadline kept alive.
+            this.teardownOutstanding = false;
             this.stateValue = 'closing';
             this.persist({ state: 'closing' });
             this.clearLeaseTimer();
@@ -575,12 +589,17 @@ export class BrowserSession {
                     this.listeners.clear();
                     await this.cdp.detach?.().catch(() => { });
                     await this.deps.releasePage();
-                })(), 10_000, 'Browser teardown timed out.');
+                })(), 10_000, TEARDOWN_DEADLINE);
             }
             catch (error) {
                 this.deps.logger.warn(`browser session ${this.id} teardown was incomplete: ${error instanceof Error ? error.message : String(error)}`);
                 if (this.deps.projectAuthority) {
                     teardownFailed = true;
+                    // A DEADLINE is the one failure that leaves work genuinely in flight: the release was neither
+                    // confirmed nor refused, so the lease may still settle on its own and a retry has something to
+                    // finish. An outright rejection is a decided outcome — account removal reports it and the
+                    // session is gone — so only the deadline keeps the record alive.
+                    this.teardownOutstanding = error instanceof Error && error.message === TEARDOWN_DEADLINE;
                     throw error;
                 }
             }
@@ -590,7 +609,14 @@ export class BrowserSession {
                 this.deps.store.updateSession(this.id, {
                     state: this.stateValue, updatedAt: now, lastActivityAt: now, closedAt: now, closeReason: reason,
                 });
-                this.deps.onClosed(this.id);
+                // Removing the session from the registry is what makes a close irreversible: `onClosed` drops the
+                // record, so the id the caller was just told about resolves to "session not found" on the retry.
+                // Doing that WHILE reporting a failure left the managed lease cleanup outstanding with no handle
+                // left to name it — the audit saw exactly that pair, "Browser teardown timed out." followed by
+                // "Project browser session not found." A failed teardown therefore keeps its record in the
+                // inspectable `error` state until a later close completes; only a settled teardown retires it.
+                if (!this.teardownOutstanding)
+                    this.deps.onClosed(this.id);
                 if (this.artifactRef)
                     await this.deps.artifacts.close(this.artifactRef).catch(() => { });
             }

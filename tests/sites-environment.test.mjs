@@ -77,10 +77,15 @@ test('environment start performs the typed SDK sequence, prepares the ingress an
   assert.deepEqual(supervisor.endpointFor(SITE_ID), { kind: 'socket', path: socketPath });
   assert.equal(site.status, 'live');
   assert.equal(site.lastError, null);
-  // The trusted handover callback wrote the environment contract for the container.
-  const environment = join(root, 'site', SITE_ID, 'environment');
+  // The trusted handover callback wrote the environment contract for the container — at the root Sandbox
+  // actually binds from, which is `<sitesDataDir>/<id>/environment` and NOT the source/release siteDir.
+  const environment = join(root, 'data', SITE_ID, 'environment');
   assert.match(readFileSync(join(environment, 'container.env'), 'utf8'), /ELOWEN_SITE_SLUG=environment-demo/);
   assert.equal(existsSync(join(environment, 'git-stub')), true);
+  // …and nowhere under the source root. This is the production failure verbatim: the files existed, one
+  // level too deep, while the container create kept failing lstat on the git-stub bind source.
+  assert.equal(existsSync(join(root, 'data', 'sites', SITE_ID, 'environment')), false,
+    'the container contract must not be written under the source/release siteDir');
 });
 
 test('an adopted legacy environment starts through one typed start, with effective limits in its binding', async (t) => {
@@ -470,11 +475,43 @@ test('environment files survive repeated container creation', async (t) => {
   await supervisor.state(site);
   // The handover above ran beforeCreate once; the provider may recreate the container (restore, rebuild).
   await control.authority.beforeCreate(SITE_ID);
-  const environment = join(root, 'site', SITE_ID, 'environment');
+  const environment = join(root, 'data', SITE_ID, 'environment');
   const stub = join(environment, 'git-stub');
   assert.equal(modeOf(stub), 0o400, 'the stub stays read-only after the second create');
   assert.equal(readFileSync(stub, 'utf8'), '');
   assert.match(readFileSync(join(environment, 'container.env'), 'utf8'), /ELOWEN_SITE_SLUG=environment-demo/);
+});
+
+test('a failed runtime is projected into the Site row instead of leaving it live', async (t) => {
+  const { supervisor, site } = await sitesSdkHarness(t, {
+    controlState: 'failed',
+    control: {
+      desiredState: 'running',
+      failStart: true,
+      lastError: "ENOENT: no such file or directory, lstat '/data/x/environment/git-stub'",
+    },
+  });
+  site.status = 'live';
+  site.lastError = null;
+
+  await supervisor.reconcile();
+
+  // The live audit found exactly the opposite: a container that failed four lifecycle attempts while
+  // SiteList and SiteGet kept advertising `live` with no error at all.
+  assert.equal(site.status, 'failed');
+  assert.match(site.lastError, /git-stub/);
+});
+
+test('an explicitly stopped runtime keeps its Site row untouched', async (t) => {
+  const { supervisor, site } = await sitesSdkHarness(t, { controlState: 'stopped', control: { desiredState: 'stopped' } });
+  site.status = 'live';
+  site.lastError = null;
+
+  await supervisor.reconcile();
+
+  // Stopped is an intent, not a fault — projecting it would turn every deliberate stop into an error.
+  assert.equal(site.status, 'live');
+  assert.equal(site.lastError, null);
 });
 
 // --- Conversion suspension -----------------------------------------------------------------------
@@ -821,6 +858,36 @@ test('SiteExec refuses every pending environment mutation', async (t) => {
     requestedAt: iso(), lastError: null,
   });
   await assert.rejects(() => harness.call('SiteExec', { site: SITE_ID, command: 'echo no' }), /pending/i);
+});
+
+test('an errored environment action stays visible but no longer locks SiteExec out', async (t) => {
+  const harness = phase2ToolHarness(t);
+  harness.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
+  harness.store.beginEnvironmentAction({
+    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'stuck', includeData: false, note: '', model: 'm',
+    requestedAt: iso(), lastError: null,
+  });
+  // While it is genuinely in flight the gate holds.
+  await assert.rejects(() => harness.call('SiteExec', { site: SITE_ID, command: 'echo no' }), /pending/i);
+
+  harness.store.putEnvironmentAction({
+    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'stuck', includeData: false, note: '', model: 'm',
+    requestedAt: iso(), lastError: 'Container cannot be quiesced for snapshot',
+  });
+
+  // Once it has errored the row is retained for display and retry ownership, not as a lock. The live audit
+  // hit exactly this: one snapshot that could never quiesce made SiteExec permanently unreachable with no
+  // tool-level way to clear it.
+  const result = await harness.call('SiteExec', { site: SITE_ID, command: 'echo ok' });
+  assert.ok(result.content[0].text.length > 0);
+  assert.equal(harness.store.environmentAction(SITE_ID)?.lastError, 'Container cannot be quiesced for snapshot',
+    'the failed action remains inspectable');
+
+  // …and the errored slot can still be replaced by a new action.
+  assert.equal(harness.store.beginEnvironmentAction({
+    siteId: SITE_ID, kind: 'snapshot', snapshotId: 'retry', includeData: false, note: '', model: 'm',
+    requestedAt: iso(), lastError: null,
+  }), true);
 });
 
 test('admin can manage environments without Project assignment', async (t) => {

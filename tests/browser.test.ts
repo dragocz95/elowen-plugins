@@ -3212,3 +3212,81 @@ describe('browser element refs', () => {
     await session.close();
   });
 });
+
+/** A managed project close that TIMES OUT must not report failure and destroy the only retry handle in
+ *  the same breath. The live audit recorded the pair verbatim: `Browser teardown timed out.` followed, on
+ *  the retry, by `Project browser session not found.` — cleanup outstanding, nothing left to name it.
+ *
+ *  These pin the contract, not the deadline. The 10 s teardown bound stays exactly where it is; raising it
+ *  would hide the managed cleanup cost rather than make the close recoverable. */
+describe('managed browser teardown is retryable', () => {
+  async function projectSession(release: () => Promise<void>) {
+    const store = new BrowserStore(pluginDb());
+    const now = Date.now();
+    store.createSession({
+      id: 'session-teardown-01', ownerUserId: 1, conversationId: 'brain-1', artifactRef: null,
+      primaryTargetId: null, state: 'creating', createdAt: now, updatedAt: now, lastActivityAt: now,
+      hardExpiresAt: now + 60_000, closedAt: null, closeReason: null,
+    });
+    const browser = new FakeBrowser();
+    const page = await browser.newPage() as FakePage;
+    const tabs = new TabManager(browser, () => 12, logger);
+    tabs.registerPrimary('session-teardown-01', page);
+    const retired: string[] = [];
+    const session = await BrowserSession.create({
+      id: 'session-teardown-01', ownerUserId: 1, conversationId: 'brain-1', createdAt: now,
+      hardExpiresAt: now + 60_000, page, tabs, config: () => config({}), store,
+      artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER, traceLock: new ProcessTraceLock(),
+      clock: { now: () => Date.now(), sleep: async () => {} }, logger,
+      // Present only for a managed project session — the authority that turns an incomplete teardown into
+      // a reported failure instead of a silent best-effort close.
+      projectAuthority: async () => {},
+      releasePage: release,
+      forceCloseBrowser: async () => {},
+      onClosed: (id: string) => { retired.push(id); },
+    });
+    return { session, store, retired };
+  }
+
+  it('keeps the session addressable after a timed-out teardown, and lets a later close finish it', async () => {
+    vi.useFakeTimers();
+    try {
+      let settle: (() => void) | null = null;
+      let attempts = 0;
+      const { session, store, retired } = await projectSession(() => {
+        attempts += 1;
+        // The first release never answers within the bound; the second completes at once, standing in for
+        // the lease cleanup finally settling.
+        return attempts === 1 ? new Promise<void>((done) => { settle = done; }) : Promise.resolve();
+      });
+
+      const first = session.close('closed');
+      const failure = expect(first).rejects.toThrow(/teardown timed out/i);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await failure;
+
+      // The record survives in an inspectable state, so the id the caller holds still resolves.
+      expect(retired).toEqual([]);
+      expect(store.session('session-teardown-01')?.state).toBe('error');
+
+      settle?.();
+      await session.close('closed');
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      // The retry actually re-ran teardown rather than replaying the memoized rejection…
+      expect(attempts).toBe(2);
+      // …and only the settled teardown retires the record.
+      expect(retired).toEqual(['session-teardown-01']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retires the record on the first close when teardown completes normally', async () => {
+    const { session, retired } = await projectSession(async () => {});
+
+    await session.close('closed');
+
+    expect(retired).toEqual(['session-teardown-01']);
+  });
+});

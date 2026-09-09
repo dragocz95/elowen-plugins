@@ -446,7 +446,13 @@ export function registerTools(deps) {
             requireEnvironmentAuthority(deps, site, userId);
             if (site.runtime !== 'environment')
                 throw new ToolError('SiteExec works only with a persistent environment.');
-            if (store.environmentAction(site.id) || site.environmentDesiredState !== 'running') {
+            // Gate on an action that is still ACTIVE, not on the mere existence of a row. A failed action is
+            // retained deliberately for display and retry ownership, and the store already lets a new action
+            // replace an errored slot — so treating the retained row as "pending" was the inconsistent half: one
+            // snapshot that could never quiesce locked the environment out of SiteExec permanently, with no
+            // tool-reachable way to clear it. An errored action stays visible in SiteGet either way.
+            const action = store.environmentAction(site.id);
+            if ((action && action.lastError === null) || site.environmentDesiredState !== 'running') {
                 throw new ToolError('SiteExec is unavailable while an environment action or lifecycle change is pending.');
             }
             const command = input.command;
