@@ -19,6 +19,19 @@ class InputError extends Error {
         this.guestMessage = guestMessage;
     }
 }
+/** Environment-provider refusals that are a decision about the CALLER rather than a runtime diagnostic:
+ *  the project is not (or no longer) theirs, or their account may not use the environment at all. Both are
+ *  reachable from a browser and both are actionable, so they keep their meaning instead of arriving as the
+ *  generic 503 the rest of this transport answers. Matched on the provider's own stable CODE, never on an
+ *  arbitrary `status` an unknown error happens to carry, and the message is the provider's static one,
+ *  which names no path and no process. */
+const ACCESS_REFUSALS = new Set(['project_forbidden', 'account_forbidden']);
+const accessRefusal = (error) => {
+    const code = error?.code;
+    if (typeof code !== 'string' || !ACCESS_REFUSALS.has(code))
+        return undefined;
+    return new InputError(error instanceof Error ? error.message : 'project access is denied', 403);
+};
 let activeConversions = 0;
 /** Sessions live with the provider instance that granted the handles: when the runtime is rewired or
  *  the daemon restarts, its handles are gone with it, so holding them in a module map would serve
@@ -484,6 +497,7 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
     }
     catch (error) {
         // Do not return provider process diagnostics or internal storage paths to a browser client.
-        return { status: error instanceof InputError ? error.status : 503, body: { error: error instanceof InputError ? error.message : 'project environment operation failed' } };
+        const known = error instanceof InputError ? error : accessRefusal(error);
+        return { status: known?.status ?? 503, body: { error: known?.message ?? 'project environment operation failed' } };
     }
 }

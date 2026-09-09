@@ -54,4 +54,15 @@ describe('managed editor routing', () => {
     expect((await f.call('file')).status).toBe(503);
     expect(f.safe).not.toHaveBeenCalled();
   });
+  // An access decision is not an outage. Reported as 503 it read as "the environment is broken", which is
+  // what hid a provider-side authorization bug behind a week of environment debugging.
+  it.each(['project_forbidden', 'account_forbidden'])('answers a %s refusal as 403 with its own message', async code => {
+    const f = fixture(true, [7], { projectFiles: async () => { throw Object.assign(new Error('Project access is denied'), { code, status: 403 }); } });
+    expect(await f.call('file')).toMatchObject({ status: 403, body: { error: 'Project access is denied' } });
+    expect(f.safe).not.toHaveBeenCalled();
+  });
+  it('still hides a refusal that only claims a status, without a known code', async () => {
+    const f = fixture(true, [7], { projectFiles: async () => { throw Object.assign(new Error('/var/lib/containers/storage is full'), { status: 403 }); } });
+    expect(await f.call('file')).toEqual({ status: 503, body: { error: 'project environment operation failed' } });
+  });
 });
