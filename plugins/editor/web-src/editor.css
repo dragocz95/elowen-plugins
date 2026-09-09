@@ -1,11 +1,10 @@
-/* The editor is a workbench rather than a reading document. Keep the shared page gutter and cap as
-   the floor, then let this one standalone page use roughly four fifths of the available workspace on
-   wide screens. The stronger selector intentionally overrides the host's unlayered `.workspace-page`. */
-.workspace-page.editor-workspace-page {
-  max-width: min(max(var(--content-max), 80%), 118rem);
-}
+/* The editor is a workbench rather than a reading document, and it says so where the host can act on it:
+   `web.layout: "workbench"` in the manifest. The shell then frames the page at --workbench-max. This
+   sheet used to try to win the width from here with a stronger selector, which could never work — the
+   host's frame is an ancestor of everything a plugin bundle renders, so specificity has nothing to say
+   about it and the page stayed at the document measure.
 
-/* Touch devices have no hover, so their thin scrollbar remains visible. A precise pointer gets a quiet
+   Touch devices have no hover, so their thin scrollbar remains visible. A precise pointer gets a quiet
    file tree until the pointer or keyboard focus enters it, with a stable gutter to prevent row reflow. */
 .editor-file-tree-scroll {
   scrollbar-gutter: stable;

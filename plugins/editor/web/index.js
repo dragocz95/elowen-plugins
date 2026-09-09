@@ -5632,7 +5632,7 @@ function EditorPage() {
   } : void 0;
   return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ModuleHeader, { title: s.title, icon: CodeXml }),
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(WorkspacePage, { className: "editor-workspace-page", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(WorkspacePage, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
         WorkspaceHero,
         {
