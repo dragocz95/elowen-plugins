@@ -117,11 +117,24 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('installs, runs and shuts down 
         expect(missing.skipped).toBe('no-server-installed');
         expect(missing.server).toBe('TypeScript');
       }
+      const generationBeforeInstall = (manager as any).generation;
 
       stage = 'guest language-server install';
       await manager.changePackages('typescript-language-server', false);
       const after = await manager.statusAsync();
       expect(after.servers.find((server) => server.command === 'typescript-language-server')?.installed).toBe(true);
+
+      stage = 'the retry after the install stays on the same runtime generation';
+      // The misses above are what makes this worth asserting: THIS manager instance answered "not
+      // installed" four times, and it has to start working again on the very next check without a new
+      // environment generation, a rebuilt manager or an /lsp toggle. A cached miss that outlived the
+      // install would leave the project permanently unchecked in a container that now has the server.
+      expect((manager as any).generation).toBe(generationBeforeInstall);
+      const retried = await manager.checkFile('/workspace/probe.ts');
+      expect(retried.skipped).toBeUndefined();
+      expect(retried.server).toBe('TypeScript');
+      expect(retried.diagnostics.some((entry) => entry.code === '2322')).toBe(true);
+      expect((manager as any).generation).toBe(generationBeforeInstall);
 
       stage = 'raw initialize handshake through the provider lease';
       {
@@ -210,9 +223,10 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('installs, runs and shuts down 
       const broken = await manager.checkFile('/workspace/probe.ts');
       expect(broken.skipped).toBeUndefined();
       expect(broken.server).toBe('TypeScript');
-      // A real tsserver verdict, not merely "some diagnostics": the assignment is the reported problem.
+      // A real tsserver verdict, not merely "some diagnostics": the assignment is the reported problem,
+      // named by the compiler's own code so a differently worded message cannot pass for it.
       expect(broken.diagnostics.length).toBeGreaterThan(0);
-      expect(broken.diagnostics.some((entry) => /not assignable/i.test(entry.message))).toBe(true);
+      expect(broken.diagnostics.some((entry) => entry.code === '2322' && /not assignable/i.test(entry.message))).toBe(true);
 
       stage = 'diagnostic clears once the error is fixed';
       await write('export const total: number = 41 + 1;\n', await currentVersion());
@@ -249,4 +263,7 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('installs, runs and shuts down 
     }
     rmSync(scratch, { recursive: true, force: true });
   }
-}, 900_000);
+  // The private store starts empty, so the first run also pays for the base image build, which podman.mjs
+  // itself bounds at 15 minutes. The budget covers that build, the guest npm install and the checks on
+  // top of it, and still fails rather than hanging.
+}, 2_700_000);
