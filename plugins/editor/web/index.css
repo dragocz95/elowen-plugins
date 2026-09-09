@@ -1,7 +1,4 @@
 /* plugins/editor/web-src/editor.css */
-.workspace-page.editor-workspace-page {
-  max-width: min(max(var(--content-max), 80%), 118rem);
-}
 .editor-file-tree-scroll {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
