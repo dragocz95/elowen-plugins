@@ -5,12 +5,13 @@ import type { ProjectGitSnapshot } from 'elowen/dist/git/gitReader.js';
 import { DEVICE_FLOW_TTL, GitHubAuthAdapter, newFlowId, validateDeviceToken } from './githubAuth.js';
 import { GitHubClient, GitHubHttpError, type GitHubClientOptions } from './githubClient.js';
 import { GitHubPluginError } from './errors.js';
-import { publishBranch, spawnPrepared, type SpawnPrepared } from './execution.js';
+import { publishBranch, spawnPrepared } from './execution.js';
+import { managedSandbox, prepareManagedExecution } from './managedExecution.js';
 import { suggestedRepositories } from './remotes.js';
 import { GitHubStore, hashValue } from './store.js';
 import type {
   CombinedChecks, DeviceFlow, GitHubAccount, GitHubRepository, MutationAction, MutationPreview,
-  ProjectMapping, PullRequestDetails, PullRequestSummary,
+  ProjectMapping, PullRequestDetails, PullRequestSummary, SpawnPrepared,
 } from './types.js';
 
 const CLI_TOKEN_KEY = 'cli-token';
@@ -372,10 +373,10 @@ export class GitHubService {
     if (inherited && (inherited.kind !== 'managed' || inherited.projectId !== project.id)) throw new GitHubPluginError('project_forbidden', 403, 'The repository differs from the selected project.');
     if (this.currentUserId() !== userId) throw new GitHubPluginError('account_mismatch', 403, 'The GitHub account does not belong to the current Elowen account.');
     const git = async (args: string[]) => {
-      const provider = this.ctx.control('sandbox');
-      if (!provider) throw new GitHubPluginError('sandbox_unavailable', 503, 'Project environment unavailable.');
-      const prepared = await provider.prepareExecution({ projectRef: { kind: 'managed', projectId: project.id }, cwd: '/workspace', command: { type: 'argv', file: 'git', args: ['-C', '/workspace', ...args] }, leaseKind: 'github' }, { accountUserId: userId, roots: [] });
-      if (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== project.id) { await prepared.lease.release(); throw new GitHubPluginError('project_forbidden', 403, 'The runtime returned a different project.'); }
+      const prepared = await prepareManagedExecution({
+        ctx: this.ctx, project: { kind: 'managed', projectId: project.id }, accountUserId: userId,
+        cwd: '/workspace', command: { type: 'argv', file: 'git', args: ['-C', '/workspace', ...args] },
+      });
       return (await (this.spawnPrepared ?? spawnPrepared)(prepared)).stdout;
     };
     const statusText = await git(['status', '--porcelain=v2', '--branch']);
@@ -636,18 +637,16 @@ export class GitHubService {
       const inherited = this.ctx.currentAccess().projectRef;
       if (inherited && (inherited.kind !== 'managed' || inherited.projectId !== projectId)) throw new GitHubPluginError('project_forbidden', 403, 'Select the managed project before publishing.');
       const selected = { kind: 'managed' as const, projectId };
-      const provider = this.ctx.control('sandbox');
-      if (!provider) throw new GitHubPluginError('sandbox_unavailable', 503, 'Project environment unavailable.');
-      const worktrees = await provider.managedWorktrees({ project: selected, accountUserId: userId, action: { kind: 'list' } });
+      const worktrees = await managedSandbox(this.ctx).managedWorktrees({ project: selected, accountUserId: userId, action: { kind: 'list' } });
       const cwd = this.ctx.workDir() ?? '/workspace';
       const workspace = worktrees.find(entry => cwd === entry.path || cwd.startsWith(entry.path + '/'));
       const path = workspace?.path ?? (cwd === '/workspace' || cwd.startsWith('/workspace/') ? '/workspace' : null);
       if (!path) throw new GitHubPluginError('active_workspace_required', 409, 'Select the managed project repository or one of its worktrees before publishing.');
       const git = async (args: string[]) => {
-        const live = this.ctx.control('sandbox');
-        if (!live) throw new GitHubPluginError('sandbox_unavailable', 503, 'Project environment unavailable.');
-        const prepared = await live.prepareExecution({ projectRef: selected, cwd: path, command: { type: 'argv', file: 'git', args: ['-C', path, ...args] }, leaseKind: 'github' }, { accountUserId: userId, roots: [] });
-        if (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== projectId) { await prepared.lease.release(); throw new GitHubPluginError('project_forbidden', 403, 'The runtime returned a different project.'); }
+        const prepared = await prepareManagedExecution({
+          ctx: this.ctx, project: selected, accountUserId: userId,
+          cwd: path, command: { type: 'argv', file: 'git', args: ['-C', path, ...args] },
+        });
         return (await (this.spawnPrepared ?? spawnPrepared)(prepared)).stdout.trim();
       };
       const branch = await git(['symbolic-ref', '--quiet', '--short', 'HEAD']);

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { canonicalHttpsRepository } from './remotes.js';
 import { GitHubPluginError } from './errors.js';
+import { managedSandbox, prepareManagedExecution } from './managedExecution.js';
 const exec = promisify(execFile);
 const BUNDLE_LIMIT = 64 * 1024 * 1024;
 const CHUNK = 256 * 1024;
@@ -125,28 +126,45 @@ export async function publishManaged(input, publish = pushStaged) {
     const accountUserId = input.ctx.currentAccountUserId();
     if (project?.kind !== 'managed' || !accountUserId || !validHead(input.expectedHead))
         throw new GitHubPluginError('publish_scope_invalid', 403, 'An approved managed project commit is required.');
-    const control = () => {
-        const provider = input.ctx.control('sandbox');
-        if (!provider)
-            throw new GitHubPluginError('sandbox_unavailable', 503, 'Project environment unavailable.');
-        return provider;
-    };
+    const control = () => managedSandbox(input.ctx);
     const bundlePath = `/tmp/elowen-publish-${randomUUID()}.bundle`;
     const run = async (file, args) => {
-        const prepared = await control().prepareExecution({ command: { type: 'argv', file, args }, projectRef: project, cwd: input.cwd, leaseKind: 'github' }, { accountUserId, roots: [] });
-        if (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== project.projectId) {
-            await prepared.lease.release();
-            throw new Error('Invalid managed launch');
-        }
+        const prepared = await prepareManagedExecution({ ctx: input.ctx, project, accountUserId, cwd: input.cwd, command: { type: 'argv', file, args } });
         return input.runner(prepared);
     };
     let stage;
-    let guestCleaned = false;
+    let guestBundle = false;
+    /** Remove what this publish actually created, once each, and hand the failure back instead of throwing
+     *  it: a stage that will not delete must not overwrite the reason the publish is already failing. A
+     *  refused preparation created nothing, so it is not followed by a second refused preparation. */
+    const cleanup = async () => {
+        let failure;
+        const staged = stage;
+        stage = undefined;
+        try {
+            await staged?.dispose();
+        }
+        catch (error) {
+            failure = error;
+        }
+        if (guestBundle) {
+            guestBundle = false;
+            try {
+                await run('rm', ['-f', '--', bundlePath]);
+            }
+            catch (error) {
+                failure ??= error;
+            }
+        }
+        return failure;
+    };
     try {
         const head = (await run('git', ['-C', input.cwd, 'rev-parse', '--verify', `refs/heads/${input.branch}^{commit}`])).stdout.trim();
         if (head !== input.expectedHead)
             throw new GitHubPluginError('publish_head_changed', 409, 'The approved project commit changed.');
-        await run('git', ['-C', input.cwd, 'bundle', 'create', bundlePath, `refs/heads/${input.branch}`]);
+        const create = await prepareManagedExecution({ ctx: input.ctx, project, accountUserId, cwd: input.cwd, command: { type: 'argv', file: 'git', args: ['-C', input.cwd, 'bundle', 'create', bundlePath, `refs/heads/${input.branch}`] } });
+        guestBundle = true;
+        await input.runner(create);
         const buffers = [];
         let offset = 0;
         let version;
@@ -165,22 +183,17 @@ export async function publishManaged(input, publish = pushStaged) {
         }
         stage = await stageBundle(Buffer.concat(buffers), input.expectedHead, input.branch);
         await run('rm', ['-f', '--', bundlePath]);
-        guestCleaned = true;
+        guestBundle = false;
         await control().environmentFor({ project, accountUserId });
-        return await publish({ ...input, directory: stage.directory });
+        const published = await publish({ ...input, directory: stage.directory });
+        if (await cleanup())
+            throw new GitHubPluginError('publish_cleanup_failed', 500, 'The branch was published, but its temporary publish state could not be removed.');
+        return published;
     }
     catch (error) {
+        await cleanup();
         if (error instanceof GitHubPluginError)
             throw error;
         throw new GitHubPluginError('invalid_publish_bundle', 409, 'The project bundle could not be validated.');
-    }
-    finally {
-        try {
-            await stage?.dispose();
-        }
-        finally {
-            if (!guestCleaned)
-                await run('rm', ['-f', '--', bundlePath]);
-        }
     }
 }

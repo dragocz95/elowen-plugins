@@ -1,3 +1,11 @@
+import type { SandboxPreparedExecution } from 'elowen/plugin-api';
+
+export interface SpawnResult { stdout: string; stderr: string }
+
+/** How a prepared execution is run. Both the execution module that implements it and the publishing
+ *  module that is handed one describe the runner with this type, so neither has to import the other. */
+export type SpawnPrepared = (prepared: SandboxPreparedExecution, timeoutMs?: number, secrets?: readonly string[]) => Promise<SpawnResult>;
+
 export interface DeviceFlow {
   flowId: string;
   userId: number;

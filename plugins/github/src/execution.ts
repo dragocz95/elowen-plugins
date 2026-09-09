@@ -7,14 +7,11 @@ import type { PluginContext, SandboxPreparedExecution } from 'elowen/plugin-api'
 import type { ProjectExecutionRef } from 'elowen/dist/shared/projectExecution.js';
 import { GitHubPluginError } from './errors.js';
 import { canonicalHttpsRepository } from './remotes.js';
-import type { RemoteRepositoryRef } from './types.js';
+import type { RemoteRepositoryRef, SpawnPrepared, SpawnResult } from './types.js';
 import { publishManaged } from './staging.js';
 
 const MAX_OUTPUT = 1024 * 1024;
 const HELPER_SOURCE = String.raw`const net=require('node:net');let a=process.argv.slice(1),o=a.pop(),n=a[a.indexOf('--nonce')+1],s=a[a.indexOf('--socket')+1],d='';process.stdin.setEncoding('utf8');process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{let q={nonce:n};for(let l of d.split(/\r?\n/)){let i=l.indexOf('=');if(i>0)q[l.slice(0,i)]=l.slice(i+1)}let c=net.createConnection(s);c.end(JSON.stringify(q));let r='';c.setEncoding('utf8');c.on('data',x=>r+=x);c.on('end',()=>{let v=JSON.parse(r);if(!v.ok)process.exit(1);process.stdout.write('username='+v.username+'\npassword='+v.password+'\n\n')});c.on('error',()=>process.exit(1))})`;
-
-interface SpawnResult { stdout: string; stderr: string }
-export type SpawnPrepared = (prepared: SandboxPreparedExecution, timeoutMs?: number, secrets?: readonly string[]) => Promise<SpawnResult>;
 
 export const spawnPrepared: SpawnPrepared = async (prepared, timeoutMs = 60_000, secrets = []) => new Promise((resolveResult, reject) => {
   if (prepared.mode === 'managed' && !prepared.cancel) {

@@ -12,7 +12,8 @@ import type { PluginContext, PluginDb, PluginSecretBag, SandboxPreparedExecution
 import { GitHubService } from '../plugins/github/src/service.js';
 import { GitHubStore } from '../plugins/github/src/store.js';
 import { parseGitHubRemote, suggestedRepositories } from '../plugins/github/src/remotes.js';
-import { publishBranch, spawnPrepared, unsafeConfig, type SpawnPrepared } from '../plugins/github/src/execution.js';
+import { publishBranch, spawnPrepared, unsafeConfig } from '../plugins/github/src/execution.js';
+import type { SpawnPrepared } from '../plugins/github/src/types.js';
 import { registerGitHubApi } from '../plugins/github/src/api.js';
 import { registerGitHubTools } from '../plugins/github/src/tools.js';
 import { register } from '../plugins/github/src/index.js';
@@ -218,6 +219,25 @@ describe('GitHub plugin', () => {
     expect(rows).toMatchObject([{ project: { id: 1 }, remotes: [{ name: 'origin', fetchUrl: 'https://github.com/base/repo.git' }] }]);
     expect(JSON.stringify(rows)).not.toContain('secret');
     expect(commands).toEqual([['-C', '/workspace', 'status', '--porcelain=v2', '--branch'], ['-C', '/workspace', 'remote', '-v']]);
+  });
+  it('refuses a runtime that prepares a different managed project and gives back the lease it took', async () => {
+    // The service endpoints answer a mismatched runtime as a typed 403. Publishing answers the same
+    // mismatch as an untyped failure of that operation (see githubStaging.test.ts); the two are not
+    // interchangeable, and sharing the check between them must not level them out.
+    const root = mkdtempSync(join(tmpdir(), 'github-managed-mismatch-')); roots.push(root);
+    const h = harness(root, { base: 'https://api.github.com' });
+    Object.assign(h.project, { executionKind: 'managed' });
+    let released = 0;
+    Object.assign(h.ctx, {
+      workDir: () => '/workspace', currentAccountUserId: () => 1,
+      control: () => ({ prepareExecution: async (input: any) => {
+        const base = prepared(input.command, input.cwd, join(root, 'home'));
+        return { ...base, mode: 'managed', projectRef: { kind: 'managed', projectId: 99 }, lease: { ...base.lease, release: () => { released += 1; } } };
+      } }),
+    });
+    const service = new GitHubService(h.ctx, { spawnPrepared: async () => { throw new Error('a refused preparation must never reach a command'); } });
+    await expect(service.repositories(1, [1], false)).rejects.toMatchObject({ code: 'project_forbidden', status: 403 });
+    expect(released, 'the lease taken by the refused preparation stayed held').toBe(1);
   });
   it('parses only the GitHub device URL and code and sanitizes inherited credentials', () => {
     expect(parseDevicePrompt('noise\r\nhttps://github.com/login/device\r\nABCD-EFGH\r\n')).toEqual({ verificationUrl: 'https://github.com/login/device', userCode: 'ABCD-EFGH' });
