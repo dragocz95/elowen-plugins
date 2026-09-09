@@ -8,7 +8,7 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 | | |
 | --- | --- |
-| Version | `0.14.3` |
+| Version | `0.14.4` |
 | Requires core | `0.28.14` |
 | Requires shared API | `not declared` |
 | User-grantable | No |
