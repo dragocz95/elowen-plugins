@@ -109,6 +109,25 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('drives a real guest Chromium t
     });
     expect(profile.entry?.kind).toBe('directory');
 
+    // The acceptance failure, against the real guest: /data/browser now exists, and the guest `mkdir`
+    // op is an exclusive create, so every reopen used to die with `[Errno 17] File exists`. The profile
+    // and the earlier download must still be there afterwards — the open ensures directories, it does
+    // not recreate or clean them.
+    stage = 'close and reopen over the directories the first browser left behind';
+    await attachment.close?.();
+    attachment = await openProjectBrowser(ctx, projectRef, ACTOR, logger);
+    const reopened = await attachment.browser.newPage();
+    await reopened.goto('data:text/html,<h1 id=t>reopened</h1>');
+    expect(await reopened.evaluate(() => document.getElementById('t')?.textContent)).toBe('reopened');
+    const kept = await runtime.control.projectFiles({
+      project: projectRef, accountUserId: ACTOR, operation: { kind: 'stat', path: '/data/browser/downloads/report.txt' },
+    });
+    expect(kept.entry?.kind, 'the reopen discarded the guest download directory').toBe('file');
+    const keptProfile = await runtime.control.projectFiles({
+      project: projectRef, accountUserId: ACTOR, operation: { kind: 'stat', path: '/data/browser/profile' },
+    });
+    expect(keptProfile.entry?.kind, 'the reopen discarded the persistent profile').toBe('directory');
+
     stage = 'teardown';
     await attachment.close?.();
     attachment = undefined;
