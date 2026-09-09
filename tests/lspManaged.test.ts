@@ -29,20 +29,38 @@ function fixture() {
   return { ctx, sandbox, project };
 }
 
-function runningFixture() {
+/** The guest inventory the manager reads before it launches anything. Its own opaque launch and its own
+ *  lease keep it out of the language server's teardown assertions. */
+function inventoryOf(installed: string[]) {
+  const probe = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+  });
+  queueMicrotask(() => { probe.stdout.write(JSON.stringify(installed)); probe.emit('close', 0); });
+  return probe;
+}
+const PROBE_LAUNCH = { type: 'argv' as const, file: '/provider/probe', args: ['inventory'], env: {} };
+const probeLease = { projectId: 7, accountUserId: 3, runtimeGeneration: 2, cancel: async () => {}, release: async () => {}, heartbeat: async () => {} };
+const isProbe = (input: { command: { file: string } }): boolean => input.command.file === '/usr/bin/python3';
+
+function runningFixture(installed: string[] = ['typescript-language-server']) {
   const fixtureValue = fixture();
   const child = Object.assign(new EventEmitter(), {
     stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
   });
-  vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
+  vi.mocked(spawn).mockImplementation(((file: string) =>
+    (file === PROBE_LAUNCH.file ? inventoryOf(installed) : child)) as unknown as typeof spawn);
   const cancel = vi.fn(async () => { child.emit('close', 0); });
   const release = vi.fn(async () => {});
   const heartbeat = vi.fn(async () => {});
-  fixtureValue.sandbox.prepareExecution.mockResolvedValue({
+  fixtureValue.sandbox.prepareExecution.mockImplementation(async (input: { command: { file: string; args: string[] } }) => ({
     mode: 'managed', projectRef: fixtureValue.project, cwd: '/isolated/launcher',
-    launch: { type: 'argv', file: '/provider/launcher', args: ['opaque'], env: { ONLY_PROVIDER: 'yes' } },
-    lease: { projectId: 7, accountUserId: 3, runtimeGeneration: 2, cancel, release, heartbeat },
-  });
+    ...(isProbe(input)
+      ? { launch: PROBE_LAUNCH, lease: probeLease }
+      : {
+        launch: { type: 'argv', file: '/provider/launcher', args: ['opaque'], env: { ONLY_PROVIDER: 'yes' } },
+        lease: { projectId: 7, accountUserId: 3, runtimeGeneration: 2, cancel, release, heartbeat },
+      }),
+  }));
   const messages: JsonRpcMessage[] = [];
   const decoder = new MessageDecoder();
   child.stdin.on('data', (data: Buffer) => {
@@ -146,6 +164,63 @@ describe('managed LSP routing', () => {
   });
 });
 
+describe('managed guest language-server inventory', () => {
+  /** A guest whose PATH holds exactly `installed`. A launch of a server the guest does not have closes
+   *  immediately — what `/usr/bin/env -- <server>` really does when the binary is absent. */
+  function guest(installed: string[]) {
+    const f = fixture();
+    const launched: string[] = [];
+    f.sandbox.prepareExecution.mockImplementation(async (input: { command: { file: string; args: string[] } }) => ({
+      mode: 'managed', projectRef: f.project, cwd: '/isolated/launcher',
+      launch: isProbe(input) ? PROBE_LAUNCH : { type: 'argv', file: '/provider/launcher', args: ['opaque'], env: {} },
+      lease: probeLease,
+    }));
+    vi.mocked(spawn).mockImplementation(((file: string) => {
+      launched.push(file);
+      if (file === PROBE_LAUNCH.file) return inventoryOf(installed);
+      const child = Object.assign(new EventEmitter(), {
+        stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+      });
+      queueMicrotask(() => child.emit('close', 127));
+      return child;
+    }) as unknown as typeof spawn);
+    const servers = (): string[] => launched.filter((file) => file === '/provider/launcher');
+    return { ...f, servers, manager: new ManagedLspManager(f.ctx, f.project, 3) };
+  }
+
+  it('reports a server the guest does not have as not installed, and never launches it', async () => {
+    const h = guest([]);
+    try {
+      const result = await h.manager.checkFile('/workspace/a.ts');
+      expect(result.skipped).toBe('no-server-installed');
+      expect(result.server).toBe('TypeScript');
+      expect(h.servers()).toEqual([]);
+    } finally { await h.manager.shutdown(); }
+  });
+
+  // The restart cap exists for a server that really is broken. Answering "not installed" with a doomed
+  // launch spent that budget instead, and the fourth check reported 'crash-looping' — which withdraws
+  // diagnostics for the whole runtime generation until an operator toggles /lsp.
+  it('does not spend the crash budget on a server that is merely absent', async () => {
+    const h = guest([]);
+    try {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        expect((await h.manager.checkFile('/workspace/a.ts')).skipped).toBe('no-server-installed');
+      }
+      expect(h.servers()).toEqual([]);
+    } finally { await h.manager.shutdown(); }
+  });
+
+  it('launches the server once the guest reports it installed', async () => {
+    const h = guest(['typescript-language-server']);
+    try {
+      // The verdict needs a live server; this asserts the launch, which the missing-server path skips.
+      void h.manager.checkFile('/workspace/a.ts');
+      await vi.waitFor(() => expect(h.servers()).toEqual(['/provider/launcher']));
+    } finally { await h.manager.shutdown(); }
+  });
+});
+
 /** A transport that accepts the handshake but never answers — the shape of a hung language server. */
 function silentServer(): LspTransport {
   return { send: () => {}, onMessage: () => {}, onExit: () => {}, dispose: () => {} };
@@ -242,10 +317,13 @@ describe('managed lsp selection', () => {
       });
       return child;
     };
-    vi.mocked(spawn).mockImplementation(makeChild as unknown as typeof spawn);
+    vi.mocked(spawn).mockImplementation(((file: string) =>
+      (file === PROBE_LAUNCH.file ? inventoryOf(['typescript-language-server']) : makeChild())) as unknown as typeof spawn);
     const cancelled: (() => void)[] = [];
     const released: (() => void)[] = [];
-    f.sandbox.prepareExecution.mockImplementation(async () => ({
+    f.sandbox.prepareExecution.mockImplementation(async (input: { command: { file: string } }) => (isProbe(input) ? {
+      mode: 'managed', projectRef: f.project, cwd: '/isolated/launcher', launch: PROBE_LAUNCH, lease: probeLease,
+    } : {
       mode: 'managed', projectRef: f.project, cwd: '/isolated/launcher',
       launch: { type: 'argv', file: '/provider/launcher', args: ['opaque'], env: { ONLY_PROVIDER: 'yes' } },
       lease: {
