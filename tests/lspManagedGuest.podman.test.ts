@@ -81,11 +81,6 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('installs, runs and shuts down 
       const before = await manager.statusAsync();
       expect(before.servers.find((server) => server.command === 'typescript-language-server')?.installed).toBe(false);
 
-      stage = 'guest language-server install';
-      await manager.changePackages('typescript-language-server', false);
-      const after = await manager.statusAsync();
-      expect(after.servers.find((server) => server.command === 'typescript-language-server')?.installed).toBe(true);
-
       // expectedVersion null means "must not exist", so an overwrite has to carry the version it saw.
       const write = async (text: string, expectedVersion: string | null = null) => {
         const result = await runtime.control.projectFiles({
@@ -111,6 +106,22 @@ it.runIf(process.env.ELOWEN_TEST_PODMAN === '1')('installs, runs and shuts down 
         operation: { kind: 'write', path: '/workspace/tsconfig.json', expectedVersion: null,
           base64: Buffer.from(JSON.stringify({ compilerOptions: { strict: true, target: 'ES2022', module: 'ESNext' } })).toString('base64') },
       });
+
+      stage = 'a check before the install reports the server missing, not broken';
+      // The guest has a file to check but no server to check it with. Launching one regardless leaves
+      // `/usr/bin/env` exiting 127 before the handshake, which reads as a crashed server: three of those
+      // exhaust the restart budget and withdraw diagnostics for the whole runtime generation. Four
+      // consecutive checks prove neither the misreport nor the permanent withdrawal happens.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const missing = await manager.checkFile('/workspace/probe.ts');
+        expect(missing.skipped).toBe('no-server-installed');
+        expect(missing.server).toBe('TypeScript');
+      }
+
+      stage = 'guest language-server install';
+      await manager.changePackages('typescript-language-server', false);
+      const after = await manager.statusAsync();
+      expect(after.servers.find((server) => server.command === 'typescript-language-server')?.installed).toBe(true);
 
       stage = 'raw initialize handshake through the provider lease';
       {

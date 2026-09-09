@@ -41,6 +41,8 @@ export class ManagedLspManager extends LspManager {
         return bytes.toString('utf8');
       },
       spawn: async (spec, cwd) => {
+        // A guest without the server must read as "not installed", exactly as it does on the host.
+        if (!await this.guestHas(spec.command)) return null;
         const prepared = await this.prepare(spec.command, spec.args, cwd);
         return this.transport(prepared);
       },
@@ -57,6 +59,22 @@ export class ManagedLspManager extends LspManager {
    *  lifetime, so it needs no watchdog of its own. */
   protected override watchdogProcessId(): number | null {
     return null;
+  }
+
+  /** Whether the guest can actually run `command`. The host spawn answers this by resolving the binary
+   *  before it launches anything, which is how a missing server becomes skipped:'no-server-installed'
+   *  instead of a crash. The guest's PATH is not the daemon's, so the managed manager has to ask the
+   *  container the same question — and nothing did. A project whose container has no language server
+   *  launched `/usr/bin/env -- <server>` anyway, the guest exited 127 before the handshake, and the
+   *  dead transport surfaced as skipped:'server-error'; three of those exhausted the restart budget and
+   *  left the whole runtime generation on 'crash-looping' until an operator toggled /lsp.
+   *
+   *  The inventory is taken once and re-probed only on a miss, so a hit costs nothing and a server
+   *  installed inside the guest after the first probe is picked up by the very next check. */
+  private async guestHas(command: string): Promise<boolean> {
+    if (this.installed.has(command)) return true;
+    await this.statusAsync();
+    return this.installed.has(command);
   }
 
   private async authority(): Promise<SandboxControl> {
