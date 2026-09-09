@@ -1,8 +1,9 @@
 {
   "name": "image-edit",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "apiVersion": "1",
-  "description": "Edit an existing image from a text instruction (image-to-image) via the OpenAI Images edits API. The result shows directly in the chat.",
+  "requiresCore": "0.28.36",
+  "description": "Edit an existing image from a text instruction (image-to-image) through a configured API-key provider or the connected ChatGPT account. The result shows directly in the chat.",
   "entry": "index.mjs",
   "capabilities": {
     "network": true
@@ -22,16 +23,19 @@
       "key": "provider",
       "label": "Provider",
       "type": "provider",
-      "providerType": "openai",
+      "providerType": [
+        "openai",
+        "oauth-openai-codex"
+      ],
       "required": true,
-      "hint": "Which configured OpenAI-compatible provider to use (reuses its key + base URL). Add providers in Settings → Brain."
+      "hint": "Which configured provider renders the edits: an OpenAI-compatible endpoint (its key and base URL are reused) or the connected ChatGPT account. Add providers in Settings → Brain."
     },
     {
       "key": "model",
       "label": "Model",
-      "type": "model",
-      "default": "gpt-image-1",
-      "hint": "Pick from your configured models. Default: gpt-image-1."
+      "type": "string",
+      "placeholder": "gpt-image-2.5-sunburst",
+      "hint": "Image model id. ChatGPT account: gpt-image-2.5-sunburst, gpt-image-2.5-flare, gpt-image-2 or gpt-image-1.5. API-key provider: whichever model its Images API serves, e.g. gpt-image-1. Empty uses the default for the chosen provider."
     }
   ]
 }

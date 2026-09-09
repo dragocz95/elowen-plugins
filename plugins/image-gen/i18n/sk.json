@@ -1,13 +1,13 @@
 {
-  "description": "Generovanie obrázkov cez OpenAI Images API (predvolený model gpt-image-1). Vygenerované obrázky sa zobrazia priamo v chate.",
+  "description": "Generovanie obrázkov cez nakonfigurovaného poskytovateľa s API kľúčom alebo cez pripojený účet ChatGPT. Vygenerované obrázky sa zobrazia priamo v chate.",
   "fields": {
     "provider": {
       "label": "Poskytovateľ",
-      "hint": "Ktorého nakonfigurovaného poskytovateľa kompatibilného s OpenAI použiť (prevezme jeho kľúč a základnú URL). Poskytovateľov pridáte v Nastaveniach → Brain."
+      "hint": "Ktorý nakonfigurovaný poskytovateľ obrázky vykreslí: endpoint kompatibilný s OpenAI (prevezme jeho kľúč a základnú URL), alebo pripojený účet ChatGPT. Poskytovateľov pridáte v Nastaveniach → Brain."
     },
     "model": {
       "label": "Model",
-      "hint": "Vyberte z nakonfigurovaných modelov. Predvolený: gpt-image-1."
+      "hint": "Identifikátor obrazového modelu. Účet ChatGPT: gpt-image-2.5-sunburst, gpt-image-2.5-flare, gpt-image-2 alebo gpt-image-1.5. Poskytovateľ s API kľúčom: model, ktorý ponúka jeho Images API, napríklad gpt-image-1. Prázdne pole použije predvolený model zvoleného poskytovateľa."
     },
     "size": {
       "label": "Veľkosť",

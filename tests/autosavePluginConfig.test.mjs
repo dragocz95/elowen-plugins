@@ -13,9 +13,19 @@ const field = (name, key) => manifest(name).configSchema.find((entry) => entry.k
 
 describe('plugin autosave configuration contracts', () => {
   it('declares effective image defaults and enum sizes', () => {
-    assert.equal(field('image-edit', 'model').default, 'gpt-image-1');
+    // The model field carries no manifest default any more: the runtime fallback depends on the chosen
+    // provider (the ChatGPT account and an API-key endpoint serve different image models), and a manifest
+    // default must equal the runtime one. It is free text with a placeholder, since the model picker
+    // lists chat models and image models are not among them.
+    for (const plugin of ['image-edit', 'image-gen']) {
+      const model = field(plugin, 'model');
+      assert.equal(model.type, 'string');
+      assert.equal(model.default, undefined);
+      assert.equal(model.placeholder, 'gpt-image-2.5-sunburst');
+      // Both transports are pickable: an OpenAI-compatible key provider and the connected ChatGPT account.
+      assert.deepEqual(field(plugin, 'provider').providerType, ['openai', 'oauth-openai-codex']);
+    }
     assert.equal(manifest('image-edit').capabilities.network, true);
-    assert.equal(field('image-gen', 'model').default, 'gpt-image-1');
     assert.equal(field('image-gen', 'size').type, 'enum');
     assert.deepEqual(field('image-gen', 'size').options.map((option) => option.value), [
       '1024x1024', '1536x1024', '1024x1536',

@@ -86,8 +86,9 @@
     },
     {
       "name": "image-edit",
-      "version": "0.2.2",
-      "description": "Edit an existing image from a text instruction (image-to-image) via the OpenAI Images edits API. The result shows in the chat.",
+      "version": "0.2.3",
+      "requiresCore": "0.28.36",
+      "description": "Edit an existing image from a text instruction (image-to-image) through a configured API-key provider or the connected ChatGPT account. The result shows in the chat.",
       "category": "media",
       "author": "Elowen",
       "apiVersion": "1",
@@ -97,8 +98,9 @@
     },
     {
       "name": "image-gen",
-      "version": "0.2.2",
-      "description": "Image generation via the OpenAI Images API (gpt-image-1 by default). Generated images show directly in the chat.",
+      "version": "0.2.3",
+      "requiresCore": "0.28.36",
+      "description": "Image generation through a configured API-key provider or the connected ChatGPT account. Generated images show directly in the chat.",
       "category": "media",
       "author": "Elowen",
       "apiVersion": "1",
