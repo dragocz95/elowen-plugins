@@ -79,6 +79,13 @@ test('sites manifest and marketplace registry expose the same release', () => {
 
   assert.equal(catalog?.version, manifest.version);
   assert.equal(catalog?.requiresCore, manifest.requiresCore);
+  // The "environment support is unavailable" copy names that same floor to the administrator reading it.
+  // It drifted once already, telling operators to reach a core release the plugin no longer accepts.
+  const provisioning = readFileSync(new URL('../plugins/sites/src/provisioning.ts', import.meta.url), 'utf8');
+  assert.ok(
+    provisioning.includes(`Sites requires core ${manifest.requiresCore} and`),
+    `the unavailable copy must name core ${manifest.requiresCore}, the manifest's own floor`,
+  );
   assert.equal(catalog?.provides.tools, manifest.provides.tools.length);
   assert.equal(catalog?.provides.apiRoutes, manifest.provides.apiRoutes.length);
   // The mount is namespaced by plugin name, so the declared route is 's' and the public address is

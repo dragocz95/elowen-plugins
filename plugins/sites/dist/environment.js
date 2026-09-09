@@ -395,23 +395,6 @@ export class EnvironmentSupervisor {
         }
         return { id: receipt.publicId };
     }
-    /** Blocking convenience over the SAME receipt the scheduled path uses. */
-    async snapshot(site, input, actor) {
-        const { receipt } = await this.openSnapshotReceipt(site, input, actor);
-        try {
-            const operation = await this.request(site, { kind: 'snapshot', includeData: input.includeData, note: input.note }, receipt.accountUserId, receipt.requestId);
-            receipt.operationId = operation.id;
-            this.deps.store.putRuntimeRecord(site.id, `snapshot-request:${receipt.requestId}`, JSON.stringify(receipt));
-            const release = await this.awaitReceipt(site, 'snapshot-request:', receipt.publicId);
-            if (!release)
-                throw new Error('the snapshot is still pending');
-            return release;
-        }
-        catch (error) {
-            this.abandonReceipt(site, `snapshot-request:${receipt.requestId}`, receipt);
-            throw error;
-        }
-    }
     /** The receipt and the visible action row precede dispatch. A lost response replays the same runtime
      *  request key; a structural rejection leaves nothing behind for recovery to re-dispatch. */
     async openSnapshotReceipt(site, input, actor) {
@@ -458,11 +441,6 @@ export class EnvironmentSupervisor {
             throw error;
         }
     }
-    /** Blocking convenience over the same restore receipt. */
-    async rollback(site, snapshotId, restoreData, actor) {
-        await this.scheduleRestore(site, snapshotId, restoreData, actor);
-        await this.awaitReceipt(site, 'restore-request:', snapshotId);
-    }
     /** Read-only projection of the visible action row against the runtime operation its receipt stands
      *  for. It never dispatches, claims or writes anything: durable answers belong to recovery. */
     async pendingAction(site, actor) {
@@ -488,21 +466,11 @@ export class EnvironmentSupervisor {
             return action;
         }
     }
-    /** Poll the receipt of an already-scheduled action until the runtime reports it terminal. */
-    async awaitReceipt(site, prefix, publicId) {
-        const entry = this.deps.store.runtimeRecords(site.id, prefix).find((candidate) => {
-            const receipt = JSON.parse(candidate.value);
-            return receipt.publicId === publicId;
-        });
-        if (!entry)
-            throw new Error('the scheduled environment action is no longer tracked');
-        return this.settleReceipt(site, entry.key, JSON.parse(entry.value), true);
-    }
     /** Resolve one receipt against the runtime. Pending leaves everything for the next recovery sweep. A
      *  terminal result maps the runtime snapshot id to the promised public id, makes the view metadata
      *  durable, and only then finalizes the receipt and the visible action row. */
-    async settleReceipt(site, key, receipt, block) {
-        let operation = receipt.operationId
+    async settleReceipt(site, key, receipt) {
+        const operation = receipt.operationId
             ? await this.control().siteEnvironmentOperation({ operationId: receipt.operationId, accountUserId: receipt.accountUserId })
             : await this.request(site, receipt.kind === 'restore'
                 ? { kind: 'restore', snapshotId: this.runtimeSnapshotId(site, receipt.publicId ?? ''), restoreData: receipt.input.restoreData === true }
@@ -513,8 +481,6 @@ export class EnvironmentSupervisor {
             receipt.operationId = operation.id;
             this.deps.store.putRuntimeRecord(site.id, key, JSON.stringify(receipt));
         }
-        if (block)
-            operation = await this.wait(operation, receipt.accountUserId);
         if (operation.status === 'pending' || operation.status === 'running')
             return null;
         if (operation.status !== 'succeeded') {
@@ -589,7 +555,7 @@ export class EnvironmentSupervisor {
             for (const entry of this.deps.store.runtimeRecords(site.id, prefix)) {
                 const receipt = JSON.parse(entry.value);
                 try {
-                    await this.settleReceipt(site, entry.key, receipt, false);
+                    await this.settleReceipt(site, entry.key, receipt);
                 }
                 catch (error) {
                     this.deps.logger?.warn(`site ${site.slug} environment action recovery failed: ${String(error)}`);

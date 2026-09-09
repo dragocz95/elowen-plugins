@@ -46,7 +46,7 @@ export const environmentSite = (overrides = {}) => ({
   ...overrides,
 });
 
-export const environmentConfig = (overrides = {}) => ({
+const environmentConfig = (overrides = {}) => ({
   startTimeoutSeconds: 1,
   environmentNetwork: 'shared',
   environmentCpus: 1,
@@ -60,7 +60,7 @@ export const environmentConfig = (overrides = {}) => ({
 // ---------------------------------------------------------------------------
 // In-memory store covering exactly the SitesStore surface EnvironmentSupervisor uses.
 
-export function sitesSdkStore(site, overrides = {}) {
+function sitesSdkStore(site, overrides = {}) {
   const records = new Map();
   const releases = [];
   let action = null;
@@ -126,7 +126,7 @@ export function sitesSdkStore(site, overrides = {}) {
 // lifecycle actions move the durable desired state, the runtime invokes the Sites authority callbacks
 // around container create/start/stop, and snapshot operations complete with a provider-side snapshot id.
 
-export function sitesSdkControl({
+function sitesSdkControl({
   state = 'stopped',
   desiredState = 'stopped',
   generation = 1,

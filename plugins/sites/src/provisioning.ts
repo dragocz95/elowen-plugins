@@ -9,7 +9,9 @@ export class ProvisionInProgressError extends Error {}
 
 const unavailable = (): PublishedSitesEnvironmentStatus => ({
   ready: false,
-  detail: 'Environment support is unavailable. Sites requires core 0.28.31 and the installed gateway helper.',
+  // The version here is the manifest's `requiresCore`; tests/sites.test.mjs keeps the two in step, because
+  // this sentence is what an administrator reads when the control is missing.
+  detail: 'Environment support is unavailable. Sites requires core 0.28.35 and the installed gateway helper.',
   items: [{
     id: 'core',
     label: 'Elowen core environment control',

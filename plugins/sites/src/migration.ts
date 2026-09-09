@@ -23,9 +23,10 @@ import type { ConvertibleRuntime, RuntimeMigration, Site, SitesStore } from './s
  *  precisely because the flip overwrites some of it; a rollback that read the site back would restore
  *  whatever the flip left, not what was there before.
  *
- *  WHY THE CONTAINER IS PREPARED BEFORE THE FLIP AND NOT RECREATED BY IT. `EnvironmentSupervisor.startNow`
- *  creates a container only when `podman inspect` reports it absent; an existing `created` or `exited`
- *  container is STARTED, reusing its own writable layer. So a container this migrator builds ahead of
+ *  WHY THE CONTAINER IS PREPARED BEFORE THE FLIP AND NOT RECREATED BY IT. `EnvironmentSupervisor.start`
+ *  reaches the runtime provider, whose `ensureInitialContainer` creates a container only when the engine
+ *  reports it absent; an existing `created` or `exited` container is STARTED, reusing its own writable
+ *  layer. So a container this migrator builds ahead of
  *  time survives the flip untouched, and the flip costs a start rather than a rebuild. That property is
  *  load-bearing, not incidental, and {@link prepare} is written to leave the container in exactly that
  *  state.
@@ -533,7 +534,7 @@ export class RuntimeMigrationService {
 
       const flipped = this.deps.store.siteById(siteId);
       if (!flipped) throw new Error('the site disappeared during the flip');
-      // Starts the container prepared above: `startNow` creates only when none exists, so the writable
+      // Starts the container prepared above: the provider creates only when none exists, so the writable
       // layer built during preparation is reused rather than thrown away.
       await this.deps.startEnvironment(flipped);
       return this.status(siteId);

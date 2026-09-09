@@ -18,7 +18,7 @@ import { createBoundSiteSpec } from 'elowen/plugins/sandbox/lib/containerSpec.mj
 
 export { PodmanClient, SpawnExecutor, cleanPodmanEnv };
 
-export const SITE_ID = '123e4567-e89b-12d3-a456-426614174000';
+const SITE_ID = '123e4567-e89b-12d3-a456-426614174000';
 
 export const IMAGE = 'localhost/elowen-site-base:0123456789abcdef';
 
@@ -78,8 +78,6 @@ export class FakeExecutor {
   }
 }
 
-const ok = (stdout = '') => ({ stdout, code: 0 });
-
 /** A representative Podman 4.9 `inspect --type container` row in its uppercase field naming, matching
  * exactly what the driver's ownership validation expects for this spec and state. */
 export const inspectRow = (spec, state = 'running') => ({
@@ -124,16 +122,3 @@ export const volumeInspectRow = (spec, component) => {
     Options: spec.legacy ? {} : { type: 'none', o: 'bind', device: volume.path },
   };
 };
-
-/** Standard scripted driver wiring: rootless info, container/volume existence probes and inspections. */
-export function driverExecutor(spec, { state = 'created' } = {}) {
-  const executor = new FakeExecutor();
-  let containerState = state;
-  executor
-    .on((args) => args[0] === 'info', ok('true\n'))
-    .on((args) => args[0] === 'container' && args[1] === 'exists', () => ({ code: 0 }))
-    .on((args) => args[0] === 'volume' && args[1] === 'exists', () => ({ code: 0 }))
-    .on((args) => args[0] === 'volume' && args[1] === 'inspect', () => ok(JSON.stringify(volumeInspectRow(spec, 'data'))))
-    .on((args) => args[0] === 'inspect' && args[1] === '--type', () => ok(JSON.stringify([inspectRow(spec, containerState)])));
-  return { executor, setContainerState: (value) => { containerState = value; } };
-}

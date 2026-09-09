@@ -30,7 +30,7 @@ import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
 import { EnvironmentProvisioningService } from '../plugins/sites/dist/provisioning.js';
 import {
-  SITE_ID, environmentSite, environmentConfig, modeOf, snapshotRelease, sitesSdkHarness,
+  SITE_ID, environmentSite, modeOf, snapshotRelease, sitesSdkHarness,
 } from './helpers/sitesOwnedEnvironmentSdk.mjs';
 
 const makeDb = ({ beforeStep } = {}) => {
