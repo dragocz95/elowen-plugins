@@ -12,15 +12,45 @@ vi.mock('puppeteer-core', () => ({ connect: vi.fn() }));
 afterEach(() => { vi.clearAllMocks(); });
 
 const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-function fixture() {
+
+type GuestKind = 'directory' | 'file' | 'symlink' | 'other';
+
+/** The guest file contract as `plugins/sandbox/lib/guestFiles.py` actually implements it: `mkdir` is an
+ *  EXCLUSIVE create (`os.mkdir`, no `exist_ok`), so anything already at the path — a directory left by an
+ *  earlier browser, a plain file, or a symlink `os.mkdir` refuses to follow — comes back as the same
+ *  `already_exists` code with Python's `[Errno 17] File exists: '<path>'` message. `stat` does not follow
+ *  the final symlink, so it is the only operation that says WHAT is there. */
+function guestFiles(initial: Record<string, GuestKind> = {}) {
+  const nodes = new Map<string, GuestKind>(Object.entries(initial));
+  const calls: { kind: string; path: string }[] = [];
+  const projectFiles = vi.fn(async ({ operation }: { operation: { kind: string; path: string } }) => {
+    calls.push({ kind: operation.kind, path: operation.path });
+    if (operation.kind === 'stat') {
+      const kind = nodes.get(operation.path);
+      return { kind: 'stat', entry: kind ? { path: operation.path, kind } : null };
+    }
+    if (operation.kind === 'mkdir') {
+      if (nodes.has(operation.path)) {
+        throw Object.assign(new Error(`[Errno 17] File exists: '${operation.path}'`), { code: 'already_exists' });
+      }
+      nodes.set(operation.path, 'directory');
+      return { kind: 'mkdir', entry: { path: operation.path, kind: 'directory' } };
+    }
+    throw new Error(`unexpected guest operation ${operation.kind}`);
+  });
+  return { nodes, calls, projectFiles };
+}
+
+function fixture(initial: Record<string, GuestKind> = {}) {
   const project = { kind: 'managed' as const, projectId: 8 };
   const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
   vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
   const cancel = vi.fn(async () => { child.emit('close', 0); });
   const release = vi.fn(async () => {});
+  const guest = guestFiles(initial);
   const sandbox = {
     environmentFor: vi.fn(async () => ({ projectId: 8, generation: 4, state: 'running' })),
-    projectFiles: vi.fn(async () => ({ kind: 'mkdir' })),
+    projectFiles: guest.projectFiles,
     prepareExecution: vi.fn(async (_input: unknown) => ({ mode: 'managed', projectRef: project, cwd: '/trusted/launcher',
       launch: { type: 'argv', file: '/trusted/provider', args: ['opaque'], env: { PROVIDER_ONLY: 'yes' } },
       lease: { projectId: 8, accountUserId: 2, runtimeGeneration: 4, cancel, release, heartbeat: vi.fn() },
@@ -32,7 +62,7 @@ function fixture() {
     defaultBrowserContext: () => ({ setDownloadBehavior }),
   });
   vi.mocked(connect).mockResolvedValue(browser as unknown as Awaited<ReturnType<typeof connect>>);
-  return { ctx, project, sandbox, child, cancel, release, browser, setDownloadBehavior };
+  return { ctx, project, sandbox, child, cancel, release, browser, setDownloadBehavior, guest };
 }
 
 describe('project browser canonical transport', () => {
@@ -224,5 +254,80 @@ describe('project browser canonical transport', () => {
     } finally { await browser.close(); }
     expect(h.cancel).toHaveBeenCalledOnce();
     expect(h.release).toHaveBeenCalledOnce();
+  });
+});
+
+describe('project browser guest storage', () => {
+  it('creates the data directories on the first open, parent before child', async () => {
+    const h = fixture();
+    const browser = await openProjectBrowser(h.ctx, h.project, 2, logger);
+    try {
+      expect(h.guest.calls.filter((call) => call.kind === 'mkdir').map((call) => call.path))
+        .toEqual(['/data/browser', '/data/browser/downloads']);
+      expect(h.guest.nodes.get('/data/browser')).toBe('directory');
+      expect(h.guest.nodes.get('/data/browser/downloads')).toBe('directory');
+    } finally { await browser.close(); }
+  });
+
+  // The acceptance failure: the profile directory survives the environment, so every open after the
+  // first one met `[Errno 17] File exists: '/data/browser'` and no browser could be launched again.
+  it('reopens over the persistent profile left by an earlier browser', async () => {
+    const h = fixture({ '/data/browser': 'directory', '/data/browser/downloads': 'directory', '/data/browser/profile': 'directory' });
+    const browser = await openProjectBrowser(h.ctx, h.project, 2, logger);
+    try {
+      expect(spawn).toHaveBeenCalledOnce();
+      // The profile and its cookies are never removed or recreated to make the open succeed.
+      expect(h.guest.nodes.get('/data/browser/profile')).toBe('directory');
+      expect(h.guest.calls.some((call) => call.kind !== 'stat' && call.kind !== 'mkdir')).toBe(false);
+    } finally { await browser.close(); }
+  });
+
+  it('accepts a directory another open created between the stat and the mkdir', async () => {
+    const h = fixture();
+    const original = h.guest.projectFiles.getMockImplementation()!;
+    h.guest.projectFiles.mockImplementation(async (input: { operation: { kind: string; path: string } }) => {
+      // The racing open wins the create after our stat found nothing, exactly as the guest reports it.
+      if (input.operation.kind === 'mkdir' && input.operation.path === '/data/browser' && !h.guest.nodes.has('/data/browser')) {
+        h.guest.nodes.set('/data/browser', 'directory');
+      }
+      return original(input);
+    });
+    const browser = await openProjectBrowser(h.ctx, h.project, 2, logger);
+    try { expect(spawn).toHaveBeenCalledOnce(); } finally { await browser.close(); }
+  });
+
+  it('refuses to launch when a symlink occupies the browser data path', async () => {
+    // `os.mkdir` will not follow the final symlink, so the guest answers `already_exists` here too;
+    // only the stat kind separates it from a real directory, and Chromium must not be pointed at it.
+    const h = fixture({ '/data/browser': 'symlink' });
+    await expect(openProjectBrowser(h.ctx, h.project, 2, logger)).rejects.toThrow(/not a directory/);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(h.sandbox.prepareExecution).not.toHaveBeenCalled();
+  });
+
+  it('refuses to launch when a regular file occupies the downloads path', async () => {
+    const h = fixture({ '/data/browser': 'directory', '/data/browser/downloads': 'file' });
+    await expect(openProjectBrowser(h.ctx, h.project, 2, logger)).rejects.toThrow(/not a directory/);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('propagates a guest failure that is not an existing directory', async () => {
+    const h = fixture();
+    h.guest.projectFiles.mockImplementation(async ({ operation }: { operation: { kind: string } }) => {
+      if (operation.kind === 'stat') return { kind: 'stat', entry: null };
+      throw Object.assign(new Error('[Errno 13] Permission denied'), { code: 'permission_denied' });
+    });
+    await expect(openProjectBrowser(h.ctx, h.project, 2, logger)).rejects.toThrow(/Permission denied/);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('pins every storage operation to the verified runtime generation', async () => {
+    const h = fixture();
+    const browser = await openProjectBrowser(h.ctx, h.project, 2, logger);
+    try {
+      for (const call of h.sandbox.projectFiles.mock.calls) {
+        expect(call[0]).toMatchObject({ project: h.project, accountUserId: 2, expectedGeneration: 4 });
+      }
+    } finally { await browser.close(); }
   });
 });

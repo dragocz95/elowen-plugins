@@ -60,8 +60,41 @@ export async function openProjectBrowser(ctx, project, actor, logger) {
     if (state.projectId !== project.projectId)
         throw new Error('Project browser received another project.');
     const generation = state.generation;
+    // Browser storage is PERSISTENT: the profile under /data/browser keeps the cookies and logins the
+    // project browser is expected to remember, while the guest `mkdir` op is an EXCLUSIVE create
+    // (`os.mkdir`, no `exist_ok`). From the second open onwards these directories already exist, so an
+    // unconditional create failed the whole launch with `already_exists`. Ensure them instead of creating
+    // them, and let `stat` decide what is there: the error code alone cannot, because `os.mkdir` refuses to
+    // follow a final symlink and answers `already_exists` for one too. Nothing is ever removed here; a path
+    // of the wrong kind is a refusal, never a cleanup of the user's profile.
+    //
+    // The stat is a SANITY CHECK on the shape, not a security boundary: it is not atomic against the path
+    // being swapped for a symlink after the check and before Chromium opens --user-data-dir. Closing that
+    // window would need an operation the guest file contract does not offer. It is left open deliberately —
+    // whatever could perform the swap already runs inside this project's own container, which is the
+    // boundary that actually holds, and it would gain nothing it does not already have.
+    const guest = async (operation) => sandbox.projectFiles({ project, accountUserId: actor, expectedGeneration: generation, operation });
+    const statEntry = async (path) => {
+        const result = await guest({ kind: 'stat', path });
+        if (result.kind !== 'stat')
+            throw new Error(`Project browser storage returned ${result.kind} for a stat.`);
+        return result.entry;
+    };
     for (const path of ['/data/browser', '/data/browser/downloads']) {
-        await sandbox.projectFiles({ project, accountUserId: actor, expectedGeneration: generation, operation: { kind: 'mkdir', path } });
+        let entry = await statEntry(path);
+        if (!entry) {
+            try {
+                await guest({ kind: 'mkdir', path });
+            }
+            catch (error) {
+                // Only a concurrent open that won the create is tolerated; the stat below is what accepts it.
+                if (error.code !== 'already_exists')
+                    throw error;
+            }
+            entry = await statEntry(path);
+        }
+        if (entry?.kind !== 'directory')
+            throw new Error(`Project browser storage "${path}" is not a directory.`);
     }
     // The shell only maps the two documented Chrome pipe descriptors. All arguments remain argv data.
     const prepared = await sandbox.prepareExecution({ projectRef: project, cwd: '/workspace', leaseKind: 'browser', command: {
