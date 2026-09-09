@@ -23,7 +23,8 @@
   ],
   "capabilities": {
     "reads": [
-      "embeddings"
+      "embeddings",
+      "controls"
     ],
     "network": true
   },

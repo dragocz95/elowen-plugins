@@ -4,12 +4,17 @@
 // ctx.dataDir()/index.db. CodebaseSearch then cosine-ranks chunks by MEANING (unlike the files plugin's
 // lexical Search). The index is per-REPO and plugin-owned — it never touches the user-scoped memory
 // store. Every disk read + every returned path is confined to the session's repos via ctx.assertPathAllowed.
+//
+// A MANAGED project keeps its files inside its environment: those are read through the Sandbox provider's
+// guest file operations, keyed in the index by the project's stable id (`managed:<projectId>`) rather than
+// by the guest path `/workspace`, which every project shares. Embedding stays central — the guest never
+// holds the provider credentials — and every guest read re-checks the acting account's membership.
 import { defineTool, truncateHead, truncateLine } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync, realpathSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, posix, resolve } from 'node:path';
 
 // ── defaults (all overridable via configSchema) ──────────────────────────────────────────────────────
 const DEFAULT_INCLUDE = [
@@ -335,18 +340,123 @@ function realAbs(p) {
   try { return realpathSync(resolve(p)); } catch { return resolve(p); }
 }
 
+// ── index sources ────────────────────────────────────────────────────────────────────────────────────
+// A source is what one index key reads from: `collect` lists the candidate files with their identity
+// (path, size, mtime, and the stored hash when size+mtime still match), `read` returns one file's text.
+
+const MANAGED_KEY_PREFIX = 'managed:';
+const isManagedKey = (repo) => String(repo).startsWith(MANAGED_KEY_PREFIX);
+/** What a repo key is called in tool output: a host repo by its path, a managed project by its guest root. */
+const repoLabel = (repo) => (isManagedKey(repo) ? `/workspace (managed project ${repo.slice(MANAGED_KEY_PREFIX.length)})` : repo);
+
+function hostSource(repoAbs) {
+  return {
+    key: repoAbs,
+    authorize: async () => {},
+    collect: async (cfg, dbFilesMap) => collectFiles(repoAbs, cfg, dbFilesMap),
+    read: async (entry) => { try { return readFileSync(entry.abs, 'utf-8'); } catch { return null; } },
+  };
+}
+
+/** The managed project selected for the current turn, or null on a host turn. */
+function managedProject(ctx) {
+  const ref = typeof ctx.currentAccess === 'function' ? ctx.currentAccess()?.projectRef : undefined;
+  return ref?.kind === 'managed' ? { kind: 'managed', projectId: ref.projectId } : null;
+}
+
+const GUEST_READ_BYTES = 256 * 1024; // within the guest transport's 512 KiB bound
+
+/** A managed project's `/workspace`, read through the Sandbox provider. Every guest operation carries the
+ *  project reference and the acting account, and the provider re-checks membership on each one, so a
+ *  revoked member's next pass fails at the boundary instead of reading on. The walk lists directories
+ *  only; a changed file is read lazily by `read`, once it is actually picked for embedding. */
+function managedSource(ctx, project, repoArg) {
+  if (repoArg !== undefined && posix.resolve('/workspace', String(repoArg)) !== '/workspace') {
+    throw new Error('a managed project indexes its /workspace tree; omit repo or pass /workspace');
+  }
+  if (ctx.currentAccess().workspaceRef) throw new Error('a legacy exact workspace cannot widen into a managed project');
+  const accountUserId = ctx.currentAccountUserId();
+  if (!Number.isSafeInteger(accountUserId) || accountUserId < 1) throw new Error('indexing a managed project requires an acting account');
+  const provider = () => {
+    const sandbox = ctx.control('sandbox');
+    if (!sandbox) throw new Error('the semantic index of a managed project is unavailable because it requires the Sandbox environment provider');
+    return sandbox;
+  };
+  const files = async (operation) => {
+    const result = await provider().projectFiles({ project, accountUserId, operation });
+    if (result.kind !== operation.kind) throw new Error(`managed filesystem returned ${result.kind} for ${operation.kind}`);
+    return result;
+  };
+  return {
+    key: `${MANAGED_KEY_PREFIX}${project.projectId}`,
+    authorize: async () => {
+      const environment = await provider().environmentFor({ project, accountUserId });
+      if (environment?.projectId !== project.projectId) throw new Error('managed project binding no longer resolves');
+    },
+    collect: async (cfg, dbFilesMap) => {
+      const m = makeMatchers(cfg);
+      const out = [];
+      const visit = async (dir, relPrefix) => {
+        let cursor;
+        do {
+          if (out.length >= MAX_FILES) return;
+          const page = await files({ kind: 'list', path: dir, limit: 1000, ...(cursor ? { cursor } : {}) });
+          for (const ent of page.entries) {
+            if (out.length >= MAX_FILES) return;
+            const name = posix.basename(ent.path);
+            const rel = relPrefix ? `${relPrefix}/${name}` : name;
+            if (ent.kind === 'directory') {
+              if (!m.skipDir(name, rel)) await visit(ent.path, rel);
+            } else if (ent.kind === 'file') {
+              if (!m.includeFile(rel) || m.excludeFile(rel, name) || ent.size > cfg.maxFileBytes) continue;
+              const mtimeMs = Math.floor(Date.parse(ent.modifiedAt));
+              const prev = dbFilesMap.get(rel);
+              const unchanged = prev && prev.mtime_ms === mtimeMs && prev.size === ent.size;
+              out.push({ path: rel, guestPath: ent.path, mtimeMs, size: ent.size, hash: unchanged ? prev.file_hash : null, body: null });
+            }
+          }
+          cursor = page.nextCursor ?? undefined;
+        } while (cursor);
+      };
+      await visit('/workspace', '');
+      return out;
+    },
+    read: async (entry) => {
+      const parts = [];
+      let offset = 0;
+      let version;
+      let total;
+      do {
+        const result = await files({ kind: 'read', path: entry.guestPath, offset, length: GUEST_READ_BYTES, maxBytes: GUEST_READ_BYTES });
+        if (version !== undefined && (version !== result.version || total !== result.totalBytes)) return null; // changed under us; next pass
+        version = result.version;
+        total = result.totalBytes;
+        if (total > entry.size) return null; // grew past the size the walk admitted
+        const bytes = Buffer.from(result.base64, 'base64');
+        if (bytes.length === 0 && offset < total) return null;
+        parts.push(bytes);
+        offset += bytes.length;
+      } while (offset < total);
+      return Buffer.concat(parts).toString('utf-8');
+    },
+  };
+}
+
 // ── indexing ─────────────────────────────────────────────────────────────────────────────────────────
 
-/** Reindex one repo: plan the incremental change set, prune vanished files, then re-chunk + re-embed the
+/** Reindex one source: plan the incremental change set, prune vanished files, then re-chunk + re-embed the
  *  changed/new/stale files (bounded by `budget` chunks per pass). Returns a stats object; on a provider
  *  error it returns `{ error }` with whatever was done so far. Never throws. */
-async function reindexRepo(ctx, db, repoAbs, opts) {
+async function reindexRepo(ctx, db, source, opts) {
   const desc = ctx.embeddings.descriptor();
   if (!desc) return { error: 'embeddings not configured' };
   const cfg = opts.cfg;
+  const repoAbs = source.key;
   const dbFileRows = db.prepare('SELECT path, mtime_ms, size, file_hash FROM files WHERE repo = ?').all(repoAbs);
   const dbFilesMap = new Map(dbFileRows.map((r) => [r.path, r]));
-  const disk = collectFiles(repoAbs, cfg, dbFilesMap);
+  let disk;
+  try { disk = await source.collect(cfg, dbFilesMap); }
+  catch (e) { return { error: e instanceof Error ? e.message : String(e), filesScanned: 0, filesChanged: 0, chunksEmbedded: 0, pruned: 0 }; }
   // Per-file model/dimension staleness: the exact paths whose stored chunks were embedded under a
   // different model (or width, when the provider pins one). Re-embedding ONLY these — not the whole repo
   // on every pass — is what makes a budget-capped model switch converge (see planIncremental): each pass
@@ -377,7 +487,21 @@ async function reindexRepo(ctx, db, repoAbs, opts) {
     const entry = diskMap.get(p);
     if (!entry) continue;
     let text = entry.body;
-    if (text == null) { try { text = readFileSync(entry.abs, 'utf-8'); } catch { continue; } }
+    if (text == null) {
+      try { text = await source.read(entry); }
+      catch (e) { return { error: e instanceof Error ? e.message : String(e), filesScanned: disk.length, filesChanged, chunksEmbedded, pruned: plan.toPrune.length }; }
+      if (text == null) continue;
+    }
+    if (entry.hash == null) {
+      // Read lazily (a guest file): hash it now. A touched file whose content did not change is
+      // re-stamped without spending an embedding.
+      if (looksBinaryOrMinified(text)) continue;
+      entry.hash = hashText(text);
+      if (dbFilesMap.get(p)?.file_hash === entry.hash && !opts.full && !stalePaths.has(p)) {
+        upFile.run(repoAbs, p, entry.mtimeMs, entry.size, entry.hash, nowIso());
+        continue;
+      }
+    }
     const chunks = chunkFile(text, p, cfg);
     if (chunks.length === 0) {
       // Empty file: drop any stale chunks and record the (now empty) files row so it isn't re-scanned.
@@ -404,32 +528,31 @@ async function reindexRepo(ctx, db, repoAbs, opts) {
 
 // ── repo scoping ─────────────────────────────────────────────────────────────────────────────────────
 
-/** A managed project keeps its files inside its environment, and this index only ever reads the HOST
- *  filesystem. On such a turn `allowedRoots()` is the GUEST path `/workspace`, which resolves here to a
- *  host path of the same name: on a host that happens to have one, indexing would read unrelated host
- *  content and serve it as the project's own code. Refuse instead, and say so. */
-function managedTurnRefusal(ctx) {
-  const ref = typeof ctx.currentAccess === 'function' ? ctx.currentAccess()?.projectRef : undefined;
-  if (ref?.kind !== 'managed') return null;
-  return new Error('the semantic code index does not cover managed project environments — its files live '
-    + 'inside the project environment, which this index cannot read. Use Search or Grep, which run in the '
-    + 'environment.');
-}
-
-/** The concrete repos to (auto)index for the current session. An explicit `repoArg` is asserted against
- *  the session's policy (throws when out of scope). Otherwise: the session's allowed roots, or — for an
- *  admin all-access session with no roots — the turn's default working directory (the current project). */
-function indexTargets(ctx, repoArg) {
-  if (repoArg) return [realAbs(ctx.assertPathAllowed(repoArg))];
+/** The sources to (auto)index for the current session. On a managed turn that is exactly the selected
+ *  project, read through the guest. On a host turn an explicit `repoArg` is asserted against the session's
+ *  policy (throws when out of scope); otherwise the session's allowed roots, or — for an admin all-access
+ *  session with no roots — the turn's default working directory (the current project). */
+function indexSources(ctx, repoArg) {
+  const managed = managedProject(ctx);
+  if (managed) return [managedSource(ctx, managed, repoArg)];
+  if (repoArg) return [hostSource(realAbs(ctx.assertPathAllowed(repoArg)))];
   const roots = ctx.allowedRoots();
-  if (roots.length) return roots.map(realAbs);
+  if (roots.length) return roots.map((root) => hostSource(realAbs(root)));
   const cwd = typeof ctx.defaultCwd === 'function' ? ctx.defaultCwd() : undefined;
-  return cwd ? [realAbs(cwd)] : [];
+  return cwd ? [hostSource(realAbs(cwd))] : [];
 }
 
-/** Which repos' chunks the current session may SEE. Returns null for an admin all-access session with no
- *  explicit repo (every indexed repo is visible); otherwise the concrete allowed repo list (possibly []). */
-function searchScope(ctx, repoArg) {
+/** Which repos' chunks the current session may SEE. A managed turn sees its own project's key only, after
+ *  the provider has confirmed the acting account still reaches that project. Returns null for an admin
+ *  all-access HOST session with no explicit repo (every host repo is visible); otherwise the concrete
+ *  allowed repo list (possibly []). */
+async function searchScope(ctx, repoArg) {
+  const managed = managedProject(ctx);
+  if (managed) {
+    const source = managedSource(ctx, managed, repoArg);
+    await source.authorize();
+    return [source.key];
+  }
   if (repoArg) return [realAbs(ctx.assertPathAllowed(repoArg))];
   const roots = ctx.allowedRoots();
   if (roots.length) return roots.map(realAbs);
@@ -439,12 +562,12 @@ function searchScope(ctx, repoArg) {
 /** Stream the SCORING columns (id/repo/path/lines/symbol/vector — deliberately NOT `body`) for the
  *  in-scope chunks that match the CURRENT embedding model AND width, filtered in SQL so a query never
  *  materializes the whole table into JS and never cosines a foreign-model or wrong-width vector. Returns a
- *  better-sqlite3 row cursor (`.iterate`). `scope === null` = admin all-access (every repo). Callers guard
- *  the empty-scope case before calling. */
+ *  better-sqlite3 row cursor (`.iterate`). `scope === null` = admin all-access over every HOST repo; a
+ *  managed project's rows are reachable only through its own key. Callers guard the empty-scope case. */
 function chunkCursor(db, scope, model, dims) {
   const cols = 'id, repo, path, start_line, end_line, symbol, vector';
   if (scope === null) {
-    return db.prepare(`SELECT ${cols} FROM chunks WHERE model = ? AND dimensions = ?`).iterate(model, dims);
+    return db.prepare(`SELECT ${cols} FROM chunks WHERE repo NOT LIKE '${MANAGED_KEY_PREFIX}%' AND model = ? AND dimensions = ?`).iterate(model, dims);
   }
   const placeholders = scope.map(() => '?').join(',');
   return db.prepare(`SELECT ${cols} FROM chunks WHERE repo IN (${placeholders}) AND model = ? AND dimensions = ?`).iterate(...scope, model, dims);
@@ -508,10 +631,11 @@ class ScheduledIndexer {
    *  rows got there through an admin-gated CodebaseReindex, so the timer never widens the indexed set by
    *  itself. `listed` takes the operator's explicit paths; anything that is not a readable directory is
    *  skipped with a warning rather than walked. Session scoping (ctx.assertPathAllowed, ctx.allowedRoots)
-   *  is unusable here — it reads a per-turn policy that does not exist on a timer. */
+   *  is unusable here — it reads a per-turn policy that does not exist on a timer. Managed projects are
+   *  left out for the same reason: their guest reads need an acting member, which a timer has not got. */
   targets() {
     if (this.cfg.reindexScope !== 'listed') {
-      return this.getDb().prepare('SELECT DISTINCT repo FROM files').all().map((r) => r.repo);
+      return this.getDb().prepare(`SELECT DISTINCT repo FROM files WHERE repo NOT LIKE '${MANAGED_KEY_PREFIX}%'`).all().map((r) => r.repo);
     }
     const out = [];
     for (const entry of this.cfg.reindexRepos) {
@@ -573,13 +697,14 @@ export function register(ctx) {
   //    this map (a plugin reload swaps in a fresh closure over the same index.db) still sees the claim.
   //    It is re-stamped AFTER the pass too, so a pass slower than its own window cannot be re-claimed by
   //    such a caller the moment it finishes.
-  const runGuardedPass = async (database, repo, windowMs) => {
+  const runGuardedPass = async (database, source, windowMs) => {
+    const repo = source.key;
     const running = inFlight.get(repo);
     if (running) { await running; return null; }
     const last = Number(getMeta(database, `reindex:${repo}`) ?? 0);
     if (Date.now() - last < windowMs) return null;
     setMeta(database, `reindex:${repo}`, String(Date.now()));
-    const pass = reindexRepo(ctx, database, repo, { cfg, budget: cfg.reindexEmbedBudget, full: false })
+    const pass = reindexRepo(ctx, database, source, { cfg, budget: cfg.reindexEmbedBudget, full: false })
       .catch(() => null) // best-effort — never break a search
       .finally(() => { inFlight.delete(repo); });
     inFlight.set(repo, pass);
@@ -602,9 +727,9 @@ export function register(ctx) {
   };
 
   // Lazily refresh every stale-by-time repo a search touches, so the index rarely needs CodebaseReindex.
-  const maybeAutoReindex = async (database, repos) => {
+  const maybeAutoReindex = async (database, sources) => {
     if (!cfg.autoReindex || !ctx.embeddings.isConfigured()) return;
-    for (const repo of repos) await runGuardedPass(database, repo, AUTO_REINDEX_DEBOUNCE_MS);
+    for (const source of sources) await runGuardedPass(database, source, AUTO_REINDEX_DEBOUNCE_MS);
   };
 
   ctx.registerTool(defineTool({
@@ -636,14 +761,12 @@ export function register(ctx) {
     }),
     execute: async (_id, p) => {
       try {
-        const managed = managedTurnRefusal(ctx);
-        if (managed) return fail('CodebaseSearch', managed);
         if (!ctx.embeddings.isConfigured()) {
           return fail('CodebaseSearch', new Error('semantic code search needs an embedding model — set one in Settings → Memory (the same model memory uses). For literal text search use Search.'));
         }
         const query = String(p.query ?? '').trim();
         if (!query) return fail('CodebaseSearch', new Error('query is required'));
-        const scope = searchScope(ctx, p.repo);
+        const scope = await searchScope(ctx, p.repo);
         if (Array.isArray(scope) && scope.length === 0) return ok('CodebaseSearch', 'No accessible repositories to search.', { matches: 0 });
         const database = getDb();
         const desc = ctx.embeddings.descriptor();
@@ -655,7 +778,7 @@ export function register(ctx) {
         let kickedReindex = false;
         if (cfg.autoReindex && ctx.isAdminSession()) {
           kickedReindex = true;
-          void maybeAutoReindex(database, indexTargets(ctx, p.repo)).catch(() => {});
+          void maybeAutoReindex(database, indexSources(ctx, p.repo)).catch(() => {});
         }
 
         const qv = await ctx.embeddings.embed(query);
@@ -670,8 +793,9 @@ export function register(ctx) {
           if (glob && !glob.test(row.path)) continue;
           const score = cosine(qv, unpackVector(row.vector));
           if (score < cfg.relevanceFloor) continue;
-          // Defense-in-depth: re-assert the absolute path is inside the session's repos (symlink-safe).
-          try { ctx.assertPathAllowed(join(row.repo, row.path)); } catch { continue; }
+          // Defense-in-depth for a host row: re-assert the absolute path is inside the session's repos
+          // (symlink-safe). A managed row has no host path; its scope is the single project key above.
+          if (!isManagedKey(row.repo)) { try { ctx.assertPathAllowed(join(row.repo, row.path)); } catch { continue; } }
           pushTopK(top, { id: row.id, path: row.path, start_line: row.start_line, end_line: row.end_line, symbol: row.symbol, score }, k);
         }
 
@@ -725,19 +849,17 @@ export function register(ctx) {
     }),
     execute: async (_id, p) => {
       try {
-        const managed = managedTurnRefusal(ctx);
-        if (managed) return fail('CodebaseReindex', managed);
         if (!ctx.embeddings.isConfigured()) {
           return fail('CodebaseReindex', new Error('no embedding model configured — set one in Settings → Memory'));
         }
-        const targets = indexTargets(ctx, p.repo);
-        if (targets.length === 0) return fail('CodebaseReindex', new Error('no repository to index'));
+        const sources = indexSources(ctx, p.repo);
+        if (sources.length === 0) return fail('CodebaseReindex', new Error('no repository to index'));
         const database = getDb();
         const results = [];
-        for (const repo of targets) {
-          const r = await runExclusivePass(repo, () => reindexRepo(ctx, database, repo, { cfg, budget: cfg.reindexEmbedBudget, full: !!p.full }));
-          setMeta(database, `reindex:${repo}`, String(Date.now()));
-          results.push({ repo, ...r });
+        for (const source of sources) {
+          const r = await runExclusivePass(source.key, () => reindexRepo(ctx, database, source, { cfg, budget: cfg.reindexEmbedBudget, full: !!p.full }));
+          setMeta(database, `reindex:${source.key}`, String(Date.now()));
+          results.push({ repo: repoLabel(source.key), ...r });
         }
         const anyError = results.find((r) => r.error);
         const lines = results.map((r) => r.error
@@ -775,13 +897,11 @@ export function register(ctx) {
     }),
     execute: async (_id, p) => {
       try {
-        const managed = managedTurnRefusal(ctx);
-        if (managed) return fail('CodebaseStatus', managed);
         const database = getDb();
-        const scope = searchScope(ctx, p.repo);
+        const scope = await searchScope(ctx, p.repo);
         const desc = ctx.embeddings.descriptor();
         const repoFilter = scope === null
-          ? database.prepare('SELECT DISTINCT repo FROM files').all().map((r) => r.repo)
+          ? database.prepare(`SELECT DISTINCT repo FROM files WHERE repo NOT LIKE '${MANAGED_KEY_PREFIX}%'`).all().map((r) => r.repo)
           : scope;
         if (repoFilter.length === 0) return ok('CodebaseStatus', 'No repositories indexed yet. Run CodebaseReindex.', { repos: 0, configured: !!desc });
         const rows = repoFilter.map((repo) => {
@@ -791,7 +911,7 @@ export function register(ctx) {
           const models = database.prepare('SELECT DISTINCT model, dimensions FROM chunks WHERE repo = ?').all(repo);
           const stale = desc ? models.some((m) => m.model !== desc.model || (desc.dimensions != null && m.dimensions !== desc.dimensions)) : false;
           const built = models.map((m) => `${m.model}/${m.dimensions}`).join(', ') || '(none)';
-          return `${repo}\n    chunks: ${chunks}, files: ${files}, lastIndexed: ${last ?? 'never'}, builtWith: ${built}${stale ? '  [STALE — reindex]' : ''}`;
+          return `${repoLabel(repo)}\n    chunks: ${chunks}, files: ${files}, lastIndexed: ${last ?? 'never'}, builtWith: ${built}${stale ? '  [STALE — reindex]' : ''}`;
         });
         const header = desc
           ? `Embedding model: ${desc.model} (dims ${desc.dimensions ?? 'auto'})`
@@ -810,8 +930,20 @@ export function register(ctx) {
     logger: ctx.logger,
     getDb,
     isConfigured: () => ctx.embeddings.isConfigured(),
-    runPass: runGuardedPass,
+    runPass: (database, repo, windowMs) => runGuardedPass(database, hostSource(repo), windowMs),
   }));
+
+  // A deleted project's chunks would otherwise sit in the central index forever under an id nobody can
+  // select again; the bodies are project content, so they go with the project.
+  ctx.registerProjectRemoved((projectId) => {
+    const key = `${MANAGED_KEY_PREFIX}${projectId}`;
+    const database = getDb();
+    database.transaction(() => {
+      database.prepare('DELETE FROM chunks WHERE repo = ?').run(key);
+      database.prepare('DELETE FROM files WHERE repo = ?').run(key);
+      database.prepare('DELETE FROM meta WHERE key = ?').run(`reindex:${key}`);
+    })();
+  });
 
   ctx.logger.info('registered CodebaseSearch, CodebaseReindex, CodebaseStatus');
 }

@@ -59,10 +59,11 @@ const within = (abs, root) => {
 /** Mirrors the host's isEmbeddingConfigured: a usable model plus somewhere to send it. */
 const isEmbeddingConfigured = (cfg) => !!cfg && cfg.model.trim() !== '' && (!!cfg.providerId || !!cfg.baseUrl);
 
-const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig }) => {
+const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig, sandbox = null }) => {
   const tools = [];
   const platforms = [];
-  const session = { admin: true, roots: [], workDir: undefined };
+  const projectRemoved = [];
+  const session = { admin: true, roots: [], workDir: undefined, accountUserId: 1 };
 
   // The live embedding config, re-read on every call — the daemon reads it per call too, so switching
   // the model in Settings → Memory applies without a plugin reload.
@@ -86,9 +87,13 @@ const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig }) => {
     },
     registerTool: (tool) => tools.push(tool),
     registerPlatform: (platform) => platforms.push(platform),
+    registerProjectRemoved: (fn) => projectRemoved.push(fn),
     isAdminSession: () => session.admin,
     // The daemon's access view; a managed project turn carries a managed projectRef here.
     currentAccess: () => ({ projectRef: session.projectRef }),
+    currentAccountUserId: () => session.accountUserId,
+    // The Sandbox environment provider, as the registry hands it to an approved consumer.
+    control: (name) => (name === 'sandbox' ? sandbox : undefined),
     allowedRoots: () => session.roots,
     defaultCwd: () => session.workDir ?? session.roots[0] ?? process.cwd(),
     assertPathAllowed: (p) => {
@@ -121,7 +126,11 @@ const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig }) => {
     asAdmin: (workDir) => { session.admin = true; session.roots = []; session.workDir = workDir; session.projectRef = undefined; },
     asUser: (roots, workDir) => { session.admin = false; session.roots = roots; session.workDir = workDir; session.projectRef = undefined; },
     // A managed project turn: the daemon reports the GUEST root, and there is no host path at all.
-    asManagedProject: (projectId) => { session.admin = true; session.roots = ['/workspace']; session.workDir = '/workspace'; session.projectRef = { kind: 'managed', projectId }; },
+    asManagedProject: (projectId, { accountUserId = 1, admin = true } = {}) => {
+      session.admin = admin; session.roots = ['/workspace']; session.workDir = '/workspace';
+      session.projectRef = { kind: 'managed', projectId }; session.accountUserId = accountUserId;
+    },
+    projectRemoved: (projectId) => Promise.all(projectRemoved.map((fn) => fn(projectId))),
     indexer: () => {
       const found = platforms.find((p) => p.name === 'codebase-index');
       if (!found) throw new Error('scheduled indexer not registered');
@@ -817,37 +826,208 @@ describe('codebase plugin — scheduled reindex', () => {
   });
 });
 
+// ── a stand-in for the Sandbox environment provider ──────────────────────────────────────────────────
+// Speaks exactly the `projectFiles` list/read shape and the `environmentFor` membership check the plugin
+// consumes. Every project has its own guest tree rooted at `/workspace`, so two projects sharing the same
+// guest paths is the normal case, not a corner.
+const makeGuestProvider = () => {
+  const projects = new Map(); // projectId → { files: Map<guestPath, { text, mtime, version }>, members: Set }
+  const ops = [];
+  const project = (id) => {
+    if (!projects.has(id)) projects.set(id, { files: new Map(), members: new Set([1]) });
+    return projects.get(id);
+  };
+  const authorize = (ref, accountUserId) => {
+    if (ref?.kind !== 'managed') throw new Error('An explicit managed Project is required');
+    if (!project(ref.projectId).members.has(accountUserId)) throw Object.assign(new Error('Project access is denied'), { code: 'project_forbidden' });
+    return project(ref.projectId);
+  };
+  const stat = (files, path) => {
+    const file = files.get(path);
+    if (file) return { path, kind: 'file', size: Buffer.byteLength(file.text), modifiedAt: new Date(file.mtime).toISOString(), version: file.version };
+    if ([...files.keys()].some((p) => p.startsWith(`${path}/`)) || path === '/workspace') return { path, kind: 'directory', size: 0, modifiedAt: new Date(0).toISOString(), version: 'dir' };
+    return null;
+  };
+  return {
+    ops,
+    write: (projectId, path, text) => {
+      const files = project(projectId).files;
+      const prev = files.get(path);
+      files.set(path, { text, mtime: Date.now() + files.size, version: `v${(prev ? Number(prev.version.slice(1)) : 0) + 1}` });
+    },
+    touch: (projectId, path) => { const f = project(projectId).files.get(path); f.mtime += 5_000; f.version = `${f.version}t`; },
+    remove: (projectId, path) => project(projectId).files.delete(path),
+    setMembers: (projectId, members) => { project(projectId).members = new Set(members); },
+    control: {
+      async environmentFor({ project: ref, accountUserId }) {
+        ops.push({ kind: 'environmentFor', projectId: ref.projectId, accountUserId });
+        authorize(ref, accountUserId);
+        return { projectId: ref.projectId, generation: 1, state: 'running', desiredState: 'running', lastError: null, limits: {} };
+      },
+      async projectFiles({ project: ref, accountUserId, operation }) {
+        ops.push({ kind: operation.kind, projectId: ref.projectId, accountUserId, path: operation.path });
+        const { files } = authorize(ref, accountUserId);
+        if (operation.kind === 'list') {
+          const names = new Set();
+          for (const p of files.keys()) {
+            if (!p.startsWith(`${operation.path}/`)) continue;
+            names.add(p.slice(operation.path.length + 1).split('/')[0]);
+          }
+          const entries = [...names].sort().map((name) => stat(files, `${operation.path}/${name}`));
+          return { kind: 'list', entries, truncated: false, nextCursor: null };
+        }
+        if (operation.kind === 'read') {
+          const file = files.get(operation.path);
+          if (!file) throw new Error('No such file');
+          const bytes = Buffer.from(file.text);
+          const slice = bytes.subarray(operation.offset ?? 0, (operation.offset ?? 0) + Math.min(operation.length ?? operation.maxBytes, operation.maxBytes));
+          return { kind: 'read', base64: slice.toString('base64'), version: file.version, totalBytes: bytes.length };
+        }
+        if (operation.kind === 'stat') return { kind: 'stat', entry: stat(files, operation.path) };
+        throw new Error(`unsupported guest operation ${operation.kind}`);
+      },
+    },
+  };
+};
+
 describe('managed project environments', () => {
-  // `allowedRoots()` on a managed turn is the GUEST path `/workspace`. This index only reads the host,
-  // so without a refusal it would resolve that guest path against the HOST filesystem: on a host that
-  // has a `/workspace` of its own, a managed project's search would return unrelated host content as
-  // though it were the project's code. All three tools must refuse instead.
+  // On a managed turn the plugin must read the GUEST through the provider and key the index by the
+  // project's id: `/workspace` is every project's root, and the host has no such tree to read.
   let host;
-  let home;
-  before(() => { home = mkdtempSync(join(tmpdir(), 'cbm-')); host = makeHost(home); });
-  after(() => rmSync(home, { recursive: true, force: true }));
+  let guest;
+  let dataRoot;
+  const liveCfg = { providerId: 'p', model: 'fake-1', dimensions: VOCAB.length };
+  const indexDb = () => new Database(join(dataRoot, 'codebase', 'index.db'), { readonly: true });
 
-  for (const [tool, params] of [['CodebaseSearch', { query: 'anything' }], ['CodebaseReindex', {}], ['CodebaseStatus', {}]]) {
-    it(`${tool} refuses on a managed project turn`, async () => {
-      host.asManagedProject(7);
-      const result = await host.runTool(tool, params);
-      const text = JSON.stringify(result);
-      assert.match(text, /does not cover managed project environments/);
-      // The refusal must not be a generic failure that happens to mention nothing about the guest.
-      assert.doesNotMatch(text, /\/workspace/);
-    });
-  }
+  before(() => {
+    dataRoot = mkdtempSync(join(tmpdir(), 'elowen-cbm-'));
+    guest = makeGuestProvider();
+    guest.write(7, '/workspace/src/math.ts', 'export function cosineSimilarity(a, b) {\n  // cosine similarity of two vector inputs: dot product over norms\n  return dot(a, b);\n}\n');
+    guest.write(7, '/workspace/src/queue.ts', 'export class EmbeddingQueue {\n  // background job that fills in missing memory embedding vectors\n}\n');
+    guest.write(7, '/workspace/node_modules/dep/index.js', 'cosine cosine cosine vector vector\n');
+    guest.write(7, '/workspace/notes.bin', 'cosine cosine cosine');
+    // Project 8 has the SAME guest path with different content: proof that the key is the project, not the path.
+    guest.write(8, '/workspace/src/math.ts', 'export function httpClient() {\n  // http client search index\n}\n');
+    host = makeHost({ dataRoot, embeddings: fakeEmbedder, embeddingConfig: () => liveCfg, sandbox: guest.control });
+  });
+  after(() => rmSync(dataRoot, { recursive: true, force: true }));
 
-  it('still answers a normal host-project turn', async () => {
-    const repo = mkdtempSync(join(tmpdir(), 'cbh-'));
-    try {
-      writeFileSync(join(repo, 'a.js'), 'export const search = 1;\n');
-      host.asAdmin(realpathSync(repo));
-      const result = await host.runTool('CodebaseStatus', {});
-      assert.doesNotMatch(JSON.stringify(result), /does not cover managed project environments/);
-    } finally {
-      rmSync(repo, { recursive: true, force: true });
+  it('reindex reads the guest through the provider and keys the rows by project id, never by host path', async () => {
+    host.asManagedProject(7);
+    const res = await host.runTool('CodebaseReindex', {});
+    assert.equal(res.details.ok, true, JSON.stringify(res.content));
+    assert.ok(res.details.chunksEmbedded > 0);
+    assert.match(res.content[0].text, /\/workspace \(managed project 7\)/);
+    const db = indexDb();
+    const repos = db.prepare('SELECT DISTINCT repo FROM chunks').all().map((r) => r.repo);
+    assert.deepEqual(repos, ['managed:7']);
+    const paths = db.prepare('SELECT DISTINCT path FROM chunks ORDER BY path').all().map((r) => r.path);
+    assert.deepEqual(paths, ['src/math.ts', 'src/queue.ts']); // node_modules pruned, notes.bin not included
+    db.close();
+    // Every byte came through the provider under the acting account's identity.
+    assert.ok(guest.ops.some((op) => op.kind === 'list' && op.projectId === 7 && op.accountUserId === 1));
+    assert.ok(guest.ops.some((op) => op.kind === 'read' && op.path === '/workspace/src/math.ts'));
+    assert.ok(!guest.ops.some((op) => op.kind === 'read' && op.path.includes('node_modules')));
+  });
+
+  it('search on the managed turn answers from its own project and reports guest-relative paths', async () => {
+    host.asManagedProject(7);
+    const res = await host.runTool('CodebaseSearch', { query: 'cosine similarity of two vectors', k: 3 });
+    assert.equal(res.details.ok, true, JSON.stringify(res.content));
+    assert.ok(res.content[0].text.split('\n')[0].startsWith('src/math.ts:'));
+    // The membership check ran against the live provider before any chunk was read.
+    assert.ok(guest.ops.some((op) => op.kind === 'environmentFor' && op.projectId === 7));
+  });
+
+  it('two projects sharing the same guest paths keep separate indexes', async () => {
+    host.asManagedProject(8);
+    const reindexed = await host.runTool('CodebaseReindex', {});
+    assert.equal(reindexed.details.ok, true);
+    const cosine = await host.runTool('CodebaseSearch', { query: 'cosine similarity vector', k: 3 });
+    assert.equal(cosine.details.ok, true);
+    assert.equal(cosine.details.matches, 0, 'project 8 must not see project 7 math.ts');
+    const http = await host.runTool('CodebaseSearch', { query: 'http client', k: 3 });
+    assert.ok(http.content[0].text.startsWith('src/math.ts:'), http.content[0].text);
+    host.asManagedProject(7);
+    const still = await host.runTool('CodebaseSearch', { query: 'http client', k: 3 });
+    assert.equal(still.details.matches, 0, 'project 7 must not see project 8 content');
+  });
+
+  it('a host session, even an admin with all access, never sees a managed project\'s rows', async () => {
+    host.asAdmin(tmpDir('cbh'));
+    const status = await host.runTool('CodebaseStatus', {});
+    assert.doesNotMatch(status.content[0].text, /managed/);
+    const res = await host.runTool('CodebaseSearch', { query: 'cosine similarity of two vectors', k: 3 });
+    assert.doesNotMatch(JSON.stringify(res), /src\/math\.ts/);
+  });
+
+  it('status on the managed turn reports that project only', async () => {
+    host.asManagedProject(7);
+    const res = await host.runTool('CodebaseStatus', {});
+    assert.equal(res.details.repos, 1);
+    assert.match(res.content[0].text, /\/workspace \(managed project 7\)\n\s+chunks: \d+, files: 2/);
+    assert.doesNotMatch(res.content[0].text, /project 8/);
+  });
+
+  it('an unchanged file is not read again; a touched file with the same content is re-stamped without an embedding', async () => {
+    host.asManagedProject(7);
+    guest.ops.length = 0;
+    const first = await host.runTool('CodebaseReindex', {});
+    assert.equal(first.details.chunksEmbedded, 0);
+    assert.equal(guest.ops.filter((op) => op.kind === 'read').length, 0);
+    guest.touch(7, '/workspace/src/queue.ts');
+    const second = await host.runTool('CodebaseReindex', {});
+    assert.equal(second.details.chunksEmbedded, 0);
+    assert.deepEqual(guest.ops.filter((op) => op.kind === 'read').map((op) => op.path), ['/workspace/src/queue.ts']);
+    guest.write(7, '/workspace/src/queue.ts', 'export class EmbeddingQueue {\n  // background job that fills in missing memory embedding vectors, now with http\n}\n');
+    const third = await host.runTool('CodebaseReindex', {});
+    assert.ok(third.details.chunksEmbedded > 0);
+    guest.remove(7, '/workspace/src/queue.ts');
+    const fourth = await host.runTool('CodebaseReindex', {});
+    assert.equal(fourth.details.pruned, 1);
+  });
+
+  it('a revoked member is refused by the provider on every tool, with no host fallback', async () => {
+    guest.setMembers(7, [1]);
+    host.asManagedProject(7, { accountUserId: 2 });
+    for (const [tool, params] of [['CodebaseSearch', { query: 'anything' }], ['CodebaseReindex', {}], ['CodebaseStatus', {}]]) {
+      const res = await host.runTool(tool, params);
+      assert.equal(res.details.ok, false, tool);
+      assert.match(JSON.stringify(res), /Project access is denied/, tool);
     }
+  });
+
+  it('a repo argument other than the guest root is refused on a managed turn', async () => {
+    host.asManagedProject(7);
+    const res = await host.runTool('CodebaseSearch', { query: 'anything', repo: '/etc' });
+    assert.equal(res.details.ok, false);
+    assert.match(JSON.stringify(res), /omit repo or pass \/workspace/);
+    const okRoot = await host.runTool('CodebaseStatus', { repo: '/workspace' });
+    assert.equal(okRoot.details.ok, true);
+  });
+
+  it('refuses when no environment provider resolves instead of reading the host', async () => {
+    const orphan = makeHost({ dataRoot: tmpDir('cbo'), embeddings: fakeEmbedder, embeddingConfig: () => liveCfg, sandbox: null });
+    orphan.asManagedProject(7);
+    const res = await orphan.runTool('CodebaseReindex', {});
+    assert.equal(res.details.ok, false);
+    assert.match(JSON.stringify(res), /requires the Sandbox environment provider/);
+  });
+
+  it('the scheduled indexer never targets a managed project', () => {
+    assert.deepEqual(host.indexer().targets().filter((repo) => repo.startsWith('managed:')), []);
+  });
+
+  it('removing the project drops its rows from the central index', async () => {
+    const before = indexDb();
+    assert.ok(before.prepare("SELECT COUNT(*) AS n FROM chunks WHERE repo = 'managed:8'").get().n > 0);
+    before.close();
+    await host.projectRemoved(8);
+    const after = indexDb();
+    assert.equal(after.prepare("SELECT COUNT(*) AS n FROM chunks WHERE repo = 'managed:8'").get().n, 0);
+    assert.equal(after.prepare("SELECT COUNT(*) AS n FROM files WHERE repo = 'managed:8'").get().n, 0);
+    assert.ok(after.prepare("SELECT COUNT(*) AS n FROM chunks WHERE repo = 'managed:7'").get().n > 0);
+    after.close();
   });
 });
 
