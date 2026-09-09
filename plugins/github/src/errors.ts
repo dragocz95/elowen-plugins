@@ -10,8 +10,19 @@ export class GitHubPluginError extends Error {
   }
 }
 
+/** Environment-provider refusals raised while reading a MANAGED project's repository state. They are a
+ *  decision about the caller's access to the project, so they carry this plugin's existing
+ *  `project_forbidden` contract instead of the 502 that says GitHub itself is down — a panel that reported
+ *  "GitHub is unavailable" for a project the account may not touch sent everyone looking in the wrong
+ *  place. Matched on the provider's stable CODE, never on an arbitrary error's `status`. */
+const ACCESS_REFUSALS = new Set(['project_forbidden', 'account_forbidden']);
+
 function asPluginError(error: unknown): GitHubPluginError {
   if (error instanceof GitHubPluginError) return error;
+  const code = (error as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && ACCESS_REFUSALS.has(code)) {
+    return new GitHubPluginError('project_forbidden', 403, 'This project is not accessible.');
+  }
   return new GitHubPluginError('github_unavailable', 502, 'GitHub is unavailable. Try again later.');
 }
 
