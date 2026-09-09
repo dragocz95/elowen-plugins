@@ -102,7 +102,10 @@ const EXPECTED_CAPABILITIES = {
   // `controls` resolves the environment provider so a project browser runs INSIDE the selected managed
   // project, and `stores` re-checks that project membership; neither reaches the personal browser.
   browser: { reads: ['controls', 'db', 'stores'], network: true },
-  codebase: { reads: ['embeddings'], network: true },
+  // `controls` was added when the semantic index started reading a managed project through the Sandbox
+  // control instead of the host filesystem; core approved codebase as a Sandbox consumer in the same
+  // change. Without it the index cannot see a managed project's files at all.
+  codebase: { reads: ['embeddings', 'controls'], network: true },
   // `controls` resolves the environment provider a scheduled project run executes in; the schedule names
   // the project explicitly and cannot widen to another one.
   cronjob: { reads: ['controls', 'stores'] },
