@@ -275,7 +275,7 @@ function renderActiveHours(start, end) {
 
 // plugins/cronjob/web-src/JobsSettings.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
-var PAGE_SIZE = 20;
+var DEFAULT_PAGE_SIZE = 20;
 var JOB_PARAM = "job";
 var linkedJobId = () => {
   const value = new URLSearchParams(window.location.search).get(JOB_PARAM);
@@ -904,6 +904,11 @@ function JobsSettings({ surface }) {
   const [filter, setFilter] = (0, import_react3.useState)("all");
   const [scope, setScope] = (0, import_react3.useState)("all");
   const [page, setPage] = (0, import_react3.useState)(0);
+  const [pageSize, setPageSize] = (0, import_react3.useState)(DEFAULT_PAGE_SIZE);
+  const changePageSize = (next) => {
+    setPageSize(next);
+    setPage(0);
+  };
   (0, import_react3.useEffect)(() => {
     if (!data) return;
     const ids = new Set(data.map((j) => j.id));
@@ -930,9 +935,9 @@ function JobsSettings({ surface }) {
   (0, import_react3.useEffect)(() => {
     setPage(0);
   }, [query, filter, scope]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const clampedPage = Math.min(page, pageCount - 1);
-  const pageItems = (0, import_react3.useMemo)(() => filtered.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE), [filtered, clampedPage]);
+  const pageItems = (0, import_react3.useMemo)(() => filtered.slice(clampedPage * pageSize, clampedPage * pageSize + pageSize), [filtered, clampedPage, pageSize]);
   const select = (id) => {
     setSelectedId(id);
     setMissingLink(null);
@@ -964,9 +969,9 @@ function JobsSettings({ surface }) {
       setScope("all");
       return;
     }
-    setPage(Math.floor(at / PAGE_SIZE));
+    setPage(Math.floor(at / pageSize));
     setPendingLink(null);
-  }, [pendingLink, data, rows, filtered]);
+  }, [pendingLink, data, rows, filtered, pageSize]);
   const addJob = () => {
     const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     setDrafts((cur) => [...cur, { id, name: "", schedule: "every 1h", prompt: "", enabled: false, createdAt: (/* @__PURE__ */ new Date()).toISOString() }]);
@@ -1045,7 +1050,17 @@ function JobsSettings({ surface }) {
         ]
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Pager, { page: clampedPage, pageSize: PAGE_SIZE, total: filtered.length, onPageChange: setPage, ariaLabel: s.title })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      C.Pager,
+      {
+        page: clampedPage,
+        pageSize,
+        total: filtered.length,
+        onPageChange: setPage,
+        onPageSizeChange: changePageSize,
+        ariaLabel: s.title
+      }
+    )
   ] });
   const surfaceDocument = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceDocument, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(

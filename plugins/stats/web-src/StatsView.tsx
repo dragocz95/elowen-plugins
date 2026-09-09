@@ -8,7 +8,8 @@ import { integer } from './format';
 import { runtime, type PageFilterField } from './runtime';
 import type { DayUsage, ModelUsage, TokenUsage } from './types';
 
-const PAGE_SIZE = 20;
+/** Rows per page until the reader chooses another step in the pager's own select. */
+const DEFAULT_PAGE_SIZE = 20;
 const DAY_MS = 86_400_000;
 
 const {
@@ -125,6 +126,10 @@ export function StatsView() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<UsageFilter>('all');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  // Back to the first page: growing the window would otherwise land the reader on a page they never
+  // asked for, and shrinking it can leave the page past the end of the register.
+  const changePageSize = (next: number) => { setPageSize(next); setPage(0); };
   const [selectedExec, setSelectedExec] = useState<string | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [originOpen, setOriginOpen] = useState(false);
@@ -142,9 +147,9 @@ export function StatsView() {
       return true;
     });
   }, [filter, modelByExec, query, summary.rows]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const clampedPage = Math.min(page, pageCount - 1);
-  const pageRows = filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
+  const pageRows = filtered.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize);
   const selected = selectedExec ? modelByExec.get(selectedExec) ?? null : null;
   const trendUnavailable = isTrendWindowUnavailable(window, trendDays, now);
   // The window the whole page is already filtered by, rendered once for the origin drawer's framing —
@@ -345,7 +350,14 @@ export function StatsView() {
                         )}
 
                         {filtered.length > 0 ? (
-                          <Pager page={clampedPage} pageSize={PAGE_SIZE} total={filtered.length} onPageChange={setPage} ariaLabel={s.tableTitle} />
+                          <Pager
+                            page={clampedPage}
+                            pageSize={pageSize}
+                            total={filtered.length}
+                            onPageChange={setPage}
+                            onPageSizeChange={changePageSize}
+                            ariaLabel={s.tableTitle}
+                          />
                         ) : null}
                       </div>
                     </>

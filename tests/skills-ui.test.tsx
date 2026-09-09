@@ -53,6 +53,19 @@ const mount = (surface: 'page' | 'deck' = 'deck') => {
 };
 
 describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
+  // Every register in the app carries its row switch at the left edge, so /p/skills reads the same way
+  // as the mcp and cronjob registers do.
+  it('leads the row with the switch, ahead of every other cell and control', async () => {
+    use(http.get('/api/plugins/skills/list', () => HttpResponse.json(list)));
+    mount();
+
+    await waitFor(() => expect(toggles()).toHaveLength(2));
+    const row = screen.getByText('alpha').closest('[role="row"]') as HTMLElement;
+    expect(within(within(row).getAllByRole('cell')[0]).getByRole('switch')).toBe(toggles()[0]);
+    // The name is its own control in this register, so "first" is measured over every control in the row.
+    expect(row.querySelectorAll('button')[0]).toBe(toggles()[0]);
+  });
+
   it('flips the clicked row immediately and disables only that row while the PATCH is in flight', async () => {
     let alphaDisabled = false;
     let resolvePatch!: () => void;

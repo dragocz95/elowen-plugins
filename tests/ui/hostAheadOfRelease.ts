@@ -25,7 +25,10 @@ export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; 
 };
 
 /** Host dictionary leaves added after the pinned release, as flattened `section.key` paths. */
-export const AHEAD_OF_RELEASE_DICTIONARY: string[] = [];
+export const AHEAD_OF_RELEASE_DICTIONARY: string[] = [
+  // The pager's rows-per-page select, which the register footer of every plugin page now mounts.
+  'pagination.perPage',
+];
 
 /** The plugin UI API version targeted by the stand-in, shipped by core 0.28.31. */
 export const AHEAD_OF_RELEASE_API_VERSION = 16;

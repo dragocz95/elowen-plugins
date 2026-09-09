@@ -217,12 +217,13 @@ describe('telegram identity matching (rolePolicies)', () => {
 });
 
 /** The projection entries the adapter dispatches ITSELF, one per classification rather than a copy of the
- *  daemon's roster: a `surface-local` picker, a `session-control` picker (daemon-owned, but the chooser is
- *  drawn here) and a `surface-local` non-picker. That pair of fields is the adapter's whole input, so a
- *  longer list would only repeat cases these three already cover. */
+ *  daemon's roster: a `surface-local` picker, a `session-control` picker (daemon-owned; the shared core
+ *  draws it through this adapter's renderer) and a `surface-local` non-picker. That pair of fields is the
+ *  adapter's whole input, so a longer list would only repeat cases these three already cover. */
 const LOCAL_CATALOG = [
   { name: 'model', description: 'Switch the AI model', kind: 'picker', execution: 'surface-local' },
   { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', execution: 'session-control' },
+  { name: 'project', description: 'Move this channel into one of your projects', kind: 'picker', execution: 'session-control' },
   { name: 'help', description: 'Show the available commands', kind: 'info', execution: 'surface-local' },
 ];
 const FAST_CATALOG = [...LOCAL_CATALOG, { name: 'fast', description: 'Set Fast mode', kind: 'action', execution: 'session-control' }];
@@ -289,8 +290,8 @@ describe('telegram paged pickers + /context', () => {
     adapter.control({ listContext, bindContext });
     await adapter.handleCommand(5, { id: 42 }, adminIds, '/context');
     expect(listContext).toHaveBeenCalledWith({ platform: 'telegram', channelId: '5#0' }, '42', { offset: 0, limit: 200 });
-    expect(sent[0].extra.reply_markup.inline_keyboard[0][0].callback_data).toBe('c:0');
-    await adapter.onCallback(cbCtx('c:0'));
+    expect(sent[0].extra.reply_markup.inline_keyboard[0][0].callback_data).toBe('pk:0');
+    await adapter.onCallback(cbCtx('pk:0'));
     expect(bindContext).toHaveBeenCalledWith({ platform: 'telegram', channelId: '5#0' }, '42', 'brain-7-1');
     expect(edits.at(-1)!.text).toContain('Refactor');
     expect(edits.at(-1)!.text).toContain('continues');
@@ -303,6 +304,126 @@ describe('telegram paged pickers + /context', () => {
     await adapter.handleCommand(5, { id: 999 }, ['999'], '/context');
     expect(listContext).not.toHaveBeenCalled();
     expect(sent.at(-1)!.text).toContain('Only the operator');
+  });
+
+  /** /project rides the same pending-descriptor picker, and its one difference is the gate: the switch
+   *  moves the conversation into a directory only the SWITCHING account reaches (the host re-validates its
+   *  policy), so every linked sender may open it. The typed short form skips the chooser entirely. */
+  it('/project offers the sender’s projects and never carries a host path', async () => {
+    const { adapter, sent } = await makeAdapter([]);
+    const listProjects = vi.fn(() => [{ id: 7, slug: 'kolin', path: '/srv/private/kolin' }]);
+    adapter.control({ listProjects, switchProject: vi.fn() });
+    await adapter.handleCommand(5, { id: 42 }, adminIds, '/project');
+    expect(listProjects).toHaveBeenCalledWith({ platform: 'telegram', channelId: '5#0' }, '42');
+    expect(sent[0].extra.reply_markup.inline_keyboard[0][0]).toEqual({ text: 'kolin', callback_data: 'pk:0' });
+    expect(JSON.stringify(sent)).not.toContain('/srv');
+  });
+
+  it('/project has no operator gate and separates unlinked from empty', async () => {
+    const ungated = await makeAdapter([]);
+    const listProjects = vi.fn(() => [{ id: 7, slug: 'kolin', path: '/srv/k' }]);
+    ungated.adapter.control({ listProjects, switchProject: vi.fn() });
+    expect(await ungated.adapter.handleCommand(5, { id: 999 }, ['999'], '/project')).toBe(true);
+    expect(ungated.sent.at(-1)!.extra.reply_markup.inline_keyboard[0][0].text).toBe('kolin');
+
+    const unlinked = await makeAdapter([]);
+    unlinked.adapter.control({ listProjects: () => null, switchProject: vi.fn() });
+    await unlinked.adapter.handleCommand(5, { id: 42 }, adminIds, '/project');
+    expect(unlinked.sent.at(-1)!.text).toContain('Link this platform identity');
+
+    const none = await makeAdapter([]);
+    none.adapter.control({ listProjects: () => [], switchProject: vi.fn() });
+    await none.adapter.handleCommand(5, { id: 42 }, adminIds, '/project');
+    expect(none.sent.at(-1)!.text).toContain('no projects');
+  });
+
+  it('/project <slug|id> switches in one step: exact slug, then decimal id', async () => {
+    let switched: { sender: string; id: number } | undefined;
+    const ctl = {
+      listProjects: () => [{ id: 7, slug: 'kolin', path: '/srv/k' }],
+      switchProject: async (_ref: unknown, sender: string, id: number) => { switched = { sender, id }; return { workDir: '/x', slug: 'kolin' }; },
+    };
+    const bySlug = await makeAdapter([]);
+    bySlug.adapter.control(ctl);
+    await bySlug.adapter.handleCommand(5, { id: 42 }, adminIds, '/project kolin');
+    expect(switched).toEqual({ sender: '42', id: 7 });
+    expect(bySlug.sent.at(-1)!.text).toContain('kolin');
+    expect(bySlug.sent.at(-1)!.extra.reply_markup).toBeUndefined(); // a reply, not a picker
+
+    switched = undefined;
+    const byId = await makeAdapter([]);
+    byId.adapter.control(ctl);
+    await byId.adapter.handleCommand(5, { id: 42 }, adminIds, '/project 42');
+    expect(switched).toEqual({ sender: '42', id: 42 });
+  });
+
+  it('/project keeps the case of a typed mixed-case slug', async () => {
+    let switched: { sender: string; id: number } | undefined;
+    const { adapter, sent } = await makeAdapter([]);
+    adapter.control({
+      listProjects: () => [{ id: 7, slug: 'MixedCase', path: '/srv/k' }],
+      switchProject: async (_ref: unknown, sender: string, id: number) => { switched = { sender, id }; return { workDir: '/x', slug: 'MixedCase' }; },
+    });
+    await adapter.handleCommand(5, { id: 42 }, adminIds, '/project MixedCase');
+    expect(switched).toEqual({ sender: '42', id: 7 });
+    expect(sent.at(-1)!.text).toContain('MixedCase');
+  });
+
+  it('picking a project dispatches the switch and settles the picker message', async () => {
+    const { adapter, edits } = await makeAdapter([]);
+    const switchProject = vi.fn(async (_ref: unknown, sender: string, _id: number) => { expect(sender).toBe('42'); return { workDir: '/x', slug: 'kolin' }; });
+    adapter.control({ listProjects: () => [{ id: 7, slug: 'kolin', path: '/srv/k' }], switchProject });
+    await adapter.handleCommand(5, { id: 42 }, adminIds, '/project');
+    await adapter.onCallback(cbCtx('pk:0'));
+    expect(switchProject).toHaveBeenCalledWith({ platform: 'telegram', channelId: '5#0' }, '42', 7);
+    expect(edits.at(-1)!.text).toContain('kolin');
+    expect(edits.at(-1)!.extra.reply_markup.inline_keyboard).toEqual([]);
+  });
+
+  it('a rejected /context pick keeps the pending chooser for an admin', async () => {
+    const { adapter } = await makeAdapter([]);
+    const bindContext = vi.fn(async () => ({ title: 'Refactor' }));
+    adapter.control({ listContext: () => ({ items: [{ id: 's1', title: 'Refactor', model: 'm' }], total: 1, hasMore: false }), bindContext });
+    await adapter.handleCommand(5, { id: 42 }, adminIds, '/context'); // an admin opens the chooser
+    expect(adapter.pendingPickers.get('5')?.kind).toBe('context');
+    const answers: { text?: string; show_alert?: boolean }[] = [];
+    await adapter.onCallback({
+      callbackQuery: { data: 'pk:0', from: { id: 999 }, message: { chat: { id: 5 }, message_id: 111 } },
+      answerCallbackQuery: async (o: { text?: string; show_alert?: boolean } = {}) => { answers.push(o); },
+    });
+    expect(bindContext).not.toHaveBeenCalled();
+    expect(answers[0]?.text).toContain('Only the operator'); // the refusal rides the callback answer
+    expect(adapter.pendingPickers.get('5')?.kind).toBe('context'); // and the chooser survives
+  });
+
+  it('pages the shared pickers out of the pending descriptor without re-listing', async () => {
+    const { adapter, markups } = await makeAdapter([]);
+    const listContext = vi.fn(() => ({ items: Array.from({ length: 12 }, (_, i) => ({ id: `s${i}`, title: `T${i}`, model: 'm' })), total: 12, hasMore: false }));
+    adapter.control({ listContext, bindContext: vi.fn() });
+    await adapter.handleCommand(5, { id: 42 }, adminIds, '/context');
+    expect(listContext).toHaveBeenCalledTimes(1);
+    await adapter.onCallback(cbCtx('pk_page:1'));
+    expect(listContext).toHaveBeenCalledTimes(1); // paged from the cached descriptor
+    const kb = markups[0].reply_markup.inline_keyboard;
+    expect(kb[0][0].callback_data).toBe('pk:8');
+  });
+
+  it('answers a non-admin page-nav with the gate alert, not a silent ack', async () => {
+    const { adapter, markups } = await makeAdapter([]);
+    const listContext = vi.fn(() => ({ items: Array.from({ length: 12 }, (_, i) => ({ id: `s${i}`, title: `T${i}`, model: 'm' })), total: 12, hasMore: false }));
+    adapter.control({ listContext, bindContext: vi.fn() });
+    await adapter.handleCommand(5, { id: 42 }, adminIds, '/context');
+    const answers: { text?: string; show_alert?: boolean }[] = [];
+    await adapter.onCallback({
+      callbackQuery: { data: 'pk_page:1', from: { id: 999 }, message: { chat: { id: 5 }, message_id: 111 } },
+      answerCallbackQuery: async (o: { text?: string; show_alert?: boolean } = {}) => { answers.push(o); },
+    });
+    // The alert can only ride the ONE answer a callback query allows — the /m_page branch already works
+    // this way, and an earlier plain answer would swallow it.
+    expect(answers[0]?.text).toContain('Only the operator');
+    expect(answers[0]?.show_alert).toBe(true);
+    expect(listContext).toHaveBeenCalledTimes(1);
+    expect(markups).toHaveLength(0);
   });
 
   it('/fast passes the authentic Telegram user id for two senders, not the chat id', async () => {

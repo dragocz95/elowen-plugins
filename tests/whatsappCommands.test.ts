@@ -67,7 +67,8 @@ const CATALOG = [
   { name: 'model', kind: 'picker', execution: 'surface-local' },       // adapter-run picker
   { name: 'reasoning', kind: 'picker', execution: 'surface-local' },   // adapter-run picker (named by tests below)
   { name: 'help', kind: 'info', execution: 'surface-local' },          // adapter-run, non-picker
-  { name: 'context', kind: 'picker', execution: 'session-control' },   // daemon-owned, but the chooser is local
+  { name: 'context', kind: 'picker', execution: 'session-control' },   // daemon-owned; the shared core draws it here
+  { name: 'project', kind: 'picker', execution: 'session-control' },   // daemon-owned, ungated; typed short form supported
 ];
 
 const makeAdapter = async (models: ModelOption[], initial: Record<string, unknown> = {}, language = 'en', commands: { name: string; kind?: string; execution?: string }[] = CATALOG) => {
@@ -352,5 +353,76 @@ describe('whatsapp paged menus + /context', () => {
     expect(await adapter.handleCommand(CHAT, 'stranger@s.whatsapp.net', '/context')).toBe(true);
     expect(listContext).not.toHaveBeenCalled();
     expect(sent.at(-1)).toContain('Only the operator');
+  });
+
+  it('a rejected /context pick is refused without consuming the numbered menu', async () => {
+    const { adapter, sent } = await makeAdapter([]);
+    const bindContext = vi.fn(async () => ({ title: 'Refactor' }));
+    adapter.control({ listContext: vi.fn(() => ({ items: [{ id: 's1', title: 'Refactor', model: 'm' }], total: 1, hasMore: false })), bindContext });
+    await adapter.handleCommand(CHAT, CHAT, '/context');
+    expect(adapter.pendingMenus.has(CHAT)).toBe(true);
+    await adapter.handleTextReply(CHAT, 'stranger@s.whatsapp.net', '1', {});
+    expect(bindContext).not.toHaveBeenCalled();
+    expect(sent.at(-1)).toContain('Only the operator');
+    expect(adapter.pendingMenus.has(CHAT)).toBe(true); // the menu survives a rejected pick
+  });
+
+  /** /project rides the same numbered menu, and its one difference is the gate: the switch moves the
+   *  conversation into a directory only the SWITCHING account reaches (the host re-validates its policy),
+   *  so every linked sender may open it. The typed short form skips the chooser entirely. */
+  it('/project offers the sender’s projects and never carries a host path', async () => {
+    const { adapter, sent } = await makeAdapter([]);
+    const listProjects = vi.fn(() => [{ id: 7, slug: 'kolin', path: '/srv/private/kolin' }]);
+    adapter.control({ listProjects, switchProject: vi.fn() });
+    expect(await adapter.handleCommand(CHAT, CHAT, '/project')).toBe(true);
+    expect(listProjects).toHaveBeenCalledWith({ platform: 'whatsapp', channelId: `${CHAT}#0` }, CHAT);
+    expect(sent.at(-1)).toContain('1. *kolin*');
+    expect(JSON.stringify(sent)).not.toContain('/srv');
+  });
+
+  it('/project has no operator gate and separates unlinked from empty', async () => {
+    const ungated = await makeAdapter([]);
+    ungated.adapter.control({ listProjects: () => [{ id: 7, slug: 'kolin', path: '/srv/k' }], switchProject: vi.fn() });
+    expect(await ungated.adapter.handleCommand(CHAT, 'stranger@s.whatsapp.net', '/project')).toBe(true);
+    expect(ungated.sent.at(-1)).toContain('1. *kolin*');
+
+    const unlinked = await makeAdapter([]);
+    unlinked.adapter.control({ listProjects: () => null, switchProject: vi.fn() });
+    await unlinked.adapter.handleCommand(CHAT, CHAT, '/project');
+    expect(unlinked.sent.at(-1)).toContain('Link this platform identity');
+
+    const none = await makeAdapter([]);
+    none.adapter.control({ listProjects: () => [], switchProject: vi.fn() });
+    await none.adapter.handleCommand(CHAT, CHAT, '/project');
+    expect(none.sent.at(-1)).toContain('no projects');
+  });
+
+  it('/project <slug|id> switches in one step: exact slug, then decimal id', async () => {
+    let switched: { sender: string; id: number } | undefined;
+    const ctl = {
+      listProjects: () => [{ id: 7, slug: 'kolin', path: '/srv/k' }],
+      switchProject: async (_ref: unknown, sender: string, id: number) => { switched = { sender, id }; return { workDir: '/x', slug: 'kolin' }; },
+    };
+    const bySlug = await makeAdapter([]);
+    bySlug.adapter.control(ctl);
+    expect(await bySlug.adapter.handleCommand(CHAT, CHAT, '/project kolin')).toBe(true);
+    expect(switched).toEqual({ sender: CHAT, id: 7 });
+    expect(bySlug.sent.at(-1)).toContain('kolin');
+
+    switched = undefined;
+    const byId = await makeAdapter([]);
+    byId.adapter.control(ctl);
+    expect(await byId.adapter.handleCommand(CHAT, CHAT, '/project 42')).toBe(true);
+    expect(switched).toEqual({ sender: CHAT, id: 42 });
+  });
+
+  it('picking a project from the numbered menu dispatches the switch', async () => {
+    const { adapter, sent } = await makeAdapter([]);
+    const switchProject = vi.fn(async (_ref: unknown, sender: string, id: number) => { expect(sender).toBe(CHAT); return { workDir: '/x', slug: 'kolin' }; });
+    adapter.control({ listProjects: () => [{ id: 7, slug: 'kolin', path: '/srv/k' }], switchProject });
+    expect(await adapter.handleCommand(CHAT, CHAT, '/project')).toBe(true);
+    expect(await adapter.handleTextReply(CHAT, CHAT, '1', {})).toBe(true);
+    expect(switchProject).toHaveBeenCalledWith({ platform: 'whatsapp', channelId: `${CHAT}#0` }, CHAT, 7);
+    expect(sent.at(-1)).toContain('kolin');
   });
 });

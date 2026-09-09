@@ -580,6 +580,7 @@ const DISCORD_CHAT_COMMANDS = [
   { name: 'status', description: 'Session info — model, context and usage', kind: 'info', execution: 'session-control' },
   { name: 'model', description: 'Switch the AI model', kind: 'picker', execution: 'surface-local' },
   { name: 'context', description: 'Continue this channel in one of your conversations', kind: 'picker', execution: 'session-control' },
+  { name: 'project', description: 'Move this channel into one of your projects', kind: 'picker', execution: 'session-control', argument: { kind: 'text' } },
   { name: 'reasoning', description: 'Set the reasoning effort · "show" toggles Thought rows', kind: 'picker', execution: 'surface-local' },
   { name: 'help', description: 'Show the available commands', kind: 'info', execution: 'surface-local' },
   { name: 'deploy', description: 'Ship it to $1', kind: 'prompt', execution: 'plugin-prompt' },
@@ -2090,6 +2091,98 @@ describe('discord paged pickers + /context', () => {
     adapter.control({ listContext: vi.fn(), bindContext });
     await adapter.onInteraction({ type: 3, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { custom_id: 'pick_context', values: ['brain-7-1'] } });
     expect(JSON.stringify(replies[0])).toContain('unknown session');
+  });
+
+  /** /project runs through the same shared picker core, and its one difference is the gate: the switch
+   *  moves the conversation into a directory only the SWITCHING account reaches (the host re-validates its
+   *  policy), so every linked member may open it — a stranger with no linked account gets the link ask. */
+  it('registers /project with a generic optional text argument', async () => {
+    const { adapter, replies } = await makeAdapter([]);
+    adapter.appId = 'APP';
+    await adapter.registerCommands();
+    const commands = replies[0] as Array<{ name: string; options?: Array<{ name: string; type: number; required: boolean }> }>;
+    expect(commands.find((c) => c.name === 'project')).toEqual({
+      name: 'project', description: 'Move this channel into one of your projects', type: 1,
+      options: [{ name: 'args', description: 'arguments', type: 3, required: false }],
+    });
+  });
+
+  it('/project opens the shared project picker and never carries a host path', async () => {
+    const { adapter, replies } = await makeAdapter([]);
+    const listProjects = vi.fn(() => [{ id: 7, slug: 'kolin', path: '/srv/private/kolin' }]);
+    adapter.control({ listProjects, switchProject: vi.fn() });
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: [], user: { id: 'U1' } }, data: { name: 'project' } });
+    expect(listProjects).toHaveBeenCalledWith({ platform: 'discord', channelId: 'C#0' }, 'U1');
+    expect(replies[0].data.components[0].components[0].options).toEqual([{ label: 'kolin', value: '7' }]);
+    expect(JSON.stringify(replies[0])).not.toContain('/srv');
+  });
+
+  it('/project has no operator gate: a non-admin member may open it', async () => {
+    const { adapter, replies } = await makeAdapter([]);
+    const listProjects = vi.fn(() => [{ id: 7, slug: 'kolin', path: '/srv/k' }]);
+    adapter.control({ listProjects, switchProject: vi.fn() });
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: [], user: { id: 'U2' } }, data: { name: 'project' } });
+    expect(replies[0].data.components[0].components[0].options).toHaveLength(1);
+  });
+
+  it('/project asks an unlinked member to link their account, and an empty list stays empty', async () => {
+    const unlinked = await makeAdapter([]);
+    unlinked.adapter.control({ listProjects: () => null, switchProject: vi.fn() });
+    await unlinked.adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: [], user: { id: 'U1' } }, data: { name: 'project' } });
+    expect(JSON.stringify(unlinked.replies[0])).toContain('Link this platform identity');
+
+    const none = await makeAdapter([]);
+    none.adapter.control({ listProjects: () => [], switchProject: vi.fn() });
+    await none.adapter.onInteraction({ type: 2, id: 'I2', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: [], user: { id: 'U1' } }, data: { name: 'project' } });
+    expect(none.replies[0].data.content).toContain('no projects');
+  });
+
+  it('/project <slug> resolves the exact slug and switches in one step', async () => {
+    const { adapter, replies } = await makeAdapter([]);
+    const switchProject = vi.fn(async () => ({ workDir: '/srv/k', slug: 'kolin' }));
+    adapter.control({ listProjects: () => [{ id: 7, slug: 'kolin', path: '/srv/k' }], switchProject });
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { name: 'project', options: [{ name: 'args', value: 'kolin' }] } });
+    expect(switchProject).toHaveBeenCalledWith({ platform: 'discord', channelId: 'C#0' }, 'U1', 7);
+    expect(replies[0].data.content).toContain('kolin');
+  });
+
+  it('/project <id> falls back to the decimal id and reports an unknown one', async () => {
+    const { adapter, replies } = await makeAdapter([]);
+    const switchProject = vi.fn(async () => ({ workDir: '/srv/k', slug: 'kolin' }));
+    adapter.control({ listProjects: () => [{ id: 7, slug: 'kolin', path: '/srv/k' }], switchProject });
+    await adapter.onInteraction({ type: 2, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { name: 'project', options: [{ name: 'args', value: '42' }] } });
+    expect(switchProject).toHaveBeenCalledWith({ platform: 'discord', channelId: 'C#0' }, 'U1', 42);
+
+    await adapter.onInteraction({ type: 2, id: 'I2', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { name: 'project', options: [{ name: 'args', value: 'nope' }] } });
+    expect(JSON.stringify(replies[1].data.content)).toContain('nope');
+  });
+
+  it('picking a project dispatches the switch as the person who chose', async () => {
+    const { adapter, replies } = await makeAdapter([]);
+    const switchProject = vi.fn(async (_ref: unknown, sender: string, _id: number) => { expect(sender).toBe('U3'); return { workDir: '/srv/k', slug: 'kolin' }; });
+    adapter.control({ listProjects: vi.fn(), switchProject });
+    await adapter.onInteraction({ type: 3, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: [], user: { id: 'U3' } }, data: { custom_id: 'pick_project', values: ['7'] } });
+    expect(switchProject).toHaveBeenCalledWith({ platform: 'discord', channelId: 'C#0' }, 'U3', 7);
+    expect(replies[0].data.content).toContain('kolin');
+    expect(replies[0].data.components).toEqual([]); // the picker is closed out
+  });
+
+  it('pages the shared pickers by re-listing through the shared core', async () => {
+    const { adapter, replies } = await makeAdapter([]);
+    const listContext = vi.fn(() => ({ items: Array.from({ length: 30 }, (_, i) => ({ id: `s${i}`, title: `T${i}`, model: 'm' })), total: 30, hasMore: false }));
+    adapter.control({ listContext, bindContext: vi.fn() });
+    await adapter.onInteraction({ type: 3, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: ['ADMIN'], user: { id: 'U1' } }, data: { custom_id: 'pick_context_page:1' } });
+    expect(listContext).toHaveBeenCalledTimes(1);
+    const values = replies[0].data.components[0].components[0].options.map((o: { value: string }) => o.value);
+    expect(values).toContain('s29');
+  });
+
+  it('surfaces a switch guard rejection as an error reply', async () => {
+    const { adapter, replies } = await makeAdapter([]);
+    const switchProject = vi.fn(async () => { throw new Error('project is not readable or not allowed'); });
+    adapter.control({ listProjects: vi.fn(), switchProject });
+    await adapter.onInteraction({ type: 3, id: 'I', token: 'T', channel_id: 'C', guild_id: 'G', member: { roles: [], user: { id: 'U1' } }, data: { custom_id: 'pick_project', values: ['7'] } });
+    expect(JSON.stringify(replies[0])).toContain('project is not readable or not allowed');
   });
 });
 

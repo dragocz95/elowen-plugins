@@ -6,7 +6,7 @@ import { join } from 'node:path';
 const root = join(__dirname, '..');
 const json = (path: string) => JSON.parse(readFileSync(join(root, path), 'utf8')) as Record<string, unknown>;
 
-describe('shared API v3 registry contract', () => {
+describe('shared API v4 registry contract', () => {
   const versions = {
     cronjob: '0.4.7',
     discord: '0.3.18',
@@ -15,10 +15,10 @@ describe('shared API v3 registry contract', () => {
     whatsapp: '0.2.17',
   } as const;
 
-  it.each(Object.entries(versions))('%s manifest and registry entry agree on v3 and the patch version', (name, version) => {
+  it.each(Object.entries(versions))('%s manifest and registry entry agree on v4 and the patch version', (name, version) => {
     const manifest = json(`plugins/${name}/elowen-plugin.json`);
     const registry = json('registry.json').plugins as Record<string, unknown>[];
-    expect(manifest).toMatchObject({ name, version, requiresSharedApi: 3 });
+    expect(manifest).toMatchObject({ name, version, requiresSharedApi: 4 });
     expect(registry.find((entry) => entry.name === name)).toMatchObject({ name, version });
   });
 

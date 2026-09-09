@@ -39,7 +39,7 @@
         "apiRoutes": 2,
         "skills": 1
       },
-      "requiresSharedApi": 3
+      "requiresSharedApi": 4
     },
     {
       "name": "discord",
@@ -54,7 +54,7 @@
         "tools": 25,
         "apiRoutes": 1
       },
-      "requiresSharedApi": 3
+      "requiresSharedApi": 4
     },
     {
       "name": "editor",
@@ -120,19 +120,6 @@
       }
     },
     {
-      "name": "mcp",
-      "version": "0.1.8",
-      "requiresCore": "0.28.24",
-      "description": "Connect external MCP servers to the assistant\u2019s tools.",
-      "category": "tools",
-      "author": "Elowen",
-      "apiVersion": "1",
-      "provides": {
-        "tools": 7,
-        "apiRoutes": 3
-      }
-    },
-    {
       "name": "msteams",
       "version": "0.7.0",
       "requiresCore": "0.28.23",
@@ -148,7 +135,7 @@
           "microsoftIdentity"
         ]
       },
-      "requiresSharedApi": 3
+      "requiresSharedApi": 4
     },
     {
       "name": "onedrive",
@@ -194,7 +181,7 @@
     },
     {
       "name": "stats",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "description": "Model usage analytics for tokens, cost, cache efficiency and generation speed. Uses Elowen's shared usage ledger and keeps task tracking focused on work rather than infrastructure spend.",
       "category": "productivity",
       "author": "Elowen",
@@ -214,7 +201,7 @@
         "platforms": 1,
         "tools": 16
       },
-      "requiresSharedApi": 3
+      "requiresSharedApi": 4
     },
     {
       "name": "todo",
@@ -264,7 +251,7 @@
         "tools": 6,
         "apiRoutes": 3
       },
-      "requiresSharedApi": 3
+      "requiresSharedApi": 4
     }
   ]
 }

@@ -58,6 +58,10 @@ interface StatsRuntime {
       pageSize: number;
       total: number;
       onPageChange(page: number): void;
+      /** Supplying it is what MAKES the rows-per-page select appear, exactly as in the host's own pager;
+       *  the register footer passes it, so the declaration has to admit it. */
+      onPageSizeChange?(pageSize: number): void;
+      pageSizeOptions?: readonly number[];
       ariaLabel?: string;
       className?: string;
     }>;

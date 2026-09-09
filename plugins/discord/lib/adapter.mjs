@@ -8,7 +8,7 @@ import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } fr
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, imageMimeType, resolveSharedFiles, fileMimeType } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
-import { controlCommandsFrom, localCommandsFrom, runControlCommand } from 'elowen-plugin-shared/chatCommands';
+import { SHARED_PICKERS, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
@@ -26,8 +26,7 @@ const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded pe
                                          // agent chooses what to share, so this is a transport bound, not a preference
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper's per-file limit — larger clips are just noted
 const TTS_MAX_CHARS = 4000;              // cap the spoken text (OpenAI TTS input limit is 4096)
-const SELECT_PAGE = 25;                  // Discord StringSelect hard cap — the /model + /context picker page size
-const CONTEXT_MAX = 200;                 // upper bound of own conversations the /context picker pages over
+const SELECT_PAGE = 25;                  // Discord StringSelect hard cap — the /model picker page size
 
 /** Token-list settings arrive as arrays from current core and comma/newline strings from older installs. */
 export function splitList(value) {
@@ -236,16 +235,24 @@ export class DiscordAdapter {
     }));
   }
 
-  /** StringSelect option rows for the /context picker — one per bindable conversation (value = its
-   *  session id, description = the model it runs on). */
-  contextOptions(items) {
-    return items.map((s) => {
-      const desc = String(s.model ?? '').slice(0, 100);
-      return {
-        label: (s.title || 'Untitled').slice(0, 100),
-        value: String(s.id).slice(0, 100),
-        ...(desc ? { description: desc } : {}),
-      };
+  /** StringSelect rows for a normalized picker descriptor from the shared core — one per offered item
+   *  (value → the transport's choice value, hint → the secondary description). */
+  descriptorOptions(d) {
+    return (d.items ?? []).map((it) => ({
+      label: String(it.label).slice(0, 100),
+      value: String(it.value).slice(0, 100),
+      ...(it.hint ? { description: String(it.hint).slice(0, 100) } : {}),
+    }));
+  }
+
+  /** Render one shared picker descriptor: page 0 answers the interaction (ephemeral), page > 0 redraws a
+   *  paged chooser in place. Shared by every picker the shared core opens — the descriptor decides the
+   *  rows, the custom ids stay `pick_<picker>` and `pick_<picker>_page:<n>`. */
+  showPicker(i, d, page = 0) {
+    return this.respond(i, page > 0 ? 7 : 4, {
+      content: d.title,
+      ...(page > 0 ? {} : { flags: 64 }),
+      components: this.buildPagedSelect(this.descriptorOptions(d), page, `pick_${d.picker}`, d.placeholder),
     });
   }
 
@@ -308,14 +315,16 @@ export class DiscordAdapter {
         ] },
       ],
     };
-    // A plugin prompt-command (kind:'prompt') takes a single generic optional string option so a user can
-    // pass `$ARGUMENTS`; built-ins keep their bespoke DISCORD_OPTIONS (or none).
-    const PROMPT_ARGS = [{ name: 'args', description: 'arguments', type: 3, required: false }];
+    // A single generic optional string option covers BOTH a plugin prompt-command's `$ARGUMENTS` and a
+    // built-in whose catalog argument is free text (`/project <slug|id>`): the transport cannot know the
+    // value set, so it forwards what the sender typed and the daemon parses it.
+    const TEXT_ARGS = [{ name: 'args', description: 'arguments', type: 3, required: false }];
     const daemonCommands = this.chatCommands().map((c) => ({
       // Discord requires a 1–100 char description; a plugin command with an empty or over-long one would
       // 400 the whole bulk registration and drop EVERY slash command. Clamp defensively (name as fallback).
       name: c.name, description: (c.description || c.name).slice(0, 100), type: 1,
-      ...(DISCORD_OPTIONS[c.name] ? { options: DISCORD_OPTIONS[c.name] } : c.kind === 'prompt' ? { options: PROMPT_ARGS } : {}),
+      ...(DISCORD_OPTIONS[c.name] ? { options: DISCORD_OPTIONS[c.name] }
+        : c.kind === 'prompt' || c.argument?.kind === 'text' ? { options: TEXT_ARGS } : {}),
     }));
     const localCommands = ADAPTER_STATE_COMMANDS.map((c) => ({ name: c.name, description: c.menu, type: 1, options: c.options }));
     const commands = [...daemonCommands, ...localCommands];
@@ -669,12 +678,13 @@ export class DiscordAdapter {
         return this.dispatchSlashPrompt(i, `/${name}${args ? ` ${args}` : ''}`);
       }
       // Control commands share one transport-agnostic core. WHICH names those are is the daemon's answer,
-      // not ours: controlCommandsFrom reads `execution` off the catalog we already receive. What runs is
-      // the INTERSECTION of that with what the core implements — an unhandled name returns false and drops
-      // to the local chain below rather than being swallowed here, so a newer daemon may publish a control
-      // command this adapter cannot run. Discord must ACK within 3s; /compact runs an LLM summary, so defer
-      // (type 5) and let the core edit the deferred reply — everything else answers immediately (ephemeral
-      // type 4). The pickers below stay local because their StringSelect UI is Discord-specific.
+      // not ours: controlCommandsFrom reads `execution` off the catalog we already receive, pickers
+      // included. What runs is the INTERSECTION of that with what the two cores implement — an unhandled
+      // name returns false twice and drops to the local chain below rather than being swallowed here, so
+      // a newer daemon may publish a control command this adapter cannot run. Discord must ACK within 3s;
+      // /compact runs an LLM summary, so defer (type 5) and let the core edit the deferred reply —
+      // everything else answers immediately (ephemeral type 4). Only the DRAWING stays Discord-specific:
+      // the shared core renders through showPicker, whose StringSelect is built from its descriptor.
       if (controlCommandsFrom(this.chatCommands()).has(name)) {
         // Defer only when /compact will actually run its LLM summary — i.e. an admin with a live session.
         // A forbidden/no-session /compact answers immediately (type 4), matching the pre-extraction flow.
@@ -683,21 +693,34 @@ export class DiscordAdapter {
         const reply = deferred
           ? (content) => this.editOriginal(i, { content })
           : (content) => this.respond(i, 4, { content, flags: 64 });
-        const handled = await runControlCommand(name, {
+        const senderId = i.member?.user?.id ?? i.user?.id;
+        const arg = name === 'fast'
+          ? (i.data?.options ?? []).find((o) => o.name === 'state')?.value
+          // A catalog text argument (`/project <slug|id>`) arrives through the same generic `args` option
+          // the prompt macros register with.
+          : String((i.data?.options ?? []).find((o) => o.name === 'args')?.value ?? '');
+        const handled = (await runControlCommand(name, {
           msg: this.msg, reply, isAdmin: () => this.isAdminMember(i.member),
-          senderPlatformId: i.member.user.id,
-          arg: name === 'fast' ? (i.data?.options ?? []).find((o) => o.name === 'state')?.value : undefined,
+          senderPlatformId: senderId,
+          arg,
           state: this.state, stateId: i.channel_id, ctl: this.ctl, ref: this.channelRef(i.channel_id),
           activeModel: async () => this.modelForChannel(i.channel_id, await this.listModels().catch(() => [])),
-        });
+        }))
+          || (await runPickerCommand(name, {
+            msg: this.msg, reply, isAdmin: () => this.isAdminMember(i.member),
+            senderPlatformId: senderId,
+            arg,
+            ctl: this.ctl, ref: this.channelRef(i.channel_id),
+            showPicker: (d, page = 0) => this.showPicker(i, d, page),
+          }));
         if (handled) return;
       }
-      // …and the same question for the half the daemon does NOT run: the StringSelect pickers, /help and
-      // this adapter's own voice/display below run only because the catalog published this surface at all.
-      // localCommandsFrom claims the published `surface-local` names plus the `session-control` pickers,
-      // and takes voice/display from ADAPTER_STATE_COMMANDS because the catalog declares those without
-      // publishing them. Against an empty projection it claims nothing and the interaction goes
-      // unanswered, which is what Discord already does for a command this bot never registered.
+      // …and the same question for the half the daemon does NOT run: the /model + /reasoning pickers, /help
+      // and this adapter's own voice/display below run only because the catalog published this surface at
+      // all. localCommandsFrom claims the published `surface-local` names and takes voice/display from
+      // ADAPTER_STATE_COMMANDS because the catalog declares those without publishing them. Against an empty
+      // projection it claims nothing and the interaction goes unanswered, which is what Discord already
+      // does for a command this bot never registered.
       //
       // /help moved BELOW this gate (it used to answer first, before even the prompt-macro check). It is
       // an ordinary `surface-local` catalog entry, so nothing else would be gating it — and the menu it
@@ -716,20 +739,6 @@ export class DiscordAdapter {
           content: this.msg.pickModel,
           flags: 64,
           components: this.buildPagedSelect(this.modelOptions(i.channel_id, models), 0, 'pick_model', this.msg.modelPlaceholder),
-        });
-      }
-      if (name === 'context') {
-        // Operator-gated like /model (the channel is shared). Ownership is the real boundary: the picker only
-        // ever offers the invoking sender's OWN conversations (identity-scoped, bare default excluded), and
-        // bindContext re-checks server-side. Binding exposes the chosen history to everyone here.
-        if (!this.isAdminMember(i.member)) return this.respond(i, 4, { content: this.msg.controlForbidden, flags: 64 });
-        const senderId = i.member?.user?.id ?? i.user?.id;
-        const listing = this.ctl?.listContext?.(this.channelRef(i.channel_id), senderId, { offset: 0, limit: CONTEXT_MAX }) ?? null;
-        if (!listing || listing.items.length === 0) return this.respond(i, 4, { content: this.msg.noContextSessions, flags: 64 });
-        return this.respond(i, 4, {
-          content: this.msg.pickContext,
-          flags: 64,
-          components: this.buildPagedSelect(this.contextOptions(listing.items), 0, 'pick_context', this.msg.contextPlaceholder),
         });
       }
       if (name === 'reasoning') {
@@ -784,41 +793,47 @@ export class DiscordAdapter {
     if (i.type === 3 && typeof i.data?.custom_id === 'string' && i.data.custom_id.startsWith('ask:')) {
       return this.onAskInteraction(i);
     }
-    // Paged-picker nav (`pick_model_page:<n>` / `pick_context_page:<n>`): re-fetch the list, rebuild page
-    // <n> and update the message in place (type 7). Operator-gated, like the pickers themselves.
+    // Paged-picker nav (`pick_model_page:<n>` / `pick_<picker>_page:<n>`): rebuild page <n> and update the
+    // message in place (type 7). /model re-reads its own catalog; the shared pickers re-list through the
+    // shared core (which re-applies their gates), exactly like the invocations that opened them.
     if (i.type === 3 && typeof i.data?.custom_id === 'string' && i.data.custom_id.includes('_page:')) {
       const idx = i.data.custom_id.indexOf('_page:');
       const prefix = i.data.custom_id.slice(0, idx);
       const page = Number(i.data.custom_id.slice(idx + '_page:'.length));
       if (!Number.isInteger(page)) return this.respond(i, 6, {}); // the disabled indicator button — ack, no change
-      if (!this.isAdminMember(i.member)) return this.respond(i, 7, { content: this.msg.modelForbidden, components: [] });
       if (prefix === 'pick_model') {
+        if (!this.isAdminMember(i.member)) return this.respond(i, 7, { content: this.msg.modelForbidden, components: [] });
         const models = await this.listModels().catch(() => []);
         if (!models.length) return this.respond(i, 7, { content: this.msg.noModels, components: [] });
         return this.respond(i, 7, { content: this.msg.pickModel, components: this.buildPagedSelect(this.modelOptions(i.channel_id, models), page, 'pick_model', this.msg.modelPlaceholder) });
       }
-      if (prefix === 'pick_context') {
-        const senderId = i.member?.user?.id ?? i.user?.id;
-        const listing = this.ctl?.listContext?.(this.channelRef(i.channel_id), senderId, { offset: 0, limit: CONTEXT_MAX }) ?? null;
-        if (!listing || listing.items.length === 0) return this.respond(i, 7, { content: this.msg.noContextSessions, components: [] });
-        return this.respond(i, 7, { content: this.msg.pickContext, components: this.buildPagedSelect(this.contextOptions(listing.items), page, 'pick_context', this.msg.contextPlaceholder) });
+      // The shared pickers re-list through the shared core (which re-applies their gates — /context's
+      // operator gate here, none for /project), exactly like the invocations that opened them.
+      const sharedPicker = SHARED_PICKERS.find((n) => prefix === `pick_${n}`) ?? null;
+      if (sharedPicker) {
+        await runPickerCommand(sharedPicker, {
+          msg: this.msg, reply: (content) => this.respond(i, 7, { content, components: [] }),
+          isAdmin: () => this.isAdminMember(i.member),
+          senderPlatformId: i.member?.user?.id ?? i.user?.id,
+          ctl: this.ctl, ref: this.channelRef(i.channel_id),
+          showPicker: (d, p = 0) => this.showPicker(i, d, p),
+        }, page);
+        return;
       }
       return this.respond(i, 6, {});
     }
-    if (i.type === 3 && i.data?.custom_id === 'pick_context') {
-      // Re-check the operator gate on submit (the component round-trips independently). The MOVE is
-      // dispatched through the host control surface; ownership is re-verified server-side.
-      if (!this.isAdminMember(i.member)) return this.respond(i, 7, { content: this.msg.controlForbidden, components: [] });
-      if (!this.ctl?.bindContext) return this.respond(i, 7, { content: this.msg.noSession, components: [] });
-      const senderId = i.member?.user?.id ?? i.user?.id;
-      const sessionId = String(i.data.values?.[0] ?? '');
-      if (!sessionId) return this.respond(i, 7, { content: this.msg.contextError('no conversation selected'), components: [] });
-      try {
-        const { title } = await this.ctl.bindContext(this.channelRef(i.channel_id), senderId, sessionId);
-        return this.respond(i, 7, { content: this.msg.contextBound(title), components: [] });
-      } catch (e) {
-        return this.respond(i, 7, { content: this.msg.contextError(e?.message ?? e), components: [] });
-      }
+    const sharedChoice = i.type === 3 ? SHARED_PICKERS.find((n) => i.data?.custom_id === `pick_${n}`) : undefined;
+    if (sharedChoice) {
+      // Re-checks the operator gate on submit (the component round-trips independently) and dispatches
+      // the bind/switch through the host control surface as the person who chose; ownership is
+      // re-verified server-side.
+      return applyPickerChoice(sharedChoice, String(i.data.values?.[0] ?? ''), {
+        msg: this.msg,
+        reply: (content) => this.respond(i, 7, { content, components: [] }),
+        isAdmin: () => this.isAdminMember(i.member),
+        senderPlatformId: i.member?.user?.id ?? i.user?.id,
+        ctl: this.ctl, ref: this.channelRef(i.channel_id),
+      });
     }
     if (i.type === 3 && i.data?.custom_id === 'pick_reasoning') {
       // Re-resolve capabilities on submit: the channel model or provider catalog may have changed while
