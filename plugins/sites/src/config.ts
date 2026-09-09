@@ -170,8 +170,8 @@ const asOrigin = (value: unknown): string | null => {
 };
 
 /** The broker derives this from trusted install metadata. The plugin accepts only that already-bare
- * hostname and only beside an HTTPS app: a config form or request header never gets to choose where
- * another person's site links point. */
+ *  hostname and only beside an HTTPS app: a config form or request header never gets to choose where
+ *  another person's site links point. */
 const asGatewayHost = (value: string | null | undefined, appScheme: string): string | null => {
   if (appScheme !== 'https:' || !value) return null;
   const host = value.trim().toLowerCase();
@@ -249,9 +249,9 @@ export const siteUrl = (config: SiteAddressing, slug: string): string | null => 
 /** Whether THIS request arrived on the site's own hostname.
  *
  *  Decided from the request, never from configuration alone. Configuring a site hostname does not stop
- *  the app's own hostname from reaching the same handler — `/hooks/` is proxied to the daemon there too
- *  — so a page served merely because a hostname exists in settings would still be same-origin with the
- *  app, which is the whole hazard the separate origin was for. */
+ *  the app's own hostname from reaching the same handler — `/hooks/` is proxied to the daemon there
+ *  too — so a page served merely because a hostname exists in settings would still be same-origin with
+ *  the app, which is the whole hazard the separate origin was for. */
 export const requestOnSiteHost = (config: SiteAddressing, slug: string, hostHeader: string | undefined): boolean => {
   const expected = siteHost(config, slug);
   if (expected === null || !hostHeader) return false;
