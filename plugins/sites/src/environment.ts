@@ -348,8 +348,16 @@ export class EnvironmentSupervisor {
   brokerDirectory(id: string): string { return this.deps.brokerPath ? dirname(this.deps.brokerPath(id)) : join('/var/lib/elowen/site-runtime-sockets', id); }
   brokerDirectoryExists(id: string): boolean { try { return statSync(this.brokerDirectory(id)).isDirectory(); } catch { return false; } }
   async prepareBrokerDirectory(id: string): Promise<string> { return dirname((await this.deps.gateway.prepareRuntimeSocket(id)).path); }
+  /** WHERE THE SANDBOX RUNTIME CONTRACT LIVES, which is not where the site's sources and releases live.
+   *  `siteDir` is `<dataDir>/sites/<id>` — the plugin's own source layout — while Sandbox is handed
+   *  `sitesDataDir: deps.dataDir` and builds the bind sources as `<sitesDataDir>/<id>/environment`
+   *  (containerSpec `storageRoot`). Rooting these files at `siteDir` therefore wrote them one level too
+   *  deep, under `<dataDir>/sites/<id>/environment`, and every container create failed lstat-ing the
+   *  `git-stub` bind source that Sandbox looked for at `<dataDir>/<id>/environment`. The two roots must be
+   *  derived from the same value Sandbox receives. */
+  private environmentStorageDir(siteId: string): string { return join(this.deps.dataDir, siteId, 'environment'); }
   private writeEnvironmentFiles(site: Site): void {
-    const dir = join(this.deps.siteDir(site.id), 'environment');
+    const dir = this.environmentStorageDir(site.id);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const url = this.deps.siteUrl?.(site);
     writeFileSync(join(dir, 'container.env'), `ELOWEN_SITE_SLUG=${site.slug}\n${url ? `ELOWEN_SITE_URL=${url}\n` : ''}`, { mode: 0o600 });
@@ -612,7 +620,22 @@ export class EnvironmentSupervisor {
   private async refreshReadiness(site: Site): Promise<void> {
     const state = await this.state(site);
     const path = join(this.brokerDirectory(site.id), 'app.sock');
-    if (state.state !== 'running') { this.endpoints.delete(site.id); return; }
+    if (state.state !== 'running') {
+      this.endpoints.delete(site.id);
+      // Returning here for EVERY non-running state left a Site whose container never came up reading
+      // `status: live, lastError: null`, so SiteList and SiteGet advertised an environment that had failed
+      // four lifecycle attempts. Only `failed` is projected: `stopped` is an explicit intent and the rest
+      // are transient lifecycle steps, neither of which should overwrite the row. Recovery to `live` stays
+      // where it belongs, below, after healthy ingress.
+      if (state.state === 'failed') {
+        const lastError = state.lastError ?? 'the environment failed to start';
+        const current = this.site(site.id);
+        if (current.status !== 'failed' || current.lastError !== lastError) {
+          this.deps.store.updateSite(site.id, { status: 'failed', lastError });
+        }
+      }
+      return;
+    }
     if (!lstatSync(path).isSocket()) throw new Error('the environment ingress is not a socket');
     if ((statSync(this.brokerDirectory(site.id)).mode & 0o777) !== 0o510) await this.deps.gateway.sealRuntimeSocket(site.id);
     const ready = await new Promise<boolean>(done => {

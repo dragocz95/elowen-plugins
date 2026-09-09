@@ -120,16 +120,39 @@ async function connectProjectBrowser(ctx: PluginContext, prepared: SandboxPrepar
   let heartbeat: NodeJS.Timeout | undefined;
   let transport: ProjectCdpTransport | undefined;
   const closeListeners = new Set<() => void>();
+  // Which parts of the teardown are already DONE. A close that fails partway leaves real effects behind —
+  // the transport is shut, the lease cancel may have gone through — and a retry must neither repeat them
+  // nor skip what is still outstanding, so each stage is flagged as it completes and the whole sequence
+  // is resumable rather than replayable.
+  let localTornDown = false;
+  let leaseCancelled = false;
+  let leaseReleased = false;
   const close = (): Promise<void> => {
+    // Memoized only while it is IN FLIGHT or has succeeded. Memoizing a rejection too meant the sandbox
+    // lease survived a failed close forever: BrowserClose, account removal and the process-exit handler
+    // all call this, and every later caller was handed the same settled rejection without a single
+    // further attempt — the retry did nothing but reprint the original error.
     if (cleanup) return cleanup;
     cleanup = Promise.resolve().then(async () => {
-      if (heartbeat) clearInterval(heartbeat);
-      for (const listener of closeListeners) listener();
-      closeListeners.clear();
-      tabs?.dispose();
-      transport?.close();
-      await prepared.lease.cancel?.();
-      await prepared.lease.release();
+      if (!localTornDown) {
+        localTornDown = true;
+        if (heartbeat) clearInterval(heartbeat);
+        for (const listener of closeListeners) listener();
+        closeListeners.clear();
+        tabs?.dispose();
+        transport?.close();
+      }
+      if (!leaseCancelled) {
+        await prepared.lease.cancel?.();
+        leaseCancelled = true;
+      }
+      if (!leaseReleased) {
+        await prepared.lease.release();
+        leaseReleased = true;
+      }
+    }).catch((error: unknown) => {
+      cleanup = undefined;
+      throw error;
     });
     return cleanup;
   };
