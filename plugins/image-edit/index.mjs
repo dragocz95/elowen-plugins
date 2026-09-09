@@ -1,38 +1,50 @@
-// Image-edit plugin: image-to-image via the OpenAI Images edits API. The source image comes from an
-// accessible repo path (guarded) or a public URL; the edited PNG is saved to the plugin data dir and
-// served back to the chat by the daemon's /brain/images route, so it renders inline.
+// Image-edit plugin: image-to-image through the host's image seam (ctx.images). The source image comes
+// from an accessible repo path (guarded) or a public URL; the edited PNG is saved to the plugin data dir
+// and served back to the chat by the daemon's /brain/images route, so it renders inline.
+//
+// The transport lives in core: an API-key provider goes to its OpenAI-compatible edits API and a connected
+// ChatGPT account to its own image backend, whose OAuth token never enters plugin code. This plugin loads
+// the source bytes and writes the result.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const TIMEOUT_MS = 120_000;
-const SIZES = new Set(['1024x1024', '1536x1024', '1024x1536', 'auto']);
+const FETCH_TIMEOUT_MS = 120_000;
+const SIZES = new Set(['1024x1024', '1536x1024', '1024x1536']);
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
 
-/** The model field is now an exec from the model picker (`orca:openai/gpt-image-1`, `openai/gpt-image-1`)
- *  or a bare id; the OpenAI Images API wants the bare model — the segment after the last `/`. */
-function resolveModel(raw) {
+const CODEX_PROVIDER_TYPE = 'oauth-openai-codex';
+const DEFAULT_MODEL = { [CODEX_PROVIDER_TYPE]: 'gpt-image-2.5-sunburst' };
+const FALLBACK_MODEL = 'gpt-image-1';
+
+/** A provider usable for images: an API key, or the connected ChatGPT account whose credential core holds. */
+export function providerUsable(provider) {
+  return !!provider && (!!provider.apiKey || provider.type === CODEX_PROVIDER_TYPE);
+}
+
+/** The model field may hold an exec from an older config (`orca:openai/gpt-image-1`) or a bare id; the
+ *  image APIs want the bare model — the segment after the last `/`. */
+export function resolveModel(raw, providerType) {
+  const fallback = DEFAULT_MODEL[providerType] ?? FALLBACK_MODEL;
   const s = typeof raw === 'string' ? raw.trim() : '';
-  if (!s) return 'gpt-image-1';
-  return s.slice(s.lastIndexOf('/') + 1).trim() || s || 'gpt-image-1';
+  if (!s) return fallback;
+  return s.slice(s.lastIndexOf('/') + 1).trim() || fallback;
 }
 
-
-/** OpenAI-compatible Images API base: the configured proxy/endpoint, default platform OpenAI.
- *  Trailing slash trimmed — paths below append /images/… directly. */
-function resolveBase(raw) {
-  const s = typeof raw === 'string' ? raw.trim().replace(/\/$/, '') : '';
-  return s || 'https://api.openai.com/v1';
+/** "auto" and anything unrecognised mean "let the model choose", which both transports express by simply
+ *  not sending a size. */
+export function editSize(value) {
+  return typeof value === 'string' && SIZES.has(value.trim()) ? value.trim() : undefined;
 }
+
 export function register(ctx) {
-  // Credentials come from a configured brain provider (chosen in settings) — one central key.
-  const provider = ctx.resolveProvider(typeof ctx.config.provider === 'string' ? ctx.config.provider.trim() : '');
-  if (!provider?.apiKey) { ctx.logger.warn('enabled but no image provider configured — tool not registered'); return; }
-  const apiKey = provider.apiKey;
-  const base = resolveBase(provider.baseUrl);
-  const model = resolveModel(ctx.config.model);
+  // Credentials come from a configured brain provider (chosen in settings) — one central account or key.
+  const providerId = typeof ctx.config.provider === 'string' ? ctx.config.provider.trim() : '';
+  const provider = ctx.resolveProvider(providerId);
+  if (!providerUsable(provider)) { ctx.logger.warn('enabled but no usable image provider configured — tool not registered'); return; }
+  const model = resolveModel(ctx.config.model, provider.type);
 
   ctx.registerTool(defineTool({
     name: 'EditImage', label: 'Edit image',
@@ -70,7 +82,7 @@ export function register(ctx) {
         } else if (p.url) {
           const u = new URL(p.url);
           if (u.protocol !== 'http:' && u.protocol !== 'https:') return ok('Error: url must be http(s).');
-          const r = await fetch(u, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+          const r = await fetch(u, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
           if (!r.ok) throw new Error(`fetch source HTTP ${r.status}`);
           const contentType = r.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || '';
           if (contentType && !['image/png', 'image/jpeg'].includes(contentType)) throw new Error('source URL must return a PNG or JPEG image');
@@ -80,31 +92,16 @@ export function register(ctx) {
           return ok('Error: provide either a repo file path or a public image URL.');
         }
 
-        const form = new FormData();
-        form.set('model', model);
-        form.set('prompt', instruction);
-        form.set('size', SIZES.has(p.size) ? p.size : 'auto');
-        form.set('image', new Blob([bytes], { type: mime }), 'source.png');
-
-        const res = await fetch(`${base}/images/edits`, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${apiKey}` }, // let fetch set the multipart boundary
-          body: form,
-          signal: AbortSignal.timeout(TIMEOUT_MS),
+        const size = editSize(p.size);
+        const image = await ctx.images.edit({
+          providerId, model, prompt: instruction, images: [{ bytes, mime }], ...(size ? { size } : {}),
         });
-        if (!res.ok) {
-          const detail = await res.text().catch(() => '');
-          throw new Error(`openai images/edits HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`);
-        }
-        const data = await res.json();
-        const b64 = data.data?.[0]?.b64_json;
-        if (!b64) throw new Error('no image in the response');
         const file = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}.png`;
-        writeFileSync(join(ctx.dataDir(), file), Buffer.from(b64, 'base64'));
+        writeFileSync(join(ctx.dataDir(), file), image.png);
         return ok(`![${instruction.slice(0, 80).replaceAll(']', '')}](/api/brain/images/${file})`);
       } catch (e) { return fail(e); }
     },
   }));
 
-  ctx.logger.info(`image-edit registered (${model})`);
+  ctx.logger.info(`image-edit registered (${provider.label}, ${model})`);
 }

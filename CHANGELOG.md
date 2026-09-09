@@ -1,5 +1,14 @@
 # Changelog
 
+## image-gen 0.2.3, image-edit 0.2.3 - 2026-09-09
+
+- Both plugins now render through the host image seam (`ctx.images`) instead of their own HTTP client, so
+  a connected ChatGPT account works alongside an API-key provider: the account's OAuth token stays in the
+  daemon and never reaches plugin code. Requires core 0.28.36, the first core that provides the seam.
+- The provider field accepts an OpenAI-compatible endpoint or the ChatGPT account, and the model field is
+  free text: the account serves gpt-image-2.5-sunburst, gpt-image-2.5-flare, gpt-image-2 and
+  gpt-image-1.5, which are image models and are no longer offered in the chat model picker.
+
 ## lsp 0.1.5 - 2026-09-09
 
 - Requires core 0.28.35: this plugin reaches a managed project through the Sandbox environment control, which no earlier core provides.

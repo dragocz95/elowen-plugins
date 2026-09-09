@@ -1,13 +1,13 @@
 {
-  "description": "Úprava existujícího obrázku podle textového zadání (image-to-image) přes OpenAI Images edits API. Výsledek se zobrazí přímo v chatu.",
+  "description": "Úprava existujícího obrázku podle textového zadání (image-to-image) přes nakonfigurovaného poskytovatele s API klíčem nebo přes připojený účet ChatGPT. Výsledek se zobrazí přímo v chatu.",
   "fields": {
     "provider": {
       "label": "Poskytovatel",
-      "hint": "Který nakonfigurovaný OpenAI-kompatibilní poskytovatel použít (převezme jeho klíč + základní URL). Poskytovatele přidáte v Nastavení → Brain."
+      "hint": "Který nakonfigurovaný poskytovatel úpravy vykreslí: OpenAI-kompatibilní endpoint (převezme jeho klíč a základní URL), nebo připojený účet ChatGPT. Poskytovatele přidáte v Nastavení → Brain."
     },
     "model": {
       "label": "Model",
-      "hint": "Vyberte z nastavených modelů. Výchozí: gpt-image-1."
+      "hint": "Identifikátor obrazového modelu. Účet ChatGPT: gpt-image-2.5-sunburst, gpt-image-2.5-flare, gpt-image-2 nebo gpt-image-1.5. Poskytovatel s API klíčem: model, který nabízí jeho Images API, například gpt-image-1. Prázdné pole použije výchozí model zvoleného poskytovatele."
     }
   }
 }
