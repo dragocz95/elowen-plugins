@@ -851,6 +851,19 @@ test('bundled skills plugin', async (t) => {
     assert.ok(reloaded.skills.map((s) => s.name).includes('ship-it'));
   });
 
+  await t.test('CreateSkill keeps a description containing ": " parseable, so the skill has its trigger', async () => {
+    // Regression: the tool interpolated `description: ${text}` by hand. A colon-space inside the text made
+    // the frontmatter invalid YAML and the skill loaded with an empty description — listed, never triggered.
+    const dataRoot = tmpDir('skills');
+    const reg = loadPlugin({ dataRoot, requestReload: () => {} });
+    const description = 'Use when writing release notes: CHANGELOG.md, in-app entries, the manual';
+    await asTurn(reg, OWNER_TURN, () => runTool(reg, 'CreateSkill', { name: 'relnotes', scope: 'instance', description, content: 'steps' }));
+    const reloaded = loadPlugin({ dataRoot });
+    const skill = reloaded.skills.find((s) => s.name === 'relnotes');
+    assert.ok(skill, 'skill not listed after reload');
+    assert.equal(skill.description, description);
+  });
+
   await t.test('DeleteSkill also asks the host to apply the removal live', async () => {
     const dataRoot = tmpDir('skills');
     mkdirSync(join(dataRoot, 'skills'), { recursive: true });

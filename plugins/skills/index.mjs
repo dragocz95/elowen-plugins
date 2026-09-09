@@ -831,7 +831,9 @@ export function register(ctx) {
         // would send the write wherever it points — the same guard the HTTP create route applies.
         const file = join(dir, `${p.name}.md`);
         if (escapesOwnScope(target, file)) return ok(`Error: "${p.name}" resolves outside your own skills directory.`);
-        const body = `---\nname: ${p.name}\ndescription: ${p.description.replaceAll('\n', ' ')}\n---\n\n${p.content}\n`;
+        // Same serializer as the HTTP create route: a hand-built `description: …` line breaks the YAML
+        // parser on ': ' and the skill loads with no description, i.e. without a trigger.
+        const body = buildSkillBody(applyManagedFields({}, p.name, p.description, false), p.content);
         mkdirSync(dir, { recursive: true });
         writeFileSync(file, body, 'utf-8');
         // Apply live: the host reloads plugins once the current turn settles (respawning the session), so
