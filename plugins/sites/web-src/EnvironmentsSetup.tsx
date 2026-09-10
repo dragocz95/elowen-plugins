@@ -68,6 +68,8 @@ export function EnvironmentsSetup({ surface }: PluginPageProps) {
 
   const canInstall = environment.data.canProvision
     && environment.data.items.some((item) => !item.ok && !item.unknown);
+  const readinessLabel = (id: string, fallback: string): string =>
+    strings[`readiness_${id.replace(/[:\-]/g, '_')}`] ?? fallback;
   const gatewayStatus = gateway.data.status === 'ready'
     ? strings.environmentStatusReady
     : gateway.data.status === 'missing'
@@ -146,7 +148,7 @@ export function EnvironmentsSetup({ surface }: PluginPageProps) {
           {environment.data.items.map((item) => (
             <SettingsRow
               key={item.id}
-              label={item.label}
+              label={readinessLabel(item.id, item.label)}
               icon={item.unknown ? CircleDashed : item.ok ? CheckCircle2 : TriangleAlert}
               trailingLayout={item.detail ? 'stack' : 'inline'}
               status={(

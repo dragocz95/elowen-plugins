@@ -6,6 +6,7 @@ import { SitesPage } from '../plugins/sites/web-src/SitesPage';
 import { SiteDetail } from '../plugins/sites/web-src/SiteDetail';
 import { EnvironmentsSetup } from '../plugins/sites/web-src/EnvironmentsSetup';
 import manifest from '../plugins/sites/elowen-plugin.json' with { type: 'json' };
+import csCatalog from '../plugins/sites/i18n/cs.json' with { type: 'json' };
 import { ToastProvider, createWrapper } from './ui/hostHooks';
 
 /** The Sites workspace is the app's register-plus-drawer pattern, and the three things it was rebuilt
@@ -20,6 +21,7 @@ ensurePluginUiRuntime();
 // View copy is served per-plugin by /plugins/ui; serving the REAL manifest fallback keeps these
 // assertions in lockstep with what a user sees.
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
+const csStrings = (csCatalog as { web: { strings: Record<string, string> } }).web.strings;
 
 // A person carries the picture too, so the register and the drawer draw the same face the rest of the
 // application does. OWNER has one uploaded; the other two do not and fall back to the monogram.
@@ -458,6 +460,25 @@ describe('environment setup settings', () => {
     expect(screen.queryByRole('button', { name: strings.environmentProvision })).not.toBeInTheDocument();
   });
 
+  it('localizes readiness labels instead of rendering the helper English', async () => {
+    use(
+      http.get('/api/plugins/ui', () => HttpResponse.json([
+        { name: 'sites', url: '/plugins/sites/web/index.js', apiVersion: 7, nav: [], settings: [], strings: csStrings },
+      ])),
+      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
+      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({
+        ready: true,
+        canProvision: false,
+        items: [{ id: 'os:supported', label: 'Supported operating system', ok: true, detail: 'Debian is supported' }],
+      })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    expect(await screen.findByText('Podporovaný operační systém')).toBeVisible();
+    expect(screen.queryByText('Supported operating system')).not.toBeInTheDocument();
+  });
+
   it('never renders the provisioning action without admin capability', async () => {
     use(
       http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
@@ -479,6 +500,16 @@ describe('persistent environment detail', () => {
     expect(screen.getByText('service ready', { exact: false })).toBeVisible();
     expect(screen.queryByRole('textbox', { name: strings.runtimeCommand })).not.toBeInTheDocument();
     expect(container.querySelector('.grid-cols-1.sm\\:grid-cols-2')).not.toBeNull();
+  });
+
+  it('localizes observed and desired runtime state tokens', async () => {
+    use(http.get('/api/plugins/ui', () => HttpResponse.json([
+      { name: 'sites', url: '/plugins/sites/web/index.js', apiVersion: 7, nav: [], settings: [], strings: csStrings },
+    ])));
+    mountEnvironment();
+
+    expect((await screen.findAllByText('Běží')).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('running')).not.toBeInTheDocument();
   });
 
   it('submits one lifecycle mutation while the first request is pending', async () => {
@@ -644,7 +675,7 @@ describe('publication kind', () => {
     expect(screen.getByText('The validated container is not running')).toBeVisible();
     // The state is shown as the daemon reported it, under the label saying what it is.
     expect(screen.getByText(strings.environmentObservedState)).toBeVisible();
-    expect(screen.getByText('running')).toBeVisible();
+    expect(screen.getByText(strings.state_running)).toBeVisible();
     const uiRuntime = (window as unknown as { ElowenUiRuntime: { navigate(href: string): void } }).ElowenUiRuntime;
     const originalNavigate = uiRuntime.navigate;
     const navigate = vi.fn();

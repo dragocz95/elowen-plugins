@@ -169,6 +169,8 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
   const environment = detail.data?.environment ?? null;
   const projectEnvironment = detail.data?.projectEnvironment ?? null;
   const displayedStatus = displayStatus(site);
+  const stateLabel = (state: string | null): string =>
+    strings[`state_${state ?? 'unknown'}`] ?? strings.state_unknown;
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const visibleOptions = VISIBILITY_ORDER.filter((value) => value !== 'public' || allowPublicSites);
   // Guests are picked from every account except the owner, who already holds the site.
@@ -312,7 +314,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
           {projectEnvironment?.state ? (
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="text-muted-foreground">{strings.environmentObservedState}</span>
-              <Badge tone="muted">{projectEnvironment.state}</Badge>
+              <Badge tone="muted">{stateLabel(projectEnvironment.state)}</Badge>
             </div>
           ) : (
             <p className="text-[11px] text-muted-foreground">{strings.projectEnvironmentMissing}</p>
