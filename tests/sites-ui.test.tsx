@@ -417,7 +417,7 @@ describe('environment setup settings', () => {
     fireEvent.click(confirm);
     await waitFor(() => expect(posts).toHaveLength(1));
     await waitFor(() => expect(screen.getAllByText(strings.pass).length).toBeGreaterThan(0));
-    expect(screen.getByRole('button', { name: strings.environmentProvision })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: strings.environmentProvision })).not.toBeInTheDocument();
   });
 
   it('handles failed provisioning without an unhandled rejection and remeasures once', async () => {
