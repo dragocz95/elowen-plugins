@@ -18,7 +18,7 @@ const IGNORE = new Set(['.git', 'node_modules', '.next', 'dist', '.turbo', 'cove
  *  counting. */
 const LIST_NODE_CAP = 10000;
 class InputError extends Error {
-  constructor(message: string, readonly status = 400, readonly guestMessage?: string) { super(message); }
+  constructor(message: string, readonly status = 400) { super(message); }
 }
 /** Environment-provider refusals that are a decision about the CALLER rather than a runtime diagnostic:
  *  the project is not (or no longer) theirs, or their account may not use the environment at all. Both are
@@ -27,6 +27,47 @@ class InputError extends Error {
  *  arbitrary `status` an unknown error happens to carry, and the message is the provider's static one,
  *  which names no path and no process. */
 const ACCESS_REFUSALS = new Set(['project_forbidden', 'account_forbidden']);
+/** Every chunked-upload refusal this transport will repeat to a browser, keyed on the guest's stable
+ *  CODE and answered with the wording and status written HERE.
+ *
+ *  The provider's own message is never forwarded. Its text is assembled where the failure happened and
+ *  has carried an errno, the staging directory and the candidate filename — none of it the caller's, none
+ *  of it actionable, and none of it a contract anything can be written against. A code that is not in
+ *  this table is not a refusal the editor knows how to describe, so it falls through to the generic
+ *  answer rather than being repeated on trust. `version_conflict` is handled before this table because it
+ *  reaches far more than uploads and the UI's conflict flow is written against its own wording.
+ *
+ *  `guest_protocol` and `guest_upload_error` are deliberately absent: the first is the transport telling
+ *  itself the guest broke the protocol and the second is a code nobody has agreed on, and neither is
+ *  something a person at a browser can act on. Both fall through to the generic answer.
+ *
+ *  A Map, not an object, because the lookup key is a string the PROVIDER chose. Indexing a plain object
+ *  with `constructor`, `toString` or `__proto__` answers from the prototype chain, and any of those would
+ *  have passed the "is this code known" test with a value carrying no status and no message — turning the
+ *  one path that is supposed to end in the generic answer into a malformed 4xx. A Map has no inherited
+ *  keys, so an unknown code is unknown whatever it is called. */
+const UPLOAD_REFUSALS = new Map<string, { status: number; message: string }>(Object.entries({
+  upload_forbidden: { status: 403, message: 'this upload does not belong to this destination' },
+  upload_conflict: { status: 409, message: 'another upload already owns this destination' },
+  upload_unknown: { status: 409, message: 'upload handle is unavailable' },
+  upload_expired: { status: 409, message: 'upload expired and must be started again' },
+  upload_pending: { status: 409, message: 'upload is not ready for chunks' },
+  environment_busy: { status: 409, message: 'the project environment changed while this upload was starting' },
+  upload_invalid: { status: 409, message: 'upload state is not valid for this step' },
+  upload_completed: { status: 409, message: 'upload is already committed' },
+  upload_incomplete: { status: 409, message: 'upload is missing chunks and cannot be committed' },
+  upload_cleanup_unverified: { status: 409, message: 'upload staging could not be verified' },
+  chunk_conflict: { status: 409, message: 'a different chunk already occupies this offset' },
+  resolution_drift: { status: 409, message: 'upload destination changed while the upload was open' },
+  not_directory: { status: 409, message: 'upload destination is inside something that is not a directory' },
+  invalid_path: { status: 400, message: 'invalid upload destination' },
+  invalid_operation: { status: 400, message: 'invalid upload operation' },
+  invalid_upload: { status: 400, message: 'invalid upload handle' },
+  invalid_chunk: { status: 400, message: 'invalid upload chunk' },
+  invalid_size: { status: 400, message: 'invalid upload size' },
+  version_required: { status: 400, message: 'a content version is required' },
+  file_too_large: { status: 413, message: 'file is too large to upload' },
+}));
 const accessRefusal = (error: unknown): InputError | undefined => {
   const code = (error as { code?: unknown } | null)?.code;
   if (typeof code !== 'string' || !ACCESS_REFUSALS.has(code)) return undefined;
@@ -77,18 +118,18 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
     try {
       return await live.projectFiles({ project, accountUserId, operation });
     } catch (error) {
+      const code = (error as { code?: unknown } | null)?.code;
       // The provider tags every refusal with the guest's own code. A lost CAS race is the one the
       // editor can name precisely: the UI's conflict flow is written against the app-path shape,
       // 409 + 'content version conflict', so a stale expectedVersion must not fall through as 503.
-      // The guest's own distinction (destination occupied vs stale version) rides along in
-      // `guestMessage` for the routes that can be more precise about it.
-      if ((error as { code?: unknown })?.code === 'version_conflict') throw new InputError('content version conflict', 409, error instanceof Error ? error.message : undefined);
-      // The chunked-upload refusals (`upload_conflict`, `upload_forbidden`, `invalid_chunk`, …) are
-      // client-facing by design and carry their own 4xx status: surface them as that status instead
-      // of the generic 503, still without exposing process diagnostics or storage paths.
-      const status = (error as { status?: unknown }).status;
-      if (typeof status === 'number' && Number.isInteger(status) && status >= 400 && status < 500 && typeof operation.kind === 'string' && operation.kind.startsWith('write-')) {
-        throw new InputError(error instanceof Error ? error.message : 'upload refused', status);
+      if (code === 'version_conflict') throw new InputError('content version conflict', 409);
+      // A chunked-upload refusal is client-facing by design, so it keeps its own status instead of the
+      // generic 503 — but only the codes listed here, and only with the wording written here. What the
+      // provider put in the message is not the editor's to forward: it has carried a guest errno, a
+      // staging directory and a candidate filename, none of which belong in a browser response.
+      if (typeof code === 'string' && typeof operation.kind === 'string' && operation.kind.startsWith('write-')) {
+        const known = UPLOAD_REFUSALS.get(code);
+        if (known) throw new InputError(known.message, known.status);
       }
       throw error;
     }
@@ -473,7 +514,12 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
         // transport discards a failed `write-begin` itself, so an abort carrying the empty handle id of
         // an upload that was never granted leaks nothing and keeps the primary status.
         if (!aborted && granted) throw new Error(`upload failed and its guest staging could not be released: ${error instanceof Error ? error.message : String(error)}`);
-        if (error instanceof InputError && error.guestMessage === 'Destination already exists') throw new InputError('already exists');
+        // A version conflict on an upload that was NOT an overwrite can only mean the destination is
+        // already there: this request opened it against a fresh destination, so there was no version to
+        // be stale. Derived from what this request asked for rather than from the provider's wording,
+        // which is one fixed string for both halves of the conflict and is not the editor's to read.
+        if (error instanceof InputError && error.status === 409 && !overwrite
+          && error.message === 'content version conflict') throw new InputError('already exists');
         throw error;
       }
     }
