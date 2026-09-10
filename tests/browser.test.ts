@@ -288,7 +288,7 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.3.8, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.3.10, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
       version: string; userGrantable: boolean; entry: string;
@@ -296,13 +296,13 @@ describe('browser plugin contract', () => {
       provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.3.8');
+    expect(manifest.version).toBe('0.3.10');
     expect(manifest.userGrantable).toBe(true);
     // The session listing reads the agent's last reply through `host.stores()`, which the core refuses
     // outright unless the manifest asks for it — an undeclared grant makes the whole panel fail, not the
     // one field, so the declaration is part of the contract rather than an implementation detail.
     expect(manifest.capabilities.reads).toContain('stores');
-    expect(manifest.provides.tools).toHaveLength(17);
+    expect(manifest.provides.tools).toHaveLength(18);
     expect(manifest.provides.apiRoutes).toHaveLength(13);
     expect(manifest.provides.apiRoutes).toContain('navigation');
     // The account panel's session stills. Deny-by-default: an API route the manifest does not declare is
@@ -965,12 +965,12 @@ describe('project browser sessions', () => {
   it('closes an aborted BrowserOpen and frees the shared project slot', async () => {
     const controller = new AbortController();
     const h = projectHarness({ duringOpen: () => controller.abort() });
-    const open = h.tools.get('BrowserOpen')!;
+    const open = h.tools.get('BrowserOpenProject')!;
     try {
-      await expect(open.execute('open', { url: 'http://127.0.0.1:3000/', useProjectProfile: true }, controller.signal)).rejects.toThrow(/abort/i);
+      await expect(open.execute('open', { url: 'http://127.0.0.1:3000/' }, controller.signal)).rejects.toThrow(/abort/i);
       expect(h.close).toHaveBeenCalledOnce();
       // The slot is free again: a retry right after the cancelled turn must not be refused.
-      const retry = await open.execute('open', { useProjectProfile: true });
+      const retry = await open.execute('open', {});
       expect(JSON.parse(retry.content[0]!.text!)).toMatchObject({ mode: 'project' });
     } finally { await h.registry.closeAll(); }
   });
@@ -980,7 +980,7 @@ describe('project browser sessions', () => {
     controller.abort();
     const h = projectHarness();
     try {
-      await expect(h.tools.get('BrowserOpen')!.execute('open', { useProjectProfile: true }, controller.signal)).rejects.toThrow(/abort/i);
+      await expect(h.tools.get('BrowserOpenProject')!.execute('open', {}, controller.signal)).rejects.toThrow(/abort/i);
       expect(h.openProject).not.toHaveBeenCalled();
       expect(h.close).not.toHaveBeenCalled();
     } finally { await h.registry.closeAll(); }
@@ -992,18 +992,18 @@ describe('project browser sessions', () => {
     h.browser.newPage = vi.fn()
       .mockImplementationOnce(async () => { throw new Error('page open failed'); })
       .mockImplementation(realNewPage as never);
-    const open = h.tools.get('BrowserOpen')!;
+    const open = h.tools.get('BrowserOpenProject')!;
     try {
-      await expect(open.execute('open', { useProjectProfile: true })).rejects.toThrow(/page open failed/);
+      await expect(open.execute('open', {})).rejects.toThrow(/page open failed/);
       expect(h.close).toHaveBeenCalledOnce();
-      const retry = await open.execute('open', { useProjectProfile: true });
+      const retry = await open.execute('open', {});
       expect(JSON.parse(retry.content[0]!.text!)).toMatchObject({ mode: 'project' });
     } finally { await h.registry.closeAll(); }
   });
 
   it('denies downloads only in personal mode, never on a managed session page', async () => {
     const project = projectHarness();
-    await project.tools.get('BrowserOpen')!.execute('open', { useProjectProfile: true });
+    await project.tools.get('BrowserOpenProject')!.execute('open', {});
     try {
       const managedPage = project.browser.pages[0]!;
       // The context-level allow into /data/browser/downloads was set at connect; a browser-wide deny on
@@ -1033,8 +1033,8 @@ describe('project browser sessions', () => {
 
   it('reports incomplete cleanup when account removal cannot close a project browser', async () => {
     const h = projectHarness();
-    const open = h.tools.get('BrowserOpen')!;
-    const opened = await open.execute('open', { useProjectProfile: true });
+    const open = h.tools.get('BrowserOpenProject')!;
+    const opened = await open.execute('open', {});
     const sessionId = JSON.parse(opened.content[0]!.text!).sessionId as string;
     h.close.mockRejectedValue(new Error('Guest termination could not be verified'));
     try {
@@ -1068,7 +1068,7 @@ describe('project browser sessions', () => {
       currentSessionId: () => 'project-chat', currentIdentity: () => ({ conversation: 'delegated' }),
       registerTool: (tool: TestTool) => { tools.set(tool.name, tool); },
     } as never, registry);
-    const opened = await tools.get('BrowserOpen')!.execute('open', { url: 'http://127.0.0.1:3000/', useProjectProfile: true });
+    const opened = await tools.get('BrowserOpenProject')!.execute('open', { url: 'http://127.0.0.1:3000/' });
     const openedData = JSON.parse(opened.content[0]!.text!) as { sessionId: string };
     const session = await registry.getForTool(openedData.sessionId, 1, project);
     try {
@@ -1132,7 +1132,11 @@ describe('project browser sessions', () => {
       registerTool: (tool: TestTool) => { tools.set(tool.name, tool); },
     } as never, registry);
     try {
-      const opened = await tools.get('BrowserOpen')!.execute('open-1', {});
+      // The project browser is its own tool, never a flag on this one: gpt-5.6 fills every optional
+      // parameter it is shown, so a `useProjectProfile` flag was sent as `true` on every open. Whatever
+      // extra argument a model invents here must not route the open into the project profile.
+      expect(tools.has('BrowserOpenProject')).toBe(true);
+      const opened = await tools.get('BrowserOpen')!.execute('open-1', { useProjectProfile: true });
       const payload = JSON.parse(opened.content[0]!.text!) as { sessionId: string; mode?: string };
       expect(payload.mode).toBeUndefined();
       expect(openProject).not.toHaveBeenCalled();

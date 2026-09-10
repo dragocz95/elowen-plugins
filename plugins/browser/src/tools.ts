@@ -60,38 +60,56 @@ export function registerBrowserTools(ctx: PluginContext, registry: SessionRegist
     return { owner, session: await registry.getForTool(sessionId, owner.userId, selected), project: selected };
   };
 
+  /** The two browser modes are two TOOLS, not one tool with a flag: some models fill every optional
+   *  parameter of the tool they call (gpt-5.6 sent `useProjectProfile: true` on every open), which
+   *  turned an opt-in flag into the default and took the live view card away from every managed
+   *  conversation. A tool is chosen by intent; a flag is filled by habit. */
+  const openBrowser = async (
+    toolCallId: string,
+    url: string | undefined,
+    selected: ReturnType<typeof selectedProject>,
+    signal: AbortSignal | undefined,
+  ) => {
+    const owner = selected ? projectOwner() : requireBrowserToolOwner(ctx);
+    if (signal?.aborted) throw signal.reason ?? new Error('Browser open was aborted.');
+    const browser = await registry.create({ ownerUserId: owner.userId, conversationId: owner.conversationId, toolCallId, project: selected });
+    try {
+      // A turn cancelled while the browser was still starting must not leave the session behind: in
+      // project mode it would hold the shared profile slot until the idle sweep, refusing the retry.
+      // The check repeats after the first page work for an abort that fired during the navigation.
+      if (signal?.aborted) throw signal.reason ?? new Error('Browser open was aborted.');
+      const snapshot = url ? await browser.navigate(url, signal) : (await browser.snapshot(false, signal)).snapshot;
+      if (signal?.aborted) throw signal.reason ?? new Error('Browser open was aborted.');
+      return textResult({ ...snapshotPayload(browser.id, snapshot),
+        ...(selected ? { mode: 'project', sharedProfile: true, downloadsPath: '/data/browser/downloads' } : {}),
+      });
+    } catch (error) {
+      await browser.close('open_failed');
+      throw error;
+    }
+  };
+
   const tools = [
     defineTool({
       name: 'BrowserOpen',
       label: 'Open browser',
-      description: 'Open the linked account’s browser, which runs on the host with a live view card and user takeover, and refuses shared rooms and delegated child agents. Set useProjectProfile to open the selected managed project’s shared browser instead.',
+      description: 'Open the linked account’s browser, which runs on the host with a live view card and user takeover, and refuses shared rooms and delegated child agents. This is the browser to use unless the user explicitly asks for the project’s shared browser.',
       parameters: Type.Object({
         url: Type.Optional(Type.String({ description: 'Optional absolute public http(s) URL to open' })),
-        useProjectProfile: Type.Optional(Type.Boolean({ description: 'Open the selected managed project’s shared browser, with profile, cookies and downloads shared as project data. It runs headless inside the project environment: no live view and no user takeover.' })),
       }),
-      execute: async (toolCallId: string, input: { url?: string; useProjectProfile?: boolean }, signal?: AbortSignal) => {
-        let selected: ReturnType<typeof selectedProject>;
-        if (input.useProjectProfile === true) {
-          selected = selectedProject();
-          if (!selected) throw new Error('The project browser requires a selected managed project.');
-        }
-        const owner = selected ? projectOwner() : requireBrowserToolOwner(ctx);
-        if (signal?.aborted) throw signal.reason ?? new Error('Browser open was aborted.');
-        const browser = await registry.create({ ownerUserId: owner.userId, conversationId: owner.conversationId, toolCallId, project: selected });
-        try {
-          // A turn cancelled while the browser was still starting must not leave the session behind: in
-          // project mode it would hold the shared profile slot until the idle sweep, refusing the retry.
-          // The check repeats after the first page work for an abort that fired during the navigation.
-          if (signal?.aborted) throw signal.reason ?? new Error('Browser open was aborted.');
-          const snapshot = input.url ? await browser.navigate(input.url, signal) : (await browser.snapshot(false, signal)).snapshot;
-          if (signal?.aborted) throw signal.reason ?? new Error('Browser open was aborted.');
-          return textResult({ ...snapshotPayload(browser.id, snapshot),
-            ...(selected ? { mode: 'project', sharedProfile: true, downloadsPath: '/data/browser/downloads' } : {}),
-          });
-        } catch (error) {
-          await browser.close('open_failed');
-          throw error;
-        }
+      execute: (toolCallId: string, input: { url?: string }, signal?: AbortSignal) => openBrowser(toolCallId, input.url, undefined, signal),
+    }),
+    defineTool({
+      name: 'BrowserOpenProject',
+      label: 'Open project browser',
+      description: 'Open the selected managed project’s shared browser, with profile, cookies and downloads shared as project data among its members. It runs headless inside the project environment: no live view card and no user takeover. Only when the user explicitly asks for the project browser; otherwise use BrowserOpen.',
+      parameters: Type.Object({
+        url: Type.Optional(Type.String({ description: 'Optional absolute public http(s) URL to open' })),
+      }),
+      execute: (toolCallId: string, input: { url?: string }, signal?: AbortSignal) => {
+        const selected = selectedProject();
+        if (!selected) throw new Error('The project browser requires a selected managed project.');
+        return openBrowser(toolCallId, input.url, selected, signal);
       },
     }),
     defineTool({

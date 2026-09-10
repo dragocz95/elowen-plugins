@@ -1,3 +1,9 @@
+## browser 0.3.10 - 2026-09-10
+
+- The project browser is its own tool, `BrowserOpenProject`, instead of a `useProjectProfile` flag on
+  `BrowserOpen`. Models that fill every optional parameter sent the flag as `true` on every open, which
+  turned the shared project profile into the default and took the live view card away again.
+
 # Changelog
 
 ## browser 0.3.9 - 2026-09-10
