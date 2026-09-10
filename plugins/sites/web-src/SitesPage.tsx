@@ -91,7 +91,9 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
 }) {
   const { components } = runtime();
   const { DataTableRow, DataTableCell, Badge, Avatar, IconButton } = components;
-  const StatusIcon = STATUS_ICON[site.status];
+  const StatusIcon = site.degraded ? STATUS_ICON.failed : STATUS_ICON[site.status];
+  const statusLabel = site.degraded ? strings.statusDegraded : strings[STATUS_STRING[site.status]];
+  const statusTone = site.degraded ? 'warning' : STATUS_TONE[site.status];
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const published = site.lastPublishAt ? relativeTime(site.lastPublishAt) : '—';
   // The publication column says where a row is served from, and only one of those shapes can be read off
@@ -123,7 +125,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
           }}
           className="flex w-full min-w-0 items-center gap-2 text-left"
         >
-          <StatusIcon size={12} aria-hidden className={site.status === 'live' ? 'shrink-0 text-success' : site.status === 'failed' ? 'shrink-0 text-destructive' : 'shrink-0 text-muted-foreground'} />
+          <StatusIcon size={12} aria-hidden className={site.degraded ? 'shrink-0 text-warning' : site.status === 'live' ? 'shrink-0 text-success' : site.status === 'failed' ? 'shrink-0 text-destructive' : 'shrink-0 text-muted-foreground'} />
           <span className="truncate text-sm text-foreground">{site.title}</span>
         </button>
       </DataTableCell>
@@ -140,7 +142,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
         </Badge>
       </DataTableCell>
       <DataTableCell priority="wide">
-        <Badge tone={STATUS_TONE[site.status]}>{strings[STATUS_STRING[site.status]]}</Badge>
+        <Badge tone={statusTone}>{statusLabel}</Badge>
       </DataTableCell>
       <DataTableCell priority="wide" className="whitespace-nowrap text-xs text-muted-foreground">{published}</DataTableCell>
       <DataTableCell priority="wide" className="whitespace-nowrap">

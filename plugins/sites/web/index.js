@@ -891,7 +891,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
     ) : null,
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-start justify-between gap-3", children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-1.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: STATUS_TONE[site.status], children: strings[STATUS_STRING[site.status]] }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: site.degraded ? "warning" : STATUS_TONE[site.status], children: site.degraded ? strings.statusDegraded : strings[STATUS_STRING[site.status]] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Badge, { tone: VISIBILITY_TONE[site.visibility], children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(VisibilityIcon, { size: 10, "aria-hidden": true, className: "mr-1" }),
           strings[VISIBILITY_STRING[site.visibility]]
@@ -1210,7 +1210,9 @@ function SitesRegister({ sites, selectedId, onSelect }) {
 function SiteRow({ site, strings, active, onSelect, onNavigate }) {
   const { components } = runtime();
   const { DataTableRow, DataTableCell, Badge, Avatar, IconButton } = components;
-  const StatusIcon = STATUS_ICON[site.status];
+  const StatusIcon = site.degraded ? STATUS_ICON.failed : STATUS_ICON[site.status];
+  const statusLabel = site.degraded ? strings.statusDegraded : strings[STATUS_STRING[site.status]];
+  const statusTone = site.degraded ? "warning" : STATUS_TONE[site.status];
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const published = site.lastPublishAt ? relativeTime(site.lastPublishAt) : "\u2014";
   const publication = site.kind === "proxy" ? { label: strings.kindProxy, target: site.target } : site.runtime === "environment" ? { label: strings.environment, target: "" } : site.runtime === "command" ? { label: strings.kindCommand, target: "" } : site.runtime === "php" ? { label: strings.kindPhp, target: "" } : { label: strings.kindStatic, target: "" };
@@ -1229,7 +1231,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }) {
         },
         className: "flex w-full min-w-0 items-center gap-2 text-left",
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(StatusIcon, { size: 12, "aria-hidden": true, className: site.status === "live" ? "shrink-0 text-success" : site.status === "failed" ? "shrink-0 text-destructive" : "shrink-0 text-muted-foreground" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(StatusIcon, { size: 12, "aria-hidden": true, className: site.degraded ? "shrink-0 text-warning" : site.status === "live" ? "shrink-0 text-success" : site.status === "failed" ? "shrink-0 text-destructive" : "shrink-0 text-muted-foreground" }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate text-sm text-foreground", children: site.title })
         ]
       }
@@ -1242,7 +1244,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }) {
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(VisibilityIcon, { size: 10, "aria-hidden": true, className: "mr-1" }),
       strings[VISIBILITY_STRING[site.visibility]]
     ] }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { priority: "wide", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: STATUS_TONE[site.status], children: strings[STATUS_STRING[site.status]] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { priority: "wide", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: statusTone, children: statusLabel }) }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { priority: "wide", className: "whitespace-nowrap text-xs text-muted-foreground", children: published }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { priority: "wide", className: "whitespace-nowrap", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5", children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: site.kind === "proxy" ? "accent" : "muted", children: publication.label }),

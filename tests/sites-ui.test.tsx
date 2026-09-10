@@ -48,6 +48,7 @@ const site = {
   runtime: 'command',
   kind: 'static',
   target: '',
+  degraded: false,
   canManage: true,
 };
 
@@ -528,6 +529,7 @@ const proxySite = {
   runtime: 'environment',
   kind: 'proxy',
   target: '3000',
+  degraded: true,
 };
 
 const proxyDetail = {
@@ -565,6 +567,7 @@ describe('publication kind', () => {
     expect(proxyCell).toHaveTextContent(strings.kindProxy);
     expect(proxyCell).toHaveTextContent(`:${proxySite.target}`);
     expect(proxyCell).toHaveAttribute('data-priority', 'wide');
+    expect(within(proxyRow).getByText(strings.statusDegraded)).toBeVisible();
 
     // A legacy row still names its own runtime, and carries no port to reach.
     const legacyRow = screen.getByText(site.title).closest('[role="row"]') as HTMLElement;
@@ -577,6 +580,7 @@ describe('publication kind', () => {
 
     // The sentence names the Project whose environment serves this publication.
     expect(await screen.findByText(strings.projectEnvironmentLink.replace('{project}', proxySite.projectSlug as string))).toBeVisible();
+    expect(screen.getByText(strings.statusDegraded)).toBeVisible();
     // The state is shown as the daemon reported it, under the label saying what it is.
     expect(screen.getByText(strings.environmentObservedState)).toBeVisible();
     expect(screen.getByText('running')).toBeVisible();

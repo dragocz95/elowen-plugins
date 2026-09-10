@@ -203,8 +203,10 @@ export const legacyDescriptor = (site, migration) => ({
     // conversion, so these agree today, but reading the captured one keeps that from being an assumption.
     currentReleaseId: migration.fromReleaseId ?? site.currentReleaseId,
 });
+const COMPLETION_RETRY_MS = 15_000;
 export class RuntimeMigrationService {
     deps;
+    completionRetryAt = new Map();
     constructor(deps) {
         this.deps = deps;
     }
@@ -512,7 +514,7 @@ export class RuntimeMigrationService {
      *  4. The site is started and has to ANSWER before the binding is published as live.
      *  5. Only then does the conversion's directory go, and last of all the row: while it exists this
      *     operation still owns the site, and dropping it is the point of no return. */
-    async complete(siteId) {
+    async complete(siteId, resumableError = interruptedByRestart('flipped')) {
         const migration = this.deps.store.runtimeMigration(siteId);
         // Nothing left to retire. A second call after the row is gone answers with the site's status rather
         // than refusing, because a resumed driver cannot tell "already finished" from "never started".
@@ -539,7 +541,7 @@ export class RuntimeMigrationService {
         // start. Completing THAT would drop the only record of how to get back, on a site that never came up.
         // A restart that landed between the flip and the completion is the one exception: it recorded a
         // failure for a site that is up and serving, and the claim below is what tells the two apart.
-        if (!this.deps.store.beginRuntimeCompletion(siteId, interruptedByRestart('flipped'))) {
+        if (!this.deps.store.beginRuntimeCompletion(siteId, resumableError)) {
             throw new MigrationRefused(`this conversion failed and cannot be completed: ${migration.lastError ?? 'the conversion slot moved underneath it'}`);
         }
         try {
@@ -602,29 +604,33 @@ export class RuntimeMigrationService {
      *
      *  A conversion that a restart interrupted after its flip is a finished conversion with one step left,
      *  and the site is serving from a staged copy until that step runs — which is exactly the state an
-     *  operator cannot see and would not know to fix. So the periodic reconcile finishes it: a flipped slot
-     *  carrying only the restart marker, or a completion of its own that a restart cut short.
+     *  operator cannot see and would not know to fix. So the periodic reconcile finishes every flipped slot,
+     *  including the plain `last_error = NULL` rows left by older releases, plus a completion of its own that
+     *  a restart cut short.
      *
-     *  A completion that FAILED for any other reason is left alone. It recorded why on the row, and
-     *  retrying it every two seconds would bury that reason under its own repetitions. */
+     *  A completion that fails records why on the row and waits before trying again. The delay is in memory:
+     *  a daemon restart may retry once immediately, while a live daemon never hammers a missing container on
+     *  every two-second sweep. */
     async reconcileCompletions() {
         const settled = [];
         for (const migration of this.deps.store.runtimeMigrations()) {
-            const resumable = migration.stage === 'flipped'
-                ? migration.lastError === interruptedByRestart('flipped')
-                : migration.stage === 'completing'
-                    && (migration.lastError === null || migration.lastError === interruptedByRestart('completing'));
-            if (!resumable)
+            if (migration.stage !== 'flipped' && migration.stage !== 'completing')
+                continue;
+            if (this.now().getTime() < (this.completionRetryAt.get(migration.siteId) ?? 0))
                 continue;
             try {
-                settled.push(await this.complete(migration.siteId));
+                settled.push(await this.complete(migration.siteId, migration.lastError ?? interruptedByRestart('flipped')));
+                this.completionRetryAt.delete(migration.siteId);
             }
             catch (error) {
-                // A refusal means the site is not ready to be completed yet, and the next sweep asks again. A
-                // fault is already recorded on the row, so it is reported rather than rethrown: one site that
-                // cannot finish must not stop the sweep from finishing the others.
-                if (!(error instanceof MigrationRefused))
-                    settled.push(this.status(migration.siteId));
+                // Faults after the claim are recorded by `complete`. A readiness refusal happens before the claim,
+                // so record it here too: the operator gets the real container error and the retry has a durable key.
+                const current = this.deps.store.runtimeMigration(migration.siteId);
+                if (current?.lastError === null) {
+                    this.deps.store.failRuntimeMigration(migration.siteId, error instanceof Error ? error.message : String(error));
+                }
+                this.completionRetryAt.set(migration.siteId, this.now().getTime() + COMPLETION_RETRY_MS);
+                settled.push(this.status(migration.siteId));
             }
         }
         return settled;

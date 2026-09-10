@@ -396,6 +396,7 @@
       "builtBy": "Built by {model}",
       "neverPublished": "Not published yet",
       "statusLive": "Live",
+      "statusDegraded": "Degraded",
       "statusDraft": "Draft",
       "statusFailed": "Needs attention",
       "visibilityPrivate": "Only me",

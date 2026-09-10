@@ -188,7 +188,9 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
       {/* Identity strip — what this site IS and the two things you do with an address, on one line. */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <Badge tone={STATUS_TONE[site.status]}>{strings[STATUS_STRING[site.status]]}</Badge>
+          <Badge tone={site.degraded ? 'warning' : STATUS_TONE[site.status]}>
+            {site.degraded ? strings.statusDegraded : strings[STATUS_STRING[site.status]]}
+          </Badge>
           <Badge tone={VISIBILITY_TONE[site.visibility]}>
             <VisibilityIcon size={10} aria-hidden className="mr-1" />
             {strings[VISIBILITY_STRING[site.visibility]]}

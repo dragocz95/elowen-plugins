@@ -1436,7 +1436,10 @@ test('SiteGet tells the agent which Project environment serves a proxy publicati
       return { state: 'running', lastError: null };
     },
   });
-  harness.store.insertSite(site({ id: 'proxy-4', slug: 'proxy-d1b2c3', ownerUserId: 9, kind: 'proxy', target: '3000', runtime: 'static', status: 'live', currentReleaseId: null }));
+  harness.store.insertSite(site({
+    id: 'proxy-4', slug: 'proxy-d1b2c3', ownerUserId: 9, kind: 'proxy', target: '3000', runtime: 'static',
+    status: 'live', currentReleaseId: null, lastError: 'The validated container is not running',
+  }));
 
   const detail = await harness.call('SiteGet', { site: 'proxy-d1b2c3' });
   const body = detail.content[0].text;
@@ -1444,9 +1447,11 @@ test('SiteGet tells the agent which Project environment serves a proxy publicati
   assert.match(body, /kind {7}proxy/);
   assert.match(body, /target {5}3000 inside the Project/);
   assert.match(body, /environment running/);
+  assert.match(body, /status {5}degraded/, 'the address stays published while its health is visible');
   assert.doesNotMatch(body, /No releases yet/, 'a proxy publication never claims a release it cannot have');
   assert.equal(detail.details.kind, 'proxy');
   assert.equal(detail.details.target, '3000');
+  assert.equal(detail.details.degraded, true);
   assert.deepEqual(detail.details.project, { id: 7, slug: 'kolin', executionKind: 'managed', environment: { state: 'running', lastError: null } });
 });
 

@@ -75,6 +75,8 @@ interface SiteView {
   summary: string;
   visibility: Visibility;
   status: string;
+  /** True when the hostname stays published but its current application or transport is unhealthy. */
+  degraded: boolean;
   /** Null when this instance has no site hostname, so there is nowhere for the site to live. */
   url: string | null;
   basePath: string;
@@ -106,6 +108,7 @@ const toView = (site: Site, deps: ApiDeps, auth: PluginApiRequest['auth']): Site
     summary: site.summary,
     visibility: site.visibility,
     status: site.status,
+    degraded: site.status === 'live' && site.lastError !== null,
     url: siteUrl(config, site.slug),
     basePath: SITE_BASE_PATH,
     projectId: site.projectId,

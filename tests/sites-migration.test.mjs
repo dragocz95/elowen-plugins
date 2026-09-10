@@ -3011,15 +3011,12 @@ test('the restart marker is not accepted while the site does not answer, and no 
   } finally { broken.cleanup(); }
 });
 
-test('reconcile completes an interrupted conversion by itself and leaves the others alone', async () => {
+test('reconcile completes every plain flipped conversion without a restart marker', async () => {
   const h = harness({ containerWrote: true });
   try {
     const sourceDir = await convertedSite(h);
-    // A freshly flipped conversion belongs to the operator driving it: it can still be rolled back.
-    assert.deepEqual(await h.service.reconcileCompletions(), []);
-    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'flipped');
+    assert.equal(h.store.runtimeMigration(SITE_ID).lastError, null, 'the production shape has no restart marker');
 
-    await h.service.recoverInterrupted();
     const settled = await h.service.reconcileCompletions();
 
     assert.equal(settled.length, 1);
@@ -3027,6 +3024,25 @@ test('reconcile completes an interrupted conversion by itself and leaves the oth
     assert.equal(h.store.runtimeMigration(SITE_ID), null);
     assert.equal(h.binding.sourcePath, sourceDir);
     assert.equal(h.binding.staging, false);
+  } finally { h.cleanup(); }
+});
+
+test('reconcile records a clear error and backs off when a flipped container no longer exists', async () => {
+  const h = harness({
+    containerWrote: true,
+    readiness: { ready: false, detail: 'the environment container does not exist' },
+  });
+  try {
+    await convertedSite(h);
+
+    const settled = await h.service.reconcileCompletions();
+
+    assert.equal(settled.length, 1);
+    assert.equal(settled[0].stage, 'flipped');
+    assert.match(settled[0].lastError, /environment container does not exist/);
+    assert.match(h.store.runtimeMigration(SITE_ID).lastError, /environment container does not exist/);
+    assert.deepEqual(await h.service.reconcileCompletions(), [], 'the same failure is not retried every sweep');
+    assert.deepEqual(h.calls.rebind, [], 'completion never retired a container that was already gone');
   } finally { h.cleanup(); }
 });
 

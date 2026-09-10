@@ -234,7 +234,7 @@ const describe = (site, config, environment, lastSnapshotAt, project) => {
         `  slug       ${site.slug}   (either identifier works wherever a site is named)`,
         `  address    ${address ?? 'unavailable until the domain gateway is ready'}`,
         `  visibility ${site.visibility}`,
-        `  status     ${site.status}`,
+        `  status     ${site.status === 'live' && site.lastError !== null ? 'degraded' : site.status}`,
         ...projectLines(site, project),
         ...(site.runtime === 'command' ? [`  runtime    ${site.bind}${site.port === null ? '' : ` 127.0.0.1:${site.port}`} · ${config.runtimeNetwork} network`] : []),
         ...(site.runtime === 'environment' ? [
@@ -885,8 +885,8 @@ export function registerTools(deps) {
                     site.lastError ? `\nLast error: ${site.lastError}` : '',
                 ].join('\n'), {
                     siteId: site.id, slug: site.slug, url: siteUrl(config, site.slug), visibility: site.visibility,
-                    status: site.status, sourceDir: site.sourceDir, basePath: SITE_BASE_PATH,
-                    kind: site.kind, target: site.target,
+                    status: site.status, degraded: site.status === 'live' && site.lastError !== null,
+                    sourceDir: site.sourceDir, basePath: SITE_BASE_PATH, kind: site.kind, target: site.target,
                     runtime: site.runtime, startCommand: site.startCommand, bind: site.bind, port: site.port,
                     network: site.runtime === 'environment' ? config.environmentNetwork : config.runtimeNetwork,
                     guests, currentReleaseId: site.currentReleaseId,
