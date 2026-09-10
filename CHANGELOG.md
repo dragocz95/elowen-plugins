@@ -1,5 +1,13 @@
 # Changelog
 
+## sites 0.10.9 - 2026-09-10
+
+- Completing a runtime conversion retires the staged copy, so a converted site is left with ONE working
+  copy: `complete` folds the staged workspace back into the site's folder in the Project, rebuilds the
+  container on that folder with its persistent volume carried across, and removes the conversion's
+  directory. A conversion a restart interrupted after its flip is completed by the periodic reconcile as
+  soon as the site answers, instead of serving a staged copy nobody edits for good.
+
 ## browser 0.3.11 - 2026-09-10
 
 - The project browser is removed. The plugin has one mode: the linked account's Chrome running on the

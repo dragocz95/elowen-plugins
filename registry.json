@@ -169,7 +169,7 @@
     },
     {
       "name": "sites",
-      "version": "0.10.8",
+      "version": "0.10.9",
       "requiresCore": "0.28.35",
       "description": "Publish static, command and PHP sites, or run additive persistent rootless environments with systemd, bounded resources and a host-owned ingress socket. Every site keeps its own address and visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
       "category": "productivity",
