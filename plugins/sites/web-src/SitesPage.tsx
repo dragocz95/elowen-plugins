@@ -5,7 +5,7 @@ import {
   type SiteView, type SitesListResponse,
 } from './runtime.js';
 import {
-  STATUS_ICON, STATUS_ORDER, STATUS_STRING, STATUS_TONE,
+  displayStatus, STATUS_ICON, STATUS_ORDER, STATUS_STRING, STATUS_TONE,
   VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE,
 } from './meta.js';
 import { SiteDetail } from './SiteDetail.js';
@@ -91,9 +91,10 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
 }) {
   const { components } = runtime();
   const { DataTableRow, DataTableCell, Badge, Avatar, IconButton } = components;
-  const StatusIcon = site.degraded ? STATUS_ICON.failed : STATUS_ICON[site.status];
-  const statusLabel = site.degraded ? strings.statusDegraded : strings[STATUS_STRING[site.status]];
-  const statusTone = site.degraded ? 'warning' : STATUS_TONE[site.status];
+  const displayedStatus = displayStatus(site);
+  const StatusIcon = STATUS_ICON[displayedStatus];
+  const statusLabel = strings[STATUS_STRING[displayedStatus]];
+  const statusTone = STATUS_TONE[displayedStatus];
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const published = site.lastPublishAt ? relativeTime(site.lastPublishAt) : '—';
   // The publication column says where a row is served from, and only one of those shapes can be read off
@@ -205,7 +206,7 @@ export function SitesPage() {
     const needle = query.trim().toLowerCase();
     return sectionSites
       .filter((site) => visibility === 'all' || site.visibility === visibility)
-      .filter((site) => status === 'all' || site.status === status)
+      .filter((site) => status === 'all' || displayStatus(site) === status)
       .filter((site) => matches(site, needle));
   }, [sectionSites, visibility, status, query]);
 

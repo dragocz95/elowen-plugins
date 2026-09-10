@@ -7,7 +7,7 @@ import {
   runtime, avatarUser, formatBytes, jsonBody, relativeTime, siteDetailKey, SITES_LIST_KEY,
   type DirectoryResponse, type SiteDetailResponse, type Visibility,
 } from './runtime.js';
-import { STATUS_STRING, STATUS_TONE, VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE } from './meta.js';
+import { displayStatus, STATUS_STRING, STATUS_TONE, VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE } from './meta.js';
 import { EnvironmentDetail } from './EnvironmentDetail.js';
 
 const basePath = (siteId: string): string => `/plugins/sites/api/site/${siteId}`;
@@ -163,6 +163,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
   const runtimeState = detail.data?.runtime ?? null;
   const environment = detail.data?.environment ?? null;
   const projectEnvironment = detail.data?.projectEnvironment ?? null;
+  const displayedStatus = displayStatus(site);
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const visibleOptions = VISIBILITY_ORDER.filter((value) => value !== 'public' || allowPublicSites);
   // Guests are picked from every account except the owner, who already holds the site.
@@ -189,8 +190,8 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
       <div className="flex flex-col gap-1.5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <Badge tone={site.degraded ? 'warning' : STATUS_TONE[site.status]}>
-              {site.degraded ? strings.statusDegraded : strings[STATUS_STRING[site.status]]}
+            <Badge tone={STATUS_TONE[displayedStatus]}>
+              {strings[STATUS_STRING[displayedStatus]]}
             </Badge>
             <Badge tone={VISIBILITY_TONE[site.visibility]}>
               <VisibilityIcon size={10} aria-hidden className="mr-1" />

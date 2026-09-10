@@ -120,6 +120,24 @@ describe('the Sites workspace', () => {
     expect(screen.getByTestId('page-filter-chips')).toHaveTextContent(`${strings.filterStatus}: ${strings.statusFailed}`);
   });
 
+  it('filters by the derived degraded publication state', async () => {
+    const degradedSite = { ...site, id: 'site-degraded', title: 'Degraded proxy', degraded: true };
+    use(http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
+      mine: [site, degradedSite], shared: [], allowPublicSites: true,
+    })));
+    mount();
+
+    const search = await screen.findByRole('searchbox', { name: strings.searchPlaceholder });
+    const toolbar = search.closest('.page-toolbar');
+    fireEvent.click(within(toolbar!).getByTestId('page-filters-trigger'));
+    const filters = screen.getByRole('dialog', { name: 'Filters' });
+    fireEvent.change(within(filters).getByRole('combobox', { name: strings.filterStatus }), { target: { value: 'degraded' } });
+
+    expect(await screen.findByText(degradedSite.title)).toBeVisible();
+    expect(screen.queryByText(site.title)).not.toBeInTheDocument();
+    expect(screen.getByTestId('page-filter-chips')).toHaveTextContent(`${strings.filterStatus}: ${strings.statusDegraded}`);
+  });
+
   it('shows each site\'s owner as an avatar and a name, never as an account id', async () => {
     mount();
     expect(await screen.findByText(site.title)).toBeInTheDocument();
