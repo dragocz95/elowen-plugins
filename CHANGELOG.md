@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.10.16 - 2026-09-11
+
+- Keep restored legacy publications live while a converted environment is discarded, remove staged migration files before deleting the environment, and make rollback cleanup converge after a partial discard.
+
 ## sites 0.10.15 - 2026-09-10
 
 - Make runtime-conversion rollback durable and re-entrant, restore legacy serving before discarding the environment, retain completed migration audit rows, remove the conversion seed from the final container, and finish site deletion when its environment is already absent.
