@@ -990,6 +990,29 @@ test('authenticated site API updates command and bind settings under the instanc
   );
 });
 
+test('site API exposes unhealthy live publications as degraded without demoting them', async () => {
+  const store = new SitesStore(makeDb());
+  store.insertSite(site({
+    id: 'api-proxy', ownerUserId: 1, kind: 'proxy', target: '3000', runtime: 'static', status: 'live',
+    currentReleaseId: null, lastError: 'The validated container is not running',
+  }));
+  const handlers = createApiHandlers({
+    store,
+    access: deps(),
+    config: () => resolveConfig({}, 'https://elowen.example', 'sites.elowen.example'),
+    people: () => new Map([[1, { id: 1, username: 'filip', name: 'Filip', avatar: '' }]]),
+    projectSlug: () => 'demo',
+  });
+
+  const response = await handlers.list({
+    method: 'GET', path: '', query: {}, headers: {}, params: {}, body: async () => Buffer.from(''), json: async () => ({}),
+    auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [2] },
+  });
+
+  assert.equal(response.body.mine[0].status, 'live');
+  assert.equal(response.body.mine[0].degraded, true);
+});
+
 // ── the tool surface ─────────────────────────────────────────────────────────────────────────────
 //
 // This layer had NO coverage, which is why 42 green tests coexisted with a feature that could not be
@@ -1436,7 +1459,10 @@ test('SiteGet tells the agent which Project environment serves a proxy publicati
       return { state: 'running', lastError: null };
     },
   });
-  harness.store.insertSite(site({ id: 'proxy-4', slug: 'proxy-d1b2c3', ownerUserId: 9, kind: 'proxy', target: '3000', runtime: 'static', status: 'live', currentReleaseId: null }));
+  harness.store.insertSite(site({
+    id: 'proxy-4', slug: 'proxy-d1b2c3', ownerUserId: 9, kind: 'proxy', target: '3000', runtime: 'static',
+    status: 'live', currentReleaseId: null, lastError: 'The validated container is not running',
+  }));
 
   const detail = await harness.call('SiteGet', { site: 'proxy-d1b2c3' });
   const body = detail.content[0].text;
@@ -1444,9 +1470,11 @@ test('SiteGet tells the agent which Project environment serves a proxy publicati
   assert.match(body, /kind {7}proxy/);
   assert.match(body, /target {5}3000 inside the Project/);
   assert.match(body, /environment running/);
+  assert.match(body, /status {5}degraded/, 'the address stays published while its health is visible');
   assert.doesNotMatch(body, /No releases yet/, 'a proxy publication never claims a release it cannot have');
   assert.equal(detail.details.kind, 'proxy');
   assert.equal(detail.details.target, '3000');
+  assert.equal(detail.details.degraded, true);
   assert.deepEqual(detail.details.project, { id: 7, slug: 'kolin', executionKind: 'managed', environment: { state: 'running', lastError: null } });
 });
 

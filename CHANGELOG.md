@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.10.12 - 2026-09-10
+
+- Complete plain flipped conversions automatically and surface unhealthy live proxy publications as degraded.
+
 ## sites 0.10.11 - 2026-09-10
 
 - Harden Project-backed publications, stop creating per-site environments, and require the account-independent core publication seam.

@@ -171,6 +171,7 @@
       "builtBy": "Postavil model {model}",
       "neverPublished": "Zatím nezveřejněno",
       "statusLive": "Živá",
+      "statusDegraded": "Omezená",
       "statusDraft": "Rozpracovaná",
       "statusFailed": "Vyžaduje pozornost",
       "visibilityPrivate": "Jen já",

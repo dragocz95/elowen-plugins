@@ -27,6 +27,7 @@ const toView = (site, deps, auth) => {
         summary: site.summary,
         visibility: site.visibility,
         status: site.status,
+        degraded: site.status === 'live' && site.lastError !== null,
         url: siteUrl(config, site.slug),
         basePath: SITE_BASE_PATH,
         projectId: site.projectId,

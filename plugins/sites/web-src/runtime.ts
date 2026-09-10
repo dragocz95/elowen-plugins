@@ -17,6 +17,8 @@ export interface SiteView {
   summary: string;
   visibility: Visibility;
   status: SiteStatus;
+  /** The address stays published, but its current proxy application or transport is unhealthy. */
+  degraded: boolean;
   /** Null when the gateway is not provisioned: the site has no address to open. */
   url: string | null;
   basePath: string;
