@@ -1,8 +1,8 @@
 {
   "name": "image-gen",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "apiVersion": "1",
-  "requiresCore": "0.28.36",
+  "requiresCore": "0.28.41",
   "description": "Image generation through a configured API-key provider or the connected ChatGPT account. Generated images show directly in the chat.",
   "entry": "index.mjs",
   "requires": {
@@ -30,9 +30,10 @@
     {
       "key": "model",
       "label": "Model",
-      "type": "string",
+      "type": "model",
+      "modelKind": "image",
       "placeholder": "gpt-image-2.5-sunburst",
-      "hint": "Image model id. ChatGPT account: gpt-image-2.5-sunburst, gpt-image-2.5-flare, gpt-image-2 or gpt-image-1.5. API-key provider: whichever model its Images API serves, e.g. gpt-image-1. Empty uses the default for the chosen provider."
+      "hint": "Image model of the chosen provider. The picker offers the models enabled for that provider in Settings → Models; enable one there first. Empty uses the provider's default."
     },
     {
       "key": "size",

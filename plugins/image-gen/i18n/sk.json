@@ -7,7 +7,7 @@
     },
     "model": {
       "label": "Model",
-      "hint": "Identifikátor obrazového modelu. Účet ChatGPT: gpt-image-2.5-sunburst, gpt-image-2.5-flare, gpt-image-2 alebo gpt-image-1.5. Poskytovateľ s API kľúčom: model, ktorý ponúka jeho Images API, napríklad gpt-image-1. Prázdne pole použije predvolený model zvoleného poskytovateľa."
+      "hint": "Obrazový model zvoleného poskytovateľa. Výber ponúka modely povolené pre daného poskytovateľa v Nastaveniach → Modely; najprv tam niektorý povoľte. Prázdna hodnota použije predvolený model poskytovateľa."
     },
     "size": {
       "label": "Veľkosť",

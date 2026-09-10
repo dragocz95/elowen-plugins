@@ -13,13 +13,14 @@ const field = (name, key) => manifest(name).configSchema.find((entry) => entry.k
 
 describe('plugin autosave configuration contracts', () => {
   it('declares effective image defaults and enum sizes', () => {
-    // The model field carries no manifest default any more: the runtime fallback depends on the chosen
-    // provider (the ChatGPT account and an API-key endpoint serve different image models), and a manifest
-    // default must equal the runtime one. It is free text with a placeholder, since the model picker
-    // lists chat models and image models are not among them.
+    // The model field carries no manifest default: the runtime fallback depends on the chosen provider
+    // (the ChatGPT account and an API-key endpoint serve different image models), and a manifest default
+    // would have to equal the runtime one. It is the shared model picker narrowed to image models, which
+    // stores the bare id the Images API takes — the same shape the free-text field stored before.
     for (const plugin of ['image-edit', 'image-gen']) {
       const model = field(plugin, 'model');
-      assert.equal(model.type, 'string');
+      assert.equal(model.type, 'model');
+      assert.equal(model.modelKind, 'image');
       assert.equal(model.default, undefined);
       assert.equal(model.placeholder, 'gpt-image-2.5-sunburst');
       // Both transports are pickable: an OpenAI-compatible key provider and the connected ChatGPT account.
