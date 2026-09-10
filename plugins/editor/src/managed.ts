@@ -168,11 +168,32 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new InputError('invalid request');
     return value as Record<string, unknown>;
   };
-  const currentGuestVersion = async (path: string): Promise<string | null> => {
-    const stat = await files({ kind: 'stat', path, followSymlinks: true });
+  /** The version an OVERWRITE opens its compare-and-swap against, or null when there is nothing at the
+   *  destination yet.
+   *
+   *  The follow-stat asks the precise question, because an overwrite through a symlink must be versioned
+   *  against the target. Resolving the path can also establish that an ANCESTOR is not a directory, which
+   *  the guest names with the same code it uses everywhere else for that fact. It is the one failure this
+   *  preflight translates, and it translates it into the wording the refusal table already owns, so an
+   *  overwrite and a fresh upload answer the same request the same way.
+   *
+   *  Nothing else is interpreted. A permission refusal, a lifecycle change, a transport fault or a code
+   *  nobody has agreed on rethrows untouched and reaches the caller as what it is.
+   */
+  const uploadBaseVersion = async (path: string): Promise<string | null> => {
+    let stat;
+    try {
+      stat = await files({ kind: 'stat', path, followSymlinks: true });
+    } catch (error) {
+      if ((error as { code?: unknown } | null)?.code !== 'not_directory') throw error;
+      const refusal = UPLOAD_REFUSALS.get('not_directory');
+      if (!refusal) throw error;
+      throw new InputError(refusal.message, refusal.status);
+    }
     if (stat.kind !== 'stat') throw new Error('invalid guest result');
     return stat.entry ? requireVersion(stat.entry) : null;
   };
+
   /** Carries one browser chunk into the canonical upload protocol: begins the guest handle on the
    *  first chunk (CAS against a fresh destination, or against the version seen here for an overwrite),
    *  streams every full guest chunk at its aligned offset, and — on the final browser chunk — sends
@@ -181,7 +202,7 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
    *  an interrupted upload is released by the caller's abort. */
   const streamUploadChunk = async (session: ManagedUploadSession, bytes: Buffer, final: boolean, overwrite: boolean): Promise<number> => {
     if (!session.uploadId) {
-      const begin = await files({ kind: 'write-begin', path: session.path, expectedVersion: overwrite ? await currentGuestVersion(session.path) : null, size: session.size });
+      const begin = await files({ kind: 'write-begin', path: session.path, expectedVersion: overwrite ? await uploadBaseVersion(session.path) : null, size: session.size });
       if (begin.kind !== 'write-begin') throw new Error('invalid guest result');
       session.uploadId = begin.uploadId;
       session.chunkSize = begin.chunkSize;
