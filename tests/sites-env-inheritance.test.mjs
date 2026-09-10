@@ -54,6 +54,57 @@ test('conversion carries dotenv values in a protected systemd environment file, 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('the captured data archive is unpacked once, so a reboot cannot revert what the app has written', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-reboot-'));
+  try {
+    const artifacts = join(root, 'artifacts');
+    const workspace = join(root, 'workspace');
+    const unpacked = join(root, 'unpacked');
+    const captured = join(root, 'captured');
+    mkdirSync(workspace);
+    mkdirSync(unpacked);
+    mkdirSync(captured);
+    // What the legacy runtime held when the conversion captured it, archived the way `dataSync` archives
+    // it: relative to the sandbox home, which the script unpacks relative to the recipe's data directory.
+    writeFileSync(join(captured, 'app.db'), 'captured-at-conversion-time');
+    const legacyArchive = join(root, 'legacy-data.tar');
+    execFileSync('tar', ['-cf', legacyArchive, '-C', captured, '.']);
+
+    const recipe = parseAppRecipe({ kind: 'node-app', argv: ['/usr/bin/node', 'server.mjs'] });
+    const sync = new DataSyncService({ artifactDir: () => artifacts, executor: {
+      run: async (file, args, options) => ({ code: 0, stdout: execFileSync(file, args, { cwd: options.cwd, encoding: 'utf8' }), stderr: '' }),
+    } });
+    const seed = await sync.buildSeedArchive('site', {
+      appUnit: appUnit(recipe), provisionScript: provisionScript(recipe), dataArchive: legacyArchive,
+    });
+    execFileSync('tar', ['-xf', seed, '-C', unpacked]);
+
+    // The same isolation the test above uses: the script's absolute paths are rebased onto the temp tree
+    // and `systemctl` is stubbed, so the REAL generated script runs, twice, as two boots of one container.
+    const etc = join(root, 'etc');
+    const bin = join(root, 'bin');
+    mkdirSync(join(etc, 'systemd/system'), { recursive: true });
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'systemctl'), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+    const script = provisionScript(recipe)
+      .replaceAll('/data', unpacked).replaceAll('/workspace', workspace).replaceAll('/etc', etc);
+    const boot = () => execFileSync('/bin/sh', ['-eu'], { input: script, env: { PATH: `${bin}:/usr/bin:/bin` } });
+    const staged = join(unpacked, '.elowen-conversion/legacy-data.tar');
+    const live = join(unpacked, 'app.db');
+
+    assert.ok(existsSync(staged), 'the seed must carry the capture the first boot restores');
+    boot();
+    assert.equal(readFileSync(live, 'utf8'), 'captured-at-conversion-time');
+    assert.equal(existsSync(staged), false, 'a consumed archive must not outlive the boot that unpacked it');
+
+    // Everything the site did after the conversion. A second boot must leave it exactly as it is.
+    writeFileSync(live, 'written-by-the-app-after-the-conversion');
+    boot();
+    assert.equal(readFileSync(live, 'utf8'), 'written-by-the-app-after-the-conversion',
+      'restarting the container re-extracted the capture and reverted the application data');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('node recipes always protect the runtime dotenv file', () => {
   const recipe = parseAppRecipe({ kind: 'node-app', argv: ['/usr/bin/node', 'server.mjs'] });
   assert.ok(recipe.secretFiles.includes('.env'));
