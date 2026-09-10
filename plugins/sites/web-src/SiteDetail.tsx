@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Activity, Clock, Copy, ExternalLink, History, Link2, RefreshCw, RotateCcw,
+  Activity, Boxes, Clock, Copy, ExternalLink, History, Link2, RefreshCw, RotateCcw,
   Server, ShieldCheck, Terminal, Trash2, UserMinus, Users,
 } from 'lucide-react';
 import {
@@ -127,13 +127,16 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
   const pollingAction = detail.data?.environment?.action;
   const pollingDesiredState = detail.data?.environment?.desiredState;
   const pollingRuntime = detail.data?.site.runtime;
+  const pollingKind = detail.data?.site.kind;
   useEffect(() => {
     const actionInFlight = pollingAction?.lastError === null;
     const lifecycleInFlight = !pollingAction && pollingDesiredState === 'restarting';
-    if (pollingRuntime !== 'environment' || (!actionInFlight && !lifecycleInFlight)) return;
+    // A proxy publication owns no environment, so there is never an action of its own to wait on: polling
+    // here would re-fetch the drawer forever over a lifecycle that belongs to the Project.
+    if (pollingKind === 'proxy' || pollingRuntime !== 'environment' || (!actionInFlight && !lifecycleInFlight)) return;
     const timer = window.setInterval(() => detailRefetch.current(), 2_000);
     return () => window.clearInterval(timer);
-  }, [pollingAction, pollingDesiredState, pollingRuntime]);
+  }, [pollingAction, pollingDesiredState, pollingKind, pollingRuntime]);
 
   if (detail.isError) return <EmptyState title={strings.loadFailed} icon={Server} />;
   if (!site) return <LoadingLine />;
@@ -159,6 +162,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
   const visits = (detail.data?.hits ?? []).reduce((sum, entry) => sum + entry.count, 0);
   const runtimeState = detail.data?.runtime ?? null;
   const environment = detail.data?.environment ?? null;
+  const projectEnvironment = detail.data?.projectEnvironment ?? null;
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const visibleOptions = VISIBILITY_ORDER.filter((value) => value !== 'public' || allowPublicSites);
   // Guests are picked from every account except the owner, who already holds the site.
@@ -227,10 +231,14 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
           title={site.lastPublishAt ? strings.builtBy.replace('{model}', site.lastPublishModel || '—') : undefined}
         />
         <Metric icon={Activity} label={strings.visits} value={String(visits)} />
+        {/* A proxy publication owns neither releases nor snapshots, so the slot counts nothing and names
+            the thing it does have instead: the forwarder port inside the Project environment. */}
         <Metric
           icon={History}
-          label={site.runtime === 'environment' ? strings.environmentSnapshots : strings.releases}
-          value={String(site.runtime === 'environment' ? snapshots.length : fileReleases.length)}
+          label={site.kind === 'proxy' ? strings.kindProxy
+            : site.runtime === 'environment' ? strings.environmentSnapshots : strings.releases}
+          value={site.kind === 'proxy' ? (site.target || '—')
+            : String(site.runtime === 'environment' ? snapshots.length : fileReleases.length)}
         />
       </div>
 
@@ -282,7 +290,30 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         </DetailBlock>
       ) : null}
 
-      {site.runtime === 'environment' && environment ? (
+      {/* A proxy publication is served by the Project's environment, which this drawer does not own: it
+          has no release, no container and therefore no environment control of its own. The branch comes
+          first so that a proxy row can never fall through into the environment or releases surface. */}
+      {site.kind === 'proxy' ? (
+        <DetailBlock icon={Boxes} title={strings.kindProxy}>
+          <p className="text-sm text-foreground">
+            {strings.projectEnvironmentLink.replace('{project}', site.projectSlug ?? '—')}
+          </p>
+          {projectEnvironment?.state ? (
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span className="text-muted-foreground">{strings.environmentObservedState}</span>
+              <Badge tone="muted">{projectEnvironment.state}</Badge>
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">{strings.projectEnvironmentMissing}</p>
+          )}
+          {projectEnvironment?.lastError ? <p className="text-[11px] text-destructive">{projectEnvironment.lastError}</p> : null}
+          <div>
+            {/* The host has no per-project URL — the environment page is a tab inside the Projects
+                register drawer — so /projects is the only reachable target for this action. */}
+            <Button variant="ghost" icon={ExternalLink} onClick={() => runtime().navigate('/projects')}>{strings.openProject}</Button>
+          </div>
+        </DetailBlock>
+      ) : site.runtime === 'environment' && environment ? (
         <EnvironmentDetail
           siteId={siteId}
           currentReleaseId={site.currentReleaseId}

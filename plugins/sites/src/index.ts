@@ -21,6 +21,7 @@ import { conversionImageTag } from './conversionImage.js';
 import { RuntimeMigrationService } from './migration.js';
 import type { AccessDeps } from './access.js';
 import { ProjectPreviewService } from './preview.js';
+import { ProjectPublicationService, type ProjectEnvironmentView } from './publication.js';
 
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
@@ -185,6 +186,31 @@ export function register(published: PluginContext): void {
     control: () => ctx.control('sandbox'), config, gateway, proxyLimits,
     usernameOf: id => people().get(id)?.username ?? null,
   });
+
+  /** The transport half of every proxy publication. Its state is derived from the Project's environment
+   *  on demand, so nothing here has to be recovered after a restart: an endpoint is adopted again by the
+   *  next sweep. */
+  const publications = new ProjectPublicationService({
+    store,
+    control: () => ctx.control('sandbox'),
+    project: id => ctx.host.stores().projects.get(id),
+    logger: ctx.logger,
+  });
+
+  /** The state of the environment a proxy publication is served by. Read through the same account the
+   *  runtime was registered for, because the environment seam answers per account, and reported as
+   *  unknown rather than as an error when that account may not look: a reader of the site is not
+   *  necessarily a member of the Project. */
+  const projectEnvironment = async (projectId: number, actor: number): Promise<ProjectEnvironmentView | null> => {
+    const control = ctx.control('sandbox');
+    if (!control?.environmentFor) return null;
+    try {
+      const state = await control.environmentFor({ project: { kind: 'managed', projectId }, accountUserId: actor });
+      return { state: state.state, lastError: state.lastError };
+    } catch {
+      return null;
+    }
+  };
 
   const provisioning = new EnvironmentProvisioningService({
     control: () => ctx.control('publishedSitesGateway'),
@@ -358,6 +384,9 @@ export function register(published: PluginContext): void {
     if (!isDaemonProcess()) return;
     try {
       if (site.runtime !== 'environment') await supervisor.stop(siteId);
+      // A proxy publication's forwarder lives in the Project's environment and belongs to this plugin
+      // until it is ended; the row is what names it, so it goes before anything the row was holding.
+      if (site.kind === 'proxy') await publications.release(site);
       if (site.runtime === 'environment' || store.runtimeRecord(siteId, 'binding')) await environment.delete(siteId);
       rmSync(siteDir(siteId), { recursive: true, force: true });
       store.deleteSite(siteId);
@@ -440,7 +469,7 @@ export function register(published: PluginContext): void {
       countHit: (siteId) => {
         if (!deletingSiteIds.has(siteId)) pendingHits.set(siteId, (pendingHits.get(siteId) ?? 0) + 1);
       },
-      endpointFor: (siteId) => environment.endpointFor(siteId) ?? supervisor.endpointFor(siteId),
+      endpointFor: (siteId) => publications.endpointFor(siteId) ?? environment.endpointFor(siteId) ?? supervisor.endpointFor(siteId),
       previews,
       proxyLimits,
       usernameOf: (userId) => people().get(userId)?.username ?? null,
@@ -491,6 +520,7 @@ export function register(published: PluginContext): void {
       await environment.scheduleRestore(site, input.releaseId, input.restoreData, actor);
     },
     applyEnvironmentLimits: (site, limits, actor) => environment.applyLimits(site, limits, actor),
+    projectEnvironment,
     provisioning,
     migration,
   });
@@ -512,7 +542,7 @@ export function register(published: PluginContext): void {
   // admin tier, so the check has to live where the auth is actually read.
   ctx.registerApiRoute({ path: 'conversion', access: 'user', handler: handlers.conversion });
 
-  registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people, previews });
+  registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, publications, projectEnvironment, people, previews });
 
   ctx.registerReadinessCheck(() => gateway.readiness());
   // One row per dependency and per interpreter, rather than one row carrying a paragraph: the status
@@ -571,6 +601,7 @@ export function register(published: PluginContext): void {
       start: async () => {
         await supervisor.reconcile();
         await environment.reconcile();
+        await publications.reconcile();
         await settleConversions();
       },
       // Command runtimes retain their existing reload behavior. Persistent environments detach only and
@@ -616,10 +647,13 @@ export function register(published: PluginContext): void {
   }, 5_000);
 
   // A publish or rollback may have been requested by an out-of-process agent runner. The daemon sees the
-  // shared desired state here and starts or replaces the process whose release id no longer matches.
+  // shared desired state here and starts or replaces the process whose release id no longer matches. The
+  // same tick keeps every proxy publication's transport alive, because nothing else in the daemon holds
+  // one across a restart.
   ctx.registerInterval('reconcile-site-runtimes', async () => {
     await supervisor.reconcile();
     await environment.reconcile();
+    await publications.reconcile();
     await settleConversions();
   }, 2_000);
 

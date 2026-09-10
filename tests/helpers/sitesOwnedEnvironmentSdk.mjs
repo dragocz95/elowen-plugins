@@ -25,6 +25,8 @@ export const environmentSite = (overrides = {}) => ({
   accessGeneration: 1,
   sourceDir: '/workspace/project',
   spa: false,
+  kind: 'static',
+  target: '',
   runtime: 'environment',
   unsupportedRuntime: null,
   startCommand: '',

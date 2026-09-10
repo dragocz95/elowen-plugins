@@ -169,6 +169,40 @@ var Activity = createLucideIcon("Activity", [
   ]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/boxes.js
+var Boxes = createLucideIcon("Boxes", [
+  [
+    "path",
+    {
+      d: "M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z",
+      key: "lc1i9w"
+    }
+  ],
+  ["path", { d: "m7 16.5-4.74-2.85", key: "1o9zyk" }],
+  ["path", { d: "m7 16.5 5-3", key: "va8pkn" }],
+  ["path", { d: "M7 16.5v5.17", key: "jnp8gn" }],
+  [
+    "path",
+    {
+      d: "M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z",
+      key: "8zsnat"
+    }
+  ],
+  ["path", { d: "m17 16.5-5-3", key: "8arw3v" }],
+  ["path", { d: "m17 16.5 4.74-2.85", key: "8rfmw" }],
+  ["path", { d: "M17 16.5v5.17", key: "k6z78m" }],
+  [
+    "path",
+    {
+      d: "M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z",
+      key: "1xygjf"
+    }
+  ],
+  ["path", { d: "M12 8 7.26 5.15", key: "1vbdud" }],
+  ["path", { d: "m12 8 4.74-2.85", key: "3rx089" }],
+  ["path", { d: "M12 13.5V8", key: "1io7kd" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/camera.js
 var Camera = createLucideIcon("Camera", [
   [
@@ -789,13 +823,14 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   const pollingAction = detail.data?.environment?.action;
   const pollingDesiredState = detail.data?.environment?.desiredState;
   const pollingRuntime = detail.data?.site.runtime;
+  const pollingKind = detail.data?.site.kind;
   (0, import_react4.useEffect)(() => {
     const actionInFlight = pollingAction?.lastError === null;
     const lifecycleInFlight = !pollingAction && pollingDesiredState === "restarting";
-    if (pollingRuntime !== "environment" || !actionInFlight && !lifecycleInFlight) return;
+    if (pollingKind === "proxy" || pollingRuntime !== "environment" || !actionInFlight && !lifecycleInFlight) return;
     const timer = window.setInterval(() => detailRefetch.current(), 2e3);
     return () => window.clearInterval(timer);
-  }, [pollingAction, pollingDesiredState, pollingRuntime]);
+  }, [pollingAction, pollingDesiredState, pollingKind, pollingRuntime]);
   if (detail.isError) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(EmptyState, { title: strings.loadFailed, icon: Server });
   if (!site) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(LoadingLine, {});
   const setVisibility = (next) => {
@@ -821,6 +856,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   const visits = (detail.data?.hits ?? []).reduce((sum, entry) => sum + entry.count, 0);
   const runtimeState = detail.data?.runtime ?? null;
   const environment = detail.data?.environment ?? null;
+  const projectEnvironment = detail.data?.projectEnvironment ?? null;
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const visibleOptions = VISIBILITY_ORDER.filter((value) => value !== "public" || allowPublicSites);
   const candidates = (directory.data?.accounts ?? []).filter((account) => account.id !== site.ownerUserId);
@@ -904,8 +940,8 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
         Metric,
         {
           icon: History,
-          label: site.runtime === "environment" ? strings.environmentSnapshots : strings.releases,
-          value: String(site.runtime === "environment" ? snapshots.length : fileReleases.length)
+          label: site.kind === "proxy" ? strings.kindProxy : site.runtime === "environment" ? strings.environmentSnapshots : strings.releases,
+          value: site.kind === "proxy" ? site.target || "\u2014" : String(site.runtime === "environment" ? snapshots.length : fileReleases.length)
         }
       )
     ] }),
@@ -943,7 +979,15 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
       ] }, member.id)) }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Users, disabled: call.isPending || saveGuests.isPending, onClick: () => setGuestPicker(true), children: strings.manageGuests }) })
     ] }) : null,
-    site.runtime === "environment" && environment ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    site.kind === "proxy" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DetailBlock, { icon: Boxes, title: strings.kindProxy, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-sm text-foreground", children: strings.projectEnvironmentLink.replace("{project}", site.projectSlug ?? "\u2014") }),
+      projectEnvironment?.state ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-center justify-between gap-3 text-xs", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-muted-foreground", children: strings.environmentObservedState }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "muted", children: projectEnvironment.state })
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.projectEnvironmentMissing }),
+      projectEnvironment?.lastError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-[11px] text-destructive", children: projectEnvironment.lastError }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: ExternalLink, onClick: () => runtime().navigate("/projects"), children: strings.openProject }) })
+    ] }) : site.runtime === "environment" && environment ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
       EnvironmentDetail,
       {
         siteId,
@@ -1122,7 +1166,7 @@ function SitesRegister({ sites, selectedId, onSelect }) {
     DataTable,
     {
       ariaLabel: strings.title,
-      columns: "minmax(0,1fr) 11rem 8rem 10.5rem 6.5rem 1.75rem 1.25rem",
+      columns: "minmax(0,1fr) 11rem 8rem 10.5rem 6.5rem 10.5rem 1.75rem 1.25rem",
       compactColumns: "minmax(0,1fr) 1.75rem 1.25rem",
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DataTableRow, { header: true, children: [
@@ -1131,6 +1175,7 @@ function SitesRegister({ sites, selectedId, onSelect }) {
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { header: true, priority: "wide", children: strings.columnVisibility }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { header: true, priority: "wide", children: strings.columnStatus }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { header: true, priority: "wide", children: strings.columnPublished }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { header: true, priority: "wide", children: strings.columnKind }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { header: true, role: "presentation", "aria-hidden": true, children: null })
         ] }),
@@ -1168,6 +1213,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }) {
   const StatusIcon = STATUS_ICON[site.status];
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const published = site.lastPublishAt ? relativeTime(site.lastPublishAt) : "\u2014";
+  const publication = site.kind === "proxy" ? { label: strings.kindProxy, target: site.target } : site.runtime === "environment" ? { label: strings.environment, target: "" } : site.runtime === "command" ? { label: strings.kindCommand, target: "" } : site.runtime === "php" ? { label: strings.kindPhp, target: "" } : { label: strings.kindStatic, target: "" };
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DataTableRow, { selected: active, interactive: true, "aria-selected": active, className: "group", children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
       "button",
@@ -1198,6 +1244,13 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }) {
     ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { priority: "wide", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: STATUS_TONE[site.status], children: strings[STATUS_STRING[site.status]] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { priority: "wide", className: "whitespace-nowrap text-xs text-muted-foreground", children: published }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { priority: "wide", className: "whitespace-nowrap", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: site.kind === "proxy" ? "accent" : "muted", children: publication.label }),
+      publication.target ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("code", { className: "font-mono text-[11px] text-muted-foreground", children: [
+        ":",
+        publication.target
+      ] }) : null
+    ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DataTableCell, { children: site.status === "live" && site.url !== null ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       IconButton,
       {

@@ -5,6 +5,10 @@ import type { PluginPageProps } from 'elowen-plugin-ui-kit';
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
 export type SiteStatus = 'draft' | 'live' | 'failed';
 type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
+/** How a publication reaches a visitor: its own copied release files, or a forwarder inside the managed
+ *  Project's environment. A proxy publication has no release and no container of its own, which is why
+ *  the drawer renders it from a different set of facts than a static one. */
+type PublicationKind = 'static' | 'proxy';
 
 export interface SiteView {
   id: string;
@@ -27,6 +31,11 @@ export interface SiteView {
   lastPublishModel: string | null;
   spa: boolean;
   runtime: SiteRuntime;
+  /** Which of the two publication shapes this row is. Legacy rows are 'static' whatever their runtime. */
+  kind: PublicationKind;
+  /** The forwarder port inside the Project environment for a proxy row ('3000'), empty for a static one:
+   *  a static publication is served from its own files, so it has no target to reach. */
+  target: string;
   canManage: boolean;
 }
 
@@ -97,6 +106,10 @@ export interface SiteDetailResponse {
     lastError: string | null;
   } | null;
   environment: EnvironmentView | null;
+  /** Only ever non-null for a proxy publication, and only when the Project environment's state could be
+   *  read at all — the drawer shows the difference between "not running" and "cannot say" rather than
+   *  inventing a state. A static row is served from its own release, so this stays null for it. */
+  projectEnvironment: { state: string | null; lastError: string | null } | null;
 }
 
 export interface DirectoryResponse {

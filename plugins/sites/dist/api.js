@@ -40,6 +40,8 @@ const toView = (site, deps, auth) => {
         lastPublishAt: site.lastPublishAt,
         lastPublishModel: site.lastPublishModel,
         spa: site.spa,
+        kind: site.kind,
+        target: site.target,
         runtime: site.runtime,
         canManage: canManage(site, auth),
     };
@@ -99,6 +101,12 @@ export function createApiHandlers(deps) {
             const people = deps.people();
             const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
             const environment = target.runtime === 'environment' && canManage(target, req.auth) ? await deps.environmentState(target, runtimeActor(req)) : null;
+            // What serves this publication. Read for whoever may MANAGE the site, like the environment block
+            // above: a guest wants to know whether the page is up, not how its Project is sized or where its
+            // logs are. Null for everything that is not a proxy publication.
+            const projectEnvironment = target.kind === 'proxy' && canManage(target, req.auth)
+                ? await deps.projectEnvironment(target.projectId, target.ownerUserId)
+                : null;
             return json(200, {
                 site: toView(target, deps, req.auth),
                 // Only somebody who can EDIT the guest list may read it. A guest seeing the whole list learns
@@ -145,11 +153,18 @@ export function createApiHandlers(deps) {
                         transport: { buffered: true, requestBodyLimitBytes: 1024 * 1024 },
                     }
                     : { state: environment.state, desiredState: environment.desiredState },
+                projectEnvironment,
             });
         }
         if (!canManage(target, req.auth))
             return json(403, { error: 'forbidden' });
+        // A proxy publication is served by the environment of its Project, and every lifecycle operation
+        // below belongs to that Project and to everything else running in it. The refusals are explicit and
+        // carry a code so the UI can say whose controls these are instead of rendering ones that do nothing.
+        const PROXY_REFUSAL = { error: 'this publication is served by its Project environment', code: 'publication_no_site_environment' };
         if (req.method === 'GET' && action === 'logs') {
+            if (target.kind === 'proxy')
+                return json(409, { ...PROXY_REFUSAL, detail: 'read the Project environment logs in the Sandbox plugin' });
             if (target.runtime !== 'environment')
                 return json(400, { error: 'this site is not an environment' });
             if (!canAccessProject(target.projectId, req.auth))
@@ -179,6 +194,8 @@ export function createApiHandlers(deps) {
             return json(200, { ok: true });
         }
         if (req.method === 'POST' && action === 'control') {
+            if (target.kind === 'proxy')
+                return json(409, { ...PROXY_REFUSAL, detail: 'start, stop and restart the Project environment in the Sandbox plugin' });
             if (target.runtime !== 'environment')
                 return json(400, { error: 'this site is not an environment' });
             if (!canAccessProject(target.projectId, req.auth))
@@ -196,6 +213,8 @@ export function createApiHandlers(deps) {
             return json(200, { ok: true, scheduled: true, action: body.action });
         }
         if (req.method === 'POST' && action === 'snapshot') {
+            if (target.kind === 'proxy')
+                return json(409, { ...PROXY_REFUSAL, detail: 'snapshot the Project environment in the Sandbox plugin' });
             if (target.runtime !== 'environment')
                 return json(400, { error: 'this site is not an environment' });
             if (!canAccessProject(target.projectId, req.auth))
@@ -263,6 +282,10 @@ export function createApiHandlers(deps) {
         if (hasLimitOverrides) {
             if (!req.auth.admin)
                 return json(403, { error: 'environment limit overrides require an administrator' });
+            // Limits belong to the Project's environment and are shared by everything that Project publishes.
+            if (target.kind === 'proxy') {
+                return json(409, { error: 'this publication is served by its Project environment', code: 'publication_no_site_environment', detail: 'set limits on the Project environment in the Sandbox plugin' });
+            }
             if (target.runtime !== 'environment')
                 return json(400, { error: 'only an environment has resource limits' });
             if (!canAccessProject(target.projectId, req.auth))

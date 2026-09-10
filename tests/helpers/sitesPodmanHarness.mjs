@@ -85,6 +85,8 @@ const site0 = (overrides = {}) => ({
   accessGeneration: 4,
   sourceDir: '/unused/source',
   spa: false,
+  kind: 'static',
+  target: '',
   runtime: 'static',
   unsupportedRuntime: null,
   startCommand: '',

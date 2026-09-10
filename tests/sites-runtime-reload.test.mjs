@@ -45,6 +45,8 @@ const site = (overrides = {}) => ({
   accessGeneration: 1,
   sourceDir: '/unused',
   spa: false,
+  kind: 'static',
+  target: '',
   runtime: 'command',
   startCommand: 'node server.mjs',
   bind: 'socket',

@@ -81,6 +81,8 @@ const legacySite = (overrides = {}) => ({
   accessGeneration: 4,
   sourceDir: '/data/project/sites/legacy-demo',
   spa: false,
+  kind: 'static',
+  target: '',
   runtime: 'static',
   unsupportedRuntime: null,
   startCommand: '',

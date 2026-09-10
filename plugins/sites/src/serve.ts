@@ -96,6 +96,26 @@ const misdirected = (): SitesHttpResponse => ({
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
+/** The answer when the application behind a published address does not answer.
+ *
+ *  Header-for-header the same for both transports on purpose: which transport a site uses is this
+ *  plugin's business, and a visitor who could tell them apart would learn something about the instance
+ *  that is none of their business. There is no CSP here because there is no document of ours to
+ *  constrain, and no shared caching of a failure. The status keeps the distinction the serving path has
+ *  always made: 503 when there is no transport to send the request down at all, 502 when there is one and
+ *  the application behind it failed. */
+const ingressRefusal = (site: Site, status: 502 | 503, title: string, message: string): SitesHttpResponse => ({
+  status,
+  headers: {
+    'content-type': HTML_TYPE,
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+    ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
+  },
+  body: `<!doctype html><meta charset="utf-8"><title>${title}</title><p>${message}</p>`,
+});
+
 /** A HEAD answer carries the GET's status and headers and no body.
  *
  *  A stream is never produced for HEAD in the first place — the file answers from its directory entry —
@@ -277,6 +297,47 @@ function serveFile(site: Site, releaseDir: string, rest: string, req: SitesHttpR
  *  trusts an inbound header for identity and never forwards one: the browser sends the app's own session
  *  cookie here too, because that cookie is scoped to the whole origin. */
 export function createSiteHandler(deps: ServeDeps) {
+  /** Send one request down a transport this plugin proxies to, and keep the answer a visitor may see.
+   *
+   *  Both transports end in the same transformation, and that is the point of keeping them here: a
+   *  proxied answer arrives without the security headers and with the application's own caching, so the
+   *  one place that adds them back has to be the one place BOTH paths go through. Only the wording of a
+   *  refusal differs, because the reader's next step differs. */
+  const proxyThroughIngress = async (
+    site: Site,
+    req: SitesHttpRequest,
+    rest: string,
+    viewer: Viewer,
+    siteRoot: string,
+    refusal: { notRunning: string; noAnswer: string },
+  ): Promise<SitesHttpResponse> => {
+    const endpoint = deps.endpointFor(site.id);
+    if (!endpoint || endpoint.kind !== 'socket') {
+      return ingressRefusal(site, 503, 'Not running', refusal.notRunning);
+    }
+    try {
+      const proxied = await (deps.proxyEnvironment ?? proxyToEnvironment)(
+        endpoint,
+        req,
+        rest,
+        { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) },
+        deps.proxyLimits(),
+        siteRoot,
+      );
+      return {
+        ...proxied,
+        headers: {
+          ...proxied.headers,
+          'cache-control': site.visibility === 'public' ? 'public, max-age=0' : 'private, no-store',
+          ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
+        },
+      };
+    } catch (error) {
+      if (!(error instanceof ProxyError)) throw error;
+      return ingressRefusal(site, 502, 'Unavailable', refusal.noAnswer);
+    }
+  };
+
   return async (req: SitesHttpRequest): Promise<SitesHttpResponse> => {
     const config = deps.config();
     const { slug, rest } = splitRemainder(req.path);
@@ -295,7 +356,11 @@ export function createSiteHandler(deps: ServeDeps) {
     // A site nobody shared with this visitor must be indistinguishable from a slug that was never
     // taken, so an unknown slug takes the SAME sign-in path a forbidden one takes. Answering 404 here
     // and 302 there is a working directory of everything published on the instance.
-    if (!site || site.status !== 'live' || (site.runtime !== 'environment' && !site.currentReleaseId)) {
+    // What counts as servable differs by publication: a file publication needs a release behind it, while
+    // a proxy publication IS its application and has no release at all.
+    if (!site
+      || site.status !== 'live'
+      || (site.kind !== 'proxy' && site.runtime !== 'environment' && !site.currentReleaseId)) {
       return bounceOrNotFound(req, slug, rest, config);
     }
 
@@ -305,8 +370,9 @@ export function createSiteHandler(deps: ServeDeps) {
     if (rest.split('/')[0] === RESERVED_PREFIX) return notFound();
 
     // A static site answers reads only. A command site is an application, so it takes the verbs an
-    // application takes — its own request body is still capped at 1 MiB by the hook transport.
-    if (site.runtime === 'static' && req.method !== 'GET' && req.method !== 'HEAD') {
+    // application takes — its own request body is still capped at 1 MiB by the hook transport. A proxy
+    // publication is an application too, whatever the legacy runtime column on its row happens to say.
+    if (site.kind !== 'proxy' && site.runtime === 'static' && req.method !== 'GET' && req.method !== 'HEAD') {
       return { status: 405, headers: { allow: 'GET, HEAD', 'cache-control': 'no-store' }, body: '' };
     }
 
@@ -317,6 +383,16 @@ export function createSiteHandler(deps: ServeDeps) {
 
     if (deps.previews?.isPreview(site.id)) return deps.previews.serve(site, req, rest, viewer, siteRoot);
     deps.countHit(site.id);
+
+    // A proxy publication is an application inside the Project's own environment, reached through the
+    // transport Sandbox keeps alive for it. Access, sessions and the preview origin are decided exactly
+    // as for every other publication: this branch changes the TRANSPORT, never who may open the page.
+    if (site.kind === 'proxy') {
+      return await proxyThroughIngress(site, req, rest, viewer, siteRoot, {
+        notRunning: 'The project environment that serves this page is not available right now.',
+        noAnswer: 'The project environment did not answer.',
+      });
+    }
 
     if (site.runtime === 'php') {
       const release = deps.releaseDir(site.id, site.currentReleaseId!);
@@ -344,52 +420,10 @@ export function createSiteHandler(deps: ServeDeps) {
     }
 
     if (site.runtime === 'environment') {
-      const endpoint = deps.endpointFor(site.id);
-      if (!endpoint || endpoint.kind !== 'socket') {
-        return {
-          status: 503,
-          headers: {
-            'content-type': HTML_TYPE,
-            'cache-control': 'no-store',
-            'x-content-type-options': 'nosniff',
-            'referrer-policy': 'no-referrer',
-            ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
-          },
-          body: '<!doctype html><meta charset="utf-8"><title>Not running</title><p>This environment is not running right now.</p>',
-        };
-      }
-      try {
-        const environmentProxy = deps.proxyEnvironment ?? proxyToEnvironment;
-        const proxied = await environmentProxy(
-          endpoint,
-          req,
-          rest,
-          { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) },
-          deps.proxyLimits(),
-          siteRoot,
-        );
-        return {
-          ...proxied,
-          headers: {
-            ...proxied.headers,
-            'cache-control': site.visibility === 'public' ? 'public, max-age=0' : 'private, no-store',
-            ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
-          },
-        };
-      } catch (error) {
-        if (!(error instanceof ProxyError)) throw error;
-        return {
-          status: 502,
-          headers: {
-            'content-type': HTML_TYPE,
-            'cache-control': 'no-store',
-            'x-content-type-options': 'nosniff',
-            'referrer-policy': 'no-referrer',
-            ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
-          },
-          body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This environment did not answer.</p>',
-        };
-      }
+      return await proxyThroughIngress(site, req, rest, viewer, siteRoot, {
+        notRunning: 'This environment is not running right now.',
+        noAnswer: 'This environment did not answer.',
+      });
     }
 
     if (site.runtime === 'command') {

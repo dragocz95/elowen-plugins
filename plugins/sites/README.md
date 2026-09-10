@@ -1,6 +1,6 @@
 # sites
 
-Publishes static, command and PHP sites and can run persistent rootless environments, each site with its own address and visibility rules for owners, Project members, signed-in accounts, named guests or the public.
+Publishes an address for work that already exists: a built folder, or an application running inside a managed Project's own environment. Each address has its own visibility rules for owners, Project members, signed-in accounts, named guests or the public.
 
 ## Install
 
@@ -8,14 +8,27 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 | | |
 | --- | --- |
-| Version | `0.10.9` |
+| Version | `0.10.10` |
 | Requires core | `0.28.35` |
 | Requires shared API | `not declared` |
 | User-grantable | No |
 
+## Publications
+
+A publication is one of two kinds, and `SiteCreate` takes it in `kind`.
+
+- **static** — `SitePublish` copies a build output into a release on the host and the address serves those files. The page keeps working while the Project is stopped, and `SiteRollback` returns to an earlier release.
+- **proxy** — the address forwards to an application listening on a loopback port *inside* a managed Project (`kind: "proxy"` with that port in `target`). `SitePublish` proves the application answers through the transport a visitor's request takes and then makes the address live. Nothing is copied, so the page always shows what the application serves right now.
+
+**The Project environment is the runtime of a proxy publication.** It is created, sized, started, stopped, snapshotted and read as a Project environment — in the Sandbox plugin, on the Project's Environments panel, or through the Project environment API — and every publication of that Project shares it. Sites owns the address, the certificate, the proxy transport, the access rules and the preview origin; it owns no container of its own. That is why `SiteExec`, `SiteControl` and `SiteSnapshot` refuse a proxy publication and name the Project instead, and why `SiteUpdate` takes no resource limits for one: a limit belongs to the environment, not to an address in front of it.
+
+Access is identical for both kinds. Visibility, named guests, session cookies and the isolated preview origin are decided per request, before anything reaches an application, and a publication somebody may not open is indistinguishable from a slug nobody took.
+
+Sites created before this model keep working unchanged: an `environment` site keeps its own container and its own controls, and a `command` or `php` site keeps its behaviour, until that path is retired.
+
 ## Tools
 
-Fourteen `Site*` tools cover the full lifecycle: creating, inspecting, listing, updating, sharing and deleting sites, publishing a build output as a release and rolling back to an earlier one, reading logs, running commands inside a persistent environment, controlling its start and stop, and taking environment snapshots. `SitePreview` opens the running application on an isolated preview origin.
+Fourteen `Site*` tools cover the full lifecycle: creating, inspecting, listing, updating, sharing and deleting sites, publishing (a release for a static publication, a verified address for a proxy one) and rolling back to an earlier release, reading logs, running commands inside a persistent environment, controlling its start and stop, and taking environment snapshots. `SitePreview` opens the running application on an isolated preview origin.
 
 ## Runtime conversion
 

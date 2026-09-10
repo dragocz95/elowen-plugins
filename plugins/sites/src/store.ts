@@ -5,6 +5,15 @@ export interface ProjectPreview { id: string; slug: string; projectId: number; p
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
 type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
 
+/** How a published address answers.
+ *
+ *  `static` is a release copied onto the host and served from those files. `proxy` is an application
+ *  running on a loopback port inside the managed Project's own environment, reached through the durable
+ *  transport Sandbox establishes for the publication. The kind, not the legacy runtime column, decides
+ *  which of the two a row is; the runtime column survives only for rows created before this model and
+ *  goes away with the per-site container path. */
+export type PublicationKind = 'static' | 'proxy';
+
 /** How a published site answers a request. Unsupported is a quarantined database value, never a
  * fallback to static content. */
 type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
@@ -32,6 +41,12 @@ export interface Site {
   accessGeneration: number;
   sourceDir: string;
   spa: boolean;
+  /** Which publication model this row follows. See {@link PublicationKind}. */
+  kind: PublicationKind;
+  /** For a `proxy` publication the port the application listens on INSIDE the Project container; for a
+   *  static one the guest path of its folder, which is not read yet and is therefore empty on every row
+   *  this plugin creates. The column is text because the two kinds carry different things. */
+  target: string;
   runtime: SiteRuntime;
   /** Original database value when runtime is unsupported. */
   unsupportedRuntime?: string | null;
@@ -242,6 +257,8 @@ interface SiteDbRow {
   access_generation: number;
   source_dir: string;
   spa: number;
+  kind: string | null;
+  target: string | null;
   runtime: string | null;
   start_command: string | null;
   bind: string | null;
@@ -289,6 +306,10 @@ const asRuntime = (value: string | null): { runtime: SiteRuntime; unsupportedRun
 const asEnvironmentDesiredState = (value: string | null): EnvironmentDesiredState =>
   value === 'stopped' || value === 'restarting' ? value : 'running';
 
+/** A row written before the publication model existed is a static publication, which is exactly what
+ *  the migration's default says and what the serving path did for it. */
+const asPublicationKind = (value: string | null): PublicationKind => value === 'proxy' ? 'proxy' : 'static';
+
 const toSite = (row: SiteDbRow): Site => {
   const runtime = asRuntime(row.runtime);
   return {
@@ -302,6 +323,8 @@ const toSite = (row: SiteDbRow): Site => {
     accessGeneration: row.access_generation,
     sourceDir: row.source_dir,
     spa: row.spa === 1,
+    kind: asPublicationKind(row.kind),
+    target: row.target ?? '',
     runtime: runtime.runtime,
     unsupportedRuntime: runtime.unsupportedRuntime,
     startCommand: row.start_command ?? '',
@@ -589,6 +612,18 @@ export class SitesStore {
         // this drops the column they left behind.
         up: handle => handle.exec('ALTER TABLE p_sites_sites DROP COLUMN environment_disk_soft_mb;'),
       },
+      {
+        version: 14,
+        // A publication now says what it IS, not which container serves it: `static` answers from a copied
+        // release, `proxy` from an application inside the managed Project's own environment. Purely
+        // additive — every existing row is a static publication by the default, keeps its values and is
+        // served exactly as before, and the legacy runtime columns stay until the per-site container path
+        // and the last converted row are gone.
+        up: handle => handle.exec(`
+          ALTER TABLE p_sites_sites ADD COLUMN kind TEXT NOT NULL DEFAULT 'static';
+          ALTER TABLE p_sites_sites ADD COLUMN target TEXT NOT NULL DEFAULT '';
+        `),
+      },
     ]);
   }
 
@@ -650,15 +685,15 @@ export class SitesStore {
     this.db.prepare(`
       INSERT INTO p_sites_sites (
         id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
-        source_dir, spa, runtime, start_command, bind, port,
+        source_dir, spa, kind, target, runtime, start_command, bind, port,
         environment_cpus, environment_memory_mb, environment_pids_limit,
         environment_desired_state, status, current_release_id,
         created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId,
       site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0,
-      site.runtime, site.startCommand, site.bind, site.port,
+      site.kind, site.target, site.runtime, site.startCommand, site.bind, site.port,
       site.environmentCpus ?? null, site.environmentMemoryMb ?? null,
       site.environmentPidsLimit ?? null,
       site.environmentDesiredState ?? 'running', site.status,
@@ -735,6 +770,16 @@ export class SitesStore {
     return (this.db.prepare(`
       SELECT * FROM p_sites_sites
       WHERE runtime = 'environment' AND status <> 'deleting'
+    `).all() as SiteDbRow[]).map(toSite);
+  }
+
+  /** Every proxy publication that is expected to answer. A draft is not: its transport must not be kept
+   *  alive before anybody published it. A `failed` one IS, because that is how the row recovers once the
+   *  application inside the Project answers again. */
+  proxySitesForReconcile(): Site[] {
+    return (this.db.prepare(`
+      SELECT * FROM p_sites_sites
+      WHERE kind = 'proxy' AND status IN ('live', 'failed')
     `).all() as SiteDbRow[]).map(toSite);
   }
 

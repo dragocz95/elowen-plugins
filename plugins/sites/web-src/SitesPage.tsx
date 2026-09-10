@@ -33,7 +33,7 @@ export function SitesRegister({ sites, selectedId, onSelect }: {
   return (
     <DataTable
       ariaLabel={strings.title}
-      columns="minmax(0,1fr) 11rem 8rem 10.5rem 6.5rem 1.75rem 1.25rem"
+      columns="minmax(0,1fr) 11rem 8rem 10.5rem 6.5rem 10.5rem 1.75rem 1.25rem"
       compactColumns="minmax(0,1fr) 1.75rem 1.25rem"
     >
       <DataTableRow header>
@@ -42,6 +42,7 @@ export function SitesRegister({ sites, selectedId, onSelect }: {
         <DataTableCell header priority="wide">{strings.columnVisibility}</DataTableCell>
         <DataTableCell header priority="wide">{strings.columnStatus}</DataTableCell>
         <DataTableCell header priority="wide">{strings.columnPublished}</DataTableCell>
+        <DataTableCell header priority="wide">{strings.columnKind}</DataTableCell>
         <DataTableCell header role="presentation" aria-hidden>{null}</DataTableCell>
         <DataTableCell header role="presentation" aria-hidden>{null}</DataTableCell>
       </DataTableRow>
@@ -93,6 +94,16 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
   const StatusIcon = STATUS_ICON[site.status];
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const published = site.lastPublishAt ? relativeTime(site.lastPublishAt) : '—';
+  // The publication column says where a row is served from, and only one of those shapes can be read off
+  // `runtime`: a proxy publication is answered by the Project's environment, and the runtime values name
+  // the legacy shapes a static row can still have. A proxy row wins over its runtime, because that is the
+  // fact deciding who serves it.
+  const publication = site.kind === 'proxy'
+    ? { label: strings.kindProxy, target: site.target }
+    : site.runtime === 'environment' ? { label: strings.environment, target: '' }
+      : site.runtime === 'command' ? { label: strings.kindCommand, target: '' }
+        : site.runtime === 'php' ? { label: strings.kindPhp, target: '' }
+          : { label: strings.kindStatic, target: '' };
 
   return (
     <DataTableRow selected={active} interactive aria-selected={active} className="group">
@@ -132,6 +143,14 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
         <Badge tone={STATUS_TONE[site.status]}>{strings[STATUS_STRING[site.status]]}</Badge>
       </DataTableCell>
       <DataTableCell priority="wide" className="whitespace-nowrap text-xs text-muted-foreground">{published}</DataTableCell>
+      <DataTableCell priority="wide" className="whitespace-nowrap">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <Badge tone={site.kind === 'proxy' ? 'accent' : 'muted'}>{publication.label}</Badge>
+          {publication.target ? (
+            <code className="font-mono text-[11px] text-muted-foreground">:{publication.target}</code>
+          ) : null}
+        </span>
+      </DataTableCell>
       <DataTableCell>
         {site.status === 'live' && site.url !== null ? (
           <IconButton

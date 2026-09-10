@@ -89,6 +89,21 @@ test('SDK unavailability and application failure are explicit, with no host fall
   await assert.rejects(h.service.request(11, 8080, 7), /unavailable/);
 });
 
+test('a preview answers through the preview record, never through a publication transport', async t => {
+  // The preview view says `kind: 'proxy'` because that is how a preview is served, and this harness's
+  // publication lookup THROWS: if the kind were consulted before the preview record, every preview
+  // request would fail here instead of reaching the Project application.
+  const h = harness(t);
+  const { url } = await h.service.request(11, 8080, 7);
+  const slug = new URL(url).hostname.split('.')[0];
+  assert.equal(h.service.siteBySlug(slug).kind, 'proxy');
+
+  const response = await h.request(slug);
+  assert.equal(response.status, 200);
+  assert.equal(String(response.body), 'project application');
+  assert.equal(h.released(), h.calls.length, 'the preview still releases every binding it takes');
+});
+
 test('preview tickets use the existing handshake and recheck current Project access', async t => {
   const h = harness(t);
   const { url } = await h.service.request(11, 8080, 7);
@@ -104,7 +119,7 @@ test('Project cleanup removes only preview addresses and keeps independently pub
   const h = harness(t);
   const { url } = await h.service.request(11, 8080, 7);
   const slug = new URL(url).hostname.split('.')[0];
-  h.store.insertSite({ ...h.service.siteBySlug(slug), id: 'published', slug: 'published-site', runtime: 'static', ownerUserId: 7, sourceDir: '/published/source' });
+  h.store.insertSite({ ...h.service.siteBySlug(slug), id: 'published', slug: 'published-site', kind: 'static', target: '', runtime: 'static', ownerUserId: 7, sourceDir: '/published/source' });
   await h.service.removeProject(11);
   assert.equal(h.service.siteBySlug(slug), null);
   assert.ok(h.store.siteById('published'));

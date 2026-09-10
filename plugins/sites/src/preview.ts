@@ -57,9 +57,13 @@ export class ProjectPreviewService {
   }
   isPreview(siteId: string): boolean { return this.deps.store.previewById(siteId) !== null; }
   private view(preview: ProjectPreview): Site {
+    // `proxy` is the honest kind for a preview: it is served through the Project's own transport, not
+    // from files. What makes a preview a preview is its record, and serving asks that before the kind,
+    // so this value never decides how a preview is answered.
     return { id: preview.id, slug: preview.slug, projectId: preview.projectId, ownerUserId: 0,
       title: 'Project preview', summary: '', visibility: 'project', accessGeneration: 1,
-      sourceDir: '', spa: false, runtime: 'environment', startCommand: '', bind: 'socket', port: null,
+      sourceDir: '', spa: false, kind: 'proxy', target: String(preview.port), runtime: 'environment',
+      startCommand: '', bind: 'socket', port: null,
       status: 'live', currentReleaseId: null, createdAt: preview.createdAt, updatedAt: preview.createdAt,
       createdModel: '', lastPublishAt: null, lastPublishModel: null, lastError: null };
   }
