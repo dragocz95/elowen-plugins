@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.10.15 - 2026-09-10
+
+- Make runtime-conversion rollback durable and re-entrant, restore legacy serving before discarding the environment, retain completed migration audit rows, remove the conversion seed from the final container, and finish site deletion when its environment is already absent.
+
 ## sites 0.10.14 - 2026-09-10
 
 - Finish conversion staging retirement and make proxy conversion rollback restore the legacy socket until the Project application is published again.
