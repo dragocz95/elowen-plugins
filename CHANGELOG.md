@@ -1,5 +1,12 @@
 # Changelog
 
+## sites 0.10.10 - 2026-09-10
+
+- A site created in a managed Project gets its source folder inside that Project, under the directory the
+  Project is mounted at (`/<slug>`), instead of the fixed `/workspace/sites/<slug>` — a path that does not
+  exist in a Project container. The folder was created outside the Project, so the Project tools never
+  showed the tree the agent had been told to write into, and publishing it found no files to copy.
+
 ## sites 0.10.9 - 2026-09-10
 
 - Completing a runtime conversion retires the staged copy, so a converted site is left with ONE working
