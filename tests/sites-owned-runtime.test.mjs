@@ -8,7 +8,6 @@ function fixture(overrides = {}) {
   const calls = [];
   const control = {
     connectSitesRuntime: authority => { control.authority = authority; },
-    discoverSiteEnvironment: async () => { calls.push('discover'); return { containerId: 'original', imageId: 'sha256:original', volumeMountpoint: '/volume/original', state: 'stopped' }; },
     registerSiteEnvironment: async () => { calls.push('register'); return { siteId: 'a', generation: 1, state: 'stopped', desiredState: 'stopped', limits: {}, lastError: null }; },
     requestSiteEnvironment: async input => { calls.push(input); return { ...input, id: 'op', status: 'succeeded' }; },
     siteEnvironmentFor: async () => ({ siteId: 'a', generation: 1, state: 'stopped', desiredState: 'stopped', limits: {}, lastError: null }),
@@ -38,21 +37,9 @@ function fixture(overrides = {}) {
   return { environment, control, calls, records, site, disable: () => { available = false; } };
 }
 
-test('handover preserves exact discovered identities and stopped desired state without local start', async () => {
-  const f = fixture();
-  await f.environment.state(f.site);
-  const binding = await f.control.authority.resolve({ siteId: 'a', accountUserId: 2, access: 'read' });
-  assert.equal(binding.legacy.containerId, 'original');
-  assert.equal(binding.initialIntent.desiredState, 'stopped');
-  assert.deepEqual(f.calls, ['discover', 'register']);
-  await f.environment.state(f.site);
-  assert.equal(f.calls.filter(x => x === 'discover').length, 1);
-});
-
 test('a new environment provisions its fixed image before requesting its first start', async () => {
   const f = fixture();
   f.site.environmentDesiredState = 'running';
-  f.control.discoverSiteEnvironment = async () => null;
   f.control.registerSiteEnvironment = async () => {
     const binding = await f.control.authority.resolve({ siteId: 'a', accountUserId: 2, access: 'manage' });
     assert.equal(binding.initialIntent.desiredState, 'stopped');
@@ -81,26 +68,17 @@ test('control requests carry the actor, generation and idempotency key', async (
   assert.deepEqual(request.action, { kind: 'stop' });
 });
 
-test('lost registration response resumes pinned discovery rather than adopting a different container', async () => {
+test('a lost registration response leaves the handover incomplete and is retried', async () => {
   const f = fixture();
   f.control.registerSiteEnvironment = async () => { throw new Error('lost response'); };
   await assert.rejects(f.environment.state(f.site), /lost response/);
-  assert.equal(f.records.get('a:handover'), 'discovered');
-  f.control.discoverSiteEnvironment = async () => { throw new Error('must not rediscover'); };
+  assert.notEqual(f.records.get('a:handover'), 'complete');
   f.control.registerSiteEnvironment = async () => ({ state: 'stopped' });
   await f.environment.state(f.site);
   assert.equal(f.records.get('a:handover'), 'complete');
 });
 
-test('failed ownership discovery cannot register or execute the claimed resource', async () => {
-  const f = fixture();
-  f.control.discoverSiteEnvironment = async () => { throw new Error('mount identity differs'); };
-  await assert.rejects(f.environment.request(f.site, { kind: 'start' }, 2), /mount identity differs/);
-  assert.deepEqual(f.calls, []);
-  assert.notEqual(f.records.get('a:handover'), 'complete');
-});
-
-test('a queued legacy snapshot retains its public ID and translates restoration to the runtime ID', async () => {
+test('a queued snapshot retains its public ID and translates restoration to the runtime ID', async () => {
   let pending = { kind: 'snapshot', snapshotId: 'promised-id', includeData: true, note: 'before restart', model: 'test/model', lastError: null };
   const releases = new Map();
   const f = fixture({ store: {
@@ -152,7 +130,6 @@ test('publication exports guest paths through retained typed artifacts, never ho
   const f = fixture();
   f.site.runtime = 'static';
   f.site.sourceDir = '/workspace/sites/a';
-  f.control.discoverSiteEnvironment = async () => null;
   await f.environment.exportProject(f.site, { kind: 'managed', projectId: 1 }, '/workspace/sites/a/dist', '/sites/sites/a/exports/release-1', 2);
   const request = f.calls.at(-1);
   assert.equal(request.action.kind, 'export-project');

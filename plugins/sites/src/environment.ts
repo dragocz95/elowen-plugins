@@ -162,25 +162,7 @@ export class EnvironmentSupervisor {
       this.deps.store.claimRuntimeRecord(site.id, 'binding', JSON.stringify(this.defaultBinding(site)));
       binding = this.registration(site.id)!;
     }
-    if (this.deps.store.runtimeRecord(site.id, 'handover') !== 'discovered') {
-      const expected = this.deps.store.runtimeRecord(site.id, 'binding')!;
-      const discovered = await control.discoverSiteEnvironment({ siteId: site.id, accountUserId });
-      // Every pin discovery returns is persisted, including the Git-stub source and the cgroup limits
-      // the container was created with. Dropping those made Sandbox derive them from today's storage
-      // layout and today's configuration, which no container created by an earlier runtime satisfies.
-      if (discovered) {
-        binding.legacy = { containerId: discovered.containerId, imageId: discovered.imageId, volumeMountpoint: discovered.volumeMountpoint,
-          ...(discovered.gitStubPath ? { gitStubPath: discovered.gitStubPath } : {}),
-          ...(discovered.limits ? { limits: discovered.limits } : {}) };
-      }
-      const next = JSON.stringify(binding);
-      if (!this.deps.store.compareRuntimeRecord(site.id, 'binding', expected, next)
-        && this.deps.store.runtimeRecord(site.id, 'binding') !== next) {
-        throw new Error('the Site handover binding changed during ownership discovery');
-      }
-      this.deps.store.putRuntimeRecord(site.id, 'handover', 'discovered');
-    }
-    if (!binding.legacy && site.runtime === 'environment' && binding.initialIntent?.desiredState === 'running') {
+    if (site.runtime === 'environment' && binding.initialIntent?.desiredState === 'running') {
       this.deps.store.claimRuntimeRecord(site.id, 'bootstrap-intent', 'running');
       binding.initialIntent = { desiredState: 'stopped', pendingAction: null };
       this.saveBinding(binding);
@@ -194,22 +176,6 @@ export class EnvironmentSupervisor {
       await control.requestSiteEnvironment({ siteId: site.id, accountUserId, action: { kind: 'start' },
         expectedGeneration: registered.generation, requestId: `sites-bootstrap-start:${site.id}:${registered.generation}` });
       this.deps.store.putRuntimeRecord(site.id, 'bootstrap-intent', 'complete');
-    }
-    // Legacy release metadata is retained. The runtime validates the referenced image/archive itself.
-    for (const release of this.deps.store.releases(site.id)) {
-      if (release.kind !== 'environment-snapshot' || !release.imageRef) continue;
-      const key = `imported:${release.id}`;
-      if (this.deps.store.runtimeRecord(site.id, key)) continue;
-      if (!/^(sha256:)?[a-f0-9]{64}$/.test(release.imageRef)) {
-        throw new Error(`legacy snapshot ${release.id} needs a verified image ID; the SDK exposes container discovery but not retained-image discovery`);
-      }
-      const operation = await this.artifactOperation(site, 'import-snapshot', {
-        kind: 'snapshot', snapshotId: release.id, imageReference: release.imageRef,
-        imageId: release.imageRef, ...(release.dataArchive ? { archivePath: this.ownedPath(site.id, release.dataArchive) } : {}),
-        note: release.note, createdAt: release.createdAt,
-      }, accountUserId, `legacy-snapshot:${release.id}`, false);
-      await this.wait(operation, accountUserId);
-      this.deps.store.putRuntimeRecord(site.id, key, 'complete');
     }
     const pending = this.deps.store.environmentAction(site.id);
     if (pending && !pending.lastError) {
@@ -240,7 +206,7 @@ export class EnvironmentSupervisor {
     const control = this.control();
     const state = await control.siteEnvironmentFor({ siteId: site.id, accountUserId });
     const binding = this.registration(site.id)!;
-    if ((action.kind === 'start' || action.kind === 'restart') && !binding.legacy
+    if ((action.kind === 'start' || action.kind === 'restart')
       && this.deps.store.runtimeRecord(site.id, 'bootstrap-intent') !== 'complete') {
       await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
         action: { kind: 'provision-image', imageKind: binding.image === BASE_IMAGE_TAG ? 'base' : binding.workspaceReadOnly ? 'static' : 'node' },
@@ -337,20 +303,27 @@ export class EnvironmentSupervisor {
       this.deps.store.deleteRuntimeRecord(site.id, 'binding');
     }
     this.saveBinding(binding);
-    const existing = await this.control().discoverSiteEnvironment({ siteId: site.id, accountUserId: this.actor(site) });
-    if (existing) return { created: false };
+    if (await this.provisionedContainer(site.id)) return { created: false };
     await this.provision(site, image === BASE_IMAGE_TAG ? 'base' : workspaceReadOnly ? 'static' : 'node');
     await this.perform(site, { kind: 'prepare' });
     return { created: true };
   }
+  /** Whether the runtime already holds a container for this Site. A container is owned by the runtime
+   *  record that created it, and the runtime validates that ownership on every inspection, so the record
+   *  is the question to ask; nothing is derived from a container's name. */
+  private async provisionedContainer(id: string): Promise<boolean> {
+    try {
+      const state = await this.control().siteEnvironmentFor({ siteId: id, accountUserId: this.actor(this.site(id)) });
+      return state.state !== 'unprovisioned' && state.state !== 'deleted';
+    } catch { return false; }
+  }
   async inspectOwnership(id: string, expect?: { workspace: string; image: string }): Promise<{ owned: boolean; workspace: string | null; detail: string } | null> {
     const site = this.site(id);
     if (!this.registration(id)) this.saveBinding(this.defaultBinding(site));
-    const discovered = await this.control().discoverSiteEnvironment({ siteId: id, accountUserId: this.actor(site) });
-    if (!discovered) return null;
+    if (!await this.provisionedContainer(id)) return null;
     const binding = this.registration(id)!;
     if (expect && (expect.workspace !== binding.sourcePath || expect.image !== binding.image)) return { owned: false, workspace: binding.sourcePath, detail: 'container binding differs from the expected conversion' };
-    return { owned: true, workspace: binding.sourcePath, detail: `container ${discovered.containerId} matches the expected specification` };
+    return { owned: true, workspace: binding.sourcePath, detail: 'the registered container matches the expected specification' };
   }
   brokerDirectory(id: string): string { return this.deps.brokerPath ? dirname(this.deps.brokerPath(id)) : join('/var/lib/elowen/site-runtime-sockets', id); }
   brokerDirectoryExists(id: string): boolean { try { return statSync(this.brokerDirectory(id)).isDirectory(); } catch { return false; } }

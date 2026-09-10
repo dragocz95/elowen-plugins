@@ -1027,9 +1027,9 @@ const supervisorHarness = (statuses) => {
   let authority;
   const control = {
     connectSitesRuntime: value => { authority = value; },
-    discoverSiteEnvironment: async () => statuses[0] ? { containerId: 'preserved', imageId: 'sha256:preserved', volumeMountpoint: '/owned-volume', state: 'stopped' } : null,
     registerSiteEnvironment: async () => ({ state: 'stopped', generation: 1 }),
-    siteEnvironmentFor: async () => ({ state: 'stopped', desiredState: 'stopped', generation: 1, limits: {}, lastError: null }),
+    // `statuses[0]` is the container the runtime already holds for this Site, or nothing at all.
+    siteEnvironmentFor: async () => ({ state: statuses[0] ?? 'unprovisioned', desiredState: 'stopped', generation: 1, limits: {}, lastError: null }),
     requestSiteEnvironment: async input => { calls.push(input); return { ...input, id: String(calls.length), status: 'succeeded' }; },
   };
   const supervisor = new EnvironmentSupervisor({

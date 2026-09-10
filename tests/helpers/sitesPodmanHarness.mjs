@@ -360,7 +360,6 @@ const podmanHarness = async ({ convertedApp } = {}) => {
     const fakeControl = {
       authority: null,
       async connectSitesRuntime(authority) { fakeControl.authority = authority; },
-      async discoverSiteEnvironment() { return null; },
       async registerSiteEnvironment({ siteId, accountUserId }) {
         await fakeControl.authorize(siteId, accountUserId);
         const current = rows.get(siteId);
