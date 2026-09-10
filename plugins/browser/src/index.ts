@@ -68,7 +68,7 @@ export function register(ctx: PluginContext, deps: BrowserRegisterDeps = {}): vo
   }
 
   const registry = new SessionRegistry({
-    config, projectContext: ctx, store, pool, artifacts, processInspector, displays, clock, logger: ctx.logger,
+    config, store, pool, artifacts, processInspector, displays, clock, logger: ctx.logger,
     closeLiveViews: (sessionId, reason) => transport?.closeSession(sessionId, reason),
   });
   const service = new BrowserService(registry);

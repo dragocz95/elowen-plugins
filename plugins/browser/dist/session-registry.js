@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { openProjectBrowser } from './project-browser.js';
 import { artifactData, parseArtifactRef } from './artifact.js';
 import { BrowserSession } from './browser-session.js';
 import { ThumbnailCache } from './thumbnail.js';
@@ -16,7 +15,6 @@ export class SessionRegistry {
     deps;
     sessions = new Map();
     createQueue = new RegistryQueue();
-    projectAttachments = new Map();
     thumbnails;
     constructor(deps) {
         this.deps = deps;
@@ -39,7 +37,6 @@ export class SessionRegistry {
                 id,
                 ownerUserId: input.ownerUserId,
                 conversationId: input.conversationId,
-                projectId: input.project?.projectId ?? null,
                 artifactRef: null,
                 primaryTargetId: null,
                 state: 'creating',
@@ -52,30 +49,8 @@ export class SessionRegistry {
             });
             let pageOpened = false;
             let createdSession = null;
-            let projectAttachment;
             try {
-                let opened;
-                if (input.project) {
-                    const project = input.project;
-                    if (!this.deps.projectContext)
-                        throw new Error('Project browser context is unavailable.');
-                    if ([...this.projectAttachments.values()].some((entry) => entry.project.projectId === project.projectId))
-                        throw new Error('Close the active project browser before opening its shared profile again.');
-                    projectAttachment = await (this.deps.openProject ?? openProjectBrowser)(this.deps.projectContext, project, input.ownerUserId, this.deps.logger);
-                    this.projectAttachments.set(id, projectAttachment);
-                    const releasePrimary = projectAttachment.tabs.expectPrimary();
-                    try {
-                        const page = await projectAttachment.browser.newPage();
-                        projectAttachment.tabs.registerPrimary(id, page);
-                        opened = { page, tabs: projectAttachment.tabs, traceLock: projectAttachment.traceLock };
-                    }
-                    finally {
-                        releasePrimary();
-                    }
-                }
-                else {
-                    opened = await this.deps.pool.openPage(input.ownerUserId, id);
-                }
+                const opened = await this.deps.pool.openPage(input.ownerUserId, id);
                 pageOpened = true;
                 const session = await BrowserSession.create({
                     id,
@@ -91,12 +66,10 @@ export class SessionRegistry {
                     traceLock: opened.traceLock,
                     clock: this.deps.clock,
                     logger: this.deps.logger,
-                    projectAuthority: projectAttachment?.authorize,
-                    releasePage: () => projectAttachment ? projectAttachment.close() : this.deps.pool.releasePage(input.ownerUserId, id),
-                    forceCloseBrowser: () => projectAttachment ? projectAttachment.close() : this.deps.pool.closeUser(input.ownerUserId),
+                    releasePage: () => this.deps.pool.releasePage(input.ownerUserId, id),
+                    forceCloseBrowser: () => this.deps.pool.closeUser(input.ownerUserId),
                     onClosed: (sessionId) => {
                         this.sessions.delete(sessionId);
-                        this.projectAttachments.delete(sessionId);
                         // The still goes with it, for the same reason: it is a picture of a page that has stopped
                         // existing, and no owner check will ever reach this key again to expire it.
                         this.thumbnails.forget(sessionId);
@@ -106,18 +79,13 @@ export class SessionRegistry {
                     },
                 });
                 createdSession = session;
-                projectAttachment?.onClosed(() => {
-                    void session.close('project_runtime_closed').catch((error) => this.deps.logger.warn(`Project browser session cleanup failed: ${String(error)}`));
+                const ref = await this.deps.artifacts.open({
+                    toolCallId: input.toolCallId,
+                    conversationId: input.conversationId,
+                    expiresAt: hardExpiresAt,
+                    data: artifactData({ browserSessionId: id, state: 'agent' }),
                 });
-                if (!input.project) {
-                    const ref = await this.deps.artifacts.open({
-                        toolCallId: input.toolCallId,
-                        conversationId: input.conversationId,
-                        expiresAt: hardExpiresAt,
-                        data: artifactData({ browserSessionId: id, state: 'agent' }),
-                    });
-                    await session.setArtifact(ref);
-                }
+                await session.setArtifact(ref);
                 if (session.state !== 'agent')
                     throw new Error('Browser session closed before artifact setup completed.');
                 this.sessions.set(id, session);
@@ -128,15 +96,12 @@ export class SessionRegistry {
                 try {
                     if (createdSession)
                         await createdSession.close('creation_failed');
-                    else if (projectAttachment)
-                        await projectAttachment.close();
                     else if (pageOpened)
                         await this.deps.pool.releasePage(input.ownerUserId, id);
                 }
                 catch (cause) {
                     cleanupFailure = cause;
                 }
-                this.projectAttachments.delete(id);
                 const failedAt = this.deps.clock.now();
                 this.deps.store.updateSession(id, {
                     state: 'error', updatedAt: failedAt, lastActivityAt: failedAt, closedAt: failedAt,
@@ -150,40 +115,21 @@ export class SessionRegistry {
     }
     getOwned(sessionId, ownerUserId) {
         const session = this.sessions.get(sessionId);
-        if (!session || session.ownerUserId !== ownerUserId || this.projectAttachments.has(sessionId))
+        if (!session || session.ownerUserId !== ownerUserId)
             throw new Error('Browser session not found.');
-        return session;
-    }
-    /** Whether this id names a project browser, so a follow-up tool resolves the session the way it was
-     *  OPENED rather than the way the current turn happens to execute. */
-    isProjectSession(sessionId) { return this.projectAttachments.has(sessionId); }
-    async getForTool(sessionId, ownerUserId, project) {
-        if (!project)
-            return this.getOwned(sessionId, ownerUserId);
-        const attachment = this.projectAttachments.get(sessionId);
-        const session = this.sessions.get(sessionId);
-        if (!attachment || attachment.project.projectId !== project.projectId || attachment.actor !== ownerUserId || !session)
-            throw new Error('Project browser session not found.');
-        try {
-            await attachment.authorize();
-        }
-        catch (error) {
-            await session.close('project_access_lost');
-            throw error;
-        }
         return session;
     }
     get(sessionId) { return this.sessions.get(sessionId) ?? null; }
     listOwned(ownerUserId) {
-        return [...this.sessions.values()].filter((session) => session.ownerUserId === ownerUserId && !this.projectAttachments.has(session.id));
+        return [...this.sessions.values()].filter((session) => session.ownerUserId === ownerUserId);
     }
     async closeOwned(sessionId, ownerUserId, reason = 'closed') {
         await this.getOwned(sessionId, ownerUserId).close(reason);
     }
     /** Fail LOUDLY, like closeAll: the only caller is account removal, where the core refuses to delete
-     *  the account while a plugin handler reports incomplete cleanup. A project teardown that could not
-     *  verify guest termination is exactly such a leftover, and swallowing it would delete the account
-     *  over a browser that may still be running. */
+     *  the account while a plugin handler reports incomplete cleanup. A teardown that could not verify the
+     *  browser is gone is exactly such a leftover, and swallowing it would delete the account over a
+     *  browser that may still be running. */
     async closeUser(ownerUserId, reason = 'user_removed') {
         const results = await Promise.allSettled([...this.sessions.values()].filter((session) => session.ownerUserId === ownerUserId).map((session) => session.close(reason)));
         results.push(...await Promise.allSettled([this.deps.pool.closeUser(ownerUserId)]));
@@ -234,7 +180,7 @@ export class SessionRegistry {
      *  behind, and a display that has since died must not be dialled at all. */
     resolveLiveView(userId, payload) {
         const session = this.sessions.get(payload.sessionId);
-        if (!session || session.ownerUserId !== userId || this.projectAttachments.has(payload.sessionId))
+        if (!session || session.ownerUserId !== userId)
             return null;
         if (session.state === 'closing' || session.state === 'closed' || session.state === 'error')
             return null;
@@ -249,11 +195,9 @@ export class SessionRegistry {
         const closing = [];
         const byUser = new Map();
         for (const session of this.sessions.values()) {
-            if (!this.projectAttachments.has(session.id)) {
-                const group = byUser.get(session.ownerUserId) ?? [];
-                group.push(session);
-                byUser.set(session.ownerUserId, group);
-            }
+            const group = byUser.get(session.ownerUserId) ?? [];
+            group.push(session);
+            byUser.set(session.ownerUserId, group);
             if (now >= session.hardExpiresAt)
                 closing.push(session.close('hard_expiry'));
             else if (now - session.lastActivity >= config.idleTimeoutMs)
@@ -278,8 +222,8 @@ export class SessionRegistry {
                     closing.push(oldestIdle.close('memory_limit'));
             }
         }
-        // One failing close must not stop the others, but a close that could not verify teardown (a managed
-        // browser whose guest process may still run) must not vanish silently either.
+        // One failing close must not stop the others, but a close that could not verify teardown must not
+        // vanish silently either.
         const results = await Promise.allSettled(closing);
         for (const result of results) {
             if (result.status === 'rejected') {

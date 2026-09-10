@@ -51,6 +51,9 @@ export class BrowserStore {
         );
       `),
             }, {
+                // The project browser is gone and nothing writes this column any more. The migration stays because
+                // dropping a column an existing database already carries buys nothing and risks the rewrite; it is
+                // simply left NULL on every row from here on.
                 version: 3,
                 up: (migration) => migration.exec('ALTER TABLE p_browser_sessions ADD COLUMN project_id INTEGER'),
             }]);
@@ -58,13 +61,16 @@ export class BrowserStore {
     createSession(record) {
         this.db.prepare(`INSERT INTO p_browser_sessions(
       id,owner_user_id,conversation_id,artifact_ref,primary_target_id,state,created_at,updated_at,
-      last_activity_at,hard_expires_at,closed_at,close_reason,project_id
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(record.id, record.ownerUserId, record.conversationId, record.artifactRef, record.primaryTargetId, record.state, record.createdAt, record.updatedAt, record.lastActivityAt, record.hardExpiresAt, record.closedAt, record.closeReason, record.projectId ?? null);
+      last_activity_at,hard_expires_at,closed_at,close_reason
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(record.id, record.ownerUserId, record.conversationId, record.artifactRef, record.primaryTargetId, record.state, record.createdAt, record.updatedAt, record.lastActivityAt, record.hardExpiresAt, record.closedAt, record.closeReason);
     }
     session(id) {
         const value = asRow(this.db.prepare('SELECT * FROM p_browser_sessions WHERE id=?').get(id));
         return value ? this.sessionRow(value) : null;
     }
+    /** Nothing writes `project_id` any more, so every new row is NULL. The filter stays for the rows a
+     *  database may still carry from the removed project browser: those were never part of an account's
+     *  own history and must not appear in its panel now. */
     sessionsForUser(userId, activeOnly = false) {
         const sql = activeOnly
             ? "SELECT * FROM p_browser_sessions WHERE owner_user_id=? AND project_id IS NULL AND state NOT IN ('closed','error') ORDER BY created_at"

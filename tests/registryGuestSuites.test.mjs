@@ -7,8 +7,8 @@ import { test } from 'node:test';
 /** The consumer-side guest acceptance the Elowen core matrix promises.
  *
  *  tests/acceptance/managedEnvironmentMatrix.json in github.com/dragocz95/elowen (key
- *  `registryRealGuestSuites`) records these five suites as the real-guest evidence behind its LSP,
- *  browser, editor, codebase and cron rows. Core cannot check that they exist: a checkout of core alone
+ *  `registryRealGuestSuites`) records these four suites as the real-guest evidence behind its LSP,
+ *  editor, codebase and cron rows. Core cannot check that they exist: a checkout of core alone
  *  has no registry beside it, and the earlier attempt to reach a sibling directory passed or failed on
  *  where the checkout happened to sit. They are files of THIS repository, so this is where a deletion has
  *  to be noticed — otherwise the core matrix keeps claiming evidence that nothing produces any more.
@@ -17,7 +17,6 @@ import { test } from 'node:test';
  *  change, and this entry with it. */
 const REGISTRY_GUEST_SUITES = {
   'lspManagedGuest.podman.test.ts': 'lsp — language server started and driven inside the selected project guest',
-  'browserManagedGuest.podman.test.ts': 'browser — project Chromium, its profile and its downloads inside the guest',
   'editorManagedGuest.podman.test.ts': 'editor — editor APIs and office preview conversion through the guest',
   'codebaseManagedGuest.podman.test.ts': 'codebase — semantic index of a managed project keyed by project id',
   'cronManagedGuest.podman.test.ts': 'cronjob — a scheduled check executed inside the selected project guest',

@@ -288,7 +288,7 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.3.10, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.3.11, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
       version: string; userGrantable: boolean; entry: string;
@@ -296,13 +296,13 @@ describe('browser plugin contract', () => {
       provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.3.10');
+    expect(manifest.version).toBe('0.3.11');
     expect(manifest.userGrantable).toBe(true);
     // The session listing reads the agent's last reply through `host.stores()`, which the core refuses
     // outright unless the manifest asks for it — an undeclared grant makes the whole panel fail, not the
     // one field, so the declaration is part of the contract rather than an implementation detail.
     expect(manifest.capabilities.reads).toContain('stores');
-    expect(manifest.provides.tools).toHaveLength(18);
+    expect(manifest.provides.tools).toHaveLength(17);
     expect(manifest.provides.apiRoutes).toHaveLength(13);
     expect(manifest.provides.apiRoutes).toContain('navigation');
     // The account panel's session stills. Deny-by-default: an API route the manifest does not declare is
@@ -928,89 +928,8 @@ describe('browser process pool', () => {
   });
 });
 
-describe('project browser sessions', () => {
-  /** A registry over one faked project attachment, so launch/lifecycle behavior is exercised without a
-   *  guest container: the tests state the attachment's own behavior (open failure, abort timing, close
-   *  failure) and hold the registry to its side of the contract. */
-  function projectHarness(hooks: { duringOpen?: () => void } = {}) {
-    const project = { kind: 'managed' as const, projectId: 8 };
-    const browser = new FakeBrowser();
-    const tabs = new TabManager(browser, () => 12, logger, async () => {}, async () => {});
-    const authorize = vi.fn(async () => {});
-    const close = vi.fn(async () => { tabs.dispose(); await browser.close(); });
-    const openProject = vi.fn(async () => {
-      hooks.duringOpen?.();
-      return { project, actor: 1, generation: 4, browser, tabs, authorize, close, onClosed: () => {}, traceLock: new ProcessTraceLock() };
-    });
-    const registry = new SessionRegistry({
-      config: () => config(), store: new BrowserStore(pluginDb()),
-      pool: { openPage: vi.fn(), releasePage: async () => {}, closeUser: async () => {}, closeAll: async () => {} } as never,
-      projectContext: {} as never,
-      openProject: openProject as never,
-      artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
-      processInspector: { inspect: () => null, terminate: () => {} },
-      displays: { get: () => null, failure: () => null, reconcileOrphans: () => {} } as never,
-      clock: { now: () => Date.now(), sleep: async () => {} }, logger,
-    });
-    type TestTool = { name: string; execute(id: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<{ content: { type: string; text?: string }[] }> };
-    const tools = new Map<string, TestTool>();
-    registerBrowserTools({
-      currentAccess: () => ({ projectRef: project }), currentAccountUserId: () => 1,
-      currentSessionId: () => 'project-chat', currentIdentity: () => ({ conversation: 'delegated' }),
-      registerTool: (tool: TestTool) => { tools.set(tool.name, tool); },
-    } as never, registry);
-    return { project, registry, tools, browser, tabs, authorize, close, openProject };
-  }
-
-  it('closes an aborted BrowserOpen and frees the shared project slot', async () => {
-    const controller = new AbortController();
-    const h = projectHarness({ duringOpen: () => controller.abort() });
-    const open = h.tools.get('BrowserOpenProject')!;
-    try {
-      await expect(open.execute('open', { url: 'http://127.0.0.1:3000/' }, controller.signal)).rejects.toThrow(/abort/i);
-      expect(h.close).toHaveBeenCalledOnce();
-      // The slot is free again: a retry right after the cancelled turn must not be refused.
-      const retry = await open.execute('open', {});
-      expect(JSON.parse(retry.content[0]!.text!)).toMatchObject({ mode: 'project' });
-    } finally { await h.registry.closeAll(); }
-  });
-
-  it('refuses to launch at all when the turn was aborted before the open', async () => {
-    const controller = new AbortController();
-    controller.abort();
-    const h = projectHarness();
-    try {
-      await expect(h.tools.get('BrowserOpenProject')!.execute('open', {}, controller.signal)).rejects.toThrow(/abort/i);
-      expect(h.openProject).not.toHaveBeenCalled();
-      expect(h.close).not.toHaveBeenCalled();
-    } finally { await h.registry.closeAll(); }
-  });
-
-  it('cleans up a failed first page and frees the shared project slot', async () => {
-    const h = projectHarness();
-    const realNewPage = h.browser.newPage.bind(h.browser);
-    h.browser.newPage = vi.fn()
-      .mockImplementationOnce(async () => { throw new Error('page open failed'); })
-      .mockImplementation(realNewPage as never);
-    const open = h.tools.get('BrowserOpenProject')!;
-    try {
-      await expect(open.execute('open', {})).rejects.toThrow(/page open failed/);
-      expect(h.close).toHaveBeenCalledOnce();
-      const retry = await open.execute('open', {});
-      expect(JSON.parse(retry.content[0]!.text!)).toMatchObject({ mode: 'project' });
-    } finally { await h.registry.closeAll(); }
-  });
-
-  it('denies downloads only in personal mode, never on a managed session page', async () => {
-    const project = projectHarness();
-    await project.tools.get('BrowserOpenProject')!.execute('open', {});
-    try {
-      const managedPage = project.browser.pages[0]!;
-      // The context-level allow into /data/browser/downloads was set at connect; a browser-wide deny on
-      // the page session would address the SAME default context and override it.
-      expect(managedPage.cdp.calls).not.toContainEqual({ method: 'Browser.setDownloadBehavior', params: { behavior: 'deny' } });
-    } finally { await project.registry.closeAll(); }
-
+describe('the account browser in a managed project', () => {
+  it('denies downloads into the account profile on a session page', async () => {
     const page = new FakePage();
     const tabs = new TabManager(new FakeBrowser(), () => 12, logger, async () => {}, async () => {});
     const registry = new SessionRegistry({
@@ -1031,86 +950,19 @@ describe('project browser sessions', () => {
     } finally { await registry.closeAll(); }
   });
 
-  it('reports incomplete cleanup when account removal cannot close a project browser', async () => {
-    const h = projectHarness();
-    const open = h.tools.get('BrowserOpenProject')!;
-    const opened = await open.execute('open', {});
-    const sessionId = JSON.parse(opened.content[0]!.text!).sessionId as string;
-    h.close.mockRejectedValue(new Error('Guest termination could not be verified'));
-    try {
-      await expect(h.registry.closeUser(1)).rejects.toThrow(AggregateError);
-      // The session itself is gone either way; the failure is what the account-removal path needs to see.
-      expect(h.registry.get(sessionId)).toBeNull();
-    } finally { await h.registry.closeAll().catch(() => {}); }
-  });
-
-  it('uses the existing action and screenshot toolkit without exposing personal browser views', async () => {
-    const store = new BrowserStore(pluginDb());
-    const browser = new FakeBrowser();
-    const tabs = new TabManager(browser, () => 12, logger, async () => {}, async () => {});
-    const authorize = vi.fn(async () => {});
-    const close = vi.fn(async () => { tabs.dispose(); await browser.close(); });
-    const openPage = vi.fn();
-    const project = { kind: 'managed' as const, projectId: 8 };
-    const registry = new SessionRegistry({
-      config: () => config(), store, pool: { openPage, closeAll: async () => {} } as never,
-      projectContext: {} as never,
-      openProject: async () => ({ project, actor: 1, generation: 4, browser, tabs, authorize, close, onClosed: () => {}, traceLock: new ProcessTraceLock() }),
-      artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER,
-      processInspector: { inspect: () => null, terminate: () => {} },
-      displays: { get: () => ({ socketPath: '/personal/display' }), failure: () => null } as never,
-      clock: { now: () => Date.now(), sleep: async () => {} }, logger,
-    });
-    type TestTool = { name: string; execute(id: string, input: Record<string, unknown>): Promise<{ content: { type: string; text?: string; data?: string }[] }> };
-    const tools = new Map<string, TestTool>();
-    registerBrowserTools({
-      currentAccess: () => ({ projectRef: project }), currentAccountUserId: () => 1,
-      currentSessionId: () => 'project-chat', currentIdentity: () => ({ conversation: 'delegated' }),
-      registerTool: (tool: TestTool) => { tools.set(tool.name, tool); },
-    } as never, registry);
-    const opened = await tools.get('BrowserOpenProject')!.execute('open', { url: 'http://127.0.0.1:3000/' });
-    const openedData = JSON.parse(opened.content[0]!.text!) as { sessionId: string };
-    const session = await registry.getForTool(openedData.sessionId, 1, project);
-    try {
-      const owned = await registry.getForTool(session.id, 1, project);
-      const snapshot = await owned.navigate('http://127.0.0.1:3000/');
-      expect(snapshot.url).toBe('http://127.0.0.1:3000/');
-      const button = [...snapshot.elements.values()].find((element) => element.role === 'button')!.ref;
-      await owned.click(button);
-      const capture = await owned.snapshot(true);
-      expect(capture.screenshot).toBe('aGVsbG8=');
-      const screenshot = await tools.get('BrowserScreenshot')!.execute('capture', { sessionId: session.id });
-      expect(screenshot.content.some((entry) => entry.type === 'image' && entry.data === 'aGVsbG8=')).toBe(true);
-      expect(JSON.parse(opened.content[0]!.text!)).toMatchObject({ mode: 'project', sharedProfile: true, downloadsPath: '/data/browser/downloads' });
-      expect(openPage).not.toHaveBeenCalled();
-      expect(() => registry.getOwned(session.id, 1)).toThrow(/not found/);
-      expect(registry.listOwned(1)).toEqual([]);
-      expect(registry.durableSessions(1)).toEqual([]);
-      expect(registry.resolveLiveView(1, { sessionId: session.id })).toBeNull();
-      await expect(registry.getForTool(session.id, 1, { kind: 'managed', projectId: 9 })).rejects.toThrow(/not found/);
-      await expect(registry.getForTool(session.id, 2, project)).rejects.toThrow(/not found/);
-      authorize.mockRejectedValue(new Error('Membership revoked'));
-      await expect(registry.getForTool(session.id, 1, project)).rejects.toThrow(/revoked/);
-      expect(close).toHaveBeenCalledOnce();
-    } finally { await registry.closeAll(); }
-  });
-
-  /** A chat executes in a managed project by DEFAULT, so the ambient execution target must not decide the
-   *  browser mode: keyed on it, BrowserOpen opened a headless browser inside the container, published no
-   *  chat artifact (no live view card) and stayed out of `listOwned`, which is what the account panel
+  /** A chat executes in a managed project by DEFAULT, and the browser has exactly one mode: keyed on the
+   *  ambient execution target, BrowserOpen once opened a headless browser inside the container, published
+   *  no chat artifact (no live view card) and stayed out of `listOwned`, which is what the account panel
    *  lists. Both surfaces are asserted here because both were lost by the same routing. */
   it('opens the account browser, with its card and its account listing, in a managed-project conversation', async () => {
     const store = new BrowserStore(pluginDb());
     const page = new FakePage();
     const tabs = new TabManager(new FakeBrowser(), () => 12, logger, async () => {}, async () => {});
     const project = { kind: 'managed' as const, projectId: 8 };
-    const openProject = vi.fn();
     const opens: { toolCallId: string; conversationId: string }[] = [];
     const registry = new SessionRegistry({
       config: () => config(), store,
       pool: { openPage: async () => ({ page, tabs, traceLock: new ProcessTraceLock() }), releasePage: async () => {}, closeUser: async () => {}, closeAll: async () => {} } as never,
-      projectContext: {} as never,
-      openProject: openProject as never,
       artifacts: {
         available: true,
         open: async (input: { toolCallId: string; conversationId: string }) => {
@@ -1132,14 +984,11 @@ describe('project browser sessions', () => {
       registerTool: (tool: TestTool) => { tools.set(tool.name, tool); },
     } as never, registry);
     try {
-      // The project browser is its own tool, never a flag on this one: gpt-5.6 fills every optional
-      // parameter it is shown, so a `useProjectProfile` flag was sent as `true` on every open. Whatever
-      // extra argument a model invents here must not route the open into the project profile.
-      expect(tools.has('BrowserOpenProject')).toBe(true);
+      // Some models fill every optional parameter they are shown, and gpt-5.6 sent `useProjectProfile`
+      // on every open while that mode still existed. A foreign argument is simply ignored.
       const opened = await tools.get('BrowserOpen')!.execute('open-1', { useProjectProfile: true });
       const payload = JSON.parse(opened.content[0]!.text!) as { sessionId: string; mode?: string };
       expect(payload.mode).toBeUndefined();
-      expect(openProject).not.toHaveBeenCalled();
       // The chat card: an artifact opened against this turn's tool call and this conversation.
       expect(opens).toEqual([{ toolCallId: 'open-1', conversationId: 'managed-chat' }]);
       // The account panel reads `listOwned`; its live view is resolvable for the same account.
@@ -3267,83 +3116,5 @@ describe('browser element refs', () => {
     await expect(session.screenshot('element', 'png', 'e3')).rejects.toThrow(/e3 was not found in the latest snapshot/);
     expect(await session.screenshot('element', 'png', 'e1')).toMatchObject({ width: 91, height: 19 });
     await session.close();
-  });
-});
-
-/** A managed project close that TIMES OUT must not report failure and destroy the only retry handle in
- *  the same breath. The live audit recorded the pair verbatim: `Browser teardown timed out.` followed, on
- *  the retry, by `Project browser session not found.` — cleanup outstanding, nothing left to name it.
- *
- *  These pin the contract, not the deadline. The 10 s teardown bound stays exactly where it is; raising it
- *  would hide the managed cleanup cost rather than make the close recoverable. */
-describe('managed browser teardown is retryable', () => {
-  async function projectSession(release: () => Promise<void>) {
-    const store = new BrowserStore(pluginDb());
-    const now = Date.now();
-    store.createSession({
-      id: 'session-teardown-01', ownerUserId: 1, conversationId: 'brain-1', artifactRef: null,
-      primaryTargetId: null, state: 'creating', createdAt: now, updatedAt: now, lastActivityAt: now,
-      hardExpiresAt: now + 60_000, closedAt: null, closeReason: null,
-    });
-    const browser = new FakeBrowser();
-    const page = await browser.newPage() as FakePage;
-    const tabs = new TabManager(browser, () => 12, logger);
-    tabs.registerPrimary('session-teardown-01', page);
-    const retired: string[] = [];
-    const session = await BrowserSession.create({
-      id: 'session-teardown-01', ownerUserId: 1, conversationId: 'brain-1', createdAt: now,
-      hardExpiresAt: now + 60_000, page, tabs, config: () => config({}), store,
-      artifacts: UNAVAILABLE_ARTIFACT_PUBLISHER, traceLock: new ProcessTraceLock(),
-      clock: { now: () => Date.now(), sleep: async () => {} }, logger,
-      // Present only for a managed project session — the authority that turns an incomplete teardown into
-      // a reported failure instead of a silent best-effort close.
-      projectAuthority: async () => {},
-      releasePage: release,
-      forceCloseBrowser: async () => {},
-      onClosed: (id: string) => { retired.push(id); },
-    });
-    return { session, store, retired };
-  }
-
-  it('keeps the session addressable after a timed-out teardown, and lets a later close finish it', async () => {
-    vi.useFakeTimers();
-    try {
-      let settle: (() => void) | null = null;
-      let attempts = 0;
-      const { session, store, retired } = await projectSession(() => {
-        attempts += 1;
-        // The first release never answers within the bound; the second completes at once, standing in for
-        // the lease cleanup finally settling.
-        return attempts === 1 ? new Promise<void>((done) => { settle = done; }) : Promise.resolve();
-      });
-
-      const first = session.close('closed');
-      const failure = expect(first).rejects.toThrow(/teardown timed out/i);
-      await vi.advanceTimersByTimeAsync(20_000);
-      await failure;
-
-      // The record survives in an inspectable state, so the id the caller holds still resolves.
-      expect(retired).toEqual([]);
-      expect(store.session('session-teardown-01')?.state).toBe('error');
-
-      settle?.();
-      await session.close('closed');
-      await vi.advanceTimersByTimeAsync(1_000);
-
-      // The retry actually re-ran teardown rather than replaying the memoized rejection…
-      expect(attempts).toBe(2);
-      // …and only the settled teardown retires the record.
-      expect(retired).toEqual(['session-teardown-01']);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('retires the record on the first close when teardown completes normally', async () => {
-    const { session, retired } = await projectSession(async () => {});
-
-    await session.close('closed');
-
-    expect(retired).toEqual(['session-teardown-01']);
   });
 });
