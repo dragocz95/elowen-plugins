@@ -168,8 +168,29 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new InputError('invalid request');
     return value as Record<string, unknown>;
   };
-  const currentGuestVersion = async (path: string): Promise<string | null> => {
-    const stat = await files({ kind: 'stat', path, followSymlinks: true });
+  /** The version an OVERWRITE opens its compare-and-swap against, or null when there is nothing at the
+   *  destination yet.
+   *
+   *  The follow-stat asks the precise question, because an overwrite through a symlink must be versioned
+   *  against the target. It answers it by resolving the whole path strictly, so a destination whose
+   *  ANCESTOR is not a directory makes it FAIL rather than report that nothing is there — and that
+   *  failure is not the caller's answer. Whether an ancestor is a directory is a question `write-begin`
+   *  already decides, with a typed code this transport knows how to render, and reaching it is the only
+   *  way the caller hears it.
+   *
+   *  So the failure is re-asked once without resolution, and only a definite "there is nothing here"
+   *  lets the upload continue to the step that classifies it. An entry that does exist, or a second
+   *  failure, rethrows the ORIGINAL untouched: a permission refusal or a runtime outage keeps its own
+   *  meaning instead of arriving as a conflict, and no provider text is forwarded either way. */
+  const uploadBaseVersion = async (path: string): Promise<string | null> => {
+    let stat;
+    try {
+      stat = await files({ kind: 'stat', path, followSymlinks: true });
+    } catch (error) {
+      const unresolved = await files({ kind: 'stat', path, followSymlinks: false }).catch(() => null);
+      if (!unresolved || unresolved.kind !== 'stat' || unresolved.entry) throw error;
+      return null;
+    }
     if (stat.kind !== 'stat') throw new Error('invalid guest result');
     return stat.entry ? requireVersion(stat.entry) : null;
   };
@@ -181,7 +202,7 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
    *  an interrupted upload is released by the caller's abort. */
   const streamUploadChunk = async (session: ManagedUploadSession, bytes: Buffer, final: boolean, overwrite: boolean): Promise<number> => {
     if (!session.uploadId) {
-      const begin = await files({ kind: 'write-begin', path: session.path, expectedVersion: overwrite ? await currentGuestVersion(session.path) : null, size: session.size });
+      const begin = await files({ kind: 'write-begin', path: session.path, expectedVersion: overwrite ? await uploadBaseVersion(session.path) : null, size: session.size });
       if (begin.kind !== 'write-begin') throw new Error('invalid guest result');
       session.uploadId = begin.uploadId;
       session.chunkSize = begin.chunkSize;
