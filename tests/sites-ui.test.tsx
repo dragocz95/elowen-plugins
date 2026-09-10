@@ -46,6 +46,8 @@ const site = {
   lastPublishModel: 'anthropic/claude',
   spa: false,
   runtime: 'command',
+  kind: 'static',
+  target: '',
   canManage: true,
 };
 
@@ -66,6 +68,7 @@ const detail = {
     lastError: null,
   },
   environment: null,
+  projectEnvironment: null,
 };
 
 setDefaults(
@@ -241,6 +244,8 @@ const environmentSite = {
   slug: 'environment-abc123',
   title: 'Persistent service',
   runtime: 'environment',
+  kind: 'static',
+  target: '',
   currentReleaseId: 'snapshot-active',
 };
 
@@ -254,6 +259,7 @@ const environmentDetail = {
   hits: [],
   sourceDir: '/var/www/project/service',
   runtime: null,
+  projectEnvironment: null,
   environment: {
     state: 'running',
     desiredState: 'running',
@@ -508,5 +514,104 @@ describe('persistent environment detail', () => {
       environmentMemoryMb: 3072,
       environmentPidsLimit: null,
     }]));
+  });
+});
+
+/** A proxy publication: the row carries the kind and the forwarder port, while its detail holds no
+ *  release, no runtime and no environment of its own — the environment belongs to the Project, so this
+ *  drawer may not offer any control over it. */
+const proxySite = {
+  ...site,
+  id: 'proxy-1',
+  slug: 'proxy-abc123',
+  title: 'Provozní API',
+  runtime: 'environment',
+  kind: 'proxy',
+  target: '3000',
+};
+
+const proxyDetail = {
+  site: proxySite,
+  members: [],
+  releases: [],
+  hits: [],
+  sourceDir: null,
+  runtime: null,
+  environment: null,
+  projectEnvironment: { state: 'running', lastError: null },
+};
+
+const mountProxy = (response = proxyDetail) => {
+  use(http.get('/api/plugins/sites/api/site/:id', () => HttpResponse.json(response)));
+  const { wrapper: Wrapper } = createWrapper();
+  render(
+    <Wrapper><ToastProvider><SiteDetail siteId={proxySite.id} allowPublicSites onDeleted={() => {}} /></ToastProvider></Wrapper>,
+  );
+};
+
+describe('publication kind', () => {
+  it('names a proxy row as the project environment with its forwarder port, and keeps the legacy shapes', async () => {
+    use(http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
+      mine: [proxySite, site], shared: [], allowPublicSites: true,
+    })));
+    mount();
+
+    // The column is a secondary one, and its header names the publication track.
+    expect(await screen.findByText(strings.columnKind)).toBeVisible();
+
+    const proxyRow = (await screen.findByText(proxySite.title)).closest('[role="row"]') as HTMLElement;
+    // The kind label and, in the same cell, the port the forwarder answers on.
+    const proxyCell = within(proxyRow).getByText(strings.kindProxy).closest('[role="cell"]');
+    expect(proxyCell).toHaveTextContent(strings.kindProxy);
+    expect(proxyCell).toHaveTextContent(`:${proxySite.target}`);
+    expect(proxyCell).toHaveAttribute('data-priority', 'wide');
+
+    // A legacy row still names its own runtime, and carries no port to reach.
+    const legacyRow = screen.getByText(site.title).closest('[role="row"]') as HTMLElement;
+    expect(within(legacyRow).getByText(strings.kindCommand)).toBeVisible();
+    expect(within(legacyRow).queryByText(`:${proxySite.target}`)).not.toBeInTheDocument();
+  });
+
+  it('describes a proxy site by its project environment and offers none of the environment controls', async () => {
+    mountProxy();
+
+    // The sentence names the Project whose environment serves this publication.
+    expect(await screen.findByText(strings.projectEnvironmentLink.replace('{project}', proxySite.projectSlug as string))).toBeVisible();
+    // The state is shown as the daemon reported it, under the label saying what it is.
+    expect(screen.getByText(strings.environmentObservedState)).toBeVisible();
+    expect(screen.getByText('running')).toBeVisible();
+    expect(screen.getByRole('button', { name: strings.openProject })).toBeVisible();
+
+    // Nothing here controls or reports an environment, and there is no release to list.
+    for (const absent of [
+      strings.environmentStart,
+      strings.environmentStop,
+      strings.environmentRestart,
+      strings.environmentSnapshot,
+      strings.environmentSaveLimits,
+      strings.runtimeLog,
+      strings.releases,
+    ]) {
+      expect(screen.queryByText(absent)).not.toBeInTheDocument();
+    }
+  });
+
+  it('says so when the project environment cannot be read', async () => {
+    mountProxy({ ...proxyDetail, projectEnvironment: null });
+
+    expect(await screen.findByText(strings.projectEnvironmentMissing)).toBeVisible();
+    expect(screen.queryByText(strings.environmentObservedState)).not.toBeInTheDocument();
+    // The action to go and look at the Project stays reachable whatever the state reading says.
+    expect(screen.getByRole('button', { name: strings.openProject })).toBeVisible();
+  });
+
+  it('keeps the existing environment drawer for a legacy environment row', async () => {
+    mountEnvironment();
+
+    expect(await screen.findByText(strings.environmentState)).toBeVisible();
+    expect(screen.getAllByText(strings.environmentSnapshots).length).toBeGreaterThan(0);
+    // The proxy row is the only one that may claim a Project environment, so this block must not appear.
+    expect(screen.queryByText(strings.projectEnvironmentLink.replace('{project}', 'kolin'))).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: strings.openProject })).not.toBeInTheDocument();
   });
 });

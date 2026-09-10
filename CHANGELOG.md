@@ -1,5 +1,20 @@
 # Changelog
 
+## sites 0.10.10 - 2026-09-10
+
+- A site created in a managed Project gets its source folder inside that Project, under the directory the
+  Project is mounted at (`/<slug>`), instead of the fixed `/workspace/sites/<slug>` — a path that does not
+  exist in a Project container. The folder was created outside the Project, so the Project tools never
+  showed the tree the agent had been told to write into, and publishing it found no files to copy.
+
+## sites 0.10.9 - 2026-09-10
+
+- Completing a runtime conversion retires the staged copy, so a converted site is left with ONE working
+  copy: `complete` folds the staged workspace back into the site's folder in the Project, rebuilds the
+  container on that folder with its persistent volume carried across, and removes the conversion's
+  directory. A conversion a restart interrupted after its flip is completed by the periodic reconcile as
+  soon as the site answers, instead of serving a staged copy nobody edits for good.
+
 ## browser 0.3.11 - 2026-09-10
 
 - The project browser is removed. The plugin has one mode: the linked account's Chrome running on the

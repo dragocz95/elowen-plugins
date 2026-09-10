@@ -71,7 +71,9 @@ export interface AppRecipe {
  *  container first runs and the volume is the only thing this operation can seed at that point. The
  *  bootstrap unit removes the staged secrets once they are installed, so they do not linger on the volume
  *  for the life of the site. */
-const CONVERSION_STAGE = '/data/.elowen-conversion';
+/** Where a conversion's seed lands on the persistent volume, and the only path in the container that
+ *  belongs to the conversion rather than to the application. */
+export const CONVERSION_STAGE = '/data/.elowen-conversion';
 const DATA_ARCHIVE_STAGE = `${CONVERSION_STAGE}/legacy-data.tar`;
 const SECRET_STAGE = `${CONVERSION_STAGE}/secrets`;
 
@@ -386,7 +388,11 @@ export function provisionScript(recipe: AppRecipe): string {
     `rm -f '${CONVERSION_STAGE}/app.env'`,
     // The captured subtrees were archived relative to the sandbox home, so they are unpacked relative to
     // the app's data directory, which is the home the unit hands the app.
-    `if [ -f '${DATA_ARCHIVE_STAGE}' ]; then tar -xf '${DATA_ARCHIVE_STAGE}' -C '${recipe.dataDir}'; fi`,
+    // Removed the moment it is unpacked, on the same reasoning as `app.env` below: this script runs on
+    // EVERY boot, and an archive that outlived its extraction would be unpacked again on the next one,
+    // silently reverting whatever the application has written since the capture. Deleting it is what makes
+    // the extraction happen exactly once — the guard then sees no archive and the step is a no-op.
+    `if [ -f '${DATA_ARCHIVE_STAGE}' ]; then tar -xf '${DATA_ARCHIVE_STAGE}' -C '${recipe.dataDir}'; rm -f '${DATA_ARCHIVE_STAGE}'; fi`,
     // Each secret goes back to the release-relative path the app already reads it from, at 0600. The
     // names are the recipe's, so the shared plugin never assumes an application's configuration layout.
     ...recipe.secretFiles.map((file) =>

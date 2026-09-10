@@ -19,6 +19,7 @@ import { installAppRecipe, loadAppRecipe, recipeBinding, relaxStaticServingPermi
 import { conversionImageTag } from './conversionImage.js';
 import { RuntimeMigrationService } from './migration.js';
 import { ProjectPreviewService } from './preview.js';
+import { ProjectPublicationService } from './publication.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
 const GATEWAY_RECONCILE_MS = 12 * 3600_000;
@@ -172,6 +173,31 @@ export function register(published) {
         control: () => ctx.control('sandbox'), config, gateway, proxyLimits,
         usernameOf: id => people().get(id)?.username ?? null,
     });
+    /** The transport half of every proxy publication. Its state is derived from the Project's environment
+     *  on demand, so nothing here has to be recovered after a restart: an endpoint is adopted again by the
+     *  next sweep. */
+    const publications = new ProjectPublicationService({
+        store,
+        control: () => ctx.control('sandbox'),
+        project: id => ctx.host.stores().projects.get(id),
+        logger: ctx.logger,
+    });
+    /** The state of the environment a proxy publication is served by. Read through the same account the
+     *  runtime was registered for, because the environment seam answers per account, and reported as
+     *  unknown rather than as an error when that account may not look: a reader of the site is not
+     *  necessarily a member of the Project. */
+    const projectEnvironment = async (projectId, actor) => {
+        const control = ctx.control('sandbox');
+        if (!control?.environmentFor)
+            return null;
+        try {
+            const state = await control.environmentFor({ project: { kind: 'managed', projectId }, accountUserId: actor });
+            return { state: state.state, lastError: state.lastError };
+        }
+        catch {
+            return null;
+        }
+    };
     const provisioning = new EnvironmentProvisioningService({
         control: () => ctx.control('publishedSitesGateway'),
         imageExists: async () => {
@@ -250,6 +276,11 @@ export function register(published) {
         brokerDirectoryExists: (siteId) => environment.brokerDirectoryExists(siteId),
         prepareBrokerDirectory: async (siteId) => { await environment.prepareBrokerDirectory(siteId); },
         removeStaged: (paths) => environment.removeStaged(paths),
+        // The completion moves the container onto the site's own source folder through the SAME supervisor
+        // that created it, so the rebuilt container is created, sized and started exactly like any other.
+        rebindToSource: (site) => environment.rebindToSource(site),
+        publishBinding: (site) => environment.publishBinding(site),
+        clearConversionStage: (site, stageDir) => environment.clearConversionStage(site, stageDir),
         // The sandbox is the only authority on where a confined site keeps its data: `runtime.ts` blocks HOME
         // from `.env`, so the value can come from nowhere else. Asking for the same preparation the legacy
         // runtime gets, then releasing the lease straight away, reads that fact without running anything.
@@ -309,6 +340,24 @@ export function register(published) {
         artifactPath: (siteId, name) => dataSync.archivePath(siteId, name),
         discardArtifacts: (siteId) => dataSync.discardArtifacts(siteId),
     });
+    /** Finish the conversions a restart cut short after their flip.
+     *
+     *  Such a site is up and serving, but out of a staged copy nobody edits: agents write to the Project
+     *  folder and see nothing change. An operator has no way to notice that from the outside, so the sweep
+     *  that already watches every environment finishes the last step itself. It runs AFTER the environment
+     *  reconcile in the same tick, because completing demands the site answers and the endpoint the probe
+     *  uses is adopted by that reconcile. */
+    const settleConversions = async () => {
+        if (!isDaemonProcess())
+            return;
+        for (const settled of await migration.reconcileCompletions()) {
+            if (settled.lastError === null) {
+                ctx.logger.info(`site conversion ${settled.siteId} completed; its Project folder is now the served workspace`);
+                continue;
+            }
+            ctx.logger.warn(`site conversion ${settled.siteId} could not be completed: ${settled.lastError}`);
+        }
+    };
     /** Deletion is two-phase and crash-safe. The durable marker removes access immediately; only the
      * authoritative daemon touches processes and plugin-owned files. A forked tool runner stops after the
      * marker and the daemon's five-second reconcile finishes the same operation. */
@@ -325,6 +374,10 @@ export function register(published) {
         try {
             if (site.runtime !== 'environment')
                 await supervisor.stop(siteId);
+            // A proxy publication's forwarder lives in the Project's environment and belongs to this plugin
+            // until it is ended; the row is what names it, so it goes before anything the row was holding.
+            if (site.kind === 'proxy')
+                await publications.release(site);
             if (site.runtime === 'environment' || store.runtimeRecord(siteId, 'binding'))
                 await environment.delete(siteId);
             rmSync(siteDir(siteId), { recursive: true, force: true });
@@ -420,7 +473,7 @@ export function register(published) {
                 if (!deletingSiteIds.has(siteId))
                     pendingHits.set(siteId, (pendingHits.get(siteId) ?? 0) + 1);
             },
-            endpointFor: (siteId) => environment.endpointFor(siteId) ?? supervisor.endpointFor(siteId),
+            endpointFor: (siteId) => publications.endpointFor(siteId) ?? environment.endpointFor(siteId) ?? supervisor.endpointFor(siteId),
             previews,
             proxyLimits,
             usernameOf: (userId) => people().get(userId)?.username ?? null,
@@ -462,6 +515,7 @@ export function register(published) {
             await environment.scheduleRestore(site, input.releaseId, input.restoreData, actor);
         },
         applyEnvironmentLimits: (site, limits, actor) => environment.applyLimits(site, limits, actor),
+        projectEnvironment,
         provisioning,
         migration,
     });
@@ -486,7 +540,7 @@ export function register(published) {
     // Admin-gated inside the handler, like the provisioning routes: core's `access` levels have no
     // admin tier, so the check has to live where the auth is actually read.
     ctx.registerApiRoute({ path: 'conversion', access: 'user', handler: handlers.conversion });
-    registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, people, previews });
+    registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, publications, projectEnvironment, people, previews });
     ctx.registerReadinessCheck(() => gateway.readiness());
     // One row per dependency and per interpreter, rather than one row carrying a paragraph: the status
     // card lists what is checked, and a failing item shows its own cause where a reader is looking.
@@ -549,6 +603,8 @@ export function register(published) {
             start: async () => {
                 await supervisor.reconcile();
                 await environment.reconcile();
+                await publications.reconcile();
+                await settleConversions();
             },
             // Command runtimes retain their existing reload behavior. Persistent environments detach only and
             // remain in Podman's user scope across plugin reloads and daemon restarts.
@@ -591,10 +647,14 @@ export function register(published) {
         await cleanupDeletingSites();
     }, 5_000);
     // A publish or rollback may have been requested by an out-of-process agent runner. The daemon sees the
-    // shared desired state here and starts or replaces the process whose release id no longer matches.
+    // shared desired state here and starts or replaces the process whose release id no longer matches. The
+    // same tick keeps every proxy publication's transport alive, because nothing else in the daemon holds
+    // one across a restart.
     ctx.registerInterval('reconcile-site-runtimes', async () => {
         await supervisor.reconcile();
         await environment.reconcile();
+        await publications.reconcile();
+        await settleConversions();
     }, 2_000);
     // A publish almost always arrives from a forked tool runner, which has no gateway of its own and never
     // reconciles, so the daemon has to notice the new site itself. Without this the page is `live` in the

@@ -4,7 +4,7 @@ import { dirname, join, posix, resolve, sep } from 'node:path';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import type { SitesContext } from './coreSeams.js';
-import type { Site, SitesStore, Visibility } from './store.js';
+import type { Site, SitesStore, PublicationKind, Visibility } from './store.js';
 import { VISIBILITIES } from './store.js';
 import { mayPublish, type AccessDeps } from './access.js';
 import { SITE_BASE_PATH, environmentLimitOverrides, siteUrl, type EnvironmentLimitOverrides, type SitesConfig } from './config.js';
@@ -12,6 +12,7 @@ import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } fr
 import { isDaemonProcess, type SiteRuntimeSupervisor } from './runtime.js';
 import type { EnvironmentState, EnvironmentSupervisor } from './environment.js';
 import type { ProjectPreviewService } from './preview.js';
+import { publicationPort, type ProjectEnvironmentView, type ProjectPublicationService } from './publication.js';
 
 export interface ToolDeps {
   ctx: SitesContext;
@@ -25,6 +26,11 @@ export interface ToolDeps {
   deleteSite(siteId: string): Promise<void>;
   runtime: SiteRuntimeSupervisor;
   environment: Pick<EnvironmentSupervisor, 'state' | 'exec' | 'logs' | 'applyLimits' | 'request' | 'scheduleSnapshot' | 'scheduleRestore' | 'pendingAction' | 'exportProject'>;
+  /** The transport half of a proxy publication: asking the Project's environment for it, reading through
+   *  it, and remembering where it answered. */
+  publications: Pick<ProjectPublicationService, 'establish' | 'probe' | 'adopt'>;
+  /** The state of the environment a proxy publication is served by, read for the site's owner. */
+  projectEnvironment(projectId: number, actor: number): Promise<ProjectEnvironmentView | null>;
 }
 
 /** A command runtime is only offered where the operator has turned it on. */
@@ -81,11 +87,19 @@ const slugify = (title: string): string => {
  *  The active Sandbox workspace comes first because it is a real Git worktree: the source is versioned,
  *  committable and publishable like anything else the agent is working on. The bound Project is the
  *  fallback. There is deliberately no third option — `defaultCwd()` answers with an arbitrary allowed
- *  root, or the daemon's own working directory, and neither is a place the caller chose. */
+ *  root, or the daemon's own working directory, and neither is a place the caller chose.
+ *
+ *  A managed Project has no host path to fall back to: it is mounted inside its own container at its own
+ *  name (`/<slug>`, core's `managedGuestRoot` in `src/shared/projectExecution.ts`), and the turn's working
+ *  directory IS that root. `/workspace` is a reserved name and no such directory exists there, so a folder
+ *  built under it landed outside the Project: the agent was told to write into a tree the Project tools
+ *  and the publish export never looked at. */
 function resolveSourceRoot(ctx: SitesContext, slug: string): { dir: string; projectId: number } {
   const selected = ctx.currentAccess().projectRef;
   if (selected?.kind === 'managed') {
-    return { dir: posix.join('/workspace/sites', slug), projectId: selected.projectId };
+    const root = ctx.workDir();
+    if (!root) throw new ToolError('This turn has no Project directory, so the site has nowhere to put its source.');
+    return { dir: posix.join(root, 'sites', slug), projectId: selected.projectId };
   }
   const workDir = ctx.workDir();
   if (!workDir) {
@@ -168,6 +182,14 @@ const requireEnvironmentAuthority = (deps: ToolDeps, site: Site, userId: number)
   }
 };
 
+/** Why a per-site lifecycle tool refuses a proxy publication.
+ *
+ *  Not because the capability is missing — the application inside the Project can be started, stopped,
+ *  snapshotted and read — but because this is not the name it has. Every one of those operations acts on
+ *  the Project and on everything else in it, and saying so is the whole answer the caller needs. */
+const proxyRefusal = (what: string): string =>
+  `This publication is served by the environment of its Project, which owns no per-site lifecycle or logs. ${what}`;
+
 const workdirOf = (value: unknown): string | undefined => {
   if (value === undefined) return undefined;
   if (typeof value !== 'string' || value.includes('\0') || !value.startsWith('/')) {
@@ -215,11 +237,35 @@ const latestSnapshotAt = (store: SitesStore, site: Site): string | null => (site
   ? null
   : store.releases(site.id).find((release) => release.kind === 'environment-snapshot')?.createdAt ?? null);
 
+/** What a proxy publication is, in the words its reader needs.
+ *
+ *  A proxy publication has no release and no container of its own, so the two facts that matter are the
+ *  port inside the Project and which Project that is. It prints nothing at all for a static publication,
+ *  whose summary already says everything it has. The last line is the answer to the question an agent
+ *  actually has when a site of this kind misbehaves — whose environment is this, and where do I look at
+ *  it — and it is phrased as one line so it survives being read out of a longer summary. */
+const projectLines = (
+  site: Site,
+  project?: { slug: string | null; executionKind?: string; environment?: ProjectEnvironmentView | null } | null,
+): string[] => {
+  if (site.kind !== 'proxy') return [];
+  const name = project?.slug ?? `Project ${site.projectId}`;
+  const state = project?.environment;
+  return [
+    `  kind       proxy`,
+    `  target     ${site.target || '(no port)'} inside the Project`,
+    `  project    ${name}${project?.executionKind ? ` (${project.executionKind})` : ''}`,
+    ...(state ? [`  environment ${state.state ?? 'unknown'}${state.lastError ? ` - ${state.lastError}` : ''}`] : []),
+    `  Served by the environment of project ${name}`,
+  ];
+};
+
 const describe = (
   site: Site,
   config: SitesConfig,
   environment?: EnvironmentState,
   lastSnapshotAt?: string | null,
+  project?: { slug: string | null; executionKind?: string; environment?: ProjectEnvironmentView | null } | null,
 ): string => {
   const address = siteUrl(config, site.slug);
   return [
@@ -229,22 +275,32 @@ const describe = (
     `  address    ${address ?? 'unavailable until the domain gateway is ready'}`,
     `  visibility ${site.visibility}`,
     `  status     ${site.status}`,
+    ...projectLines(site, project),
     ...(site.runtime === 'command' ? [`  runtime    ${site.bind}${site.port === null ? '' : ` 127.0.0.1:${site.port}`} · ${config.runtimeNetwork} network`] : []),
     ...(site.runtime === 'environment' ? [
       `  environment ${environment?.state ?? 'unknown'} · desired ${site.environmentDesiredState ?? 'running'} · ${config.environmentNetwork} network`,
       `  limits      ${environment?.limits.cpus ?? site.environmentCpus ?? config.environmentCpus} CPU · ${environment?.limits.memoryMb ?? site.environmentMemoryMb ?? config.environmentMemoryMb} MB · ${environment?.limits.pidsLimit ?? site.environmentPidsLimit ?? config.environmentPidsLimit} PIDs`,
     ] : []),
-    site.runtime === 'environment'
-      ? `  snapshot   ${lastSnapshotAt ?? 'never'}`
-      : site.lastPublishAt
-        ? `  published  ${site.lastPublishAt}${site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}`
-        : '  published  never',
-    `  source     ${site.sourceDir}`,
+    site.kind === 'proxy'
+      ? `  published  ${site.lastPublishAt ?? 'never'}${site.lastPublishAt && site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}`
+      : site.runtime === 'environment'
+        ? `  snapshot   ${lastSnapshotAt ?? 'never'}`
+        : site.lastPublishAt
+          ? `  published  ${site.lastPublishAt}${site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}`
+          : '  published  never',
+    ...(site.kind === 'proxy' ? [] : [`  source     ${site.sourceDir}`]),
   ].join('\n');
 };
 
 export function registerTools(deps: ToolDeps): void {
   const { ctx, store } = deps;
+
+  /** The Project a publication belongs to, as every summary line reports it. A read of the in-process
+   *  Project register, never a container round trip, so a listing pays nothing for it. */
+  const projectOf = (site: Site): { slug: string; executionKind: string } | null => {
+    const project = ctx.host.stores().projects.get(site.projectId);
+    return project ? { slug: project.slug, executionKind: project.executionKind } : null;
+  };
 
   const guardPublisher = (userId: number): void => {
     if (!mayPublish(userId, deps.access, deps.config().publishers)) {
@@ -270,7 +326,7 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteCreate',
     label: 'Create a site',
-    description: 'Create a site and its Project source folder. Static, command and PHP sites remain drafts until SitePublish. An environment is durable immediately and the daemon schedules its persistent container to start.',
+    description: 'Create a site and its Project source folder. Static, command and PHP sites remain drafts until SitePublish. An environment is durable immediately and the daemon schedules its persistent container to start. A proxy publication forwards to an application that already runs inside the selected managed Project on the port given in target.',
     parameters: Type.Object({
       title: Type.String({ minLength: 1, maxLength: 120, description: 'Human title shown in the Sites screen.' }),
       summary: Type.Optional(Type.String({ maxLength: 400, description: 'One line describing what the page is for.' })),
@@ -279,6 +335,14 @@ export function registerTools(deps: ToolDeps): void {
         { description: 'Who may open it. Defaults to the instance setting. A site is never made public here; that is confirmed by a person in the Sites screen.' },
       )),
       spa: Type.Optional(Type.Boolean({ description: 'Serve index.html for unknown paths, for a client-side router. Default false.' })),
+      kind: Type.Optional(Type.Union(
+        [Type.Literal('static'), Type.Literal('proxy')],
+        { description: 'What the address publishes. "static" copies a built folder into a release on SitePublish; "proxy" forwards to an application already running inside the selected managed Project, and needs target.' },
+      )),
+      target: Type.Optional(Type.String({
+        maxLength: 64,
+        description: 'For kind "proxy": the TCP port the application listens on at 127.0.0.1 INSIDE the Project container, e.g. "3000". Nothing else is copied or started.',
+      })),
       runtime: Type.Optional(Type.Union(
         [Type.Literal('static'), Type.Literal('command'), Type.Literal('php'), Type.Literal('environment')],
         { description: 'How the site answers. Static, command and PHP preserve the published-release behavior. Environment creates a persistent rootless server with /workspace, /data and systemd.' },
@@ -298,6 +362,95 @@ export function registerTools(deps: ToolDeps): void {
         guardPublisher(userId);
         const config = deps.config();
         const runtime = (input.runtime as 'static' | 'command' | 'php' | 'environment' | undefined) ?? 'static';
+        const kind: PublicationKind = input.kind === 'proxy' ? 'proxy' : 'static';
+        // The same rule as everywhere else in this tool: a value decides, never the presence of a key. A
+        // model that echoes every optional property sends `target: ""` with a plain static site, and that
+        // is not an instruction to publish anything else.
+        const target = (input.target ?? '').trim();
+        if (kind === 'static' && target !== '') {
+          throw new ToolError('target is only for a proxy publication. A static site publishes a folder, so leave target out or send kind "proxy" with the port the application listens on.');
+        }
+        if (kind === 'proxy') {
+          // A proxy publication is not a folder: the application already runs inside the Project, and the
+          // only thing this row adds is an address and the transport that carries requests to its port.
+          if (runtime !== 'static') {
+            throw new ToolError('A proxy publication has no runtime of its own; the application runs in the Project environment. Send kind "proxy" with the port in target, and leave runtime out.');
+          }
+          if (!/^\d+$/.test(target) || Number(target) < 1 || Number(target) > 65535) {
+            throw new ToolError('A proxy publication needs target: the TCP port the application listens on at 127.0.0.1 inside the Project, for example "3000".');
+          }
+          const selected = ctx.currentAccess().projectRef;
+          if (selected?.kind !== 'managed') {
+            throw new ToolError('A proxy publication is served by a managed Project environment, so select that Project before creating it.');
+          }
+          if (!ctx.control('sandbox')) throw new ToolError('The Sandbox environment runtime is unavailable.');
+          if (store.countOwnedBy(userId) - store.countEnvironmentOwnedBy(userId) >= config.maxSitesPerAccount) {
+            throw new ToolError(`This account already has ${config.maxSitesPerAccount} sites, which is the configured limit.`);
+          }
+          const project = ctx.host.stores().projects.get(selected.projectId);
+          if (!project) throw new ToolError('The Project no longer exists.');
+          if (project.executionKind !== 'managed') {
+            throw new ToolError(`Project ${project.slug} is a host Project, so it has no environment to publish from. A proxy publication needs a managed Project.`);
+          }
+
+          let slug = slugify(input.title);
+          while (store.slugTaken(slug)) slug = slugify(input.title);
+          const now = new Date().toISOString();
+          const site: Site = {
+            id: randomUUID(),
+            slug,
+            title: input.title.trim(),
+            summary: (input.summary ?? '').trim(),
+            projectId: selected.projectId,
+            ownerUserId: userId,
+            visibility: (input.visibility as Visibility | undefined) ?? config.defaultVisibility,
+            accessGeneration: 1,
+            // Nothing is copied for this publication, so it owns no folder. Its application lives in the
+            // Project, which is also where its logs and its environment state come from.
+            sourceDir: '',
+            spa: false,
+            kind: 'proxy',
+            target: String(Number(target)),
+            runtime: 'static',
+            startCommand: '',
+            bind: 'socket',
+            port: null,
+            environmentCpus: null,
+            environmentMemoryMb: null,
+            environmentPidsLimit: null,
+            environmentDesiredState: 'running',
+            status: 'draft',
+            currentReleaseId: null,
+            createdAt: now,
+            updatedAt: now,
+            createdModel: modelLabel(ctx),
+            lastPublishAt: null,
+            lastPublishModel: null,
+            lastError: null,
+          };
+          store.insertSite(site);
+          const address = siteUrl(config, site.slug);
+          return text([
+            `Created "${site.title}" as a proxy publication of project ${project.slug}.`,
+            `  id   ${site.id}`,
+            `  slug ${site.slug}`,
+            `  port ${site.target} (inside the Project)`,
+            'Name the site by either identifier in Sites tools.',
+            '',
+            `The application must listen on 127.0.0.1:${site.target} inside the Project ${project.slug}.`,
+            'Run it there with the Project shell, a service, or an Elowen turn, and call SitePublish once it answers.',
+            address
+              ? `It will be published at: ${address}`
+              : 'No public address is available until the domain gateway DNS is ready.',
+            '',
+            'Nothing is copied: the published page is the application itself, reached through the Project environment.',
+            'Start, stop, snapshots and logs belong to that environment, not to this publication.',
+          ].join('\n'), {
+            siteId: site.id, slug: site.slug, kind: site.kind, target: site.target,
+            projectId: site.projectId, projectSlug: project.slug, url: address,
+            visibility: site.visibility,
+          });
+        }
         if (runtime === 'environment') {
           if (!ctx.control('sandbox')) throw new ToolError('The Sandbox environment runtime is unavailable.');
           const refusal = environmentRefusal(config);
@@ -374,6 +527,8 @@ export function registerTools(deps: ToolDeps): void {
           accessGeneration: 1,
           sourceDir: allowed,
           spa: input.spa === true,
+          kind: 'static',
+          target: '',
           runtime,
           startCommand,
           bind,
@@ -470,6 +625,7 @@ export function registerTools(deps: ToolDeps): void {
       const userId = ownerOf(ctx);
       const site = requireManaged(deps, input.site, userId);
       requireEnvironmentAuthority(deps, site, userId);
+      if (site.kind === 'proxy') throw new ToolError(proxyRefusal('Run its commands in the Project environment with the Project shell and Sandbox tools.'));
       if (site.runtime !== 'environment') throw new ToolError('SiteExec works only with a persistent environment.');
       // Gate on an action that is still ACTIVE, not on the mere existence of a row. A failed action is
       // retained deliberately for display and retry ownership, and the store already lets a new action
@@ -506,6 +662,7 @@ export function registerTools(deps: ToolDeps): void {
       const userId = ownerOf(ctx);
       const site = requireManaged(deps, input.site, userId);
       requireEnvironmentAuthority(deps, site, userId);
+      if (site.kind === 'proxy') throw new ToolError(proxyRefusal('Start, stop and restart belong to that Project, in the Sandbox plugin.'));
       if (site.runtime !== 'environment') throw new ToolError('SiteControl works only with a persistent environment.');
       const desired = input.action === 'stop' ? 'stopped' : input.action === 'restart' ? 'restarting' : 'running';
       await deps.environment.request(site, { kind: input.action }, userId);
@@ -528,6 +685,7 @@ export function registerTools(deps: ToolDeps): void {
       const userId = ownerOf(ctx);
       const site = requireManaged(deps, input.site, userId);
       requireEnvironmentAuthority(deps, site, userId);
+      if (site.kind === 'proxy') throw new ToolError(proxyRefusal('A snapshot of that Project belongs to the Project, in the Sandbox plugin.'));
       if (site.runtime !== 'environment') throw new ToolError('SiteSnapshot works only with a persistent environment.');
       const scheduled = await scheduleExclusively(() => deps.environment.scheduleSnapshot(site, {
         includeData: input.includeData !== false,
@@ -545,7 +703,7 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SitePublish',
     label: 'Publish a site',
-    description: 'Copy a finished build output into a new release and make it the live one. Build the project yourself first; this publishes what is already on disk and runs nothing. Files are copied, so the site keeps working even if the workspace is later removed.',
+    description: 'Publish a site. For a file publication, copy a finished build output into a new release and make it the live one: build it yourself first, because this publishes what is already on disk and runs nothing. For a proxy publication, verify that the application inside the Project answers on its port and make the address live; nothing is copied and nothing is started.',
     parameters: Type.Object({
       site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
       outputDir: Type.Optional(Type.String({ description: 'Build output directory, relative to the site folder (e.g. "dist"). Defaults to the site folder itself.' })),
@@ -561,6 +719,50 @@ export function registerTools(deps: ToolDeps): void {
           throw new ToolError('Persistent environments keep their own root filesystem and cannot be published as file releases. Use SiteExec and SiteSnapshot.');
         }
         if (site.runtime === 'unsupported') throw new ToolError(`This site has an unsupported runtime: ${site.unsupportedRuntime ?? 'unknown'}.`);
+
+        // A proxy publication has nothing to copy: publishing it means proving the application inside the
+        // Project answers through the same transport a visitor's request takes, and only then making the
+        // address live. A failure is recorded on the row and reported, never a site that is live behind a
+        // dead port.
+        if (site.kind === 'proxy') {
+          const port = publicationPort(site);
+          if (port === null) throw new ToolError('This publication has no usable port. Recreate it with SiteCreate (kind "proxy" and the port in target).');
+          let socketPath: string;
+          try {
+            socketPath = (await deps.publications.establish(site)).socketPath;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            store.updateSite(site.id, { status: 'failed', lastError: message });
+            throw new ToolError(`The Project environment could not be reached, so nothing was published: ${message}`);
+          }
+          const probe = await deps.publications.probe(socketPath);
+          if (!probe.answered) {
+            const message = `nothing answered on 127.0.0.1:${port} inside the Project (${probe.detail})`;
+            store.updateSite(site.id, { status: 'failed', lastError: message });
+            throw new ToolError(`Not published: ${message}. Start the application in the Project environment, then call SitePublish again.`);
+          }
+          const now = new Date().toISOString();
+          const model = modelLabel(ctx);
+          // The transport is already established and verified, so the very next visitor request is served
+          // through it instead of waiting for the next sweep to adopt the same socket.
+          deps.publications.adopt(site.id, socketPath);
+          store.updateSite(site.id, {
+            status: 'live',
+            lastPublishAt: now,
+            lastPublishModel: model,
+            lastError: null,
+          });
+          return text([
+            `Published "${site.title}" - the application inside project ${ctx.host.stores().projects.get(site.projectId)?.slug ?? site.projectId} answered on 127.0.0.1:${port} (${probe.detail}).`,
+            `Live at ${addressOf(config, site.slug)}`,
+            `Visible to: ${site.visibility}`,
+            '',
+            'Nothing was copied, so the address always shows what the application serves right now. Restarting, snapshotting and reading its logs happen in the Project environment.',
+          ].join('\n'), {
+            siteId: site.id, slug: site.slug, kind: site.kind, target: site.target,
+            url: addressOf(config, site.slug), visibility: site.visibility, status: 'live', answered: probe.status,
+          });
+        }
 
         const relative = (input.outputDir ?? '').replace(/^\/+/, '');
         if (relative.split('/').some((segment) => segment === '..')) {
@@ -688,10 +890,12 @@ export function registerTools(deps: ToolDeps): void {
           site,
           environment: site.runtime === 'environment' ? await deps.environment.state(site, userId) : undefined,
         })));
-        return text(rows.map((row) => describe(row.site, config, row.environment, latestSnapshotAt(store, row.site))).join('\n\n'), {
+        return text(rows.map((row) => describe(row.site, config, row.environment, latestSnapshotAt(store, row.site), projectOf(row.site))).join('\n\n'), {
           sites: rows.map((row) => ({
             id: row.site.id,
             slug: row.site.slug,
+            kind: row.site.kind,
+            target: row.site.target,
             runtime: row.site.runtime,
             ...(row.environment ? { environment: row.environment } : {}),
           })),
@@ -705,7 +909,7 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteGet',
     label: 'Read a site',
-    description: 'Full site detail including source, visibility and releases. Persistent environments also include actual and desired state, effective limits and snapshot ids.',
+    description: 'Full site detail including source, visibility and releases. A proxy publication also reports the Project whose environment serves it and that environment\'s state. Persistent environments include actual and desired state, effective limits and snapshot ids.',
     parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }) }),
     execute: async (_id, input) => {
       try {
@@ -713,34 +917,50 @@ export function registerTools(deps: ToolDeps): void {
         const site = deps.access.isAdmin(userId)
           ? requireManaged(deps, input.site, userId)
           : requireOwned(deps, input.site, userId);
-        if (site.ownerUserId !== userId && site.runtime !== 'environment') {
+        // An administrator reads the operational detail of what an account published just as they do for
+        // an environment: helping with a page nobody can open is exactly when that is needed.
+        if (site.ownerUserId !== userId && site.runtime !== 'environment' && site.kind !== 'proxy') {
           throw new ToolError('Only the site owner may read this site detail.');
         }
         const config = deps.config();
         const releases = store.releases(site.id);
         const environment = site.runtime === 'environment' ? await deps.environment.state(site, userId) : undefined;
         const environmentAction = site.runtime === 'environment' ? await deps.environment.pendingAction(site, userId) : null;
+        // What serves this publication, read through the account the Project belongs to rather than through
+        // whoever is asking: the environment seam answers per account, and a reader of a site is not
+        // necessarily a member of its Project.
+        const project = ctx.host.stores().projects.get(site.projectId);
+        const projectEnvironmentState = site.kind === 'proxy' && project
+          ? await deps.projectEnvironment(project.id, site.ownerUserId)
+          : null;
+        const projectInfo = project
+          ? { slug: project.slug, executionKind: project.executionKind, environment: projectEnvironmentState }
+          : null;
         const people = deps.people();
         const guests = store.memberIds(site.id)
           .map((id) => ({ id, name: people.get(id)?.name || people.get(id)?.username || `#${id}` }));
         return text([
-          describe(site, config, environment, latestSnapshotAt(store, site)),
+          describe(site, config, environment, latestSnapshotAt(store, site), projectInfo),
           `  base path  ${SITE_BASE_PATH}`,
           `  guests     ${guests.length === 0 ? 'none' : guests.map((guest) => guest.name).join(', ')}`,
           '',
-          releases.length === 0
-            ? 'No releases yet.'
-            : ['Releases:', ...releases.map((release) => release.kind === 'environment-snapshot'
-              ? `  ${release.id}  ${release.createdAt}  environment snapshot${release.dataArchive || store.runtimeRecord(site.id, `snapshot-data:${release.id}`) === 'true' ? ' with /data' : ''}${release.note ? `  ${release.note}` : ''}`
-              : `  ${release.id}  ${release.createdAt}  ${release.fileCount} files  ${(release.sizeBytes / 1048576).toFixed(2)} MB${release.note ? `  ${release.note}` : ''}`)].join('\n'),
+          site.kind === 'proxy'
+            ? `Releases: none. A proxy publication serves whatever the application inside project ${project?.slug ?? site.projectId} is running right now.`
+            : releases.length === 0
+              ? 'No releases yet.'
+              : ['Releases:', ...releases.map((release) => release.kind === 'environment-snapshot'
+                ? `  ${release.id}  ${release.createdAt}  environment snapshot${release.dataArchive || store.runtimeRecord(site.id, `snapshot-data:${release.id}`) === 'true' ? ' with /data' : ''}${release.note ? `  ${release.note}` : ''}`
+                : `  ${release.id}  ${release.createdAt}  ${release.fileCount} files  ${(release.sizeBytes / 1048576).toFixed(2)} MB${release.note ? `  ${release.note}` : ''}`)].join('\n'),
           environmentAction ? `\nPending action: ${environmentAction.kind} ${environmentAction.snapshotId}${environmentAction.lastError ? `\nAction error: ${environmentAction.lastError}` : ''}` : '',
           site.lastError ? `\nLast error: ${site.lastError}` : '',
         ].join('\n'), {
           siteId: site.id, slug: site.slug, url: siteUrl(config, site.slug), visibility: site.visibility,
           status: site.status, sourceDir: site.sourceDir, basePath: SITE_BASE_PATH,
+          kind: site.kind, target: site.target,
           runtime: site.runtime, startCommand: site.startCommand, bind: site.bind, port: site.port,
           network: site.runtime === 'environment' ? config.environmentNetwork : config.runtimeNetwork,
           guests, currentReleaseId: site.currentReleaseId,
+          ...(projectInfo ? { project: { id: site.projectId, ...projectInfo } } : {}),
           ...(environment ? { environment, environmentAction } : {}),
           releases: releases.map((release) => ({
             id: release.id, createdAt: release.createdAt, note: release.note, kind: release.kind,
@@ -789,6 +1009,11 @@ export function registerTools(deps: ToolDeps): void {
         let limits: EnvironmentLimitOverrides | null = null;
         if (limitKeys.some((key) => raw[key] !== undefined)) {
           if (!deps.access.isAdmin(userId)) throw new ToolError('Environment resource limits may only be changed by an administrator.');
+          // Resource limits belong to the Project's environment, which every publication of that Project
+          // shares. Sizing "this site" does not exist in this model, so saying so beats a bounds error.
+          if (site.kind === 'proxy') {
+            throw new ToolError('A proxy publication has no environment limits of its own; set them on the Project environment in the Sandbox plugin.');
+          }
           if (site.runtime !== 'environment') throw new ToolError('Only an environment has resource limits.');
           try {
             limits = environmentLimitOverrides(Object.fromEntries(
@@ -863,7 +1088,7 @@ export function registerTools(deps: ToolDeps): void {
         // clamped, and an agent sizing a container has to read back the ceiling it was given.
         const environment = updated.runtime === 'environment' ? await deps.environment.state(updated, userId) : undefined;
         return text(
-          `Updated.\n\n${describe(updated, deps.config(), environment, latestSnapshotAt(store, updated))}`,
+          `Updated.\n\n${describe(updated, deps.config(), environment, latestSnapshotAt(store, updated), projectOf(updated))}`,
           environment ? { limits: environment.limits } : {},
         );
       } catch (error) {
@@ -885,6 +1110,7 @@ export function registerTools(deps: ToolDeps): void {
       try {
         const userId = ownerOf(ctx);
         const site = requireManaged(deps, input.site, userId);
+        if (site.kind === 'proxy') throw new ToolError(proxyRefusal('Read that Project environment\'s logs in the Sandbox plugin.'));
         const release = store.release(site.id, input.releaseId);
         if (!release) throw new ToolError('That release is not retained for this site.');
         if (site.runtime === 'environment') {
@@ -921,6 +1147,7 @@ export function registerTools(deps: ToolDeps): void {
       try {
         const userId = ownerOf(ctx);
         const site = requireManaged(deps, input.site, userId);
+        if (site.kind === 'proxy') throw new ToolError(proxyRefusal('Its output is the Project environment\'s journal, read in the Sandbox plugin.'));
         if (site.runtime === 'environment') {
           if (!deps.access.isAdmin(userId) && !deps.access.canAccessProject(userId, site.projectId)) {
             throw new ToolError('Current Project access is required to read environment logs.');

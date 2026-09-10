@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -9,8 +9,8 @@ import { join } from 'node:path';
 
 import { SitesStore } from '../plugins/sites/dist/store.js';
 import {
-  digestTree, finalArtifactDigest, legacyDescriptor, MigrationRefused, plainRemove, RuntimeMigrationService,
-  stagedWorkspace,
+  digestTree, finalArtifactDigest, interruptedByRestart, legacyDescriptor, MigrationRefused, plainRemove,
+  reconcileIntoSource, RuntimeMigrationService, stagedWorkspace,
 } from '../plugins/sites/dist/migration.js';
 import {
   assertAppOwnedSelection, assertContainedSubtrees, DataSyncService, migrationArtifactDir, validateLegacyHome,
@@ -81,6 +81,8 @@ const legacySite = (overrides = {}) => ({
   accessGeneration: 4,
   sourceDir: '/data/project/sites/legacy-demo',
   spa: false,
+  kind: 'static',
+  target: '',
   runtime: 'static',
   unsupportedRuntime: null,
   startCommand: '',
@@ -123,8 +125,11 @@ const harness = (options = {}) => {
   const calls = {
     prepareContainer: [], startEnvironment: [], discardContainer: [], stopLegacy: [], startLegacy: [],
     resolveLegacyData: [], loadDataVolume: [], exportDataVolume: [], stopContainer: [],
-    prepareBroker: [], discard: [], relaxStatic: [],
+    prepareBroker: [], discard: [], relaxStatic: [], rebind: [], publish: [], clearStage: [],
   };
+  // The persisted environment binding, as the supervisor keeps it: the completion is what moves it off
+  // the staged copy, so a test can read where the container would actually be mounted.
+  const binding = { sourcePath: null, staging: null };
   // The host directory Podman bind-mounts at /run/elowen, rooted in the harness so a test can assert on
   // it as a real filesystem object rather than a recorded call.
   const brokerDirOf = (siteId) => join(root, 'broker', siteId);
@@ -173,7 +178,27 @@ const harness = (options = {}) => {
         throw new Error(`podman create failed (125): statfs ${brokerDirOf(input.site.id)}: no such file or directory`);
       }
       calls.prepareContainer.push({ siteId: input.site.id, workspace: input.workspace, image: input.recipe.image });
+      binding.sourcePath = input.workspace;
+      binding.staging = true;
       if (options.prepareFails) throw new Error('container build exploded');
+    },
+    // The supervisor retires the staged container and builds a new one on the site's own source folder.
+    // Only the binding it would register with is modelled here; Podman cannot run in this workspace.
+    rebindToSource: async (site) => {
+      calls.rebind.push(site.id);
+      if (options.rebindFails) throw new Error('the container could not be rebuilt');
+      binding.sourcePath = site.sourceDir;
+      binding.staging = true;
+      containerLive = false;
+    },
+    publishBinding: (site) => {
+      calls.publish.push(site.id);
+      binding.staging = false;
+    },
+    clearConversionStage: async (site, stageDir) => {
+      calls.clearStage.push({ siteId: site.id, stageDir });
+      if (options.clearStageFails) throw new Error('the container did not answer the exec');
+      if (!containerLive) throw new Error('exec against a container that is not running');
     },
     startEnvironment: async (site) => {
       calls.startEnvironment.push(site.id);
@@ -263,11 +288,19 @@ const harness = (options = {}) => {
   };
   const setRunning = (value) => { running = value; };
   const cleanup = () => rmSync(root, { recursive: true, force: true });
-  return { root, store, service, deps, calls, seedRelease, setRunning, cleanup, dataSync, legacyHome, realTar, brokerDirOf };
+  return {
+    root, store, service, deps, calls, seedRelease, setRunning, cleanup, dataSync, legacyHome, realTar,
+    brokerDirOf, binding,
+  };
 };
 
+/** The site's own source folder lands inside the harness root, because a completion folds the staged copy
+ *  back into it and a test must own the directory it writes to. */
+const sourceDirOf = (h) => join(h.root, 'project', 'sites', 'legacy-demo');
+
 const seedLiveStatic = (h, overrides = {}) => {
-  h.store.insertSite(legacySite(overrides));
+  mkdirSync(sourceDirOf(h), { recursive: true });
+  h.store.insertSite(legacySite({ sourceDir: sourceDirOf(h), ...overrides }));
   h.store.insertRelease(release());
   return h.seedRelease(SITE_ID, RELEASE_ID, { 'index.html': '<h1>live</h1>', 'assets/app.js': 'console.log(1)' });
 };
@@ -2786,5 +2819,228 @@ test('X4 a rollback whose legacy start fails never reports the site as serving',
     const settled = h.store.siteById(SITE_ID);
     assert.equal(settled.status, 'failed');
     assert.equal(settled.lastError, 'the legacy runtime did not answer');
+  } finally { h.cleanup(); }
+});
+
+// --- completion: one working copy ------------------------------------------------------------------
+
+/** A converted site whose source folder is inside the harness root, so a completion can fold the staged
+ *  copy into a real directory instead of an absolute path nobody owns. */
+const convertedSite = async (h, overrides = {}) => {
+  seedLiveStatic(h, overrides);
+  await h.service.prepare(SITE_ID, 'release-copy');
+  await h.service.flip(SITE_ID);
+  return sourceDirOf(h);
+};
+
+/** Timestamps decide which side of a two-copy site is newer, so the tests set them rather than racing
+ *  the clock. */
+const setMtime = (path, seconds) => utimesSync(path, new Date(seconds * 1000), new Date(seconds * 1000));
+
+test('the staged workspace is folded into the source folder without deleting anything', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sites-reconcile-'));
+  try {
+    const workspace = join(root, 'workspace');
+    const source = join(root, 'source');
+    mkdirSync(join(workspace, 'assets'), { recursive: true });
+    mkdirSync(source, { recursive: true });
+
+    writeFileSync(join(workspace, 'index.html'), '<h1>served</h1>');
+    setMtime(join(workspace, 'index.html'), 2_000_000);
+    writeFileSync(join(source, 'index.html'), '<h1>older draft</h1>');
+    setMtime(join(source, 'index.html'), 1_000_000);
+    writeFileSync(join(workspace, 'assets/app.js'), 'served()');
+    // Newer in the SOURCE folder: the author moved on and the container never saw this.
+    writeFileSync(join(source, 'notes.md'), 'work in progress');
+    setMtime(join(source, 'notes.md'), 3_000_000);
+    writeFileSync(join(workspace, 'notes.md'), 'stale copy');
+    setMtime(join(workspace, 'notes.md'), 1_000_000);
+    // The credentials the bootstrap installed into the container's workspace, and the runtime's Git stub.
+    writeFileSync(join(workspace, '.env'), 'TWILIO_TOKEN=abc\n');
+    writeFileSync(join(workspace, '.git'), '');
+
+    const written = reconcileIntoSource(workspace, source, ['.env']);
+
+    assert.equal(readFileSync(join(source, 'index.html'), 'utf8'), '<h1>served</h1>', 'the newer served file wins');
+    assert.equal(readFileSync(join(source, 'assets/app.js'), 'utf8'), 'served()', 'a file only the container had arrives');
+    assert.equal(readFileSync(join(source, 'notes.md'), 'utf8'), 'work in progress', 'newer source work survives');
+    assert.equal(existsSync(join(source, '.env')), false, 'the secret stays in the environment');
+    assert.equal(existsSync(join(source, '.git')), false, 'the Git stub is not carried into a Project');
+    assert.deepEqual(written.sort(), ['assets/app.js', 'index.html']);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('completing a conversion leaves ONE working copy: the site source folder', async () => {
+  const h = harness({ containerWrote: true });
+  try {
+    const sourceDir = await convertedSite(h);
+    const workspace = stagedWorkspace(h.deps, SITE_ID);
+    assert.equal(h.binding.sourcePath, workspace, 'the flip serves the staged copy');
+
+    // What the container wrote while it was serving, and what the author kept in the Project folder.
+    writeFileSync(join(workspace, 'index.html'), '<h1>edited inside the container</h1>');
+    setMtime(join(workspace, 'index.html'), 4_000_000);
+    writeFileSync(join(sourceDir, 'README.md'), 'only in the Project folder');
+
+    const status = await h.service.complete(SITE_ID);
+
+    assert.equal(status.stage, 'none');
+    assert.equal(h.store.runtimeMigration(SITE_ID), null, 'the slot is retired');
+    assert.equal(
+      readFileSync(join(sourceDir, 'index.html'), 'utf8'), '<h1>edited inside the container</h1>',
+      'the container-side edit reached the Project folder',
+    );
+    assert.equal(readFileSync(join(sourceDir, 'README.md'), 'utf8'), 'only in the Project folder', 'nothing was deleted');
+    assert.equal(h.binding.sourcePath, sourceDir, 'the container is bound to the site source folder');
+    assert.equal(h.binding.staging, false, 'and is an ordinary live binding');
+    assert.equal(existsSync(join(h.root, 'sites', SITE_ID, 'migration')), false, 'the conversion directory is gone');
+    assert.deepEqual(h.calls.rebind, [SITE_ID]);
+    assert.deepEqual(h.calls.publish, [SITE_ID]);
+    assert.equal(h.calls.clearStage[0].stageDir, '/data/.elowen-conversion');
+  } finally { h.cleanup(); }
+});
+
+test('a completion carries the persistent volume across the rebuilt container', async () => {
+  const h = harness({ containerWrote: true });
+  try {
+    await convertedSite(h);
+    const order = [];
+    for (const step of ['clearConversionStage', 'stopContainer', 'exportDataVolume', 'rebindToSource', 'loadDataVolume', 'startEnvironment']) {
+      const original = h.deps[step];
+      h.deps[step] = async (...args) => { order.push(step); return original(...args); };
+    }
+
+    await h.service.complete(SITE_ID);
+
+    assert.deepEqual(order, [
+      'clearConversionStage', 'stopContainer', 'exportDataVolume', 'rebindToSource',
+      // The export first, then the seed the new container's first boot needs.
+      'loadDataVolume', 'loadDataVolume', 'startEnvironment',
+    ]);
+    assert.equal(h.calls.exportDataVolume[0].output.endsWith('completion-data.tar'), true);
+  } finally { h.cleanup(); }
+});
+
+test('completing twice is a no-op, and a completion holds the environment while it runs', async () => {
+  const h = harness({ containerWrote: true });
+  try {
+    await convertedSite(h);
+    let suspendedDuringRebind = null;
+    const rebind = h.deps.rebindToSource;
+    h.deps.rebindToSource = async (site) => {
+      suspendedDuringRebind = h.store.conversionSuspends(site.id);
+      return rebind(site);
+    };
+
+    await h.service.complete(SITE_ID);
+    assert.equal(suspendedDuringRebind, 'environment', 'reconcile is held off while the container is rebuilt');
+
+    h.calls.rebind.length = 0;
+    const again = await h.service.complete(SITE_ID);
+    assert.equal(again.stage, 'none');
+    assert.deepEqual(h.calls.rebind, [], 'nothing is rebuilt a second time');
+  } finally { h.cleanup(); }
+});
+
+test('a completion resumes from where it died instead of exporting a volume that is gone', async () => {
+  const h = harness({ containerWrote: true, rebindFails: true });
+  try {
+    const sourceDir = await convertedSite(h);
+    await assert.rejects(() => h.service.complete(SITE_ID), /could not be rebuilt/);
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'completing');
+    assert.match(h.store.runtimeMigration(SITE_ID).lastError, /could not be rebuilt/);
+    assert.equal(h.calls.exportDataVolume.length, 1);
+
+    h.deps.rebindToSource = async (site) => {
+      h.calls.rebind.push(site.id);
+      h.binding.sourcePath = site.sourceDir;
+      h.binding.staging = true;
+    };
+    await h.service.complete(SITE_ID);
+
+    assert.equal(h.calls.exportDataVolume.length, 1, 'the volume is exported exactly once');
+    assert.deepEqual(h.calls.clearStage.length, 1, 'and the spent seed is cleared once');
+    assert.equal(h.binding.sourcePath, sourceDir);
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+  } finally { h.cleanup(); }
+});
+
+test('a conversion interrupted by a restart while flipped can still be completed', async () => {
+  const h = harness({ containerWrote: true });
+  try {
+    const sourceDir = await convertedSite(h);
+    // Exactly what boot recovery records for a conversion a restart caught after its flip.
+    await h.service.recoverInterrupted();
+    assert.equal(h.store.runtimeMigration(SITE_ID).lastError, interruptedByRestart('flipped'));
+
+    await h.service.complete(SITE_ID);
+
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal(h.binding.sourcePath, sourceDir);
+  } finally { h.cleanup(); }
+});
+
+test('the restart marker is not accepted while the site does not answer, and no other failure is', async () => {
+  const down = harness({ containerWrote: true, readiness: { ready: false, detail: 'answered 502' } });
+  try {
+    await convertedSite(down);
+    await down.service.recoverInterrupted();
+    await assert.rejects(() => down.service.complete(SITE_ID), /not answering yet/);
+    assert.equal(down.store.runtimeMigration(SITE_ID).stage, 'flipped', 'nothing was claimed');
+    assert.deepEqual(down.calls.rebind, []);
+  } finally { down.cleanup(); }
+
+  const broken = harness({ containerWrote: true });
+  try {
+    await convertedSite(broken);
+    broken.store.failRuntimeMigration(SITE_ID, 'the environment start exploded');
+    await assert.rejects(() => broken.service.complete(SITE_ID), /failed and cannot be completed/);
+    assert.equal(broken.store.runtimeMigration(SITE_ID).stage, 'flipped', 'the way back is not dropped');
+    assert.deepEqual(broken.calls.rebind, []);
+  } finally { broken.cleanup(); }
+});
+
+test('reconcile completes an interrupted conversion by itself and leaves the others alone', async () => {
+  const h = harness({ containerWrote: true });
+  try {
+    const sourceDir = await convertedSite(h);
+    // A freshly flipped conversion belongs to the operator driving it: it can still be rolled back.
+    assert.deepEqual(await h.service.reconcileCompletions(), []);
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'flipped');
+
+    await h.service.recoverInterrupted();
+    const settled = await h.service.reconcileCompletions();
+
+    assert.equal(settled.length, 1);
+    assert.equal(settled[0].stage, 'none');
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal(h.binding.sourcePath, sourceDir);
+    assert.equal(h.binding.staging, false);
+  } finally { h.cleanup(); }
+});
+
+test('reconcile does not retry a completion that failed for a reason of its own', async () => {
+  const h = harness({ containerWrote: true, rebindFails: true });
+  try {
+    await convertedSite(h);
+    await h.service.recoverInterrupted();
+
+    assert.equal((await h.service.reconcileCompletions())[0].stage, 'completing');
+    assert.match(h.store.runtimeMigration(SITE_ID).lastError, /could not be rebuilt/);
+    h.calls.rebind.length = 0;
+
+    assert.deepEqual(await h.service.reconcileCompletions(), [], 'the recorded reason is left to be read');
+    assert.deepEqual(h.calls.rebind, []);
+  } finally { h.cleanup(); }
+});
+
+test('a conversion being completed cannot be rolled back underneath itself', async () => {
+  const h = harness({ containerWrote: true, rebindFails: true });
+  try {
+    await convertedSite(h);
+    await assert.rejects(() => h.service.complete(SITE_ID), /could not be rebuilt/);
+
+    await assert.rejects(() => h.service.rollback(SITE_ID), /finish the completion/);
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'completing');
   } finally { h.cleanup(); }
 });

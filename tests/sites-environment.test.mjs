@@ -604,10 +604,16 @@ test('migration v5 preserves existing runtimes, exposes environment counts and f
   // The schema head is pinned deliberately: a migration added without updating this line is a migration
   // nobody reviewed against the legacy rows seeded above. v9 adds the runtime conversion slot, v10 the
   // durable crash-recovery state on it, v11/v12 the runtime records and provider-owned lifecycle
-  // columns, and v13 drops the disk threshold column nothing enforced; none of them touches an existing
-  // site row.
-  assert.equal(db.appliedVersion(), 13);
+  // columns, v13 drops the disk threshold column nothing enforced, and v14 adds the publication kind and
+  // target; none of them touches the runtime of an existing site row.
+  assert.equal(db.appliedVersion(), 14);
   for (const runtime of ['static', 'command', 'php']) assert.equal(store.siteById(`legacy-${runtime}`).runtime, runtime);
+  // The rows seeded above predate the publication model, so the migration's defaults make them static
+  // publications with nothing to proxy — which is exactly how the serving path treated them before.
+  for (const runtime of ['static', 'command', 'php']) {
+    assert.equal(store.siteById(`legacy-${runtime}`).kind, 'static');
+    assert.equal(store.siteById(`legacy-${runtime}`).target, '');
+  }
   store.insertSite(environmentSite({ id: 'site-environment', slug: 'site-environment' }));
   assert.equal(store.countEnvironmentOwnedBy(7), 1);
   assert.deepEqual(store.liveEnvironmentSites().map((site) => site.id), ['site-environment']);
@@ -1067,6 +1073,7 @@ function phase2ApiHarness({ provisioning } = {}) {
       }
     },
     applyEnvironmentLimits: async (site, limits, actor) => { calls.push(['limits', site.id, limits, actor]); store.updateSite(site.id, limits); },
+    projectEnvironment: async (projectId, actor) => { calls.push(['project-environment', projectId, actor]); return { state: 'running', lastError: null }; },
     provisioning: provisioning ?? { status: async () => ({ ready: true, items: [] }), provision: async () => ({ ready: true, items: [] }) },
     migration: { status: () => null, prepare: async () => null, flip: async () => null, complete: async () => null, rollback: async () => null, pending: () => [], registerRecipe: async () => null },
   });
@@ -1123,6 +1130,44 @@ test('API environment detail, control, snapshot and rollback actions use durable
   store.updateSite(SITE_ID, { environmentDesiredState: 'running' });
   assert.equal((await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/rollback`, body: { releaseId: 'snap', restoreData: false } }))).status, 200);
   assert.deepEqual(calls.map(([name]) => name), ['state', 'action', 'logs', 'control', 'snapshot', 'state', 'action', 'rollback']);
+});
+
+test('API environment routes refuse a proxy publication with a 409 code instead of an empty environment', async () => {
+  // A proxy publication has no site environment at all: the application runs in its Project. Answering
+  // 200 with a hollow environment block is what this replaces — the UI would draw start, stop, restart,
+  // snapshots, logs and limits for a container that does not exist.
+  const { handlers, store, calls } = phase2ApiHarness();
+  const proxyId = 'proxy-api';
+  store.insertSite(environmentSite({
+    id: proxyId, slug: 'proxy-a1b2c3', ownerUserId: 1, projectId: 7, kind: 'proxy', target: '3000',
+    runtime: 'static', status: 'live', currentReleaseId: null,
+  }));
+
+  const detail = await handlers.site(apiRequest({ path: proxyId }));
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.site.kind, 'proxy');
+  assert.equal(detail.body.site.target, '3000');
+  assert.equal(detail.body.environment, null, 'no environment block is projected for a proxy publication');
+  assert.deepEqual(detail.body.projectEnvironment, { state: 'running', lastError: null });
+  assert.deepEqual(calls, [['project-environment', 7, 1]], 'the Project environment is read for the site owner');
+
+  for (const request of [
+    { method: 'POST', path: `${proxyId}/control`, body: { action: 'restart' } },
+    { method: 'POST', path: `${proxyId}/snapshot`, body: { includeData: true } },
+    { path: `${proxyId}/logs` },
+  ]) {
+    const response = await handlers.site(apiRequest(request));
+    assert.equal(response.status, 409, `${request.method ?? 'GET'} ${request.path}`);
+    assert.equal(response.body.code, 'publication_no_site_environment');
+    assert.match(String(response.body.detail), /Sandbox plugin/);
+  }
+
+  // The limits PATCH is administrator-only, and its refusal names the environment that owns the limits.
+  const limits = await handlers.site(apiRequest({ method: 'PATCH', path: proxyId, admin: true, body: { environmentMemoryMb: 2048 } }));
+  assert.equal(limits.status, 409);
+  assert.equal(limits.body.code, 'publication_no_site_environment');
+  assert.deepEqual(calls.filter(([name]) => ['control', 'snapshot', 'logs', 'limits'].includes(name)), [],
+    'nothing reached a runtime seam for a publication that has none');
 });
 
 test('API rollback refuses an unverified /data replacement before scheduling anything', async () => {

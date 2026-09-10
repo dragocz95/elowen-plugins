@@ -5,6 +5,15 @@ export interface ProjectPreview { id: string; slug: string; projectId: number; p
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
 type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
 
+/** How a published address answers.
+ *
+ *  `static` is a release copied onto the host and served from those files. `proxy` is an application
+ *  running on a loopback port inside the managed Project's own environment, reached through the durable
+ *  transport Sandbox establishes for the publication. The kind, not the legacy runtime column, decides
+ *  which of the two a row is; the runtime column survives only for rows created before this model and
+ *  goes away with the per-site container path. */
+export type PublicationKind = 'static' | 'proxy';
+
 /** How a published site answers a request. Unsupported is a quarantined database value, never a
  * fallback to static content. */
 type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
@@ -32,6 +41,12 @@ export interface Site {
   accessGeneration: number;
   sourceDir: string;
   spa: boolean;
+  /** Which publication model this row follows. See {@link PublicationKind}. */
+  kind: PublicationKind;
+  /** For a `proxy` publication the port the application listens on INSIDE the Project container; for a
+   *  static one the guest path of its folder, which is not read yet and is therefore empty on every row
+   *  this plugin creates. The column is text because the two kinds carry different things. */
+  target: string;
   runtime: SiteRuntime;
   /** Original database value when runtime is unsupported. */
   unsupportedRuntime?: string | null;
@@ -110,8 +125,11 @@ export type ConvertibleRuntime = 'static' | 'command' | 'php';
 export interface RuntimeMigration {
   siteId: string;
   /** How far the conversion actually got. Each stage is committed BEFORE the side effects it unlocks,
-   *  so a resume never has to guess whether the previous stage half-happened. */
-  stage: 'preparing' | 'prepared' | 'flipped';
+   *  so a resume never has to guess whether the previous stage half-happened.
+   *
+   *  `completing` is the last one and the only forward-only one: it retires the staged copy by moving the
+   *  container onto the site's own source folder, which destroys the staged container and rebuilds it. */
+  stage: 'preparing' | 'prepared' | 'flipped' | 'completing';
   fromRuntime: ConvertibleRuntime;
   /** The release that was live when the conversion was claimed. Legacy serving is restored from THIS,
    *  captured rather than read back at rollback time when the row may already have moved on. */
@@ -176,7 +194,7 @@ interface RuntimeMigrationRow {
 }
 
 const asMigrationStage = (value: string): RuntimeMigration['stage'] =>
-  value === 'prepared' || value === 'flipped' ? value : 'preparing';
+  value === 'prepared' || value === 'flipped' || value === 'completing' ? value : 'preparing';
 
 const asConvertibleRuntime = (value: string): ConvertibleRuntime | null =>
   value === 'static' || value === 'command' || value === 'php' ? value : null;
@@ -196,8 +214,9 @@ const asRollbackStage = (value: string): RuntimeMigration['rollbackStage'] =>
  *    `command` and `live`, so the site is in `liveCommandSites()` and looks like one that simply is not
  *    running. Restarting it puts a second writer on the tree being captured and a second holder on the
  *    broker directory the container is being built around.
- *  - `environment`: a rollback quiesced the container to export its volume. The row still says
- *    `environment` and `live`, so reconcile reads a stopped container it believes should be up.
+ *  - `environment`: a rollback quiesced the container to export its volume, or a completion is moving the
+ *    container off the staged copy onto the site's own source folder. The row still says `environment`
+ *    and `live`, so reconcile reads a stopped container it believes should be up.
  *
  *  A `flipped` conversion whose rollback has not started owns nothing: the container is genuinely meant
  *  to be running and its own supervisor should keep it that way.
@@ -217,6 +236,11 @@ const asRollbackStage = (value: string): RuntimeMigration['rollbackStage'] =>
  *  automatic fallback, so the container stays down until the rollback is resumed and finishes it. */
 const suspensionOf = (row: RuntimeMigrationRow): 'legacy' | 'environment' | null => {
   const stage = asMigrationStage(row.stage);
+  // A completion stops the container, destroys it and builds a new one on the site's source folder. For
+  // that whole window the row still says `environment` and `live`, so the ownership has to be held even
+  // after a failure: the volume lives in an archive until the new container is seeded from it, and a
+  // reconcile that started something in between would serve from a volume nobody restored yet.
+  if (stage === 'completing') return 'environment';
   if (stage !== 'flipped') return row.legacy_stopped === 1 && row.last_error === null ? 'legacy' : null;
   const rollback = asRollbackStage(row.rollback_stage);
   return rollback === 'quiescing' || rollback === 'exported' || rollback === 'restored' ? 'environment' : null;
@@ -233,6 +257,8 @@ interface SiteDbRow {
   access_generation: number;
   source_dir: string;
   spa: number;
+  kind: string | null;
+  target: string | null;
   runtime: string | null;
   start_command: string | null;
   bind: string | null;
@@ -280,6 +306,10 @@ const asRuntime = (value: string | null): { runtime: SiteRuntime; unsupportedRun
 const asEnvironmentDesiredState = (value: string | null): EnvironmentDesiredState =>
   value === 'stopped' || value === 'restarting' ? value : 'running';
 
+/** A row written before the publication model existed is a static publication, which is exactly what
+ *  the migration's default says and what the serving path did for it. */
+const asPublicationKind = (value: string | null): PublicationKind => value === 'proxy' ? 'proxy' : 'static';
+
 const toSite = (row: SiteDbRow): Site => {
   const runtime = asRuntime(row.runtime);
   return {
@@ -293,6 +323,8 @@ const toSite = (row: SiteDbRow): Site => {
     accessGeneration: row.access_generation,
     sourceDir: row.source_dir,
     spa: row.spa === 1,
+    kind: asPublicationKind(row.kind),
+    target: row.target ?? '',
     runtime: runtime.runtime,
     unsupportedRuntime: runtime.unsupportedRuntime,
     startCommand: row.start_command ?? '',
@@ -580,6 +612,18 @@ export class SitesStore {
         // this drops the column they left behind.
         up: handle => handle.exec('ALTER TABLE p_sites_sites DROP COLUMN environment_disk_soft_mb;'),
       },
+      {
+        version: 14,
+        // A publication now says what it IS, not which container serves it: `static` answers from a copied
+        // release, `proxy` from an application inside the managed Project's own environment. Purely
+        // additive — every existing row is a static publication by the default, keeps its values and is
+        // served exactly as before, and the legacy runtime columns stay until the per-site container path
+        // and the last converted row are gone.
+        up: handle => handle.exec(`
+          ALTER TABLE p_sites_sites ADD COLUMN kind TEXT NOT NULL DEFAULT 'static';
+          ALTER TABLE p_sites_sites ADD COLUMN target TEXT NOT NULL DEFAULT '';
+        `),
+      },
     ]);
   }
 
@@ -641,15 +685,15 @@ export class SitesStore {
     this.db.prepare(`
       INSERT INTO p_sites_sites (
         id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
-        source_dir, spa, runtime, start_command, bind, port,
+        source_dir, spa, kind, target, runtime, start_command, bind, port,
         environment_cpus, environment_memory_mb, environment_pids_limit,
         environment_desired_state, status, current_release_id,
         created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId,
       site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0,
-      site.runtime, site.startCommand, site.bind, site.port,
+      site.kind, site.target, site.runtime, site.startCommand, site.bind, site.port,
       site.environmentCpus ?? null, site.environmentMemoryMb ?? null,
       site.environmentPidsLimit ?? null,
       site.environmentDesiredState ?? 'running', site.status,
@@ -726,6 +770,16 @@ export class SitesStore {
     return (this.db.prepare(`
       SELECT * FROM p_sites_sites
       WHERE runtime = 'environment' AND status <> 'deleting'
+    `).all() as SiteDbRow[]).map(toSite);
+  }
+
+  /** Every proxy publication that is expected to answer. A draft is not: its transport must not be kept
+   *  alive before anybody published it. A `failed` one IS, because that is how the row recovers once the
+   *  application inside the Project answers again. */
+  proxySitesForReconcile(): Site[] {
+    return (this.db.prepare(`
+      SELECT * FROM p_sites_sites
+      WHERE kind = 'proxy' AND status IN ('live', 'failed')
     `).all() as SiteDbRow[]).map(toSite);
   }
 
@@ -1205,6 +1259,25 @@ export class SitesStore {
       UPDATE p_sites_runtime_migrations SET stage = ?
       WHERE site_id = ? AND stage = ? AND last_error IS NULL
     `).run(to, siteId, from).changes === 1;
+  }
+
+  /** Claim a flipped conversion for its completion, in one compare-and-set.
+   *
+   *  `resumableError` is the marker boot recovery writes onto a conversion a restart interrupted while it
+   *  was already flipped. That is not a failed flip: the site is up and serving as an environment, and the
+   *  only thing missing is the completion nobody got to run. Accepting exactly that one message keeps such
+   *  a slot completable while every other recorded failure still refuses, and clearing it in the same
+   *  statement means the completion owns the slot from here on.
+   *
+   *  A slot already `completing` is retaken whatever it recorded. By then the staged container is gone and
+   *  the site's data lives in an archive this operation wrote, so finishing is the only direction that
+   *  ends with a serving site; refusing the retry would strand it. */
+  beginRuntimeCompletion(siteId: string, resumableError: string): boolean {
+    return this.db.prepare(`
+      UPDATE p_sites_runtime_migrations SET stage = 'completing', last_error = NULL
+      WHERE site_id = ?
+        AND (stage = 'completing' OR (stage = 'flipped' AND (last_error IS NULL OR last_error = ?)))
+    `).run(siteId, resumableError).changes === 1;
   }
 
   /** Release the slot with a reason. The row SURVIVES: it still holds the only record of what the site
