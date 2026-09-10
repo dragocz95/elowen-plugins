@@ -183,16 +183,6 @@
       "hint": "Maximum number of processes and threads in one environment."
     },
     {
-      "key": "environmentDiskSoftMb",
-      "label": "Environment disk threshold",
-      "type": "number",
-      "default": 4096,
-      "min": 256,
-      "max": 131072,
-      "advanced": true,
-      "hint": "Recorded soft disk threshold in MB, reported with the environment. Sites does not measure disk usage, warn about it or enforce a quota."
-    },
-    {
       "key": "maxEnvironmentsPerAccount",
       "label": "Environments per account",
       "type": "number",
@@ -471,11 +461,10 @@
       "environmentRestoreScheduled": "Snapshot restore scheduled",
       "environmentLogs": "Environment logs",
       "environmentLogsLoading": "Loading bounded environment logs…",
-      "environmentLimitsHint": "Blank values inherit the instance defaults. The disk value is a warning threshold, not a filesystem quota.",
+      "environmentLimitsHint": "Blank values inherit the instance defaults.",
       "environmentLimitCpu": "CPUs",
       "environmentLimitMemory": "Memory (MB)",
       "environmentLimitPids": "Processes and threads",
-      "environmentLimitDisk": "Disk warning (MB)",
       "environmentSaveLimits": "Save limits",
       "environmentLimitsSaved": "Environment limits saved",
       "copy": "Copy",

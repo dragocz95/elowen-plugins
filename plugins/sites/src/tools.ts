@@ -232,7 +232,7 @@ const describe = (
     ...(site.runtime === 'command' ? [`  runtime    ${site.bind}${site.port === null ? '' : ` 127.0.0.1:${site.port}`} · ${config.runtimeNetwork} network`] : []),
     ...(site.runtime === 'environment' ? [
       `  environment ${environment?.state ?? 'unknown'} · desired ${site.environmentDesiredState ?? 'running'} · ${config.environmentNetwork} network`,
-      `  limits      ${environment?.limits.cpus ?? site.environmentCpus ?? config.environmentCpus} CPU · ${environment?.limits.memoryMb ?? site.environmentMemoryMb ?? config.environmentMemoryMb} MB · ${environment?.limits.pidsLimit ?? site.environmentPidsLimit ?? config.environmentPidsLimit} PIDs · ${environment?.limits.diskSoftMb ?? site.environmentDiskSoftMb ?? config.environmentDiskSoftMb} MB disk`,
+      `  limits      ${environment?.limits.cpus ?? site.environmentCpus ?? config.environmentCpus} CPU · ${environment?.limits.memoryMb ?? site.environmentMemoryMb ?? config.environmentMemoryMb} MB · ${environment?.limits.pidsLimit ?? site.environmentPidsLimit ?? config.environmentPidsLimit} PIDs`,
     ] : []),
     site.runtime === 'environment'
       ? `  snapshot   ${lastSnapshotAt ?? 'never'}`
@@ -381,7 +381,6 @@ export function registerTools(deps: ToolDeps): void {
           environmentCpus: null,
           environmentMemoryMb: null,
           environmentPidsLimit: null,
-          environmentDiskSoftMb: null,
           environmentDesiredState: 'running',
           status: runtime === 'environment' ? 'live' : 'draft',
           currentReleaseId: null,
@@ -448,7 +447,6 @@ export function registerTools(deps: ToolDeps): void {
               cpus: config.environmentCpus,
               memoryMb: config.environmentMemoryMb,
               pidsLimit: config.environmentPidsLimit,
-              diskSoftMb: config.environmentDiskSoftMb,
             },
           } : {}),
         });
@@ -778,9 +776,6 @@ export function registerTools(deps: ToolDeps): void {
       environmentPidsLimit: Type.Optional(Type.Union([Type.Number(), Type.Null()], {
         description: 'Administrator only, environment sites: maximum processes and threads, or null for the instance default.',
       })),
-      environmentDiskSoftMb: Type.Optional(Type.Union([Type.Number(), Type.Null()], {
-        description: 'Administrator only, environment sites: the recorded disk figure in MB reported by Sites tools, or null for the instance default. Sites does not measure or enforce it.',
-      })),
     }),
     execute: async (_id, input) => {
       try {
@@ -789,7 +784,7 @@ export function registerTools(deps: ToolDeps): void {
         const patch: Parameters<SitesStore['updateSite']>[1] = {};
         // The same gate, the same validator and the same apply seam as the Sites screen: a tool must not
         // be a second way to size an environment, nor a way past the bounds the settings schema declares.
-        const limitKeys = ['environmentCpus', 'environmentMemoryMb', 'environmentPidsLimit', 'environmentDiskSoftMb'] as const;
+        const limitKeys = ['environmentCpus', 'environmentMemoryMb', 'environmentPidsLimit'] as const;
         const raw = input as Record<string, unknown>;
         let limits: EnvironmentLimitOverrides | null = null;
         if (limitKeys.some((key) => raw[key] !== undefined)) {

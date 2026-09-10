@@ -60,8 +60,8 @@ type EnvironmentAction = {
 export interface EnvironmentView {
   state: string | null;
   desiredState: 'running' | 'stopped' | 'restarting';
-  limits?: { cpus: number; memoryMb: number; pidsLimit: number; diskSoftMb: number };
-  limitOverrides?: { cpus: number | null; memoryMb: number | null; pidsLimit: number | null; diskSoftMb: number | null };
+  limits?: { cpus: number; memoryMb: number; pidsLimit: number };
+  limitOverrides?: { cpus: number | null; memoryMb: number | null; pidsLimit: number | null };
   lastError?: string | null;
   action?: EnvironmentAction | null;
   canControl?: boolean;

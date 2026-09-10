@@ -159,7 +159,6 @@ export function register(published) {
                 environmentCpus: resolved.environmentCpus,
                 environmentMemoryMb: resolved.environmentMemoryMb,
                 environmentPidsLimit: resolved.environmentPidsLimit,
-                environmentDiskSoftMb: resolved.environmentDiskSoftMb,
                 releasesKept: resolved.releasesKept,
             };
         },

@@ -4,7 +4,7 @@ import { createSiteRuntimeAuthority } from '../plugins/sites/src/siteRuntimeAuth
 
 function fixture() {
   const site = { id: 'site-a', projectId: 7, ownerUserId: 1, runtime: 'environment', sourceDir: '/sources/site-a', status: 'live' };
-  const binding = { siteId: site.id, projectId: 7, sourcePath: site.sourceDir, image: 'base', sitesDataDir: '/sites', brokerDir: '/broker/site-a', workspaceReadOnly: false, network: 'shared', limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 10240 }, legacy: { containerId: 'container-id', imageId: 'image-id', volumeMountpoint: '/volume' } };
+  const binding = { siteId: site.id, projectId: 7, sourcePath: site.sourceDir, image: 'base', sitesDataDir: '/sites', brokerDir: '/broker/site-a', workspaceReadOnly: false, network: 'shared', limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512 }, legacy: { containerId: 'container-id', imageId: 'image-id', volumeMountpoint: '/volume' } };
   const accounts = new Set([1, 2, 3]);
   const admins = new Set([3]);
   const members = new Set([1, 2]);

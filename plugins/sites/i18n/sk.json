@@ -90,10 +90,6 @@
       "label": "Limit procesov prostredia",
       "hint": "Najvyšší počet procesov a vlákien v jednom prostredí."
     },
-    "environmentDiskSoftMb": {
-      "label": "Prah disku prostredia",
-      "hint": "Zaznamenaný mäkký prah disku v MB, ktorý sa uvádza pri prostredí. Sites využitie disku nemeria, neupozorňuje naň ani nevynucuje kvótu."
-    },
     "maxEnvironmentsPerAccount": {
       "label": "Počet prostredí na účet",
       "hint": "Koľko trvalých prostredí smie jeden účet uchovávať. Počítajú sa oddelene od bežných stránok."
@@ -240,11 +236,10 @@
       "environmentRestoreScheduled": "Obnovenie snapshotu bolo naplánované",
       "environmentLogs": "Logy prostredia",
       "environmentLogsLoading": "Načítavajú sa obmedzené logy prostredia…",
-      "environmentLimitsHint": "Prázdne hodnoty prevezmú predvolené nastavenie inštancie. Hodnota disku je upozornenie, nie kvóta súborového systému.",
+      "environmentLimitsHint": "Prázdne hodnoty prevezmú predvolené nastavenie inštancie.",
       "environmentLimitCpu": "Procesory",
       "environmentLimitMemory": "Pamäť (MB)",
       "environmentLimitPids": "Procesy a vlákna",
-      "environmentLimitDisk": "Upozornenie na disk (MB)",
       "environmentSaveLimits": "Uložiť limity",
       "environmentLimitsSaved": "Limity prostredia boli uložené",
       "copy": "Kopírovať",

@@ -211,7 +211,6 @@ export function createApiHandlers(deps: ApiDeps) {
               cpus: target.environmentCpus ?? null,
               memoryMb: target.environmentMemoryMb ?? null,
               pidsLimit: target.environmentPidsLimit ?? null,
-              diskSoftMb: target.environmentDiskSoftMb ?? null,
             },
             canControl: canAccessProject(target.projectId, req.auth),
             canReadLogs: canAccessProject(target.projectId, req.auth),
@@ -310,7 +309,7 @@ export function createApiHandlers(deps: ApiDeps) {
     const patch: Parameters<SitesStore['updateSite']>[1] = {};
     let accessChanged = false;
     let runtimeChanged = false;
-    const limitKeys = ['environmentCpus', 'environmentMemoryMb', 'environmentPidsLimit', 'environmentDiskSoftMb'] as const;
+    const limitKeys = ['environmentCpus', 'environmentMemoryMb', 'environmentPidsLimit'] as const;
     const hasLimitOverrides = limitKeys.some((key) => key in body);
     let limits: EnvironmentLimitOverrides | null = null;
     if (hasLimitOverrides) {

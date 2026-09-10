@@ -257,8 +257,8 @@ const environmentDetail = {
   environment: {
     state: 'running',
     desiredState: 'running',
-    limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 },
-    limitOverrides: { cpus: null, memoryMb: 2048, pidsLimit: null, diskSoftMb: null },
+    limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512 },
+    limitOverrides: { cpus: null, memoryMb: 2048, pidsLimit: null },
     lastError: null,
     action: null,
     canControl: true,
@@ -507,7 +507,6 @@ describe('persistent environment detail', () => {
       environmentCpus: null,
       environmentMemoryMb: 3072,
       environmentPidsLimit: null,
-      environmentDiskSoftMb: null,
     }]));
   });
 });

@@ -235,7 +235,7 @@ export class EnvironmentSupervisor {
     effectiveLimits(site) {
         const config = this.deps.config();
         return { cpus: site.environmentCpus ?? config.environmentCpus, memoryMb: site.environmentMemoryMb ?? config.environmentMemoryMb,
-            pidsLimit: site.environmentPidsLimit ?? config.environmentPidsLimit, diskSoftMb: site.environmentDiskSoftMb ?? config.environmentDiskSoftMb };
+            pidsLimit: site.environmentPidsLimit ?? config.environmentPidsLimit };
     }
     async state(site, actor) {
         const accountUserId = this.actor(site, actor);

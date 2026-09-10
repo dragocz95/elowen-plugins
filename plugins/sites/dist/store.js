@@ -70,7 +70,6 @@ const toSite = (row) => {
         environmentCpus: row.environment_cpus,
         environmentMemoryMb: row.environment_memory_mb,
         environmentPidsLimit: row.environment_pids_limit,
-        environmentDiskSoftMb: row.environment_disk_soft_mb,
         environmentDesiredState: asEnvironmentDesiredState(row.environment_desired_state),
         status: runtime.runtime === 'unsupported' ? 'failed' : asStatus(row.status),
         currentReleaseId: row.current_release_id,
@@ -342,6 +341,13 @@ export class SitesStore {
           port INTEGER NOT NULL, created_at TEXT NOT NULL, UNIQUE(project_id, port)
         );`),
             },
+            {
+                version: 13,
+                // The disk figure was never a limit: no container setting carried it, so a per-site value could not
+                // change anything the runtime did. The setting, its copy and every read of the column are gone;
+                // this drops the column they left behind.
+                up: handle => handle.exec('ALTER TABLE p_sites_sites DROP COLUMN environment_disk_soft_mb;'),
+            },
         ]);
     }
     projectPreview(projectId, port) {
@@ -395,11 +401,11 @@ export class SitesStore {
       INSERT INTO p_sites_sites (
         id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
         source_dir, spa, runtime, start_command, bind, port,
-        environment_cpus, environment_memory_mb, environment_pids_limit, environment_disk_soft_mb,
+        environment_cpus, environment_memory_mb, environment_pids_limit,
         environment_desired_state, status, current_release_id,
         created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0, site.runtime, site.startCommand, site.bind, site.port, site.environmentCpus ?? null, site.environmentMemoryMb ?? null, site.environmentPidsLimit ?? null, site.environmentDiskSoftMb ?? null, site.environmentDesiredState ?? 'running', site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError);
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0, site.runtime, site.startCommand, site.bind, site.port, site.environmentCpus ?? null, site.environmentMemoryMb ?? null, site.environmentPidsLimit ?? null, site.environmentDesiredState ?? 'running', site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError);
     }
     siteById(id) {
         const row = this.db.prepare('SELECT * FROM p_sites_sites WHERE id = ?').get(id);
@@ -484,7 +490,6 @@ export class SitesStore {
             environmentCpus: 'environment_cpus',
             environmentMemoryMb: 'environment_memory_mb',
             environmentPidsLimit: 'environment_pids_limit',
-            environmentDiskSoftMb: 'environment_disk_soft_mb',
             environmentDesiredState: 'environment_desired_state',
             status: 'status',
             currentReleaseId: 'current_release_id',

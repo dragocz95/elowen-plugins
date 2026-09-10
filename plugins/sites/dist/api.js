@@ -138,7 +138,6 @@ export function createApiHandlers(deps) {
                             cpus: target.environmentCpus ?? null,
                             memoryMb: target.environmentMemoryMb ?? null,
                             pidsLimit: target.environmentPidsLimit ?? null,
-                            diskSoftMb: target.environmentDiskSoftMb ?? null,
                         },
                         canControl: canAccessProject(target.projectId, req.auth),
                         canReadLogs: canAccessProject(target.projectId, req.auth),
@@ -258,7 +257,7 @@ export function createApiHandlers(deps) {
         const patch = {};
         let accessChanged = false;
         let runtimeChanged = false;
-        const limitKeys = ['environmentCpus', 'environmentMemoryMb', 'environmentPidsLimit', 'environmentDiskSoftMb'];
+        const limitKeys = ['environmentCpus', 'environmentMemoryMb', 'environmentPidsLimit'];
         const hasLimitOverrides = limitKeys.some((key) => key in body);
         let limits = null;
         if (hasLimitOverrides) {

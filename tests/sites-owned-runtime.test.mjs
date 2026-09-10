@@ -30,7 +30,7 @@ function fixture(overrides = {}) {
       ...overrides.store,
     },
     access: { accountExists: () => true, isAdmin: () => false, canAccessProject: () => true },
-    config: () => ({ environmentCpus: 1, environmentMemoryMb: 1024, environmentPidsLimit: 512, environmentDiskSoftMb: 10240, environmentNetwork: 'shared', releasesKept: 3, startTimeoutSeconds: 1 }),
+    config: () => ({ environmentCpus: 1, environmentMemoryMb: 1024, environmentPidsLimit: 512, environmentNetwork: 'shared', releasesKept: 3, startTimeoutSeconds: 1 }),
     dataDir: '/sites', siteDir: id => '/sites/sites/' + id,
     gateway: { prepareRuntimeSocket: async () => ({ path: '/var/lib/elowen/site-runtime-sockets/a/app.sock' }), sealRuntimeSocket: async () => {}, removeRuntimeSocket: async () => {} },
   });

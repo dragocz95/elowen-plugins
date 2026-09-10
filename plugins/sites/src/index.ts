@@ -171,7 +171,6 @@ export function register(published: PluginContext): void {
         environmentCpus: resolved.environmentCpus,
         environmentMemoryMb: resolved.environmentMemoryMb,
         environmentPidsLimit: resolved.environmentPidsLimit,
-        environmentDiskSoftMb: resolved.environmentDiskSoftMb,
         releasesKept: resolved.releasesKept,
       };
     },
