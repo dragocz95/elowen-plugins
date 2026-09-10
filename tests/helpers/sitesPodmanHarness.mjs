@@ -551,6 +551,7 @@ const podmanHarness = async ({ convertedApp } = {}) => {
 
   const migration = new RuntimeMigrationService({
     store,
+    projectExecutionKind: () => 'host',
     siteDir,
     releaseDir,
     stopLegacyRuntime: async () => { await stopLegacy(); },

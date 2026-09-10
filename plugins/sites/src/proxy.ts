@@ -72,6 +72,13 @@ function hostOnlyCookie(value: string): string {
   return value.split(';').filter((part) => !/^\s*domain\s*=/i.test(part)).join(';');
 }
 
+function withoutCookie(header: string, blockedName: string): string {
+  return header.split(';').filter((part) => {
+    const separator = part.indexOf('=');
+    return separator <= 0 || part.slice(0, separator).trim() !== blockedName;
+  }).map((part) => part.trim()).filter(Boolean).join('; ');
+}
+
 export function runtimeResponseHeaders(
   headers: Record<string, string | string[] | undefined>,
   siteRoot: string,
@@ -122,6 +129,7 @@ export async function proxyToRuntime(
   limits: ProxyLimits,
   siteRoot: string,
   mode: 'command' | 'environment' = 'command',
+  blockedCookieName?: string,
 ): Promise<SitesHttpResponse> {
   const headers: Record<string, string> = {};
   for (const [name, value] of Object.entries(req.headers)) {
@@ -129,7 +137,14 @@ export async function proxyToRuntime(
     if (mode === 'environment') {
       const hostOwned = lower === 'host' || lower === 'content-length' || lower === 'forwarded'
         || lower.startsWith('x-forwarded-') || lower.startsWith('x-elowen-');
-      if (!HOP_BY_HOP_HEADERS.has(lower) && !hostOwned) headers[lower] = value;
+      if (!HOP_BY_HOP_HEADERS.has(lower) && !hostOwned) {
+        if (lower === 'cookie' && blockedCookieName) {
+          const filtered = withoutCookie(value, blockedCookieName);
+          if (filtered) headers[lower] = filtered;
+        } else {
+          headers[lower] = value;
+        }
+      }
     } else if (FORWARDED_REQUEST_HEADERS.has(lower)) {
       headers[lower] = value;
     }
@@ -229,4 +244,5 @@ export const proxyToEnvironment = (
   viewer: ProxyViewer,
   limits: ProxyLimits,
   siteRoot: string,
-): Promise<SitesHttpResponse> => proxyToRuntime(endpoint, req, path, viewer, limits, siteRoot, 'environment');
+  blockedCookieName?: string,
+): Promise<SitesHttpResponse> => proxyToRuntime(endpoint, req, path, viewer, limits, siteRoot, 'environment', blockedCookieName);

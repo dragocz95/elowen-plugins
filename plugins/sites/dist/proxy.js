@@ -54,6 +54,12 @@ function safeLocation(value, siteRoot) {
 function hostOnlyCookie(value) {
     return value.split(';').filter((part) => !/^\s*domain\s*=/i.test(part)).join(';');
 }
+function withoutCookie(header, blockedName) {
+    return header.split(';').filter((part) => {
+        const separator = part.indexOf('=');
+        return separator <= 0 || part.slice(0, separator).trim() !== blockedName;
+    }).map((part) => part.trim()).filter(Boolean).join('; ');
+}
 export function runtimeResponseHeaders(headers, siteRoot) {
     const out = {};
     for (const [name, value] of Object.entries(headers)) {
@@ -94,15 +100,23 @@ export class ProxyError extends Error {
  *
  *  Buffered because the hook transport is: it has no streaming and no SSE, so a runtime that wants to
  *  stream cannot, and saying that plainly is better than truncating something halfway. */
-export async function proxyToRuntime(endpoint, req, path, viewer, limits, siteRoot, mode = 'command') {
+export async function proxyToRuntime(endpoint, req, path, viewer, limits, siteRoot, mode = 'command', blockedCookieName) {
     const headers = {};
     for (const [name, value] of Object.entries(req.headers)) {
         const lower = name.toLowerCase();
         if (mode === 'environment') {
             const hostOwned = lower === 'host' || lower === 'content-length' || lower === 'forwarded'
                 || lower.startsWith('x-forwarded-') || lower.startsWith('x-elowen-');
-            if (!HOP_BY_HOP_HEADERS.has(lower) && !hostOwned)
-                headers[lower] = value;
+            if (!HOP_BY_HOP_HEADERS.has(lower) && !hostOwned) {
+                if (lower === 'cookie' && blockedCookieName) {
+                    const filtered = withoutCookie(value, blockedCookieName);
+                    if (filtered)
+                        headers[lower] = filtered;
+                }
+                else {
+                    headers[lower] = value;
+                }
+            }
         }
         else if (FORWARDED_REQUEST_HEADERS.has(lower)) {
             headers[lower] = value;
@@ -194,4 +208,4 @@ export async function proxyToRuntime(endpoint, req, path, viewer, limits, siteRo
         outbound.end();
     });
 }
-export const proxyToEnvironment = (endpoint, req, path, viewer, limits, siteRoot) => proxyToRuntime(endpoint, req, path, viewer, limits, siteRoot, 'environment');
+export const proxyToEnvironment = (endpoint, req, path, viewer, limits, siteRoot, blockedCookieName) => proxyToRuntime(endpoint, req, path, viewer, limits, siteRoot, 'environment', blockedCookieName);

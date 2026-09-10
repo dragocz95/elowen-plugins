@@ -248,6 +248,9 @@ export class RuntimeMigrationService {
             throw new MigrationRefused('this site is already a persistent environment');
         if (site.runtime === 'unsupported')
             throw new MigrationRefused('this site has an unsupported runtime and cannot be converted');
+        if (this.deps.projectExecutionKind(site.projectId) === 'managed') {
+            throw new MigrationRefused('a managed Project stores this site at a guest path; runtime conversion is available only for host Projects');
+        }
         const existing = this.deps.store.runtimeMigration(siteId);
         // A prepared conversion is re-preparable only after it failed; re-staging under a live claim would
         // rebuild the workspace a flip may already be verifying against.

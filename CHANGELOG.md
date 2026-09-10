@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.10.11 - 2026-09-10
+
+- Harden Project-backed publications, stop creating per-site environments, and require the account-independent core publication seam.
+
 ## sites 0.10.10 - 2026-09-10
 
 - A site created in a managed Project gets its source folder inside that Project, under the directory the
