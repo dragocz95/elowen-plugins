@@ -790,6 +790,8 @@ export class RuntimeMigrationService {
             // below is the proof that the legacy runtime is serving again.
             if (restored?.runtime === 'command')
                 await this.startRestoredLegacy(restored);
+            if (restored)
+                await this.deps.restoreLegacyPublication(restored);
             this.deps.store.markLegacyStopped(siteId, false);
             // ONLY NOW. While the conversion held this site, a periodic reconcile may have written `failed` and
             // an error onto the row, and a site left `failed` is absent from `liveCommandSites()` and therefore

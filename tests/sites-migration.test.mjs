@@ -25,6 +25,7 @@ import {
   recipeBinding, relaxStaticServingPermissions, staticServable,
 } from '../plugins/sites/dist/recipe.js';
 import { BASE_IMAGE_TAG, BOOTSTRAP_SERVICE, CONTAINERFILE } from '../plugins/sites/dist/baseImage.js';
+import { ProjectPublicationService } from '../plugins/sites/dist/publication.js';
 import {
   conversionImageTag, NODE_CONTAINERFILE, NODE_IMAGE_REF, NODE_IMAGE_SOURCE, NODE_IMAGE_VERSION,
   STATIC_CONTAINERFILE, STATIC_SITE_CONF,
@@ -125,7 +126,7 @@ const harness = (options = {}) => {
   const calls = {
     prepareContainer: [], startEnvironment: [], discardContainer: [], stopLegacy: [], startLegacy: [],
     resolveLegacyData: [], loadDataVolume: [], exportDataVolume: [], stopContainer: [],
-    prepareBroker: [], discard: [], relaxStatic: [], rebind: [], publish: [], clearStage: [],
+    prepareBroker: [], discard: [], relaxStatic: [], rebind: [], publish: [], clearStage: [], restorePublication: [],
   };
   // The persisted environment binding, as the supervisor keeps it: the completion is what moves it off
   // the staged copy, so a test can read where the container would actually be mounted.
@@ -246,6 +247,7 @@ const harness = (options = {}) => {
       if (options.startLegacyFails) throw new Error('the legacy runtime did not answer');
       running = true;
     },
+    restoreLegacyPublication: async (site) => { calls.restorePublication.push(site.id); },
     resolveLegacyData: async (site) => {
       calls.resolveLegacyData.push(site.id);
       if (options.noLegacyHome) return null;
@@ -891,6 +893,65 @@ test('rollback after a flip restores the exact command runtime the claim capture
     assert.deepEqual(h.calls.discardContainer, [SITE_ID]);
     assert.equal(h.store.runtimeMigration(SITE_ID), null);
   } finally { h.cleanup(); }
+});
+
+test('proxy conversion rollback restores the legacy socket until a forward republish replaces it', async () => {
+  const h = harness({ legacyRunning: true });
+  const projectSocket = join(h.root, 'project-publication.sock');
+  const legacySocket = join(h.root, 'legacy-publication.sock');
+  const project = createHttpServer((_req, res) => { res.writeHead(204); res.end(); });
+  const legacy = createHttpServer((_req, res) => { res.writeHead(200); res.end('legacy'); });
+  try {
+    await Promise.all([
+      new Promise((resolve, reject) => { project.once('error', reject); project.listen(projectSocket, resolve); }),
+      new Promise((resolve, reject) => { legacy.once('error', reject); legacy.listen(legacySocket, resolve); }),
+    ]);
+    h.store.insertSite(legacySite({
+      kind: 'proxy', target: '3000', runtime: 'command', startCommand: 'node server.mjs', bind: 'socket',
+    }));
+    h.store.insertRelease(release());
+    h.seedRelease(SITE_ID, RELEASE_ID, { 'server.mjs': 'run()' });
+
+    const transportCalls = [];
+    const publications = new ProjectPublicationService({
+      store: h.store,
+      control: () => ({
+        projectPublicationBinding: async (input) => {
+          transportCalls.push(['bind', input]);
+          return { generation: 1, socketPath: projectSocket };
+        },
+        projectPublicationRelease: async (input) => { transportCalls.push(['release', input]); },
+      }),
+      project: () => ({ executionKind: 'managed', lifecycle: 'active' }),
+    });
+    const initial = await publications.establish(h.store.siteById(SITE_ID), 7);
+    publications.adopt(SITE_ID, initial.socketPath);
+    h.deps.restoreLegacyPublication = async (site) => {
+      h.calls.restorePublication.push(site.id);
+      await publications.release(site);
+      publications.adopt(site.id, legacySocket);
+    };
+
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+    await h.service.rollback(SITE_ID);
+
+    assert.deepEqual(h.calls.restorePublication, [SITE_ID]);
+    assert.equal(transportCalls.filter(([kind]) => kind === 'release').length, 1, 'rollback retires the durable Project forwarder');
+    assert.deepEqual(publications.endpointFor(SITE_ID), { kind: 'socket', path: legacySocket });
+    assert.equal((await publications.probe(legacySocket)).status, 200, 'the supported rollback transport answers');
+
+    const republished = await publications.establish(h.store.siteById(SITE_ID), 7);
+    assert.equal((await publications.probe(republished.socketPath)).status, 204);
+    publications.adopt(SITE_ID, republished.socketPath);
+    assert.deepEqual(publications.endpointFor(SITE_ID), { kind: 'socket', path: projectSocket }, 'republish restores the Project forwarder');
+  } finally {
+    await Promise.all([
+      new Promise((resolve) => project.close(() => resolve())),
+      new Promise((resolve) => legacy.close(() => resolve())),
+    ]);
+    h.cleanup();
+  }
 });
 
 test('rollback restores serving before the container is discarded, and clears the staged copy', async () => {

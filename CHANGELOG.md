@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.10.14 - 2026-09-10
+
+- Finish conversion staging retirement and make proxy conversion rollback restore the legacy socket until the Project application is published again.
+
 ## sites 0.10.13 - 2026-09-10
 
 - Show actionable publication failures, complete environment setup localization, and serialize conversion retirement across reconcile ticks.
