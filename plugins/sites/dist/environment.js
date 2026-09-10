@@ -119,8 +119,14 @@ export class EnvironmentSupervisor {
         if (this.deps.store.runtimeRecord(site.id, 'handover') !== 'discovered') {
             const expected = this.deps.store.runtimeRecord(site.id, 'binding');
             const discovered = await control.discoverSiteEnvironment({ siteId: site.id, accountUserId });
-            if (discovered)
-                binding.legacy = { containerId: discovered.containerId, imageId: discovered.imageId, volumeMountpoint: discovered.volumeMountpoint };
+            // Every pin discovery returns is persisted, including the Git-stub source and the cgroup limits
+            // the container was created with. Dropping those made Sandbox derive them from today's storage
+            // layout and today's configuration, which no container created by an earlier runtime satisfies.
+            if (discovered) {
+                binding.legacy = { containerId: discovered.containerId, imageId: discovered.imageId, volumeMountpoint: discovered.volumeMountpoint,
+                    ...(discovered.gitStubPath ? { gitStubPath: discovered.gitStubPath } : {}),
+                    ...(discovered.limits ? { limits: discovered.limits } : {}) };
+            }
             const next = JSON.stringify(binding);
             if (!this.deps.store.compareRuntimeRecord(site.id, 'binding', expected, next)
                 && this.deps.store.runtimeRecord(site.id, 'binding') !== next) {
