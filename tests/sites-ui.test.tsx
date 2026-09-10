@@ -231,6 +231,26 @@ describe('the Sites workspace', () => {
     await waitFor(() => expect(patched).toEqual([{ visibility: 'public' }]));
   });
 
+  it('closes a deleted site without refetching its removed detail id', async () => {
+    let detailRequests = 0;
+    use(
+      http.get('/api/plugins/sites/api/site/:id', () => {
+        detailRequests += 1;
+        return detailRequests === 1 ? HttpResponse.json(detail) : HttpResponse.json({ error: 'not found' }, { status: 404 });
+      }),
+      http.delete('/api/plugins/sites/api/site/:id', () => HttpResponse.json({ ok: true })),
+    );
+    mount();
+    const drawer = within(await openSite());
+    fireEvent.click(drawer.getByRole('button', { name: strings.delete }));
+    const confirm = await screen.findByRole('dialog', { name: strings.deleteTitle });
+    fireEvent.click(within(confirm).getByRole('button', { name: strings.delete }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: strings.detailTitle })).not.toBeInTheDocument());
+    await act(async () => { await Promise.resolve(); });
+    expect(detailRequests).toBe(1);
+  });
+
   it('replaces the guest list through one atomic request', async () => {
     const replaced: unknown[] = [];
     use(

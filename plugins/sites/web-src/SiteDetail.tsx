@@ -73,7 +73,12 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
     mutationFn: (vars: { path: string; init: RequestInit }) => runtime().api(vars.path, vars.init),
     onSuccess: (_data: unknown, vars: { path: string; init: RequestInit; done?: string }) => {
       setFailedAction(null);
-      refresh();
+      const deleted = vars.path === basePath(siteId) && vars.init.method === 'DELETE';
+      // Unmount the detail query before refreshing the list. Invalidating the deleted id while this drawer
+      // is still mounted immediately asks the API for a row that cannot exist and turns success into a 404.
+      if (deleted) onDeleted();
+      else void queryClient.invalidateQueries({ queryKey: siteDetailKey(siteId) });
+      void queryClient.invalidateQueries({ queryKey: SITES_LIST_KEY });
       toast(vars.done ?? strings.saved);
     },
     onError: (error: unknown, vars: { path: string; init: RequestInit; done?: string }) => {
@@ -484,10 +489,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         onConfirm={() => {
           if (callRef.current) return;
           setConfirmDelete(false);
-          runCall(
-            { path: basePath(siteId), init: { method: 'DELETE' }, done: strings.deleted },
-            onDeleted,
-          );
+          runCall({ path: basePath(siteId), init: { method: 'DELETE' }, done: strings.deleted });
         }}
       />
     </div>
