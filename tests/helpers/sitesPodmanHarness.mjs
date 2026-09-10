@@ -319,6 +319,9 @@ const podmanHarness = async ({ convertedApp } = {}) => {
   const gateway = testGateway(brokerRoot, gatewayCalls);
   const siteDir = (siteId) => join(root, 'sites', siteId);
   const releaseDir = (siteId, releaseId) => join(siteDir(siteId), 'releases', releaseId);
+  /** The site's folder in its owner's Project: what agents edit, and what a completed conversion serves.
+   *  Rooted in the harness so a completion folds the staged copy into a directory the test owns. */
+  const sourceDir = (slug) => join(root, 'project', 'sites', slug);
   const brokerPath = (siteId) => join(brokerRoot, siteId, 'app.sock');
   /** The private directory standing in for the container's persistent data volume. */
   const volumeDir = (siteId) => join(root, 'provider-volumes', siteId);
@@ -380,8 +383,15 @@ const podmanHarness = async ({ convertedApp } = {}) => {
       },
       async siteEnvironmentFor({ siteId }) { return fakeControl.view(siteId); },
       async siteEnvironmentOperation({ operationId }) { return operations.get(operationId) ?? null; },
-      async siteEnvironmentExec() {
-        throw new Error('the private provider stand-in executes no guest commands; run the real-engine suite for that');
+      async siteEnvironmentExec({ siteId, accountUserId, command }) {
+        await fakeControl.authorize(siteId, accountUserId);
+        // The stand-in runs no shell. It models exactly one command, the one a completion sends into a
+        // converted container: removing the conversion's spent seed directory from the data volume.
+        const stage = /^rm -rf -- '\/data\/(\.elowen-conversion)'$/.exec(command.trim());
+        if (!stage) throw new Error('the private provider stand-in executes no guest commands; run the real-engine suite for that');
+        if (row(siteId).state !== 'running') throw new Error('the container is not running');
+        rmSync(join(volumeDir(siteId), stage[1]), { recursive: true, force: true });
+        return { stdout: '', stderr: '', code: 0, truncated: false };
       },
       async siteEnvironmentLogs() { return { lifecycle: 'private provider stand-in', journal: '' }; },
       async siteEnvironmentSnapshots() { return []; },
@@ -452,8 +462,11 @@ const podmanHarness = async ({ convertedApp } = {}) => {
               const volume = volumeDir(input.siteId);
               if (!existsSync(volume)) throw new Error('the data volume does not exist');
               const entries = readdirSync(volume);
-              if (entries.length === 0) throw new Error('the data volume is empty');
-              await runTar(['-cf', artifact.archivePath, '-C', volume, '--', ...entries]);
+              // A volume with nothing in it still exports, exactly as `podman volume export` does: a site
+              // whose conversion carried no data has one the moment its spent seed is cleared.
+              await runTar(entries.length === 0
+                ? ['-cf', artifact.archivePath, '-C', volume, '.']
+                : ['-cf', artifact.archivePath, '-C', volume, '--', ...entries]);
             } else {
               rmSync(artifact.archivePath, { recursive: true, force: true });
             }
@@ -566,6 +579,9 @@ const podmanHarness = async ({ convertedApp } = {}) => {
     brokerDirectoryExists: (siteId) => environment.brokerDirectoryExists(siteId),
     prepareBrokerDirectory: async (siteId) => { await environment.prepareBrokerDirectory(siteId); },
     removeStaged: (paths) => environment.removeStaged(paths),
+    rebindToSource: (site) => environment.rebindToSource(site),
+    publishBinding: (site) => environment.publishBinding(site),
+    clearConversionStage: (site, stageDir) => environment.clearConversionStage(site, stageDir),
     // Mirrors `index.ts`, INCLUDING its `site.runtime !== 'command'` guard. A rollback reaches this with
     // the descriptor the conversion recorded rather than the flipped row, so the guard must still pass.
     //
@@ -705,7 +721,7 @@ const podmanHarness = async ({ convertedApp } = {}) => {
   return {
     root, brokerRoot, brokerPath, store, environment, migration, handlers, call, seedRelease, cleanup,
     control, requests, runtimeState, volumeDir, gatewayCalls, legacyHome, startLegacy, stopLegacy, legacy,
-    siteDir, dataSync, releaseDir, realEngine, providerReconcile,
+    siteDir, dataSync, releaseDir, realEngine, providerReconcile, sourceDir,
   };
 };
 
