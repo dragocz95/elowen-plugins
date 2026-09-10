@@ -39,8 +39,14 @@ const ACCESS_REFUSALS = new Set(['project_forbidden', 'account_forbidden']);
  *
  *  `guest_protocol` and `guest_upload_error` are deliberately absent: the first is the transport telling
  *  itself the guest broke the protocol and the second is a code nobody has agreed on, and neither is
- *  something a person at a browser can act on. Both fall through to the generic answer. */
-const UPLOAD_REFUSALS: Record<string, { status: number; message: string }> = {
+ *  something a person at a browser can act on. Both fall through to the generic answer.
+ *
+ *  A Map, not an object, because the lookup key is a string the PROVIDER chose. Indexing a plain object
+ *  with `constructor`, `toString` or `__proto__` answers from the prototype chain, and any of those would
+ *  have passed the "is this code known" test with a value carrying no status and no message — turning the
+ *  one path that is supposed to end in the generic answer into a malformed 4xx. A Map has no inherited
+ *  keys, so an unknown code is unknown whatever it is called. */
+const UPLOAD_REFUSALS = new Map<string, { status: number; message: string }>(Object.entries({
   upload_forbidden: { status: 403, message: 'this upload does not belong to this destination' },
   upload_conflict: { status: 409, message: 'another upload already owns this destination' },
   upload_unknown: { status: 409, message: 'upload handle is unavailable' },
@@ -61,7 +67,7 @@ const UPLOAD_REFUSALS: Record<string, { status: number; message: string }> = {
   invalid_size: { status: 400, message: 'invalid upload size' },
   version_required: { status: 400, message: 'a content version is required' },
   file_too_large: { status: 413, message: 'file is too large to upload' },
-};
+}));
 const accessRefusal = (error: unknown): InputError | undefined => {
   const code = (error as { code?: unknown } | null)?.code;
   if (typeof code !== 'string' || !ACCESS_REFUSALS.has(code)) return undefined;
@@ -122,7 +128,7 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
       // provider put in the message is not the editor's to forward: it has carried a guest errno, a
       // staging directory and a candidate filename, none of which belong in a browser response.
       if (typeof code === 'string' && typeof operation.kind === 'string' && operation.kind.startsWith('write-')) {
-        const known = UPLOAD_REFUSALS[code];
+        const known = UPLOAD_REFUSALS.get(code);
         if (known) throw new InputError(known.message, known.status);
       }
       throw error;

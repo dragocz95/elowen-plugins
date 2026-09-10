@@ -110,6 +110,20 @@ describe('editor upload refusals are an allowlist, not a passthrough', () => {
     expect(response.body).toEqual({ error: 'project environment operation failed' });
   });
 
+  /** The lookup key is a string the provider chose, so it can be the name of something every object
+   *  inherits. None of these is a refusal the editor knows, and each one must end where any other
+   *  unknown code ends. */
+  it.each(['constructor', 'toString', '__proto__'])('treats the inherited name %s as unknown', async code => {
+    const f = fixture(failingAt(guestFailure(code, LEAK, 409)));
+    const response = await f.upload(Buffer.from('data'), true);
+
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({ error: 'project environment operation failed' });
+    expect(body(response)).not.toContain('Errno');
+    expect(body(response)).not.toContain('.elowen-upload');
+    expect(body(response)).not.toContain('/workspace');
+  });
+
   it('does not repeat a failure that carries no code at all', async () => {
     const f = fixture(failingAt(Object.assign(new Error(LEAK), { status: 409 })));
     const response = await f.upload(Buffer.from('data'), true);
