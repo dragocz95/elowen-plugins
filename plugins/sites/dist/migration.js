@@ -33,6 +33,8 @@ import { appUnit, auditStaticTree, CONVERSION_STAGE, provisionScript } from './r
  *  502 for "somebody else is mid-operation". */
 export class MigrationRefused extends Error {
 }
+class CompletionInProgress extends MigrationRefused {
+}
 /** Where a site's staged workspace lives. Derived from the site id, never from a caller argument. */
 export const stagedWorkspace = (deps, siteId) => join(deps.siteDir(siteId), 'migration', 'workspace');
 /** Everything one conversion wrote under the site's own plugin directory: the staged copy, the recipe,
@@ -50,6 +52,8 @@ const COMPLETION_RECORD = 'completion';
 /** The export of the persistent volume, taken before the staged container is retired and read back once
  *  its replacement exists. While this file is the only copy of the site's data, nothing removes it. */
 const COMPLETION_ARCHIVE = 'completion-data.tar';
+const COMPLETION_OPERATIONS = ['export', 'rebind', 'import-data', 'import-seed', 'retire'];
+const completionOperationId = (siteId, step) => `completion-${step}-${createHash('sha256').update(siteId).digest('hex').slice(0, 20)}`;
 /** A stable digest over a directory tree: relative path, size and bytes of every file, in sorted order.
  *
  *  Sorted because readdir order is filesystem-dependent, and a digest that changed between two identical
@@ -207,6 +211,8 @@ const COMPLETION_RETRY_MS = 15_000;
 export class RuntimeMigrationService {
     deps;
     completionRetryAt = new Map();
+    activeFlips = new Set();
+    activeCompletions = new Map();
     constructor(deps) {
         this.deps = deps;
     }
@@ -398,6 +404,9 @@ export class RuntimeMigrationService {
         const site = this.deps.store.siteById(siteId);
         if (!site)
             throw new MigrationRefused('this site does not exist');
+        if (this.activeFlips.has(siteId))
+            throw new MigrationRefused('this conversion is already being flipped');
+        this.activeFlips.add(siteId);
         try {
             // DEFECT 8, the other half: prove nothing moved between preparing and flipping. The workspace is
             // about to be mounted read-write into a container that will serve the internet, so it is checked
@@ -491,6 +500,9 @@ export class RuntimeMigrationService {
             this.deps.store.failRuntimeMigration(siteId, message);
             throw error;
         }
+        finally {
+            this.activeFlips.delete(siteId);
+        }
     }
     /** Retire the staged copy, so the converted site is left with ONE working copy and no way back.
      *
@@ -515,6 +527,16 @@ export class RuntimeMigrationService {
      *  5. Only then does the conversion's directory go, and last of all the row: while it exists this
      *     operation still owns the site, and dropping it is the point of no return. */
     async complete(siteId, resumableError = interruptedByRestart('flipped')) {
+        const active = this.activeCompletions.get(siteId);
+        if (active)
+            return active;
+        const run = this.completeNow(siteId, resumableError).finally(() => {
+            this.activeCompletions.delete(siteId);
+        });
+        this.activeCompletions.set(siteId, run);
+        return run;
+    }
+    async completeNow(siteId, resumableError) {
         const migration = this.deps.store.runtimeMigration(siteId);
         // Nothing left to retire. A second call after the row is gone answers with the site's status rather
         // than refusing, because a resumed driver cannot tell "already finished" from "never started".
@@ -526,12 +548,14 @@ export class RuntimeMigrationService {
         const site = this.deps.store.siteById(siteId);
         if (site?.runtime !== 'environment')
             throw new MigrationRefused('this site is not serving as an environment');
-        const recipe = this.deps.loadRecipe(siteId);
-        const resumed = this.deps.store.runtimeRecord(siteId, COMPLETION_RECORD) !== null;
+        let progress = this.completionProgress(siteId);
+        // The recipe lives in the migration directory. Once retirement has removed that directory, the only
+        // remaining work is publishing the binding and clearing records, which must stay resumable without it.
+        const recipe = progress === 'retiring' ? null : this.deps.loadRecipe(siteId);
         // A flipped column and a started container are not a serving site, so completing demands that the
         // site actually answers. Asked only while the staged container is still the one serving: past that
         // point this operation has taken the site down itself, and its own start is what proves it came back.
-        if (!resumed) {
+        if (progress === null) {
             const readiness = await this.deps.verifyReadiness(site, recipe.readiness);
             if (!readiness.ready) {
                 throw new MigrationRefused(`this site is not answering yet, so the conversion cannot be completed: ${readiness.detail}`);
@@ -542,51 +566,87 @@ export class RuntimeMigrationService {
         // A restart that landed between the flip and the completion is the one exception: it recorded a
         // failure for a site that is up and serving, and the claim below is what tells the two apart.
         if (!this.deps.store.beginRuntimeCompletion(siteId, resumableError)) {
-            throw new MigrationRefused(`this conversion failed and cannot be completed: ${migration.lastError ?? 'the conversion slot moved underneath it'}`);
+            const current = this.deps.store.runtimeMigration(siteId);
+            if (current?.stage === 'completing' && current.lastError === null) {
+                throw new CompletionInProgress('this conversion is already being completed');
+            }
+            throw new MigrationRefused(`this conversion failed and cannot be completed: ${current?.lastError ?? migration.lastError ?? 'the conversion slot moved underneath it'}`);
         }
         try {
-            if (!resumed) {
+            if (progress === null) {
+                this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'exporting');
+                progress = 'exporting';
+            }
+            if (progress === 'exporting') {
                 reconcileIntoSource(stagedWorkspace(this.deps, siteId), site.sourceDir, recipe.secretFiles);
-                // The seed goes while the container can still be asked, and the export is taken from a stopped
-                // container for the same reason a rollback stops one first: a live volume exports a torn page.
+                // The marker precedes every operation in this phase. A retry uses the same export request id, so a
+                // lost response rejoins the one Sandbox operation instead of consuming the volume twice.
                 await this.deps.clearConversionStage(site, CONVERSION_STAGE);
                 await this.deps.stopContainer(siteId);
                 if (!await this.deps.containerStopped(siteId)) {
                     throw new Error('the environment container is still running, so its data cannot be exported consistently');
                 }
-                await this.deps.exportDataVolume(site, this.deps.artifactPath(siteId, COMPLETION_ARCHIVE));
+                await this.deps.exportDataVolume(site, this.deps.artifactPath(siteId, COMPLETION_ARCHIVE), completionOperationId(siteId, 'export'));
                 this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'exported');
+                progress = 'exported';
             }
-            if (this.completionProgress(siteId) === 'exported') {
-                await this.deps.rebindToSource(site);
+            if (progress === 'exported') {
+                this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'rebinding');
+                progress = 'rebinding';
+            }
+            if (progress === 'rebinding') {
+                await this.deps.rebindToSource(site, completionOperationId(siteId, 'rebind'));
                 this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'rebound');
+                progress = 'rebound';
             }
-            if (this.completionProgress(siteId) === 'rebound') {
+            if (progress === 'rebound') {
+                this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'importing');
+                progress = 'importing';
+            }
+            if (progress === 'importing') {
                 const carried = this.deps.artifactPath(siteId, COMPLETION_ARCHIVE);
-                if (existsSync(carried))
-                    await this.deps.loadDataVolume(site, carried);
+                if (existsSync(carried)) {
+                    await this.deps.loadDataVolume(site, carried, completionOperationId(siteId, 'import-data'));
+                }
                 // The seed is rebuilt rather than carried: the bootstrap unit deletes the credentials and the
                 // application unit it installed on first boot, so the archive above holds neither, and the
                 // container this completion built has a rootfs that never saw them.
                 await this.deps.loadDataVolume(site, await this.deps.buildSeedArchive(siteId, {
                     provisionScript: provisionScript(recipe), appUnit: appUnit(recipe), dataArchive: null,
-                }));
+                }), completionOperationId(siteId, 'import-seed'));
                 this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'seeded');
+                progress = 'seeded';
             }
-            if (this.completionProgress(siteId) === 'seeded') {
+            if (progress === 'seeded') {
+                this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'starting');
+                progress = 'starting';
+            }
+            if (progress === 'starting') {
                 await this.deps.startEnvironment(site);
                 const readiness = await this.deps.verifyReadiness(site, recipe.readiness);
                 if (!readiness.ready) {
                     throw new Error(`the site does not answer from its own source folder: ${readiness.detail}`);
                 }
                 this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'live');
+                progress = 'live';
             }
-            // The conversion's directory goes BEFORE the binding is published: removing it is an operation on a
-            // staging binding, and publishing is what ends that. Both happen only once the site has answered.
-            const directory = migrationDirectory(this.deps, siteId);
-            if (existsSync(directory))
-                await this.deps.removeStaged([directory]);
-            this.deps.publishBinding(site);
+            if (progress === 'live') {
+                this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'retiring');
+                progress = 'retiring';
+            }
+            if (progress === 'retiring') {
+                // The conversion's directory goes BEFORE the binding is published: removing it is an operation on a
+                // staging binding, and publishing is what ends that. A retry rejoins the same removal request.
+                const directory = migrationDirectory(this.deps, siteId);
+                if (existsSync(directory)) {
+                    await this.deps.removeStaged([directory], completionOperationId(siteId, 'retire'));
+                }
+                this.deps.publishBinding(site);
+            }
+            for (const operation of COMPLETION_OPERATIONS) {
+                this.deps.store.deleteRuntimeRecord(siteId, `artifact:${completionOperationId(siteId, operation)}`);
+            }
+            this.deps.store.deleteRuntimeRecord(siteId, `artifact:${completionOperationId(siteId, 'retire')}-0`);
             this.deps.store.deleteRuntimeRecord(siteId, COMPLETION_RECORD);
             this.deps.store.clearRuntimeMigration(siteId);
             return this.status(siteId);
@@ -616,6 +676,8 @@ export class RuntimeMigrationService {
         for (const migration of this.deps.store.runtimeMigrations()) {
             if (migration.stage !== 'flipped' && migration.stage !== 'completing')
                 continue;
+            if (this.activeFlips.has(migration.siteId) || this.activeCompletions.has(migration.siteId))
+                continue;
             if (this.now().getTime() < (this.completionRetryAt.get(migration.siteId) ?? 0))
                 continue;
             try {
@@ -623,6 +685,8 @@ export class RuntimeMigrationService {
                 this.completionRetryAt.delete(migration.siteId);
             }
             catch (error) {
+                if (error instanceof CompletionInProgress)
+                    continue;
                 // Faults after the claim are recorded by `complete`. A readiness refusal happens before the claim,
                 // so record it here too: the operator gets the real container error and the retry has a durable key.
                 const current = this.deps.store.runtimeMigration(migration.siteId);

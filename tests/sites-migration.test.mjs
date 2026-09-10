@@ -253,9 +253,11 @@ const harness = (options = {}) => {
     },
     captureLegacyData: (siteId, selection) => dataSync.captureLegacyData(siteId, selection),
     buildSeedArchive: (siteId, input) => dataSync.buildSeedArchive(siteId, input),
-    loadDataVolume: async (site, seedArchive) => { calls.loadDataVolume.push({ siteId: site.id, seedArchive }); },
-    exportDataVolume: async (site, output) => {
-      calls.exportDataVolume.push({ siteId: site.id, output });
+    loadDataVolume: async (site, seedArchive, operationId) => {
+      calls.loadDataVolume.push({ siteId: site.id, seedArchive, ...(operationId ? { operationId } : {}) });
+    },
+    exportDataVolume: async (site, output, operationId) => {
+      calls.exportDataVolume.push({ siteId: site.id, output, ...(operationId ? { operationId } : {}) });
       if (options.exportFails) throw new Error('volume export exploded');
       if (!options.containerWrote) return false;
       // Stand in for `podman volume export`: a tar of what the container "wrote" while converted.
@@ -998,6 +1000,105 @@ test('completing retires the slot only once the site really serves as an environ
   } finally { h.cleanup(); }
 });
 
+test('automatic completion waits until the flip driver has finished starting the environment', async () => {
+  const h = harness();
+  let releaseStart;
+  const startPending = new Promise((resolve) => { releaseStart = resolve; });
+  let startEntered;
+  const entered = new Promise((resolve) => { startEntered = resolve; });
+  try {
+    seedLiveStatic(h);
+    await h.service.prepare(SITE_ID, 'release-copy');
+    const originalStart = h.deps.startEnvironment;
+    let firstStart = true;
+    h.deps.startEnvironment = async (...args) => {
+      if (firstStart) {
+        firstStart = false;
+        startEntered();
+        await startPending;
+      }
+      return originalStart(...args);
+    };
+
+    const flip = h.service.flip(SITE_ID);
+    await entered;
+    const settled = await h.service.reconcileCompletions();
+
+    assert.deepEqual(settled, [], 'the reconcile tick leaves a flip owned by its active driver');
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'flipped');
+    assert.equal(h.calls.clearStage.length, 0);
+    releaseStart();
+    await flip;
+  } finally { h.cleanup(); }
+});
+
+test('concurrent completion ticks consume and retire conversion artifacts once', async () => {
+  const h = harness({ containerWrote: true });
+  let releaseExport;
+  const exportPending = new Promise((resolve) => { releaseExport = resolve; });
+  let exportEntered;
+  const entered = new Promise((resolve) => { exportEntered = resolve; });
+  try {
+    seedLiveStatic(h);
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+    for (const calls of [
+      h.calls.loadDataVolume, h.calls.exportDataVolume, h.calls.stopContainer, h.calls.rebind,
+      h.calls.publish, h.calls.clearStage, h.calls.startEnvironment,
+    ]) calls.length = 0;
+
+    const conversionMarker = join(h.root, 'container-data', '.elowen-conversion');
+    mkdirSync(conversionMarker, { recursive: true });
+    const originalClear = h.deps.clearConversionStage;
+    h.deps.clearConversionStage = async (...args) => {
+      await originalClear(...args);
+      rmSync(conversionMarker, { recursive: true, force: true });
+    };
+    const originalExport = h.deps.exportDataVolume;
+    let firstExport = true;
+    h.deps.exportDataVolume = async (...args) => {
+      if (firstExport) {
+        firstExport = false;
+        exportEntered();
+        await exportPending;
+      }
+      return originalExport(...args);
+    };
+    const originalRemove = h.deps.removeStaged;
+    let removals = 0;
+    h.deps.removeStaged = async (...args) => {
+      removals += 1;
+      return originalRemove(...args);
+    };
+
+    const first = h.service.reconcileCompletions();
+    await entered;
+    // A second plugin generation has a different in-memory map and can be excluded only by the durable claim.
+    const second = new RuntimeMigrationService(h.deps).reconcileCompletions();
+    releaseExport();
+    await Promise.all([first, second]);
+
+    assert.equal(h.calls.clearStage.length, 1);
+    assert.equal(h.calls.stopContainer.length, 1);
+    assert.equal(h.calls.exportDataVolume.length, 1, 'the volume archive is created once');
+    assert.match(h.calls.exportDataVolume[0].operationId, /^completion-export-/);
+    assert.equal(h.calls.rebind.length, 1);
+    assert.equal(h.calls.loadDataVolume.filter(({ seedArchive }) => seedArchive.endsWith('completion-data.tar')).length, 1,
+      'the carried archive is imported once');
+    assert.equal(h.calls.loadDataVolume.length, 2, 'the carried data and fresh seed are each imported once');
+    assert.equal(new Set(h.calls.loadDataVolume.map(({ operationId }) => operationId)).size, 2,
+      'the carried archive and fresh seed have distinct stable request ids');
+    assert.equal(h.calls.startEnvironment.length, 1);
+    assert.equal(h.calls.publish.length, 1);
+    assert.equal(removals, 1, 'the staging directory is retired once');
+    assert.equal(existsSync(conversionMarker), false);
+    assert.equal(existsSync(join(h.root, 'sites', SITE_ID, 'migration')), false);
+    assert.equal(h.binding.staging, false);
+    assert.equal(h.store.runtimeRecord(SITE_ID, 'completion'), null);
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+  } finally { h.cleanup(); }
+});
+
 // --- collisions and data survival --------------------------------------------------------------------
 
 test('two sites convert independently and neither slot sees the other', async () => {
@@ -1132,8 +1233,14 @@ test('exporting a data volume that never existed reports false instead of failin
   const h = supervisorHarness([]);
   try {
     h.store.insertSite(legacySite({ runtime: 'environment' }));
-    assert.equal(await h.supervisor.exportDataVolume(SITE_ID, join(h.root, 'sites', SITE_ID, 'out.tar')), false);
+    assert.equal(await h.supervisor.exportDataVolume(
+      SITE_ID,
+      join(h.root, 'sites', SITE_ID, 'out.tar'),
+      'stable-export-request',
+    ), false);
     assert.equal(h.calls.at(-1).action.kind, 'export-data');
+    assert.equal(h.calls.at(-1).requestId, 'stable-export-request');
+    assert.equal(h.calls.at(-1).action.artifactId, 'stable-export-request');
   } finally { h.cleanup(); }
 });
 

@@ -191,9 +191,9 @@ export class EnvironmentSupervisor {
             throw new Error(operation.error ?? `environment operation ${operation.status}`);
         return operation;
     }
-    async perform(site, action, actor, authorizedConversion = false) {
+    async perform(site, action, actor, authorizedConversion = false, requestId = randomUUID()) {
         const accountUserId = this.actor(site, actor);
-        return this.wait(await this.request(site, action, accountUserId, randomUUID(), authorizedConversion), accountUserId);
+        return this.wait(await this.request(site, action, accountUserId, requestId, authorizedConversion), accountUserId);
     }
     ownedPath(siteId, path) {
         const root = resolve(this.deps.siteDir(siteId));
@@ -296,7 +296,7 @@ export class EnvironmentSupervisor {
      *  `image` and `workspaceReadOnly` are carried over untouched. They are one fact — which fixed recipe
      *  this site runs on — and a static conversion is served by nginx out of a tree its own workers must not
      *  be able to rewrite. */
-    async rebindToSource(site) {
+    async rebindToSource(site, operationId = randomUUID()) {
         this.control();
         const previous = this.registration(site.id);
         if (!previous)
@@ -306,7 +306,7 @@ export class EnvironmentSupervisor {
             initialIntent: { desiredState: 'stopped', pendingAction: null },
         };
         if (previous.sourcePath !== binding.sourcePath) {
-            await this.perform(site, { kind: 'cleanup-stage' }, undefined, true);
+            await this.perform(site, { kind: 'cleanup-stage' }, undefined, true, `${operationId}-cleanup`);
             this.deps.store.deleteRuntimeRecord(site.id, 'handover');
             this.deps.store.deleteRuntimeRecord(site.id, 'binding');
             this.endpoints.delete(site.id);
@@ -314,8 +314,8 @@ export class EnvironmentSupervisor {
         this.saveBinding(binding);
         if (await this.provisionedContainer(site.id))
             return;
-        await this.perform(site, { kind: 'provision-image', imageKind: imageKindOf(binding) }, undefined, true);
-        await this.perform(site, { kind: 'prepare' }, undefined, true);
+        await this.perform(site, { kind: 'provision-image', imageKind: imageKindOf(binding) }, undefined, true, `${operationId}-image`);
+        await this.perform(site, { kind: 'prepare' }, undefined, true, `${operationId}-prepare`);
     }
     /** Publish the moved binding as an ordinary live environment: no staging, and the running intent a
      *  natively created site carries. The bootstrap record is settled too, because the container this
@@ -404,22 +404,22 @@ export class EnvironmentSupervisor {
         await this.perform(site, { kind: 'limits', limits: this.effectiveLimits({ ...site, ...overrides }) }, actor);
         this.deps.store.updateSite(site.id, overrides);
     }
-    async importDataVolume(id, archive) {
+    async importDataVolume(id, archive, operationId) {
         const site = this.site(id), actor = this.actor(site);
-        await this.wait(await this.artifactOperation(site, 'import-data', { kind: 'data', archivePath: this.ownedPath(id, archive) }, actor), actor);
+        await this.wait(await this.artifactOperation(site, 'import-data', { kind: 'data', archivePath: this.ownedPath(id, archive) }, actor, operationId), actor);
     }
-    async exportDataVolume(id, output) {
+    async exportDataVolume(id, output, operationId) {
         const site = this.site(id), actor = this.actor(site);
-        await this.wait(await this.artifactOperation(site, 'export-data', { kind: 'data', archivePath: this.ownedPath(id, output) }, actor), actor);
+        await this.wait(await this.artifactOperation(site, 'export-data', { kind: 'data', archivePath: this.ownedPath(id, output) }, actor, operationId), actor);
         return existsSync(output);
     }
-    async removeStaged(paths) {
-        for (const path of paths) {
+    async removeStaged(paths, operationId) {
+        for (const [index, path] of paths.entries()) {
             const site = this.deps.store.allSites().find(entry => resolve(path).startsWith(resolve(this.deps.siteDir(entry.id)) + sep));
             if (!site)
                 throw new Error('staging artifact has no owning Site');
             const actor = this.actor(site);
-            await this.wait(await this.artifactOperation(site, 'remove-artifact', { kind: 'data', archivePath: this.ownedPath(site.id, path) }, actor), actor);
+            await this.wait(await this.artifactOperation(site, 'remove-artifact', { kind: 'data', archivePath: this.ownedPath(site.id, path) }, actor, operationId ? `${operationId}-${index}` : undefined), actor);
         }
     }
     async delete(id, options = {}) {
