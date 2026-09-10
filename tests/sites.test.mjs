@@ -990,7 +990,7 @@ test('authenticated site API updates command and bind settings under the instanc
   );
 });
 
-test('site API exposes unhealthy live publications as degraded without demoting them', async () => {
+test('site API exposes an unhealthy live publication and its concrete error without demoting it', async () => {
   const store = new SitesStore(makeDb());
   store.insertSite(site({
     id: 'api-proxy', ownerUserId: 1, kind: 'proxy', target: '3000', runtime: 'static', status: 'live',
@@ -1002,15 +1002,23 @@ test('site API exposes unhealthy live publications as degraded without demoting 
     config: () => resolveConfig({}, 'https://elowen.example', 'sites.elowen.example'),
     people: () => new Map([[1, { id: 1, username: 'filip', name: 'Filip', avatar: '' }]]),
     projectSlug: () => 'demo',
+    environmentState: async () => { throw new Error('a proxy publication has no Site environment'); },
+    environmentAction: async () => null,
+    projectEnvironment: async () => ({ state: 'running', lastError: null }),
+    runtimeState: () => ({ running: false, logTail: '' }),
   });
-
-  const response = await handlers.list({
-    method: 'GET', path: '', query: {}, headers: {}, params: {}, body: async () => Buffer.from(''), json: async () => ({}),
+  const request = {
+    method: 'GET', query: {}, headers: {}, params: {}, body: async () => Buffer.from(''), json: async () => ({}),
     auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [2] },
-  });
+  };
 
+  const response = await handlers.list({ ...request, path: '' });
   assert.equal(response.body.mine[0].status, 'live');
   assert.equal(response.body.mine[0].degraded, true);
+
+  const detail = await handlers.site({ ...request, path: 'api-proxy' });
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.lastError, 'The validated container is not running');
 });
 
 // ── the tool surface ─────────────────────────────────────────────────────────────────────────────

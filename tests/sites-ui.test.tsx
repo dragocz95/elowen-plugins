@@ -538,6 +538,7 @@ const proxyDetail = {
   releases: [],
   hits: [],
   sourceDir: null,
+  lastError: 'The validated container is not running',
   runtime: null,
   environment: null,
   projectEnvironment: { state: 'running', lastError: null },
@@ -581,6 +582,7 @@ describe('publication kind', () => {
     // The sentence names the Project whose environment serves this publication.
     expect(await screen.findByText(strings.projectEnvironmentLink.replace('{project}', proxySite.projectSlug as string))).toBeVisible();
     expect(screen.getByText(strings.statusDegraded)).toBeVisible();
+    expect(screen.getByText('The validated container is not running')).toBeVisible();
     // The state is shown as the daemon reported it, under the label saying what it is.
     expect(screen.getByText(strings.environmentObservedState)).toBeVisible();
     expect(screen.getByText('running')).toBeVisible();

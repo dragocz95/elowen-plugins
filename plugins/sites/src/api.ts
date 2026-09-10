@@ -209,6 +209,9 @@ export function createApiHandlers(deps: ApiDeps) {
         })),
         hits: deps.store.hits(target.id, since),
         sourceDir: canManage(target, req.auth) ? target.sourceDir : null,
+        // The stored publication failure is detail for somebody who may repair it. It stays out of the
+        // list response and away from guests, while the derived degraded flag remains safe to list.
+        lastError: canManage(target, req.auth) ? target.lastError : null,
         // The command and the log are operational detail about a process, so they go only to somebody
         // who can act on them; a guest sees whether the site is up and nothing else.
         runtime: target.runtime !== 'command' ? null : {

@@ -186,26 +186,29 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         />
       ) : null}
       {/* Identity strip — what this site IS and the two things you do with an address, on one line. */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <Badge tone={site.degraded ? 'warning' : STATUS_TONE[site.status]}>
-            {site.degraded ? strings.statusDegraded : strings[STATUS_STRING[site.status]]}
-          </Badge>
-          <Badge tone={VISIBILITY_TONE[site.visibility]}>
-            <VisibilityIcon size={10} aria-hidden className="mr-1" />
-            {strings[VISIBILITY_STRING[site.visibility]]}
-          </Badge>
-          {site.projectSlug ? <Badge tone="muted">{site.projectSlug}</Badge> : null}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <Badge tone={site.degraded ? 'warning' : STATUS_TONE[site.status]}>
+              {site.degraded ? strings.statusDegraded : strings[STATUS_STRING[site.status]]}
+            </Badge>
+            <Badge tone={VISIBILITY_TONE[site.visibility]}>
+              <VisibilityIcon size={10} aria-hidden className="mr-1" />
+              {strings[VISIBILITY_STRING[site.visibility]]}
+            </Badge>
+            {site.projectSlug ? <Badge tone="muted">{site.projectSlug}</Badge> : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <IconButton icon={Copy} label={strings.copyLink} disabled={site.url === null} onClick={copyAddress} />
+            <IconButton
+              icon={ExternalLink}
+              label={strings.openSite}
+              disabled={site.status !== 'live' || site.url === null}
+              onClick={() => { if (site.url) window.open(site.url, '_blank', 'noopener,noreferrer'); }}
+            />
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <IconButton icon={Copy} label={strings.copyLink} disabled={site.url === null} onClick={copyAddress} />
-          <IconButton
-            icon={ExternalLink}
-            label={strings.openSite}
-            disabled={site.status !== 'live' || site.url === null}
-            onClick={() => { if (site.url) window.open(site.url, '_blank', 'noopener,noreferrer'); }}
-          />
-        </div>
+        {detail.data?.lastError ? <p className="text-[11px] text-destructive">{detail.data.lastError}</p> : null}
       </div>
 
       <div className="flex flex-col gap-1">

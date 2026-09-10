@@ -97,6 +97,8 @@ export interface SiteDetailResponse {
   releases: ReleaseView[];
   hits: { day: string; count: number }[];
   sourceDir: string | null;
+  /** The stored failure behind a degraded or failed publication, disclosed only to a manager. */
+  lastError: string | null;
   runtime: {
     running: boolean;
     startCommand: string | null;
