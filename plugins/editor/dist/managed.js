@@ -10,6 +10,10 @@ const RANGE_LIMIT = 8 * 1024 * 1024;
  *  does not export it yet. */
 const GUEST_CHUNK_BYTES = 512 * 1024;
 const IGNORE = new Set(['.git', 'node_modules', '.next', 'dist', '.turbo', 'coverage', '.cache']);
+/** The tree view's own node bound. The guest ceiling is one higher, so a tree of exactly this many nodes
+ *  answers complete while one node more comes back `truncated` — the view can tell the two apart without
+ *  counting. */
+const LIST_NODE_CAP = 10000;
 class InputError extends Error {
     status;
     guestMessage;
@@ -38,6 +42,15 @@ let activeConversions = 0;
  *  bookkeeping for a provider that no longer exists. */
 const managedUploadSessions = new WeakMap();
 const MAX_MANAGED_UPLOADS = 64;
+/** The conflict token a version-checked mutation must carry. `stat` and `read` always compute one; the
+ *  field is optional on the guest type because a metadata-only LISTING does not hash contents. Treating an
+ *  absent version as `null` here would read as "fresh destination" and turn a compare-and-swap into a
+ *  blind overwrite, so it fails loudly instead. */
+function requireVersion(entry) {
+    if (typeof entry.version !== 'string')
+        throw new Error('guest stat returned no content version');
+    return entry.version;
+}
 /** Editor paths remain workspace-relative. The provider resolves symlinks inside the guest. */
 function guestPath(value) {
     if (typeof value !== 'string' || !value || value.includes('\0') || value.includes('\\'))
@@ -129,7 +142,7 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
         const stat = await files({ kind: 'stat', path, followSymlinks: true });
         if (stat.kind !== 'stat')
             throw new Error('invalid guest result');
-        return stat.entry ? stat.entry.version : null;
+        return stat.entry ? requireVersion(stat.entry) : null;
     };
     /** Carries one browser chunk into the canonical upload protocol: begins the guest handle on the
      *  first chunk (CAS against a fresh destination, or against the version seen here for an overwrite),
@@ -174,39 +187,127 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
     };
     try {
         if (mount === '/projects/:id/files') {
-            const start = req.query.path ? guestPath(req.query.path) : '/workspace';
+            // ONE guest traversal answers the whole view. Driving it from here cost a `list` per directory and
+            // each of those is a container execution, so a project root of four directories paid five crossings
+            // — three to ten seconds against roughly 750 ms for a single directory. The guest walks the tree
+            // itself and returns the same shape in one crossing.
+            const explicit = typeof req.query.path === 'string' && req.query.path !== '';
+            const start = explicit ? guestPath(req.query.path) : '/workspace';
+            // Expanding ONE directory asks for its children and nothing below them, which is `maxDepth: 0`; the
+            // project root keeps the eight levels this view has always shown. `skip` omits an ignored directory
+            // entirely rather than descending into it, which is what the client-side filter did before — and it
+            // applies to CHILDREN only, so asking for an ignored directory by name still expands it.
+            const result = await files({
+                kind: 'walk', path: start, limit: LIST_NODE_CAP, maxDepth: explicit ? 0 : 8, skip: [...IGNORE],
+            });
+            if (result.kind !== 'walk')
+                throw new Error('invalid guest result');
+            // `rootKind` answers the existence question the old separate stat used to, and the two failures it
+            // names are different: a path that is gone is not an empty folder, and a file is not a directory —
+            // the walk would otherwise answer from the file's PARENT, which must never be rendered as the
+            // requested folder.
+            if (result.rootKind === null)
+                throw new InputError('path does not exist', 404);
             const nodes = [];
-            const visit = async (path, depth) => {
-                // Pages drive on the guest's `nextCursor`; the entry cap stays as this view's own bound.
+            const prefix = start === '/' ? '/' : `${start}/`;
+            const hidden = (path) => IGNORE.has(posix.basename(path)) || path.endsWith('.elowen-upload');
+            /** Levels below the directory that was asked for, counted the way the recursive listing counted
+             *  them: a direct child is 0, so `< 8` is the same bound it always applied. */
+            const depthOf = (path) => path.slice(prefix.length).split('/').length - 1;
+            /** One link the walk reported, resolved to the entry it points at, or null when it points nowhere.
+             *  The walk gives the link's own facts and never its target's, so this stat is the only way to know
+             *  what to show — which is what the per-directory listing did per link too. */
+            const resolveLink = (path, size, mtime) => followEntry({ path, kind: 'symlink', size, modifiedAt: new Date(mtime).toISOString() });
+            /** The per-directory listing, kept for what lies BEHIND a symlink and nothing else. The walk
+             *  reports a link but never follows it, so a linked directory's contents have to be listed through
+             *  the link path itself, which `list` resolves. A tree without links never reaches this; one with
+             *  links pays the old cost for the linked subtrees alone. */
+            const expandLink = async (path, depth) => {
                 let cursor;
                 do {
-                    const result = await files({ kind: 'list', path, limit: 1000, cursor });
-                    if (result.kind !== 'list')
+                    const page = await files({ kind: 'list', path, limit: 1000, cursor });
+                    if (page.kind !== 'list')
                         throw new Error('invalid guest result');
-                    if (nodes.length + result.entries.length > 10000)
+                    if (nodes.length + page.entries.length > LIST_NODE_CAP)
                         throw new InputError('directory listing is too large; select a subdirectory');
-                    for (const original of result.entries) {
+                    for (const original of page.entries) {
                         const clean = guestPath(original.path);
                         if (posix.dirname(clean) !== path)
                             throw new Error('invalid guest entry');
                         // Filter before following: a guest probe per symlink is wasted on entries that are dropped anyway.
-                        if (IGNORE.has(posix.basename(clean)) || clean.endsWith('.elowen-upload'))
+                        if (hidden(clean))
                             continue;
                         const entry = await followEntry(original);
                         if (!entry)
                             continue;
+                        const child = posix.relative('/workspace', clean);
                         if (entry.kind === 'directory') {
-                            nodes.push({ path: posix.relative('/workspace', clean), type: 'dir' });
-                            if (!req.query.path && depth < 8)
-                                await visit(clean, depth + 1);
+                            nodes.push({ path: child, type: 'dir' });
+                            // The depth bound is also what terminates a link that points back at its own ancestor.
+                            // Expanding ONE directory never descends, whatever it is reached through.
+                            if (!explicit && depth < 8)
+                                await expandLink(clean, depth + 1);
                         }
                         else if (entry.kind === 'file')
-                            nodes.push({ path: posix.relative('/workspace', clean), type: 'file', size: entry.size });
+                            nodes.push({ path: child, type: 'file', size: entry.size });
                     }
-                    cursor = result.nextCursor ?? undefined;
+                    cursor = page.nextCursor ?? undefined;
                 } while (cursor);
             };
-            await visit(start, 0);
+            // The root ITSELF can be a link: the tree view expands a linked folder by name, and always could.
+            // The walk answers a symlink root from its PARENT, so its entries describe a different directory
+            // and are discarded here — the link is resolved and read through the link path instead, exactly as
+            // the per-directory listing read it.
+            if (result.rootKind === 'symlink') {
+                const target = await resolveLink(start, 0, 0);
+                if (!target)
+                    throw new InputError('path does not exist', 404);
+                if (target.kind !== 'directory')
+                    throw new InputError('not a directory');
+                await expandLink(start, 0);
+                return { body: nodes };
+            }
+            // A file is not a directory, and the walk would otherwise answer for its PARENT, which must never
+            // be rendered as the requested folder.
+            if (result.rootKind !== 'directory')
+                throw new InputError('not a directory');
+            // The cap is this view's own bound and it stays an error rather than a silent partial tree: a
+            // truncated answer rendered as a complete one is the one outcome the caller cannot detect.
+            if (result.truncated)
+                throw new InputError('directory listing is too large; select a subdirectory');
+            for (const entry of result.entries) {
+                const clean = guestPath(entry.path);
+                // Entries are absolute and must lie under the directory that was asked for. `guestPath` already
+                // confines them to the workspace; this keeps a walk from contributing anything outside its root.
+                if (!clean.startsWith(prefix))
+                    throw new Error('invalid guest entry');
+                // `skip` covers the ignored directories; the upload suffix is a filename rule the guest has no
+                // notion of, and the basename check stays as the net for both.
+                if (hidden(clean))
+                    continue;
+                const path = posix.relative('/workspace', clean);
+                if (entry.kind !== 'symlink') {
+                    nodes.push(entry.kind === 'directory' ? { path, type: 'dir' } : { path, type: 'file', size: entry.size });
+                    continue;
+                }
+                // A link is shown as what it points AT, which is what this view has always shown: its target's
+                // kind and its target's size, a dangling one dropped entirely. The walk gives the link's own
+                // facts, so resolving it stays one stat per link, exactly as before.
+                const target = await resolveLink(clean, entry.size, entry.mtime);
+                if (!target)
+                    continue;
+                if (target.kind === 'directory') {
+                    nodes.push({ path, type: 'dir' });
+                    // Discovered at `depthOf`, expanded one level deeper — the same two counts the recursive
+                    // listing kept, so a linked subtree bottoms out at the level a real one does.
+                    if (!explicit && depthOf(clean) < 8)
+                        await expandLink(clean, depthOf(clean) + 1);
+                }
+                else if (target.kind === 'file')
+                    nodes.push({ path, type: 'file', size: target.size });
+            }
+            if (nodes.length > LIST_NODE_CAP)
+                throw new InputError('directory listing is too large; select a subdirectory');
             return { body: nodes };
         }
         if (mount === '/projects/:id/file' && method === 'GET') {
@@ -316,7 +417,7 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
             if (source.entry.kind === 'directory')
                 await execute('python3', ['-c', 'import shutil,sys; shutil.rmtree(sys.argv[1])', path]);
             else {
-                const result = await files({ kind: 'remove', path, expectedVersion: source.entry.version });
+                const result = await files({ kind: 'remove', path, expectedVersion: requireVersion(source.entry) });
                 if (result.kind !== 'remove' || !result.removed)
                     throw new Error('guest removal was not completed');
             }
@@ -333,7 +434,7 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
                 if (source.kind !== 'stat' || !source.entry)
                     throw new InputError('source does not exist');
                 await execute('mkdir', ['-p', '--', posix.dirname(to)]);
-                const result = await files({ kind: 'rename', path: from, destination: to, expectedVersion: source.entry.version });
+                const result = await files({ kind: 'rename', path: from, destination: to, expectedVersion: requireVersion(source.entry) });
                 if (result.kind !== 'rename')
                     throw new Error('invalid guest result');
                 return { body: { ok: true } };

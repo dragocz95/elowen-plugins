@@ -48,6 +48,31 @@ async function fixture(options: { office?: boolean } = { office: true }) {
       const path = guest(operation.path);
       if (operation.kind === 'mkdir') await mkdir(path);
       if (operation.kind === 'write' && operation.expectedVersion === null) await writeFile(path, Buffer.from(operation.base64, 'base64'), { flag: 'wx' });
+      if (operation.kind === 'walk') {
+        // The guest traversal, per its contract: depth first in sorted order, `skip` applied to CHILDREN
+        // only, and a symlink counted but never emitted and never descended into.
+        const skip = new Set(operation.skip ?? []);
+        const maxDepth = operation.maxDepth ?? 64;
+        const entries: { path: string; kind: 'file' | 'directory'; size: number; mtime: number }[] = [];
+        const visit = async (dir: string, depth: number): Promise<void> => {
+          for (const name of (await readdir(dir)).sort()) {
+            const child = join(dir, name);
+            const info = await lstat(child);
+            const guestChild = '/workspace' + child.slice(root.length);
+            // A link is REPORTED with its own size and time and never descended into.
+            if (info.isSymbolicLink()) entries.push({ path: guestChild, kind: 'symlink', size: info.size, mtime: info.mtimeMs });
+            else if (info.isDirectory()) {
+              if (skip.has(name)) continue;
+              entries.push({ path: guestChild, kind: 'directory', size: info.size, mtime: info.mtimeMs });
+              if (depth < maxDepth) await visit(child, depth + 1);
+            } else if (info.isFile()) entries.push({ path: guestChild, kind: 'file', size: info.size, mtime: info.mtimeMs });
+          }
+        };
+        const info = await lstat(path).catch(() => null);
+        if (!info) return { kind: 'walk', root: operation.path, rootKind: null, entries: [], truncated: false };
+        if (info.isDirectory()) await visit(path, 0);
+        return { kind: 'walk', root: operation.path, rootKind: info.isDirectory() ? 'directory' : info.isSymbolicLink() ? 'symlink' : info.isFile() ? 'file' : 'other', entries, truncated: false };
+      }
       if (operation.kind === 'list') {
         const entries = await Promise.all((await readdir(path)).map(async name => {
           const info = await lstat(join(path, name));
@@ -137,6 +162,8 @@ describe('managed editor compound operations with an executable provider fixture
       await symlink('missing', join(f.root, 'broken'));
       const listing = await f.call('files');
       expect(listing.body).toEqual(expect.arrayContaining([{ path: 'linked', type: 'dir' }, { path: 'linked/a.ts', type: 'file', size: 15 }, { path: 'linked.ts', type: 'file', size: 15 }]));
+      // The dangling link resolves to nothing and is dropped, exactly as it always was.
+      expect((listing.body as { path: string }[]).map(node => node.path)).not.toContain('broken');
       const result = await f.call('raw', 'GET', 'linked.ts');
       expect(Buffer.from(result.body as Uint8Array).toString()).toBe('initial content');
       expect((await f.call('raw', 'GET', 'linked')).status).toBe(415);
