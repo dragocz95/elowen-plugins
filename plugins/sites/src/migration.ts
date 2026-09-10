@@ -986,11 +986,17 @@ export class RuntimeMigrationService {
 
         current = this.deps.store.runtimeMigration(siteId)!;
         if (current.rollbackStage === 'serving') {
-          try { await this.deps.discardContainer(siteId, { removeBroker: true }); }
+          const workspace = stagedWorkspace(this.deps, siteId);
+          if (existsSync(workspace)) await this.deps.removeStaged([workspace]);
+          this.deps.discardArtifacts(siteId);
+          try { await this.deps.discardContainer(siteId, { removeBroker: false }); }
           catch (error) { if (!environmentAlreadyDeleted(error)) throw error; }
           this.deps.store.recordRollbackProgress(siteId, 'discarded');
         }
       } else {
+        const workspace = stagedWorkspace(this.deps, siteId);
+        if (existsSync(workspace)) await this.deps.removeStaged([workspace]);
+        this.deps.discardArtifacts(siteId);
         const ownsBroker = migration.brokerPrepared && !this.deps.legacyRunning(siteId);
         try { await this.deps.discardContainer(siteId, { removeBroker: ownsBroker }); }
         catch (error) { if (!environmentAlreadyDeleted(error)) throw error; }
@@ -1003,8 +1009,6 @@ export class RuntimeMigrationService {
         }
       }
 
-      await this.deps.removeStaged([stagedWorkspace(this.deps, siteId)]);
-      this.deps.discardArtifacts(siteId);
       this.deps.store.clearRuntimeMigration(siteId);
       return this.status(siteId);
     } catch (error) {

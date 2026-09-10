@@ -126,7 +126,7 @@ const harness = (options = {}) => {
   const calls = {
     prepareContainer: [], startEnvironment: [], discardContainer: [], stopLegacy: [], startLegacy: [],
     resolveLegacyData: [], loadDataVolume: [], exportDataVolume: [], stopContainer: [],
-    prepareBroker: [], discard: [], relaxStatic: [], rebind: [], publish: [], clearStage: [], restorePublication: [],
+    prepareBroker: [], discard: [], rollbackCleanup: [], relaxStatic: [], rebind: [], publish: [], clearStage: [], restorePublication: [],
   };
   // The persisted environment binding, as the supervisor keeps it: the completion is what moves it off
   // the staged copy, so a test can read where the container would actually be mounted.
@@ -135,6 +135,8 @@ const harness = (options = {}) => {
   // it as a real filesystem object rather than a recorded call.
   const brokerDirOf = (siteId) => join(root, 'broker', siteId);
   let containerLive = false;
+  let containerPrepared = false;
+  let environmentPresent = false;
   let conversionStagePresent = false;
   let discardAttempted = false;
   let restoreAttempted = false;
@@ -182,6 +184,8 @@ const harness = (options = {}) => {
         throw new Error(`podman create failed (125): statfs ${brokerDirOf(input.site.id)}: no such file or directory`);
       }
       calls.prepareContainer.push({ siteId: input.site.id, workspace: input.workspace, image: input.recipe.image });
+      containerPrepared = true;
+      environmentPresent = true;
       binding.sourcePath = input.workspace;
       binding.staging = true;
       if (options.prepareFails) throw new Error('container build exploded');
@@ -239,17 +243,26 @@ const harness = (options = {}) => {
     discardContainer: async (siteId, opts) => {
       calls.discardContainer.push(siteId);
       calls.discard.push({ siteId, removeBroker: opts?.removeBroker });
+      calls.rollbackCleanup.push(`discard:${String(opts?.removeBroker)}`);
       if (opts?.removeBroker) rmSync(brokerDirOf(siteId), { recursive: true, force: true });
       if (options.discardDeletesThenFailsOnce) {
         if (discardAttempted) throw new Error('The environment has been deleted');
         discardAttempted = true;
         containerLive = false;
+        environmentPresent = false;
         throw new Error('client request timed out after the environment was deleted');
       }
       if (options.discardFails) throw new Error('discard exploded');
       containerLive = false;
+      environmentPresent = false;
     },
-    removeStaged: plainRemove,
+    removeStaged: async (paths) => {
+      if (containerPrepared) calls.rollbackCleanup.push('remove-staged');
+      if (options.removeStagedRequiresContainer && containerPrepared && !environmentPresent) {
+        throw new Error('The environment has been deleted');
+      }
+      plainRemove(paths);
+    },
     startLegacyRuntime: async (site) => {
       calls.startLegacy.push(site.id);
       // The real supervisor only resolves once the endpoint answers, so a rejection here is what a
@@ -980,6 +993,45 @@ test('rollback restores serving before the container is discarded, and clears th
     // Releases are the thing static serving resumes from, so a rollback must not have touched them.
     assert.equal(h.store.releases(SITE_ID).length, 1);
     assert.equal(existsSync(h.deps.releaseDir(SITE_ID, RELEASE_ID)), true);
+  } finally { h.cleanup(); }
+});
+
+test('flipped rollback removes staged files while the environment still exists and leaves legacy serving', async () => {
+  const h = harness({ removeStagedRequiresContainer: true });
+  try {
+    seedLiveStatic(h);
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+
+    await h.service.rollback(SITE_ID);
+
+    assert.deepEqual(h.calls.rollbackCleanup, ['remove-staged', 'discard:false']);
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal(h.store.siteById(SITE_ID).runtime, 'static');
+    assert.equal(h.store.siteById(SITE_ID).status, 'live');
+  } finally { h.cleanup(); }
+});
+
+test('a discard failure after serving keeps legacy live and retry converges', async () => {
+  const h = harness({ discardDeletesThenFailsOnce: true });
+  try {
+    seedLiveStatic(h);
+    await h.service.prepare(SITE_ID, 'release-copy');
+    writeFileSync(join(h.brokerDirOf(SITE_ID), 'app.sock'), 'LEGACY-LIVE');
+    await h.service.flip(SITE_ID);
+
+    await assert.rejects(() => h.service.rollback(SITE_ID), /timed out/);
+
+    assert.equal(h.store.siteById(SITE_ID).runtime, 'static');
+    assert.equal(h.store.siteById(SITE_ID).status, 'live');
+    assert.equal(readFileSync(join(h.brokerDirOf(SITE_ID), 'app.sock'), 'utf8'), 'LEGACY-LIVE');
+    assert.equal(h.store.runtimeMigration(SITE_ID).rollbackStage, 'serving');
+
+    await h.service.rollback(SITE_ID);
+
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal(h.store.siteById(SITE_ID).status, 'live');
+    assert.equal(readFileSync(join(h.brokerDirOf(SITE_ID), 'app.sock'), 'utf8'), 'LEGACY-LIVE');
   } finally { h.cleanup(); }
 });
 
