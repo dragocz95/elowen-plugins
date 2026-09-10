@@ -980,7 +980,7 @@ test('authenticated site API updates command and bind settings under the instanc
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', runtimeAvailable = false, projectRef } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', runtimeAvailable = false, projectRef, workDir, projectFiles } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db);
   const registered = new Map();
@@ -1000,10 +1000,12 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     currentContributionUserId: () => 1,
     currentIdentity: () => ({ elowenUserId: 1 }),
     currentSessionId: () => 'session-1',
-    workDir: () => join(dir, 'project', 'deep', 'nested'),
+    workDir: () => workDir ?? join(dir, 'project', 'deep', 'nested'),
     assertPathAllowed: (path) => path,
     currentAccess: () => ({ projectIds: [7], admin: false, owner: false, accountUserId: 1, projectRef }),
-    control: () => runtimeAvailable ? { activeWorkspace: () => null } : undefined,
+    control: () => (runtimeAvailable || projectFiles
+      ? { activeWorkspace: () => null, ...(projectFiles ? { projectFiles } : {}) }
+      : undefined),
     host: { stores: () => ({ projects: { list: () => roots, get: id => roots.find(project => project.id === id) } }) },
   };
   registerTools({
@@ -1048,6 +1050,30 @@ test('SiteCreate refuses a file-published site with no address before creating a
   await assert.rejects(() => harness.call('SiteCreate', { title: 'No address here' }), /HTTPS domain/);
   assert.deepEqual(harness.store.allSites(), [], 'a refused create must not persist a site row');
   assert.equal(existsSync(join(harness.dir, 'project', 'sites')), false, 'not even the source folder may appear');
+});
+
+test('SiteCreate builds a managed Project site folder under the guest root the Project is mounted at', async (t) => {
+  // A managed Project is mounted at its own name (`/<slug>`), never at `/workspace`: that name is
+  // reserved and no such directory exists in the Project container, so a folder built under it landed
+  // outside the Project the agent was told to write into, and the publish export looked in the Project
+  // root for a tree that was never there. The turn's working directory IS the Project guest root (core's
+  // `managedGuestRoot` in src/shared/projectExecution.ts, resolved by `effectiveTurnWorkDir`).
+  const created = [];
+  const harness = toolHarness(t, {
+    projects: [{ id: 7, slug: 'Kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
+    projectRef: { kind: 'managed', projectId: 7 },
+    workDir: '/kolin',
+    projectFiles: async ({ operation }) => {
+      created.push(operation.path);
+      return { kind: 'mkdir', entry: { path: operation.path, kind: 'directory', sizeBytes: 0, modifiedAt: '2026-09-10T00:00:00.000Z' } };
+    },
+  });
+
+  const result = await harness.call('SiteCreate', { title: 'Kontrolní panel' });
+  const expected = `/kolin/sites/${result.details.slug}`;
+  assert.deepEqual(created, [expected], 'the source folder is created inside the Project root');
+  assert.equal(harness.store.siteById(result.details.siteId).sourceDir, expected);
+  assert.match(result.content[0].text, new RegExp(expected), 'and the agent is told to write there');
 });
 
 test('SitePublish refuses a removed Project without interpreting its guest source as a host path', async (t) => {

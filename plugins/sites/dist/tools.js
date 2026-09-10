@@ -57,11 +57,20 @@ const slugify = (title) => {
  *  The active Sandbox workspace comes first because it is a real Git worktree: the source is versioned,
  *  committable and publishable like anything else the agent is working on. The bound Project is the
  *  fallback. There is deliberately no third option — `defaultCwd()` answers with an arbitrary allowed
- *  root, or the daemon's own working directory, and neither is a place the caller chose. */
+ *  root, or the daemon's own working directory, and neither is a place the caller chose.
+ *
+ *  A managed Project has no host path to fall back to: it is mounted inside its own container at its own
+ *  name (`/<slug>`, core's `managedGuestRoot` in `src/shared/projectExecution.ts`), and the turn's working
+ *  directory IS that root. `/workspace` is a reserved name and no such directory exists there, so a folder
+ *  built under it landed outside the Project: the agent was told to write into a tree the Project tools
+ *  and the publish export never looked at. */
 function resolveSourceRoot(ctx, slug) {
     const selected = ctx.currentAccess().projectRef;
     if (selected?.kind === 'managed') {
-        return { dir: posix.join('/workspace/sites', slug), projectId: selected.projectId };
+        const root = ctx.workDir();
+        if (!root)
+            throw new ToolError('This turn has no Project directory, so the site has nowhere to put its source.');
+        return { dir: posix.join(root, 'sites', slug), projectId: selected.projectId };
     }
     const workDir = ctx.workDir();
     if (!workDir) {
