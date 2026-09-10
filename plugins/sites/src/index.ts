@@ -264,6 +264,11 @@ export function register(published: PluginContext): void {
     brokerDirectoryExists: (siteId) => environment.brokerDirectoryExists(siteId),
     prepareBrokerDirectory: async (siteId) => { await environment.prepareBrokerDirectory(siteId); },
     removeStaged: (paths) => environment.removeStaged(paths),
+    // The completion moves the container onto the site's own source folder through the SAME supervisor
+    // that created it, so the rebuilt container is created, sized and started exactly like any other.
+    rebindToSource: (site) => environment.rebindToSource(site),
+    publishBinding: (site) => environment.publishBinding(site),
+    clearConversionStage: (site, stageDir) => environment.clearConversionStage(site, stageDir),
 
     // The sandbox is the only authority on where a confined site keeps its data: `runtime.ts` blocks HOME
     // from `.env`, so the value can come from nowhere else. Asking for the same preparation the legacy
@@ -322,6 +327,24 @@ export function register(published: PluginContext): void {
     artifactPath: (siteId, name) => dataSync.archivePath(siteId, name),
     discardArtifacts: (siteId) => dataSync.discardArtifacts(siteId),
   });
+
+  /** Finish the conversions a restart cut short after their flip.
+   *
+   *  Such a site is up and serving, but out of a staged copy nobody edits: agents write to the Project
+   *  folder and see nothing change. An operator has no way to notice that from the outside, so the sweep
+   *  that already watches every environment finishes the last step itself. It runs AFTER the environment
+   *  reconcile in the same tick, because completing demands the site answers and the endpoint the probe
+   *  uses is adopted by that reconcile. */
+  const settleConversions = async (): Promise<void> => {
+    if (!isDaemonProcess()) return;
+    for (const settled of await migration.reconcileCompletions()) {
+      if (settled.lastError === null) {
+        ctx.logger.info(`site conversion ${settled.siteId} completed; its Project folder is now the served workspace`);
+        continue;
+      }
+      ctx.logger.warn(`site conversion ${settled.siteId} could not be completed: ${settled.lastError}`);
+    }
+  };
 
   /** Deletion is two-phase and crash-safe. The durable marker removes access immediately; only the
    * authoritative daemon touches processes and plugin-owned files. A forked tool runner stops after the
@@ -548,6 +571,7 @@ export function register(published: PluginContext): void {
       start: async () => {
         await supervisor.reconcile();
         await environment.reconcile();
+        await settleConversions();
       },
       // Command runtimes retain their existing reload behavior. Persistent environments detach only and
       // remain in Podman's user scope across plugin reloads and daemon restarts.
@@ -596,6 +620,7 @@ export function register(published: PluginContext): void {
   ctx.registerInterval('reconcile-site-runtimes', async () => {
     await supervisor.reconcile();
     await environment.reconcile();
+    await settleConversions();
   }, 2_000);
 
   // A publish almost always arrives from a forked tool runner, which has no gateway of its own and never

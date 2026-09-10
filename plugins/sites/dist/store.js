@@ -1,5 +1,5 @@
 export const VISIBILITIES = ['private', 'project', 'authenticated', 'public'];
-const asMigrationStage = (value) => value === 'prepared' || value === 'flipped' ? value : 'preparing';
+const asMigrationStage = (value) => value === 'prepared' || value === 'flipped' || value === 'completing' ? value : 'preparing';
 const asConvertibleRuntime = (value) => value === 'static' || value === 'command' || value === 'php' ? value : null;
 const asRollbackStage = (value) => value === 'quiescing' || value === 'exported' || value === 'discarded' || value === 'restored' ? value : 'none';
 /** Which runtime a conversion currently holds down, so that periodic reconciliation leaves it alone.
@@ -14,8 +14,9 @@ const asRollbackStage = (value) => value === 'quiescing' || value === 'exported'
  *    `command` and `live`, so the site is in `liveCommandSites()` and looks like one that simply is not
  *    running. Restarting it puts a second writer on the tree being captured and a second holder on the
  *    broker directory the container is being built around.
- *  - `environment`: a rollback quiesced the container to export its volume. The row still says
- *    `environment` and `live`, so reconcile reads a stopped container it believes should be up.
+ *  - `environment`: a rollback quiesced the container to export its volume, or a completion is moving the
+ *    container off the staged copy onto the site's own source folder. The row still says `environment`
+ *    and `live`, so reconcile reads a stopped container it believes should be up.
  *
  *  A `flipped` conversion whose rollback has not started owns nothing: the container is genuinely meant
  *  to be running and its own supervisor should keep it that way.
@@ -35,6 +36,12 @@ const asRollbackStage = (value) => value === 'quiescing' || value === 'exported'
  *  automatic fallback, so the container stays down until the rollback is resumed and finishes it. */
 const suspensionOf = (row) => {
     const stage = asMigrationStage(row.stage);
+    // A completion stops the container, destroys it and builds a new one on the site's source folder. For
+    // that whole window the row still says `environment` and `live`, so the ownership has to be held even
+    // after a failure: the volume lives in an archive until the new container is seeded from it, and a
+    // reconcile that started something in between would serve from a volume nobody restored yet.
+    if (stage === 'completing')
+        return 'environment';
     if (stage !== 'flipped')
         return row.legacy_stopped === 1 && row.last_error === null ? 'legacy' : null;
     const rollback = asRollbackStage(row.rollback_stage);
@@ -893,6 +900,24 @@ export class SitesStore {
       UPDATE p_sites_runtime_migrations SET stage = ?
       WHERE site_id = ? AND stage = ? AND last_error IS NULL
     `).run(to, siteId, from).changes === 1;
+    }
+    /** Claim a flipped conversion for its completion, in one compare-and-set.
+     *
+     *  `resumableError` is the marker boot recovery writes onto a conversion a restart interrupted while it
+     *  was already flipped. That is not a failed flip: the site is up and serving as an environment, and the
+     *  only thing missing is the completion nobody got to run. Accepting exactly that one message keeps such
+     *  a slot completable while every other recorded failure still refuses, and clearing it in the same
+     *  statement means the completion owns the slot from here on.
+     *
+     *  A slot already `completing` is retaken whatever it recorded. By then the staged container is gone and
+     *  the site's data lives in an archive this operation wrote, so finishing is the only direction that
+     *  ends with a serving site; refusing the retry would strand it. */
+    beginRuntimeCompletion(siteId, resumableError) {
+        return this.db.prepare(`
+      UPDATE p_sites_runtime_migrations SET stage = 'completing', last_error = NULL
+      WHERE site_id = ?
+        AND (stage = 'completing' OR (stage = 'flipped' AND (last_error IS NULL OR last_error = ?)))
+    `).run(siteId, resumableError).changes === 1;
     }
     /** Release the slot with a reason. The row SURVIVES: it still holds the only record of what the site
      *  used to be, which a rollback needs and a retry re-claims. */

@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
-import { closeSync, constants, cpSync, existsSync, mkdirSync, openSync, readdirSync, readSync, rmSync, statSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { closeSync, constants, cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, rmSync, statSync, utimesSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 
 /** Read size for hashing one tree entry — the digest costs the same memory whatever it is hashing. */
 const DIGEST_CHUNK_BYTES = 4 * 1048576;
 
 import type { LegacyDataSelection } from './dataSync.js';
-import { appUnit, auditStaticTree, provisionScript, type AppRecipe, type RecipeKind } from './recipe.js';
+import { appUnit, auditStaticTree, CONVERSION_STAGE, provisionScript, type AppRecipe, type RecipeKind } from './recipe.js';
 import type { ConvertibleRuntime, RuntimeMigration, Site, SitesStore } from './store.js';
 
 /** Converting a live site's runtime in place, one site at a time, resumable after a crash.
@@ -100,6 +100,18 @@ export interface MigrationDeps {
   /** Remove a path the container may have written into, through the user namespace that owns it. */
   removeStaged(paths: readonly string[]): Promise<void>;
 
+  // --- completion. Retiring the staged copy, so a converted site ends up with ONE working copy. ---
+
+  /** Rebuild the container on `site.sourceDir` and leave it NOT running, ready to be seeded. The staged
+   *  container and its volume are gone when this resolves, which is why the volume is exported first. */
+  rebindToSource(site: Site): Promise<void>;
+  /** Turn the moved binding into an ordinary live one: no staging, running intent. Reached only after the
+   *  rebuilt container has answered. */
+  publishBinding(site: Site): void;
+  /** Delete the conversion's spent seed directory from the persistent volume, from inside the container
+   *  that is still running. */
+  clearConversionStage(site: Site, stageDir: string): Promise<void>;
+
   // --- data movement. Absent only for a site with nothing outside its release. ---
 
   /** Ask the SANDBOX where this site's confined process keeps its data, and the RECIPE which subtrees
@@ -155,6 +167,26 @@ export interface MigrationStatus {
 export const stagedWorkspace = (deps: Pick<MigrationDeps, 'siteDir'>, siteId: string): string =>
   join(deps.siteDir(siteId), 'migration', 'workspace');
 
+/** Everything one conversion wrote under the site's own plugin directory: the staged copy, the recipe,
+ *  the secrets it lifted out and every archive it packed. Removed as one tree when the site no longer has
+ *  a staged copy to serve from. */
+const migrationDirectory = (deps: Pick<MigrationDeps, 'siteDir'>, siteId: string): string =>
+  join(deps.siteDir(siteId), 'migration');
+
+/** What boot recovery writes onto a conversion a restart interrupted. Built in one place because a
+ *  completion has to RECOGNISE it: a conversion interrupted after its flip is not a failed conversion,
+ *  it is a finished one whose last step nobody got to run. */
+export const interruptedByRestart = (stage: RuntimeMigration['stage']): string =>
+  `interrupted by a restart while ${stage}; re-claim to retry or roll back`;
+
+/** How far a completion got, kept on the site's runtime records rather than in memory: it destroys the
+ *  staged container and rebuilds it, so a driver that dies half way has to be able to pick the operation
+ *  up rather than start it again from a volume that no longer exists. */
+const COMPLETION_RECORD = 'completion';
+/** The export of the persistent volume, taken before the staged container is retired and read back once
+ *  its replacement exists. While this file is the only copy of the site's data, nothing removes it. */
+const COMPLETION_ARCHIVE = 'completion-data.tar';
+
 /** A stable digest over a directory tree: relative path, size and bytes of every file, in sorted order.
  *
  *  Sorted because readdir order is filesystem-dependent, and a digest that changed between two identical
@@ -193,6 +225,65 @@ export function digestTree(root: string): string {
   };
   if (existsSync(root)) walk(root);
   return hash.digest('hex');
+}
+
+/** The mount point the runtime binds an empty file over so a converted site has no Git repository of its
+ *  own inside its workspace. It exists on the host because the bind source lives in the mounted tree, and
+ *  copying it into a Project folder would drop an unreadable `.git` file into somebody's repository. */
+const GIT_STUB_ENTRY = '.git';
+
+/** Fold the staged workspace back into the site's own source folder, so the two become one working copy.
+ *
+ *  ADDITIVE, NEVER DESTRUCTIVE. A file that exists only in the source folder is left exactly where it is:
+ *  the staged copy came from a published release, so anything the author wrote since is newer work, not a
+ *  deletion the container made. A file the container changed is newer than the one in the source folder
+ *  and replaces it; anything else is left alone. The comparison is the modification time, because that is
+ *  the only ordering both sides actually carry — the staged copy was written with the release's own
+ *  timestamps preserved.
+ *
+ *  `skip` carries the recipe's secret files. They were lifted out of the staged copy before it was ever
+ *  mounted and the container's own bootstrap installs them back into its workspace, so they are the
+ *  environment's to hold; copying them here would write credentials into a Project folder instead.
+ *
+ *  Returns the relative paths that were written, so a caller can report what a completion actually moved. */
+export function reconcileIntoSource(workspace: string, sourceDir: string, skip: readonly string[]): string[] {
+  const skipped = new Set([...skip, GIT_STUB_ENTRY]);
+  const written: string[] = [];
+  if (!existsSync(workspace)) return written;
+  mkdirSync(sourceDir, { recursive: true });
+  const walk = (dir: string, prefix: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (skipped.has(rel)) continue;
+      const from = join(dir, entry.name);
+      const to = join(sourceDir, ...rel.split('/'));
+      if (entry.isDirectory()) {
+        mkdirSync(to, { recursive: true });
+        walk(from, rel);
+        continue;
+      }
+      // A symlink is carried across as a symlink and never followed, on the same reasoning the digest
+      // uses: following one would copy whatever it points at, including a file outside the workspace.
+      if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+      if (existsSync(to)) {
+        const staged = lstatSync(from);
+        const current = lstatSync(to);
+        if (staged.mtimeMs <= current.mtimeMs) continue;
+        rmSync(to, { recursive: true, force: true });
+      }
+      mkdirSync(dirname(to), { recursive: true });
+      cpSync(from, to, { dereference: false, preserveTimestamps: true, recursive: false });
+      // `cpSync` preserves a regular file's timestamps but has nothing to preserve them from for a
+      // symlink it recreated, so the ordering this function decides on is restored explicitly.
+      if (entry.isFile()) {
+        const staged = statSync(from);
+        utimesSync(to, staged.atime, staged.mtime);
+      }
+      written.push(rel);
+    }
+  };
+  walk(workspace, '');
+  return written;
 }
 
 /** One value covering everything a flip is about to trust: the workspace as it will be mounted, the names
@@ -545,28 +636,144 @@ export class RuntimeMigrationService {
     }
   }
 
-  /** Retire the slot once the site is settled as an environment. Deliberately separate from {@link flip}:
-   *  while the row exists the site can still be rolled back, and dropping it is the point of no return. */
+  /** Retire the staged copy, so the converted site is left with ONE working copy and no way back.
+   *
+   *  WHY A CONVERSION HAS TWO WORKING COPIES UNTIL THIS RUNS. A preparation stages the published release
+   *  into a copy it owns and mounts THAT, because the flip must serve the bytes it verified rather than
+   *  whatever the source folder holds at the time. The consequence is a site whose container serves one
+   *  directory while every agent and every tool edits another. Completion ends that: the staged copy is
+   *  folded back into the site's own source folder, the container is rebuilt on the source folder, and the
+   *  conversion's directory is removed. What is left is indistinguishable from a natively created
+   *  environment — same mount, no staging binding, no artefacts.
+   *
+   *  THE ORDER IS THE OPERATION. Each step is durable before the one it unlocks, so a driver that dies
+   *  half way is resumed by calling this again rather than starting over:
+   *
+   *  1. The files are folded into the source folder while the staged copy is still being served, so a
+   *     failure there changes nothing at all.
+   *  2. The spent seed leaves the persistent volume and the volume is exported to an archive. Nothing is
+   *     destroyed before that archive exists, because retiring the container takes its volume with it.
+   *  3. The container is rebuilt on the source folder, and the archive is loaded back into the new volume
+   *     together with a fresh seed — the first boot consumed the credentials the old one carried.
+   *  4. The site is started and has to ANSWER before the binding is published as live.
+   *  5. Only then does the conversion's directory go, and last of all the row: while it exists this
+   *     operation still owns the site, and dropping it is the point of no return. */
   async complete(siteId: string): Promise<MigrationStatus> {
     const migration = this.deps.store.runtimeMigration(siteId);
+    // Nothing left to retire. A second call after the row is gone answers with the site's status rather
+    // than refusing, because a resumed driver cannot tell "already finished" from "never started".
     if (!migration) return this.status(siteId);
-    if (migration.stage !== 'flipped') throw new MigrationRefused('only a flipped conversion can be completed');
-    // A flip whose start threw is still recorded as flipped, because the column move is durable before
-    // the start. Completing it would drop the only record of how to get back, on a site that never came
-    // up. The failure has to be cleared by a retry or a rollback first.
-    if (migration.lastError !== null) {
-      throw new MigrationRefused(`this conversion failed and cannot be completed: ${migration.lastError}`);
+    if (migration.stage !== 'flipped' && migration.stage !== 'completing') {
+      throw new MigrationRefused('only a flipped conversion can be completed');
     }
     const site = this.deps.store.siteById(siteId);
     if (site?.runtime !== 'environment') throw new MigrationRefused('this site is not serving as an environment');
-    // DEFECT 5: a flipped column and a started container are not a serving site. Completing is the point
-    // of no return, so it demands the site actually answers rather than merely existing.
-    const readiness = await this.deps.verifyReadiness(site, this.deps.loadRecipe(siteId).readiness);
-    if (!readiness.ready) {
-      throw new MigrationRefused(`this site is not answering yet, so the conversion cannot be completed: ${readiness.detail}`);
+    const recipe = this.deps.loadRecipe(siteId);
+    const resumed = this.deps.store.runtimeRecord(siteId, COMPLETION_RECORD) !== null;
+    // A flipped column and a started container are not a serving site, so completing demands that the
+    // site actually answers. Asked only while the staged container is still the one serving: past that
+    // point this operation has taken the site down itself, and its own start is what proves it came back.
+    if (!resumed) {
+      const readiness = await this.deps.verifyReadiness(site, recipe.readiness);
+      if (!readiness.ready) {
+        throw new MigrationRefused(`this site is not answering yet, so the conversion cannot be completed: ${readiness.detail}`);
+      }
     }
-    this.deps.store.clearRuntimeMigration(siteId);
-    return this.status(siteId);
+    // A flip whose start threw is still recorded as flipped, because the column move is durable before the
+    // start. Completing THAT would drop the only record of how to get back, on a site that never came up.
+    // A restart that landed between the flip and the completion is the one exception: it recorded a
+    // failure for a site that is up and serving, and the claim below is what tells the two apart.
+    if (!this.deps.store.beginRuntimeCompletion(siteId, interruptedByRestart('flipped'))) {
+      throw new MigrationRefused(
+        `this conversion failed and cannot be completed: ${migration.lastError ?? 'the conversion slot moved underneath it'}`,
+      );
+    }
+
+    try {
+      if (!resumed) {
+        reconcileIntoSource(stagedWorkspace(this.deps, siteId), site.sourceDir, recipe.secretFiles);
+        // The seed goes while the container can still be asked, and the export is taken from a stopped
+        // container for the same reason a rollback stops one first: a live volume exports a torn page.
+        await this.deps.clearConversionStage(site, CONVERSION_STAGE);
+        await this.deps.stopContainer(siteId);
+        if (!await this.deps.containerStopped(siteId)) {
+          throw new Error('the environment container is still running, so its data cannot be exported consistently');
+        }
+        await this.deps.exportDataVolume(site, this.deps.artifactPath(siteId, COMPLETION_ARCHIVE));
+        this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'exported');
+      }
+
+      if (this.completionProgress(siteId) === 'exported') {
+        await this.deps.rebindToSource(site);
+        this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'rebound');
+      }
+
+      if (this.completionProgress(siteId) === 'rebound') {
+        const carried = this.deps.artifactPath(siteId, COMPLETION_ARCHIVE);
+        if (existsSync(carried)) await this.deps.loadDataVolume(site, carried);
+        // The seed is rebuilt rather than carried: the bootstrap unit deletes the credentials and the
+        // application unit it installed on first boot, so the archive above holds neither, and the
+        // container this completion built has a rootfs that never saw them.
+        await this.deps.loadDataVolume(site, await this.deps.buildSeedArchive(siteId, {
+          provisionScript: provisionScript(recipe), appUnit: appUnit(recipe), dataArchive: null,
+        }));
+        this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'seeded');
+      }
+
+      if (this.completionProgress(siteId) === 'seeded') {
+        await this.deps.startEnvironment(site);
+        const readiness = await this.deps.verifyReadiness(site, recipe.readiness);
+        if (!readiness.ready) {
+          throw new Error(`the site does not answer from its own source folder: ${readiness.detail}`);
+        }
+        this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'live');
+      }
+
+      // The conversion's directory goes BEFORE the binding is published: removing it is an operation on a
+      // staging binding, and publishing is what ends that. Both happen only once the site has answered.
+      const directory = migrationDirectory(this.deps, siteId);
+      if (existsSync(directory)) await this.deps.removeStaged([directory]);
+      this.deps.publishBinding(site);
+      this.deps.store.deleteRuntimeRecord(siteId, COMPLETION_RECORD);
+      this.deps.store.clearRuntimeMigration(siteId);
+      return this.status(siteId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.deps.store.failRuntimeMigration(siteId, message);
+      throw error;
+    }
+  }
+
+  private completionProgress(siteId: string): string | null {
+    return this.deps.store.runtimeRecord(siteId, COMPLETION_RECORD);
+  }
+
+  /** Finish the completions nobody is driving.
+   *
+   *  A conversion that a restart interrupted after its flip is a finished conversion with one step left,
+   *  and the site is serving from a staged copy until that step runs — which is exactly the state an
+   *  operator cannot see and would not know to fix. So the periodic reconcile finishes it: a flipped slot
+   *  carrying only the restart marker, or a completion of its own that a restart cut short.
+   *
+   *  A completion that FAILED for any other reason is left alone. It recorded why on the row, and
+   *  retrying it every two seconds would bury that reason under its own repetitions. */
+  async reconcileCompletions(): Promise<MigrationStatus[]> {
+    const settled: MigrationStatus[] = [];
+    for (const migration of this.deps.store.runtimeMigrations()) {
+      const resumable = migration.stage === 'flipped'
+        ? migration.lastError === interruptedByRestart('flipped')
+        : migration.stage === 'completing'
+          && (migration.lastError === null || migration.lastError === interruptedByRestart('completing'));
+      if (!resumable) continue;
+      try { settled.push(await this.complete(migration.siteId)); }
+      catch (error) {
+        // A refusal means the site is not ready to be completed yet, and the next sweep asks again. A
+        // fault is already recorded on the row, so it is reported rather than rethrown: one site that
+        // cannot finish must not stop the sweep from finishing the others.
+        if (!(error instanceof MigrationRefused)) settled.push(this.status(migration.siteId));
+      }
+    }
+    return settled;
   }
 
   /** Put one site back the way it was, from any stage.
@@ -578,6 +785,11 @@ export class RuntimeMigrationService {
   async rollback(siteId: string, options: { restoreData?: boolean } = {}): Promise<MigrationStatus> {
     const migration = this.deps.store.runtimeMigration(siteId);
     if (!migration) throw new MigrationRefused('this site has no conversion to roll back');
+    // A completion has already retired the staged container, and the site's data is in an archive only it
+    // knows how to load back. There is nothing left to roll back TO until it has finished.
+    if (migration.stage === 'completing') {
+      throw new MigrationRefused('this conversion is being completed; finish the completion before rolling anything back');
+    }
     const site = this.deps.store.siteById(siteId);
     if (!site) throw new MigrationRefused('this site does not exist');
 
@@ -718,7 +930,10 @@ export class RuntimeMigrationService {
    *  - `prepared`: the container is intentional and the site is still serving legacy, so it is kept and
    *    only the ownership marker is released.
    *  - `flipped`: the site is already an environment and its own supervisor reconciles it; the marker is
-   *    released so a rollback or a complete can proceed. */
+   *    released so a rollback or a complete can proceed.
+   *  - `completing`: the staged copy is already being retired. The marker is recorded the same way, and
+   *    {@link reconcileCompletions} recognises it and carries the completion the rest of the way, because
+   *    a half-retired conversion has no state a person could usefully act on. */
   async recoverInterrupted(): Promise<MigrationStatus[]> {
     const settled: MigrationStatus[] = [];
     for (const migration of this.deps.store.runtimeMigrations()) {
@@ -742,10 +957,7 @@ export class RuntimeMigrationService {
         try { this.deps.discardArtifacts(migration.siteId); } catch { /* same */ }
       }
 
-      this.deps.store.failRuntimeMigration(
-        migration.siteId,
-        `interrupted by a restart while ${migration.stage}; re-claim to retry or roll back`,
-      );
+      this.deps.store.failRuntimeMigration(migration.siteId, interruptedByRestart(migration.stage));
       settled.push(this.status(migration.siteId));
     }
     return settled;
