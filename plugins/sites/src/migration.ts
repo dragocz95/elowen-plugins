@@ -8,6 +8,7 @@ const DIGEST_CHUNK_BYTES = 4 * 1048576;
 import type { LegacyDataSelection } from './dataSync.js';
 import { appUnit, auditStaticTree, CONVERSION_STAGE, provisionScript, type AppRecipe, type RecipeKind } from './recipe.js';
 import type { ConvertibleRuntime, RuntimeMigration, Site, SitesStore } from './store.js';
+import { environmentAlreadyDeleted } from './deletion.js';
 
 /** Converting a live site's runtime in place, one site at a time, resumable after a crash.
  *
@@ -39,6 +40,7 @@ import type { ConvertibleRuntime, RuntimeMigration, Site, SitesStore } from './s
  *  502 for "somebody else is mid-operation". */
 export class MigrationRefused extends Error {}
 class CompletionInProgress extends MigrationRefused {}
+class RollbackInProgress extends MigrationRefused {}
 
 export interface MigrationDeps {
   store: SitesStore;
@@ -116,6 +118,8 @@ export interface MigrationDeps {
   /** Delete the conversion's spent seed directory from the persistent volume, from inside the container
    *  that is still running. */
   clearConversionStage(site: Site, stageDir: string): Promise<void>;
+  /** Verify the spent seed directory is absent after cleanup. */
+  conversionStageAbsent(site: Site, stageDir: string): Promise<boolean>;
 
   // --- data movement. Absent only for a site with nothing outside its release. ---
 
@@ -349,6 +353,7 @@ export class RuntimeMigrationService {
   private readonly completionRetryAt = new Map<string, number>();
   private readonly activeFlips = new Set<string>();
   private readonly activeCompletions = new Map<string, Promise<MigrationStatus>>();
+  private readonly activeRollbacks = new Map<string, Promise<MigrationStatus>>();
 
   constructor(private readonly deps: MigrationDeps) {}
 
@@ -696,7 +701,7 @@ export class RuntimeMigrationService {
     const migration = this.deps.store.runtimeMigration(siteId);
     // Nothing left to retire. A second call after the row is gone answers with the site's status rather
     // than refusing, because a resumed driver cannot tell "already finished" from "never started".
-    if (!migration) return this.status(siteId);
+    if (!migration || migration.stage === 'completed') return this.status(siteId);
     if (migration.stage !== 'flipped' && migration.stage !== 'completing') {
       throw new MigrationRefused('only a flipped conversion can be completed');
     }
@@ -738,7 +743,6 @@ export class RuntimeMigrationService {
         reconcileIntoSource(stagedWorkspace(this.deps, siteId), site.sourceDir, recipe!.secretFiles);
         // The marker precedes every operation in this phase. A retry uses the same export request id, so a
         // lost response rejoins the one Sandbox operation instead of consuming the volume twice.
-        await this.deps.clearConversionStage(site, CONVERSION_STAGE);
         await this.deps.stopContainer(siteId);
         if (!await this.deps.containerStopped(siteId)) {
           throw new Error('the environment container is still running, so its data cannot be exported consistently');
@@ -791,6 +795,10 @@ export class RuntimeMigrationService {
         if (!readiness.ready) {
           throw new Error(`the site does not answer from its own source folder: ${readiness.detail}`);
         }
+        await this.deps.clearConversionStage(site, CONVERSION_STAGE);
+        if (!await this.deps.conversionStageAbsent(site, CONVERSION_STAGE)) {
+          throw new Error('the conversion seed directory survived cleanup in the final container');
+        }
         this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'live');
         progress = 'live';
       }
@@ -813,7 +821,9 @@ export class RuntimeMigrationService {
       }
       this.deps.store.deleteRuntimeRecord(siteId, `artifact:${completionOperationId(siteId, 'retire')}-0`);
       this.deps.store.deleteRuntimeRecord(siteId, COMPLETION_RECORD);
-      this.deps.store.clearRuntimeMigration(siteId);
+      if (!this.deps.store.completeRuntimeMigration(siteId, this.now().toISOString())) {
+        throw new Error('the completed conversion audit row could not be finalized');
+      }
       return this.status(siteId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -873,126 +883,148 @@ export class RuntimeMigrationService {
    *  the cleanup behind it. Releases and `current_release_id` were never touched, so a static site
    *  resumes from its release directory: the editable source is not exposed by a rollback, because the
    *  static path never reads it. */
-  async rollback(siteId: string, options: { restoreData?: boolean } = {}): Promise<MigrationStatus> {
+  scheduleRollback(siteId: string, options: { restoreData?: boolean } = {}): MigrationStatus {
     const migration = this.deps.store.runtimeMigration(siteId);
     if (!migration) throw new MigrationRefused('this site has no conversion to roll back');
-    // A completion has already retired the staged container, and the site's data is in an archive only it
-    // knows how to load back. There is nothing left to roll back TO until it has finished.
+    if (migration.stage === 'completed') throw new MigrationRefused('this conversion is already completed');
+    if (migration.stage === 'completing') {
+      throw new MigrationRefused('this conversion is being completed; finish the completion before rolling anything back');
+    }
+    if (!this.deps.store.requestRuntimeRollback(siteId, options.restoreData !== false)) {
+      throw new MigrationRefused('this conversion could not be queued for rollback');
+    }
+    return this.status(siteId);
+  }
+
+  async rollback(siteId: string, options: { restoreData?: boolean } = {}): Promise<MigrationStatus> {
+    const active = this.activeRollbacks.get(siteId);
+    if (active) return active;
+    const migration = this.deps.store.runtimeMigration(siteId);
+    if (!migration || migration.rollbackStage === 'none') this.scheduleRollback(siteId, options);
+    const run = this.rollbackNow(siteId).finally(() => this.activeRollbacks.delete(siteId));
+    this.activeRollbacks.set(siteId, run);
+    return run;
+  }
+
+  private async rollbackNow(siteId: string): Promise<MigrationStatus> {
+    const migration = this.deps.store.runtimeMigration(siteId);
+    if (!migration) throw new MigrationRefused('this site has no conversion to roll back');
+    if (migration.stage === 'completed') throw new MigrationRefused('this conversion is already completed');
     if (migration.stage === 'completing') {
       throw new MigrationRefused('this conversion is being completed; finish the completion before rolling anything back');
     }
     const site = this.deps.store.siteById(siteId);
     if (!site) throw new MigrationRefused('this site does not exist');
-
-    if (migration.stage === 'flipped') {
-      const carryData = options.restoreData !== false
-        && migration.fromRuntime === 'command'
-        && this.deps.loadRecipe(siteId).dataIncludes.length > 0;
-
-      // STAGE 1, export. Resumable: once recorded, a retry reads the archive rather than asking a volume
-      // the discard may already have removed, which is how a retry used to silently lose every write the
-      // container made.
-      let carried = migration.rollbackArchive;
-      if (carryData && (migration.rollbackStage === 'none' || migration.rollbackStage === 'quiescing')) {
-        // DEFECT 1: QUIESCE FIRST. The container is still serving and still writing; exporting its volume
-        // live captures a torn SQLite page, exactly the fault the legacy quiesce exists to prevent.
-        //
-        // The marker is recorded BEFORE the stop, the same discipline `legacyStopped` follows. The row
-        // says `environment` and `live` for this whole window, so a periodic reconcile that arrives
-        // between the stop and the export sees a container it believes should be up and starts it again.
-        // Recorded first, a crash in the gap leaves a marker for a container that may still be running,
-        // which the retry resolves harmlessly; the other order leaves a stopped container nobody owns.
-        this.deps.store.recordRollbackProgress(siteId, 'quiescing');
-        await this.deps.stopContainer(siteId);
-        if (!await this.deps.containerStopped(siteId)) {
-          throw new Error('the environment container is still running, so its data cannot be exported consistently');
-        }
-        const output = this.deps.artifactPath(siteId, 'rollback-data.tar');
-        carried = await this.deps.exportDataVolume(site, output) ? output : null;
-        this.deps.store.recordRollbackProgress(siteId, 'exported', carried);
-      } else if (!carryData && (migration.rollbackStage === 'none' || migration.rollbackStage === 'quiescing')) {
-        this.deps.store.recordRollbackProgress(siteId, 'quiescing');
-        await this.deps.stopContainer(siteId);
-        this.deps.store.recordRollbackProgress(siteId, 'exported', null);
-        carried = null;
-      }
-
-      // STAGE 2, RESTORE, and it happens BEFORE anything is destroyed.
-      //
-      // The container is already stopped, so it is serving nothing and holding nothing open. Restoring
-      // first means a failure here leaves the container and its volume intact and a retry can export
-      // again; discarding first would burn the only copy of the writes if the restore then failed.
-      if (this.deps.store.runtimeMigration(siteId)?.rollbackStage === 'exported') {
-        if (carried) {
-          // A crash during an earlier attempt may have left a subtree moved aside but not yet unpacked.
-          this.deps.recoverInterruptedRestore(siteId);
-          const remembered = migration.legacyHome;
-          // Asked about the runtime the conversion RECORDED. The row says `environment` by now, and a
-          // resolver keyed off that answers for the wrong thing, or for nothing at all.
-          const location = await this.deps.resolveLegacyData(legacyDescriptor(site, migration));
-          if (!location) {
-            throw new Error('the sandbox could not name this site\'s data directory, so container writes cannot be carried back');
-          }
-          if (remembered !== null && resolve(remembered) !== resolve(location.home)) {
-            throw new Error(`this conversion recorded ${remembered} as the site's home; refusing to restore into ${location.home}`);
-          }
-          // Atomic per subtree, so a file the container deleted stays deleted rather than being
-          // resurrected from the frozen tree underneath.
-          await this.deps.restoreLegacyData(location, carried, siteId);
-        }
-        this.deps.store.recordRollbackProgress(siteId, 'restored');
-      }
-
-      // STAGE 3, discard. The data is already back, so losing the container now costs nothing.
-      if (this.deps.store.runtimeMigration(siteId)?.rollbackStage === 'restored') {
-        await this.deps.discardContainer(siteId, { removeBroker: true });
-        this.deps.store.recordRollbackProgress(siteId, 'discarded');
-      }
-
-      if (this.deps.store.runtimeMigration(siteId)?.rollbackStage !== 'discarded') {
-        throw new Error('the rollback did not finish, so the site was left as an environment');
-      }
-      if (!this.deps.store.revertSiteRuntimeFromMigration(siteId)) {
-        throw new Error('the site runtime could not be restored');
-      }
-      const restored = this.deps.store.siteById(siteId);
-      // The start is AWAITED and it only returns once the endpoint actually answers, so reaching the line
-      // below is the proof that the legacy runtime is serving again.
-      if (restored?.runtime === 'command') await this.startRestoredLegacy(restored);
-      if (restored) await this.deps.restoreLegacyPublication(restored);
-      this.deps.store.markLegacyStopped(siteId, false);
-      // ONLY NOW. While the conversion held this site, a periodic reconcile may have written `failed` and
-      // an error onto the row, and a site left `failed` is absent from `liveCommandSites()` and therefore
-      // dark for good. That stale verdict is cleared here, after readiness was proven and never before
-      // it: a failure above throws, and an error that is real has to survive.
-      this.deps.store.completeRuntimeRollback(siteId);
-    } else {
-      // Never flipped, so the container never owned anything and there is nothing to carry back.
-      //
-      // THE BROKER IS ONLY OURS TO REMOVE IF WE MADE IT. A conversion of a socket-bound command site
-      // inherited a directory its live process is still answering on; removing it here would take a
-      // serving site down and leave that process writing to an unlinked path. Only a directory this
-      // conversion asked the gateway to create is removed, and only while no legacy process holds it.
-      const ownsBroker = migration.brokerPrepared && !this.deps.legacyRunning(siteId);
-      await this.deps.discardContainer(siteId, { removeBroker: ownsBroker });
-      if (ownsBroker) this.deps.store.markBrokerPrepared(siteId, false);
-
-      // The legacy runtime may already have been STOPPED by a flip that failed after the quiesce, and a
-      // rollback that walked away from that would leave the site dark for good.
-      if (migration.legacyStopped) {
-        const legacy = this.deps.store.siteById(siteId);
-        if (legacy?.runtime === 'command') await this.startRestoredLegacy(legacy);
-        this.deps.store.markLegacyStopped(siteId, false);
-        // Same rule as the flipped branch: the awaited start is the evidence, and only evidence clears a
-        // status the reconciler wrote while this site was held down.
-        this.deps.store.completeRuntimeRollback(siteId);
-      }
+    if (!this.deps.store.beginRuntimeRollback(siteId)) {
+      throw new RollbackInProgress('this conversion rollback is already being driven');
     }
 
-    await this.deps.removeStaged([stagedWorkspace(this.deps, siteId)]);
-    this.deps.discardArtifacts(siteId);
-    this.deps.store.clearRuntimeMigration(siteId);
-    return this.status(siteId);
+    try {
+      if (migration.stage === 'flipped') {
+        const currentSite = this.deps.store.siteById(siteId)!;
+        // Releases 0.10.14 and older recorded `discarded` before reverting the site. Preserve recovery for
+        // those rows by moving them back to the last non-destructive checkpoint when the row is still an environment.
+        if (migration.rollbackStage === 'discarded' && currentSite.runtime === 'environment') {
+          this.deps.store.recordRollbackProgress(siteId, 'restored');
+        }
+        let current = this.deps.store.runtimeMigration(siteId)!;
+        const carryData = current.rollbackRestoreData
+          && current.fromRuntime === 'command'
+          && this.deps.loadRecipe(siteId).dataIncludes.length > 0;
+        let carried = current.rollbackArchive;
+
+        if (current.rollbackStage === 'requested' || current.rollbackStage === 'quiescing') {
+          this.deps.store.recordRollbackProgress(siteId, 'quiescing');
+          await this.deps.stopContainer(siteId);
+          if (!await this.deps.containerStopped(siteId)) {
+            throw new Error('the environment container is still running, so its data cannot be exported consistently');
+          }
+          if (carryData) {
+            const output = this.deps.artifactPath(siteId, 'rollback-data.tar');
+            carried = await this.deps.exportDataVolume(site, output) ? output : null;
+          } else {
+            carried = null;
+          }
+          this.deps.store.recordRollbackProgress(siteId, 'exported', carried);
+        }
+
+        current = this.deps.store.runtimeMigration(siteId)!;
+        if (current.rollbackStage === 'exported') {
+          if (carried) {
+            this.deps.recoverInterruptedRestore(siteId);
+            const location = await this.deps.resolveLegacyData(legacyDescriptor(site, current));
+            if (!location) {
+              throw new Error('the sandbox could not name this site\'s data directory, so container writes cannot be carried back');
+            }
+            if (current.legacyHome !== null && resolve(current.legacyHome) !== resolve(location.home)) {
+              throw new Error(`this conversion recorded ${current.legacyHome} as the site's home; refusing to restore into ${location.home}`);
+            }
+            await this.deps.restoreLegacyData(location, carried, siteId);
+          }
+          this.deps.store.recordRollbackProgress(siteId, 'restored');
+        }
+
+        current = this.deps.store.runtimeMigration(siteId)!;
+        if (current.rollbackStage === 'restored') {
+          if (!this.deps.store.revertSiteRuntimeFromMigration(siteId)) {
+            throw new Error('the site runtime could not be restored');
+          }
+          this.deps.store.recordRollbackProgress(siteId, 'reverted');
+        }
+
+        current = this.deps.store.runtimeMigration(siteId)!;
+        if (current.rollbackStage === 'reverted') {
+          const restored = this.deps.store.siteById(siteId);
+          if (restored?.runtime === 'command') await this.startRestoredLegacy(restored);
+          if (restored) await this.deps.restoreLegacyPublication(restored);
+          this.deps.store.markLegacyStopped(siteId, false);
+          if (!this.deps.store.completeRuntimeRollback(siteId)) {
+            throw new Error('the restored site could not be published as live');
+          }
+          this.deps.store.recordRollbackProgress(siteId, 'serving');
+        }
+
+        current = this.deps.store.runtimeMigration(siteId)!;
+        if (current.rollbackStage === 'serving') {
+          try { await this.deps.discardContainer(siteId, { removeBroker: true }); }
+          catch (error) { if (!environmentAlreadyDeleted(error)) throw error; }
+          this.deps.store.recordRollbackProgress(siteId, 'discarded');
+        }
+      } else {
+        const ownsBroker = migration.brokerPrepared && !this.deps.legacyRunning(siteId);
+        try { await this.deps.discardContainer(siteId, { removeBroker: ownsBroker }); }
+        catch (error) { if (!environmentAlreadyDeleted(error)) throw error; }
+        if (ownsBroker) this.deps.store.markBrokerPrepared(siteId, false);
+        if (migration.legacyStopped) {
+          const legacy = this.deps.store.siteById(siteId);
+          if (legacy?.runtime === 'command') await this.startRestoredLegacy(legacy);
+          this.deps.store.markLegacyStopped(siteId, false);
+          this.deps.store.completeRuntimeRollback(siteId);
+        }
+      }
+
+      await this.deps.removeStaged([stagedWorkspace(this.deps, siteId)]);
+      this.deps.discardArtifacts(siteId);
+      this.deps.store.clearRuntimeMigration(siteId);
+      return this.status(siteId);
+    } catch (error) {
+      this.deps.store.failRuntimeMigration(siteId, error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }
+
+  async reconcileRollbacks(): Promise<MigrationStatus[]> {
+    const settled: MigrationStatus[] = [];
+    for (const migration of this.deps.store.runtimeMigrations()) {
+      if (migration.stage === 'completed' || migration.stage === 'completing' || migration.rollbackStage === 'none') continue;
+      if (this.activeRollbacks.has(migration.siteId)) continue;
+      try { settled.push(await this.rollback(migration.siteId)); }
+      catch (error) {
+        if (error instanceof RollbackInProgress) continue;
+        settled.push(this.status(migration.siteId));
+      }
+    }
+    return settled;
   }
 
   /** Start the legacy runtime a rollback has just restored, and make a failure VISIBLE on the site.
@@ -1029,6 +1061,14 @@ export class RuntimeMigrationService {
   async recoverInterrupted(): Promise<MigrationStatus[]> {
     const settled: MigrationStatus[] = [];
     for (const migration of this.deps.store.runtimeMigrations()) {
+      if (migration.stage === 'completed') continue;
+      if (migration.rollbackStage !== 'none') {
+        if (!migration.rollbackRequested && migration.lastError === null) {
+          this.deps.store.failRuntimeMigration(migration.siteId, 'the daemon restarted during rollback');
+          settled.push(this.status(migration.siteId));
+        }
+        continue;
+      }
       // DEFECT 2: the dark-site restart runs BEFORE the already-failed early return, because a failed
       // slot is precisely the case where the site is down. A flip that threw after the quiesce records
       // its error and stops; skipping such a slot on the next boot would leave the site off for good.
@@ -1084,7 +1124,7 @@ export class RuntimeMigrationService {
    *  hostname between runtimes, which is an administrator's decision and not a side effect of a restart.
    *  A crash mid-prepare therefore leaves a claimed slot that a person retries or rolls back. */
   pending(): MigrationStatus[] {
-    return this.deps.store.runtimeMigrations().map((migration) => ({
+    return this.deps.store.runtimeMigrations().filter((migration) => migration.stage !== 'completed').map((migration) => ({
       siteId: migration.siteId,
       stage: migration.stage,
       fromRuntime: migration.fromRuntime,

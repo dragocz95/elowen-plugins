@@ -1,7 +1,8 @@
 export const VISIBILITIES = ['private', 'project', 'authenticated', 'public'];
-const asMigrationStage = (value) => value === 'prepared' || value === 'flipped' || value === 'completing' ? value : 'preparing';
+const asMigrationStage = (value) => value === 'prepared' || value === 'flipped' || value === 'completing' || value === 'completed' ? value : 'preparing';
 const asConvertibleRuntime = (value) => value === 'static' || value === 'command' || value === 'php' ? value : null;
-const asRollbackStage = (value) => value === 'quiescing' || value === 'exported' || value === 'discarded' || value === 'restored' ? value : 'none';
+const asRollbackStage = (value) => value === 'requested' || value === 'quiescing' || value === 'exported' || value === 'restored'
+    || value === 'reverted' || value === 'serving' || value === 'discarded' ? value : 'none';
 /** Which runtime a conversion currently holds down, so that periodic reconciliation leaves it alone.
  *
  *  DERIVED, never a separate flag, so there is one source of truth and nothing to forget to clear. It is
@@ -113,7 +114,10 @@ const toRuntimeMigration = (row) => ({
     legacyStopped: row.legacy_stopped === 1,
     rollbackStage: asRollbackStage(row.rollback_stage),
     rollbackArchive: row.rollback_archive,
+    rollbackRestoreData: row.rollback_restore_data !== 0,
+    rollbackRequested: row.rollback_requested !== 0,
     requestedAt: row.requested_at,
+    completedAt: row.completed_at,
     lastError: row.last_error,
 });
 const toRelease = (row) => ({
@@ -370,6 +374,16 @@ export class SitesStore {
                 up: handle => handle.exec(`
           ALTER TABLE p_sites_sites ADD COLUMN kind TEXT NOT NULL DEFAULT 'static';
           ALTER TABLE p_sites_sites ADD COLUMN target TEXT NOT NULL DEFAULT '';
+        `),
+            },
+            {
+                version: 15,
+                // Completed conversions remain as an audit trail. Rollback intent is durable too, so an API request
+                // may return before the daemon performs the long-running restore and destructive retirement.
+                up: handle => handle.exec(`
+          ALTER TABLE p_sites_runtime_migrations ADD COLUMN rollback_restore_data INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE p_sites_runtime_migrations ADD COLUMN rollback_requested INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE p_sites_runtime_migrations ADD COLUMN completed_at TEXT;
         `),
             },
         ]);
@@ -908,6 +922,24 @@ export class SitesStore {
         this.db.prepare('UPDATE p_sites_runtime_migrations SET legacy_stopped = ? WHERE site_id = ?')
             .run(stopped ? 1 : 0, siteId);
     }
+    requestRuntimeRollback(siteId, restoreData) {
+        return this.db.prepare(`
+      UPDATE p_sites_runtime_migrations
+      SET rollback_stage = CASE WHEN rollback_stage = 'none' THEN 'requested' ELSE rollback_stage END,
+          rollback_restore_data = CASE WHEN rollback_stage IN ('none', 'requested', 'quiescing') THEN ? ELSE rollback_restore_data END,
+          rollback_requested = 1
+      WHERE site_id = ? AND stage <> 'completed'
+    `).run(restoreData ? 1 : 0, siteId).changes === 1;
+    }
+    beginRuntimeRollback(siteId) {
+        return this.db.prepare(`
+      UPDATE p_sites_runtime_migrations
+      SET rollback_stage = CASE WHEN rollback_stage = 'requested' THEN 'quiescing' ELSE rollback_stage END,
+          rollback_requested = 0, last_error = NULL
+      WHERE site_id = ? AND stage <> 'completed'
+        AND (rollback_requested = 1 OR last_error IS NOT NULL)
+    `).run(siteId).changes === 1;
+    }
     /** Advance a rollback's own durable progress, and record the archive that is authoritative for the
      *  writes the container made. Once `exported`, a retry reads this archive instead of asking a volume
      *  that the discard may already have removed. */
@@ -1011,6 +1043,13 @@ export class SitesStore {
       UPDATE p_sites_sites SET status = 'live', last_error = NULL, updated_at = ?
       WHERE id = ? AND runtime <> 'environment' AND status <> 'deleting'
     `).run(new Date().toISOString(), siteId).changes === 1;
+    }
+    completeRuntimeMigration(siteId, completedAt) {
+        return this.db.prepare(`
+      UPDATE p_sites_runtime_migrations
+      SET stage = 'completed', completed_at = ?, last_error = NULL
+      WHERE site_id = ? AND stage = 'completing'
+    `).run(completedAt, siteId).changes === 1;
     }
     /** Drop the slot. Called only once the site is settled on one side or the other, because until then
      *  this row is the sole record of how to get back. */

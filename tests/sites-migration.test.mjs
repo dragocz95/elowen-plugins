@@ -135,6 +135,8 @@ const harness = (options = {}) => {
   // it as a real filesystem object rather than a recorded call.
   const brokerDirOf = (siteId) => join(root, 'broker', siteId);
   let containerLive = false;
+  let conversionStagePresent = false;
+  let discardAttempted = false;
   let restoreAttempted = false;
   let running = options.legacyRunning ?? false;
   // The REAL data-sync service: real tar, real filesystem, real 0600 artifacts. Only the container is
@@ -201,7 +203,9 @@ const harness = (options = {}) => {
       calls.clearStage.push({ siteId: site.id, stageDir });
       if (options.clearStageFails) throw new Error('the container did not answer the exec');
       if (!containerLive) throw new Error('exec against a container that is not running');
+      conversionStagePresent = false;
     },
+    conversionStageAbsent: async () => !conversionStagePresent,
     startEnvironment: async (site) => {
       calls.startEnvironment.push(site.id);
       containerLive = true;
@@ -236,6 +240,12 @@ const harness = (options = {}) => {
       calls.discardContainer.push(siteId);
       calls.discard.push({ siteId, removeBroker: opts?.removeBroker });
       if (opts?.removeBroker) rmSync(brokerDirOf(siteId), { recursive: true, force: true });
+      if (options.discardDeletesThenFailsOnce) {
+        if (discardAttempted) throw new Error('The environment has been deleted');
+        discardAttempted = true;
+        containerLive = false;
+        throw new Error('client request timed out after the environment was deleted');
+      }
       if (options.discardFails) throw new Error('discard exploded');
       containerLive = false;
     },
@@ -257,6 +267,7 @@ const harness = (options = {}) => {
     buildSeedArchive: (siteId, input) => dataSync.buildSeedArchive(siteId, input),
     loadDataVolume: async (site, seedArchive, operationId) => {
       calls.loadDataVolume.push({ siteId: site.id, seedArchive, ...(operationId ? { operationId } : {}) });
+      if (seedArchive.endsWith('volume-seed.tar')) conversionStagePresent = true;
     },
     exportDataVolume: async (site, output, operationId) => {
       calls.exportDataVolume.push({ siteId: site.id, output, ...(operationId ? { operationId } : {}) });
@@ -295,7 +306,7 @@ const harness = (options = {}) => {
   const cleanup = () => rmSync(root, { recursive: true, force: true });
   return {
     root, store, service, deps, calls, seedRelease, setRunning, cleanup, dataSync, legacyHome, realTar,
-    brokerDirOf, binding,
+    brokerDirOf, binding, conversionStagePresent: () => conversionStagePresent,
   };
 };
 
@@ -1055,8 +1066,8 @@ test('completing retires the slot only once the site really serves as an environ
 
     await h.service.flip(SITE_ID);
     const status = await h.service.complete(SITE_ID);
-    assert.equal(status.stage, 'none');
-    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal(status.stage, 'completed');
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'completed');
     assert.equal(h.store.siteById(SITE_ID).runtime, 'environment');
   } finally { h.cleanup(); }
 });
@@ -1156,7 +1167,7 @@ test('concurrent completion ticks consume and retire conversion artifacts once',
     assert.equal(existsSync(join(h.root, 'sites', SITE_ID, 'migration')), false);
     assert.equal(h.binding.staging, false);
     assert.equal(h.store.runtimeRecord(SITE_ID, 'completion'), null);
-    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'completed');
   } finally { h.cleanup(); }
 });
 
@@ -1471,7 +1482,40 @@ test('the route drives prepare, flip and complete against the real service', asy
     assert.equal(h.store.siteById(SITE_ID).runtime, 'environment');
 
     const done = await h.call(`/${SITE_ID}`, { method: 'POST', body: { step: 'complete' } });
-    assert.equal(done.body.conversion.stage, 'none');
+    assert.equal(done.body.conversion.stage, 'completed');
+  } finally { h.cleanup(); }
+});
+
+test('the conversion rollback route queues durable work for daemon reconciliation', async () => {
+  const h = apiHarness();
+  try {
+    seedLiveStatic(h);
+    await h.call(`/${SITE_ID}`, { method: 'POST', body: { step: 'prepare', recipe: 'release-copy' } });
+    await h.call(`/${SITE_ID}`, { method: 'POST', body: { step: 'flip' } });
+
+    const queued = await h.call(`/${SITE_ID}`, { method: 'POST', body: { step: 'rollback' } });
+    assert.equal(queued.status, 202);
+    assert.equal(h.store.runtimeMigration(SITE_ID).rollbackStage, 'requested');
+    assert.equal(h.store.siteById(SITE_ID).runtime, 'environment', 'the HTTP request does not perform lifecycle work inline');
+
+    await h.service.reconcileRollbacks();
+    assert.equal(h.store.siteById(SITE_ID).runtime, 'static');
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+  } finally { h.cleanup(); }
+});
+
+test('a durable rollback claim admits one driver and a failed step is reclaimable', async () => {
+  const h = apiHarness();
+  try {
+    seedLiveStatic(h);
+    await h.call(`/${SITE_ID}`, { method: 'POST', body: { step: 'prepare', recipe: 'release-copy' } });
+    await h.call(`/${SITE_ID}`, { method: 'POST', body: { step: 'flip' } });
+    h.service.scheduleRollback(SITE_ID);
+
+    assert.equal(h.store.beginRuntimeRollback(SITE_ID), true);
+    assert.equal(h.store.beginRuntimeRollback(SITE_ID), false);
+    h.store.failRuntimeMigration(SITE_ID, 'interrupted');
+    assert.equal(h.store.beginRuntimeRollback(SITE_ID), true);
   } finally { h.cleanup(); }
 });
 
@@ -2800,6 +2844,27 @@ test('I2 the reconstructed descriptor carries the captured command runtime, not 
   assert.equal(descriptor.ownerUserId, site.ownerUserId);
 });
 
+test('an interrupted rollback retry restores legacy serving before accepting an absent environment', async () => {
+  const h = harness({ legacyRunning: true, containerWrote: true, discardDeletesThenFailsOnce: true });
+  try {
+    h.store.insertSite(legacySite({ runtime: 'command', startCommand: 'node server.mjs' }));
+    h.store.insertRelease(release());
+    h.seedRelease(SITE_ID, RELEASE_ID, { 'server.mjs': 'run()' });
+    mkdirSync(join(h.legacyHome, '.local/share/this-app'), { recursive: true });
+    writeFileSync(join(h.legacyHome, '.local/share/this-app/data.db'), 'ROWS-BEFORE');
+
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+    await assert.rejects(() => h.service.rollback(SITE_ID), /timed out/);
+    await h.service.rollback(SITE_ID);
+
+    assert.equal(h.store.siteById(SITE_ID).runtime, 'command');
+    assert.equal(h.store.siteById(SITE_ID).status, 'live');
+    assert.deepEqual(h.calls.startLegacy, [SITE_ID]);
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+  } finally { h.cleanup(); }
+});
+
 test('I2 a failed restore leaves the container intact so a retry can export again', async () => {
   const h = harness({ legacyRunning: true, containerWrote: true, restoreFailsOnce: true });
   try {
@@ -3063,8 +3128,9 @@ test('completing a conversion leaves ONE working copy: the site source folder', 
 
     const status = await h.service.complete(SITE_ID);
 
-    assert.equal(status.stage, 'none');
-    assert.equal(h.store.runtimeMigration(SITE_ID), null, 'the slot is retired');
+    assert.equal(status.stage, 'completed');
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'completed', 'the audit row is retained');
+    assert.equal(h.store.runtimeMigration(SITE_ID).completedAt, '2026-09-05T22:00:00.000Z');
     assert.equal(
       readFileSync(join(sourceDir, 'index.html'), 'utf8'), '<h1>edited inside the container</h1>',
       'the container-side edit reached the Project folder',
@@ -3076,6 +3142,7 @@ test('completing a conversion leaves ONE working copy: the site source folder', 
     assert.deepEqual(h.calls.rebind, [SITE_ID]);
     assert.deepEqual(h.calls.publish, [SITE_ID]);
     assert.equal(h.calls.clearStage[0].stageDir, '/data/.elowen-conversion');
+    assert.equal(h.conversionStagePresent(), false, 'the final container has no conversion seed directory');
   } finally { h.cleanup(); }
 });
 
@@ -3092,9 +3159,9 @@ test('a completion carries the persistent volume across the rebuilt container', 
     await h.service.complete(SITE_ID);
 
     assert.deepEqual(order, [
-      'clearConversionStage', 'stopContainer', 'exportDataVolume', 'rebindToSource',
-      // The export first, then the seed the new container's first boot needs.
-      'loadDataVolume', 'loadDataVolume', 'startEnvironment',
+      'stopContainer', 'exportDataVolume', 'rebindToSource',
+      // The carried data and fresh seed land before the final container starts and removes the seed.
+      'loadDataVolume', 'loadDataVolume', 'startEnvironment', 'clearConversionStage',
     ]);
     assert.equal(h.calls.exportDataVolume[0].output.endsWith('completion-data.tar'), true);
   } finally { h.cleanup(); }
@@ -3116,7 +3183,7 @@ test('completing twice is a no-op, and a completion holds the environment while 
 
     h.calls.rebind.length = 0;
     const again = await h.service.complete(SITE_ID);
-    assert.equal(again.stage, 'none');
+    assert.equal(again.stage, 'completed');
     assert.deepEqual(h.calls.rebind, [], 'nothing is rebuilt a second time');
   } finally { h.cleanup(); }
 });
@@ -3140,7 +3207,7 @@ test('a completion resumes from where it died instead of exporting a volume that
     assert.equal(h.calls.exportDataVolume.length, 1, 'the volume is exported exactly once');
     assert.deepEqual(h.calls.clearStage.length, 1, 'and the spent seed is cleared once');
     assert.equal(h.binding.sourcePath, sourceDir);
-    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'completed');
   } finally { h.cleanup(); }
 });
 
@@ -3154,7 +3221,7 @@ test('a conversion interrupted by a restart while flipped can still be completed
 
     await h.service.complete(SITE_ID);
 
-    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'completed');
     assert.equal(h.binding.sourcePath, sourceDir);
   } finally { h.cleanup(); }
 });
@@ -3188,8 +3255,8 @@ test('reconcile completes every plain flipped conversion without a restart marke
     const settled = await h.service.reconcileCompletions();
 
     assert.equal(settled.length, 1);
-    assert.equal(settled[0].stage, 'none');
-    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal(settled[0].stage, 'completed');
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'completed');
     assert.equal(h.binding.sourcePath, sourceDir);
     assert.equal(h.binding.staging, false);
   } finally { h.cleanup(); }

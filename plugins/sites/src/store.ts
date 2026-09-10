@@ -129,7 +129,7 @@ export interface RuntimeMigration {
    *
    *  `completing` is the last one and the only forward-only one: it retires the staged copy by moving the
    *  container onto the site's own source folder, which destroys the staged container and rebuilds it. */
-  stage: 'preparing' | 'prepared' | 'flipped' | 'completing';
+  stage: 'preparing' | 'prepared' | 'flipped' | 'completing' | 'completed';
   fromRuntime: ConvertibleRuntime;
   /** The release that was live when the conversion was claimed. Legacy serving is restored from THIS,
    *  captured rather than read back at rollback time when the row may already have moved on. */
@@ -165,11 +165,14 @@ export interface RuntimeMigration {
    *  written before the legacy stop: the row still says `environment` and `live` for the whole export, so
    *  without a marker recorded first the periodic environment reconcile sees a container that is down and
    *  believes it should be up, and starts it again in the middle of the export it was stopped for. */
-  rollbackStage: 'none' | 'quiescing' | 'exported' | 'discarded' | 'restored';
+  rollbackStage: 'none' | 'requested' | 'quiescing' | 'exported' | 'restored' | 'reverted' | 'serving' | 'discarded';
+  rollbackRestoreData: boolean;
+  rollbackRequested: boolean;
   /** The authoritative archive of what the CONTAINER held, once exported. Recorded before anything is
    *  destroyed and read back by a retry, so the writes survive a failure between the two. */
   rollbackArchive: string | null;
   requestedAt: string;
+  completedAt: string | null;
   lastError: string | null;
 }
 
@@ -189,18 +192,22 @@ interface RuntimeMigrationRow {
   legacy_stopped: number;
   rollback_stage: string;
   rollback_archive: string | null;
+  rollback_restore_data: number;
+  rollback_requested: number;
   requested_at: string;
+  completed_at: string | null;
   last_error: string | null;
 }
 
 const asMigrationStage = (value: string): RuntimeMigration['stage'] =>
-  value === 'prepared' || value === 'flipped' || value === 'completing' ? value : 'preparing';
+  value === 'prepared' || value === 'flipped' || value === 'completing' || value === 'completed' ? value : 'preparing';
 
 const asConvertibleRuntime = (value: string): ConvertibleRuntime | null =>
   value === 'static' || value === 'command' || value === 'php' ? value : null;
 
 const asRollbackStage = (value: string): RuntimeMigration['rollbackStage'] =>
-  value === 'quiescing' || value === 'exported' || value === 'discarded' || value === 'restored' ? value : 'none';
+  value === 'requested' || value === 'quiescing' || value === 'exported' || value === 'restored'
+    || value === 'reverted' || value === 'serving' || value === 'discarded' ? value : 'none';
 
 /** Which runtime a conversion currently holds down, so that periodic reconciliation leaves it alone.
  *
@@ -365,7 +372,10 @@ const toRuntimeMigration = (row: RuntimeMigrationRow): RuntimeMigration => ({
   legacyStopped: row.legacy_stopped === 1,
   rollbackStage: asRollbackStage(row.rollback_stage),
   rollbackArchive: row.rollback_archive,
+  rollbackRestoreData: row.rollback_restore_data !== 0,
+  rollbackRequested: row.rollback_requested !== 0,
   requestedAt: row.requested_at,
+  completedAt: row.completed_at,
   lastError: row.last_error,
 });
 
@@ -622,6 +632,16 @@ export class SitesStore {
         up: handle => handle.exec(`
           ALTER TABLE p_sites_sites ADD COLUMN kind TEXT NOT NULL DEFAULT 'static';
           ALTER TABLE p_sites_sites ADD COLUMN target TEXT NOT NULL DEFAULT '';
+        `),
+      },
+      {
+        version: 15,
+        // Completed conversions remain as an audit trail. Rollback intent is durable too, so an API request
+        // may return before the daemon performs the long-running restore and destructive retirement.
+        up: handle => handle.exec(`
+          ALTER TABLE p_sites_runtime_migrations ADD COLUMN rollback_restore_data INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE p_sites_runtime_migrations ADD COLUMN rollback_requested INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE p_sites_runtime_migrations ADD COLUMN completed_at TEXT;
         `),
       },
     ]);
@@ -1240,6 +1260,26 @@ export class SitesStore {
       .run(stopped ? 1 : 0, siteId);
   }
 
+  requestRuntimeRollback(siteId: string, restoreData: boolean): boolean {
+    return this.db.prepare(`
+      UPDATE p_sites_runtime_migrations
+      SET rollback_stage = CASE WHEN rollback_stage = 'none' THEN 'requested' ELSE rollback_stage END,
+          rollback_restore_data = CASE WHEN rollback_stage IN ('none', 'requested', 'quiescing') THEN ? ELSE rollback_restore_data END,
+          rollback_requested = 1
+      WHERE site_id = ? AND stage <> 'completed'
+    `).run(restoreData ? 1 : 0, siteId).changes === 1;
+  }
+
+  beginRuntimeRollback(siteId: string): boolean {
+    return this.db.prepare(`
+      UPDATE p_sites_runtime_migrations
+      SET rollback_stage = CASE WHEN rollback_stage = 'requested' THEN 'quiescing' ELSE rollback_stage END,
+          rollback_requested = 0, last_error = NULL
+      WHERE site_id = ? AND stage <> 'completed'
+        AND (rollback_requested = 1 OR last_error IS NOT NULL)
+    `).run(siteId).changes === 1;
+  }
+
   /** Advance a rollback's own durable progress, and record the archive that is authoritative for the
    *  writes the container made. Once `exported`, a retry reads this archive instead of asking a volume
    *  that the discard may already have removed. */
@@ -1348,6 +1388,14 @@ export class SitesStore {
       UPDATE p_sites_sites SET status = 'live', last_error = NULL, updated_at = ?
       WHERE id = ? AND runtime <> 'environment' AND status <> 'deleting'
     `).run(new Date().toISOString(), siteId).changes === 1;
+  }
+
+  completeRuntimeMigration(siteId: string, completedAt: string): boolean {
+    return this.db.prepare(`
+      UPDATE p_sites_runtime_migrations
+      SET stage = 'completed', completed_at = ?, last_error = NULL
+      WHERE site_id = ? AND stage = 'completing'
+    `).run(completedAt, siteId).changes === 1;
   }
 
   /** Drop the slot. Called only once the site is settled on one side or the other, because until then
