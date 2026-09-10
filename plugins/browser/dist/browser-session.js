@@ -86,9 +86,6 @@ export class BrowserSession {
     /** Undo for the listeners this session put on the CURRENT tab's CDP session, in registration order. */
     disposeCdpListeners = () => { };
     closedPromise = null;
-    /** Set only when the bounded teardown hit its DEADLINE under project authority: cleanup may still be in
-     *  flight, so the record stays addressable and the close stays retryable. */
-    teardownOutstanding = false;
     constructor(deps) {
         this.deps = deps;
         this.diagnostics = new PageDiagnostics(() => deps.clock.now());
@@ -137,18 +134,9 @@ export class BrowserSession {
     }
     async navigate(url, signal) {
         return this.agentMutation(signal, async () => {
-            let validated;
-            if (this.deps.projectAuthority) {
-                validated = new URL(url);
-                if (!['http:', 'https:'].includes(validated.protocol) || validated.username || validated.password)
-                    throw new Error('Project browser requires an http(s) URL without credentials.');
-                // Name resolution and loopback belong to the guest. Project networks permit internal services.
-            }
-            else {
-                const policy = new NavigationPolicy(this.deps.config().privateNetworkAllowlist);
-                validated = policy.validateUrl(url);
-                await policy.resolve(validated.toString());
-            }
+            const policy = new NavigationPolicy(this.deps.config().privateNetworkAllowlist);
+            const validated = policy.validateUrl(url);
+            await policy.resolve(validated.toString());
             await this.page.goto(validated.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 });
             this.emit({ kind: 'action', data: { action: 'navigate', target: validated.hostname } });
             return this.finishMutation(`Navigated to ${validated.hostname}`);
@@ -538,14 +526,7 @@ export class BrowserSession {
         // page that is being detached.
         if (this.stateValue !== 'closed')
             this.stateValue = 'closing';
-        this.closedPromise = this.closeSession(reason).catch((error) => {
-            // Outstanding cleanup is not a decided outcome. Memoizing the rejection would make every retry
-            // replay the same error without touching the browser again, so the memo is released and the next
-            // close genuinely re-runs teardown. A decided failure and a successful close both stay memoized.
-            if (this.teardownOutstanding)
-                this.closedPromise = null;
-            throw error;
-        });
+        this.closedPromise = this.closeSession(reason);
         return this.closedPromise;
     }
     /** Tear the session down, waiting only briefly for an orderly turn.
@@ -558,9 +539,6 @@ export class BrowserSession {
         return (async () => {
             if (this.stateValue === 'closed')
                 return;
-            // Each attempt decides its own outcome, so a retry that completes retires the record the previous
-            // deadline kept alive.
-            this.teardownOutstanding = false;
             this.stateValue = 'closing';
             this.persist({ state: 'closing' });
             this.clearLeaseTimer();
@@ -569,7 +547,6 @@ export class BrowserSession {
             this.rejectWaiters(closeError);
             this.rejectTakeoverWaiters(closeError);
             this.emit({ kind: 'closed', data: { reason } });
-            let teardownFailed = false;
             try {
                 // Teardown talks to a browser that may already be unresponsive — that is often WHY we are
                 // closing — so it is bounded and best effort. The `finally` below is what must always run.
@@ -593,30 +570,16 @@ export class BrowserSession {
             }
             catch (error) {
                 this.deps.logger.warn(`browser session ${this.id} teardown was incomplete: ${error instanceof Error ? error.message : String(error)}`);
-                if (this.deps.projectAuthority) {
-                    teardownFailed = true;
-                    // A DEADLINE is the one failure that leaves work genuinely in flight: the release was neither
-                    // confirmed nor refused, so the lease may still settle on its own and a retry has something to
-                    // finish. An outright rejection is a decided outcome — account removal reports it and the
-                    // session is gone — so only the deadline keeps the record alive.
-                    this.teardownOutstanding = error instanceof Error && error.message === TEARDOWN_DEADLINE;
-                    throw error;
-                }
             }
             finally {
-                this.stateValue = reason === 'browser_error' || teardownFailed ? 'error' : 'closed';
+                this.stateValue = reason === 'browser_error' ? 'error' : 'closed';
                 const now = this.deps.clock.now();
                 this.deps.store.updateSession(this.id, {
                     state: this.stateValue, updatedAt: now, lastActivityAt: now, closedAt: now, closeReason: reason,
                 });
                 // Removing the session from the registry is what makes a close irreversible: `onClosed` drops the
-                // record, so the id the caller was just told about resolves to "session not found" on the retry.
-                // Doing that WHILE reporting a failure left the managed lease cleanup outstanding with no handle
-                // left to name it — the audit saw exactly that pair, "Browser teardown timed out." followed by
-                // "Project browser session not found." A failed teardown therefore keeps its record in the
-                // inspectable `error` state until a later close completes; only a settled teardown retires it.
-                if (!this.teardownOutstanding)
-                    this.deps.onClosed(this.id);
+                // record, so the id the caller was just told about resolves to "session not found" afterwards.
+                this.deps.onClosed(this.id);
                 if (this.artifactRef)
                     await this.deps.artifacts.close(this.artifactRef).catch(() => { });
             }
@@ -645,12 +608,8 @@ export class BrowserSession {
                 nextCdp.send('Accessibility.enable'),
                 nextCdp.send('DOM.enable'),
                 nextCdp.send('Page.enable'),
-                // The deny is the PERSONAL mode's guard against downloads into the host profile. A managed
-                // session's pages live in the default browser context, and a Browser.setDownloadBehavior with
-                // no browserContextId addresses that same context — so sending it here would override the
-                // context-level allow into /data/browser/downloads set when the project browser connected, and
-                // the documented downloads path would silently deny every file.
-                ...(this.deps.projectAuthority ? [] : [nextCdp.send('Browser.setDownloadBehavior', { behavior: 'deny' })]),
+                // The guard against downloads landing in the account's host profile.
+                nextCdp.send('Browser.setDownloadBehavior', { behavior: 'deny' }),
             ]);
             if (previousCdp) {
                 // A trace records the browser, but it was started from the tab that is going away and stopped
@@ -717,7 +676,6 @@ export class BrowserSession {
             await this.waitForAgent(signal);
             const result = await this.queue.run(async () => {
                 this.assertOpen();
-                await this.deps.projectAuthority?.();
                 if (this.stateValue === 'user')
                     return { retry: true };
                 return { retry: false, value: await this.runBoundedOperation(operation) };

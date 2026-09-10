@@ -1,10 +1,18 @@
+# Changelog
+
+## browser 0.3.11 - 2026-09-10
+
+- The project browser is removed. The plugin has one mode: the linked account's Chrome running on the
+  host, with the live view card and user takeover. `BrowserOpenProject` is gone, `BrowserOpen` takes only
+  an optional `url`, and no browser runs inside a managed project's environment any more. The
+  `project_id` column stays in the session table for databases that already carry it, and is never
+  written.
+
 ## browser 0.3.10 - 2026-09-10
 
 - The project browser is its own tool, `BrowserOpenProject`, instead of a `useProjectProfile` flag on
   `BrowserOpen`. Models that fill every optional parameter sent the flag as `true` on every open, which
   turned the shared project profile into the default and took the live view card away again.
-
-# Changelog
 
 ## browser 0.3.9 - 2026-09-10
 

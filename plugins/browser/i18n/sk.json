@@ -1,5 +1,5 @@
 {
-  "description": "Automatizácia prehliadača pre spravované projekty a súkromné účty. Projektové prehliadače bežia vnútri svojho prostredia, zdieľajú profily, cookies a stiahnuté súbory a ovládajú sa nástrojmi prehliadača. Osobné prehliadače zachovávajú súkromné profily účtov, virtuálne displeje, živý náhľad VNC, výhradné prevzatie ovládania a vynucujúcu sieťovú proxy. Nastavenia na tejto stránke sa vzťahujú na osobné prehliadače.",
+  "description": "Automatizácia prehliadača pre prepojené účty. Každý prehliadač účtu si na hostiteľovi udržiava súkromný profil, virtuálny displej, živý náhľad VNC, výhradné prevzatie ovládania a vynucujúcu sieťovú proxy okolo každej relácie.",
   "fields": {
     "runtime": { "label": "Behové prostredie", "hint": "Detekcia Chrome a limity procesov na úrovni účtov. Prehliadač sa nespustí bez vynucujúcej proxy a bezpečnej cesty so sandboxom Chrome." },
     "chromeExecutable": { "label": "Spustiteľný súbor Chrome", "hint": "Voliteľná absolútna cesta k Chrome alebo Chromiu. Ponechajte prázdne pre automatickú detekciu podporovaného systémového prehliadača." },
