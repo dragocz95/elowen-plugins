@@ -58,9 +58,10 @@ async function fixture(options: { office?: boolean } = { office: true }) {
           for (const name of (await readdir(dir)).sort()) {
             const child = join(dir, name);
             const info = await lstat(child);
-            if (info.isSymbolicLink()) continue;
             const guestChild = '/workspace' + child.slice(root.length);
-            if (info.isDirectory()) {
+            // A link is REPORTED with its own size and time and never descended into.
+            if (info.isSymbolicLink()) entries.push({ path: guestChild, kind: 'symlink', size: info.size, mtime: info.mtimeMs });
+            else if (info.isDirectory()) {
               if (skip.has(name)) continue;
               entries.push({ path: guestChild, kind: 'directory', size: info.size, mtime: info.mtimeMs });
               if (depth < maxDepth) await visit(child, depth + 1);
@@ -160,13 +161,9 @@ describe('managed editor compound operations with an executable provider fixture
       await symlink('src/a.ts', join(f.root, 'linked.ts'));
       await symlink('missing', join(f.root, 'broken'));
       const listing = await f.call('files');
-      // KNOWN GAP, pinned deliberately. The tree view now consumes one guest `walk`, and the guest walk
-      // never emits a symlink, so the links that the per-directory listing used to resolve and show as
-      // their targets are absent from the tree. Reading THROUGH a link is unaffected — that goes through
-      // `stat`/`read` with `followSymlinks`, which is what the rest of this test exercises. Restoring the
-      // listing half needs a narrow addition on the guest side; until then this records what the editor
-      // actually returns rather than what it used to.
-      expect((listing.body as { path: string }[]).map(node => node.path)).toEqual(['src', 'src/a.ts', 'tmp']);
+      expect(listing.body).toEqual(expect.arrayContaining([{ path: 'linked', type: 'dir' }, { path: 'linked/a.ts', type: 'file', size: 15 }, { path: 'linked.ts', type: 'file', size: 15 }]));
+      // The dangling link resolves to nothing and is dropped, exactly as it always was.
+      expect((listing.body as { path: string }[]).map(node => node.path)).not.toContain('broken');
       const result = await f.call('raw', 'GET', 'linked.ts');
       expect(Buffer.from(result.body as Uint8Array).toString()).toBe('initial content');
       expect((await f.call('raw', 'GET', 'linked')).status).toBe(415);

@@ -194,6 +194,37 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
       if (result.truncated) throw new InputError('directory listing is too large; select a subdirectory');
       const nodes: { path: string; type: 'file' | 'dir'; size?: number }[] = [];
       const prefix = start === '/' ? '/' : `${start}/`;
+      const hidden = (path: string): boolean => IGNORE.has(posix.basename(path)) || path.endsWith('.elowen-upload');
+      /** Levels below the directory that was asked for, counted the way the recursive listing counted
+       *  them: a direct child is 0, so `< 8` is the same bound it always applied. */
+      const depthOf = (path: string): number => path.slice(prefix.length).split('/').length - 1;
+      /** The per-directory listing, kept for what lies BEHIND a symlink and nothing else. The walk
+       *  reports a link but never follows it, so a linked directory's contents have to be listed through
+       *  the link path itself, which `list` resolves. A tree without links never reaches this; one with
+       *  links pays the old cost for the linked subtrees alone. */
+      const expandLink = async (path: string, depth: number): Promise<void> => {
+        let cursor: string | undefined;
+        do {
+          const page = await files({ kind: 'list', path, limit: 1000, cursor });
+          if (page.kind !== 'list') throw new Error('invalid guest result');
+          if (nodes.length + page.entries.length > LIST_NODE_CAP) throw new InputError('directory listing is too large; select a subdirectory');
+          for (const original of page.entries) {
+            const clean = guestPath(original.path);
+            if (posix.dirname(clean) !== path) throw new Error('invalid guest entry');
+            // Filter before following: a guest probe per symlink is wasted on entries that are dropped anyway.
+            if (hidden(clean)) continue;
+            const entry = await followEntry(original);
+            if (!entry) continue;
+            const child = posix.relative('/workspace', clean);
+            if (entry.kind === 'directory') {
+              nodes.push({ path: child, type: 'dir' });
+              // The depth bound is also what terminates a link that points back at its own ancestor.
+              if (depth < 8) await expandLink(clean, depth + 1);
+            } else if (entry.kind === 'file') nodes.push({ path: child, type: 'file', size: entry.size });
+          }
+          cursor = page.nextCursor ?? undefined;
+        } while (cursor);
+      };
       for (const entry of result.entries) {
         const clean = guestPath(entry.path);
         // Entries are absolute and must lie under the directory that was asked for. `guestPath` already
@@ -201,10 +232,25 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
         if (!clean.startsWith(prefix)) throw new Error('invalid guest entry');
         // `skip` covers the ignored directories; the upload suffix is a filename rule the guest has no
         // notion of, and the basename check stays as the net for both.
-        if (IGNORE.has(posix.basename(clean)) || clean.endsWith('.elowen-upload')) continue;
+        if (hidden(clean)) continue;
         const path = posix.relative('/workspace', clean);
-        nodes.push(entry.kind === 'directory' ? { path, type: 'dir' } : { path, type: 'file', size: entry.size });
+        if (entry.kind !== 'symlink') {
+          nodes.push(entry.kind === 'directory' ? { path, type: 'dir' } : { path, type: 'file', size: entry.size });
+          continue;
+        }
+        // A link is shown as what it points AT, which is what this view has always shown: its target's
+        // kind and its target's size, a dangling one dropped entirely. The walk gives the link's own
+        // facts, so resolving it stays one stat per link, exactly as before.
+        const target = await followEntry({ path: clean, kind: 'symlink', size: entry.size, modifiedAt: new Date(entry.mtime).toISOString() });
+        if (!target) continue;
+        if (target.kind === 'directory') {
+          nodes.push({ path, type: 'dir' });
+          // Discovered at `depthOf`, expanded one level deeper — the same two counts the recursive
+          // listing kept, so a linked subtree bottoms out at the level a real one does.
+          if (!explicit && depthOf(clean) < 8) await expandLink(clean, depthOf(clean) + 1);
+        } else if (target.kind === 'file') nodes.push({ path, type: 'file', size: target.size });
       }
+      if (nodes.length > LIST_NODE_CAP) throw new InputError('directory listing is too large; select a subdirectory');
       return { body: nodes };
     }
     if (mount === '/projects/:id/file' && method === 'GET') {
