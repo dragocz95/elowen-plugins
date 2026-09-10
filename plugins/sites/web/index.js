@@ -1125,7 +1125,7 @@ function SitesRegister({ sites, selectedId, onSelect }) {
     DataTable,
     {
       ariaLabel: strings.title,
-      columns: "minmax(0,1fr) 11rem 8rem 7rem 6.5rem 1.75rem 1.25rem",
+      columns: "minmax(0,1fr) 11rem 8rem 10.5rem 6.5rem 1.75rem 1.25rem",
       compactColumns: "minmax(0,1fr) 1.75rem 1.25rem",
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DataTableRow, { header: true, children: [
@@ -1184,13 +1184,10 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }) {
           event.preventDefault();
           onNavigate(direction);
         },
-        className: "flex w-full min-w-0 flex-col items-start gap-0.5 text-left",
+        className: "flex w-full min-w-0 items-center gap-2 text-left",
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex min-w-0 max-w-full items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(StatusIcon, { size: 12, "aria-hidden": true, className: site.status === "live" ? "shrink-0 text-success" : site.status === "failed" ? "shrink-0 text-destructive" : "shrink-0 text-muted-foreground" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate text-sm text-foreground", children: site.title })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "max-w-full truncate font-mono text-[11px] text-muted-foreground", children: site.url })
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(StatusIcon, { size: 12, "aria-hidden": true, className: site.status === "live" ? "shrink-0 text-success" : site.status === "failed" ? "shrink-0 text-destructive" : "shrink-0 text-muted-foreground" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate text-sm text-foreground", children: site.title })
         ]
       }
     ) }),

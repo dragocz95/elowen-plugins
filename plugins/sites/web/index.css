@@ -35,9 +35,6 @@
   .w-full {
     width: 100%;
   }
-  .max-w-full {
-    max-width: 100%;
-  }
   .min-w-0 {
     min-width: 0px;
   }
@@ -70,9 +67,6 @@
   }
   .justify-end {
     justify-content: flex-end;
-  }
-  .gap-0\.5 {
-    gap: calc(var(--spacing, 0.25rem) * 0.5);
   }
   .gap-1 {
     gap: var(--spacing, 0.25rem);

@@ -33,7 +33,7 @@ export function SitesRegister({ sites, selectedId, onSelect }: {
   return (
     <DataTable
       ariaLabel={strings.title}
-      columns="minmax(0,1fr) 11rem 8rem 7rem 6.5rem 1.75rem 1.25rem"
+      columns="minmax(0,1fr) 11rem 8rem 10.5rem 6.5rem 1.75rem 1.25rem"
       compactColumns="minmax(0,1fr) 1.75rem 1.25rem"
     >
       <DataTableRow header>
@@ -110,13 +110,10 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
             event.preventDefault();
             onNavigate(direction);
           }}
-          className="flex w-full min-w-0 flex-col items-start gap-0.5 text-left"
+          className="flex w-full min-w-0 items-center gap-2 text-left"
         >
-          <span className="flex min-w-0 max-w-full items-center gap-2">
-            <StatusIcon size={12} aria-hidden className={site.status === 'live' ? 'shrink-0 text-success' : site.status === 'failed' ? 'shrink-0 text-destructive' : 'shrink-0 text-muted-foreground'} />
-            <span className="truncate text-sm text-foreground">{site.title}</span>
-          </span>
-          <span className="max-w-full truncate font-mono text-[11px] text-muted-foreground">{site.url}</span>
+          <StatusIcon size={12} aria-hidden className={site.status === 'live' ? 'shrink-0 text-success' : site.status === 'failed' ? 'shrink-0 text-destructive' : 'shrink-0 text-muted-foreground'} />
+          <span className="truncate text-sm text-foreground">{site.title}</span>
         </button>
       </DataTableCell>
       <DataTableCell priority="wide" title={site.owner.name}>
