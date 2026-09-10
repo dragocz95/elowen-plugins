@@ -60,7 +60,7 @@ const restoreRequests = (control) => control.requests.filter((request) => reques
 // --- Supervisor over the fake EXACT SDK ----------------------------------------------------------
 
 test('environment start performs the typed SDK sequence, prepares the ingress and never issues a restart', async (t) => {
-  const { supervisor, control, gateway, site, socketPath, root } = await sitesSdkHarness(t);
+  const { supervisor, control, gateway, site, socketPath, root } = await sitesSdkHarness(t, { bootstrapped: false });
   await supervisor.start(site);
 
   assert.deepEqual(requestKinds(control), ['provision-image', 'start']);
@@ -88,27 +88,9 @@ test('environment start performs the typed SDK sequence, prepares the ingress an
     'the container contract must not be written under the source/release siteDir');
 });
 
-test('an adopted legacy environment starts through one typed start, with effective limits in its binding', async (t) => {
-  const { supervisor, control, site } = await sitesSdkHarness(t, {
-    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/var/lib/legacy', state: 'stopped' }) },
-  });
-  site.environmentMemoryMb = 2048;
-  site.environmentCpus = 1.75;
-  site.environmentPidsLimit = 700;
-  await supervisor.start(site);
-
-  assert.deepEqual(requestKinds(control), ['start'], 'no provision-image, no limits action, no recreation');
-  assert.equal(control.requests[0].accountUserId, 7);
-  assert.equal(control.requests[0].expectedGeneration, 1);
-  const binding = await control.authority.resolve({ siteId: SITE_ID, accountUserId: 7, access: 'read' });
-  assert.deepEqual(binding.legacy, { containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/var/lib/legacy' });
-  assert.deepEqual(binding.limits, { cpus: 1.75, memoryMb: 2048, pidsLimit: 700, diskSoftMb: 4096 });
-});
-
 test('a structural provider failure is surfaced once and never retried by the caller', async (t) => {
   let failures = 0;
   const { supervisor, control, site } = await sitesSdkHarness(t, {
-    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'stopped' }) },
   });
   await supervisor.state(site);
   control.requestSiteEnvironment = async (input) => {
@@ -122,7 +104,6 @@ test('a structural provider failure is surfaced once and never retried by the ca
 
 test('stop requests the typed stop and drops the routing endpoint', async (t) => {
   const { supervisor, control, gateway, site } = await sitesSdkHarness(t, {
-    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'stopped' }) },
   });
   await supervisor.start(site);
   await supervisor.stop(SITE_ID);
@@ -154,7 +135,6 @@ test('healthy running environment is adopted and clears a stale failure without 
 
 test('service detach drops routing without any lifecycle request', async (t) => {
   const { supervisor, control, site } = await sitesSdkHarness(t, {
-    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'stopped' }) },
   });
   await supervisor.start(site);
   assert.notEqual(supervisor.endpointFor(SITE_ID), null);
@@ -167,7 +147,6 @@ test('service detach drops routing without any lifecycle request', async (t) => 
 
 test('environment limit overrides persist only after the provider accepts the change', async (t) => {
   const { supervisor, control, site } = await sitesSdkHarness(t, {
-    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'running' }) },
   });
   await supervisor.state(site);
   control.requestSiteEnvironment = async (input) => {
@@ -184,7 +163,6 @@ test('environment limit overrides persist only after the provider accepts the ch
 
 test('environment limit overrides persist while stopped and the binding carries them on the next start', async (t) => {
   const { supervisor, control, site } = await sitesSdkHarness(t, {
-    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'stopped' }) },
   });
   await supervisor.applyLimits(site, {
     environmentCpus: 2, environmentMemoryMb: 2048, environmentPidsLimit: 700, environmentDiskSoftMb: 8192,
@@ -200,7 +178,6 @@ test('environment limit overrides persist while stopped and the binding carries 
 
 test('environment exec forwards the command through the typed seam with a bounded timeout', async (t) => {
   const { supervisor, control, site } = await sitesSdkHarness(t, {
-    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'running' }) },
   });
   const result = await supervisor.exec(site, 'echo ok', { timeoutSeconds: 120, workdir: '/workspace' });
   assert.equal(result.stdout, 'exec-ok');
@@ -211,7 +188,6 @@ test('environment exec forwards the command through the typed seam with a bounde
 
 test('an active execution lease excludes a concurrent snapshot schedule and leaves nothing behind', async (t) => {
   const { supervisor, control, store, site } = await sitesSdkHarness(t, {
-    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'running' }) },
   });
   await supervisor.state(site);
   assert.equal(store.tryBeginEnvironmentExec(SITE_ID, 'exec-token', Date.now() + 60_000), true);
@@ -230,7 +206,6 @@ test('an active execution lease excludes a concurrent snapshot schedule and leav
 
 test('environment logs are requested with a bounded line count', async (t) => {
   const { supervisor, control, site } = await sitesSdkHarness(t, {
-    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'running' }) },
   });
   const logs = await supervisor.logs(site, 5000);
   assert.equal(logs.journal, 'journal');
@@ -375,7 +350,6 @@ test('pendingAction projects the runtime status onto the visible row without wri
 
 test('snapshot retention authority is handed to the runtime with the configured bound', async (t) => {
   const { supervisor, control, site } = await sitesSdkHarness(t, {
-    control: { discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'running' }) },
     config: { releasesKept: 2 },
   });
   await supervisor.state(site);
@@ -544,7 +518,7 @@ test('a reconcile tick under conversion suspension drops routing and dispatches 
 test('only the conversion own start passes its guard, and a durable action defers instead of failing', async (t) => {
   const suspension = { value: 'environment' };
   const { supervisor, control, store, site } = await sitesSdkHarness(t, {
-    control: { authorityLifecycle: false, discover: () => ({ containerId: 'a'.repeat(64), imageId: `sha256:${'b'.repeat(64)}`, volumeMountpoint: '/v', state: 'stopped' }) },
+    control: { authorityLifecycle: false },
     store: { conversionSuspends: (id) => (id === SITE_ID ? suspension.value : null) },
   });
   await assert.rejects(() => supervisor.start(site), /held by a runtime conversion/);

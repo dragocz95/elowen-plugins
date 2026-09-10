@@ -130,7 +130,6 @@ function sitesSdkControl({
   state = 'stopped',
   desiredState = 'stopped',
   generation = 1,
-  discover = null,
   snapshots = [],
   authorityLifecycle = true,
   onStart = null,
@@ -205,7 +204,6 @@ function sitesSdkControl({
       };
     },
     connectSitesRuntime(authority) { control.authority = authority; },
-    async discoverSiteEnvironment() { return typeof discover === 'function' ? discover() : discover; },
     async registerSiteEnvironment({ siteId }) {
       created.delete(siteId);
       return control.view(siteId);
@@ -267,6 +265,7 @@ function brokerSocketTracker(t, socketPath) {
 export async function sitesSdkHarness(t, {
   site = environmentSite(),
   controlState = 'stopped',
+  bootstrapped = true,
   control: controlOptions = {},
   store: storeOverrides = {},
   config: configOverrides = {},
@@ -298,6 +297,9 @@ export async function sitesSdkHarness(t, {
     },
   };
   const store = sitesSdkStore(site, storeOverrides);
+  // A Site that has already provisioned its fixed image once, which is every Site past its first start.
+  // The first-start sequence has its own test; a case about stop, limits or routing must not restate it.
+  if (bootstrapped) store.putRuntimeRecord(site.id, 'bootstrap-intent', 'complete');
   const control = sitesSdkControl({ state: controlState, onStart: brokerSocketTracker(t, socketPath), ...controlOptions });
   const supervisor = new EnvironmentSupervisor({
     control: () => control,
