@@ -653,7 +653,7 @@ export function registerTools(deps) {
                         throw new ToolError('This publication has no usable port. Recreate it with SiteCreate (kind "proxy" and the port in target).');
                     let socketPath;
                     try {
-                        socketPath = (await deps.publications.establish(site)).socketPath;
+                        socketPath = (await deps.publications.establish(site, userId)).socketPath;
                     }
                     catch (error) {
                         const message = error instanceof Error ? error.message : String(error);

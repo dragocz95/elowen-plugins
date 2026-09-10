@@ -5,6 +5,10 @@ import type { Endpoint } from './runtime.js';
 export interface PublicationControl {
   projectPublicationBinding(input: {
     project: { kind: 'managed'; projectId: number };
+    /** Required to CREATE or repoint a publication record, refused as `publication_identity_required`
+     *  without one. Re-establishing a record that already names this port needs no account, which is what
+     *  keeps the transport durable across the deletion of whoever published it. */
+    accountUserId?: number;
     publicationId: string;
     port: number;
   }): Promise<{ socketPath: string; generation: number }>;
@@ -89,8 +93,12 @@ export class ProjectPublicationService {
    *
    *  Idempotent by construction: the seam records the publication and then (re)establishes its
    *  forwarder, removing whatever socket file it finds first. That is why a socket left behind by a
-   *  container that ended is never read as evidence that a forwarder is running. */
-  async establish(site: Site): Promise<{ socketPath: string; generation: number }> {
+   *  container that ended is never read as evidence that a forwarder is running.
+   *
+   *  `accountUserId` is the account publishing right now. The seam needs one to write the durable record
+   *  the first time, and needs none afterwards — so the sweep re-establishes a transport nobody's account
+   *  owns any more, and only a publish can create or repoint one. */
+  async establish(site: Site, accountUserId?: number): Promise<{ socketPath: string; generation: number }> {
     const control = this.deps.control();
     if (!control?.projectPublicationBinding) {
       throw new Error('the Sandbox publication transport is unavailable on this instance');
@@ -99,6 +107,7 @@ export class ProjectPublicationService {
     if (port === null) throw new Error(`publication ${site.id} has no usable port`);
     const binding = await control.projectPublicationBinding({
       project: this.projectRef(site),
+      ...(accountUserId === undefined ? {} : { accountUserId }),
       publicationId: site.id,
       port,
     });

@@ -1555,10 +1555,11 @@ test('the publication service establishes, probes and releases one transport per
     project: () => ({ executionKind: 'managed', lifecycle: 'active' }),
   });
 
-  // The seam is asked for THIS publication and Project, with no account whose deletion could revoke it.
-  const binding = await service.establish(store.siteById('pub-1'));
+  // A publish creates the durable record, and the seam refuses to write one for nobody: the account that
+  // is publishing travels with the request. Only the re-establish half is account-free.
+  const binding = await service.establish(store.siteById('pub-1'), 1);
   assert.deepEqual(calls[0], ['bind', {
-    project: { kind: 'managed', projectId: 7 }, publicationId: 'pub-1', port: 3000,
+    project: { kind: 'managed', projectId: 7 }, accountUserId: 1, publicationId: 'pub-1', port: 3000,
   }]);
   assert.equal(binding.socketPath, socketPath);
   const probe = await service.probe(socketPath);
@@ -1611,18 +1612,21 @@ test('a publication whose transport stopped answering is retried on a bounded ca
     id: 'pub-live', slug: 'pub-c1b2c3', projectId: 7, ownerUserId: 1, kind: 'proxy', target: '3000',
     runtime: 'static', status: 'live', currentReleaseId: null,
   }));
-  let binds = 0;
+  const bindings = [];
   const service = new ProjectPublicationService({
     store,
     control: () => ({
-      projectPublicationBinding: async () => { binds += 1; return { generation: 1, socketPath: '/nonexistent/pub.sock' }; },
+      projectPublicationBinding: async (input) => { bindings.push(input); return { generation: 1, socketPath: '/nonexistent/pub.sock' }; },
       projectPublicationRelease: async () => {},
     }),
     project: () => ({ executionKind: 'managed', lifecycle: 'active' }),
   });
 
   await service.reconcile();
-  assert.equal(binds, 1);
+  assert.equal(bindings.length, 1);
+  // The sweep carries no account: it re-establishes a transport whose publisher may be long gone, and the
+  // seam accepts that only because the record it re-establishes already exists.
+  assert.ok(!('accountUserId' in bindings[0]), 'the reconcile sweep asks for no account');
   assert.match(store.siteById('pub-live').lastError, /ENOENT|connect/i, 'the row says why nobody can reach it');
   // Established, published and still published: an application that stopped answering is not a reason to
   // answer 404 for an address that exists.
@@ -1631,5 +1635,5 @@ test('a publication whose transport stopped answering is retried on a bounded ca
   // The environment is not asked again on every tick: establishing a transport costs guest round trips.
   await service.reconcile();
   await service.reconcile();
-  assert.equal(binds, 1, 'a failing publication backs off instead of hammering the environment');
+  assert.equal(bindings.length, 1, 'a failing publication backs off instead of hammering the environment');
 });
