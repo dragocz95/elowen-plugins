@@ -140,6 +140,7 @@ function sitesSdkControl({
   failStart = false,
 } = {}) {
   const requests = [];
+  const registrations = [];
   const operations = new Map();
   const execCalls = [];
   const logCalls = [];
@@ -192,6 +193,7 @@ function sitesSdkControl({
   const control = {
     authority: null,
     requests,
+    registrations,
     execCalls,
     logCalls,
     snapshots,
@@ -205,11 +207,17 @@ function sitesSdkControl({
     },
     connectSitesRuntime(authority) { control.authority = authority; },
     async registerSiteEnvironment({ siteId }) {
+      registrations.push(siteId);
       created.delete(siteId);
+      if (current.state === 'deleted') {
+        generation += 1;
+        current = { state: 'unprovisioned', desiredState: 'running' };
+      }
       return control.view(siteId);
     },
     async siteEnvironmentFor({ siteId }) { return control.view(siteId); },
     async requestSiteEnvironment(input) {
+      if (current.state === 'deleted') throw new Error('The environment has been deleted');
       requests.push(input);
       sequence += 1;
       const id = `op-${sequence}`;

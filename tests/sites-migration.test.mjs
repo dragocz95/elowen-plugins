@@ -996,6 +996,21 @@ test('rollback restores serving before the container is discarded, and clears th
   } finally { h.cleanup(); }
 });
 
+test('a rolled-back site can be prepared, flipped and completed again', async () => {
+  const h = harness();
+  try {
+    seedLiveStatic(h);
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+    await h.service.rollback(SITE_ID);
+
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal((await h.service.prepare(SITE_ID, 'release-copy')).stage, 'prepared');
+    assert.equal((await h.service.flip(SITE_ID)).stage, 'flipped');
+    assert.equal((await h.service.complete(SITE_ID)).stage, 'completed');
+  } finally { h.cleanup(); }
+});
+
 test('flipped rollback removes staged files while the environment still exists and leaves legacy serving', async () => {
   const h = harness({ removeStagedRequiresContainer: true });
   try {

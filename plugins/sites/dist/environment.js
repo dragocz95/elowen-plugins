@@ -432,6 +432,9 @@ export class EnvironmentSupervisor {
         this.endpoints.delete(id);
         if (this.registration(id)?.staging && options.removeBroker !== false)
             await this.deps.gateway.removeRuntimeSocket(id);
+        // Sandbox keeps a deleted Site row as the generation tombstone. The next publication must pass through
+        // the existing registration handover again so that row can be revived at the following generation.
+        this.deps.store.deleteRuntimeRecord(id, 'handover');
     }
     /** Schedule a snapshot and return its stable public id immediately, after the receipt is durable and
      *  the runtime has accepted the request under that request id. Completion is observed by the

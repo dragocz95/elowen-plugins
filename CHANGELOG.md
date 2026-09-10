@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.10.17 - 2026-09-11
+
+- Re-register a discarded conversion environment from its Sandbox tombstone before preparing the same Site again.
+
 ## sites 0.10.16 - 2026-09-11
 
 - Keep restored legacy publications live while a converted environment is discarded, remove staged migration files before deleting the environment, and make rollback cleanup converge after a partial discard.
