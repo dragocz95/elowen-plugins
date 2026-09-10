@@ -1,5 +1,9 @@
 # Changelog
 
+## todo 0.14.6 - 2026-09-10
+
+- Give `TaskCreate` one unambiguous sibling dependency syntax: `blockedBy: ["$1"]`. Existing task IDs stay plain strings, invalid references name the affected task, and every prompt surface shows the same example.
+
 ## sites 0.10.11 - 2026-09-10
 
 - Harden Project-backed publications, stop creating per-site environments, and require the account-independent core publication seam.

@@ -256,25 +256,24 @@ class TaskStore {
       });
 
       // Resolve and validate every dependency BEFORE the first write: a rejected batch has to leave the
-      // list exactly as it was, and a position may point at a sibling that does not have its row yet.
+      // list exactly as it was, and "$1" may point at a sibling that does not have its row yet.
       const links = [];
       inputs.forEach((input, index) => {
         const blockedId = created[index].id;
         for (const value of input.blockedBy ?? []) {
-          // A blockedBy entry is the string id of a task that ALREADY exists, and nothing else: ids are
-          // strings, so a number is neither an id nor a position and is refused like any reference that
-          // does not resolve. blockedByIndex below is the ONE way to name a sibling before any id exists,
-          // and addDependency keeps rejecting self-references and cycles under the shared rules.
+          const siblingMatch = typeof value === 'string' ? /^\$(\d+)$/.exec(value) : null;
+          if (siblingMatch) {
+            const position = Number(siblingMatch[1]);
+            if (position < 1 || position > created.length) {
+              throw new Error(`task ${index + 1}: blockedBy ${JSON.stringify(value)} is outside this call; sibling references run from "$1" through "$${created.length}"`);
+            }
+            links.push([created[position - 1].id, blockedId]);
+            continue;
+          }
           if (typeof value !== 'string' || !known.has(value)) {
-            throw new Error('dependency task not found');
+            throw new Error(`task ${index + 1}: blockedBy ${JSON.stringify(value)} is not an existing task id; use "$1" for the first task in this call`);
           }
           links.push([value, blockedId]);
-        }
-        for (const position of input.blockedByIndex ?? []) {
-          if (!Number.isInteger(position) || position < 1 || position > created.length) {
-            throw new Error('dependency task not found');
-          }
-          links.push([created[position - 1].id, blockedId]);
         }
       });
       const accepted = links.filter(([blockerId, blockedId]) => addDependency(edges, blockerId, blockedId));
@@ -516,7 +515,7 @@ function nothingToUpdateHint(params) {
 
 function safeError(ctx, error) {
   const message = error instanceof Error ? error.message : String(error);
-  if (SAFE_ERRORS.has(message)) return message;
+  if (SAFE_ERRORS.has(message) || /^task \d+: blockedBy(?:Index)? /.test(message)) return message;
   ctx.logger.warn(`session task storage failed: ${message}`);
   return 'task storage unavailable';
 }
@@ -642,7 +641,7 @@ export function registerTaskMode(ctx, db) {
   ctx.registerTool(defineTool({
     name: 'TaskCreate',
     label: 'Create tasks',
-    description: 'Create one or more NEW tasks in the current conversation task list and return the ID assigned to each. Send the whole plan as a SINGLE call with every task in the tasks array, in the order they should appear — do not call this once per task. Use it only to add work that is not on the list yet: to change work that already exists, call TaskUpdate with that task ID instead. EVERY item in the tasks array REQUIRES both a non-empty subject and a non-empty description; an item missing either one rejects the whole call. Per task, use subject for the short user-visible outcome, description for private working context, activeForm for present-continuous progress text, metadata for private structured context, and status only when you need to set it explicitly. If no task is already in_progress, the first new unblocked task without an explicit status starts automatically. Declare prerequisites right here instead of following up with TaskUpdate: `blockedBy` takes the IDs of tasks that ALREADY exist, as strings, and `blockedByIndex` takes the 1-based positions of sibling tasks within this same call — for example blockedBy: ["3"], blockedByIndex: [1] waits on existing task 3 and on the first task of this call. The whole batch is rejected together if a dependency is missing, self-referential or cyclic. Keep the returned IDs: they are the only valid handles for later TaskGet and TaskUpdate calls.',
+    description: 'Create one or more NEW tasks in the current conversation task list and return the ID assigned to each. Send the whole plan as a SINGLE call with every task in the tasks array, in the order they should appear — do not call this once per task. Use it only to add work that is not on the list yet: to change work that already exists, call TaskUpdate with that task ID instead. EVERY item in the tasks array REQUIRES both a non-empty subject and a non-empty description; an item missing either one rejects the whole call. Per task, use subject for the short user-visible outcome, description for private working context, activeForm for present-continuous progress text, metadata for private structured context, and status only when you need to set it explicitly. If no task is already in_progress, the first new unblocked task without an explicit status starts automatically. Declare prerequisites in `blockedBy`: an existing task uses its string ID, and a sibling in this same call uses its 1-based position prefixed with `$`. Write blockedBy: ["$1"] to wait on the first task in this call; blockedBy: ["3", "$1"] also waits on existing task 3. This is the only sibling dependency syntax. The whole batch is rejected together if a dependency is missing, self-referential or cyclic, and the error names the task and bad reference. Keep the returned IDs: they are the only valid handles for later TaskGet and TaskUpdate calls.',
     parameters: Type.Object({
       tasks: Type.Array(
         Type.Object({
@@ -651,10 +650,7 @@ export function registerTaskMode(ctx, db) {
           activeForm: Type.Optional(Type.String({ description: 'Present-continuous text shown while the task is in progress' })),
           status: Type.Optional(TASK_STATUS_SCHEMA),
           metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'Private structured metadata' })),
-          blockedBy: Type.Optional(Type.Array(Type.String(), { description: 'IDs of ALREADY EXISTING tasks that must finish before this one, as strings (numbers are refused; blockedByIndex names a sibling of this call)' })),
-          // Type.Number, not Type.Integer: the typebox build the daemon loads plugins against does not
-          // expose Integer. create() enforces whole numbers in range itself.
-          blockedByIndex: Type.Optional(Type.Array(Type.Number({ minimum: 1 }), { description: '1-based positions of SIBLING tasks in THIS same call that must finish before this one' })),
+          blockedBy: Type.Optional(Type.Array(Type.String(), { description: 'Dependencies for this task: use an existing task ID such as "3", or use "$1" for the first sibling task in THIS same call' })),
         }),
         { minItems: 1, description: 'Every task to create, in order. Send the whole plan at once rather than one call per task.' },
       ),
@@ -671,6 +667,10 @@ export function registerTaskMode(ctx, db) {
         }
         if (!inputs.every((input) => input.status === undefined || TASK_STATUSES.includes(input.status))) {
           throw new Error('invalid task status');
+        }
+        const legacyDependencyIndex = inputs.findIndex((input) => input && Object.hasOwn(input, 'blockedByIndex'));
+        if (legacyDependencyIndex >= 0) {
+          throw new Error(`task ${legacyDependencyIndex + 1}: blockedByIndex is no longer supported; use blockedBy: ["$1"] for the first task in this call`);
         }
         const tasks = store.create(key, inputs);
         syncCard(ctx, store, key);
@@ -789,7 +789,7 @@ export function registerTaskMode(ctx, db) {
   }, { placement: 'after-user' });
 
   ctx.registerSystemPromptFragment(
-    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskDelete`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. Mark work in_progress when it starts and completed immediately when it finishes. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, each with at least a `subject` and a `description` and with prerequisites declared inline (`blockedBy` naming tasks that already exist by their IDs as strings, `blockedByIndex` naming sibling tasks by their 1-based positions in the array — e.g. blockedBy: ["3"], blockedByIndex: [1] waits on existing task 3 and on the first task of this call), instead of calling it once per task — and returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. `TaskGet` and `TaskUpdate` each act on ONE task per call and take its ID in a parameter named `taskId` (not `id`, `ids`, `task` or `updates`). `TaskDelete` takes `taskId` for one task or an explicit non-empty `taskIds` array for an atomic batch; do not send both, and never include duplicates or guess IDs. An invalid, duplicate or unknown batch ID rejects the whole call without deletion. `TaskDelete` permanently removes the selected existing tasks and their dependency edges, then emits one Todo panel update. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update or delete reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
+    'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskDelete`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. Mark work in_progress when it starts and completed immediately when it finishes. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, each with at least a `subject` and a `description`, and declare prerequisites in `blockedBy`: use an existing task ID such as `"3"`, or use the sibling token `"$1"` for the first task in this same call. Write `blockedBy: ["$1"]` for a sibling; `blockedBy: ["3", "$1"]` mixes an existing task and a sibling. This is the only sibling dependency syntax. `TaskCreate` returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. `TaskGet` and `TaskUpdate` each act on ONE task per call and take its ID in a parameter named `taskId` (not `id`, `ids`, `task` or `updates`). `TaskDelete` takes `taskId` for one task or an explicit non-empty `taskIds` array for an atomic batch; do not send both, and never include duplicates or guess IDs. An invalid, duplicate or unknown batch ID rejects the whole call without deletion. `TaskDelete` permanently removes the selected existing tasks and their dependency edges, then emits one Todo panel update. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update or delete reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
   );
 
   ctx.logger.info('session task tools registered (TaskCreate + TaskGet + TaskUpdate + TaskDelete + TaskList)');

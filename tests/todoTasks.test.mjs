@@ -250,7 +250,7 @@ test('TaskCreate starts the first implicit runnable task without disturbing expl
   await create.execute('6', {
     tasks: [
       { subject: 'Keep pending', description: 'explicit state is authoritative', status: 'pending' },
-      { subject: 'Blocked work', description: 'waits for explicit pending task', blockedByIndex: [1] },
+      { subject: 'Blocked work', description: 'waits for explicit pending task', blockedBy: ['$1'] },
       { subject: 'First runnable', description: 'starts because earlier candidates are unavailable' },
     ],
   });
@@ -267,7 +267,7 @@ test('completing a task chains the model onto the next unblocked work in the res
 
   await create.execute('1', { tasks: [
     { subject: 'First', description: 'runs now' },
-    { subject: 'Second', description: 'still blocked', blockedByIndex: [3] },
+    { subject: 'Second', description: 'still blocked', blockedBy: ['$3'] },
     { subject: 'Third', description: 'next up' },
   ] });
 
@@ -357,7 +357,7 @@ test('TaskDelete deletes an explicit batch atomically and emits one card update'
   const list = h.tool('TaskList');
   await create.execute('1', { tasks: [
     { subject: 'A', description: 'a' },
-    { subject: 'B', description: 'b', blockedByIndex: [1] },
+    { subject: 'B', description: 'b', blockedBy: ['$1'] },
     { subject: 'C', description: 'c' },
   ] });
   const beforeCards = h.cards.length;
@@ -388,7 +388,7 @@ test('TaskDelete keeps mixed-session batches atomic and preserves the other sess
 
   await create.execute('1', { tasks: [
     { subject: 'Session A task', description: 'A' },
-    { subject: 'Session A dependent', description: 'A edge', blockedByIndex: [1] },
+    { subject: 'Session A dependent', description: 'A edge', blockedBy: ['$1'] },
   ] });
   h.setSession('brain-7-b');
   await create.execute('2', { tasks: [{ subject: 'Session B task', description: 'B' }] });
@@ -432,7 +432,7 @@ test('TaskDelete rolls back all rows and edges when a later SQL delete fails', a
   const list = h.tool('TaskList');
   await create.execute('1', { tasks: [
     { subject: 'First', description: 'first' },
-    { subject: 'Second', description: 'second', blockedByIndex: [1] },
+    { subject: 'Second', description: 'second', blockedBy: ['$1'] },
   ] });
   h.rawDb.exec(`CREATE TRIGGER fail_second_delete AFTER DELETE ON p_todo_tasks
     WHEN OLD.list_key = 'u7#brain-7-a' AND OLD.id = 2
@@ -452,7 +452,7 @@ test('TaskDelete and user API routes keep session tasks tenant-scoped and clear 
   await h.tool('TaskCreate').execute('1', {
     tasks: [
       { subject: 'Inspect auth', description: 'Private API detail' },
-      { subject: 'Ship fix', description: 'After auth', blockedByIndex: [1] },
+      { subject: 'Ship fix', description: 'After auth', blockedBy: ['$1'] },
     ],
   });
 
@@ -625,7 +625,7 @@ test('bulk clear removes the requested rows without resetting the conversation i
   await create.execute('1', {
     tasks: [
       { subject: 'Finished', description: 'done' },
-      { subject: 'Still open', description: 'pending', blockedByIndex: [1] },
+      { subject: 'Still open', description: 'pending', blockedBy: ['$1'] },
     ],
   });
   await update.execute('2', { taskId: '1', status: 'completed' });
@@ -774,7 +774,7 @@ test('turn boundaries never clear a list that still has open work', async (t) =>
   assert.equal(h.rawDb.prepare('SELECT completed_turns FROM p_todo_task_lists WHERE list_key = ?').get('u7#brain-7-a').completed_turns, 0);
 });
 
-test('one TaskCreate call plans the whole batch, wires prerequisites and pushes the card once', async (t) => {
+test('one TaskCreate call plans the whole batch, wires sibling and existing prerequisites, and pushes the card once', async (t) => {
   const h = harness(t);
   const create = h.tool('TaskCreate');
   const list = h.tool('TaskList');
@@ -782,8 +782,8 @@ test('one TaskCreate call plans the whole batch, wires prerequisites and pushes 
   const created = json(await create.execute('1', {
     tasks: [
       { subject: 'Read the code', description: 'Find the callers' },
-      { subject: 'Fix it', description: 'Smallest coherent change', blockedByIndex: [1] },
-      { subject: 'Ship it', description: 'Only after review', blockedByIndex: [2] },
+      { subject: 'Fix it', description: 'Smallest coherent change', blockedBy: ['$1'] },
+      { subject: 'Ship it', description: 'Only after review', blockedBy: ['$2'] },
     ],
   })).tasks;
 
@@ -792,43 +792,63 @@ test('one TaskCreate call plans the whole batch, wires prerequisites and pushes 
   assert.equal(h.cards.length, 1);
   assert.deepEqual(json(await list.execute('2', {})).tasks.map((task) => task.blockedBy), [[], ['1'], ['2']]);
 
-  // A later batch reaches back to ids that already exist, so no follow-up TaskUpdate is needed either.
+  // One blockedBy array can mix an existing id and a sibling from this call.
   assert.deepEqual(json(await create.execute('3', {
-    tasks: [{ subject: 'Announce', description: 'Tell the team', blockedBy: ['3'] }],
-  })).tasks, [{ id: '4', subject: 'Announce' }]);
-  assert.deepEqual(json(await list.execute('4', {})).tasks[3].blockedBy, ['3']);
+    tasks: [
+      { subject: 'Prepare announcement', description: 'Draft the message' },
+      { subject: 'Announce', description: 'Tell the team', blockedBy: ['3', '$1'] },
+    ],
+  })).tasks, [{ id: '4', subject: 'Prepare announcement' }, { id: '5', subject: 'Announce' }]);
+  assert.deepEqual(json(await list.execute('4', {})).tasks[4].blockedBy, ['3', '4']);
 });
 
-// A blockedBy entry is the string id of a task that already exists, and nothing else: ids are strings,
-// so a number is neither an id nor a position — blockedByIndex is the ONE sibling form — and the number
-// is refused with the same clear error as any other dependency that does not resolve, leaving the list
-// untouched.
-test('numeric blockedBy is refused with the clear missing-dependency error', async (t) => {
+test('a bad TaskCreate dependency names the task, reference, and sibling syntax without writing anything', async (t) => {
   const h = harness(t);
   const create = h.tool('TaskCreate');
   const list = h.tool('TaskList');
 
-  // On a fresh list, where the numeric form used to read as a sibling position…
   assert.match(text(await create.execute('1', {
-    tasks: [{ subject: 'A', description: 'a', blockedBy: [0] }],
-  })), /dependency task not found/);
-  // …and where the number equals an id that really exists: task "1" is on the list, and the number is
-  // still refused instead of silently resolving to it.
-  assert.deepEqual(json(await create.execute('2', {
-    tasks: [{ subject: 'First', description: 'first' }],
-  })).tasks, [{ id: '1', subject: 'First' }]);
+    tasks: [
+      { subject: 'A', description: 'a' },
+      { subject: 'B', description: 'b' },
+      { subject: 'C', description: 'c' },
+      { subject: 'D', description: 'd', blockedBy: [1] },
+    ],
+  })), /task 4: blockedBy 1 is not an existing task id; use "\$1" for the first task in this call/);
+  assert.match(text(await create.execute('2', {
+    tasks: [{ subject: 'A', description: 'a', blockedBy: ['$7'] }],
+  })), /task 1: blockedBy "\$7" is outside this call; sibling references run from "\$1" through "\$1"/);
   assert.match(text(await create.execute('3', {
-    tasks: [{ subject: 'B', description: 'b', blockedBy: [1] }],
-  })), /dependency task not found/);
+    tasks: [{ subject: 'A', description: 'a', blockedBy: ['99'] }],
+  })), /task 1: blockedBy "99" is not an existing task id; use "\$1" for the first task in this call/);
+  assert.match(text(await create.execute('4', {
+    tasks: [{ subject: 'A', description: 'a', blockedByIndex: [1] }],
+  })), /task 1: blockedByIndex is no longer supported; use blockedBy: \["\$1"\]/);
 
-  // None of the refused batches wrote a row or burned an id.
-  assert.deepEqual(json(await list.execute('4', {})).tasks.map((task) => task.id), ['1']);
+  assert.deepEqual(json(await list.execute('5', {})).tasks, []);
+  assert.deepEqual(json(await create.execute('6', {
+    tasks: [{ subject: 'First real task', description: 'after the failures' }],
+  })).tasks, [{ id: '1', subject: 'First real task' }]);
+});
 
-  // The surfaces the model reads must point sibling references at blockedByIndex, not a numeric blockedBy.
-  assert.doesNotMatch(h.tool('TaskCreate').description, /0-based/);
-  assert.match(h.tool('TaskCreate').description, /blockedByIndex/);
-  assert.doesNotMatch(h.prompts.join('\n'), /0-based/);
-  assert.match(h.prompts.join('\n'), /blockedByIndex/);
+test('every TaskCreate surface teaches one unambiguous sibling reference', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  await create.execute('1', { tasks: [{ subject: 'Work', description: 'Do it' }] });
+
+  const description = create.description;
+  const schema = create.parameters.properties.tasks.items.properties;
+  const prompt = h.prompts.join('\n');
+  const context = h.turnContext();
+
+  assert.match(description, /blockedBy: \["\$1"\]/);
+  assert.match(schema.blockedBy.description, /"\$1"/);
+  assert.equal(schema.blockedByIndex, undefined);
+  assert.match(prompt, /blockedBy: \["\$1"\]/);
+  assert.match(context, /blockedBy: \["\$1"\]/);
+  for (const surface of [description, JSON.stringify(schema), prompt, context]) {
+    assert.doesNotMatch(surface, /blockedByIndex/);
+  }
 });
 
 test('a batch is rejected whole, leaving the list exactly as it was', async (t) => {
@@ -838,28 +858,22 @@ test('a batch is rejected whole, leaving the list exactly as it was', async (t) 
 
   assert.match(text(await create.execute('1', {
     tasks: [
-      { subject: 'A', description: 'a', blockedByIndex: [2] },
-      { subject: 'B', description: 'b', blockedByIndex: [1] },
+      { subject: 'A', description: 'a', blockedBy: ['$2'] },
+      { subject: 'B', description: 'b', blockedBy: ['$1'] },
     ],
   })), /dependency cycle detected/);
   // A sibling naming its own position is a self-dependency, refused under the same shared rules.
   assert.match(text(await create.execute('2', {
-    tasks: [{ subject: 'A', description: 'a', blockedByIndex: [1] }],
+    tasks: [{ subject: 'A', description: 'a', blockedBy: ['$1'] }],
   })), /a task cannot depend on itself/);
-  assert.match(text(await create.execute('3', {
-    tasks: [{ subject: 'A', description: 'a', blockedBy: ['99'] }],
-  })), /dependency task not found/);
+  assert.match(text(await create.execute('3', { tasks: [] })), /non-empty array/);
   assert.match(text(await create.execute('4', {
-    tasks: [{ subject: 'A', description: 'a', blockedByIndex: [7] }],
-  })), /dependency task not found/);
-  assert.match(text(await create.execute('5', { tasks: [] })), /non-empty array/);
-  assert.match(text(await create.execute('6', {
     tasks: [{ subject: 'Fine', description: 'ok' }, { subject: '  ', description: 'blank subject' }],
   })), /subject and description/);
 
-  assert.deepEqual(json(await list.execute('7', {})).tasks, []);
+  assert.deepEqual(json(await list.execute('5', {})).tasks, []);
   // The rejected batches must not have burned ids either.
-  assert.deepEqual(json(await create.execute('8', {
+  assert.deepEqual(json(await create.execute('6', {
     tasks: [{ subject: 'First real task', description: 'after the failures' }],
   })).tasks, [{ id: '1', subject: 'First real task' }]);
 });
