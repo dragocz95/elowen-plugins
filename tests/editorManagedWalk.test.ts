@@ -296,6 +296,36 @@ describe('symlinks in the managed project tree', () => {
     expect(Math.max(...listed.map(path => path.split('/').length))).toBe(9);
   });
 
+  /** Expanding a LINKED folder by name. The walk answers a symlink root from its parent, so the editor
+   *  resolves the link and reads it through the link path — one walk, one stat, one listing, and the
+   *  direct children of what the link points at. */
+  it('expands a linked directory asked for by name, in walk then stat then list', async () => {
+    const f = fixture(linked);
+    const response = await f.list({ path: 'to-dir' });
+
+    expect(kinds(f.operations)).toEqual(['walk', 'stat', 'list']);
+    expect(f.operations[0]).toMatchObject({ kind: 'walk', path: '/workspace/to-dir', maxDepth: 0 });
+    expect(f.operations[1]).toMatchObject({ kind: 'stat', path: '/workspace/to-dir', followSymlinks: true });
+    expect(f.operations[2]).toMatchObject({ kind: 'list', path: '/workspace/to-dir' });
+    // Direct children only, and nothing from the directory the walk answered from.
+    expect(paths(response.body)).toEqual(['to-dir/a.ts', 'to-dir/nested']);
+  });
+
+  it('refuses a link to a FILE asked for as a directory', async () => {
+    const f = fixture(linked);
+    const response = await f.list({ path: 'to-file' });
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: 'not a directory' });
+    expect(kinds(f.operations)).toEqual(['walk', 'stat']);
+  });
+
+  it('reports a link that points nowhere as a missing path', async () => {
+    const f = fixture(linked);
+    const response = await f.list({ path: 'broken' });
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: 'path does not exist' });
+  });
+
   /** The depth bound is one count, kept in two places now: the walk's `maxDepth` for the real tree and the
    *  fallback's own descent for what is behind a link. This proves the two agree, level for level. */
   it('cuts a linked subtree off at exactly the depth the real one is cut off at', async () => {

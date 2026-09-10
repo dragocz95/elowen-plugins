@@ -188,16 +188,17 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
       // the walk would otherwise answer from the file's PARENT, which must never be rendered as the
       // requested folder.
       if (result.rootKind === null) throw new InputError('path does not exist', 404);
-      if (result.rootKind !== 'directory') throw new InputError('not a directory');
-      // The cap is this view's own bound and it stays an error rather than a silent partial tree: a
-      // truncated answer rendered as a complete one is the one outcome the caller cannot detect.
-      if (result.truncated) throw new InputError('directory listing is too large; select a subdirectory');
       const nodes: { path: string; type: 'file' | 'dir'; size?: number }[] = [];
       const prefix = start === '/' ? '/' : `${start}/`;
       const hidden = (path: string): boolean => IGNORE.has(posix.basename(path)) || path.endsWith('.elowen-upload');
       /** Levels below the directory that was asked for, counted the way the recursive listing counted
        *  them: a direct child is 0, so `< 8` is the same bound it always applied. */
       const depthOf = (path: string): number => path.slice(prefix.length).split('/').length - 1;
+      /** One link the walk reported, resolved to the entry it points at, or null when it points nowhere.
+       *  The walk gives the link's own facts and never its target's, so this stat is the only way to know
+       *  what to show — which is what the per-directory listing did per link too. */
+      const resolveLink = (path: string, size: number, mtime: number): Promise<GuestFileStat | null> =>
+        followEntry({ path, kind: 'symlink', size, modifiedAt: new Date(mtime).toISOString() });
       /** The per-directory listing, kept for what lies BEHIND a symlink and nothing else. The walk
        *  reports a link but never follows it, so a linked directory's contents have to be listed through
        *  the link path itself, which `list` resolves. A tree without links never reaches this; one with
@@ -219,12 +220,30 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
             if (entry.kind === 'directory') {
               nodes.push({ path: child, type: 'dir' });
               // The depth bound is also what terminates a link that points back at its own ancestor.
-              if (depth < 8) await expandLink(clean, depth + 1);
+              // Expanding ONE directory never descends, whatever it is reached through.
+              if (!explicit && depth < 8) await expandLink(clean, depth + 1);
             } else if (entry.kind === 'file') nodes.push({ path: child, type: 'file', size: entry.size });
           }
           cursor = page.nextCursor ?? undefined;
         } while (cursor);
       };
+      // The root ITSELF can be a link: the tree view expands a linked folder by name, and always could.
+      // The walk answers a symlink root from its PARENT, so its entries describe a different directory
+      // and are discarded here — the link is resolved and read through the link path instead, exactly as
+      // the per-directory listing read it.
+      if (result.rootKind === 'symlink') {
+        const target = await resolveLink(start, 0, 0);
+        if (!target) throw new InputError('path does not exist', 404);
+        if (target.kind !== 'directory') throw new InputError('not a directory');
+        await expandLink(start, 0);
+        return { body: nodes };
+      }
+      // A file is not a directory, and the walk would otherwise answer for its PARENT, which must never
+      // be rendered as the requested folder.
+      if (result.rootKind !== 'directory') throw new InputError('not a directory');
+      // The cap is this view's own bound and it stays an error rather than a silent partial tree: a
+      // truncated answer rendered as a complete one is the one outcome the caller cannot detect.
+      if (result.truncated) throw new InputError('directory listing is too large; select a subdirectory');
       for (const entry of result.entries) {
         const clean = guestPath(entry.path);
         // Entries are absolute and must lie under the directory that was asked for. `guestPath` already
@@ -241,7 +260,7 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
         // A link is shown as what it points AT, which is what this view has always shown: its target's
         // kind and its target's size, a dangling one dropped entirely. The walk gives the link's own
         // facts, so resolving it stays one stat per link, exactly as before.
-        const target = await followEntry({ path: clean, kind: 'symlink', size: entry.size, modifiedAt: new Date(entry.mtime).toISOString() });
+        const target = await resolveLink(clean, entry.size, entry.mtime);
         if (!target) continue;
         if (target.kind === 'directory') {
           nodes.push({ path, type: 'dir' });
