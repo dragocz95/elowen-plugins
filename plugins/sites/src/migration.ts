@@ -56,6 +56,9 @@ export interface MigrationDeps {
   legacyRunning(siteId: string): boolean;
   /** Restart the legacy runtime after a rollback. Only meaningful for a command site. */
   startLegacyRuntime(site: Site): Promise<void>;
+  /** If this converted row is a proxy publication, retire its Project forwarder and point serving back at
+   *  the legacy runtime endpoint. A forward publish creates and adopts the Project transport again. */
+  restoreLegacyPublication(site: Site): Promise<void>;
   /** The site's validated recipe artefact: which image, which argv and env, which subtrees are its data
    *  and which release files are secrets. Read fresh, never cached across a reload. */
   loadRecipe(siteId: string): AppRecipe;
@@ -956,6 +959,7 @@ export class RuntimeMigrationService {
       // The start is AWAITED and it only returns once the endpoint actually answers, so reaching the line
       // below is the proof that the legacy runtime is serving again.
       if (restored?.runtime === 'command') await this.startRestoredLegacy(restored);
+      if (restored) await this.deps.restoreLegacyPublication(restored);
       this.deps.store.markLegacyStopped(siteId, false);
       // ONLY NOW. While the conversion held this site, a periodic reconcile may have written `failed` and
       // an error onto the row, and a site left `failed` is absent from `liveCommandSites()` and therefore

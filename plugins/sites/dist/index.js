@@ -249,6 +249,16 @@ export function register(published) {
         stopLegacyRuntime: (siteId) => supervisor.stop(siteId),
         legacyRunning: (siteId) => supervisor.isRunning(siteId),
         startLegacyRuntime: async (site) => { await supervisor.start(site, { authorized: true }); },
+        restoreLegacyPublication: async (site) => {
+            if (site.kind !== 'proxy')
+                return;
+            const endpoint = supervisor.endpointFor(site.id);
+            if (endpoint?.kind !== 'socket') {
+                throw new Error('the restored legacy publication has no socket transport');
+            }
+            await publications.release(site);
+            publications.adopt(site.id, endpoint.path);
+        },
         loadRecipe: (siteId) => loadAppRecipe(migrationArtifactDir(siteDir(siteId))),
         recipeBinding: (siteId) => recipeBinding(migrationArtifactDir(siteDir(siteId))),
         installRecipe: (siteId, input) => installAppRecipe(migrationArtifactDir(siteDir(siteId)), input),
