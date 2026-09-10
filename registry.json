@@ -86,8 +86,8 @@
     },
     {
       "name": "image-edit",
-      "version": "0.2.3",
-      "requiresCore": "0.28.36",
+      "version": "0.2.4",
+      "requiresCore": "0.28.41",
       "description": "Edit an existing image from a text instruction (image-to-image) through a configured API-key provider or the connected ChatGPT account. The result shows in the chat.",
       "category": "media",
       "author": "Elowen",
@@ -98,8 +98,8 @@
     },
     {
       "name": "image-gen",
-      "version": "0.2.3",
-      "requiresCore": "0.28.36",
+      "version": "0.2.4",
+      "requiresCore": "0.28.41",
       "description": "Image generation through a configured API-key provider or the connected ChatGPT account. Generated images show directly in the chat.",
       "category": "media",
       "author": "Elowen",
