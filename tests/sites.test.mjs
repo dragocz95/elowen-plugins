@@ -17,6 +17,7 @@ import { proxyToEnvironment, proxyToRuntime, ProxyError } from '../plugins/sites
 import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
 import { ProjectPublicationService } from '../plugins/sites/dist/publication.js';
+import { deleteSiteResources } from '../plugins/sites/dist/deletion.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -1279,6 +1280,31 @@ test('SiteUpdate changes command runtime settings without republishing', async (
   assert.equal(updated.port, 43000);
 });
 
+test('deletion completes when the environment was already deleted', async () => {
+  const store = new SitesStore(makeDb());
+  const root = tempDir('delete-absent-environment');
+  const target = site({ id: 'id-1', slug: 'report-a1b2c3', runtime: 'environment' });
+  store.insertSite(target);
+  mkdirSync(join(root, target.id), { recursive: true });
+  store.beginDelete(target.id);
+  const cleaned = [];
+
+  try {
+    await deleteSiteResources(target.id, {
+      store,
+      siteDir: (id) => join(root, id),
+      stopLegacy: async () => {},
+      releasePublication: async () => {},
+      deleteEnvironment: async () => { throw new Error('The environment has been deleted'); },
+      removeGateway: async (slug) => { cleaned.push(slug); },
+    });
+
+    assert.equal(store.siteById(target.id), null);
+    assert.equal(existsSync(join(root, target.id)), false);
+    assert.deepEqual(cleaned, [target.slug]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('SiteDelete uses the shared cascading cleanup and leaves the Project source alone', async (t) => {
   const { store, dir, call } = toolHarness(t);
   const sourceDir = join(dir, 'project', 'report-source');
@@ -1304,7 +1330,7 @@ test('SiteDelete uses the shared cascading cleanup and leaves the Project source
 test('a row written before the publication model is a static publication', () => {
   const db = makeDb();
   const store = new SitesStore(db);
-  assert.equal(db.appliedVersion(), 14, 'the additive migration is the last one applied');
+  assert.equal(db.appliedVersion(), 15, 'the additive migration is the last one applied');
 
   // As an older release left it: no kind and no target columns at all in the INSERT.
   db.exec(`INSERT INTO p_sites_sites

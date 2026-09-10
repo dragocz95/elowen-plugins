@@ -550,7 +550,7 @@ export function createApiHandlers(deps) {
                 case 'rollback':
                     // Carrying container writes back is the default, because losing them silently is the worse
                     // failure; an explicit `false` is how an operator discards a conversion that never really ran.
-                    return json(200, { conversion: await deps.migration.rollback(target.id, { restoreData: body.restoreData !== false }) });
+                    return json(202, { conversion: deps.migration.scheduleRollback(target.id, { restoreData: body.restoreData !== false }) });
                 default:
                     return json(400, { error: 'unknown conversion step' });
             }

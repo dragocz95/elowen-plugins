@@ -339,6 +339,10 @@ export class EnvironmentSupervisor {
         if (result.code !== 0)
             throw new Error(`the conversion seed directory could not be cleared: ${result.stderr || result.stdout}`);
     }
+    async conversionStageAbsent(site, stageDir) {
+        const result = await this.exec(site, `test ! -e '${stageDir}'`, { timeoutSeconds: 30 });
+        return result.code === 0;
+    }
     /** Whether the runtime already holds a container for this Site. A container is owned by the runtime
      *  record that created it, and the runtime validates that ownership on every inspection, so the record
      *  is the question to ask; nothing is derived from a container's name. */

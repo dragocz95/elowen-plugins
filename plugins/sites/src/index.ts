@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PluginContext } from 'elowen/plugin-api';
 import { asSitesContext, asUserViews } from './coreSeams.js';
@@ -19,6 +19,7 @@ import { DataSyncService, migrationArtifactDir, validateLegacyHome } from './dat
 import { installAppRecipe, loadAppRecipe, recipeBinding, relaxStaticServingPermissions } from './recipe.js';
 import { conversionImageTag } from './conversionImage.js';
 import { RuntimeMigrationService } from './migration.js';
+import { deleteSiteResources } from './deletion.js';
 import type { AccessDeps } from './access.js';
 import { ProjectPreviewService } from './preview.js';
 import { ProjectPublicationService, type ProjectEnvironmentView, type PublicationControl } from './publication.js';
@@ -305,6 +306,7 @@ export function register(published: PluginContext): void {
     rebindToSource: (site, operationId) => environment.rebindToSource(site, operationId),
     publishBinding: (site) => environment.publishBinding(site),
     clearConversionStage: (site, stageDir) => environment.clearConversionStage(site, stageDir),
+    conversionStageAbsent: (site, stageDir) => environment.conversionStageAbsent(site, stageDir),
 
     // The sandbox is the only authority on where a confined site keeps its data: `runtime.ts` blocks HOME
     // from `.env`, so the value can come from nowhere else. Asking for the same preparation the legacy
@@ -375,6 +377,10 @@ export function register(published: PluginContext): void {
    *  uses is adopted by that reconcile. */
   const settleConversions = async (): Promise<void> => {
     if (!isDaemonProcess()) return;
+    for (const settled of await migration.reconcileRollbacks()) {
+      if (settled.stage === 'none') ctx.logger.info(`site conversion ${settled.siteId} rolled back`);
+      else ctx.logger.warn(`site conversion ${settled.siteId} rollback is pending: ${settled.lastError ?? settled.stage}`);
+    }
     for (const settled of await migration.reconcileCompletions()) {
       if (settled.lastError === null) {
         ctx.logger.info(`site conversion ${settled.siteId} completed; its Project folder is now the served workspace`);
@@ -395,16 +401,17 @@ export function register(published: PluginContext): void {
     deletingSiteIds.add(siteId);
     if (!isDaemonProcess()) return;
     try {
-      if (site.runtime !== 'environment') await supervisor.stop(siteId);
-      // A proxy publication's forwarder lives in the Project's environment and belongs to this plugin
-      // until it is ended; the row is what names it, so it goes before anything the row was holding.
-      if (site.kind === 'proxy') await publications.release(site);
-      if (site.runtime === 'environment' || store.runtimeRecord(siteId, 'binding')) await environment.delete(siteId);
-      rmSync(siteDir(siteId), { recursive: true, force: true });
-      store.deleteSite(siteId);
-      // Last, and never fatal: the hostname and its certificate are the gateway's copy of a site that no
-      // longer exists here. A certbot that will not let go must not resurrect the deletion.
-      await gateway.removeSite(site.slug);
+      await deleteSiteResources(siteId, {
+        store,
+        siteDir,
+        stopLegacy: (id) => supervisor.stop(id),
+        releasePublication: (target) => publications.release(target),
+        deleteEnvironment: (id) => environment.delete(id),
+        removeGateway: (slug) => gateway.removeSite(slug),
+        reportGatewayError: (target, error) => ctx.logger.warn(
+          `site ${target.slug} gateway cleanup failed after deletion: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      });
       deletingSiteIds.delete(siteId);
     } catch (error) {
       ctx.logger.warn(`site ${site.slug} deletion will be retried: ${error instanceof Error ? error.message : String(error)}`);
