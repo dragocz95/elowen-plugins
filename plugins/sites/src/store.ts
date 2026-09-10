@@ -111,8 +111,11 @@ export type ConvertibleRuntime = 'static' | 'command' | 'php';
 export interface RuntimeMigration {
   siteId: string;
   /** How far the conversion actually got. Each stage is committed BEFORE the side effects it unlocks,
-   *  so a resume never has to guess whether the previous stage half-happened. */
-  stage: 'preparing' | 'prepared' | 'flipped';
+   *  so a resume never has to guess whether the previous stage half-happened.
+   *
+   *  `completing` is the last one and the only forward-only one: it retires the staged copy by moving the
+   *  container onto the site's own source folder, which destroys the staged container and rebuilds it. */
+  stage: 'preparing' | 'prepared' | 'flipped' | 'completing';
   fromRuntime: ConvertibleRuntime;
   /** The release that was live when the conversion was claimed. Legacy serving is restored from THIS,
    *  captured rather than read back at rollback time when the row may already have moved on. */
@@ -177,7 +180,7 @@ interface RuntimeMigrationRow {
 }
 
 const asMigrationStage = (value: string): RuntimeMigration['stage'] =>
-  value === 'prepared' || value === 'flipped' ? value : 'preparing';
+  value === 'prepared' || value === 'flipped' || value === 'completing' ? value : 'preparing';
 
 const asConvertibleRuntime = (value: string): ConvertibleRuntime | null =>
   value === 'static' || value === 'command' || value === 'php' ? value : null;
@@ -197,8 +200,9 @@ const asRollbackStage = (value: string): RuntimeMigration['rollbackStage'] =>
  *    `command` and `live`, so the site is in `liveCommandSites()` and looks like one that simply is not
  *    running. Restarting it puts a second writer on the tree being captured and a second holder on the
  *    broker directory the container is being built around.
- *  - `environment`: a rollback quiesced the container to export its volume. The row still says
- *    `environment` and `live`, so reconcile reads a stopped container it believes should be up.
+ *  - `environment`: a rollback quiesced the container to export its volume, or a completion is moving the
+ *    container off the staged copy onto the site's own source folder. The row still says `environment`
+ *    and `live`, so reconcile reads a stopped container it believes should be up.
  *
  *  A `flipped` conversion whose rollback has not started owns nothing: the container is genuinely meant
  *  to be running and its own supervisor should keep it that way.
@@ -218,6 +222,11 @@ const asRollbackStage = (value: string): RuntimeMigration['rollbackStage'] =>
  *  automatic fallback, so the container stays down until the rollback is resumed and finishes it. */
 const suspensionOf = (row: RuntimeMigrationRow): 'legacy' | 'environment' | null => {
   const stage = asMigrationStage(row.stage);
+  // A completion stops the container, destroys it and builds a new one on the site's source folder. For
+  // that whole window the row still says `environment` and `live`, so the ownership has to be held even
+  // after a failure: the volume lives in an archive until the new container is seeded from it, and a
+  // reconcile that started something in between would serve from a volume nobody restored yet.
+  if (stage === 'completing') return 'environment';
   if (stage !== 'flipped') return row.legacy_stopped === 1 && row.last_error === null ? 'legacy' : null;
   const rollback = asRollbackStage(row.rollback_stage);
   return rollback === 'quiescing' || rollback === 'exported' || rollback === 'restored' ? 'environment' : null;
@@ -1202,6 +1211,25 @@ export class SitesStore {
       UPDATE p_sites_runtime_migrations SET stage = ?
       WHERE site_id = ? AND stage = ? AND last_error IS NULL
     `).run(to, siteId, from).changes === 1;
+  }
+
+  /** Claim a flipped conversion for its completion, in one compare-and-set.
+   *
+   *  `resumableError` is the marker boot recovery writes onto a conversion a restart interrupted while it
+   *  was already flipped. That is not a failed flip: the site is up and serving as an environment, and the
+   *  only thing missing is the completion nobody got to run. Accepting exactly that one message keeps such
+   *  a slot completable while every other recorded failure still refuses, and clearing it in the same
+   *  statement means the completion owns the slot from here on.
+   *
+   *  A slot already `completing` is retaken whatever it recorded. By then the staged container is gone and
+   *  the site's data lives in an archive this operation wrote, so finishing is the only direction that
+   *  ends with a serving site; refusing the retry would strand it. */
+  beginRuntimeCompletion(siteId: string, resumableError: string): boolean {
+    return this.db.prepare(`
+      UPDATE p_sites_runtime_migrations SET stage = 'completing', last_error = NULL
+      WHERE site_id = ?
+        AND (stage = 'completing' OR (stage = 'flipped' AND (last_error IS NULL OR last_error = ?)))
+    `).run(siteId, resumableError).changes === 1;
   }
 
   /** Release the slot with a reason. The row SURVIVES: it still holds the only record of what the site

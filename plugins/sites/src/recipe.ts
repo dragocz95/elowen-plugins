@@ -71,7 +71,9 @@ export interface AppRecipe {
  *  container first runs and the volume is the only thing this operation can seed at that point. The
  *  bootstrap unit removes the staged secrets once they are installed, so they do not linger on the volume
  *  for the life of the site. */
-const CONVERSION_STAGE = '/data/.elowen-conversion';
+/** Where a conversion's seed lands on the persistent volume, and the only path in the container that
+ *  belongs to the conversion rather than to the application. */
+export const CONVERSION_STAGE = '/data/.elowen-conversion';
 const DATA_ARCHIVE_STAGE = `${CONVERSION_STAGE}/legacy-data.tar`;
 const SECRET_STAGE = `${CONVERSION_STAGE}/secrets`;
 

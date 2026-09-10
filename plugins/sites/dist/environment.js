@@ -7,6 +7,10 @@ import { createSiteRuntimeAuthority } from './siteRuntimeAuthority.js';
 import { BASE_IMAGE_TAG, baseImageRecipe } from './baseImage.js';
 import { conversionImageRecipe, conversionImageTag } from './conversionImage.js';
 import { loadAppRecipe } from './recipe.js';
+/** Which fixed image recipe a registered binding runs on. `workspaceReadOnly` is the discriminator
+ *  between the two conversion derivatives, because only a static site is served from a tree its own
+ *  server may not write. */
+const imageKindOf = (binding) => binding.image === BASE_IMAGE_TAG ? 'base' : binding.workspaceReadOnly ? 'static' : 'node';
 /** Application readiness and Sites records only. All container mutations belong to Sandbox. */
 export class EnvironmentSupervisor {
     deps;
@@ -123,9 +127,8 @@ export class EnvironmentSupervisor {
         }
         const registered = await control.registerSiteEnvironment({ siteId: site.id, accountUserId });
         if (this.deps.store.runtimeRecord(site.id, 'bootstrap-intent') === 'running') {
-            const imageKind = binding.image === BASE_IMAGE_TAG ? 'base' : binding.workspaceReadOnly ? 'static' : 'node';
             await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
-                action: { kind: 'provision-image', imageKind }, expectedGeneration: registered.generation,
+                action: { kind: 'provision-image', imageKind: imageKindOf(binding) }, expectedGeneration: registered.generation,
                 requestId: `sites-bootstrap-image:${site.id}:${registered.generation}` }), accountUserId);
             await control.requestSiteEnvironment({ siteId: site.id, accountUserId, action: { kind: 'start' },
                 expectedGeneration: registered.generation, requestId: `sites-bootstrap-start:${site.id}:${registered.generation}` });
@@ -166,7 +169,7 @@ export class EnvironmentSupervisor {
         if ((action.kind === 'start' || action.kind === 'restart')
             && this.deps.store.runtimeRecord(site.id, 'bootstrap-intent') !== 'complete') {
             await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
-                action: { kind: 'provision-image', imageKind: binding.image === BASE_IMAGE_TAG ? 'base' : binding.workspaceReadOnly ? 'static' : 'node' },
+                action: { kind: 'provision-image', imageKind: imageKindOf(binding) },
                 expectedGeneration: state.generation, requestId: `${requestId}:image` }), accountUserId);
         }
         const resolvedAction = action.kind === 'restore' ? { ...action,
@@ -273,9 +276,68 @@ export class EnvironmentSupervisor {
         this.saveBinding(binding);
         if (await this.provisionedContainer(site.id))
             return { created: false };
-        await this.provision(site, image === BASE_IMAGE_TAG ? 'base' : workspaceReadOnly ? 'static' : 'node');
+        await this.provision(site, imageKindOf(binding));
         await this.perform(site, { kind: 'prepare' });
         return { created: true };
+    }
+    /** Move a converted site's container off the staged copy and onto the site's own source folder.
+     *
+     *  WHY THE CONTAINER IS REBUILT RATHER THAN RE-POINTED. A bind source is fixed when the container is
+     *  created, and the runtime pins the container to the binding it was registered with: once `sourcePath`
+     *  changes, every later request for that Site is refused as a changed trusted binding until the row is
+     *  re-registered, and a row is only re-registered after it has been retired. So the staged container is
+     *  retired first, through the same `cleanup-stage` that ends every other staging binding, and the new
+     *  one is built from the published binding exactly as a preparation builds its own.
+     *
+     *  The persistent volume does NOT survive that retirement, which is why the caller exports it first and
+     *  seeds it back afterwards. The binding stays `staging` until then: seeding a data volume is a staging
+     *  operation, and the site becomes an ordinary live environment in {@link publishBinding}.
+     *
+     *  `image` and `workspaceReadOnly` are carried over untouched. They are one fact — which fixed recipe
+     *  this site runs on — and a static conversion is served by nginx out of a tree its own workers must not
+     *  be able to rewrite. */
+    async rebindToSource(site) {
+        this.control();
+        const previous = this.registration(site.id);
+        if (!previous)
+            throw new Error('this site has no registered environment binding to move');
+        const binding = {
+            ...previous, sourcePath: resolve(site.sourceDir), staging: true,
+            initialIntent: { desiredState: 'stopped', pendingAction: null },
+        };
+        if (previous.sourcePath !== binding.sourcePath) {
+            await this.perform(site, { kind: 'cleanup-stage' }, undefined, true);
+            this.deps.store.deleteRuntimeRecord(site.id, 'handover');
+            this.deps.store.deleteRuntimeRecord(site.id, 'binding');
+            this.endpoints.delete(site.id);
+        }
+        this.saveBinding(binding);
+        if (await this.provisionedContainer(site.id))
+            return;
+        await this.perform(site, { kind: 'provision-image', imageKind: imageKindOf(binding) }, undefined, true);
+        await this.perform(site, { kind: 'prepare' }, undefined, true);
+    }
+    /** Publish the moved binding as an ordinary live environment: no staging, and the running intent a
+     *  natively created site carries. The bootstrap record is settled too, because the container this
+     *  completion built has already been started and verified. */
+    publishBinding(site) {
+        const binding = this.registration(site.id);
+        if (!binding)
+            throw new Error('this site has no registered environment binding to publish');
+        this.saveBinding({ ...binding, staging: false, initialIntent: { desiredState: 'running', pendingAction: null } });
+        this.deps.store.putRuntimeRecord(site.id, 'bootstrap-intent', 'complete');
+    }
+    /** Remove the conversion's seed directory from the persistent volume, from inside the running container.
+     *
+     *  It is spent by the time a conversion is completed: the bootstrap unit installed the application unit
+     *  and the credentials from it on first boot and deleted its own copies. What it still holds is the
+     *  legacy data capture, which the same unit re-unpacks over the application's data on EVERY boot — so
+     *  carrying it into the container this completion builds would revert the site to its conversion-time
+     *  data. The completion seeds a fresh directory afterwards. */
+    async clearConversionStage(site, stageDir) {
+        const result = await this.exec(site, `rm -rf -- '${stageDir}'`, { timeoutSeconds: 60 });
+        if (result.code !== 0)
+            throw new Error(`the conversion seed directory could not be cleared: ${result.stderr || result.stdout}`);
     }
     /** Whether the runtime already holds a container for this Site. A container is owned by the runtime
      *  record that created it, and the runtime validates that ownership on every inspection, so the record
