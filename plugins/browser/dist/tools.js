@@ -25,32 +25,52 @@ const snapshotPayload = (sessionId, snapshot) => ({
 });
 const sessionIdSchema = Type.String({ description: 'Opaque browser session ID returned by BrowserOpen', minLength: 16, maxLength: 256 });
 export function registerBrowserTools(ctx, registry) {
-    const project = () => { const ref = ctx.currentAccess?.().projectRef; return ref?.kind === 'managed' ? ref : undefined; };
-    const own = () => {
-        if (!project())
-            return requireBrowserToolOwner(ctx);
+    /** The managed project this turn EXECUTES in, which is not on its own a request for a project browser:
+     *  `projectRef` is the ambient execution target and a chat gets a managed one by default, so keying the
+     *  browser mode on it silently replaced the account browser — and with it the live view card and the
+     *  takeover — in every managed conversation. The shared project profile is asked for explicitly on
+     *  BrowserOpen instead. */
+    const selectedProject = () => { const ref = ctx.currentAccess?.().projectRef; return ref?.kind === 'managed' ? ref : undefined; };
+    const projectOwner = () => {
         const userId = ctx.currentAccountUserId();
         const conversationId = ctx.currentSessionId();
         if (userId === null || !conversationId)
             throw new Error('Project browser tools require an acting account and conversation.');
         return { userId, conversationId };
     };
+    /** Which mode a follow-up tool is in is a property of the SESSION it names, not of the ambient target:
+     *  the flag lives on BrowserOpen and every later call carries only a session id. */
     const session = async (sessionId) => {
-        const owner = own();
-        const selected = project();
-        return { owner, session: selected ? await registry.getForTool(sessionId, owner.userId, selected) : registry.getOwned(sessionId, owner.userId) };
+        if (!registry.isProjectSession(sessionId)) {
+            const owner = requireBrowserToolOwner(ctx);
+            return { owner, session: registry.getOwned(sessionId, owner.userId), project: undefined };
+        }
+        const selected = selectedProject();
+        if (!selected)
+            throw new Error('The project browser session belongs to a managed project that is not selected.');
+        const owner = projectOwner();
+        return { owner, session: await registry.getForTool(sessionId, owner.userId, selected), project: selected };
     };
     const tools = [
         defineTool({
             name: 'BrowserOpen',
             label: 'Open browser',
-            description: 'Open a browser in the selected managed project, with profile, cookies and downloads shared as project data. Otherwise open the linked account’s private browser; personal mode refuses shared rooms and delegated child agents.',
-            parameters: Type.Object({ url: Type.Optional(Type.String({ description: 'Optional absolute public http(s) URL to open' })) }),
+            description: 'Open the linked account’s browser, which runs on the host with a live view card and user takeover, and refuses shared rooms and delegated child agents. Set useProjectProfile to open the selected managed project’s shared browser instead.',
+            parameters: Type.Object({
+                url: Type.Optional(Type.String({ description: 'Optional absolute public http(s) URL to open' })),
+                useProjectProfile: Type.Optional(Type.Boolean({ description: 'Open the selected managed project’s shared browser, with profile, cookies and downloads shared as project data. It runs headless inside the project environment: no live view and no user takeover.' })),
+            }),
             execute: async (toolCallId, input, signal) => {
-                const owner = own();
+                let selected;
+                if (input.useProjectProfile === true) {
+                    selected = selectedProject();
+                    if (!selected)
+                        throw new Error('The project browser requires a selected managed project.');
+                }
+                const owner = selected ? projectOwner() : requireBrowserToolOwner(ctx);
                 if (signal?.aborted)
                     throw signal.reason ?? new Error('Browser open was aborted.');
-                const browser = await registry.create({ ownerUserId: owner.userId, conversationId: owner.conversationId, toolCallId, project: project() });
+                const browser = await registry.create({ ownerUserId: owner.userId, conversationId: owner.conversationId, toolCallId, project: selected });
                 try {
                     // A turn cancelled while the browser was still starting must not leave the session behind: in
                     // project mode it would hold the shared profile slot until the idle sweep, refusing the retry.
@@ -61,7 +81,7 @@ export function registerBrowserTools(ctx, registry) {
                     if (signal?.aborted)
                         throw signal.reason ?? new Error('Browser open was aborted.');
                     return textResult({ ...snapshotPayload(browser.id, snapshot),
-                        ...(project() ? { mode: 'project', sharedProfile: true, downloadsPath: '/data/browser/downloads' } : {}),
+                        ...(selected ? { mode: 'project', sharedProfile: true, downloadsPath: '/data/browser/downloads' } : {}),
                     });
                 }
                 catch (error) {
@@ -178,7 +198,7 @@ export function registerBrowserTools(ctx, registry) {
             parameters: Type.Object({ sessionId: sessionIdSchema }),
             execute: async (_toolCallId, input, signal) => {
                 const current = await session(input.sessionId);
-                if (project())
+                if (current.project)
                     throw new Error('Interactive takeover is available only for personal browser sessions. Project browsers are controlled through browser tools.');
                 return textResult(snapshotPayload(current.session.id, await current.session.requestTakeoverForAgent(signal)));
             },

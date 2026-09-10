@@ -170,6 +170,10 @@ export class SessionRegistry {
     return session;
   }
 
+  /** Whether this id names a project browser, so a follow-up tool resolves the session the way it was
+   *  OPENED rather than the way the current turn happens to execute. */
+  isProjectSession(sessionId: string): boolean { return this.projectAttachments.has(sessionId); }
+
   async getForTool(sessionId: string, ownerUserId: number, project?: BrowserProject): Promise<BrowserSession> {
     if (!project) return this.getOwned(sessionId, ownerUserId);
     const attachment = this.projectAttachments.get(sessionId);

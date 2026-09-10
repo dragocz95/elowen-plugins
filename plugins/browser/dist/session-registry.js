@@ -154,6 +154,9 @@ export class SessionRegistry {
             throw new Error('Browser session not found.');
         return session;
     }
+    /** Whether this id names a project browser, so a follow-up tool resolves the session the way it was
+     *  OPENED rather than the way the current turn happens to execute. */
+    isProjectSession(sessionId) { return this.projectAttachments.has(sessionId); }
     async getForTool(sessionId, ownerUserId, project) {
         if (!project)
             return this.getOwned(sessionId, ownerUserId);

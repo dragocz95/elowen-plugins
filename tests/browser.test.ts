@@ -967,10 +967,10 @@ describe('project browser sessions', () => {
     const h = projectHarness({ duringOpen: () => controller.abort() });
     const open = h.tools.get('BrowserOpen')!;
     try {
-      await expect(open.execute('open', { url: 'http://127.0.0.1:3000/' }, controller.signal)).rejects.toThrow(/abort/i);
+      await expect(open.execute('open', { url: 'http://127.0.0.1:3000/', useProjectProfile: true }, controller.signal)).rejects.toThrow(/abort/i);
       expect(h.close).toHaveBeenCalledOnce();
       // The slot is free again: a retry right after the cancelled turn must not be refused.
-      const retry = await open.execute('open', {});
+      const retry = await open.execute('open', { useProjectProfile: true });
       expect(JSON.parse(retry.content[0]!.text!)).toMatchObject({ mode: 'project' });
     } finally { await h.registry.closeAll(); }
   });
@@ -980,7 +980,7 @@ describe('project browser sessions', () => {
     controller.abort();
     const h = projectHarness();
     try {
-      await expect(h.tools.get('BrowserOpen')!.execute('open', {}, controller.signal)).rejects.toThrow(/abort/i);
+      await expect(h.tools.get('BrowserOpen')!.execute('open', { useProjectProfile: true }, controller.signal)).rejects.toThrow(/abort/i);
       expect(h.openProject).not.toHaveBeenCalled();
       expect(h.close).not.toHaveBeenCalled();
     } finally { await h.registry.closeAll(); }
@@ -994,16 +994,16 @@ describe('project browser sessions', () => {
       .mockImplementation(realNewPage as never);
     const open = h.tools.get('BrowserOpen')!;
     try {
-      await expect(open.execute('open', {})).rejects.toThrow(/page open failed/);
+      await expect(open.execute('open', { useProjectProfile: true })).rejects.toThrow(/page open failed/);
       expect(h.close).toHaveBeenCalledOnce();
-      const retry = await open.execute('open', {});
+      const retry = await open.execute('open', { useProjectProfile: true });
       expect(JSON.parse(retry.content[0]!.text!)).toMatchObject({ mode: 'project' });
     } finally { await h.registry.closeAll(); }
   });
 
   it('denies downloads only in personal mode, never on a managed session page', async () => {
     const project = projectHarness();
-    await project.tools.get('BrowserOpen')!.execute('open', {});
+    await project.tools.get('BrowserOpen')!.execute('open', { useProjectProfile: true });
     try {
       const managedPage = project.browser.pages[0]!;
       // The context-level allow into /data/browser/downloads was set at connect; a browser-wide deny on
@@ -1034,7 +1034,7 @@ describe('project browser sessions', () => {
   it('reports incomplete cleanup when account removal cannot close a project browser', async () => {
     const h = projectHarness();
     const open = h.tools.get('BrowserOpen')!;
-    const opened = await open.execute('open', {});
+    const opened = await open.execute('open', { useProjectProfile: true });
     const sessionId = JSON.parse(opened.content[0]!.text!).sessionId as string;
     h.close.mockRejectedValue(new Error('Guest termination could not be verified'));
     try {
@@ -1068,7 +1068,7 @@ describe('project browser sessions', () => {
       currentSessionId: () => 'project-chat', currentIdentity: () => ({ conversation: 'delegated' }),
       registerTool: (tool: TestTool) => { tools.set(tool.name, tool); },
     } as never, registry);
-    const opened = await tools.get('BrowserOpen')!.execute('open', { url: 'http://127.0.0.1:3000/' });
+    const opened = await tools.get('BrowserOpen')!.execute('open', { url: 'http://127.0.0.1:3000/', useProjectProfile: true });
     const openedData = JSON.parse(opened.content[0]!.text!) as { sessionId: string };
     const session = await registry.getForTool(openedData.sessionId, 1, project);
     try {
@@ -1092,6 +1092,58 @@ describe('project browser sessions', () => {
       authorize.mockRejectedValue(new Error('Membership revoked'));
       await expect(registry.getForTool(session.id, 1, project)).rejects.toThrow(/revoked/);
       expect(close).toHaveBeenCalledOnce();
+    } finally { await registry.closeAll(); }
+  });
+
+  /** A chat executes in a managed project by DEFAULT, so the ambient execution target must not decide the
+   *  browser mode: keyed on it, BrowserOpen opened a headless browser inside the container, published no
+   *  chat artifact (no live view card) and stayed out of `listOwned`, which is what the account panel
+   *  lists. Both surfaces are asserted here because both were lost by the same routing. */
+  it('opens the account browser, with its card and its account listing, in a managed-project conversation', async () => {
+    const store = new BrowserStore(pluginDb());
+    const page = new FakePage();
+    const tabs = new TabManager(new FakeBrowser(), () => 12, logger, async () => {}, async () => {});
+    const project = { kind: 'managed' as const, projectId: 8 };
+    const openProject = vi.fn();
+    const opens: { toolCallId: string; conversationId: string }[] = [];
+    const registry = new SessionRegistry({
+      config: () => config(), store,
+      pool: { openPage: async () => ({ page, tabs, traceLock: new ProcessTraceLock() }), releasePage: async () => {}, closeUser: async () => {}, closeAll: async () => {} } as never,
+      projectContext: {} as never,
+      openProject: openProject as never,
+      artifacts: {
+        available: true,
+        open: async (input: { toolCallId: string; conversationId: string }) => {
+          opens.push({ toolCallId: input.toolCallId, conversationId: input.conversationId });
+          return { version: 1, artifactId: 'a1', token: 't', sessionId: 'managed-chat' };
+        },
+        update: async () => {}, close: async () => {},
+      } as never,
+      processInspector: { inspect: () => null, terminate: () => {} },
+      displays: { get: () => ({ socketPath: '/personal/display', width: 1280, height: 800 }), failure: () => null, reconcileOrphans: () => {} } as never,
+      clock: { now: () => Date.now(), sleep: async () => {} }, logger,
+    });
+    type TestTool = { name: string; execute(id: string, input: Record<string, unknown>): Promise<{ content: { type: string; text?: string }[] }> };
+    const tools = new Map<string, TestTool>();
+    registerBrowserTools({
+      currentAccess: () => ({ projectRef: project }), currentAccountUserId: () => 1,
+      currentContributionUserId: () => 1, currentSessionId: () => 'managed-chat',
+      currentIdentity: () => ({ elowenUserId: 1, conversation: 'own' }),
+      registerTool: (tool: TestTool) => { tools.set(tool.name, tool); },
+    } as never, registry);
+    try {
+      const opened = await tools.get('BrowserOpen')!.execute('open-1', {});
+      const payload = JSON.parse(opened.content[0]!.text!) as { sessionId: string; mode?: string };
+      expect(payload.mode).toBeUndefined();
+      expect(openProject).not.toHaveBeenCalled();
+      // The chat card: an artifact opened against this turn's tool call and this conversation.
+      expect(opens).toEqual([{ toolCallId: 'open-1', conversationId: 'managed-chat' }]);
+      // The account panel reads `listOwned`; its live view is resolvable for the same account.
+      expect(registry.listOwned(1).map((session) => session.id)).toEqual([payload.sessionId]);
+      expect(registry.resolveLiveView(1, { sessionId: payload.sessionId })).toEqual({ socketPath: '/personal/display' });
+      // A follow-up tool resolves the same session without the ambient project getting in the way.
+      const snapshot = await tools.get('BrowserSnapshot')!.execute('snap', { sessionId: payload.sessionId });
+      expect(JSON.parse(snapshot.content[0]!.text!)).toMatchObject({ sessionId: payload.sessionId });
     } finally { await registry.closeAll(); }
   });
 });
@@ -2936,6 +2988,7 @@ describe('browser diagnostics tools', () => {
       releasePage: async () => { await tabs.closeSession(id); }, forceCloseBrowser: async () => {}, onClosed: () => {},
     });
     const registry = {
+      isProjectSession: () => false,
       getOwned: (sessionId: string, userId: number) => {
         if (sessionId !== id || userId !== 7) throw new Error('Browser session not found.');
         return session;

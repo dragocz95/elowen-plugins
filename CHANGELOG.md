@@ -1,5 +1,14 @@
 # Changelog
 
+## browser 0.3.9 - 2026-09-10
+
+- `BrowserOpen` no longer switches to the project browser just because the turn executes in a managed
+  project. A chat runs in a managed personal project by default, and keying the mode on that ambient
+  execution target replaced the account browser everywhere: the session ran headless inside the container,
+  opened no chat artifact, so no live view card appeared, and stayed out of the account's session listing
+  on Account -> Plugins -> Browser. The shared project profile is now asked for explicitly with
+  `useProjectProfile`, and follow-up tools resolve a session by how it was opened.
+
 ## image-gen 0.2.3, image-edit 0.2.3 - 2026-09-09
 
 - Both plugins now render through the host image seam (`ctx.images`) instead of their own HTTP client, so
