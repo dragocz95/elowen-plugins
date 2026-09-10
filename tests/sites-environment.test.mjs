@@ -114,6 +114,21 @@ test('stop requests the typed stop and drops the routing endpoint', async (t) =>
   assert.equal(gateway.ops.some(([name]) => name === 'remove'), true);
 });
 
+test('a discarded conversion environment is registered again before the next preparation', async (t) => {
+  const site = environmentSite({ runtime: 'static' });
+  const { supervisor, control, store, root } = await sitesSdkHarness(t, { site });
+  const workspace = join(root, 'data', 'sites', SITE_ID, 'migration', 'workspace');
+  mkdirSync(workspace, { recursive: true });
+
+  await supervisor.prepareContainer(site, workspace);
+  await supervisor.delete(SITE_ID, { removeBroker: false });
+  assert.equal(store.runtimeRecord(SITE_ID, 'handover'), null);
+
+  await supervisor.prepareContainer(site, workspace);
+  assert.deepEqual(control.registrations, [SITE_ID, SITE_ID]);
+  assert.equal(control.requests.at(-1).expectedGeneration, 2);
+});
+
 test('healthy running environment is adopted and clears a stale failure without lifecycle changes', async (t) => {
   const { supervisor, control, gateway, store, site, socketPath, brokerDir } = await sitesSdkHarness(t, { controlState: 'running' });
   store.putRuntimeRecord(SITE_ID, 'handover', 'complete');
@@ -604,9 +619,9 @@ test('migration v5 preserves existing runtimes, exposes environment counts and f
   // The schema head is pinned deliberately: a migration added without updating this line is a migration
   // nobody reviewed against the legacy rows seeded above. v9 adds the runtime conversion slot, v10 the
   // durable crash-recovery state on it, v11/v12 the runtime records and provider-owned lifecycle
-  // columns, v13 drops the disk threshold column nothing enforced, and v14 adds the publication kind and
-  // target; none of them touches the runtime of an existing site row.
-  assert.equal(db.appliedVersion(), 14);
+  // columns, v13 drops the disk threshold column nothing enforced, v14 adds the publication kind and
+  // target, and v15 adds durable rollback and completion state; none touches an existing site's runtime.
+  assert.equal(db.appliedVersion(), 15);
   for (const runtime of ['static', 'command', 'php']) assert.equal(store.siteById(`legacy-${runtime}`).runtime, runtime);
   // The rows seeded above predate the publication model, so the migration's defaults make them static
   // publications with nothing to proxy — which is exactly how the serving path treated them before.
