@@ -182,26 +182,26 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
      *  destination yet.
      *
      *  The follow-stat asks the precise question, because an overwrite through a symlink must be versioned
-     *  against the target. It answers it by resolving the whole path strictly, so a destination whose
-     *  ANCESTOR is not a directory makes it FAIL rather than report that nothing is there — and that
-     *  failure is not the caller's answer. Whether an ancestor is a directory is a question `write-begin`
-     *  already decides, with a typed code this transport knows how to render, and reaching it is the only
-     *  way the caller hears it.
+     *  against the target. Resolving the path can also establish that an ANCESTOR is not a directory, which
+     *  the guest names with the same code it uses everywhere else for that fact. It is the one failure this
+     *  preflight translates, and it translates it into the wording the refusal table already owns, so an
+     *  overwrite and a fresh upload answer the same request the same way.
      *
-     *  So the failure is re-asked once without resolution, and only a definite "there is nothing here"
-     *  lets the upload continue to the step that classifies it. An entry that does exist, or a second
-     *  failure, rethrows the ORIGINAL untouched: a permission refusal or a runtime outage keeps its own
-     *  meaning instead of arriving as a conflict, and no provider text is forwarded either way. */
+     *  Nothing else is interpreted. A permission refusal, a lifecycle change, a transport fault or a code
+     *  nobody has agreed on rethrows untouched and reaches the caller as what it is.
+     */
     const uploadBaseVersion = async (path) => {
         let stat;
         try {
             stat = await files({ kind: 'stat', path, followSymlinks: true });
         }
         catch (error) {
-            const unresolved = await files({ kind: 'stat', path, followSymlinks: false }).catch(() => null);
-            if (!unresolved || unresolved.kind !== 'stat' || unresolved.entry)
+            if (error?.code !== 'not_directory')
                 throw error;
-            return null;
+            const refusal = UPLOAD_REFUSALS.get('not_directory');
+            if (!refusal)
+                throw error;
+            throw new InputError(refusal.message, refusal.status);
         }
         if (stat.kind !== 'stat')
             throw new Error('invalid guest result');

@@ -141,11 +141,12 @@ describe('editor upload refusals are an allowlist, not a passthrough', () => {
     expect(body(response)).not.toContain('Errno');
   });
 
-  /** The gate is the operation, not just the code: a stat that somehow answers with an upload code is
-   *  not an upload refusal and must not be dressed as one. */
+  /** The gate is the operation, not just the code: a stat that somehow answers with an UPLOAD code is
+   *  not an upload refusal and must not be dressed as one. `not_directory` is the one exception, and it
+   *  is not an exception to this rule but a separate decision the preflight makes deliberately. */
   it('does not translate an upload code raised by a non-upload operation', async () => {
     const f = fixture(operation => {
-      if (operation.kind === 'stat') throw guestFailure('not_directory', LEAK);
+      if (operation.kind === 'stat') throw guestFailure('upload_conflict', LEAK);
       throw new Error(`unexpected operation ${operation.kind}`);
     });
     const response = await f.upload(Buffer.from('data'), true);
@@ -196,81 +197,99 @@ describe('the compare-and-swap answers survive the allowlist', () => {
   });
 });
 
-/** A destination whose ANCESTOR is not a directory. The guest answers the overwrite's follow-stat with a
- *  raw errno under a generic code, because resolving the path strictly is what fails; the typed answer
- *  lives in `write-begin`, which only runs once the preflight stops throwing. Both spellings of the same
- *  request must arrive at the same refusal. */
+/** A destination whose ANCESTOR is not a directory. The guest names that fact with the same code
+ *  wherever it establishes it: a followed stat resolving through a file says so, and so does the step
+ *  that builds an upload's ancestry. Both spellings of the same request must arrive at the same refusal,
+ *  and an overwrite must not turn it into something else on the way. */
 describe('a non-directory ancestor is the same refusal with or without overwrite', () => {
-  /** Reproduces the guest: strict resolution fails, the unresolved question answers "nothing here", and
-   *  `write-begin` is the step that classifies the ancestry. */
-  const nonDirectoryAncestor = (operation: GuestFileOperation): GuestFileResult => {
-    if (operation.kind === 'stat') {
-      if (operation.followSymlinks === true) throw Object.assign(new Error("[Errno 20] Not a directory: '/workspace/bench/same.txt/child.bin'"), { code: 'guest_file_error', status: 409 });
-      return { kind: 'stat', entry: null };
-    }
+  const statSaysNotDirectory = (operation: GuestFileOperation): GuestFileResult => {
+    if (operation.kind === 'stat') throw guestFailure('not_directory', 'Path resolves through something that is not a directory');
     if (operation.kind === 'write-begin') throw guestFailure('not_directory', 'Upload destination is inside something that is not a directory');
     if (operation.kind === 'write-abort') return { kind: 'write-abort', aborted: true };
     throw new Error(`unexpected operation ${operation.kind}`);
   };
 
-  it.each([true, false])('answers 409 with the static message, overwrite=%s', async overwrite => {
-    const f = fixture(nonDirectoryAncestor);
-    const response = await f.upload(Buffer.from('data'), overwrite);
+  it('answers 409 with the static message when the overwrite preflight names it', async () => {
+    const f = fixture(statSaysNotDirectory);
+    const response = await f.upload(Buffer.from('data'), true);
 
     expect(response.status).toBe(409);
     expect(response.body).toEqual({ error: 'upload destination is inside something that is not a directory' });
-    expect(body(response)).not.toContain('Errno');
-    expect(body(response)).not.toContain('/workspace');
-  });
-
-  it('re-asks the preflight without resolution, exactly once, and only when it failed', async () => {
-    const f = fixture(nonDirectoryAncestor);
-    await f.upload(Buffer.from('data'), true);
-    const stats = f.operations.filter(o => o.kind === 'stat');
-    expect(stats).toHaveLength(2);
-    expect(stats[0]).toMatchObject({ followSymlinks: true });
-    expect(stats[1]).toMatchObject({ followSymlinks: false });
-    // The upload reached the step that owns the ancestry decision.
-    expect(f.operations.some(o => o.kind === 'write-begin')).toBe(true);
-  });
-
-  it('asks once when the preflight succeeds', async () => {
-    const f = fixture(operation => {
-      if (operation.kind === 'stat') return { kind: 'stat', entry: { path: '/workspace/dir/file.bin', kind: 'file', size: 4, modifiedAt: '2026-01-01T00:00:00.000Z', version: 'v1' } };
-      if (operation.kind === 'write-begin') throw guestFailure('upload_conflict', LEAK);
-      if (operation.kind === 'write-abort') return { kind: 'write-abort', aborted: true };
-      throw new Error(`unexpected operation ${operation.kind}`);
-    });
-    await f.upload(Buffer.from('data'), true);
+    // The preflight settled it, so the upload was never opened.
+    expect(f.operations.some(o => o.kind === 'write-begin')).toBe(false);
     expect(f.operations.filter(o => o.kind === 'stat')).toHaveLength(1);
   });
 
-  /** The preflight is not a place to lose a failure. A refusal that is NOT "nothing is there" keeps its
-   *  own meaning, which for anything the editor cannot name is the generic answer. */
-  it('keeps an unknown preflight failure generic instead of calling it a conflict', async () => {
-    const f = fixture(operation => {
-      if (operation.kind === 'stat') throw Object.assign(new Error('guest is on fire'), { code: 'permission_denied', status: 403 });
-      throw new Error(`unexpected operation ${operation.kind}`);
-    });
-    const response = await f.upload(Buffer.from('data'), true);
+  it('answers 409 with the same message when a fresh upload names it at write-begin', async () => {
+    const f = fixture(statSaysNotDirectory);
+    const response = await f.upload(Buffer.from('data'), false);
 
-    expect(response.status).toBe(503);
-    expect(response.body).toEqual({ error: 'project environment operation failed' });
-    expect(body(response)).not.toContain('on fire');
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: 'upload destination is inside something that is not a directory' });
+    // A fresh destination has no version to ask for, so the first thing it does is open the upload.
+    expect(f.operations.filter(o => o.kind === 'stat')).toHaveLength(0);
   });
 
-  it('keeps the original failure when the unresolved question finds something after all', async () => {
+  /** The preflight translates exactly one code. Anything else is what it is, and none of it opens an
+   *  upload it has no version for. */
+  it.each([
+    ['permission_denied', 403],
+    ['guest_file_error', 409],
+    ['environment_busy', 409],
+    ['project_gone', 500],
+  ])('rethrows %s untouched, and opens no upload', async (code, status) => {
     const f = fixture(operation => {
-      if (operation.kind === 'stat') {
-        if (operation.followSymlinks === true) throw Object.assign(new Error('resolution exploded'), { code: 'guest_file_error', status: 409 });
-        return { kind: 'stat', entry: { path: '/workspace/dir/file.bin', kind: 'symlink', size: 4, modifiedAt: '2026-01-01T00:00:00.000Z' } };
-      }
+      if (operation.kind === 'stat') throw Object.assign(new Error(LEAK), { code, status });
       throw new Error(`unexpected operation ${operation.kind}`);
     });
     const response = await f.upload(Buffer.from('data'), true);
 
     expect(response.status).toBe(503);
     expect(response.body).toEqual({ error: 'project environment operation failed' });
-    expect(body(response)).not.toContain('exploded');
+    expect(body(response)).not.toContain('Errno');
+    expect(body(response)).not.toContain('.elowen-upload');
+    expect(f.operations.some(o => o.kind === 'write-begin')).toBe(false);
+  });
+
+  /** An access refusal is a decision about the caller and keeps its own meaning through the preflight. */
+  it('lets a project refusal through as the 403 it is', async () => {
+    const f = fixture(operation => {
+      if (operation.kind === 'stat') throw Object.assign(new Error('Project access is denied'), { code: 'project_forbidden', status: 403 });
+      throw new Error(`unexpected operation ${operation.kind}`);
+    });
+    const response = await f.upload(Buffer.from('data'), true);
+    expect(response.status).toBe(403);
+    expect(f.operations.some(o => o.kind === 'write-begin')).toBe(false);
+  });
+});
+
+/** An overwrite through a link versions against what the link points at, and a link pointing nowhere is
+ *  a destination that is not there. Neither goes near the preflight's one translation. */
+describe('symlink destinations are unchanged by the preflight', () => {
+  const withStat = (entry: GuestFileResult) => (operation: GuestFileOperation): GuestFileResult => {
+    if (operation.kind === 'stat') {
+      expect(operation.followSymlinks).toBe(true);
+      return entry;
+    }
+    if (operation.kind === 'write-begin') return { kind: 'write-begin', uploadId: 'u1', chunkSize: 524288, received: 0, resolvedPath: '/workspace/dir/file.bin' };
+    if (operation.kind === 'write-chunk') return { kind: 'write-chunk', received: 4 };
+    if (operation.kind === 'write-commit') return { kind: 'write-commit', entry: { path: '/workspace/dir/file.bin', kind: 'file', size: 4, modifiedAt: '2026-01-01T00:00:00.000Z', version: 'v2' } };
+    throw new Error(`unexpected operation ${operation.kind}`);
+  };
+
+  it("versions an overwrite against the link's target", async () => {
+    const f = fixture(withStat({ kind: 'stat', entry: { path: '/workspace/dir/file.bin', kind: 'file', size: 9, modifiedAt: '2026-01-01T00:00:00.000Z', version: 'target-v1' } }));
+    const response = await f.upload(Buffer.from('data'), true);
+
+    expect(response.body).toMatchObject({ ok: true });
+    expect(f.operations.find(o => o.kind === 'write-begin')).toMatchObject({ expectedVersion: 'target-v1' });
+  });
+
+  it('treats a link that points nowhere as a destination that is not there', async () => {
+    const f = fixture(withStat({ kind: 'stat', entry: null }));
+    const response = await f.upload(Buffer.from('data'), true);
+
+    expect(response.body).toMatchObject({ ok: true });
+    expect(f.operations.find(o => o.kind === 'write-begin')).toMatchObject({ expectedVersion: null });
   });
 });
