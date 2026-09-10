@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { cookieName } from './access.js';
 import { siteUrl } from './config.js';
 import { proxyToEnvironment } from './proxy.js';
 /** Preview records contain no ownership or visibility grants. Current Project membership is authority. */
@@ -72,7 +73,7 @@ export class ProjectPreviewService {
             binding = await control.projectPreviewBinding({ project: { kind: 'managed', projectId: preview.projectId }, accountUserId: viewer.userId, port: preview.port });
             if (binding.projectId !== preview.projectId || binding.port !== preview.port)
                 throw new Error('preview binding identity mismatch');
-            const response = await (this.deps.proxy ?? proxyToEnvironment)({ kind: 'socket', path: binding.socketPath }, req, rest, { userId: viewer.userId, name: this.deps.usernameOf(viewer.userId) }, this.deps.proxyLimits(), siteRoot);
+            const response = await (this.deps.proxy ?? proxyToEnvironment)({ kind: 'socket', path: binding.socketPath }, req, rest, { userId: viewer.userId, name: this.deps.usernameOf(viewer.userId) }, this.deps.proxyLimits(), siteRoot, cookieName(site.id));
             // The proxy buffers a bounded response. Revocation during that await must discard it too.
             if (!this.allowed(preview.projectId, viewer.userId))
                 return denied();

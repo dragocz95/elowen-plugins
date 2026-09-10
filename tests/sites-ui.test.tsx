@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { act, render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
@@ -580,7 +580,16 @@ describe('publication kind', () => {
     // The state is shown as the daemon reported it, under the label saying what it is.
     expect(screen.getByText(strings.environmentObservedState)).toBeVisible();
     expect(screen.getByText('running')).toBeVisible();
-    expect(screen.getByRole('button', { name: strings.openProject })).toBeVisible();
+    const uiRuntime = (window as unknown as { ElowenUiRuntime: { navigate(href: string): void } }).ElowenUiRuntime;
+    const originalNavigate = uiRuntime.navigate;
+    const navigate = vi.fn();
+    uiRuntime.navigate = navigate;
+    try {
+      fireEvent.click(screen.getByRole('button', { name: strings.openProject }));
+      expect(navigate).toHaveBeenCalledWith(`/projects?project=${proxySite.projectId}`);
+    } finally {
+      uiRuntime.navigate = originalNavigate;
+    }
 
     // Nothing here controls or reports an environment, and there is no release to list.
     for (const absent of [

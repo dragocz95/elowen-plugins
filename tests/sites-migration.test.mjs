@@ -162,6 +162,7 @@ const harness = (options = {}) => {
 
   const deps = {
     store,
+    projectExecutionKind: () => options.projectExecutionKind ?? 'host',
     siteDir: (siteId) => join(root, 'sites', siteId),
     releaseDir: (siteId, releaseId) => join(root, 'sites', siteId, 'releases', releaseId),
     stopLegacyRuntime: async (siteId) => {
@@ -334,6 +335,16 @@ test('refuses a site that does not exist, is already an environment, or is unsup
 
     h.store.insertSite(legacySite({ id: OTHER_ID, slug: 'broken', runtime: 'nonsense-runtime' }));
     await assert.rejects(() => h.service.prepare(OTHER_ID, 'release-copy'), /unsupported runtime/);
+  } finally { h.cleanup(); }
+});
+
+test('refuses runtime conversion for a managed Project before touching its guest source path', async () => {
+  const h = harness({ projectExecutionKind: 'managed' });
+  try {
+    seedLiveStatic(h);
+    await assert.rejects(() => h.service.prepare(SITE_ID, 'release-copy'), /guest path.*host Projects/);
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.deepEqual(h.calls.prepareContainer, []);
   } finally { h.cleanup(); }
 });
 

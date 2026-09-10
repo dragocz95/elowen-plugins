@@ -1,7 +1,18 @@
 import { request as httpRequest } from 'node:http';
-import type { SandboxControl } from 'elowen/plugin-api';
 import type { Site, SitesStore } from './store.js';
 import type { Endpoint } from './runtime.js';
+
+export interface PublicationControl {
+  projectPublicationBinding(input: {
+    project: { kind: 'managed'; projectId: number };
+    publicationId: string;
+    port: number;
+  }): Promise<{ socketPath: string; generation: number }>;
+  projectPublicationRelease(input: {
+    project: { kind: 'managed'; projectId: number };
+    publicationId: string;
+  }): Promise<void>;
+}
 
 /** How long an unhealthy publication waits before the Project's environment is asked for its transport
  *  again. The probe in between is cheap — a connect to a unix socket — while establishing a transport
@@ -15,7 +26,7 @@ const PROBE_TIMEOUT_MS = 2_000;
 export interface PublicationDeps {
   store: SitesStore;
   /** The durable transport seam, absent on a daemon whose Sandbox does not offer it. */
-  control(): Pick<SandboxControl, 'projectPublicationBinding' | 'projectPublicationRelease'> | undefined;
+  control(): PublicationControl | undefined;
   project(id: number): { executionKind: string; lifecycle: string } | null | undefined;
   logger?: { warn(message: string): void };
 }
@@ -88,7 +99,6 @@ export class ProjectPublicationService {
     if (port === null) throw new Error(`publication ${site.id} has no usable port`);
     const binding = await control.projectPublicationBinding({
       project: this.projectRef(site),
-      accountUserId: site.ownerUserId,
       publicationId: site.id,
       port,
     });
@@ -112,7 +122,6 @@ export class ProjectPublicationService {
     if (!control?.projectPublicationRelease) return;
     await control.projectPublicationRelease({
       project: { kind: 'managed', projectId: site.projectId },
-      accountUserId: site.ownerUserId,
       publicationId: site.id,
     });
   }
@@ -161,7 +170,8 @@ export class ProjectPublicationService {
       if (known?.kind === 'socket') {
         const probe = await this.probe(known.path, { timeoutMs: PROBE_TIMEOUT_MS });
         if (probe.answered) {
-          this.settle(site);
+          if (probe.status !== null && probe.status < 500) this.settle(site);
+          else this.fail(site, probe.detail);
           continue;
         }
         this.endpoints.delete(site.id);
@@ -174,22 +184,20 @@ export class ProjectPublicationService {
         if (!probe.answered) throw new Error(probe.detail);
         this.endpoints.set(site.id, { kind: 'socket', path: binding.socketPath });
         this.nextAttempt.delete(site.id);
-        this.settle(site);
+        if (probe.status !== null && probe.status < 500) this.settle(site);
+        else this.fail(site, probe.detail);
       } catch (error) {
         this.nextAttempt.set(site.id, Date.now() + RETRY_MS);
-        const message = error instanceof Error ? error.message : String(error);
-        // A publication that has been published stays published. Its address exists and the row is what
-        // says so; an application that stopped answering is reported through `lastError` and the visitor
-        // gets a 503 from the serving path, where demoting the row to `failed` would answer 404 for an
-        // address that does exist. A publication that was never verified is different: `draft` is already
-        // not served, and `failed` is where a refused publish puts it.
-        const current = this.deps.store.siteById(site.id);
-        if (current && current.lastError !== message) {
-          this.deps.store.updateSite(site.id, { lastError: message });
-        }
-        this.deps.logger?.warn(`site ${site.slug} publication is not answering: ${message}`);
+        this.fail(site, error instanceof Error ? error.message : String(error));
       }
     }
+  }
+
+  /** Keep the address published while making an unhealthy application visible to the operator. */
+  private fail(site: Site, message: string): void {
+    const current = this.deps.store.siteById(site.id);
+    if (current && current.lastError !== message) this.deps.store.updateSite(site.id, { lastError: message });
+    this.deps.logger?.warn(`site ${site.slug} publication is not answering: ${message}`);
   }
 
   /** A publication whose application answers again owes the operator no stale error — and a publish that

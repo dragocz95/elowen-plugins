@@ -29,7 +29,7 @@ export interface ToolDeps {
   /** The transport half of a proxy publication: asking the Project's environment for it, reading through
    *  it, and remembering where it answered. */
   publications: Pick<ProjectPublicationService, 'establish' | 'probe' | 'adopt'>;
-  /** The state of the environment a proxy publication is served by, read for the site's owner. */
+  /** The state of the environment a proxy publication is served by, read for the current manager. */
   projectEnvironment(projectId: number, actor: number): Promise<ProjectEnvironmentView | null>;
 }
 
@@ -39,12 +39,6 @@ function commandRuntimeRefusal(config: SitesConfig): string | null {
     return 'Site runtimes are turned off for this instance. An administrator can enable them in the plugin settings.';
   }
   return null;
-}
-
-function environmentRefusal(config: SitesConfig): string | null {
-  return config.allowEnvironments
-    ? null
-    : 'Persistent environments are turned off for this instance. An administrator can enable them in the Sites settings.';
 }
 
 const text = (body: string, details: Record<string, unknown> = {}) =>
@@ -326,7 +320,7 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteCreate',
     label: 'Create a site',
-    description: 'Create a site and its Project source folder. Static, command and PHP sites remain drafts until SitePublish. An environment is durable immediately and the daemon schedules its persistent container to start. A proxy publication forwards to an application that already runs inside the selected managed Project on the port given in target.',
+    description: 'Create a site and its Project source folder. Static, command and PHP sites remain drafts until SitePublish. A proxy publication forwards to an application that already runs inside the selected managed Project on the port given in target. Existing persistent environment sites remain supported, but new environments are created and managed at Project level.',
     parameters: Type.Object({
       title: Type.String({ minLength: 1, maxLength: 120, description: 'Human title shown in the Sites screen.' }),
       summary: Type.Optional(Type.String({ maxLength: 400, description: 'One line describing what the page is for.' })),
@@ -344,8 +338,8 @@ export function registerTools(deps: ToolDeps): void {
         description: 'For kind "proxy": the TCP port the application listens on at 127.0.0.1 INSIDE the Project container, e.g. "3000". Nothing else is copied or started.',
       })),
       runtime: Type.Optional(Type.Union(
-        [Type.Literal('static'), Type.Literal('command'), Type.Literal('php'), Type.Literal('environment')],
-        { description: 'How the site answers. Static, command and PHP preserve the published-release behavior. Environment creates a persistent rootless server with /workspace, /data and systemd.' },
+        [Type.Literal('static'), Type.Literal('command'), Type.Literal('php')],
+        { description: 'How a file publication answers. Persistent application environments are created and managed by the selected Project.' },
       )),
       startCommand: Type.Optional(Type.String({
         maxLength: 500,
@@ -361,7 +355,7 @@ export function registerTools(deps: ToolDeps): void {
         const userId = ownerOf(ctx);
         guardPublisher(userId);
         const config = deps.config();
-        const runtime = (input.runtime as 'static' | 'command' | 'php' | 'environment' | undefined) ?? 'static';
+        const runtime = (input.runtime as 'static' | 'command' | 'php' | undefined) ?? 'static';
         const kind: PublicationKind = input.kind === 'proxy' ? 'proxy' : 'static';
         // The same rule as everywhere else in this tool: a value decides, never the presence of a key. A
         // model that echoes every optional property sends `target: ""` with a plain static site, and that
@@ -451,21 +445,12 @@ export function registerTools(deps: ToolDeps): void {
             visibility: site.visibility,
           });
         }
-        if (runtime === 'environment') {
-          if (!ctx.control('sandbox')) throw new ToolError('The Sandbox environment runtime is unavailable.');
-          const refusal = environmentRefusal(config);
+        if (store.countOwnedBy(userId) - store.countEnvironmentOwnedBy(userId) >= config.maxSitesPerAccount) {
+          throw new ToolError(`This account already has ${config.maxSitesPerAccount} sites, which is the configured limit.`);
+        }
+        if (runtime !== 'static') {
+          const refusal = commandRuntimeRefusal(config);
           if (refusal) throw new ToolError(refusal);
-          if (store.countEnvironmentOwnedBy(userId) >= config.maxEnvironmentsPerAccount) {
-            throw new ToolError(`This account has reached the configured environment limit of ${config.maxEnvironmentsPerAccount}.`);
-          }
-        } else {
-          if (store.countOwnedBy(userId) - store.countEnvironmentOwnedBy(userId) >= config.maxSitesPerAccount) {
-            throw new ToolError(`This account already has ${config.maxSitesPerAccount} sites, which is the configured limit.`);
-          }
-          if (runtime !== 'static') {
-            const refusal = commandRuntimeRefusal(config);
-            if (refusal) throw new ToolError(refusal);
-          }
         }
         // Some models (GPT-5.6 on Azure among them) fill every optional property with its default or an
         // empty string — `startCommand: ""`, `bind: "socket"` — even when told to send only a title. A
@@ -478,9 +463,6 @@ export function registerTools(deps: ToolDeps): void {
         if (runtime === 'php' && startCommand) {
           throw new ToolError('A PHP site runs through PHP-CGI and does not take startCommand.');
         }
-        if (runtime === 'environment' && startCommand) {
-          throw new ToolError('An environment does not take startCommand; administer services with SiteExec and systemd inside.');
-        }
         const bind = input.bind === 'port' ? 'port' : 'socket';
         if (runtime !== 'command' && bind === 'port') {
           throw new ToolError('Only a command site has a runtime bind mode.');
@@ -492,9 +474,8 @@ export function registerTools(deps: ToolDeps): void {
         let slug = slugify(input.title);
         while (store.slugTaken(slug)) slug = slugify(input.title);
 
-        // File-published sites need a public origin before the first side effect. A persistent environment
-        // may still be administered and locally verified while its DNS gateway is not ready yet.
-        const address = runtime === 'environment' ? siteUrl(config, slug) : addressOf(config, slug);
+        // File-published sites need a public origin before the first side effect.
+        const address = addressOf(config, slug);
 
         const { dir, projectId } = resolveSourceRoot(ctx, slug);
         const sourceProject = ctx.host.stores().projects.get(projectId);
@@ -502,13 +483,13 @@ export function registerTools(deps: ToolDeps): void {
         const managed = sourceProject.executionKind === 'managed';
         const siteId = randomUUID();
         let allowed: string;
-        if (managed && runtime !== 'environment') {
+        if (managed) {
           const sandbox = ctx.control('sandbox');
           if (!sandbox) throw new ToolError('The Sandbox environment runtime is unavailable.');
           allowed = dir;
           await sandbox.projectFiles({ project: { kind: 'managed', projectId }, accountUserId: userId, operation: { kind: 'mkdir', path: dir } });
         } else {
-          try { allowed = managed ? join(deps.siteDir(siteId), 'source') : ctx.assertPathAllowed(dir); }
+          try { allowed = ctx.assertPathAllowed(dir); }
           catch { throw new ToolError(`The site folder ${dir} is outside what this account may write to.`); }
           if (existsSync(allowed)) throw new ToolError(`${allowed} already exists.`);
           mkdirSync(allowed, { recursive: true });
@@ -537,7 +518,7 @@ export function registerTools(deps: ToolDeps): void {
           environmentMemoryMb: null,
           environmentPidsLimit: null,
           environmentDesiredState: 'running',
-          status: runtime === 'environment' ? 'live' : 'draft',
+          status: 'draft',
           currentReleaseId: null,
           createdAt: now,
           updatedAt: now,
@@ -557,53 +538,32 @@ export function registerTools(deps: ToolDeps): void {
           `Write the project here: ${allowed}`,
           'For an isolated Git worktree, create and activate a Sandbox workspace before SiteCreate; Sites automatically uses the active workspace.',
           `Configure the build with base path: ${SITE_BASE_PATH}`,
-          address
-            ? `It will be published at: ${address}`
-            : 'No public address is available until the domain gateway DNS is ready. SiteExec and lifecycle controls still work.',
+          `It will be published at: ${address}`,
           '',
-          ...(runtime === 'environment'
+          'Asset URLs must be absolute. A relative reference (./assets/...) resolves against whatever address the visitor opened, so it works at the root and breaks on every deeper route.',
+          ...(runtime === 'command'
             ? [
-              'This persistent environment is scheduled to start. It works from this Project folder at /workspace and keeps service data under /data.',
-              'Use SiteExec to install packages, configure systemd services and inspect the server. Serve HTTP on port 80 at 127.0.0.1 inside the environment.',
-              config.environmentNetwork === 'shared'
-                ? 'The environment has outbound internet through rootless slirp4netns with host loopback disabled.'
-                : 'The environment has no network beyond its own loopback.',
-              'Ingress is buffered through the host gateway. Request bodies are limited to 1 MB, and streaming, server-sent events and WebSockets are not supported.',
+              '',
+              ...(bind === 'socket'
+                ? ['Bind the HTTP server directly to the pathname in SOCKET_PATH; this is the secure multi-user default.']
+                : [`Bind the HTTP server to HOST and PORT. This site currently owns 127.0.0.1:${port}.`]),
+              'Use the normal Files, Terminal and Sandbox tools here: install dependencies, test and build before publishing. Sites does not run a second build pipeline.',
+              'A root .env file in the published command output is loaded into the runtime environment and must not be committed to Git.',
+              config.runtimeNetwork === 'shared'
+                ? 'The runtime has ordinary outbound network access. Requests are still buffered and a request body is capped at 1 MB.'
+                : 'The runtime network is isolated by instance policy. Requests are buffered and a request body is capped at 1 MB.',
             ]
-            : [
-              'Asset URLs must be absolute. A relative reference (./assets/...) resolves against whatever address the visitor opened, so it works at the root and breaks on every deeper route.',
-              ...(runtime === 'command'
-                ? [
-                  '',
-                  ...(bind === 'socket'
-                    ? ['Bind the HTTP server directly to the pathname in SOCKET_PATH; this is the secure multi-user default.']
-                    : [`Bind the HTTP server to HOST and PORT. This site currently owns 127.0.0.1:${port}.`]),
-                  'Use the normal Files, Terminal and Sandbox tools here: install dependencies, test and build before publishing. Sites does not run a second build pipeline.',
-                  'A root .env file in the published command output is loaded into the runtime environment and must not be committed to Git.',
-                  config.runtimeNetwork === 'shared'
-                    ? 'The runtime has ordinary outbound network access. Requests are still buffered and a request body is capped at 1 MB.'
-                    : 'The runtime network is isolated by instance policy. Requests are buffered and a request body is capped at 1 MB.',
-                ]
-                : runtime === 'php'
-                  ? [
-                    '',
-                    'Put index.php (and any routed PHP scripts) in the published output. PHP-CGI runs one confined process per request; there is no long-running PHP server or loopback port.',
-                  ]
-                  : []),
-              'When the output is ready, call SitePublish with the output directory.',
-            ]),
+            : runtime === 'php'
+              ? [
+                '',
+                'Put index.php (and any routed PHP scripts) in the published output. PHP-CGI runs one confined process per request; there is no long-running PHP server or loopback port.',
+              ]
+              : []),
+          'When the output is ready, call SitePublish with the output directory.',
         ].join('\n'), {
           siteId: site.id, slug: site.slug, sourceDir: allowed,
           basePath: SITE_BASE_PATH, url: address, visibility: site.visibility,
           runtime: site.runtime, bind: site.bind, port: site.port,
-          ...(site.runtime === 'environment' ? {
-            desiredState: site.environmentDesiredState,
-            limits: {
-              cpus: config.environmentCpus,
-              memoryMb: config.environmentMemoryMb,
-              pidsLimit: config.environmentPidsLimit,
-            },
-          } : {}),
         });
       } catch (error) {
         throw error instanceof ToolError ? error : new Error(`Could not create the site: ${String(error)}`);
@@ -736,10 +696,12 @@ export function registerTools(deps: ToolDeps): void {
             throw new ToolError(`The Project environment could not be reached, so nothing was published: ${message}`);
           }
           const probe = await deps.publications.probe(socketPath);
-          if (!probe.answered) {
-            const message = `nothing answered on 127.0.0.1:${port} inside the Project (${probe.detail})`;
+          if (!probe.answered || probe.status === null || probe.status >= 500) {
+            const message = probe.answered
+              ? `127.0.0.1:${port} inside the Project answered with an unhealthy status (${probe.detail})`
+              : `nothing answered on 127.0.0.1:${port} inside the Project (${probe.detail})`;
             store.updateSite(site.id, { status: 'failed', lastError: message });
-            throw new ToolError(`Not published: ${message}. Start the application in the Project environment, then call SitePublish again.`);
+            throw new ToolError(`Not published: ${message}. Start or fix the application in the Project environment, then call SitePublish again.`);
           }
           const now = new Date().toISOString();
           const model = modelLabel(ctx);
@@ -931,7 +893,7 @@ export function registerTools(deps: ToolDeps): void {
         // necessarily a member of its Project.
         const project = ctx.host.stores().projects.get(site.projectId);
         const projectEnvironmentState = site.kind === 'proxy' && project
-          ? await deps.projectEnvironment(project.id, site.ownerUserId)
+          ? await deps.projectEnvironment(project.id, userId)
           : null;
         const projectInfo = project
           ? { slug: project.slug, executionKind: project.executionKind, environment: projectEnvironmentState }

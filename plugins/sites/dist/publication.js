@@ -60,7 +60,6 @@ export class ProjectPublicationService {
             throw new Error(`publication ${site.id} has no usable port`);
         const binding = await control.projectPublicationBinding({
             project: this.projectRef(site),
-            accountUserId: site.ownerUserId,
             publicationId: site.id,
             port,
         });
@@ -85,7 +84,6 @@ export class ProjectPublicationService {
             return;
         await control.projectPublicationRelease({
             project: { kind: 'managed', projectId: site.projectId },
-            accountUserId: site.ownerUserId,
             publicationId: site.id,
         });
     }
@@ -131,7 +129,10 @@ export class ProjectPublicationService {
             if (known?.kind === 'socket') {
                 const probe = await this.probe(known.path, { timeoutMs: PROBE_TIMEOUT_MS });
                 if (probe.answered) {
-                    this.settle(site);
+                    if (probe.status !== null && probe.status < 500)
+                        this.settle(site);
+                    else
+                        this.fail(site, probe.detail);
                     continue;
                 }
                 this.endpoints.delete(site.id);
@@ -146,23 +147,23 @@ export class ProjectPublicationService {
                     throw new Error(probe.detail);
                 this.endpoints.set(site.id, { kind: 'socket', path: binding.socketPath });
                 this.nextAttempt.delete(site.id);
-                this.settle(site);
+                if (probe.status !== null && probe.status < 500)
+                    this.settle(site);
+                else
+                    this.fail(site, probe.detail);
             }
             catch (error) {
                 this.nextAttempt.set(site.id, Date.now() + RETRY_MS);
-                const message = error instanceof Error ? error.message : String(error);
-                // A publication that has been published stays published. Its address exists and the row is what
-                // says so; an application that stopped answering is reported through `lastError` and the visitor
-                // gets a 503 from the serving path, where demoting the row to `failed` would answer 404 for an
-                // address that does exist. A publication that was never verified is different: `draft` is already
-                // not served, and `failed` is where a refused publish puts it.
-                const current = this.deps.store.siteById(site.id);
-                if (current && current.lastError !== message) {
-                    this.deps.store.updateSite(site.id, { lastError: message });
-                }
-                this.deps.logger?.warn(`site ${site.slug} publication is not answering: ${message}`);
+                this.fail(site, error instanceof Error ? error.message : String(error));
             }
         }
+    }
+    /** Keep the address published while making an unhealthy application visible to the operator. */
+    fail(site, message) {
+        const current = this.deps.store.siteById(site.id);
+        if (current && current.lastError !== message)
+            this.deps.store.updateSite(site.id, { lastError: message });
+        this.deps.logger?.warn(`site ${site.slug} publication is not answering: ${message}`);
     }
     /** A publication whose application answers again owes the operator no stale error — and a publish that
      *  was refused because the application had not started yet is not a permanent verdict: the row becomes

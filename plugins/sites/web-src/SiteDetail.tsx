@@ -308,9 +308,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
           )}
           {projectEnvironment?.lastError ? <p className="text-[11px] text-destructive">{projectEnvironment.lastError}</p> : null}
           <div>
-            {/* The host has no per-project URL — the environment page is a tab inside the Projects
-                register drawer — so /projects is the only reachable target for this action. */}
-            <Button variant="ghost" icon={ExternalLink} onClick={() => runtime().navigate('/projects')}>{strings.openProject}</Button>
+            <Button variant="ghost" icon={ExternalLink} onClick={() => runtime().navigate(`/projects?project=${site.projectId}`)}>{strings.openProject}</Button>
           </div>
         </DetailBlock>
       ) : site.runtime === 'environment' && environment ? (

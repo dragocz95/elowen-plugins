@@ -251,7 +251,7 @@ export function createSiteHandler(deps) {
             return ingressRefusal(site, 503, 'Not running', refusal.notRunning);
         }
         try {
-            const proxied = await (deps.proxyEnvironment ?? proxyToEnvironment)(endpoint, req, rest, { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) }, deps.proxyLimits(), siteRoot);
+            const proxied = await (deps.proxyEnvironment ?? proxyToEnvironment)(endpoint, req, rest, { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) }, deps.proxyLimits(), siteRoot, cookieName(site.id));
             return {
                 ...proxied,
                 headers: {

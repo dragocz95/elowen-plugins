@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { SandboxControl } from 'elowen/plugin-api';
-import type { AccessDeps, Viewer } from './access.js';
+import { cookieName, type AccessDeps, type Viewer } from './access.js';
 import type { SitesHttpRequest, SitesHttpResponse } from './coreSeams.js';
 import type { ProjectPreview, Site, SitesStore } from './store.js';
 import type { SitesConfig } from './config.js';
@@ -78,7 +78,7 @@ export class ProjectPreviewService {
       binding = await control.projectPreviewBinding({ project: { kind: 'managed', projectId: preview.projectId }, accountUserId: viewer.userId, port: preview.port });
       if (binding.projectId !== preview.projectId || binding.port !== preview.port) throw new Error('preview binding identity mismatch');
       const response = await (this.deps.proxy ?? proxyToEnvironment)({ kind: 'socket', path: binding.socketPath }, req, rest,
-        { userId: viewer.userId, name: this.deps.usernameOf(viewer.userId) }, this.deps.proxyLimits(), siteRoot);
+        { userId: viewer.userId, name: this.deps.usernameOf(viewer.userId) }, this.deps.proxyLimits(), siteRoot, cookieName(site.id));
       // The proxy buffers a bounded response. Revocation during that await must discard it too.
       if (!this.allowed(preview.projectId, viewer.userId)) return denied();
       return { ...response, headers: { ...response.headers, 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex, nofollow' } };

@@ -48,6 +48,7 @@ export interface ServeDeps {
     viewer: ProxyViewer,
     limits: ProxyLimits,
     siteRoot: string,
+    blockedCookieName?: string,
   ): Promise<SitesHttpResponse>;
   usernameOf(userId: number): string | null;
   executePhp(
@@ -323,6 +324,7 @@ export function createSiteHandler(deps: ServeDeps) {
         { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) },
         deps.proxyLimits(),
         siteRoot,
+        cookieName(site.id),
       );
       return {
         ...proxied,

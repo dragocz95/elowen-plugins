@@ -182,10 +182,8 @@ export function register(published) {
         project: id => ctx.host.stores().projects.get(id),
         logger: ctx.logger,
     });
-    /** The state of the environment a proxy publication is served by. Read through the same account the
-     *  runtime was registered for, because the environment seam answers per account, and reported as
-     *  unknown rather than as an error when that account may not look: a reader of the site is not
-     *  necessarily a member of the Project. */
+    /** The state of the environment a proxy publication is served by. Read through the current manager,
+     *  because the environment state seam is account-scoped even though the publication transport is not. */
     const projectEnvironment = async (projectId, actor) => {
         const control = ctx.control('sandbox');
         if (!control?.environmentFor)
@@ -242,6 +240,7 @@ export function register(published) {
      *  including the periodic reconcile of either runtime, goes through unauthorized and is held off. */
     const migration = new RuntimeMigrationService({
         store,
+        projectExecutionKind: (projectId) => ctx.host.stores().projects.get(projectId)?.executionKind ?? null,
         siteDir,
         releaseDir,
         stopLegacyRuntime: (siteId) => supervisor.stop(siteId),

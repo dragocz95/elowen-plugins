@@ -105,7 +105,7 @@ export function createApiHandlers(deps) {
             // above: a guest wants to know whether the page is up, not how its Project is sized or where its
             // logs are. Null for everything that is not a proxy publication.
             const projectEnvironment = target.kind === 'proxy' && canManage(target, req.auth)
-                ? await deps.projectEnvironment(target.projectId, target.ownerUserId)
+                ? await deps.projectEnvironment(target.projectId, runtimeActor(req))
                 : null;
             return json(200, {
                 site: toView(target, deps, req.auth),
@@ -244,6 +244,8 @@ export function createApiHandlers(deps) {
             return json(200, { ok: true });
         }
         if (req.method === 'POST' && action === 'rollback') {
+            if (target.kind === 'proxy')
+                return json(409, { ...PROXY_REFUSAL, detail: 'restore the Project environment in the Sandbox plugin' });
             const body = await req.json()
                 .catch(() => ({}));
             const releaseId = typeof body.releaseId === 'string' ? body.releaseId : '';

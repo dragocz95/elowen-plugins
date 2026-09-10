@@ -777,35 +777,6 @@ function phase2ToolHarness(t, { userId = 1, admin = false, projectAccess = true,
   return { store, environment, environmentCalls, call: (name, input = {}) => registered.get(name).execute('call-1', input) };
 }
 
-test('SiteCreate creates a durable environment from a forked runner without gateway control', async (t) => {
-  const harness = phase2ToolHarness(t);
-  const result = await harness.call('SiteCreate', { title: 'Persistent app', runtime: 'environment' });
-  const site = harness.store.siteById(result.details.siteId);
-  assert.equal(site.runtime, 'environment');
-  assert.equal(site.status, 'live');
-  assert.equal(site.currentReleaseId, null);
-  assert.equal(site.environmentDesiredState, 'running');
-  assert.match(result.content[0].text, /SiteExec/);
-  assert.match(result.content[0].text, /\/workspace/);
-  assert.match(result.content[0].text, /\/data/);
-  assert.match(result.content[0].text, /port 80/i);
-  assert.match(result.content[0].text, /1 MB/);
-  assert.deepEqual(harness.environmentCalls.filter(([name]) => name === 'snapshot' || name === 'exec'), [], 'nothing runs synchronously at creation');
-});
-
-test('SiteCreate enforces the environment gate, separate count and environment-only inputs', async (t) => {
-  const disabled = phase2ToolHarness(t, { configRaw: { allowEnvironments: false } });
-  await assert.rejects(() => disabled.call('SiteCreate', { title: 'No', runtime: 'environment' }), /environments are turned off/i);
-
-  const limited = phase2ToolHarness(t, { configRaw: { maxEnvironmentsPerAccount: 1 } });
-  limited.store.insertSite(environmentSite({ id: 'existing', slug: 'existing', ownerUserId: 1, projectId: 7 }));
-  await assert.rejects(() => limited.call('SiteCreate', { title: 'Another', runtime: 'environment' }), /environment.*limit/i);
-
-  const enabled = phase2ToolHarness(t);
-  await assert.rejects(() => enabled.call('SiteCreate', { title: 'Bad', runtime: 'environment', startCommand: 'node app.js' }), /startCommand/);
-  await assert.rejects(() => enabled.call('SiteCreate', { title: 'Bad', runtime: 'environment', bind: 'port' }), /bind/);
-});
-
 test('SiteExec enforces publisher and Project access and runs synchronously in a forked runner', async (t) => {
   const allowed = phase2ToolHarness(t);
   allowed.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
@@ -1139,24 +1110,25 @@ test('API environment routes refuse a proxy publication with a 409 code instead 
   const { handlers, store, calls } = phase2ApiHarness();
   const proxyId = 'proxy-api';
   store.insertSite(environmentSite({
-    id: proxyId, slug: 'proxy-a1b2c3', ownerUserId: 1, projectId: 7, kind: 'proxy', target: '3000',
+    id: proxyId, slug: 'proxy-a1b2c3', ownerUserId: 9, projectId: 7, kind: 'proxy', target: '3000',
     runtime: 'static', status: 'live', currentReleaseId: null,
   }));
 
-  const detail = await handlers.site(apiRequest({ path: proxyId }));
+  const detail = await handlers.site(apiRequest({ path: proxyId, admin: true }));
   assert.equal(detail.status, 200);
   assert.equal(detail.body.site.kind, 'proxy');
   assert.equal(detail.body.site.target, '3000');
   assert.equal(detail.body.environment, null, 'no environment block is projected for a proxy publication');
   assert.deepEqual(detail.body.projectEnvironment, { state: 'running', lastError: null });
-  assert.deepEqual(calls, [['project-environment', 7, 1]], 'the Project environment is read for the site owner');
+  assert.deepEqual(calls, [['project-environment', 7, 1]], 'the Project environment is read for the current manager, even after the owner account is gone');
 
   for (const request of [
     { method: 'POST', path: `${proxyId}/control`, body: { action: 'restart' } },
     { method: 'POST', path: `${proxyId}/snapshot`, body: { includeData: true } },
+    { method: 'POST', path: `${proxyId}/rollback`, body: { releaseId: 'snapshot' } },
     { path: `${proxyId}/logs` },
   ]) {
-    const response = await handlers.site(apiRequest(request));
+    const response = await handlers.site(apiRequest({ ...request, admin: true }));
     assert.equal(response.status, 409, `${request.method ?? 'GET'} ${request.path}`);
     assert.equal(response.body.code, 'publication_no_site_environment');
     assert.match(String(response.body.detail), /Sandbox plugin/);

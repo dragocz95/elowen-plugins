@@ -21,7 +21,7 @@ import { conversionImageTag } from './conversionImage.js';
 import { RuntimeMigrationService } from './migration.js';
 import type { AccessDeps } from './access.js';
 import { ProjectPreviewService } from './preview.js';
-import { ProjectPublicationService, type ProjectEnvironmentView } from './publication.js';
+import { ProjectPublicationService, type ProjectEnvironmentView, type PublicationControl } from './publication.js';
 
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
@@ -192,15 +192,13 @@ export function register(published: PluginContext): void {
    *  next sweep. */
   const publications = new ProjectPublicationService({
     store,
-    control: () => ctx.control('sandbox'),
+    control: () => ctx.control('sandbox') as unknown as PublicationControl | undefined,
     project: id => ctx.host.stores().projects.get(id),
     logger: ctx.logger,
   });
 
-  /** The state of the environment a proxy publication is served by. Read through the same account the
-   *  runtime was registered for, because the environment seam answers per account, and reported as
-   *  unknown rather than as an error when that account may not look: a reader of the site is not
-   *  necessarily a member of the Project. */
+  /** The state of the environment a proxy publication is served by. Read through the current manager,
+   *  because the environment state seam is account-scoped even though the publication transport is not. */
   const projectEnvironment = async (projectId: number, actor: number): Promise<ProjectEnvironmentView | null> => {
     const control = ctx.control('sandbox');
     if (!control?.environmentFor) return null;
@@ -257,6 +255,7 @@ export function register(published: PluginContext): void {
    *  including the periodic reconcile of either runtime, goes through unauthorized and is held off. */
   const migration = new RuntimeMigrationService({
     store,
+    projectExecutionKind: (projectId) => ctx.host.stores().projects.get(projectId)?.executionKind ?? null,
     siteDir,
     releaseDir,
     stopLegacyRuntime: (siteId) => supervisor.stop(siteId),

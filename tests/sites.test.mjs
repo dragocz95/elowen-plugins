@@ -13,7 +13,7 @@ import { SitesStore } from '../plugins/sites/dist/store.js';
 import { snapshotRelease, resolveWithin, pruneReleases, relativeAssetWarning } from '../plugins/sites/dist/publish.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
 import { resolveConfig, resolveGatewayDnsTarget, siteUrl, requestOnSiteHost, SITE_BASE_PATH } from '../plugins/sites/dist/config.js';
-import { proxyToRuntime, ProxyError } from '../plugins/sites/dist/proxy.js';
+import { proxyToEnvironment, proxyToRuntime, ProxyError } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
 import { ProjectPublicationService } from '../plugins/sites/dist/publication.js';
@@ -764,6 +764,18 @@ test('a dedicated runtime receives its own application auth but not forged gatew
   assert.equal(seen['x-elowen-user-name'], 'amy');
 });
 
+test('a Project application receives its own cookies but not the Sites access cookie', async (t) => {
+  let seen = null;
+  const endpoint = await runtimeServer(t, (req, res) => { seen = req.headers; res.end('ok'); });
+  const accessCookie = cookieName('site-1');
+
+  await proxyToEnvironment(endpoint, request('', {
+    headers: { cookie: `app_session=abc; ${accessCookie}=signed-access; preference=compact` },
+  }), '', { userId: 4, name: 'amy' }, proxyLimits, SITE_ROOT, accessCookie);
+
+  assert.equal(seen.cookie, 'app_session=abc; preference=compact');
+});
+
 test('the runtime proxy reaches an explicitly allocated loopback port', async (t) => {
   const endpoint = await portRuntimeServer(t, (_req, res) => res.end('port-ok'));
   const response = await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
@@ -1042,8 +1054,14 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     },
     projectEnvironment: projectEnvironment ?? (async () => null),
   });
-  return { store, dir, call: (name, input) => registered.get(name).execute('call-1', input ?? {}) };
+  return { store, dir, registered, call: (name, input) => registered.get(name).execute('call-1', input ?? {}) };
 };
+
+test('SiteCreate no longer offers a per-site persistent environment runtime', (t) => {
+  const harness = toolHarness(t);
+  const runtimeSchema = harness.registered.get('SiteCreate').parameters.properties.runtime;
+  assert.deepEqual(runtimeSchema.anyOf.map((entry) => entry.const), ['static', 'command', 'php']);
+});
 
 test('a created site tells the agent the identifier the other tools demand', async (t) => {
   // The whole failure in one assertion: an agent can only publish what SiteCreate named.
@@ -1100,18 +1118,6 @@ test('SitePublish cannot cross the selected managed Project through another owne
   harness.store.insertSite(site({ sourceDir: '/workspace/sites/other-project' }));
   await assert.rejects(harness.call('SitePublish', { site: 'site-1' }), /outside the selected managed Project/);
   assert.equal(harness.store.releases('site-1').length, 0);
-});
-
-test('SiteCreate allows a persistent environment before its public DNS gateway is ready', async (t) => {
-  const harness = toolHarness(t, { gatewayHost: null, configRaw: { allowEnvironments: true }, runtimeAvailable: true });
-  const created = await harness.call('SiteCreate', { title: 'Local environment', runtime: 'environment' });
-  const stored = harness.store.siteById(created.details.siteId);
-
-  assert.equal(created.details.url, null);
-  assert.match(created.content[0].text, /No public address is available/);
-  assert.equal(stored.runtime, 'environment');
-  assert.equal(stored.status, 'live');
-  assert.equal(existsSync(stored.sourceDir), true, 'the environment still gets its Project workspace');
 });
 
 test('an environment reports its newest snapshot, never a publish it cannot have', async (t) => {
@@ -1388,6 +1394,23 @@ test('a proxy publication is not published when nothing answers on its port', as
   assert.match(stored.lastError, /ECONNREFUSED/);
 });
 
+test('a proxy publication is not published when its readiness request answers 5xx', async (t) => {
+  const harness = toolHarness(t, {
+    projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
+    runtimeAvailable: true,
+    publications: {
+      establish: async () => ({ socketPath: '/run/project/broker/pub.sock', generation: 1 }),
+      probe: async () => ({ answered: true, status: 503, detail: 'GET / answered 503' }),
+      adopt: () => { throw new Error('an unhealthy publication must not be adopted'); },
+    },
+  });
+  harness.store.insertSite(site({ id: 'proxy-5xx', slug: 'proxy-f1b2c3', kind: 'proxy', target: '3000', runtime: 'static', status: 'draft', currentReleaseId: null }));
+
+  await assert.rejects(() => harness.call('SitePublish', { site: 'proxy-f1b2c3' }), /unhealthy status/);
+  assert.equal(harness.store.siteById('proxy-5xx').status, 'failed');
+  assert.match(harness.store.siteById('proxy-5xx').lastError, /503/);
+});
+
 test('a proxy publication whose Project environment cannot be reached says so instead of going live', async (t) => {
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
@@ -1407,12 +1430,13 @@ test('a proxy publication whose Project environment cannot be reached says so in
 test('SiteGet tells the agent which Project environment serves a proxy publication', async (t) => {
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
+    admin: true,
     projectEnvironment: async (projectId, actor) => {
       assert.deepEqual([projectId, actor], [7, 1]);
       return { state: 'running', lastError: null };
     },
   });
-  harness.store.insertSite(site({ id: 'proxy-4', slug: 'proxy-d1b2c3', kind: 'proxy', target: '3000', runtime: 'static', status: 'live', currentReleaseId: null }));
+  harness.store.insertSite(site({ id: 'proxy-4', slug: 'proxy-d1b2c3', ownerUserId: 9, kind: 'proxy', target: '3000', runtime: 'static', status: 'live', currentReleaseId: null }));
 
   const detail = await harness.call('SiteGet', { site: 'proxy-d1b2c3' });
   const body = detail.content[0].text;
@@ -1455,7 +1479,9 @@ test('a proxy publication answers through the project socket, and a stranger can
   const dir = tempDir('publication');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const socketPath = join(dir, 'pub.sock');
+  let applicationCookie;
   const application = createServer((req, res) => {
+    applicationCookie = req.headers.cookie;
     res.writeHead(200, { 'content-type': 'text/plain' });
     res.end(`from the project: ${req.url}`);
   });
@@ -1477,6 +1503,7 @@ test('a proxy publication answers through the project socket, and a stranger can
   // The application saw the remainder of the path unrewritten: the slug is the address, not a prefix it
   // has to know about.
   assert.equal(await bodyText(answered.body), 'from the project: /reports/q3');
+  assert.equal(applicationCookie, undefined, 'the Sites access credential is consumed by the gateway and never reaches the Project application');
   assert.equal(answered.headers['x-robots-tag'], 'noindex, nofollow', 'a non-public answer stays unindexed');
 
   // And the parity rule: somebody who may not see it gets the answer a free slug gets, whether or not an
@@ -1528,10 +1555,10 @@ test('the publication service establishes, probes and releases one transport per
     project: () => ({ executionKind: 'managed', lifecycle: 'active' }),
   });
 
-  // The seam is asked for THIS publication, for the Project's environment, as the account that owns it.
+  // The seam is asked for THIS publication and Project, with no account whose deletion could revoke it.
   const binding = await service.establish(store.siteById('pub-1'));
   assert.deepEqual(calls[0], ['bind', {
-    project: { kind: 'managed', projectId: 7 }, accountUserId: 1, publicationId: 'pub-1', port: 3000,
+    project: { kind: 'managed', projectId: 7 }, publicationId: 'pub-1', port: 3000,
   }]);
   assert.equal(binding.socketPath, socketPath);
   const probe = await service.probe(socketPath);
@@ -1551,8 +1578,31 @@ test('the publication service establishes, probes and releases one transport per
   assert.equal(store.siteById('pub-1').lastError, null);
 
   await service.release(store.siteById('pub-1'));
-  assert.deepEqual(calls.at(-1), ['release', { project: { kind: 'managed', projectId: 7 }, accountUserId: 1, publicationId: 'pub-1' }]);
+  assert.deepEqual(calls.at(-1), ['release', { project: { kind: 'managed', projectId: 7 }, publicationId: 'pub-1' }]);
   assert.equal(service.endpointFor('pub-1'), null, 'a released publication answers through nothing');
+});
+
+test('reconciliation keeps a 5xx publication live but records it as unhealthy', async (t) => {
+  const endpoint = await runtimeServer(t, (_req, res) => { res.writeHead(503); res.end('down'); });
+  const store = new SitesStore(makeDb());
+  store.insertSite(site({
+    id: 'pub-5xx', slug: 'pub-f1b2c3', projectId: 7, ownerUserId: 1, kind: 'proxy', target: '3000',
+    runtime: 'static', status: 'live', currentReleaseId: null,
+  }));
+  const service = new ProjectPublicationService({
+    store,
+    control: () => ({
+      projectPublicationBinding: async () => ({ generation: 1, socketPath: endpoint.path }),
+      projectPublicationRelease: async () => {},
+    }),
+    project: () => ({ executionKind: 'managed', lifecycle: 'active' }),
+  });
+  service.adopt('pub-5xx', endpoint.path);
+
+  await service.reconcile();
+  assert.equal(store.siteById('pub-5xx').status, 'live');
+  assert.match(store.siteById('pub-5xx').lastError, /503/);
+  assert.deepEqual(service.endpointFor('pub-5xx'), endpoint, 'the valid transport remains available to visitors');
 });
 
 test('a publication whose transport stopped answering is retried on a bounded cadence and never demoted', async () => {
