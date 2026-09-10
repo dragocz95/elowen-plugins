@@ -80,32 +80,35 @@ export class FakeExecutor {
 
 /** A representative Podman 4.9 `inspect --type container` row in its uppercase field naming, matching
  * exactly what the driver's ownership validation expects for this spec and state. */
-export const inspectRow = (spec, state = 'running') => ({
-  Id: 'a'.repeat(64),
-  Name: `/${spec.name}`,
-  ImageName: spec.image,
-  Image: `sha256:${'b'.repeat(64)}`,
-  Config: { Labels: { ...spec.labels } },
-  State: { Status: state },
-  Mounts: spec.mounts.map((mount) => mount.type === 'volume'
-    ? { Type: 'volume', Destination: mount.target, RW: !mount.readOnly, Name: mount.source }
-    : { Type: 'bind', Destination: mount.target, RW: !mount.readOnly, Source: mount.source }),
-  HostConfig: {
-    NetworkMode: spec.network === 'none' ? 'none' : 'slirp4netns',
-    NanoCpus: spec.limits.cpus * 1e9,
-    Memory: spec.limits.memoryMb * 1024 * 1024,
-    MemorySwap: spec.limits.memoryMb * 1024 * 1024,
-    PidsLimit: spec.limits.pidsLimit,
-    Privileged: false,
-    ReadonlyRootfs: false,
-    CapAdd: [],
-    Devices: [],
-    SecurityOpt: [],
-    PidMode: '',
-    IpcMode: spec.ipcMode,
-    PortBindings: {},
-  },
-});
+export const inspectRow = (spec, state = 'running') => {
+  const creationLimits = spec.creationLimits ?? spec.limits;
+  return {
+    Id: 'a'.repeat(64),
+    Name: `/${spec.name}`,
+    ImageName: spec.image,
+    Image: `sha256:${'b'.repeat(64)}`,
+    Config: { Labels: { ...spec.labels } },
+    State: { Status: state },
+    Mounts: spec.mounts.map((mount) => mount.type === 'volume'
+      ? { Type: 'volume', Destination: mount.target, RW: !mount.readOnly, Name: mount.source }
+      : { Type: 'bind', Destination: mount.target, RW: !mount.readOnly, Source: mount.source }),
+    HostConfig: {
+      NetworkMode: spec.network === 'none' ? 'none' : 'slirp4netns',
+      NanoCpus: creationLimits.cpus * 1e9,
+      Memory: creationLimits.memoryMb * 1024 * 1024,
+      MemorySwap: creationLimits.memoryMb * 1024 * 1024,
+      PidsLimit: creationLimits.pidsLimit,
+      Privileged: false,
+      ReadonlyRootfs: false,
+      CapAdd: [],
+      Devices: [],
+      SecurityOpt: [],
+      PidMode: '',
+      IpcMode: spec.ipcMode,
+      PortBindings: {},
+    },
+  };
+};
 
 /** A `volume inspect` row for one storage component of the spec. */
 export const volumeInspectRow = (spec, component) => {

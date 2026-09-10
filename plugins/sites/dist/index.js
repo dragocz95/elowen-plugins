@@ -199,7 +199,10 @@ export function register(published) {
     const provisioning = new EnvironmentProvisioningService({
         control: () => ctx.control('publishedSitesGateway'),
         imageExists: async () => {
-            throw new Error('the environment SDK does not expose read-only base-image readiness');
+            const sandbox = ctx.control('sandbox');
+            if (!sandbox?.siteImageStatus)
+                return null;
+            return (await sandbox.siteImageStatus({ imageKind: 'base' })).present;
         },
         buildImage: async () => {
             const site = store.allSites().find(entry => entry.runtime === 'environment');
@@ -274,10 +277,10 @@ export function register(published) {
         discardContainer: (siteId, options) => environment.delete(siteId, options),
         brokerDirectoryExists: (siteId) => environment.brokerDirectoryExists(siteId),
         prepareBrokerDirectory: async (siteId) => { await environment.prepareBrokerDirectory(siteId); },
-        removeStaged: (paths) => environment.removeStaged(paths),
+        removeStaged: (paths, operationId) => environment.removeStaged(paths, operationId),
         // The completion moves the container onto the site's own source folder through the SAME supervisor
         // that created it, so the rebuilt container is created, sized and started exactly like any other.
-        rebindToSource: (site) => environment.rebindToSource(site),
+        rebindToSource: (site, operationId) => environment.rebindToSource(site, operationId),
         publishBinding: (site) => environment.publishBinding(site),
         clearConversionStage: (site, stageDir) => environment.clearConversionStage(site, stageDir),
         // The sandbox is the only authority on where a confined site keeps its data: `runtime.ts` blocks HOME
@@ -327,8 +330,10 @@ export function register(published) {
         runningLegacyHome: (siteId) => supervisor.runningHome(siteId),
         captureLegacyData: (siteId, selection) => dataSync.captureLegacyData(siteId, selection),
         buildSeedArchive: (siteId, input) => dataSync.buildSeedArchive(siteId, input),
-        loadDataVolume: async (site, seedArchive) => { await environment.importDataVolume(site.id, seedArchive); },
-        exportDataVolume: (site, output) => environment.exportDataVolume(site.id, output),
+        loadDataVolume: async (site, seedArchive, operationId) => {
+            await environment.importDataVolume(site.id, seedArchive, operationId);
+        },
+        exportDataVolume: (site, output, operationId) => environment.exportDataVolume(site.id, output, operationId),
         restoreLegacyData: (selection, archive, siteId) => dataSync.restoreLegacyData(selection, archive, siteId),
         recoverInterruptedRestore: (siteId) => dataSync.recoverInterruptedRestore(siteId),
         extractSecretArtifacts: (siteId, workspace, files) => dataSync.extractSecretArtifacts(siteId, workspace, files),

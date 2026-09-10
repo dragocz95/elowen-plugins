@@ -1204,6 +1204,20 @@ test('provisioning API is admin-only, guards concurrency and handles an old core
   assert.equal(missingImage.ready, false);
   assert.equal(missingImage.items.find((item) => item.id === 'base-image').ok, false);
 
+  const unknownImage = await new EnvironmentProvisioningService({
+    control: () => ({
+      environmentsStatus: async () => ({ ready: true, items: [] }),
+      provisionEnvironments: async () => ({ ready: true, items: [] }),
+    }),
+    imageExists: async () => null,
+    buildImage: async () => {},
+  }).status();
+  assert.equal(unknownImage.ready, true, 'an unavailable read-only probe is not an installation failure');
+  assert.deepEqual(unknownImage.items.find((item) => item.id === 'base-image'), {
+    id: 'base-image', label: 'Deterministic Sites base image', ok: false, unknown: true,
+    detail: 'The installed core cannot check the Sites base image.',
+  });
+
   let release;
   const pending = new Promise((resolve) => { release = resolve; });
   let provisions = 0;

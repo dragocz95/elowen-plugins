@@ -28,6 +28,8 @@ export interface PublishedSitesEnvironmentStatusItem {
   id: string;
   label: string;
   ok: boolean;
+  /** The check could not run, so this row is informational and must not be treated as installable failure. */
+  unknown?: boolean;
   detail?: string;
 }
 

@@ -6,6 +6,7 @@ import { SitesPage } from '../plugins/sites/web-src/SitesPage';
 import { SiteDetail } from '../plugins/sites/web-src/SiteDetail';
 import { EnvironmentsSetup } from '../plugins/sites/web-src/EnvironmentsSetup';
 import manifest from '../plugins/sites/elowen-plugin.json' with { type: 'json' };
+import csCatalog from '../plugins/sites/i18n/cs.json' with { type: 'json' };
 import { ToastProvider, createWrapper } from './ui/hostHooks';
 
 /** The Sites workspace is the app's register-plus-drawer pattern, and the three things it was rebuilt
@@ -20,6 +21,7 @@ ensurePluginUiRuntime();
 // View copy is served per-plugin by /plugins/ui; serving the REAL manifest fallback keeps these
 // assertions in lockstep with what a user sees.
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
+const csStrings = (csCatalog as { web: { strings: Record<string, string> } }).web.strings;
 
 // A person carries the picture too, so the register and the drawer draw the same face the rest of the
 // application does. OWNER has one uploaded; the other two do not and fall back to the monogram.
@@ -120,6 +122,24 @@ describe('the Sites workspace', () => {
     expect(screen.getByTestId('page-filter-chips')).toHaveTextContent(`${strings.filterStatus}: ${strings.statusFailed}`);
   });
 
+  it('filters by the derived degraded publication state', async () => {
+    const degradedSite = { ...site, id: 'site-degraded', title: 'Degraded proxy', degraded: true };
+    use(http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
+      mine: [site, degradedSite], shared: [], allowPublicSites: true,
+    })));
+    mount();
+
+    const search = await screen.findByRole('searchbox', { name: strings.searchPlaceholder });
+    const toolbar = search.closest('.page-toolbar');
+    fireEvent.click(within(toolbar!).getByTestId('page-filters-trigger'));
+    const filters = screen.getByRole('dialog', { name: 'Filters' });
+    fireEvent.change(within(filters).getByRole('combobox', { name: strings.filterStatus }), { target: { value: 'degraded' } });
+
+    expect(await screen.findByText(degradedSite.title)).toBeVisible();
+    expect(screen.queryByText(site.title)).not.toBeInTheDocument();
+    expect(screen.getByTestId('page-filter-chips')).toHaveTextContent(`${strings.filterStatus}: ${strings.statusDegraded}`);
+  });
+
   it('shows each site\'s owner as an avatar and a name, never as an account id', async () => {
     mount();
     expect(await screen.findByText(site.title)).toBeInTheDocument();
@@ -211,6 +231,26 @@ describe('the Sites workspace', () => {
     expect(patched).toEqual([]);
     fireEvent.click(within(confirm).getByRole('button', { name: strings.publicConfirm }));
     await waitFor(() => expect(patched).toEqual([{ visibility: 'public' }]));
+  });
+
+  it('closes a deleted site without refetching its removed detail id', async () => {
+    let detailRequests = 0;
+    use(
+      http.get('/api/plugins/sites/api/site/:id', () => {
+        detailRequests += 1;
+        return detailRequests === 1 ? HttpResponse.json(detail) : HttpResponse.json({ error: 'not found' }, { status: 404 });
+      }),
+      http.delete('/api/plugins/sites/api/site/:id', () => HttpResponse.json({ ok: true })),
+    );
+    mount();
+    const drawer = within(await openSite());
+    fireEvent.click(drawer.getByRole('button', { name: strings.delete }));
+    const confirm = await screen.findByRole('dialog', { name: strings.deleteTitle });
+    fireEvent.click(within(confirm).getByRole('button', { name: strings.delete }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: strings.detailTitle })).not.toBeInTheDocument());
+    await act(async () => { await Promise.resolve(); });
+    expect(detailRequests).toBe(1);
   });
 
   it('replaces the guest list through one atomic request', async () => {
@@ -377,7 +417,7 @@ describe('environment setup settings', () => {
     fireEvent.click(confirm);
     await waitFor(() => expect(posts).toHaveLength(1));
     await waitFor(() => expect(screen.getAllByText(strings.pass).length).toBeGreaterThan(0));
-    expect(screen.getByRole('button', { name: strings.environmentProvision })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: strings.environmentProvision })).not.toBeInTheDocument();
   });
 
   it('handles failed provisioning without an unhandled rejection and remeasures once', async () => {
@@ -397,6 +437,46 @@ describe('environment setup settings', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: strings.environmentProvision }));
     expect(await screen.findByRole('alert')).toHaveTextContent('package installation failed');
     await waitFor(() => expect(readinessRequests).toBe(2));
+  });
+
+  it('renders an unavailable base-image probe as neutral and offers no installation', async () => {
+    use(
+      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
+      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({
+        ready: true,
+        canProvision: true,
+        items: [{
+          id: 'base-image', label: 'Deterministic Sites base image', ok: false, unknown: true,
+          detail: 'The installed core cannot check the Sites base image.',
+        }],
+      })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    const unknown = await screen.findByText('Not checked');
+    expect(unknown.closest('[data-tone]')).toHaveAttribute('data-tone', 'muted');
+    expect(screen.getByText('The installed core cannot check the Sites base image.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: strings.environmentProvision })).not.toBeInTheDocument();
+  });
+
+  it('localizes readiness labels instead of rendering the helper English', async () => {
+    use(
+      http.get('/api/plugins/ui', () => HttpResponse.json([
+        { name: 'sites', url: '/plugins/sites/web/index.js', apiVersion: 7, nav: [], settings: [], strings: csStrings },
+      ])),
+      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
+      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({
+        ready: true,
+        canProvision: false,
+        items: [{ id: 'os:supported', label: 'Supported operating system', ok: true, detail: 'Debian is supported' }],
+      })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    expect(await screen.findByText('Podporovaný operační systém')).toBeVisible();
+    expect(screen.queryByText('Supported operating system')).not.toBeInTheDocument();
   });
 
   it('never renders the provisioning action without admin capability', async () => {
@@ -420,6 +500,16 @@ describe('persistent environment detail', () => {
     expect(screen.getByText('service ready', { exact: false })).toBeVisible();
     expect(screen.queryByRole('textbox', { name: strings.runtimeCommand })).not.toBeInTheDocument();
     expect(container.querySelector('.grid-cols-1.sm\\:grid-cols-2')).not.toBeNull();
+  });
+
+  it('localizes observed and desired runtime state tokens', async () => {
+    use(http.get('/api/plugins/ui', () => HttpResponse.json([
+      { name: 'sites', url: '/plugins/sites/web/index.js', apiVersion: 7, nav: [], settings: [], strings: csStrings },
+    ])));
+    mountEnvironment();
+
+    expect((await screen.findAllByText('Běží')).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('running')).not.toBeInTheDocument();
   });
 
   it('submits one lifecycle mutation while the first request is pending', async () => {
@@ -538,6 +628,7 @@ const proxyDetail = {
   releases: [],
   hits: [],
   sourceDir: null,
+  lastError: 'The validated container is not running',
   runtime: null,
   environment: null,
   projectEnvironment: { state: 'running', lastError: null },
@@ -581,9 +672,10 @@ describe('publication kind', () => {
     // The sentence names the Project whose environment serves this publication.
     expect(await screen.findByText(strings.projectEnvironmentLink.replace('{project}', proxySite.projectSlug as string))).toBeVisible();
     expect(screen.getByText(strings.statusDegraded)).toBeVisible();
+    expect(screen.getByText('The validated container is not running')).toBeVisible();
     // The state is shown as the daemon reported it, under the label saying what it is.
     expect(screen.getByText(strings.environmentObservedState)).toBeVisible();
-    expect(screen.getByText('running')).toBeVisible();
+    expect(screen.getByText(strings.state_running)).toBeVisible();
     const uiRuntime = (window as unknown as { ElowenUiRuntime: { navigate(href: string): void } }).ElowenUiRuntime;
     const originalNavigate = uiRuntime.navigate;
     const navigate = vi.fn();

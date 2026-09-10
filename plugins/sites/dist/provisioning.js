@@ -26,7 +26,7 @@ export class EnvironmentProvisioningService {
         return await this.withBaseImage(core);
     }
     async withBaseImage(core) {
-        let imageReady = false;
+        let imageReady = null;
         let detail;
         try {
             imageReady = await this.deps.imageExists();
@@ -34,16 +34,20 @@ export class EnvironmentProvisioningService {
         catch (error) {
             detail = error instanceof Error ? error.message : String(error);
         }
+        const unknown = imageReady === null;
         return {
-            ready: core.ready && imageReady,
+            ready: core.ready && imageReady !== false,
             detail: core.detail,
             items: [
                 ...core.items.filter((item) => item.id !== 'base-image'),
                 {
                     id: 'base-image',
                     label: 'Deterministic Sites base image',
-                    ok: imageReady,
-                    ...(imageReady ? {} : { detail: detail ?? 'The base image has not been built yet.' }),
+                    ok: imageReady === true,
+                    ...(unknown ? {
+                        unknown: true,
+                        detail: detail ?? 'The installed core cannot check the Sites base image.',
+                    } : imageReady ? {} : { detail: 'The base image has not been built yet.' }),
                 },
             ],
         };
@@ -65,7 +69,7 @@ export class EnvironmentProvisioningService {
         try {
             await control.provisionEnvironments();
             const measured = await control.environmentsStatus();
-            if (measured.ready && !await this.deps.imageExists()) {
+            if (measured.ready && await this.deps.imageExists() === false) {
                 try {
                     await this.deps.buildImage();
                 }

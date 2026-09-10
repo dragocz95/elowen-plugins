@@ -1,6 +1,6 @@
 import { AlertTriangle, CircleDashed, CircleDot, FolderGit2, Globe, Lock, Users } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { SiteStatus, Visibility } from './runtime.js';
+import type { SiteStatus, SiteView, Visibility } from './runtime.js';
 
 /** How a site's access and lifecycle are labelled everywhere on this page. The tables live here rather
  *  than in a view so the register, the drawer and the visibility dropdown cannot drift into three
@@ -31,22 +31,30 @@ export const VISIBILITY_TONE: Record<Visibility, 'muted' | 'accent' | 'warning'>
   public: 'warning',
 };
 
-export const STATUS_ORDER: readonly SiteStatus[] = ['live', 'draft', 'failed'];
+export type DisplayStatus = SiteStatus | 'degraded';
 
-export const STATUS_STRING: Record<SiteStatus, string> = {
+export const displayStatus = (site: Pick<SiteView, 'status' | 'degraded'>): DisplayStatus =>
+  site.degraded ? 'degraded' : site.status;
+
+export const STATUS_ORDER: readonly DisplayStatus[] = ['live', 'degraded', 'draft', 'failed'];
+
+export const STATUS_STRING: Record<DisplayStatus, string> = {
   live: 'statusLive',
+  degraded: 'statusDegraded',
   draft: 'statusDraft',
   failed: 'statusFailed',
 };
 
-export const STATUS_ICON: Record<SiteStatus, LucideIcon> = {
+export const STATUS_ICON: Record<DisplayStatus, LucideIcon> = {
   live: CircleDot,
+  degraded: AlertTriangle,
   draft: CircleDashed,
   failed: AlertTriangle,
 };
 
-export const STATUS_TONE: Record<SiteStatus, 'success' | 'muted' | 'danger'> = {
+export const STATUS_TONE: Record<DisplayStatus, 'success' | 'warning' | 'muted' | 'danger'> = {
   live: 'success',
+  degraded: 'warning',
   draft: 'muted',
   failed: 'danger',
 };

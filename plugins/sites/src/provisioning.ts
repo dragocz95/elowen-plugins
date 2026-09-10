@@ -25,7 +25,7 @@ export class EnvironmentProvisioningService {
 
   constructor(private readonly deps: {
     control(): EnvironmentProvisionControl | undefined;
-    imageExists(): Promise<boolean>;
+    imageExists(): Promise<boolean | null>;
     buildImage(): Promise<void>;
     audit?(status: PublishedSitesEnvironmentStatus, actorUserId: number | null): void;
   }) {}
@@ -39,20 +39,24 @@ export class EnvironmentProvisioningService {
   }
 
   private async withBaseImage(core: PublishedSitesEnvironmentStatus): Promise<PublishedSitesEnvironmentStatus> {
-    let imageReady = false;
+    let imageReady: boolean | null = null;
     let detail: string | undefined;
     try { imageReady = await this.deps.imageExists(); }
     catch (error) { detail = error instanceof Error ? error.message : String(error); }
+    const unknown = imageReady === null;
     return {
-      ready: core.ready && imageReady,
+      ready: core.ready && imageReady !== false,
       detail: core.detail,
       items: [
         ...core.items.filter((item) => item.id !== 'base-image'),
         {
           id: 'base-image',
           label: 'Deterministic Sites base image',
-          ok: imageReady,
-          ...(imageReady ? {} : { detail: detail ?? 'The base image has not been built yet.' }),
+          ok: imageReady === true,
+          ...(unknown ? {
+            unknown: true,
+            detail: detail ?? 'The installed core cannot check the Sites base image.',
+          } : imageReady ? {} : { detail: 'The base image has not been built yet.' }),
         },
       ],
     };
@@ -75,7 +79,7 @@ export class EnvironmentProvisioningService {
     try {
       await control.provisionEnvironments();
       const measured = await control.environmentsStatus();
-      if (measured.ready && !await this.deps.imageExists()) {
+      if (measured.ready && await this.deps.imageExists() === false) {
         try { await this.deps.buildImage(); }
         catch (error) {
           const message = error instanceof Error ? error.message : String(error);

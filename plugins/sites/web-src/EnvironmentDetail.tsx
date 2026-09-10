@@ -93,6 +93,8 @@ export function EnvironmentDetail({
   };
 
   const stateTone = environment.state === 'running' ? 'success' : environment.state === 'paused' ? 'warning' : 'danger';
+  const stateLabel = (state: string | null): string =>
+    strings[`state_${state ?? 'unknown'}`] ?? strings.state_unknown;
 
   return (
     <div className="flex flex-col gap-5">
@@ -100,12 +102,12 @@ export function EnvironmentDetail({
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2">
             <span className="text-xs text-muted-foreground">{strings.environmentObservedState}</span>
-            <Badge tone={stateTone}>{environment.state ?? strings.environmentStatusUnavailable}</Badge>
+            <Badge tone={stateTone}>{stateLabel(environment.state)}</Badge>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2">
             <span className="text-xs text-muted-foreground">{strings.environmentDesiredState}</span>
             <Badge tone={environment.desiredState === 'running' ? 'success' : environment.desiredState === 'restarting' ? 'warning' : 'muted'}>
-              {environment.desiredState}
+              {stateLabel(environment.desiredState)}
             </Badge>
           </div>
         </div>

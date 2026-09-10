@@ -7,7 +7,7 @@ import {
   runtime, avatarUser, formatBytes, jsonBody, relativeTime, siteDetailKey, SITES_LIST_KEY,
   type DirectoryResponse, type SiteDetailResponse, type Visibility,
 } from './runtime.js';
-import { STATUS_STRING, STATUS_TONE, VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE } from './meta.js';
+import { displayStatus, STATUS_STRING, STATUS_TONE, VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE } from './meta.js';
 import { EnvironmentDetail } from './EnvironmentDetail.js';
 
 const basePath = (siteId: string): string => `/plugins/sites/api/site/${siteId}`;
@@ -73,7 +73,12 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
     mutationFn: (vars: { path: string; init: RequestInit }) => runtime().api(vars.path, vars.init),
     onSuccess: (_data: unknown, vars: { path: string; init: RequestInit; done?: string }) => {
       setFailedAction(null);
-      refresh();
+      const deleted = vars.path === basePath(siteId) && vars.init.method === 'DELETE';
+      // Unmount the detail query before refreshing the list. Invalidating the deleted id while this drawer
+      // is still mounted immediately asks the API for a row that cannot exist and turns success into a 404.
+      if (deleted) onDeleted();
+      else void queryClient.invalidateQueries({ queryKey: siteDetailKey(siteId) });
+      void queryClient.invalidateQueries({ queryKey: SITES_LIST_KEY });
       toast(vars.done ?? strings.saved);
     },
     onError: (error: unknown, vars: { path: string; init: RequestInit; done?: string }) => {
@@ -163,6 +168,9 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
   const runtimeState = detail.data?.runtime ?? null;
   const environment = detail.data?.environment ?? null;
   const projectEnvironment = detail.data?.projectEnvironment ?? null;
+  const displayedStatus = displayStatus(site);
+  const stateLabel = (state: string | null): string =>
+    strings[`state_${state ?? 'unknown'}`] ?? strings.state_unknown;
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const visibleOptions = VISIBILITY_ORDER.filter((value) => value !== 'public' || allowPublicSites);
   // Guests are picked from every account except the owner, who already holds the site.
@@ -186,26 +194,29 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         />
       ) : null}
       {/* Identity strip — what this site IS and the two things you do with an address, on one line. */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <Badge tone={site.degraded ? 'warning' : STATUS_TONE[site.status]}>
-            {site.degraded ? strings.statusDegraded : strings[STATUS_STRING[site.status]]}
-          </Badge>
-          <Badge tone={VISIBILITY_TONE[site.visibility]}>
-            <VisibilityIcon size={10} aria-hidden className="mr-1" />
-            {strings[VISIBILITY_STRING[site.visibility]]}
-          </Badge>
-          {site.projectSlug ? <Badge tone="muted">{site.projectSlug}</Badge> : null}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <Badge tone={STATUS_TONE[displayedStatus]}>
+              {strings[STATUS_STRING[displayedStatus]]}
+            </Badge>
+            <Badge tone={VISIBILITY_TONE[site.visibility]}>
+              <VisibilityIcon size={10} aria-hidden className="mr-1" />
+              {strings[VISIBILITY_STRING[site.visibility]]}
+            </Badge>
+            {site.projectSlug ? <Badge tone="muted">{site.projectSlug}</Badge> : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <IconButton icon={Copy} label={strings.copyLink} disabled={site.url === null} onClick={copyAddress} />
+            <IconButton
+              icon={ExternalLink}
+              label={strings.openSite}
+              disabled={site.status !== 'live' || site.url === null}
+              onClick={() => { if (site.url) window.open(site.url, '_blank', 'noopener,noreferrer'); }}
+            />
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <IconButton icon={Copy} label={strings.copyLink} disabled={site.url === null} onClick={copyAddress} />
-          <IconButton
-            icon={ExternalLink}
-            label={strings.openSite}
-            disabled={site.status !== 'live' || site.url === null}
-            onClick={() => { if (site.url) window.open(site.url, '_blank', 'noopener,noreferrer'); }}
-          />
-        </div>
+        {detail.data?.lastError ? <p className="text-[11px] text-destructive">{detail.data.lastError}</p> : null}
       </div>
 
       <div className="flex flex-col gap-1">
@@ -303,7 +314,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
           {projectEnvironment?.state ? (
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="text-muted-foreground">{strings.environmentObservedState}</span>
-              <Badge tone="muted">{projectEnvironment.state}</Badge>
+              <Badge tone="muted">{stateLabel(projectEnvironment.state)}</Badge>
             </div>
           ) : (
             <p className="text-[11px] text-muted-foreground">{strings.projectEnvironmentMissing}</p>
@@ -480,10 +491,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         onConfirm={() => {
           if (callRef.current) return;
           setConfirmDelete(false);
-          runCall(
-            { path: basePath(siteId), init: { method: 'DELETE' }, done: strings.deleted },
-            onDeleted,
-          );
+          runCall({ path: basePath(siteId), init: { method: 'DELETE' }, done: strings.deleted });
         }}
       />
     </div>

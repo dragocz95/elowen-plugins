@@ -135,11 +135,9 @@ test('data volumes carry resource labels and limit updates use the exact engine 
     .on((args) => is(args, ['update']), { code: 0 })
     .on((args) => is(args, ['inspect', '--type']), () => {
       inspects += 1;
-      const row = inspects === 1 ? baseRow : {
-        ...baseRow,
-        HostConfig: { ...baseRow.HostConfig, NanoCpus: 2.25e9, Memory: 1536 * 1024 * 1024, MemorySwap: 1536 * 1024 * 1024, PidsLimit: 640 },
-      };
-      return { stdout: JSON.stringify([row]) };
+      // Podman keeps the creation values in HostConfig after a live update. The returned next spec carries
+      // the requested runtime limits separately while ownership continues to validate the immutable values.
+      return { stdout: JSON.stringify([baseRow]) };
     });
   await podman.update(spec, next);
   const update = executor.calls.find((call) => call.args[0] === 'update');

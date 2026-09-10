@@ -932,17 +932,18 @@ export class SitesStore {
      *  `resumableError` is the marker boot recovery writes onto a conversion a restart interrupted while it
      *  was already flipped. That is not a failed flip: the site is up and serving as an environment, and the
      *  only thing missing is the completion nobody got to run. Accepting exactly that one message keeps such
-     *  a slot completable while every other recorded failure still refuses, and clearing it in the same
-     *  statement means the completion owns the slot from here on.
+     *  a slot completable while every other recorded flip failure still refuses.
      *
-     *  A slot already `completing` is retaken whatever it recorded. By then the staged container is gone and
-     *  the site's data lives in an archive this operation wrote, so finishing is the only direction that
-     *  ends with a serving site; refusing the retry would strand it. */
+     *  A `completing` slot is re-claimable only after its driver recorded an error. A null error means a live
+     *  driver owns it right now, so a second reconcile tick must not enter the same destructive steps. */
     beginRuntimeCompletion(siteId, resumableError) {
         return this.db.prepare(`
       UPDATE p_sites_runtime_migrations SET stage = 'completing', last_error = NULL
       WHERE site_id = ?
-        AND (stage = 'completing' OR (stage = 'flipped' AND (last_error IS NULL OR last_error = ?)))
+        AND (
+          (stage = 'completing' AND last_error IS NOT NULL)
+          OR (stage = 'flipped' AND (last_error IS NULL OR last_error = ?))
+        )
     `).run(siteId, resumableError).changes === 1;
     }
     /** Release the slot with a reason. The row SURVIVES: it still holds the only record of what the site
