@@ -437,6 +437,27 @@ describe('environment setup settings', () => {
     await waitFor(() => expect(readinessRequests).toBe(2));
   });
 
+  it('renders an unavailable base-image probe as neutral and offers no installation', async () => {
+    use(
+      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
+      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({
+        ready: true,
+        canProvision: true,
+        items: [{
+          id: 'base-image', label: 'Deterministic Sites base image', ok: false, unknown: true,
+          detail: 'The installed core cannot check the Sites base image.',
+        }],
+      })),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+
+    const unknown = await screen.findByText('Not checked');
+    expect(unknown.closest('[data-tone]')).toHaveAttribute('data-tone', 'muted');
+    expect(screen.getByText('The installed core cannot check the Sites base image.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: strings.environmentProvision })).not.toBeInTheDocument();
+  });
+
   it('never renders the provisioning action without admin capability', async () => {
     use(
       http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),

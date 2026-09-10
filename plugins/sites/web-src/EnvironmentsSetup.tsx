@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { CheckCircle2, Copy, Network, PackageCheck, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, CircleDashed, Copy, Network, PackageCheck, TriangleAlert } from 'lucide-react';
 import type { PluginPageProps } from 'elowen-plugin-ui-kit';
 import {
   runtime,
@@ -66,6 +66,8 @@ export function EnvironmentsSetup({ surface }: PluginPageProps) {
   if (environment.isError) return <ErrorState message={host.utils.apiErrorMessage(environment.error)} onRetry={() => environment.refetch()} />;
   if (!gateway.data || !environment.data) return null;
 
+  const canInstall = environment.data.canProvision
+    && environment.data.items.some((item) => !item.ok && !item.unknown);
   const gatewayStatus = gateway.data.status === 'ready'
     ? strings.environmentStatusReady
     : gateway.data.status === 'missing'
@@ -145,15 +147,19 @@ export function EnvironmentsSetup({ surface }: PluginPageProps) {
             <SettingsRow
               key={item.id}
               label={item.label}
-              icon={item.ok ? CheckCircle2 : TriangleAlert}
+              icon={item.unknown ? CircleDashed : item.ok ? CheckCircle2 : TriangleAlert}
               trailingLayout={item.detail ? 'stack' : 'inline'}
-              status={<Badge tone={item.ok ? 'success' : 'danger'}>{item.ok ? strings.pass : strings.fail}</Badge>}
+              status={(
+                <Badge tone={item.unknown ? 'muted' : item.ok ? 'success' : 'danger'}>
+                  {item.unknown ? strings.environmentStatusUnknown : item.ok ? strings.pass : strings.fail}
+                </Badge>
+              )}
               control={item.detail ? <p className="text-xs text-muted-foreground">{item.detail}</p> : undefined}
             />
           ))}
           {environment.data.detail ? <p className="px-1 text-xs text-muted-foreground">{environment.data.detail}</p> : null}
           {provisionError ? <p className="px-1 text-xs text-destructive" role="alert">{provisionError}</p> : null}
-          {environment.data.canProvision ? (
+          {canInstall ? (
             <div className="flex justify-end">
               <Button
                 variant="accent"

@@ -97,6 +97,9 @@ test('sites manifest and marketplace registry expose the same release', () => {
   // The host UI contract is 12; a bundle that claims more renders a placeholder instead of the page.
   assert.equal(manifest.web.requiresApiVersion, 12);
   assert.ok(!('userGrantable' in manifest), 'a grant would lock invited guests out of the ticket route');
+  const indexSource = readFileSync(new URL('../plugins/sites/src/index.ts', import.meta.url), 'utf8');
+  assert.match(indexSource, /siteImageStatus\(\{ imageKind: 'base' \}\)/,
+    'base-image readiness must use the Sandbox control exposed by the required core');
 });
 
 // ── access matrix ────────────────────────────────────────────────────────────────────────────────

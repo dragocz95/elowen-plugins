@@ -199,7 +199,10 @@ export function register(published) {
     const provisioning = new EnvironmentProvisioningService({
         control: () => ctx.control('publishedSitesGateway'),
         imageExists: async () => {
-            throw new Error('the environment SDK does not expose read-only base-image readiness');
+            const sandbox = ctx.control('sandbox');
+            if (!sandbox?.siteImageStatus)
+                return null;
+            return (await sandbox.siteImageStatus({ imageKind: 'base' })).present;
         },
         buildImage: async () => {
             const site = store.allSites().find(entry => entry.runtime === 'environment');

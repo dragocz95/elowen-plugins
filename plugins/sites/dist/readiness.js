@@ -16,11 +16,11 @@ const disabledRow = () => ({
 const itemRow = (item, report) => ({
     id: `sites-env-${item.id}`,
     label: item.label,
-    ok: item.ok,
-    detail: item.detail || (item.ok ? 'Ready.' : 'Not ready.'),
+    ok: item.ok || item.unknown === true,
+    detail: item.detail || (item.ok ? 'Ready.' : item.unknown ? 'Not checked.' : 'Not ready.'),
     // The report-wide detail explains WHY a whole checklist is failing (an unreachable helper, a failed
     // provisioning run). It belongs on the rows that are actually failing, not on every green one.
-    ...(item.ok ? {} : { hint: [report.detail, ENVIRONMENT_HINT].filter(Boolean).join(' ') }),
+    ...(!item.ok && !item.unknown ? { hint: [report.detail, ENVIRONMENT_HINT].filter(Boolean).join(' ') } : {}),
 });
 /** One readiness row per dependency the setup page already lists, from the SAME provisioning report. */
 export function environmentReadinessRows(report) {

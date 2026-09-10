@@ -439,6 +439,7 @@
       "environmentStatusMissing": "DNS record missing",
       "environmentStatusMisdirected": "Wrong destination",
       "environmentStatusUnavailable": "Check unavailable",
+      "environmentStatusUnknown": "Not checked",
       "environmentObservedTarget": "Observed target",
       "environmentRecordType": "Type",
       "environmentRecordName": "Name",

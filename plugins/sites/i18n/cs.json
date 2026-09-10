@@ -214,6 +214,7 @@
       "environmentStatusMissing": "DNS záznam chybí",
       "environmentStatusMisdirected": "Nesprávný cíl",
       "environmentStatusUnavailable": "Kontrola není dostupná",
+      "environmentStatusUnknown": "Neověřeno",
       "environmentObservedTarget": "Zjištěný cíl",
       "environmentRecordType": "Typ",
       "environmentRecordName": "Název",
