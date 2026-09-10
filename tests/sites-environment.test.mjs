@@ -155,17 +155,17 @@ test('environment limit overrides persist only after the provider accepts the ch
       generation: input.generation, action: input.action, status: 'failed', error: 'podman update denied' };
   };
   await assert.rejects(() => supervisor.applyLimits(site, {
-    environmentCpus: 2, environmentMemoryMb: 2048, environmentPidsLimit: 700, environmentDiskSoftMb: 8192,
+    environmentCpus: 2, environmentMemoryMb: 2048, environmentPidsLimit: 700,
   }), /update denied/);
   assert.equal(site.environmentMemoryMb, null, 'nothing persisted on provider failure');
-  assert.deepEqual(control.requests[0].action, { kind: 'limits', limits: { cpus: 2, memoryMb: 2048, pidsLimit: 700, diskSoftMb: 8192 } });
+  assert.deepEqual(control.requests[0].action, { kind: 'limits', limits: { cpus: 2, memoryMb: 2048, pidsLimit: 700 } });
 });
 
 test('environment limit overrides persist while stopped and the binding carries them on the next start', async (t) => {
   const { supervisor, control, site } = await sitesSdkHarness(t, {
   });
   await supervisor.applyLimits(site, {
-    environmentCpus: 2, environmentMemoryMb: 2048, environmentPidsLimit: 700, environmentDiskSoftMb: 8192,
+    environmentCpus: 2, environmentMemoryMb: 2048, environmentPidsLimit: 700,
   });
   assert.equal(site.environmentMemoryMb, 2048);
   assert.deepEqual(requestKinds(control), ['limits']);
@@ -173,7 +173,7 @@ test('environment limit overrides persist while stopped and the binding carries 
   await supervisor.start(site);
   assert.deepEqual(requestKinds(control), ['limits', 'start'], 'the provider applies binding limits on start; no second limits call');
   const binding = await control.authority.resolve({ siteId: SITE_ID, accountUserId: 7, access: 'read' });
-  assert.deepEqual(binding.limits, { cpus: 2, memoryMb: 2048, pidsLimit: 700, diskSoftMb: 8192 });
+  assert.deepEqual(binding.limits, { cpus: 2, memoryMb: 2048, pidsLimit: 700 });
 });
 
 test('environment exec forwards the command through the typed seam with a bounded timeout', async (t) => {
@@ -603,9 +603,10 @@ test('migration v5 preserves existing runtimes, exposes environment counts and f
   const store = new SitesStore(db);
   // The schema head is pinned deliberately: a migration added without updating this line is a migration
   // nobody reviewed against the legacy rows seeded above. v9 adds the runtime conversion slot, v10 the
-  // durable crash-recovery state on it, and v11/v12 the runtime records and provider-owned lifecycle
-  // columns; none of them touches an existing site row.
-  assert.equal(db.appliedVersion(), 12);
+  // durable crash-recovery state on it, v11/v12 the runtime records and provider-owned lifecycle
+  // columns, and v13 drops the disk threshold column nothing enforced; none of them touches an existing
+  // site row.
+  assert.equal(db.appliedVersion(), 13);
   for (const runtime of ['static', 'command', 'php']) assert.equal(store.siteById(`legacy-${runtime}`).runtime, runtime);
   store.insertSite(environmentSite({ id: 'site-environment', slug: 'site-environment' }));
   assert.equal(store.countEnvironmentOwnedBy(7), 1);
@@ -677,7 +678,6 @@ test('environment configuration is strictly bounded and separately gated', () =>
     environmentCpus: 99,
     environmentMemoryMb: -1,
     environmentPidsLimit: 1.2,
-    environmentDiskSoftMb: Number.NaN,
     maxEnvironmentsPerAccount: 999,
   }, 'https://elowen.example', 'sites.elowen.example');
   assert.equal(resolved.allowEnvironments, true);
@@ -687,7 +687,6 @@ test('environment configuration is strictly bounded and separately gated', () =>
   assert.equal(resolved.environmentCpus, 8);
   assert.equal(resolved.environmentMemoryMb, 128);
   assert.equal(resolved.environmentPidsLimit, 16);
-  assert.equal(resolved.environmentDiskSoftMb, 4096);
   assert.equal(resolved.maxEnvironmentsPerAccount, 20);
 });
 
@@ -732,7 +731,6 @@ function phase2ToolHarness(t, { userId = 1, admin = false, projectAccess = true,
       cpus: site.environmentCpus ?? resolved().environmentCpus,
       memoryMb: site.environmentMemoryMb ?? resolved().environmentMemoryMb,
       pidsLimit: site.environmentPidsLimit ?? resolved().environmentPidsLimit,
-      diskSoftMb: site.environmentDiskSoftMb ?? resolved().environmentDiskSoftMb,
     },
   });
   let scheduledSnapshot = null;
@@ -957,7 +955,7 @@ test('a clean in-flight action refuses scheduling until it settles or errors', a
 
 test('SiteUpdate applies environment limits for an administrator, clamped to the declared caps', async (t) => {
   // The web screen could already change these; an agent asked to size an environment had no tool for it
-  // and no way to read back the disk ceiling it was given.
+  // and no way to read back the ceilings it was given.
   const owner = phase2ToolHarness(t);
   owner.store.insertSite(environmentSite({ ownerUserId: 1, projectId: 7 }));
   await assert.rejects(() => owner.call('SiteUpdate', { site: SITE_ID, environmentMemoryMb: 2048 }), /administrator/i);
@@ -968,15 +966,14 @@ test('SiteUpdate applies environment limits for an administrator, clamped to the
   admin.store.insertSite(environmentSite({ ownerUserId: 9, projectId: 7 }));
   const updated = await admin.call('SiteUpdate', {
     site: SITE_ID,
-    environmentCpus: 99, environmentMemoryMb: 64, environmentPidsLimit: 2, environmentDiskSoftMb: 999999,
+    environmentCpus: 99, environmentMemoryMb: 64, environmentPidsLimit: 2,
   });
   // Out-of-range values are pinned to the SAME bounds the settings screen enforces: a tool must not be
   // the way around an instance ceiling.
   assert.deepEqual(admin.environmentCalls.find(([name]) => name === 'limits'), ['limits', SITE_ID, {
-    environmentCpus: 8, environmentMemoryMb: 128, environmentPidsLimit: 16, environmentDiskSoftMb: 131072,
+    environmentCpus: 8, environmentMemoryMb: 128, environmentPidsLimit: 16,
   }]);
-  assert.deepEqual(updated.details.limits, { cpus: 8, memoryMb: 128, pidsLimit: 16, diskSoftMb: 131072 });
-  assert.match(updated.content[0].text, /131072 MB disk/);
+  assert.deepEqual(updated.details.limits, { cpus: 8, memoryMb: 128, pidsLimit: 16 });
 
   // Null clears an override, so the environment falls back to the instance default rather than keeping a
   // value nobody can see in the settings screen.
@@ -1038,7 +1035,7 @@ function phase2ApiHarness({ provisioning } = {}) {
       calls.push(['state', site.id, actor]);
       return {
         state: 'running', desiredState: site.environmentDesiredState, lastError: null,
-        limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 },
+        limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512 },
       };
     },
     environmentAction: async (site, actor) => {
@@ -1102,7 +1099,7 @@ test('API environment detail, control, snapshot and rollback actions use durable
   assert.equal(detail.body.site.runtime, 'environment');
   assert.equal(detail.body.environment.desiredState, 'running');
   assert.equal(detail.body.environment.limits.memoryMb, 1024);
-  assert.deepEqual(detail.body.environment.limitOverrides, { cpus: null, memoryMb: null, pidsLimit: null, diskSoftMb: null });
+  assert.deepEqual(detail.body.environment.limitOverrides, { cpus: null, memoryMb: null, pidsLimit: null });
   assert.equal(detail.body.environment.canControl, true);
   assert.equal(detail.body.environment.canSetLimits, false);
   assert.equal(detail.body.environment.transport.requestBodyLimitBytes, 1024 * 1024);
@@ -1159,11 +1156,11 @@ test('API environment limit overrides are admin-only and persist through the app
   assert.equal(store.siteById(SITE_ID).environmentMemoryMb, null);
 
   const admin = await handlers.site(apiRequest({ method: 'PATCH', path: SITE_ID, admin: true, body: {
-    environmentCpus: 99, environmentMemoryMb: 64, environmentPidsLimit: 2, environmentDiskSoftMb: 999999,
+    environmentCpus: 99, environmentMemoryMb: 64, environmentPidsLimit: 2,
   } }));
   assert.equal(admin.status, 200);
   assert.deepEqual(calls.find(([name]) => name === 'limits'), ['limits', SITE_ID, {
-    environmentCpus: 8, environmentMemoryMb: 128, environmentPidsLimit: 16, environmentDiskSoftMb: 131072,
+    environmentCpus: 8, environmentMemoryMb: 128, environmentPidsLimit: 16,
   }, 1]);
 });
 

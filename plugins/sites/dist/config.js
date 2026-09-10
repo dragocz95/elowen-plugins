@@ -16,7 +16,6 @@ const ENVIRONMENT_LIMITS = {
     environmentCpus: { min: 0.25, max: 8, decimals: true },
     environmentMemoryMb: { min: 128, max: 32768, decimals: false },
     environmentPidsLimit: { min: 16, max: 4096, decimals: false },
-    environmentDiskSoftMb: { min: 256, max: 131072, decimals: false },
 };
 export function environmentLimitOverrides(raw) {
     const out = {};
@@ -160,7 +159,6 @@ export function resolveConfig(raw, publicWebUrl, gatewayHostBase = null) {
         environmentCpus: boundedFloat(raw.environmentCpus, 1, ENVIRONMENT_LIMITS.environmentCpus.min, ENVIRONMENT_LIMITS.environmentCpus.max),
         environmentMemoryMb: bounded(raw.environmentMemoryMb, 1024, ENVIRONMENT_LIMITS.environmentMemoryMb.min, ENVIRONMENT_LIMITS.environmentMemoryMb.max),
         environmentPidsLimit: bounded(raw.environmentPidsLimit, 512, ENVIRONMENT_LIMITS.environmentPidsLimit.min, ENVIRONMENT_LIMITS.environmentPidsLimit.max),
-        environmentDiskSoftMb: bounded(raw.environmentDiskSoftMb, 4096, ENVIRONMENT_LIMITS.environmentDiskSoftMb.min, ENVIRONMENT_LIMITS.environmentDiskSoftMb.max),
         maxEnvironmentsPerAccount: bounded(raw.maxEnvironmentsPerAccount, 3, 1, 20),
         runtimeNetwork: raw.runtimeNetwork === 'shared' ? 'shared' : 'isolated',
         allowLoopbackPorts: raw.allowLoopbackPorts === true,

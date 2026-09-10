@@ -1020,7 +1020,7 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
       state: async (target) => ({
         state: 'running',
         desiredState: target.environmentDesiredState ?? 'running',
-        limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: null },
+        limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512 },
       }),
       exec: async () => ({ stdout: '', stderr: '', code: 0 }),
       logs: async () => ({ lifecycle: '', journal: '' }),

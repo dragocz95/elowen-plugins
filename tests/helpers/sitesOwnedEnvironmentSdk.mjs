@@ -33,7 +33,6 @@ export const environmentSite = (overrides = {}) => ({
   environmentCpus: null,
   environmentMemoryMb: null,
   environmentPidsLimit: null,
-  environmentDiskSoftMb: null,
   environmentDesiredState: 'running',
   status: 'live',
   currentReleaseId: null,
@@ -52,7 +51,6 @@ const environmentConfig = (overrides = {}) => ({
   environmentCpus: 1,
   environmentMemoryMb: 1024,
   environmentPidsLimit: 512,
-  environmentDiskSoftMb: 4096,
   releasesKept: 5,
   ...overrides,
 });
@@ -200,7 +198,7 @@ function sitesSdkControl({
     view(siteId) {
       return {
         siteId, generation, state: current.state, desiredState: current.desiredState,
-        limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 }, lastError,
+        limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512 }, lastError,
       };
     },
     connectSitesRuntime(authority) { control.authority = authority; },

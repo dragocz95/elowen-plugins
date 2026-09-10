@@ -35,7 +35,7 @@ export function EnvironmentDetail({
   const [includeData, setIncludeData] = useState(true);
   const [restore, setRestore] = useState<ReleaseView | null>(null);
   const [restoreData, setRestoreData] = useState(false);
-  const [limits, setLimits] = useState({ cpus: '', memoryMb: '', pidsLimit: '', diskSoftMb: '' });
+  const [limits, setLimits] = useState({ cpus: '', memoryMb: '', pidsLimit: '' });
 
   useEffect(() => {
     const source = environment.limitOverrides;
@@ -44,7 +44,6 @@ export function EnvironmentDetail({
       cpus: source.cpus === null ? '' : String(source.cpus),
       memoryMb: source.memoryMb === null ? '' : String(source.memoryMb),
       pidsLimit: source.pidsLimit === null ? '' : String(source.pidsLimit),
-      diskSoftMb: source.diskSoftMb === null ? '' : String(source.diskSoftMb),
     });
   }, [environment.limitOverrides]);
 
@@ -88,7 +87,6 @@ export function EnvironmentDetail({
         environmentCpus: numberOrNull(limits.cpus),
         environmentMemoryMb: numberOrNull(limits.memoryMb),
         environmentPidsLimit: numberOrNull(limits.pidsLimit),
-        environmentDiskSoftMb: numberOrNull(limits.diskSoftMb),
       }),
       done: strings.environmentLimitsSaved,
     });
@@ -228,7 +226,6 @@ export function EnvironmentDetail({
               ['cpus', strings.environmentLimitCpu, environment.limits.cpus],
               ['memoryMb', strings.environmentLimitMemory, environment.limits.memoryMb],
               ['pidsLimit', strings.environmentLimitPids, environment.limits.pidsLimit],
-              ['diskSoftMb', strings.environmentLimitDisk, environment.limits.diskSoftMb],
             ] as const).map(([key, label, effective]) => (
               <label key={key} className="flex flex-col gap-1">
                 <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>

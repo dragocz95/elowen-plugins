@@ -43,7 +43,7 @@ const readinessHarness = (socketPath) => {
     store: {},
     gateway: {},
     config: () => ({ startTimeoutSeconds: 5, environmentNetwork: 'shared', environmentCpus: 1,
-      environmentMemoryMb: 256, environmentPidsLimit: 128, environmentDiskSoftMb: 1024, releasesKept: 3 }),
+      environmentMemoryMb: 256, environmentPidsLimit: 128, releasesKept: 3 }),
     siteDir: () => '/tmp/unused',
     ensureBaseImage: async () => 'unused',
   });
@@ -89,7 +89,6 @@ const legacySite = (overrides = {}) => ({
   environmentCpus: null,
   environmentMemoryMb: null,
   environmentPidsLimit: null,
-  environmentDiskSoftMb: null,
   environmentDesiredState: 'running',
   status: 'live',
   currentReleaseId: RELEASE_ID,
@@ -1042,7 +1041,7 @@ const supervisorHarness = (statuses) => {
     },
     config: () => ({
       startTimeoutSeconds: 1, environmentNetwork: 'shared', environmentCpus: 0.5,
-      environmentMemoryMb: 384, environmentPidsLimit: 128, environmentDiskSoftMb: 1024, releasesKept: 3,
+      environmentMemoryMb: 384, environmentPidsLimit: 128, releasesKept: 3,
     }),
     siteDir: (siteId) => join(root, 'sites', siteId),
     brokerPath: (siteId) => join('/var/lib/elowen/site-runtime-sockets', siteId, 'app.sock'),

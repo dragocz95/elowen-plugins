@@ -93,7 +93,6 @@ const site0 = (overrides = {}) => ({
   environmentCpus: 0.5,
   environmentMemoryMb: 256,
   environmentPidsLimit: 256,
-  environmentDiskSoftMb: 1024,
   environmentDesiredState: 'running',
   status: 'live',
   currentReleaseId: RELEASE_ID,
@@ -329,7 +328,7 @@ const podmanHarness = async ({ convertedApp } = {}) => {
   const operations = new Map();
   const apps = new Map();
   let sequence = 0;
-  const limits = { cpus: 0.5, memoryMb: 256, pidsLimit: 256, diskSoftMb: 1024 };
+  const limits = { cpus: 0.5, memoryMb: 256, pidsLimit: 256 };
   const row = (siteId) => {
     if (!rows.has(siteId)) rows.set(siteId, { state: 'unprovisioned', desiredState: 'running', provisioned: false });
     return rows.get(siteId);
@@ -504,7 +503,6 @@ const podmanHarness = async ({ convertedApp } = {}) => {
       environmentCpus: 0.5,
       environmentMemoryMb: 256,
       environmentPidsLimit: 256,
-      environmentDiskSoftMb: 1024,
       releasesKept: 3,
     }),
     siteDir,

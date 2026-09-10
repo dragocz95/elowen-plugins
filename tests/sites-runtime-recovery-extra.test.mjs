@@ -55,14 +55,14 @@ function fixture(overrides = {}) {
   records.set('a:handover', 'complete');
   records.set('a:binding', JSON.stringify({
     siteId: 'a', projectId: 1, sourcePath: '/sources/a', sitesDataDir: '/sites', brokerDir: '/brokers/a',
-    workspaceReadOnly: false, network: 'shared', limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512, diskSoftMb: 4096 },
+    workspaceReadOnly: false, network: 'shared', limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512 },
     initialIntent: { desiredState: 'stopped', pendingAction: null },
   }));
   const environment = new EnvironmentSupervisor({
     control: () => control,
     store,
     access: { accountExists: () => true, isAdmin: () => false, canAccessProject: () => true },
-    config: () => ({ environmentCpus: 1, environmentMemoryMb: 1024, environmentPidsLimit: 512, environmentDiskSoftMb: 4096, environmentNetwork: 'shared', releasesKept: 3, startTimeoutSeconds: 1 }),
+    config: () => ({ environmentCpus: 1, environmentMemoryMb: 1024, environmentPidsLimit: 512, environmentNetwork: 'shared', releasesKept: 3, startTimeoutSeconds: 1 }),
     dataDir: '/sites', siteDir: id => '/sites/sites/' + id,
     gateway: { prepareRuntimeSocket: async () => ({ path: '/brokers/a/app.sock' }), sealRuntimeSocket: async () => {}, removeRuntimeSocket: async () => {} },
   });

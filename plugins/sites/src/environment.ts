@@ -20,7 +20,6 @@ interface EnvironmentConfig {
   environmentCpus: number;
   environmentMemoryMb: number;
   environmentPidsLimit: number;
-  environmentDiskSoftMb: number;
   releasesKept: number;
 }
 export interface EnvironmentDeps {
@@ -40,7 +39,7 @@ export interface EnvironmentDeps {
   brokerPath?(siteId: string): string;
   logger?: Pick<SitesContext['logger'], 'warn'>;
 }
-export interface EnvironmentEffectiveLimits { cpus: number; memoryMb: number; pidsLimit: number; diskSoftMb: number }
+export interface EnvironmentEffectiveLimits { cpus: number; memoryMb: number; pidsLimit: number }
 export interface EnvironmentState {
   state: string | null;
   desiredState: Site['environmentDesiredState'];
@@ -270,7 +269,7 @@ export class EnvironmentSupervisor {
   effectiveLimits(site: Site): EnvironmentEffectiveLimits {
     const config = this.deps.config();
     return { cpus: site.environmentCpus ?? config.environmentCpus, memoryMb: site.environmentMemoryMb ?? config.environmentMemoryMb,
-      pidsLimit: site.environmentPidsLimit ?? config.environmentPidsLimit, diskSoftMb: site.environmentDiskSoftMb ?? config.environmentDiskSoftMb };
+      pidsLimit: site.environmentPidsLimit ?? config.environmentPidsLimit };
   }
   async state(site: Site, actor?: number): Promise<EnvironmentState> {
     const accountUserId = this.actor(site, actor);
