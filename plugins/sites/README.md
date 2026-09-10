@@ -8,8 +8,8 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 | | |
 | --- | --- |
-| Version | `0.10.10` |
-| Requires core | `0.28.35` |
+| Version | `0.10.11` |
+| Requires core | `0.28.42` |
 | Requires shared API | `not declared` |
 | User-grantable | No |
 
@@ -24,7 +24,7 @@ A publication is one of two kinds, and `SiteCreate` takes it in `kind`.
 
 Access is identical for both kinds. Visibility, named guests, session cookies and the isolated preview origin are decided per request, before anything reaches an application, and a publication somebody may not open is indistinguishable from a slug nobody took.
 
-Sites created before this model keep working unchanged: an `environment` site keeps its own container and its own controls, and a `command` or `php` site keeps its behaviour, until that path is retired.
+Sites created before this model keep working unchanged: an `environment` site keeps its own container and its own controls, and a `command` or `php` site keeps its behaviour, until that path is retired. `SiteCreate` no longer creates a per-site environment; new persistent applications run in the selected managed Project and are published as `proxy` sites.
 
 ## Tools
 
