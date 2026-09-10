@@ -990,6 +990,29 @@ test('authenticated site API updates command and bind settings under the instanc
   );
 });
 
+test('site API exposes unhealthy live publications as degraded without demoting them', async () => {
+  const store = new SitesStore(makeDb());
+  store.insertSite(site({
+    id: 'api-proxy', ownerUserId: 1, kind: 'proxy', target: '3000', runtime: 'static', status: 'live',
+    currentReleaseId: null, lastError: 'The validated container is not running',
+  }));
+  const handlers = createApiHandlers({
+    store,
+    access: deps(),
+    config: () => resolveConfig({}, 'https://elowen.example', 'sites.elowen.example'),
+    people: () => new Map([[1, { id: 1, username: 'filip', name: 'Filip', avatar: '' }]]),
+    projectSlug: () => 'demo',
+  });
+
+  const response = await handlers.list({
+    method: 'GET', path: '', query: {}, headers: {}, params: {}, body: async () => Buffer.from(''), json: async () => ({}),
+    auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [2] },
+  });
+
+  assert.equal(response.body.mine[0].status, 'live');
+  assert.equal(response.body.mine[0].degraded, true);
+});
+
 // ── the tool surface ─────────────────────────────────────────────────────────────────────────────
 //
 // This layer had NO coverage, which is why 42 green tests coexisted with a feature that could not be
