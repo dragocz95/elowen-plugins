@@ -822,6 +822,46 @@ test('migration v16 gives an in-flight legacy conversion a durable attempt ident
   assert.equal(store.runtimeMigration(SITE_ID).attemptId, `${SITE_ID}:${requestedAt}`);
 });
 
+test('boot upgrades migrated environment bindings through Sandbox registration', async (t) => {
+  const site = environmentSite({ sourceRel: 'sites/environment-demo' });
+  const legacySource = '/srv/project/sites/environment-demo';
+  const { supervisor, control, store } = await sitesSdkHarness(t, {
+    site,
+    control: { projectWorkspaceRoot: () => '/srv/project' },
+  });
+  store.putRuntimeRecord(site.id, 'binding', JSON.stringify({
+    siteId: site.id,
+    projectId: site.projectId,
+    sourcePath: legacySource,
+    sitesDataDir: '/srv/sites',
+    brokerDir: '/srv/brokers',
+    image: BASE_IMAGE_TAG,
+    workspaceReadOnly: false,
+    network: 'shared',
+    limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512 },
+    staging: false,
+  }));
+
+  await supervisor.upgradeSourceBindings();
+
+  assert.deepEqual(control.registrations, [site.id]);
+  assert.deepEqual(JSON.parse(store.runtimeRecord(site.id, 'binding')), {
+    siteId: site.id,
+    projectId: site.projectId,
+    sourcePath: legacySource,
+    sourceRel: site.sourceRel,
+    sitesDataDir: '/srv/sites',
+    brokerDir: '/srv/brokers',
+    image: BASE_IMAGE_TAG,
+    workspaceReadOnly: false,
+    network: 'shared',
+    limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512 },
+    snapshotRetention: 5,
+    staging: false,
+  });
+  assert.equal(store.runtimeRecord(site.id, 'source-rel-upgrade'), null);
+});
+
 test('migration v17 converts legacy absolute sources and refuses rows outside their Project', () => {
   const root = '/srv/project';
   const inside = makeDb({

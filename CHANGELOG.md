@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.10.26 - 2026-09-11
+
+- Upgrade legacy Sandbox Site registrations and the Sites binding copy with the migrated Project-relative source reference during plugin boot, preserving the runtime generation and rejecting any changed absolute source.
+
 ## sites 0.10.25 - 2026-09-11
 
 - Store Site sources as Project-relative references and resolve the current host workspace through Sandbox when publishing, reconciling or recreating a container, so Project adoption, rollback and generation changes cannot leave stale absolute binds.
