@@ -123,6 +123,7 @@ const harness = (options = {}) => {
     prepareContainer: [], startEnvironment: [], discardContainer: [], stopLegacy: [], startLegacy: [],
     resolveLegacyData: [], loadDataVolume: [], exportDataVolume: [], stopContainer: [],
     prepareBroker: [], discard: [], rollbackCleanup: [], relaxStatic: [], rebind: [], publish: [], clearStage: [], restorePublication: [],
+    removeStagedOperationIds: [],
   };
   // The persisted environment binding, as the supervisor keeps it: the completion is what moves it off
   // the staged copy, so a test can read where the container would actually be mounted.
@@ -137,6 +138,7 @@ const harness = (options = {}) => {
   let discardAttempted = false;
   let restoreAttempted = false;
   let running = options.legacyRunning ?? false;
+  const completionOperationIds = new Set();
   // The REAL data-sync service: real tar, real filesystem, real 0600 artifacts. Only the container is
   // stood in for, because Podman cannot run in this workspace.
   const dataSync = new DataSyncService({
@@ -194,8 +196,12 @@ const harness = (options = {}) => {
     },
     // The supervisor retires the staged container and builds a new one on the site's own source folder.
     // Only the binding it would register with is modelled here; Podman cannot run in this workspace.
-    rebindToSource: async (site) => {
-      calls.rebind.push(site.id);
+    rebindToSource: async (site, operationId) => {
+      calls.rebind.push({ siteId: site.id, operationId });
+      if (options.rejectDuplicateCompletionIds && completionOperationIds.has(operationId)) {
+        throw new Error('The trusted Site binding changed; an explicit handover is required');
+      }
+      completionOperationIds.add(operationId);
       if (options.rebindFails) throw new Error('the container could not be rebuilt');
       binding.sourcePath = site.sourceDir;
       binding.staging = true;
@@ -258,7 +264,8 @@ const harness = (options = {}) => {
       containerLive = false;
       environmentPresent = false;
     },
-    removeStaged: async (paths) => {
+    removeStaged: async (paths, operationId) => {
+      if (operationId) calls.removeStagedOperationIds.push(operationId);
       if (containerPrepared) calls.rollbackCleanup.push('remove-staged');
       if (options.removeStagedRequiresContainer && containerPrepared && !environmentPresent) {
         throw new Error('The environment has been deleted');
@@ -324,7 +331,7 @@ const harness = (options = {}) => {
   const cleanup = () => rmSync(root, { recursive: true, force: true });
   return {
     root, store, service, deps, calls, seedRelease, setRunning, cleanup, dataSync, legacyHome, realTar,
-    brokerDirOf, binding, conversionStagePresent: () => conversionStagePresent,
+    brokerDirOf, binding, recipe, conversionStagePresent: () => conversionStagePresent,
   };
 };
 
@@ -3285,10 +3292,47 @@ test('completing a conversion leaves ONE working copy: the site source folder', 
     assert.equal(h.binding.staging, false, 'and is an ordinary live binding');
     assert.equal(existsSync(workspace), false, 'the spent staging workspace is gone');
     assert.equal(existsSync(join(h.root, 'sites', SITE_ID, 'migration')), true, 'the rollback artefacts remain retained');
-    assert.deepEqual(h.calls.rebind, [SITE_ID]);
+    assert.deepEqual(h.calls.rebind.map(({ siteId }) => siteId), [SITE_ID]);
     assert.deepEqual(h.calls.publish, [SITE_ID]);
     assert.equal(h.calls.clearStage[0].stageDir, '/data/.elowen-conversion');
     assert.equal(h.conversionStagePresent(), false, 'the final container has no conversion seed directory');
+  } finally { h.cleanup(); }
+});
+
+test('a conversion can complete again after completed rollback with fresh durable operation ids', async () => {
+  const h = harness({ containerWrote: true, rejectDuplicateCompletionIds: true });
+  try {
+    seedLiveStatic(h);
+    h.service.registerRecipe(SITE_ID, RELEASE_ID, h.recipe);
+    await h.service.prepare(SITE_ID, 'release-copy');
+    const firstAttemptId = h.store.runtimeMigration(SITE_ID).attemptId;
+    await h.service.flip(SITE_ID);
+    await h.service.complete(SITE_ID);
+    const first = {
+      export: h.calls.exportDataVolume.at(-1).operationId,
+      rebind: h.calls.rebind.at(-1).operationId,
+      imports: h.calls.loadDataVolume.slice(-2).map(({ operationId }) => operationId),
+      retire: h.calls.removeStagedOperationIds.at(-1),
+    };
+
+    await h.service.rollback(SITE_ID, { restoreData: false });
+    h.service.registerRecipe(SITE_ID, RELEASE_ID, h.recipe);
+    await h.service.prepare(SITE_ID, 'release-copy');
+    const secondAttemptId = h.store.runtimeMigration(SITE_ID).attemptId;
+    await h.service.flip(SITE_ID);
+    const completed = await h.service.complete(SITE_ID);
+    const second = {
+      export: h.calls.exportDataVolume.at(-1).operationId,
+      rebind: h.calls.rebind.at(-1).operationId,
+      imports: h.calls.loadDataVolume.slice(-2).map(({ operationId }) => operationId),
+      retire: h.calls.removeStagedOperationIds.at(-1),
+    };
+
+    assert.equal(completed.stage, 'completed');
+    assert.notEqual(secondAttemptId, firstAttemptId);
+    assert.equal(h.binding.sourcePath, sourceDirOf(h));
+    assert.equal(h.binding.staging, false);
+    assert.equal(new Set([...Object.values(first).flat(), ...Object.values(second).flat()]).size, 10);
   } finally { h.cleanup(); }
 });
 
@@ -3359,8 +3403,8 @@ test('a completion resumes from where it died instead of exporting a volume that
     assert.match(h.store.runtimeMigration(SITE_ID).lastError, /could not be rebuilt/);
     assert.equal(h.calls.exportDataVolume.length, 1);
 
-    h.deps.rebindToSource = async (site) => {
-      h.calls.rebind.push(site.id);
+    h.deps.rebindToSource = async (site, operationId) => {
+      h.calls.rebind.push({ siteId: site.id, operationId });
       h.binding.sourcePath = site.sourceDir;
       h.binding.staging = true;
     };

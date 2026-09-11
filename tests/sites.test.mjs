@@ -1412,7 +1412,7 @@ test('deleting retained legacy resources and a runtime tombstone removes the Sit
 test('a row written before the publication model is a static publication', () => {
   const db = makeDb();
   const store = new SitesStore(db);
-  assert.equal(db.appliedVersion(), 15, 'the additive migration is the last one applied');
+  assert.equal(db.appliedVersion(), 16, 'the additive migration is the last one applied');
 
   // As an older release left it: no kind and no target columns at all in the INSERT.
   db.exec(`INSERT INTO p_sites_sites

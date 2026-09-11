@@ -139,5 +139,12 @@ test('publication exports guest paths through retained typed artifacts, never ho
   const artifact = await f.control.authority.resolveArtifact({ siteId: 'a', accountUserId: 2, artifactId: request.action.artifactId, action: 'export-project' });
   assert.deepEqual(artifact, { kind: 'project-source', project: { kind: 'managed', projectId: 1 }, guestPath: '/workspace/sites/a/dist', destinationPath: '/sites/sites/a/exports/release-1' });
   assert.equal(await f.control.authority.resolveArtifact({ siteId: 'a', accountUserId: 2, artifactId: request.action.artifactId, action: 'remove-artifact' }), null);
+
+  await f.environment.exportProject(f.site, { kind: 'managed', projectId: 1 }, '/workspace/sites/a/dist', '/sites/sites/a/exports/release-2', 2);
+  const secondRequest = f.calls.at(-1);
+  assert.equal(secondRequest.action.kind, 'export-project');
+  assert.notEqual(secondRequest.requestId, request.requestId, 'a second SitePublish export gets a fresh durable request id');
+  assert.notEqual(f.calls.at(-2).requestId, request.requestId, 'retiring the previous publication stage gets a fresh request id');
+
   await assert.rejects(f.environment.exportProject(f.site, { kind: 'managed', projectId: 1 }, '/workspace', '/etc/release', 2), /outside/);
 });

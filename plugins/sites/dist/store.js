@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 export const VISIBILITIES = ['private', 'project', 'authenticated', 'public'];
 const asMigrationStage = (value) => value === 'prepared' || value === 'flipped' || value === 'completing' || value === 'completed' ? value : 'preparing';
 const asConvertibleRuntime = (value) => value === 'static' || value === 'command' || value === 'php' ? value : null;
@@ -101,6 +102,7 @@ const toSite = (row) => {
 };
 const toRuntimeMigration = (row) => ({
     siteId: row.site_id,
+    attemptId: row.attempt_id,
     stage: asMigrationStage(row.stage),
     // The claim refuses anything else, so a row that fails this can only come from hand-editing; treating
     // it as static would silently pick a rollback target nobody chose.
@@ -387,6 +389,15 @@ export class SitesStore {
           ALTER TABLE p_sites_runtime_migrations ADD COLUMN rollback_restore_data INTEGER NOT NULL DEFAULT 1;
           ALTER TABLE p_sites_runtime_migrations ADD COLUMN rollback_requested INTEGER NOT NULL DEFAULT 0;
           ALTER TABLE p_sites_runtime_migrations ADD COLUMN completed_at TEXT;
+        `),
+            },
+            {
+                version: 16,
+                // Durable Sandbox request ids belong to one conversion attempt. A completed rollback may convert the
+                // same Site again, so the Site id alone cannot identify operations in the next runtime generation.
+                up: handle => handle.exec(`
+          ALTER TABLE p_sites_runtime_migrations ADD COLUMN attempt_id TEXT NOT NULL DEFAULT '';
+          UPDATE p_sites_runtime_migrations SET attempt_id = site_id || ':' || requested_at WHERE attempt_id = '';
         `),
             },
         ]);
@@ -877,19 +888,20 @@ export class SitesStore {
             // is exactly the substitution this operation exists to avoid.
             if (site.current_release_id === null)
                 return false;
+            const attemptId = randomUUID();
             if (existing) {
                 return this.db.prepare(`
           UPDATE p_sites_runtime_migrations
-          SET stage = 'preparing', recipe = ?, requested_at = ?, last_error = NULL
+          SET attempt_id = ?, stage = 'preparing', recipe = ?, requested_at = ?, last_error = NULL
           WHERE site_id = ? AND last_error IS NOT NULL
-        `).run(input.recipe, input.requestedAt, input.siteId).changes === 1;
+        `).run(attemptId, input.recipe, input.requestedAt, input.siteId).changes === 1;
             }
             return this.db.prepare(`
         INSERT INTO p_sites_runtime_migrations (
-          site_id, stage, from_runtime, from_release_id, from_start_command, from_bind, from_port,
+          site_id, attempt_id, stage, from_runtime, from_release_id, from_start_command, from_bind, from_port,
           recipe, content_digest, requested_at, last_error
-        ) VALUES (?, 'preparing', ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
-      `).run(input.siteId, from, site.current_release_id, site.start_command ?? '', site.bind === 'port' ? 'port' : 'socket', site.port, input.recipe, input.requestedAt).changes === 1;
+        ) VALUES (?, ?, 'preparing', ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
+      `).run(input.siteId, attemptId, from, site.current_release_id, site.start_command ?? '', site.bind === 'port' ? 'port' : 'socket', site.port, input.recipe, input.requestedAt).changes === 1;
         });
     }
     /** Record what was staged. Separate from the stage advance so a digest can never be attributed to a

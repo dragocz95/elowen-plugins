@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.10.22 - 2026-09-11
+
+- Give every runtime conversion attempt its own durable operation identity, so a Site can complete, roll back and complete again without reusing the first conversion's Sandbox requests or trusted binding.
+
 ## sites 0.10.21 - 2026-09-11
 
 - Treat a deleted Sandbox environment binding as absent during conversion preparation, so a completed conversion can roll back and convert forward again with a new binding identity while live mismatches remain rejected.

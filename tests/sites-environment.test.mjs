@@ -733,8 +733,9 @@ test('migration v5 preserves existing runtimes, exposes environment counts and f
   // nobody reviewed against the legacy rows seeded above. v9 adds the runtime conversion slot, v10 the
   // durable crash-recovery state on it, v11/v12 the runtime records and provider-owned lifecycle
   // columns, v13 drops the disk threshold column nothing enforced, v14 adds the publication kind and
-  // target, and v15 adds durable rollback and completion state; none touches an existing site's runtime.
-  assert.equal(db.appliedVersion(), 15);
+  // target, v15 adds durable rollback and completion state, and v16 identifies each conversion attempt;
+  // none touches an existing site's runtime.
+  assert.equal(db.appliedVersion(), 16);
   for (const runtime of ['static', 'command', 'php']) assert.equal(store.siteById(`legacy-${runtime}`).runtime, runtime);
   // The rows seeded above predate the publication model, so the migration's defaults make them static
   // publications with nothing to proxy — which is exactly how the serving path treated them before.
@@ -764,6 +765,21 @@ function seedHandover(store) {
 }
 
 // --- Core seam, manifest, configuration ----------------------------------------------------------
+
+test('migration v16 gives an in-flight legacy conversion a durable attempt identity', () => {
+  const requestedAt = '2026-09-10T12:34:56.000Z';
+  const db = makeDb({
+    beforeStep: (version, handle) => {
+      if (version !== 16) return;
+      handle.prepare(`INSERT INTO p_sites_runtime_migrations (
+        site_id, stage, from_runtime, recipe, requested_at, last_error
+      ) VALUES (?, 'flipped', 'static', 'release-copy', ?, NULL)`).run(SITE_ID, requestedAt);
+    },
+  });
+  const store = new SitesStore(db);
+
+  assert.equal(store.runtimeMigration(SITE_ID).attemptId, `${SITE_ID}:${requestedAt}`);
+});
 
 test('core seam, manifest and lifecycle match the final core contract', () => {
   const seams = readFileSync(new URL('../plugins/sites/src/coreSeams.ts', import.meta.url), 'utf8');
