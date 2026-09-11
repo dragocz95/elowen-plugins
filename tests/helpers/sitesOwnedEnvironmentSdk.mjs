@@ -132,6 +132,7 @@ function sitesSdkControl({
   generation = 1,
   snapshots = [],
   authorityLifecycle = true,
+  enforceAuthority = false,
   onStart = null,
   /** What the durable runtime row reports as its own failure, so a test can model a container that never
    *  came up rather than only the healthy and stopped states. */
@@ -218,6 +219,11 @@ function sitesSdkControl({
     async siteEnvironmentFor({ siteId }) { return control.view(siteId); },
     async requestSiteEnvironment(input) {
       if (current.state === 'deleted') throw new Error('The environment has been deleted');
+      if (enforceAuthority && !await control.authority?.resolve({
+        siteId: input.siteId,
+        accountUserId: input.accountUserId,
+        access: 'manage',
+      })) throw new Error('Site access is denied');
       requests.push(input);
       sequence += 1;
       const id = `op-${sequence}`;

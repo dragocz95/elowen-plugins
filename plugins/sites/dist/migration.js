@@ -796,9 +796,13 @@ export class RuntimeMigrationService {
                     this.deps.store.recordRollbackProgress(siteId, 'restored');
                 }
                 let current = this.deps.store.runtimeMigration(siteId);
+                const recipe = current.rollbackStage === 'requested' || current.rollbackStage === 'quiescing' || current.rollbackStage === 'exported'
+                    ? this.deps.loadRecipe(siteId)
+                    : null;
                 const carryData = current.rollbackRestoreData
                     && current.fromRuntime === 'command'
-                    && this.deps.loadRecipe(siteId).dataIncludes.length > 0;
+                    && recipe !== null
+                    && recipe.dataIncludes.length > 0;
                 let carried = current.rollbackArchive;
                 if (current.rollbackStage === 'requested' || current.rollbackStage === 'quiescing') {
                     this.deps.store.recordRollbackProgress(siteId, 'quiescing');
@@ -826,7 +830,8 @@ export class RuntimeMigrationService {
                         if (current.legacyHome !== null && resolve(current.legacyHome) !== resolve(location.home)) {
                             throw new Error(`this conversion recorded ${current.legacyHome} as the site's home; refusing to restore into ${location.home}`);
                         }
-                        await this.deps.restoreLegacyData(location, carried, siteId);
+                        const archivePrefix = recipe.dataDir === '/data' ? '' : relative('/data', recipe.dataDir);
+                        await this.deps.restoreLegacyData(location, carried, siteId, archivePrefix);
                     }
                     this.deps.store.recordRollbackProgress(siteId, 'restored');
                 }
@@ -855,7 +860,6 @@ export class RuntimeMigrationService {
                     const workspace = stagedWorkspace(this.deps, siteId);
                     if (existsSync(workspace))
                         await this.deps.removeStaged([workspace]);
-                    this.deps.discardArtifacts(siteId);
                     try {
                         await this.deps.discardContainer(siteId, { removeBroker: false });
                     }
@@ -863,6 +867,7 @@ export class RuntimeMigrationService {
                         if (!environmentAlreadyDeleted(error))
                             throw error;
                     }
+                    this.deps.discardArtifacts(siteId);
                     this.deps.store.recordRollbackProgress(siteId, 'discarded');
                 }
             }

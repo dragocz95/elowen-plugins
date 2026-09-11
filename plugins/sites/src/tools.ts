@@ -222,6 +222,10 @@ const addressOf = (config: SitesConfig, slug: string): string => {
   return url;
 };
 
+const publishedAddressLine = (address: string | null): string => address
+  ? `Live at ${address}`
+  : 'The public hostname is unavailable until the instance domain gateway is configured.';
+
 /** What an environment has instead of a publish.
  *
  *  SitePublish refuses an environment outright, so its `lastPublishAt` stays null forever. Reading the
@@ -675,6 +679,7 @@ export function registerTools(deps: ToolDeps): void {
         guardPublisher(userId);
         const site = requireOwned(deps, input.site, userId);
         const config = deps.config();
+        const address = siteUrl(config, site.slug);
         if (site.runtime === 'environment') {
           throw new ToolError('Persistent environments keep their own root filesystem and cannot be published as file releases. Use SiteExec and SiteSnapshot.');
         }
@@ -689,7 +694,6 @@ export function registerTools(deps: ToolDeps): void {
           if (port === null) throw new ToolError('This publication has no usable port. Recreate it with SiteCreate (kind "proxy" and the port in target).');
           // Response facts are resolved before the transport or row is mutated. A missing public base is a
           // valid installation state, so success reports the verified socket and leaves the URL null.
-          const address = siteUrl(config, site.slug);
           const projectName = ctx.host.stores().projects.get(site.projectId)?.slug ?? String(site.projectId);
           let socketPath: string;
           try {
@@ -720,7 +724,7 @@ export function registerTools(deps: ToolDeps): void {
           });
           return text([
             `Published "${site.title}" - the application inside project ${projectName} answered on 127.0.0.1:${port} (${probe.detail}).`,
-            address ? `Live at ${address}` : 'The public hostname is unavailable until the instance domain gateway is configured.',
+            publishedAddressLine(address),
             `Transport socket: ${socketPath}`,
             `Visible to: ${site.visibility}`,
             '',
@@ -826,14 +830,14 @@ export function registerTools(deps: ToolDeps): void {
 
         return text([
           `Published "${site.title}" - ${snapshot.fileCount} files, ${(snapshot.sizeBytes / 1048576).toFixed(2)} MB.`,
-          `Live at ${addressOf(config, site.slug)}`,
+          publishedAddressLine(address),
           `Visible to: ${site.visibility}`,
           ...(site.runtime === 'command' && !isDaemonProcess()
             ? ['The daemon starts the runtime shortly; check SiteLogs if the address does not answer.']
             : []),
           ...(warnings.length > 0 ? ['', 'Warnings:', ...warnings.map((line) => `  - ${line}`)] : []),
         ].join('\n'), {
-          siteId: site.id, slug: site.slug, releaseId, url: addressOf(config, site.slug),
+          siteId: site.id, slug: site.slug, releaseId, url: address,
           visibility: site.visibility, fileCount: snapshot.fileCount, sizeBytes: snapshot.sizeBytes, warnings,
         });
       } catch (error) {

@@ -144,8 +144,9 @@ export interface MigrationDeps {
   loadDataVolume(site: Site, seedArchive: string, operationId?: string): Promise<void>;
   /** Export the environment's data volume, so writes made while converted can travel back. */
   exportDataVolume(site: Site, output: string, operationId?: string): Promise<boolean>;
-  /** Unpack an archive back over the SAME app-owned subtrees the capture was confined to. */
-  restoreLegacyData(selection: LegacyDataSelection, archive: string, siteId: string): Promise<void>;
+  /** Unpack an archive back over the SAME app-owned subtrees the capture was confined to. The optional
+   *  prefix maps a volume-rooted export back to the recipe's app data directory. */
+  restoreLegacyData(selection: LegacyDataSelection, archive: string, siteId: string, archivePrefix?: string): Promise<void>;
   /** Finish a restore a crash interrupted, before anything else reads the tree. */
   recoverInterruptedRestore(siteId: string): { recovered: string | null };
   /** Give a staged STATIC tree the modes the serving process needs, and its ancestors traversal.
@@ -958,9 +959,13 @@ export class RuntimeMigrationService {
           this.deps.store.recordRollbackProgress(siteId, 'restored');
         }
         let current = this.deps.store.runtimeMigration(siteId)!;
+        const recipe = current.rollbackStage === 'requested' || current.rollbackStage === 'quiescing' || current.rollbackStage === 'exported'
+          ? this.deps.loadRecipe(siteId)
+          : null;
         const carryData = current.rollbackRestoreData
           && current.fromRuntime === 'command'
-          && this.deps.loadRecipe(siteId).dataIncludes.length > 0;
+          && recipe !== null
+          && recipe.dataIncludes.length > 0;
         let carried = current.rollbackArchive;
 
         if (current.rollbackStage === 'requested' || current.rollbackStage === 'quiescing') {
@@ -989,7 +994,8 @@ export class RuntimeMigrationService {
             if (current.legacyHome !== null && resolve(current.legacyHome) !== resolve(location.home)) {
               throw new Error(`this conversion recorded ${current.legacyHome} as the site's home; refusing to restore into ${location.home}`);
             }
-            await this.deps.restoreLegacyData(location, carried, siteId);
+            const archivePrefix = recipe!.dataDir === '/data' ? '' : relative('/data', recipe!.dataDir);
+            await this.deps.restoreLegacyData(location, carried, siteId, archivePrefix);
           }
           this.deps.store.recordRollbackProgress(siteId, 'restored');
         }
@@ -1018,9 +1024,9 @@ export class RuntimeMigrationService {
         if (current.rollbackStage === 'serving') {
           const workspace = stagedWorkspace(this.deps, siteId);
           if (existsSync(workspace)) await this.deps.removeStaged([workspace]);
-          this.deps.discardArtifacts(siteId);
           try { await this.deps.discardContainer(siteId, { removeBroker: false }); }
           catch (error) { if (!environmentAlreadyDeleted(error)) throw error; }
+          this.deps.discardArtifacts(siteId);
           this.deps.store.recordRollbackProgress(siteId, 'discarded');
         }
       } else {

@@ -473,6 +473,12 @@ export class EnvironmentSupervisor {
   }
   async delete(id: string, options: { removeBroker?: boolean } = {}): Promise<void> {
     const site = this.site(id);
+    const binding = this.registration(id);
+    // Rollback restores the legacy runtime before cleanup. Reclassify the retained environment binding as
+    // staging so the plugin's own runtime authority can discard it after the Site row is command again.
+    if (site.runtime !== 'environment' && binding && !binding.staging) {
+      this.saveBinding({ ...binding, staging: true });
+    }
     await this.perform(site, { kind: site.runtime === 'environment' ? 'delete' : 'cleanup-stage' }, undefined, true);
     if (this.registration(id)?.staging && options.removeBroker !== false) await this.deps.gateway.removeRuntimeSocket(id);
     // Sandbox keeps a deleted Site row as the generation tombstone. The next publication must pass through

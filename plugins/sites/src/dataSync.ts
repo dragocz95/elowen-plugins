@@ -264,8 +264,18 @@ export class DataSyncService {
    *  The reverse of {@link captureLegacyData}, used when a rollback has to carry writes the CONTAINER
    *  made back to the legacy runtime. Never called with the legacy process running, for the same reason
    *  the capture is not. */
-  async restoreLegacyData(selection: LegacyDataSelection, archive: string, siteId?: string): Promise<void> {
+  async restoreLegacyData(
+    selection: LegacyDataSelection,
+    archive: string,
+    siteId?: string,
+    archivePrefix = '',
+  ): Promise<void> {
     const includes = assertAppOwnedSelection(selection);
+    const prefix = archivePrefix === '' ? '' : normalize(archivePrefix).replace(/^[/\\]+|[/\\]+$/g, '');
+    if (prefix === '.' || prefix.split(/[/\\]/).includes('..') || isAbsolute(archivePrefix)) {
+      throw new Error(`the archive data prefix must stay relative: ${archivePrefix}`);
+    }
+    const strippedComponents = prefix === '' ? 0 : prefix.split(/[/\\]/).length;
     if (!existsSync(archive)) throw new Error(`the archive to restore is missing: ${archive}`);
     mkdirSync(selection.home, { recursive: true });
     // A restore WRITES, so an include that resolves out of the home is worse here than in the capture:
@@ -299,7 +309,14 @@ export class DataSyncService {
       if (existsSync(target)) renameSync(target, backup);
       mkdirSync(dirname(target), { recursive: true });
       try {
-        await this.runTar(['-xf', archive, ...this.tarPolicyFlags(false), '-C', selection.home, '--', include]);
+        const archiveEntry = prefix === '' ? include : join(prefix, include);
+        await this.runTar([
+          '-xf', archive,
+          ...this.tarPolicyFlags(false),
+          ...(strippedComponents > 0 ? [`--strip-components=${strippedComponents}`] : []),
+          '-C', selection.home,
+          '--', archiveEntry,
+        ]);
       } catch (error) {
         // Put the original back before reporting: a failed restore must not leave the app with nothing.
         rmSync(target, { recursive: true, force: true });

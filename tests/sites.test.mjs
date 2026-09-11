@@ -1148,6 +1148,31 @@ test('SitePublish refuses a removed Project without interpreting its guest sourc
   assert.equal(harness.store.releases('site-1').length, 0);
 });
 
+test('SitePublish returns truthful command success when the public hostname is unavailable', async (t) => {
+  const harness = toolHarness(t, {
+    gatewayHost: null,
+    configRaw: { allowCommandRuntime: true },
+  });
+  const sourceDir = join(harness.dir, 'project', 'command-site');
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(join(sourceDir, 'server.mjs'), 'console.log("ok")');
+  harness.store.insertSite(site({
+    sourceDir,
+    runtime: 'command',
+    startCommand: 'node server.mjs',
+    status: 'draft',
+    currentReleaseId: null,
+    lastPublishAt: null,
+  }));
+
+  const published = await harness.call('SitePublish', { site: 'site-1' });
+
+  assert.equal(harness.store.siteById('site-1').status, 'live');
+  assert.equal(harness.store.releases('site-1').length, 1);
+  assert.equal(published.details.url, null);
+  assert.match(published.content[0].text, /public hostname is unavailable/i);
+});
+
 test('SitePublish cannot cross the selected managed Project through another owned Site', async (t) => {
   const harness = toolHarness(t, { projectRef: { kind: 'managed', projectId: 99 } });
   harness.store.insertSite(site({ sourceDir: '/workspace/sites/other-project' }));
@@ -1317,6 +1342,35 @@ test('SiteDelete uses the shared cascading cleanup and leaves the Project source
   await call('SiteDelete', { site: 'report-a1b2c3' });
   assert.equal(store.siteById('id-1'), null);
   assert.equal(readFileSync(join(sourceDir, 'source.txt'), 'utf8'), 'keep me');
+});
+
+test('deleting retained legacy resources and a runtime tombstone removes the Site row in one call', async () => {
+  const store = new SitesStore(makeDb());
+  const root = tempDir('delete-retained-runtime');
+  const target = site({ id: 'id-1', slug: 'report-a1b2c3', runtime: 'command', startCommand: 'node server.mjs' });
+  store.insertSite(target);
+  store.insertRelease({ id: 'rel-1', siteId: target.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 1, sizeBytes: 1, note: '' });
+  store.putRuntimeRecord(target.id, 'binding', JSON.stringify({ staging: false }));
+  store.putRuntimeRecord(target.id, 'handover', 'complete');
+  mkdirSync(join(root, target.id), { recursive: true });
+  store.beginDelete(target.id);
+  let tombstoneDiscarded = false;
+
+  try {
+    await deleteSiteResources(target.id, {
+      store,
+      siteDir: (id) => join(root, id),
+      stopLegacy: async () => {},
+      releasePublication: async () => {},
+      deleteEnvironment: async () => { tombstoneDiscarded = true; },
+      removeGateway: async () => {},
+    });
+
+    assert.equal(tombstoneDiscarded, true);
+    assert.equal(store.siteById(target.id), null);
+    assert.equal(store.runtimeRecord(target.id, 'binding'), null);
+    assert.deepEqual(store.releases(target.id), []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 // ── proxy publications ───────────────────────────────────────────────────────────────────────────

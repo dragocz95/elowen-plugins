@@ -529,6 +529,20 @@ test('a staging conversion binding deletes as cleanup-stage and takes its broker
   assert.deepEqual(gateway.ops.filter(([name]) => name === 'remove').length, 1);
 });
 
+test('supervisor cleanup retains plugin runtime authority after rollback reverted the Site to command', async (t) => {
+  const { supervisor, control, site } = await sitesSdkHarness(t, {
+    control: { enforceAuthority: true },
+  });
+  await supervisor.state(site);
+  site.runtime = 'command';
+  site.startCommand = 'node server.mjs';
+
+  await supervisor.delete(SITE_ID, { removeBroker: false });
+
+  assert.equal(control.state, 'deleted');
+  assert.deepEqual(requestKinds(control).at(-1), 'cleanup-stage');
+});
+
 test('environment files survive repeated container creation', async (t) => {
   const { supervisor, control, site, root } = await sitesSdkHarness(t);
   await supervisor.state(site);

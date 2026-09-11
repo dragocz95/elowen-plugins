@@ -172,7 +172,13 @@ const harness = (options = {}) => {
       if (!options.stopLeavesRunning) running = false;
     },
     legacyRunning: () => running,
-    loadRecipe: () => recipe,
+    loadRecipe: () => {
+      if (options.requireRecipeArtifacts && calls.discard.length > 0
+        && !existsSync(migrationArtifactDir(join(root, 'sites', SITE_ID)))) {
+        throw new Error('the retained conversion recipe is missing');
+      }
+      return recipe;
+    },
     prepareContainer: async (input) => {
       // Reproduces the real failure the isolated daemon found: podman statfs-es every bind source at
       // create time, so a missing broker directory fails with 125 and no container is made.
@@ -282,17 +288,20 @@ const harness = (options = {}) => {
       calls.exportDataVolume.push({ siteId: site.id, output, ...(operationId ? { operationId } : {}) });
       if (options.exportFails) throw new Error('volume export exploded');
       if (!options.containerWrote) return false;
-      // Stand in for `podman volume export`: a tar of what the container "wrote" while converted.
-      const staged = join(root, 'container-data', '.local/share/this-app');
+      // Stand in for `podman volume export`: paths are relative to /data, including a recipe's nested dataDir.
+      const volumePrefix = recipe.dataDir === '/data' ? '' : recipe.dataDir.slice('/data/'.length);
+      const include = recipe.dataIncludes[0];
+      const archiveEntry = volumePrefix ? join(volumePrefix, include) : include;
+      const staged = join(root, 'container-data', archiveEntry);
       mkdirSync(staged, { recursive: true });
       writeFileSync(join(staged, 'data.db'), 'WRITTEN-WHILE-CONVERTED');
-      await realTar(['-cf', output, '-C', join(root, 'container-data'), '--', '.local/share/this-app']);
+      await realTar(['-cf', output, '-C', join(root, 'container-data'), '--', archiveEntry]);
       return true;
     },
-    restoreLegacyData: async (selection, archive) => {
+    restoreLegacyData: async (selection, archive, siteId, archivePrefix) => {
       if (options.restoreFailsOnce && !restoreAttempted) { restoreAttempted = true; throw new Error('restore exploded'); }
       restoreAttempted = true;
-      return dataSync.restoreLegacyData(selection, archive, SITE_ID);
+      return dataSync.restoreLegacyData(selection, archive, siteId, archivePrefix);
     },
     extractSecretArtifacts: (siteId, workspace, files) => dataSync.extractSecretArtifacts(siteId, workspace, files),
     artifactPath: (siteId, name) => dataSync.archivePath(siteId, name),
@@ -1007,16 +1016,29 @@ test('a rolled-back site can be prepared, flipped and completed again', async ()
   } finally { h.cleanup(); }
 });
 
-test('a completed command conversion rolls back with data, clears its row, and converts again', async () => {
-  const h = harness({ legacyRunning: true, containerWrote: true });
+test('a completed command conversion with dataDir under /data restores the same app-relative paths', async () => {
+  const h = harness({
+    legacyRunning: true,
+    containerWrote: true,
+    includes: ['state'],
+    recipe: {
+      kind: 'node-app',
+      argv: ['/usr/bin/node', 'server.mjs'],
+      env: { DEV_PORT: '80' },
+      dataIncludes: ['state'],
+      dataDir: '/data/app',
+      secretFiles: ['.env'],
+      readiness: { path: '/api/me', expectStatus: 200 },
+    },
+  });
   try {
     h.store.insertSite(legacySite({
       sourceDir: sourceDirOf(h), runtime: 'command', startCommand: 'node server.mjs',
     }));
     h.store.insertRelease(release());
     h.seedRelease(SITE_ID, RELEASE_ID, { 'server.mjs': 'run()' });
-    mkdirSync(join(h.legacyHome, '.local/share/this-app'), { recursive: true });
-    writeFileSync(join(h.legacyHome, '.local/share/this-app/data.db'), 'LEGACY-ROWS');
+    mkdirSync(join(h.legacyHome, 'state'), { recursive: true });
+    writeFileSync(join(h.legacyHome, 'state/data.db'), 'LEGACY-ROWS');
 
     await h.service.prepare(SITE_ID, 'release-copy');
     await h.service.flip(SITE_ID);
@@ -1029,13 +1051,9 @@ test('a completed command conversion rolls back with data, clears its row, and c
     assert.equal(h.store.runtimeMigration(SITE_ID), null);
     assert.equal(h.store.siteById(SITE_ID).runtime, 'command');
     assert.equal(h.store.siteById(SITE_ID).status, 'live');
-    assert.equal(readFileSync(join(h.legacyHome, '.local/share/this-app/data.db'), 'utf8'), 'WRITTEN-WHILE-CONVERTED');
+    assert.equal(readFileSync(join(h.legacyHome, 'state/data.db'), 'utf8'), 'WRITTEN-WHILE-CONVERTED');
     assert.deepEqual(h.calls.restorePublication, [SITE_ID]);
     assert.equal(h.calls.discard.at(-1).removeBroker, false, 'the environment is discarded after legacy serving is restored');
-
-    assert.equal((await h.service.prepare(SITE_ID, 'release-copy')).stage, 'prepared');
-    assert.equal((await h.service.flip(SITE_ID)).stage, 'flipped');
-    assert.equal((await h.service.complete(SITE_ID)).stage, 'completed');
   } finally { h.cleanup(); }
 });
 
@@ -1055,13 +1073,14 @@ test('flipped rollback removes staged files while the environment still exists a
   } finally { h.cleanup(); }
 });
 
-test('a discard failure after serving keeps legacy live and retry converges', async () => {
-  const h = harness({ discardDeletesThenFailsOnce: true });
+test('a completed rollback discard failure keeps undo material and retry converges', async () => {
+  const h = harness({ discardDeletesThenFailsOnce: true, requireRecipeArtifacts: true });
   try {
     seedLiveStatic(h);
     await h.service.prepare(SITE_ID, 'release-copy');
     writeFileSync(join(h.brokerDirOf(SITE_ID), 'app.sock'), 'LEGACY-LIVE');
     await h.service.flip(SITE_ID);
+    await h.service.complete(SITE_ID);
 
     await assert.rejects(() => h.service.rollback(SITE_ID), /timed out/);
 
@@ -1069,6 +1088,8 @@ test('a discard failure after serving keeps legacy live and retry converges', as
     assert.equal(h.store.siteById(SITE_ID).status, 'live');
     assert.equal(readFileSync(join(h.brokerDirOf(SITE_ID), 'app.sock'), 'utf8'), 'LEGACY-LIVE');
     assert.equal(h.store.runtimeMigration(SITE_ID).rollbackStage, 'serving');
+    assert.equal(existsSync(migrationArtifactDir(join(h.root, 'sites', SITE_ID))), true,
+      'the retained recipe survives until environment discard succeeds');
 
     await h.service.rollback(SITE_ID);
 
