@@ -1302,9 +1302,9 @@ test('concurrent completion ticks consume and retire conversion artifacts once',
     assert.equal(h.calls.rebind.length, 1);
     assert.equal(h.calls.loadDataVolume.filter(({ seedArchive }) => seedArchive.endsWith('completion-data.tar')).length, 1,
       'the carried archive is imported once');
-    assert.equal(h.calls.loadDataVolume.length, 2, 'the carried data and fresh seed are each imported once');
-    assert.equal(new Set(h.calls.loadDataVolume.map(({ operationId }) => operationId)).size, 2,
-      'the carried archive and fresh seed have distinct stable request ids');
+    assert.equal(h.calls.loadDataVolume.length, 1, 'completion imports the carried data once');
+    assert.equal(new Set(h.calls.loadDataVolume.map(({ operationId }) => operationId)).size, 1,
+      'the carried archive keeps one stable request id; container creation owns the fresh seed');
     assert.equal(h.calls.startEnvironment.length, 1);
     assert.equal(h.calls.publish.length, 1);
     assert.equal(removals, 1, 'the staging directory is retired once');
@@ -3314,7 +3314,7 @@ test('a conversion can complete again after completed rollback with fresh durabl
     const first = {
       export: h.calls.exportDataVolume.at(-1).operationId,
       rebind: h.calls.rebind.at(-1).operationId,
-      imports: h.calls.loadDataVolume.slice(-2).map(({ operationId }) => operationId),
+      import: h.calls.loadDataVolume.filter(({ operationId }) => operationId?.startsWith('completion-import-data-')).at(-1).operationId,
       retire: h.calls.removeStagedOperationIds.at(-1),
     };
 
@@ -3327,7 +3327,7 @@ test('a conversion can complete again after completed rollback with fresh durabl
     const second = {
       export: h.calls.exportDataVolume.at(-1).operationId,
       rebind: h.calls.rebind.at(-1).operationId,
-      imports: h.calls.loadDataVolume.slice(-2).map(({ operationId }) => operationId),
+      import: h.calls.loadDataVolume.filter(({ operationId }) => operationId?.startsWith('completion-import-data-')).at(-1).operationId,
       retire: h.calls.removeStagedOperationIds.at(-1),
     };
 
@@ -3335,7 +3335,7 @@ test('a conversion can complete again after completed rollback with fresh durabl
     assert.notEqual(secondAttemptId, firstAttemptId);
     assert.equal(h.binding.sourcePath, sourceDirOf(h));
     assert.equal(h.binding.staging, false);
-    assert.equal(new Set([...Object.values(first).flat(), ...Object.values(second).flat()]).size, 10);
+    assert.equal(new Set([...Object.values(first), ...Object.values(second)]).size, 8);
   } finally { h.cleanup(); }
 });
 
@@ -3353,8 +3353,8 @@ test('a completion carries the persistent volume across the rebuilt container', 
 
     assert.deepEqual(order, [
       'stopContainer', 'exportDataVolume', 'rebindToSource',
-      // The carried data and fresh seed land before the final container starts and removes the seed.
-      'loadDataVolume', 'loadDataVolume', 'startEnvironment', 'clearConversionStage',
+      // Rebinding creates the replacement container and its shared hook seeds it; completion then overlays data.
+      'loadDataVolume', 'startEnvironment', 'clearConversionStage',
     ]);
     assert.equal(h.calls.exportDataVolume[0].output.endsWith('completion-data.tar'), true);
   } finally { h.cleanup(); }

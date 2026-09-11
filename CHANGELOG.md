@@ -1,5 +1,10 @@
 # Changelog
 
+## sites 0.10.27 - 2026-09-11
+
+- Rebuild and import the disposable conversion bootstrap seed before every new Sandbox container rootfs, preserving application data while restoring the app unit and one-use credentials after source rebinding, recovery or recreation.
+- Keep existing Site generations on their registered content-addressed image during restart, provisioning the current fixed recipe only for an unprovisioned runtime.
+
 ## sites 0.10.26 - 2026-09-11
 
 - Upgrade legacy Sandbox Site registrations and the Sites binding copy with the migrated Project-relative source reference during plugin boot, preserving the runtime generation and rejecting any changed absolute source.

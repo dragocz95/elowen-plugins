@@ -1,8 +1,12 @@
 import { join } from 'node:path';
-import type { SiteRuntimeAuthority } from 'elowen/plugin-api';
+import type { SiteRuntimeArtifact, SiteRuntimeAuthority } from 'elowen/plugin-api';
 import type { SitesSiteEnvironmentRegistration as SiteEnvironmentRegistration } from './coreSeams.js';
 import type { AccessDeps } from './access.js';
 import type { SitesStore } from './store.js';
+
+export interface SeededSiteRuntimeAuthority extends SiteRuntimeAuthority {
+  containerSeed?(siteId: string): Promise<Extract<SiteRuntimeArtifact, { kind: 'data' }> | null>;
+}
 
 interface SiteRuntimeAuthorityDeps {
   store: Pick<SitesStore, 'siteById' | 'conversionSuspends'>;
@@ -11,6 +15,7 @@ interface SiteRuntimeAuthorityDeps {
   imageRecipe?: SiteRuntimeAuthority['imageRecipe'];
   projectDependents?: SiteRuntimeAuthority['projectDependents'];
   beforeCreate?: SiteRuntimeAuthority['beforeCreate'];
+  containerSeed?: SeededSiteRuntimeAuthority['containerSeed'];
   /** The durable handover binding, never a model-supplied container or mount specification. */
   registration(siteId: string): SiteEnvironmentRegistration | null | Promise<SiteEnvironmentRegistration | null>;
   gateway(): {
@@ -20,7 +25,7 @@ interface SiteRuntimeAuthorityDeps {
 }
 
 /** Sites retains resource authority and ingress preparation. Sandbox alone owns runtime lifecycle. */
-export function createSiteRuntimeAuthority(deps: SiteRuntimeAuthorityDeps): SiteRuntimeAuthority {
+export function createSiteRuntimeAuthority(deps: SiteRuntimeAuthorityDeps): SeededSiteRuntimeAuthority {
   const bindingFor = async (siteId: string): Promise<SiteEnvironmentRegistration> => {
     const site = deps.store.siteById(siteId);
     const binding = await deps.registration(siteId);
@@ -40,6 +45,7 @@ export function createSiteRuntimeAuthority(deps: SiteRuntimeAuthorityDeps): Site
     imageRecipe: deps.imageRecipe,
     projectDependents: deps.projectDependents,
     beforeCreate: deps.beforeCreate,
+    containerSeed: deps.containerSeed,
     async resolve({ siteId, accountUserId }) {
       const site = deps.store.siteById(siteId);
       if (!site || !deps.access.accountExists(accountUserId)) return null;

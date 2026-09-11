@@ -190,6 +190,7 @@ export function register(published) {
         siteDir,
         siteUrl: (site) => siteUrl(config(), site.slug),
         logger: ctx.logger,
+        buildSeedArchive: (siteId, input) => dataSync.buildSeedArchive(siteId, input),
     });
     environment.connect();
     const previews = new ProjectPreviewService({

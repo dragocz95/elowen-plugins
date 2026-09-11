@@ -198,6 +198,7 @@ export function register(published: PluginContext): void {
     siteDir,
     siteUrl: (site) => siteUrl(config(), site.slug),
     logger: ctx.logger,
+    buildSeedArchive: (siteId, input) => dataSync.buildSeedArchive(siteId, input),
   });
 
   environment.connect();

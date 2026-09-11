@@ -797,12 +797,9 @@ export class RuntimeMigrationService {
         if (existsSync(carried)) {
           await this.deps.loadDataVolume(site, carried, completionOperationId(migration.attemptId, 'import-data'));
         }
-        // The seed is rebuilt rather than carried: the bootstrap unit deletes the credentials and the
-        // application unit it installed on first boot, so the archive above holds neither, and the
-        // container this completion built has a rootfs that never saw them.
-        await this.deps.loadDataVolume(site, await this.deps.buildSeedArchive(siteId, {
-          provisionScript: provisionScript(recipe!), appUnit: appUnit(recipe!), dataArchive: null,
-        }), completionOperationId(migration.attemptId, 'import-seed'));
+        // Rebinding prepared a replacement container, so the shared container-creation hook already
+        // rebuilt and imported the disposable bootstrap stage. The carried application archive overlays
+        // only its own files and does not remove that fresh stage.
         this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'seeded');
         progress = 'seeded';
       }
