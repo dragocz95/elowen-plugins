@@ -388,11 +388,12 @@ const podmanHarness = async ({ convertedApp } = {}) => {
         await fakeControl.authorize(siteId, accountUserId);
         // The stand-in runs no shell. It models exactly one command, the one a completion sends into a
         // converted container: removing the conversion's spent seed directory from the data volume.
-        const stage = /^rm -rf -- '\/data\/(\.elowen-conversion)'$/.exec(command.trim());
-        if (!stage) throw new Error('the private provider stand-in executes no guest commands; run the real-engine suite for that');
+        const remove = /^rm -rf -- '\/data\/(\.elowen-conversion)'$/.exec(command.trim());
+        const absent = /^test ! -e '\/data\/(\.elowen-conversion)'$/.exec(command.trim());
+        if (!remove && !absent) throw new Error('the private provider stand-in executes no guest commands; run the real-engine suite for that');
         if (row(siteId).state !== 'running') throw new Error('the container is not running');
-        rmSync(join(volumeDir(siteId), stage[1]), { recursive: true, force: true });
-        return { stdout: '', stderr: '', code: 0, truncated: false };
+        if (remove) rmSync(join(volumeDir(siteId), remove[1]), { recursive: true, force: true });
+        return { stdout: '', stderr: '', code: absent && existsSync(join(volumeDir(siteId), absent[1])) ? 1 : 0, truncated: false };
       },
       async siteEnvironmentLogs() { return { lifecycle: 'private provider stand-in', journal: '' }; },
       async siteEnvironmentSnapshots() { return []; },
@@ -557,6 +558,7 @@ const podmanHarness = async ({ convertedApp } = {}) => {
     stopLegacyRuntime: async () => { await stopLegacy(); },
     legacyRunning: () => legacy.running,
     startLegacyRuntime: async () => { legacy.running = true; },
+    restoreLegacyPublication: async () => {},
     loadRecipe: (siteId) => loadAppRecipe(migrationArtifactDir(siteDir(siteId))),
     recipeBinding: (siteId) => recipeBinding(migrationArtifactDir(siteDir(siteId))),
     installRecipe: (siteId, input) => installAppRecipe(migrationArtifactDir(siteDir(siteId)), input),
@@ -583,6 +585,7 @@ const podmanHarness = async ({ convertedApp } = {}) => {
     rebindToSource: (site) => environment.rebindToSource(site),
     publishBinding: (site) => environment.publishBinding(site),
     clearConversionStage: (site, stageDir) => environment.clearConversionStage(site, stageDir),
+    conversionStageAbsent: (site, stageDir) => environment.conversionStageAbsent(site, stageDir),
     // Mirrors `index.ts`, INCLUDING its `site.runtime !== 'command'` guard. A rollback reaches this with
     // the descriptor the conversion recorded rather than the flipped row, so the guard must still pass.
     //

@@ -52,6 +52,8 @@ export const interruptedByRestart = (stage) => `interrupted by a restart while $
  *  staged container and rebuilds it, so a driver that dies half way has to be able to pick the operation
  *  up rather than start it again from a volume that no longer exists. */
 const COMPLETION_RECORD = 'completion';
+/** A durable request written by flip or the API. Only the daemon supervisor consumes it. */
+const COMPLETION_REQUESTED = 'completion-requested';
 /** The export of the persistent volume, taken before the staged container is retired and read back once
  *  its replacement exists. While this file is the only copy of the site's data, nothing removes it. */
 const COMPLETION_ARCHIVE = 'completion-data.tar';
@@ -497,6 +499,9 @@ export class RuntimeMigrationService {
             // Starts the container prepared above: the provider creates only when none exists, so the writable
             // layer built during preparation is reused rather than thrown away.
             await this.deps.startEnvironment(flipped);
+            // Completion can outlive the tool runner that flipped the row. The daemon supervisor owns every
+            // destructive phase from here, so a client deadline cannot strand the conversion halfway through it.
+            this.deps.store.putRuntimeRecord(siteId, COMPLETION_REQUESTED, this.now().toISOString());
             return this.status(siteId);
         }
         catch (error) {
@@ -508,15 +513,28 @@ export class RuntimeMigrationService {
             this.activeFlips.delete(siteId);
         }
     }
-    /** Retire the staged copy, so the converted site is left with ONE working copy and no way back.
+    /** Queue completion for the daemon supervisor without performing lifecycle work in the caller. */
+    scheduleCompletion(siteId) {
+        const migration = this.deps.store.runtimeMigration(siteId);
+        if (!migration)
+            throw new MigrationRefused('this site has no conversion to complete');
+        if (migration.stage === 'completed')
+            return this.status(siteId);
+        if (migration.stage !== 'flipped' && migration.stage !== 'completing') {
+            throw new MigrationRefused('only a flipped conversion can be completed');
+        }
+        this.deps.store.putRuntimeRecord(siteId, COMPLETION_REQUESTED, this.now().toISOString());
+        return this.status(siteId);
+    }
+    /** Retire the staged copy, so the converted site is left with ONE working copy while undo is retained.
      *
      *  WHY A CONVERSION HAS TWO WORKING COPIES UNTIL THIS RUNS. A preparation stages the published release
      *  into a copy it owns and mounts THAT, because the flip must serve the bytes it verified rather than
      *  whatever the source folder holds at the time. The consequence is a site whose container serves one
      *  directory while every agent and every tool edits another. Completion ends that: the staged copy is
      *  folded back into the site's own source folder, the container is rebuilt on the source folder, and the
-     *  conversion's directory is removed. What is left is indistinguishable from a natively created
-     *  environment — same mount, no staging binding, no artefacts.
+     *  staged workspace is removed. The recipe and data artefacts stay retained with the completed audit row,
+     *  so an operator can still restore the stopped legacy runtime during the retention window.
      *
      *  THE ORDER IS THE OPERATION. Each step is durable before the one it unlocks, so a driver that dies
      *  half way is resumed by calling this again rather than starting over:
@@ -528,8 +546,8 @@ export class RuntimeMigrationService {
      *  3. The container is rebuilt on the source folder, and the archive is loaded back into the new volume
      *     together with a fresh seed — the first boot consumed the credentials the old one carried.
      *  4. The site is started and has to ANSWER before the binding is published as live.
-     *  5. Only then does the conversion's directory go, and last of all the row: while it exists this
-     *     operation still owns the site, and dropping it is the point of no return. */
+     *  5. Only then is the staged workspace removed and the binding published. The completed row and its
+     *     protected artefacts remain until an explicit retire step ends the rollback window. */
     async complete(siteId, resumableError = interruptedByRestart('flipped')) {
         const active = this.activeCompletions.get(siteId);
         if (active)
@@ -642,11 +660,11 @@ export class RuntimeMigrationService {
                 progress = 'retiring';
             }
             if (progress === 'retiring') {
-                // The conversion's directory goes BEFORE the binding is published: removing it is an operation on a
-                // staging binding, and publishing is what ends that. A retry rejoins the same removal request.
-                const directory = migrationDirectory(this.deps, siteId);
-                if (existsSync(directory)) {
-                    await this.deps.removeStaged([directory], completionOperationId(siteId, 'retire'));
+                // Only the served staging copy is spent. The recipe, secrets and data archives are the retained undo
+                // material for a completed conversion and leave only through the explicit retire or rollback path.
+                const workspace = stagedWorkspace(this.deps, siteId);
+                if (existsSync(workspace)) {
+                    await this.deps.removeStaged([workspace], completionOperationId(siteId, 'retire'));
                 }
                 this.deps.publishBinding(site);
             }
@@ -655,6 +673,7 @@ export class RuntimeMigrationService {
             }
             this.deps.store.deleteRuntimeRecord(siteId, `artifact:${completionOperationId(siteId, 'retire')}-0`);
             this.deps.store.deleteRuntimeRecord(siteId, COMPLETION_RECORD);
+            this.deps.store.deleteRuntimeRecord(siteId, COMPLETION_REQUESTED);
             if (!this.deps.store.completeRuntimeMigration(siteId, this.now().toISOString())) {
                 throw new Error('the completed conversion audit row could not be finalized');
             }
@@ -685,6 +704,8 @@ export class RuntimeMigrationService {
         for (const migration of this.deps.store.runtimeMigrations()) {
             if (migration.stage !== 'flipped' && migration.stage !== 'completing')
                 continue;
+            if (migration.stage === 'flipped' && this.deps.store.runtimeRecord(migration.siteId, COMPLETION_REQUESTED) === null)
+                continue;
             if (this.activeFlips.has(migration.siteId) || this.activeCompletions.has(migration.siteId))
                 continue;
             if (this.now().getTime() < (this.completionRetryAt.get(migration.siteId) ?? 0))
@@ -708,6 +729,22 @@ export class RuntimeMigrationService {
         }
         return settled;
     }
+    /** Permanently end the rollback window after the operator's retention period. */
+    async retireCompleted(siteId) {
+        const migration = this.deps.store.runtimeMigration(siteId);
+        if (!migration)
+            return this.status(siteId);
+        if (migration.stage !== 'completed')
+            throw new MigrationRefused('only a completed conversion can be retired');
+        if (migration.rollbackStage !== 'none')
+            throw new MigrationRefused('this conversion has a rollback in progress');
+        const directory = migrationDirectory(this.deps, siteId);
+        if (existsSync(directory))
+            await this.deps.removeStaged([directory]);
+        this.deps.discardArtifacts(siteId);
+        this.deps.store.clearRuntimeMigration(siteId);
+        return this.status(siteId);
+    }
     /** Put one site back the way it was, from any stage.
      *
      *  Serving is restored BEFORE the container is torn down, so the gap is the restore itself rather than
@@ -718,8 +755,6 @@ export class RuntimeMigrationService {
         const migration = this.deps.store.runtimeMigration(siteId);
         if (!migration)
             throw new MigrationRefused('this site has no conversion to roll back');
-        if (migration.stage === 'completed')
-            throw new MigrationRefused('this conversion is already completed');
         if (migration.stage === 'completing') {
             throw new MigrationRefused('this conversion is being completed; finish the completion before rolling anything back');
         }
@@ -743,8 +778,6 @@ export class RuntimeMigrationService {
         const migration = this.deps.store.runtimeMigration(siteId);
         if (!migration)
             throw new MigrationRefused('this site has no conversion to roll back');
-        if (migration.stage === 'completed')
-            throw new MigrationRefused('this conversion is already completed');
         if (migration.stage === 'completing') {
             throw new MigrationRefused('this conversion is being completed; finish the completion before rolling anything back');
         }
@@ -755,7 +788,7 @@ export class RuntimeMigrationService {
             throw new RollbackInProgress('this conversion rollback is already being driven');
         }
         try {
-            if (migration.stage === 'flipped') {
+            if (migration.stage === 'flipped' || migration.stage === 'completed') {
                 const currentSite = this.deps.store.siteById(siteId);
                 // Releases 0.10.14 and older recorded `discarded` before reverting the site. Preserve recovery for
                 // those rows by moving them back to the last non-destructive checkpoint when the row is still an environment.
@@ -867,7 +900,7 @@ export class RuntimeMigrationService {
     async reconcileRollbacks() {
         const settled = [];
         for (const migration of this.deps.store.runtimeMigrations()) {
-            if (migration.stage === 'completed' || migration.stage === 'completing' || migration.rollbackStage === 'none')
+            if (migration.stage === 'completing' || migration.rollbackStage === 'none')
                 continue;
             if (this.activeRollbacks.has(migration.siteId))
                 continue;
@@ -958,6 +991,9 @@ export class RuntimeMigrationService {
                 }
                 catch { /* same */ }
             }
+            if (migration.stage === 'flipped' || migration.stage === 'completing') {
+                this.deps.store.putRuntimeRecord(migration.siteId, COMPLETION_REQUESTED, this.now().toISOString());
+            }
             this.deps.store.failRuntimeMigration(migration.siteId, interruptedByRestart(migration.stage));
             settled.push(this.status(migration.siteId));
         }
@@ -991,7 +1027,7 @@ export class RuntimeMigrationService {
      *  hostname between runtimes, which is an administrator's decision and not a side effect of a restart.
      *  A crash mid-prepare therefore leaves a claimed slot that a person retries or rolls back. */
     pending() {
-        return this.deps.store.runtimeMigrations().filter((migration) => migration.stage !== 'completed').map((migration) => ({
+        return this.deps.store.runtimeMigrations().filter((migration) => migration.stage !== 'completed' || migration.rollbackStage !== 'none').map((migration) => ({
             siteId: migration.siteId,
             stage: migration.stage,
             fromRuntime: migration.fromRuntime,

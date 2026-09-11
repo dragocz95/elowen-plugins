@@ -1436,6 +1436,29 @@ test('SitePublish verifies a proxy publication through the transport and flips i
   assert.match(published.content[0].text, /answered on 127\.0\.0\.1:3000/);
 });
 
+test('SitePublish reports a verified proxy without a public base address', async (t) => {
+  const adopted = [];
+  const harness = toolHarness(t, {
+    projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
+    gatewayHost: null,
+    runtimeAvailable: true,
+    publications: {
+      establish: async (target) => ({ socketPath: `/run/project/broker/pub-${target.id}.sock`, generation: 3 }),
+      probe: async () => ({ answered: true, status: 200, detail: 'GET / answered 200' }),
+      adopt: (siteId, socketPath) => { adopted.push([siteId, socketPath]); },
+    },
+  });
+  harness.store.insertSite(site({ id: 'proxy-no-address', slug: 'proxy-no-address', kind: 'proxy', target: '3000', runtime: 'static', status: 'draft', currentReleaseId: null }));
+
+  const published = await harness.call('SitePublish', { site: 'proxy-no-address' });
+
+  assert.equal(harness.store.siteById('proxy-no-address').status, 'live');
+  assert.deepEqual(adopted, [['proxy-no-address', '/run/project/broker/pub-proxy-no-address.sock']]);
+  assert.equal(published.details.url, null);
+  assert.match(published.content[0].text, /public hostname is unavailable/i);
+  assert.match(published.content[0].text, /pub-proxy-no-address\.sock/);
+});
+
 test('a proxy publication is not published when nothing answers on its port', async (t) => {
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],

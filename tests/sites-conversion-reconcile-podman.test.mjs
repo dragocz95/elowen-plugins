@@ -129,7 +129,8 @@ const carriedRollback = test('a rollback carrying container writes survives the 
       // The rollback quiesces the container and exports its volume. Every tick in that window reads a
       // container that is down and a row that says it should be up.
       res = await h.call(site.id, { step: 'rollback', restoreData: true });
-      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.equal(res.status, 202, JSON.stringify(res.body));
+      await h.migration.reconcileRollbacks();
 
       assert.ok(reconciler.ticks.environment > 0, 'the Sites reconciler really ran');
       assert.ok(reconciler.ticks.provider > 0, 'and the provider sweep ran beside it');
