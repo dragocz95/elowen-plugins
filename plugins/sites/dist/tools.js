@@ -61,12 +61,13 @@ const slugify = (title) => {
  *  built under it landed outside the Project: the agent was told to write into a tree the Project tools
  *  and the publish export never looked at. */
 function resolveSourceRoot(ctx, slug) {
+    const rel = posix.join('sites', slug);
     const selected = ctx.currentAccess().projectRef;
     if (selected?.kind === 'managed') {
         const root = ctx.workDir();
         if (!root)
             throw new ToolError('This turn has no Project directory, so the site has nowhere to put its source.');
-        return { dir: posix.join(root, 'sites', slug), projectId: selected.projectId };
+        return { dir: posix.join(root, rel), projectId: selected.projectId, rel };
     }
     const workDir = ctx.workDir();
     if (!workDir) {
@@ -98,12 +99,7 @@ function resolveSourceRoot(ctx, slug) {
     if (!project) {
         throw new ToolError(`${real} is not inside any registered Project, so there is nowhere to put the site's source. Open a Project first.`);
     }
-    const sessionId = ctx.currentSessionId();
-    const workspace = sessionId
-        ? ctx.control('sandbox')?.activeWorkspace({ sessionId, projectId: project.id }) ?? null
-        : null;
-    const base = workspace?.path ?? project.path;
-    return { dir: join(base, 'sites', slug), projectId: project.id };
+    return { dir: join(project.path, ...rel.split('/')), projectId: project.id, rel };
 }
 /** Resolve whichever identifier the caller had to hand.
  *
@@ -231,6 +227,9 @@ const projectLines = (site, project) => {
 };
 const describe = (site, config, environment, lastSnapshotAt, project) => {
     const address = siteUrl(config, site.slug);
+    const source = project?.executionKind === 'managed'
+        ? posix.join(`/${project.slug ?? ''}`, site.sourceRel)
+        : project?.path ? join(project.path, ...site.sourceRel.split('/')) : site.sourceRel;
     return [
         `${site.title}`,
         `  id         ${site.id}`,
@@ -251,7 +250,7 @@ const describe = (site, config, environment, lastSnapshotAt, project) => {
                 : site.lastPublishAt
                     ? `  published  ${site.lastPublishAt}${site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}`
                     : '  published  never',
-        ...(site.kind === 'proxy' ? [] : [`  source     ${site.sourceDir}`]),
+        ...(site.kind === 'proxy' ? [] : [`  source     ${source}`]),
     ].join('\n');
 };
 export function registerTools(deps) {
@@ -260,7 +259,7 @@ export function registerTools(deps) {
      *  Project register, never a container round trip, so a listing pays nothing for it. */
     const projectOf = (site) => {
         const project = ctx.host.stores().projects.get(site.projectId);
-        return project ? { slug: project.slug, executionKind: project.executionKind } : null;
+        return project ? { slug: project.slug, path: project.path, executionKind: project.executionKind } : null;
     };
     const guardPublisher = (userId) => {
         if (!mayPublish(userId, deps.access, deps.config().publishers)) {
@@ -357,7 +356,7 @@ export function registerTools(deps) {
                         accessGeneration: 1,
                         // Nothing is copied for this publication, so it owns no folder. Its application lives in the
                         // Project, which is also where its logs and its environment state come from.
-                        sourceDir: '',
+                        sourceRel: '',
                         spa: false,
                         kind: 'proxy',
                         target: String(Number(target)),
@@ -432,7 +431,7 @@ export function registerTools(deps) {
                     slug = slugify(input.title);
                 // File-published sites need a public origin before the first side effect.
                 const address = addressOf(config, slug);
-                const { dir, projectId } = resolveSourceRoot(ctx, slug);
+                const { dir, projectId, rel: sourceRel } = resolveSourceRoot(ctx, slug);
                 const sourceProject = ctx.host.stores().projects.get(projectId);
                 if (!sourceProject)
                     throw new ToolError('The source Project no longer exists.');
@@ -468,7 +467,7 @@ export function registerTools(deps) {
                     ownerUserId: userId,
                     visibility: input.visibility ?? config.defaultVisibility,
                     accessGeneration: 1,
-                    sourceDir: allowed,
+                    sourceRel,
                     spa: input.spa === true,
                     kind: 'static',
                     target: '',
@@ -702,18 +701,21 @@ export function registerTools(deps) {
                 if (relative.split('/').some((segment) => segment === '..')) {
                     throw new ToolError('outputDir must stay inside the site folder.');
                 }
-                const source = resolve(site.sourceDir, relative);
-                const root = resolve(site.sourceDir);
-                if (source !== root && !source.startsWith(root + sep)) {
-                    throw new ToolError('outputDir must stay inside the site folder.');
-                }
                 const sourceProject = ctx.host.stores().projects.get(site.projectId);
                 if (!sourceProject)
                     throw new ToolError('The source Project no longer exists.');
+                const managed = sourceProject.executionKind === 'managed';
+                const sourceRoot = managed
+                    ? posix.join(`/${sourceProject.slug}`, site.sourceRel)
+                    : join(sourceProject.path, ...site.sourceRel.split('/'));
+                const source = resolve(sourceRoot, relative);
+                const root = resolve(sourceRoot);
+                if (source !== root && !source.startsWith(root + sep)) {
+                    throw new ToolError('outputDir must stay inside the site folder.');
+                }
                 const selected = ctx.currentAccess().projectRef;
                 if (selected?.kind === 'managed' && selected.projectId !== site.projectId)
                     throw new ToolError('The publication source is outside the selected managed Project.');
-                const managed = sourceProject.executionKind === 'managed';
                 if (!managed) {
                     if (!existsSync(source))
                         throw new ToolError(`${source} does not exist. Build the project first.`);
@@ -872,7 +874,7 @@ export function registerTools(deps) {
                     ? await deps.projectEnvironment(project.id, userId)
                     : null;
                 const projectInfo = project
-                    ? { slug: project.slug, executionKind: project.executionKind, environment: projectEnvironmentState }
+                    ? { slug: project.slug, path: project.path, executionKind: project.executionKind, environment: projectEnvironmentState }
                     : null;
                 const people = deps.people();
                 const guests = store.memberIds(site.id)
@@ -894,7 +896,8 @@ export function registerTools(deps) {
                 ].join('\n'), {
                     siteId: site.id, slug: site.slug, url: siteUrl(config, site.slug), visibility: site.visibility,
                     status: site.status, degraded: site.status === 'live' && site.lastError !== null,
-                    sourceDir: site.sourceDir, basePath: SITE_BASE_PATH, kind: site.kind, target: site.target,
+                    sourceDir: project?.executionKind === 'managed' ? posix.join(`/${project.slug}`, site.sourceRel) : project ? join(project.path, ...site.sourceRel.split('/')) : site.sourceRel,
+                    basePath: SITE_BASE_PATH, kind: site.kind, target: site.target,
                     runtime: site.runtime, startCommand: site.startCommand, bind: site.bind, port: site.port,
                     network: site.runtime === 'environment' ? config.environmentNetwork : config.runtimeNetwork,
                     guests, currentReleaseId: site.currentReleaseId,
@@ -1190,7 +1193,7 @@ export function registerTools(deps) {
                 const userId = ownerOf(ctx);
                 const site = requireOwned(deps, input.site, userId);
                 await deps.deleteSite(site.id);
-                return text(`Deleted "${site.title}". Its source folder ${site.sourceDir} was left in place.`);
+                return text(`Deleted "${site.title}". Its Project source folder ${site.sourceRel} was left in place.`);
             }
             catch (error) {
                 throw error instanceof ToolError ? error : new Error(String(error));

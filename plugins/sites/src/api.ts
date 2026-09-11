@@ -28,6 +28,7 @@ export interface ApiDeps {
   previewSite?(slug: string): Site | null;
   people(): Map<number, Person>;
   projectSlug(projectId: number): string | null;
+  sourceDisplayPath?(site: Site): string;
   deleteSite(siteId: string): Promise<void> | void;
   activateRelease(site: Site, releaseId: string): void;
   runtimeState(siteId: string): { running: boolean; logTail: string };
@@ -208,7 +209,7 @@ export function createApiHandlers(deps: ApiDeps) {
           ...(release.kind === 'environment-snapshot' ? { includesData: Boolean(release.dataArchive) || deps.store.runtimeRecord(target.id, `snapshot-data:${release.id}`) === 'true' } : {}),
         })),
         hits: deps.store.hits(target.id, since),
-        sourceDir: canManage(target, req.auth) ? target.sourceDir : null,
+        sourceDir: canManage(target, req.auth) ? deps.sourceDisplayPath?.(target) ?? target.sourceRel : null,
         // The stored publication failure is detail for somebody who may repair it. It stays out of the
         // list response and away from guests, while the derived degraded flag remains safe to list.
         lastError: canManage(target, req.auth) ? target.lastError : null,

@@ -21,7 +21,7 @@ export class EnvironmentSupervisor {
         this.deps = deps;
         this.authority = createSiteRuntimeAuthority({
             store: deps.store, access: deps.access,
-            registration: id => this.registration(id), gateway: () => deps.gateway,
+            registration: id => this.resolvedRegistration(id), gateway: () => deps.gateway,
             beforeCreate: async (id) => {
                 this.writeEnvironmentFiles(this.site(id));
                 if (!this.brokerDirectoryExists(id))
@@ -81,12 +81,26 @@ export class EnvironmentSupervisor {
     saveBinding(binding) {
         this.deps.store.putRuntimeRecord(binding.siteId, 'binding', JSON.stringify(binding));
     }
-    defaultBinding(site) {
+    async resolvedRegistration(id) {
+        const binding = this.registration(id);
+        if (!binding || binding.staging)
+            return binding;
+        const site = this.deps.store.siteById(id);
+        return site ? { ...binding, sourcePath: await this.sourcePath(site) } : null;
+    }
+    async sourcePath(site) {
+        if (!site.sourceRel)
+            throw new Error('this Site has no Project source');
+        const root = await this.control().projectWorkspaceHostPath({ projectId: site.projectId });
+        return join(root, ...site.sourceRel.split('/'));
+    }
+    async defaultBinding(site) {
         const migration = this.deps.store.runtimeMigration(site.id);
         const converted = migration !== null;
         const recipe = converted ? loadAppRecipe(join(this.deps.siteDir(site.id), 'migration', 'artifacts')) : null;
         return {
-            siteId: site.id, projectId: site.projectId, sourcePath: converted ? join(this.deps.siteDir(site.id), 'migration', 'workspace') : site.runtime === 'environment' ? site.sourceDir : this.deps.siteDir(site.id),
+            siteId: site.id, projectId: site.projectId, sourcePath: converted ? join(this.deps.siteDir(site.id), 'migration', 'workspace') : site.runtime === 'environment' ? await this.sourcePath(site) : this.deps.siteDir(site.id),
+            ...(converted || site.runtime !== 'environment' ? {} : { sourceRel: site.sourceRel }),
             sitesDataDir: this.deps.dataDir, brokerDir: this.brokerDirectory(site.id),
             image: recipe ? conversionImageTag(recipe.image) : BASE_IMAGE_TAG,
             workspaceReadOnly: recipe?.image === 'static', network: this.deps.config().environmentNetwork,
@@ -116,7 +130,7 @@ export class EnvironmentSupervisor {
             return;
         let binding = this.registration(site.id);
         if (!binding) {
-            this.deps.store.claimRuntimeRecord(site.id, 'binding', JSON.stringify(this.defaultBinding(site)));
+            this.deps.store.claimRuntimeRecord(site.id, 'binding', JSON.stringify(await this.defaultBinding(site)));
             binding = this.registration(site.id);
         }
         if (site.runtime === 'environment' && binding.initialIntent?.desiredState === 'running') {
@@ -271,7 +285,7 @@ export class EnvironmentSupervisor {
     async provision(site, imageKind) { await this.perform(site, { kind: 'provision-image', imageKind }); }
     async prepareContainer(site, workspace, image = BASE_IMAGE_TAG, workspaceReadOnly = false) {
         this.control();
-        const binding = this.defaultBinding(site);
+        const binding = await this.defaultBinding(site);
         binding.sourcePath = this.ownedPath(site.id, workspace);
         binding.image = image;
         binding.workspaceReadOnly = workspaceReadOnly;
@@ -314,7 +328,7 @@ export class EnvironmentSupervisor {
         if (!previous)
             throw new Error('this site has no registered environment binding to move');
         const binding = {
-            ...previous, sourcePath: resolve(site.sourceDir), staging: true,
+            ...previous, sourcePath: await this.sourcePath(site), sourceRel: site.sourceRel, staging: true,
             initialIntent: { desiredState: 'stopped', pendingAction: null },
         };
         if (previous.sourcePath !== binding.sourcePath) {
@@ -385,7 +399,7 @@ export class EnvironmentSupervisor {
         if (state === 'unprovisioned')
             return null;
         if (!this.registration(id))
-            this.saveBinding(this.defaultBinding(site));
+            this.saveBinding(await this.defaultBinding(site));
         const binding = this.registration(id);
         if (expect && (expect.workspace !== binding.sourcePath || expect.image !== binding.image))
             return { owned: false, workspace: binding.sourcePath, detail: 'container binding differs from the expected conversion' };

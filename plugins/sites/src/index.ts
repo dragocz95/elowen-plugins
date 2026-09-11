@@ -44,6 +44,11 @@ const sandboxVisible = (path: string): boolean => {
 export function register(published: PluginContext): void {
   const ctx = asSitesContext(published);
   const store = new SitesStore(ctx.db());
+  store.migrateSourceReferences((projectId) => {
+    const project = ctx.host.stores().projects.get(projectId);
+    if (!project) return null;
+    return project.path || project.adoptedPath || (project.executionKind === 'managed' ? `/${project.slug}` : null);
+  });
   const dataDir = ctx.dataDir();
 
   const siteDir = (siteId: string): string => join(dataDir, 'sites', siteId);
@@ -98,6 +103,20 @@ export function register(published: PluginContext): void {
 
   const projectSlug = (projectId: number): string | null =>
     ctx.host.stores().projects.get(projectId)?.slug ?? null;
+  const sourceDisplayPath = (site: Site): string => {
+    const project = ctx.host.stores().projects.get(site.projectId);
+    if (!project) return site.sourceRel;
+    return project.executionKind === 'managed'
+      ? `/${project.slug}/${site.sourceRel}`
+      : join(project.path, ...site.sourceRel.split('/'));
+  };
+  const sourceHostPath = async (site: Site): Promise<string> => {
+    if (!site.sourceRel) throw new Error('this Site has no Project source');
+    const sandbox = ctx.control('sandbox');
+    if (!sandbox) throw new Error('the Sandbox environment runtime is unavailable');
+    const root = await sandbox.projectWorkspaceHostPath({ projectId: site.projectId });
+    return join(root, ...site.sourceRel.split('/'));
+  };
 
   /** The one bounded-proxy fact for every runtime an HTTP page is proxied from. */
   const proxyLimits = () => {
@@ -303,6 +322,7 @@ export function register(published: PluginContext): void {
     removeStaged: (paths, operationId) => environment.removeStaged(paths, operationId),
     // The completion moves the container onto the site's own source folder through the SAME supervisor
     // that created it, so the rebuilt container is created, sized and started exactly like any other.
+    sourcePath: sourceHostPath,
     rebindToSource: (site, operationId) => environment.rebindToSource(site, operationId),
     publishBinding: (site) => environment.publishBinding(site),
     clearConversionStage: (site, stageDir) => environment.clearConversionStage(site, stageDir),
@@ -519,6 +539,7 @@ export function register(published: PluginContext): void {
     config,
     people,
     projectSlug,
+    sourceDisplayPath,
     deleteSite,
     activateRelease,
     runtimeState: (siteId) => ({ running: supervisor.isRunning(siteId), logTail: supervisor.logTail(siteId) }),

@@ -77,6 +77,7 @@ const legacySite = (overrides = {}) => ({
   visibility: 'authenticated',
   accessGeneration: 4,
   sourceDir: '/data/project/sites/legacy-demo',
+  sourceRel: 'sites/legacy-demo',
   spa: false,
   kind: 'static',
   target: '',
@@ -194,6 +195,7 @@ const harness = (options = {}) => {
       binding.staging = true;
       if (options.prepareFails) throw new Error('container build exploded');
     },
+    sourcePath: async (site) => join(root, 'project', ...site.sourceRel.split('/')),
     // The supervisor retires the staged container and builds a new one on the site's own source folder.
     // Only the binding it would register with is modelled here; Podman cannot run in this workspace.
     rebindToSource: async (site, operationId) => {
@@ -203,7 +205,7 @@ const harness = (options = {}) => {
       }
       completionOperationIds.add(operationId);
       if (options.rebindFails) throw new Error('the container could not be rebuilt');
-      binding.sourcePath = site.sourceDir;
+      binding.sourcePath = join(root, 'project', ...site.sourceRel.split('/'));
       binding.staging = true;
       containerLive = false;
     },
@@ -1385,6 +1387,7 @@ const supervisorHarness = (statuses) => {
   const calls = [];
   let authority;
   const control = {
+    projectWorkspaceHostPath: async () => join(root, 'project'),
     connectSitesRuntime: value => { authority = value; },
     registerSiteEnvironment: async () => ({ state: 'stopped', generation: 1 }),
     // `statuses[0]` is the container the runtime already holds for this Site, or nothing at all.
@@ -3405,7 +3408,7 @@ test('a completion resumes from where it died instead of exporting a volume that
 
     h.deps.rebindToSource = async (site, operationId) => {
       h.calls.rebind.push({ siteId: site.id, operationId });
-      h.binding.sourcePath = site.sourceDir;
+      h.binding.sourcePath = join(h.root, 'project', ...site.sourceRel.split('/'));
       h.binding.staging = true;
     };
     await h.service.complete(SITE_ID);

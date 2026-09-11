@@ -601,7 +601,7 @@ export class RuntimeMigrationService {
                 progress = 'exporting';
             }
             if (progress === 'exporting') {
-                reconcileIntoSource(stagedWorkspace(this.deps, siteId), site.sourceDir, recipe.secretFiles);
+                reconcileIntoSource(stagedWorkspace(this.deps, siteId), await this.deps.sourcePath(site), recipe.secretFiles);
                 // The marker precedes every operation in this phase. A retry uses the same export request id, so a
                 // lost response rejoins the one Sandbox operation instead of consuming the volume twice.
                 await this.deps.stopContainer(siteId);
