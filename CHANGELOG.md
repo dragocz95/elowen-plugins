@@ -1,5 +1,11 @@
 # Changelog
 
+## sites 0.10.19 - 2026-09-11
+
+- Keep completed conversion undo material until an explicit `retire` step, allow durable rollback from `completed`, and restore legacy data, runtime and publication before discarding the Project-side environment.
+- Queue conversion completion for the daemon supervisor so client deadlines cannot interrupt its durable phases. The final environment still replaces its own container and volume before readiness, so hostname downtime covers export, rebind, import and startup until a future dual-transport cutover is implemented.
+- Return a truthful successful `SitePublish` result when no public base hostname is configured, including the verified Project port and transport socket instead of throwing after publication went live.
+
 ## sites 0.10.18 - 2026-09-11
 
 - Wait up to the configured start deadline for a persistent environment ingress socket, keep timeout failures retryable, and derive live routing from the durable Site row and socket so flipped conversions recover after reconcile or restart.
