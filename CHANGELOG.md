@@ -1,5 +1,10 @@
 # Changelog
 
+## sites 0.10.23 - 2026-09-11
+
+- Remove each deleted Site's privileged runtime socket directory after its environment and durable rows are gone, and log one warning if the gateway helper refuses cleanup.
+- Let `SiteDelete` explicitly hand over a mismatched Sandbox runtime binding, so deletion converges for retained pre-0.10.22 migration rows instead of retrying forever.
+
 ## sites 0.10.22 - 2026-09-11
 
 - Give every runtime conversion attempt its own durable operation identity, so a Site can complete, roll back and complete again without reusing the first conversion's Sandbox requests or trusted binding.
