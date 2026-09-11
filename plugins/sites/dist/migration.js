@@ -38,6 +38,7 @@ class CompletionInProgress extends MigrationRefused {
 }
 class RollbackInProgress extends MigrationRefused {
 }
+const isCompletionCandidateSite = (site) => site !== null && site.status !== 'deleting';
 /** Where a site's staged workspace lives. Derived from the site id, never from a caller argument. */
 export const stagedWorkspace = (deps, siteId) => join(deps.siteDir(siteId), 'migration', 'workspace');
 /** Everything one conversion wrote under the site's own plugin directory: the staged copy, the recipe,
@@ -702,6 +703,8 @@ export class RuntimeMigrationService {
     async reconcileCompletions() {
         const settled = [];
         for (const migration of this.deps.store.runtimeMigrations()) {
+            if (!isCompletionCandidateSite(this.deps.store.siteById(migration.siteId)))
+                continue;
             if (migration.stage !== 'flipped' && migration.stage !== 'completing')
                 continue;
             if (migration.stage === 'flipped' && this.deps.store.runtimeRecord(migration.siteId, COMPLETION_REQUESTED) === null)

@@ -42,6 +42,9 @@ export class MigrationRefused extends Error {}
 class CompletionInProgress extends MigrationRefused {}
 class RollbackInProgress extends MigrationRefused {}
 
+const isCompletionCandidateSite = (site: Site | null): site is Site =>
+  site !== null && site.status !== 'deleting';
+
 export interface MigrationDeps {
   store: SitesStore;
   projectExecutionKind(projectId: number): string | null;
@@ -869,6 +872,7 @@ export class RuntimeMigrationService {
   async reconcileCompletions(): Promise<MigrationStatus[]> {
     const settled: MigrationStatus[] = [];
     for (const migration of this.deps.store.runtimeMigrations()) {
+      if (!isCompletionCandidateSite(this.deps.store.siteById(migration.siteId))) continue;
       if (migration.stage !== 'flipped' && migration.stage !== 'completing') continue;
       if (migration.stage === 'flipped' && this.deps.store.runtimeRecord(migration.siteId, COMPLETION_REQUESTED) === null) continue;
       if (this.activeFlips.has(migration.siteId) || this.activeCompletions.has(migration.siteId)) continue;

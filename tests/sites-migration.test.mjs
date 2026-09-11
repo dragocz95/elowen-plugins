@@ -3452,6 +3452,24 @@ test('the restart marker is not accepted while the site does not answer, and no 
   } finally { broken.cleanup(); }
 });
 
+test('the completion supervisor ignores a deleting site without logging', async () => {
+  const h = harness({ containerWrote: true });
+  try {
+    await convertedSite(h);
+    h.store.updateSite(SITE_ID, { status: 'deleting' });
+    h.calls.rebind.length = 0;
+
+    const logs = (await h.service.reconcileCompletions()).map((settled) =>
+      settled.lastError === null
+        ? `site conversion ${settled.siteId} completed`
+        : `site conversion ${settled.siteId} could not be completed: ${settled.lastError}`);
+
+    assert.deepEqual(logs, []);
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'flipped');
+    assert.deepEqual(h.calls.rebind, []);
+  } finally { h.cleanup(); }
+});
+
 test('reconcile completes every plain flipped conversion without a restart marker', async () => {
   const h = harness({ containerWrote: true });
   try {

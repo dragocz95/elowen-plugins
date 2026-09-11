@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.10.24 - 2026-09-11
+
+- Skip automatic conversion completion for Sites already being deleted, so the migration supervisor does not compete with deletion or log repeated completion failures.
+
 ## sites 0.10.23 - 2026-09-11
 
 - Remove each deleted Site's privileged runtime socket directory after its environment and durable rows are gone, and log one warning if the gateway helper refuses cleanup.
