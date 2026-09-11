@@ -58,7 +58,7 @@ const COMPLETION_REQUESTED = 'completion-requested';
  *  its replacement exists. While this file is the only copy of the site's data, nothing removes it. */
 const COMPLETION_ARCHIVE = 'completion-data.tar';
 const COMPLETION_OPERATIONS = ['export', 'rebind', 'import-data', 'import-seed', 'retire'];
-const completionOperationId = (siteId, step) => `completion-${step}-${createHash('sha256').update(siteId).digest('hex').slice(0, 20)}`;
+const completionOperationId = (attemptId, step) => `completion-${step}-${createHash('sha256').update(attemptId).digest('hex').slice(0, 20)}`;
 /** A stable digest over a directory tree: relative path, size and bytes of every file, in sorted order.
  *
  *  Sorted because readdir order is filesystem-dependent, and a digest that changed between two identical
@@ -607,7 +607,7 @@ export class RuntimeMigrationService {
                 if (!await this.deps.containerStopped(siteId)) {
                     throw new Error('the environment container is still running, so its data cannot be exported consistently');
                 }
-                await this.deps.exportDataVolume(site, this.deps.artifactPath(siteId, COMPLETION_ARCHIVE), completionOperationId(siteId, 'export'));
+                await this.deps.exportDataVolume(site, this.deps.artifactPath(siteId, COMPLETION_ARCHIVE), completionOperationId(migration.attemptId, 'export'));
                 this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'exported');
                 progress = 'exported';
             }
@@ -616,7 +616,7 @@ export class RuntimeMigrationService {
                 progress = 'rebinding';
             }
             if (progress === 'rebinding') {
-                await this.deps.rebindToSource(site, completionOperationId(siteId, 'rebind'));
+                await this.deps.rebindToSource(site, completionOperationId(migration.attemptId, 'rebind'));
                 this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'rebound');
                 progress = 'rebound';
             }
@@ -627,14 +627,14 @@ export class RuntimeMigrationService {
             if (progress === 'importing') {
                 const carried = this.deps.artifactPath(siteId, COMPLETION_ARCHIVE);
                 if (existsSync(carried)) {
-                    await this.deps.loadDataVolume(site, carried, completionOperationId(siteId, 'import-data'));
+                    await this.deps.loadDataVolume(site, carried, completionOperationId(migration.attemptId, 'import-data'));
                 }
                 // The seed is rebuilt rather than carried: the bootstrap unit deletes the credentials and the
                 // application unit it installed on first boot, so the archive above holds neither, and the
                 // container this completion built has a rootfs that never saw them.
                 await this.deps.loadDataVolume(site, await this.deps.buildSeedArchive(siteId, {
                     provisionScript: provisionScript(recipe), appUnit: appUnit(recipe), dataArchive: null,
-                }), completionOperationId(siteId, 'import-seed'));
+                }), completionOperationId(migration.attemptId, 'import-seed'));
                 this.deps.store.putRuntimeRecord(siteId, COMPLETION_RECORD, 'seeded');
                 progress = 'seeded';
             }
@@ -664,14 +664,14 @@ export class RuntimeMigrationService {
                 // material for a completed conversion and leave only through the explicit retire or rollback path.
                 const workspace = stagedWorkspace(this.deps, siteId);
                 if (existsSync(workspace)) {
-                    await this.deps.removeStaged([workspace], completionOperationId(siteId, 'retire'));
+                    await this.deps.removeStaged([workspace], completionOperationId(migration.attemptId, 'retire'));
                 }
                 this.deps.publishBinding(site);
             }
             for (const operation of COMPLETION_OPERATIONS) {
-                this.deps.store.deleteRuntimeRecord(siteId, `artifact:${completionOperationId(siteId, operation)}`);
+                this.deps.store.deleteRuntimeRecord(siteId, `artifact:${completionOperationId(migration.attemptId, operation)}`);
             }
-            this.deps.store.deleteRuntimeRecord(siteId, `artifact:${completionOperationId(siteId, 'retire')}-0`);
+            this.deps.store.deleteRuntimeRecord(siteId, `artifact:${completionOperationId(migration.attemptId, 'retire')}-0`);
             this.deps.store.deleteRuntimeRecord(siteId, COMPLETION_RECORD);
             this.deps.store.deleteRuntimeRecord(siteId, COMPLETION_REQUESTED);
             if (!this.deps.store.completeRuntimeMigration(siteId, this.now().toISOString())) {

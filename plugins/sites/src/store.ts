@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { PluginDb } from 'elowen/plugin-api';
 
 export interface ProjectPreview { id: string; slug: string; projectId: number; port: number; createdAt: string }
@@ -124,6 +125,8 @@ export type ConvertibleRuntime = 'static' | 'command' | 'php';
  *  same convention {@link EnvironmentAction} uses, so the two read alike. */
 export interface RuntimeMigration {
   siteId: string;
+  /** Stable identity for one forward attempt. Retries keep it; a new claim after rollback gets a new one. */
+  attemptId: string;
   /** How far the conversion actually got. Each stage is committed BEFORE the side effects it unlocks,
    *  so a resume never has to guess whether the previous stage half-happened.
    *
@@ -178,6 +181,7 @@ export interface RuntimeMigration {
 
 interface RuntimeMigrationRow {
   site_id: string;
+  attempt_id: string;
   stage: string;
   from_runtime: string;
   from_release_id: string | null;
@@ -359,6 +363,7 @@ const toSite = (row: SiteDbRow): Site => {
 
 const toRuntimeMigration = (row: RuntimeMigrationRow): RuntimeMigration => ({
   siteId: row.site_id,
+  attemptId: row.attempt_id,
   stage: asMigrationStage(row.stage),
   // The claim refuses anything else, so a row that fails this can only come from hand-editing; treating
   // it as static would silently pick a rollback target nobody chose.
@@ -645,6 +650,15 @@ export class SitesStore {
           ALTER TABLE p_sites_runtime_migrations ADD COLUMN rollback_restore_data INTEGER NOT NULL DEFAULT 1;
           ALTER TABLE p_sites_runtime_migrations ADD COLUMN rollback_requested INTEGER NOT NULL DEFAULT 0;
           ALTER TABLE p_sites_runtime_migrations ADD COLUMN completed_at TEXT;
+        `),
+      },
+      {
+        version: 16,
+        // Durable Sandbox request ids belong to one conversion attempt. A completed rollback may convert the
+        // same Site again, so the Site id alone cannot identify operations in the next runtime generation.
+        up: handle => handle.exec(`
+          ALTER TABLE p_sites_runtime_migrations ADD COLUMN attempt_id TEXT NOT NULL DEFAULT '';
+          UPDATE p_sites_runtime_migrations SET attempt_id = site_id || ':' || requested_at WHERE attempt_id = '';
         `),
       },
     ]);
@@ -1206,20 +1220,21 @@ export class SitesStore {
       // A legacy site with no release has nothing to stage from, and staging the editable source instead
       // is exactly the substitution this operation exists to avoid.
       if (site.current_release_id === null) return false;
+      const attemptId = randomUUID();
       if (existing) {
         return this.db.prepare(`
           UPDATE p_sites_runtime_migrations
-          SET stage = 'preparing', recipe = ?, requested_at = ?, last_error = NULL
+          SET attempt_id = ?, stage = 'preparing', recipe = ?, requested_at = ?, last_error = NULL
           WHERE site_id = ? AND last_error IS NOT NULL
-        `).run(input.recipe, input.requestedAt, input.siteId).changes === 1;
+        `).run(attemptId, input.recipe, input.requestedAt, input.siteId).changes === 1;
       }
       return this.db.prepare(`
         INSERT INTO p_sites_runtime_migrations (
-          site_id, stage, from_runtime, from_release_id, from_start_command, from_bind, from_port,
+          site_id, attempt_id, stage, from_runtime, from_release_id, from_start_command, from_bind, from_port,
           recipe, content_digest, requested_at, last_error
-        ) VALUES (?, 'preparing', ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
+        ) VALUES (?, ?, 'preparing', ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
       `).run(
-        input.siteId, from, site.current_release_id, site.start_command ?? '',
+        input.siteId, attemptId, from, site.current_release_id, site.start_command ?? '',
         site.bind === 'port' ? 'port' : 'socket', site.port, input.recipe, input.requestedAt,
       ).changes === 1;
     });
