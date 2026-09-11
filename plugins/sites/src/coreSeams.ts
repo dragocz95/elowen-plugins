@@ -14,7 +14,11 @@ import type {
  *  declaration below can never be wrong at runtime in the way an unchecked cast could be. When the
  *  package catches up, delete this file and import the types directly. */
 
-type SitesSandboxControl = SandboxControl;
+type SitesSandboxControl = Omit<SandboxControl, 'requestSiteEnvironment'> & {
+  requestSiteEnvironment(
+    input: Parameters<SandboxControl['requestSiteEnvironment']>[0] & { handover?: boolean },
+  ): ReturnType<SandboxControl['requestSiteEnvironment']>;
+};
 
 export interface SitesGatewayStatus {
   available: boolean;

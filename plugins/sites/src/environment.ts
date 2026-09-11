@@ -481,7 +481,7 @@ export class EnvironmentSupervisor {
       ), actor);
     }
   }
-  async delete(id: string, options: { removeBroker?: boolean } = {}): Promise<void> {
+  async delete(id: string, options: { removeBroker?: boolean; handover?: boolean } = {}): Promise<void> {
     const site = this.site(id);
     const binding = this.registration(id);
     // Rollback restores the legacy runtime before cleanup. Site deletion also finalizes its gateway only
@@ -490,7 +490,15 @@ export class EnvironmentSupervisor {
     if (binding && !binding.staging && (site.runtime !== 'environment' || options.removeBroker === false)) {
       this.saveBinding({ ...binding, staging: true });
     }
-    await this.perform(site, { kind: site.runtime === 'environment' ? 'delete' : 'cleanup-stage' }, undefined, true);
+    const action = { kind: site.runtime === 'environment' ? 'delete' : 'cleanup-stage' } as const;
+    if (options.handover) {
+      const accountUserId = this.actor(site);
+      await this.wait(await this.control().requestSiteEnvironment({
+        siteId: site.id, accountUserId, action, requestId: randomUUID(), handover: true,
+      }), accountUserId);
+    } else {
+      await this.perform(site, action, undefined, true);
+    }
     if (this.registration(id)?.staging && options.removeBroker !== false) await this.deps.gateway.removeRuntimeSocket(id);
     // Sandbox keeps a deleted Site row as the generation tombstone. The next publication must pass through
     // the existing registration handover again so that row can be revived at the following generation.

@@ -460,7 +460,16 @@ export class EnvironmentSupervisor {
         if (binding && !binding.staging && (site.runtime !== 'environment' || options.removeBroker === false)) {
             this.saveBinding({ ...binding, staging: true });
         }
-        await this.perform(site, { kind: site.runtime === 'environment' ? 'delete' : 'cleanup-stage' }, undefined, true);
+        const action = { kind: site.runtime === 'environment' ? 'delete' : 'cleanup-stage' };
+        if (options.handover) {
+            const accountUserId = this.actor(site);
+            await this.wait(await this.control().requestSiteEnvironment({
+                siteId: site.id, accountUserId, action, requestId: randomUUID(), handover: true,
+            }), accountUserId);
+        }
+        else {
+            await this.perform(site, action, undefined, true);
+        }
         if (this.registration(id)?.staging && options.removeBroker !== false)
             await this.deps.gateway.removeRuntimeSocket(id);
         // Sandbox keeps a deleted Site row as the generation tombstone. The next publication must pass through
