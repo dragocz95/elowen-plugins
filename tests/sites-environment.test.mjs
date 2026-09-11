@@ -665,6 +665,14 @@ test('container creation returns a fresh conversion seed without application dat
   assert.equal(site.id, SITE_ID);
 });
 
+test('container creation of a site without a conversion recipe needs no seed', async (t) => {
+  const { control, deps } = await sitesSdkHarness(t);
+  deps.buildSeedArchive = async () => { throw new Error('must not build a seed without a recipe'); };
+  new EnvironmentSupervisor(deps).connect();
+
+  assert.equal(await control.authority.containerSeed(SITE_ID), null);
+});
+
 test('a failed runtime is projected into the Site row instead of leaving it live', async (t) => {
   const { supervisor, site } = await sitesSdkHarness(t, {
     controlState: 'failed',

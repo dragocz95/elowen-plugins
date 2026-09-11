@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.10.28 - 2026-09-11
+
+- A Site built natively in its environment (no conversion recipe) creates its container without a bootstrap seed instead of failing with a missing recipe.
+
 ## sites 0.10.27 - 2026-09-11
 
 - Rebuild and import the disposable conversion bootstrap seed before every new Sandbox container rootfs, preserving application data while restoring the app unit and one-use credentials after source rebinding, recovery or recreation.

@@ -29,9 +29,12 @@ export class EnvironmentSupervisor {
                     await this.prepareBrokerDirectory(id);
             },
             containerSeed: async (id) => {
-                const recipe = loadAppRecipe(join(this.deps.siteDir(id), 'migration', 'artifacts'));
-                if (!recipe)
+                // Only a converted site carries a recipe; a site built natively in its environment keeps its
+                // application in the registered image and boots without a seed.
+                const artifacts = join(this.deps.siteDir(id), 'migration', 'artifacts');
+                if (!existsSync(join(artifacts, 'recipe.json')))
                     return null;
+                const recipe = loadAppRecipe(artifacts);
                 return { kind: 'data', archivePath: await this.deps.buildSeedArchive(id, {
                         provisionScript: provisionScript(recipe), appUnit: appUnit(recipe), dataArchive: null,
                     }) };
