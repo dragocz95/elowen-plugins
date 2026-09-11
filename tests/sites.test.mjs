@@ -1330,6 +1330,34 @@ test('deletion completes when the environment was already deleted', async () => 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('deletion succeeds when broker teardown is unavailable after environment resources are gone', async () => {
+  const store = new SitesStore(makeDb());
+  const root = tempDir('delete-without-broker');
+  const target = site({ id: 'id-1', slug: 'report-a1b2c3', runtime: 'environment' });
+  store.insertSite(target);
+  mkdirSync(join(root, target.id), { recursive: true });
+  store.beginDelete(target.id);
+  let removeBroker;
+
+  try {
+    await deleteSiteResources(target.id, {
+      store,
+      siteDir: (id) => join(root, id),
+      stopLegacy: async () => {},
+      releasePublication: async () => {},
+      deleteEnvironment: async (_id, options) => {
+        removeBroker = options?.removeBroker;
+        if (removeBroker !== false) throw new Error('the published-sites socket broker is unavailable');
+      },
+      removeGateway: async () => { throw new Error('the published-sites socket broker is unavailable'); },
+    });
+
+    assert.equal(removeBroker, false, 'broker teardown runs only after the environment and Site resources are gone');
+    assert.equal(store.siteById(target.id), null);
+    assert.equal(existsSync(join(root, target.id)), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('SiteDelete uses the shared cascading cleanup and leaves the Project source alone', async (t) => {
   const { store, dir, call } = toolHarness(t);
   const sourceDir = join(dir, 'project', 'report-source');

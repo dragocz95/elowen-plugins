@@ -10,8 +10,10 @@ export async function deleteSiteResources(siteId, deps) {
     if (site.kind === 'proxy')
         await deps.releasePublication(site);
     if (site.runtime === 'environment' || deps.store.runtimeRecord(siteId, 'binding')) {
+        // The gateway is finalized below, after the environment, plugin files and durable Site rows are gone.
+        // Keeping broker removal out of the environment delete makes an unavailable gateway a harmless final no-op.
         try {
-            await deps.deleteEnvironment(siteId);
+            await deps.deleteEnvironment(siteId, { removeBroker: false });
         }
         catch (error) {
             if (!environmentAlreadyDeleted(error))

@@ -10,7 +10,7 @@ export interface SiteDeletionDeps {
   siteDir(siteId: string): string;
   stopLegacy(siteId: string): Promise<void>;
   releasePublication(site: Site): Promise<void>;
-  deleteEnvironment(siteId: string): Promise<void>;
+  deleteEnvironment(siteId: string, options: { removeBroker: false }): Promise<void>;
   removeGateway(slug: string): Promise<void>;
   reportGatewayError?(site: Site, error: unknown): void;
 }
@@ -22,7 +22,9 @@ export async function deleteSiteResources(siteId: string, deps: SiteDeletionDeps
   if (site.runtime !== 'environment') await deps.stopLegacy(siteId);
   if (site.kind === 'proxy') await deps.releasePublication(site);
   if (site.runtime === 'environment' || deps.store.runtimeRecord(siteId, 'binding')) {
-    try { await deps.deleteEnvironment(siteId); }
+    // The gateway is finalized below, after the environment, plugin files and durable Site rows are gone.
+    // Keeping broker removal out of the environment delete makes an unavailable gateway a harmless final no-op.
+    try { await deps.deleteEnvironment(siteId, { removeBroker: false }); }
     catch (error) { if (!environmentAlreadyDeleted(error)) throw error; }
   }
   rmSync(deps.siteDir(siteId), { recursive: true, force: true });
