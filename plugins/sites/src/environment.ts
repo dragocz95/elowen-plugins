@@ -3,8 +3,8 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync, statSync, wr
 import { request as httpRequest } from 'node:http';
 import { connect } from 'node:net';
 import { dirname, join, resolve, sep } from 'node:path';
-import type { SiteEnvironmentAction, SiteEnvironmentControl, SiteEnvironmentOperation, SiteEnvironmentRegistration, SiteRuntimeArtifact, SiteRuntimeAuthority, SiteImageKind, ManagedProjectRef } from 'elowen/plugin-api';
-import type { SitesContext } from './coreSeams.js';
+import type { SiteEnvironmentAction, SiteEnvironmentOperation, SiteRuntimeArtifact, SiteRuntimeAuthority, SiteImageKind, ManagedProjectRef } from 'elowen/plugin-api';
+import type { SitesContext, SitesSandboxControl, SitesSiteEnvironmentRegistration as SiteEnvironmentRegistration } from './coreSeams.js';
 import type { AccessDeps } from './access.js';
 import type { EnvironmentLimitOverrides } from './config.js';
 import type { Endpoint } from './runtime.js';
@@ -23,7 +23,7 @@ interface EnvironmentConfig {
   releasesKept: number;
 }
 export interface EnvironmentDeps {
-  control(): SiteEnvironmentControl | undefined;
+  control(): SitesSandboxControl | undefined;
   store: SitesStore;
   access: AccessDeps;
   dataDir: string;
@@ -75,13 +75,13 @@ interface SnapshotReceipt {
 /** Application readiness and Sites records only. All container mutations belong to Sandbox. */
 export class EnvironmentSupervisor {
   private readonly authority: SiteRuntimeAuthority;
-  private connected: SiteEnvironmentControl | undefined;
+  private connected: SitesSandboxControl | undefined;
   private readonly handovers = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: EnvironmentDeps) {
     this.authority = createSiteRuntimeAuthority({
       store: deps.store, access: deps.access,
-      registration: id => this.registration(id), gateway: () => deps.gateway,
+      registration: id => this.resolvedRegistration(id), gateway: () => deps.gateway,
       beforeCreate: async id => {
         this.writeEnvironmentFiles(this.site(id));
         if (!this.brokerDirectoryExists(id)) await this.prepareBrokerDirectory(id);
@@ -106,7 +106,7 @@ export class EnvironmentSupervisor {
 
   connect(): void { if (this.deps.control()) this.control(); }
 
-  private control(): SiteEnvironmentControl {
+  private control(): SitesSandboxControl {
     const control = this.deps.control();
     if (!control) throw new Error('the Sandbox environment runtime is unavailable');
     if (this.connected !== control) {
@@ -134,12 +134,24 @@ export class EnvironmentSupervisor {
   private saveBinding(binding: SiteEnvironmentRegistration): void {
     this.deps.store.putRuntimeRecord(binding.siteId, 'binding', JSON.stringify(binding));
   }
-  private defaultBinding(site: Site): SiteEnvironmentRegistration {
+  private async resolvedRegistration(id: string): Promise<SiteEnvironmentRegistration | null> {
+    const binding = this.registration(id);
+    if (!binding || binding.staging) return binding;
+    const site = this.deps.store.siteById(id);
+    return site ? { ...binding, sourcePath: await this.sourcePath(site) } : null;
+  }
+  private async sourcePath(site: Site): Promise<string> {
+    if (!site.sourceRel) throw new Error('this Site has no Project source');
+    const root = await this.control().projectWorkspaceHostPath({ projectId: site.projectId });
+    return join(root, ...site.sourceRel.split('/'));
+  }
+  private async defaultBinding(site: Site): Promise<SiteEnvironmentRegistration> {
     const migration = this.deps.store.runtimeMigration(site.id);
     const converted = migration !== null;
     const recipe = converted ? loadAppRecipe(join(this.deps.siteDir(site.id), 'migration', 'artifacts')) : null;
     return {
-      siteId: site.id, projectId: site.projectId, sourcePath: converted ? join(this.deps.siteDir(site.id), 'migration', 'workspace') : site.runtime === 'environment' ? site.sourceDir : this.deps.siteDir(site.id),
+      siteId: site.id, projectId: site.projectId, sourcePath: converted ? join(this.deps.siteDir(site.id), 'migration', 'workspace') : site.runtime === 'environment' ? await this.sourcePath(site) : this.deps.siteDir(site.id),
+      ...(converted || site.runtime !== 'environment' ? {} : { sourceRel: site.sourceRel }),
       sitesDataDir: this.deps.dataDir, brokerDir: this.brokerDirectory(site.id),
       image: recipe ? conversionImageTag(recipe.image) : BASE_IMAGE_TAG,
       workspaceReadOnly: recipe?.image === 'static', network: this.deps.config().environmentNetwork,
@@ -163,7 +175,7 @@ export class EnvironmentSupervisor {
     if (this.deps.store.runtimeRecord(site.id, 'handover') === 'complete') return;
     let binding = this.registration(site.id);
     if (!binding) {
-      this.deps.store.claimRuntimeRecord(site.id, 'binding', JSON.stringify(this.defaultBinding(site)));
+      this.deps.store.claimRuntimeRecord(site.id, 'binding', JSON.stringify(await this.defaultBinding(site)));
       binding = this.registration(site.id)!;
     }
     if (site.runtime === 'environment' && binding.initialIntent?.desiredState === 'running') {
@@ -308,7 +320,7 @@ export class EnvironmentSupervisor {
   async provision(site: Site, imageKind: SiteImageKind): Promise<void> { await this.perform(site, { kind: 'provision-image', imageKind }); }
   async prepareContainer(site: Site, workspace: string, image = BASE_IMAGE_TAG, workspaceReadOnly = false): Promise<{ created: boolean }> {
     this.control();
-    const binding = this.defaultBinding(site);
+    const binding = await this.defaultBinding(site);
     binding.sourcePath = this.ownedPath(site.id, workspace);
     binding.image = image; binding.workspaceReadOnly = workspaceReadOnly; binding.staging = true;
     binding.initialIntent = { desiredState: 'stopped', pendingAction: null };
@@ -347,7 +359,7 @@ export class EnvironmentSupervisor {
     const previous = this.registration(site.id);
     if (!previous) throw new Error('this site has no registered environment binding to move');
     const binding: SiteEnvironmentRegistration = {
-      ...previous, sourcePath: resolve(site.sourceDir), staging: true,
+      ...previous, sourcePath: await this.sourcePath(site), sourceRel: site.sourceRel, staging: true,
       initialIntent: { desiredState: 'stopped', pendingAction: null },
     };
     if (previous.sourcePath !== binding.sourcePath) {
@@ -408,7 +420,7 @@ export class EnvironmentSupervisor {
       return null;
     }
     if (state === 'unprovisioned') return null;
-    if (!this.registration(id)) this.saveBinding(this.defaultBinding(site));
+    if (!this.registration(id)) this.saveBinding(await this.defaultBinding(site));
     const binding = this.registration(id)!;
     if (expect && (expect.workspace !== binding.sourcePath || expect.image !== binding.image)) return { owned: false, workspace: binding.sourcePath, detail: 'container binding differs from the expected conversion' };
     return { owned: true, workspace: binding.sourcePath, detail: 'the registered container matches the expected specification' };

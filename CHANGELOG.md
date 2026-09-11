@@ -1,5 +1,10 @@
 # Changelog
 
+## sites 0.10.25 - 2026-09-11
+
+- Store Site sources as Project-relative references and resolve the current host workspace through Sandbox when publishing, reconciling or recreating a container, so Project adoption, rollback and generation changes cannot leave stale absolute binds.
+- Refuse startup migration when a legacy Site source lies outside its owning Project instead of silently serving an empty directory.
+
 ## sites 0.10.24 - 2026-09-11
 
 - Skip automatic conversion completion for Sites already being deleted, so the migration supervisor does not compete with deletion or log repeated completion failures.

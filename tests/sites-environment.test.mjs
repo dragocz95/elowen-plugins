@@ -480,7 +480,7 @@ test('snapshot retention authority is handed to the runtime with the configured 
   const binding = await control.authority.resolve({ siteId: SITE_ID, accountUserId: 7, access: 'read' });
   assert.equal(binding.snapshotRetention, 2, 'the provider prunes with the Sites-configured retention');
   assert.equal(binding.image, BASE_IMAGE_TAG);
-  assert.equal(binding.sourcePath, site.sourceDir);
+  assert.equal(binding.sourcePath, '/workspace/project');
   assert.equal(binding.staging, false);
 });
 
@@ -547,6 +547,25 @@ test('a failed restore marks its own visible row and does not hot-retry', async 
 
 // --- Deletion and environment files --------------------------------------------------------------
 
+test('a Project-relative binding follows host adoption and the next Site recreation', async (t) => {
+  let projectRoot = '/srv/project';
+  const { supervisor, control, site } = await sitesSdkHarness(t, {
+    control: { projectWorkspaceRoot: () => projectRoot, enforceAuthority: true },
+  });
+  await supervisor.state(site);
+  assert.equal((await control.authority.resolve({ siteId: SITE_ID, accountUserId: 7, access: 'read' })).sourcePath,
+    '/srv/project/project');
+
+  projectRoot = '/var/lib/containers/storage/volumes/elowen-project-1-g1-workspace/_data';
+  await supervisor.start(site);
+  assert.equal((await control.authority.resolve({ siteId: SITE_ID, accountUserId: 7, access: 'read' })).sourcePath,
+    `${projectRoot}/project`);
+
+  projectRoot = '/srv/project';
+  assert.equal((await control.authority.resolve({ siteId: SITE_ID, accountUserId: 7, access: 'read' })).sourcePath,
+    '/srv/project/project');
+});
+
 test('environment delete requests the typed delete, removes the broker through authority and keeps the Project source', async (t) => {
   const { supervisor, control, gateway, store, site } = await sitesSdkHarness(t, { controlState: 'stopped' });
   await supervisor.state(site);
@@ -554,7 +573,7 @@ test('environment delete requests the typed delete, removes the broker through a
 
   assert.deepEqual(requestKinds(control).at(-1), 'delete');
   assert.equal(supervisor.endpointFor(SITE_ID), null);
-  assert.equal(site.sourceDir, '/workspace/project', 'the Project source directory is never touched');
+  assert.equal(site.sourceRel, 'project', 'the Project source reference is never touched');
   assert.notEqual(store.siteById(SITE_ID), null);
   assert.equal(gateway.ops.some(([name]) => name === 'remove'), true, 'the broker goes only after the provider stopped the container');
 });
@@ -755,9 +774,9 @@ test('migration v5 preserves existing runtimes, exposes environment counts and f
   // nobody reviewed against the legacy rows seeded above. v9 adds the runtime conversion slot, v10 the
   // durable crash-recovery state on it, v11/v12 the runtime records and provider-owned lifecycle
   // columns, v13 drops the disk threshold column nothing enforced, v14 adds the publication kind and
-  // target, v15 adds durable rollback and completion state, and v16 identifies each conversion attempt;
-  // none touches an existing site's runtime.
-  assert.equal(db.appliedVersion(), 16);
+  // target, v15 adds durable rollback and completion state, v16 identifies each conversion attempt, and
+  // v17 stages the Project-relative source backfill performed at plugin boot; none changes runtime meaning.
+  assert.equal(db.appliedVersion(), 17);
   for (const runtime of ['static', 'command', 'php']) assert.equal(store.siteById(`legacy-${runtime}`).runtime, runtime);
   // The rows seeded above predate the publication model, so the migration's defaults make them static
   // publications with nothing to proxy — which is exactly how the serving path treated them before.
@@ -801,6 +820,39 @@ test('migration v16 gives an in-flight legacy conversion a durable attempt ident
   const store = new SitesStore(db);
 
   assert.equal(store.runtimeMigration(SITE_ID).attemptId, `${SITE_ID}:${requestedAt}`);
+});
+
+test('migration v17 converts legacy absolute sources and refuses rows outside their Project', () => {
+  const root = '/srv/project';
+  const inside = makeDb({
+    beforeStep: (version, handle) => {
+      if (version !== 17) return;
+      handle.prepare(`INSERT INTO p_sites_sites (
+        id, slug, title, project_id, owner_user_id, source_dir, runtime, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        SITE_ID, 'inside', 'Inside', 7, 7, `${root}/sites/inside`, 'environment', 'live', iso(), iso(),
+      );
+    },
+  });
+  const migrated = new SitesStore(inside);
+  migrated.migrateSourceReferences((projectId) => projectId === 7 ? root : null);
+  assert.equal(migrated.siteById(SITE_ID).sourceRel, 'sites/inside');
+  assert.equal(inside.prepare("SELECT 1 FROM pragma_table_info('p_sites_sites') WHERE name = 'source_dir'").get(), undefined);
+  migrated.migrateSourceReferences(() => null);
+
+  const outside = makeDb({
+    beforeStep: (version, handle) => {
+      if (version !== 17) return;
+      handle.prepare(`INSERT INTO p_sites_sites (
+        id, slug, title, project_id, owner_user_id, source_dir, runtime, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        SITE_ID, 'outside', 'Outside', 7, 7, '/srv/other/sites/outside', 'environment', 'live', iso(), iso(),
+      );
+    },
+  });
+  const refused = new SitesStore(outside);
+  assert.throws(() => refused.migrateSourceReferences(() => root), /outside Project 7 root/);
+  assert.ok(outside.prepare("SELECT 1 FROM pragma_table_info('p_sites_sites') WHERE name = 'source_dir'").get());
 });
 
 test('core seam, manifest and lifecycle match the final core contract', () => {

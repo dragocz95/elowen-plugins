@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isAbsolute, relative, sep } from 'node:path';
 export const VISIBILITIES = ['private', 'project', 'authenticated', 'public'];
 const asMigrationStage = (value) => value === 'prepared' || value === 'flipped' || value === 'completing' || value === 'completed' ? value : 'preparing';
 const asConvertibleRuntime = (value) => value === 'static' || value === 'command' || value === 'php' ? value : null;
@@ -75,7 +76,7 @@ const toSite = (row) => {
         ownerUserId: row.owner_user_id,
         visibility: asVisibility(row.visibility),
         accessGeneration: row.access_generation,
-        sourceDir: row.source_dir,
+        sourceRel: row.source_rel,
         spa: row.spa === 1,
         kind: asPublicationKind(row.kind),
         target: row.target ?? '',
@@ -400,7 +401,45 @@ export class SitesStore {
           UPDATE p_sites_runtime_migrations SET attempt_id = site_id || ':' || requested_at WHERE attempt_id = '';
         `),
             },
+            {
+                version: 17,
+                // Backfilled at plugin boot where the owning Project paths are available. Until that succeeds no Site
+                // row is read, so an invalid absolute legacy source cannot be mistaken for a relative reference.
+                up: handle => handle.exec('ALTER TABLE p_sites_sites ADD COLUMN source_rel TEXT;'),
+            },
         ]);
+    }
+    migrateSourceReferences(projectRoot) {
+        const columns = this.db.prepare("PRAGMA table_info('p_sites_sites')").all();
+        const hasLegacy = columns.some((column) => column.name === 'source_dir');
+        if (!hasLegacy) {
+            const invalid = this.db.prepare('SELECT id FROM p_sites_sites WHERE source_rel IS NULL').get();
+            if (invalid)
+                throw new Error(`Site ${invalid.id} has no Project-relative source reference`);
+            return;
+        }
+        this.db.transaction(() => {
+            const rows = this.db.prepare('SELECT id, slug, project_id, kind, source_dir, source_rel FROM p_sites_sites').all();
+            const update = this.db.prepare('UPDATE p_sites_sites SET source_rel = ? WHERE id = ?');
+            for (const row of rows) {
+                if (row.source_rel !== null)
+                    continue;
+                if (row.kind === 'proxy' && row.source_dir === '') {
+                    update.run('', row.id);
+                    continue;
+                }
+                const root = projectRoot(row.project_id);
+                if (!root || !isAbsolute(root) || !isAbsolute(row.source_dir)) {
+                    throw new Error(`Site ${row.slug} cannot migrate its source because Project ${row.project_id} has no host source root`);
+                }
+                const rel = relative(root, row.source_dir);
+                if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+                    throw new Error(`Site ${row.slug} source ${row.source_dir} is outside Project ${row.project_id} root ${root}`);
+                }
+                update.run(rel.split(sep).join('/'), row.id);
+            }
+            this.db.prepare('ALTER TABLE p_sites_sites DROP COLUMN source_dir').run();
+        });
     }
     projectPreview(projectId, port) {
         return this.db.prepare('SELECT id, slug, project_id AS projectId, port, created_at AS createdAt FROM p_sites_project_previews WHERE project_id = ? AND port = ?').get(projectId, port) ?? null;
@@ -449,15 +488,17 @@ export class SitesStore {
         return this.db.transaction(fn);
     }
     insertSite(site) {
+        const legacyColumn = this.db.prepare("PRAGMA table_info('p_sites_sites')").all()
+            .some((column) => column.name === 'source_dir');
         this.db.prepare(`
       INSERT INTO p_sites_sites (
         id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
-        source_dir, spa, kind, target, runtime, start_command, bind, port,
+        ${legacyColumn ? 'source_dir, ' : ''}source_rel, spa, kind, target, runtime, start_command, bind, port,
         environment_cpus, environment_memory_mb, environment_pids_limit,
         environment_desired_state, status, current_release_id,
         created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceDir, site.spa ? 1 : 0, site.kind, site.target, site.runtime, site.startCommand, site.bind, site.port, site.environmentCpus ?? null, site.environmentMemoryMb ?? null, site.environmentPidsLimit ?? null, site.environmentDesiredState ?? 'running', site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError);
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${legacyColumn ? "'', " : ''}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceRel, site.spa ? 1 : 0, site.kind, site.target, site.runtime, site.startCommand, site.bind, site.port, site.environmentCpus ?? null, site.environmentMemoryMb ?? null, site.environmentPidsLimit ?? null, site.environmentDesiredState ?? 'running', site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError);
     }
     siteById(id) {
         const row = this.db.prepare('SELECT * FROM p_sites_sites WHERE id = ?').get(id);

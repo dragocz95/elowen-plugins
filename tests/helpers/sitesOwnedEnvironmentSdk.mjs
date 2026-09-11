@@ -23,7 +23,7 @@ export const environmentSite = (overrides = {}) => ({
   ownerUserId: 7,
   visibility: 'public',
   accessGeneration: 1,
-  sourceDir: '/workspace/project',
+  sourceRel: 'project',
   spa: false,
   kind: 'static',
   target: '',
@@ -133,6 +133,7 @@ function sitesSdkControl({
   snapshots = [],
   authorityLifecycle = true,
   enforceAuthority = false,
+  projectWorkspaceRoot = () => '/workspace',
   onStart = null,
   /** What the durable runtime row reports as its own failure, so a test can model a container that never
    *  came up rather than only the healthy and stopped states. */
@@ -206,6 +207,7 @@ function sitesSdkControl({
         limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512 }, lastError,
       };
     },
+    async projectWorkspaceHostPath() { return projectWorkspaceRoot(); },
     connectSitesRuntime(authority) { control.authority = authority; },
     async registerSiteEnvironment({ siteId }) {
       registrations.push(siteId);

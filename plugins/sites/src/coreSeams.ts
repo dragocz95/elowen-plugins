@@ -1,6 +1,8 @@
 import type {
-  PluginContext, PluginHttpRequest, PluginHttpResponse, SandboxControl,
+  PluginContext, PluginHttpRequest, PluginHttpResponse, SandboxControl, SiteEnvironmentRegistration,
 } from 'elowen/plugin-api';
+
+export type SitesSiteEnvironmentRegistration = SiteEnvironmentRegistration & { sourceRel?: string };
 
 /** ⚠️ WHY THIS SHAPE IS WRITTEN OUT HERE INSTEAD OF IMPORTED.
  *
@@ -14,7 +16,8 @@ import type {
  *  declaration below can never be wrong at runtime in the way an unchecked cast could be. When the
  *  package catches up, delete this file and import the types directly. */
 
-type SitesSandboxControl = Omit<SandboxControl, 'requestSiteEnvironment'> & {
+export type SitesSandboxControl = Omit<SandboxControl, 'requestSiteEnvironment'> & {
+  projectWorkspaceHostPath(input: { projectId: number }): Promise<string>;
   requestSiteEnvironment(
     input: Parameters<SandboxControl['requestSiteEnvironment']>[0] & { handover?: boolean },
   ): ReturnType<SandboxControl['requestSiteEnvironment']>;
