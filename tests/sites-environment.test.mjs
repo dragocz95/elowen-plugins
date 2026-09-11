@@ -184,19 +184,36 @@ test('stop requests the typed stop and drops the routing endpoint', async (t) =>
   assert.equal(gateway.ops.some(([name]) => name === 'remove'), true);
 });
 
-test('a discarded conversion environment is registered again before the next preparation', async (t) => {
+test('a deleted conversion binding is absent when a new conversion is prepared', async (t) => {
   const site = environmentSite({ runtime: 'static' });
   const { supervisor, control, store, root } = await sitesSdkHarness(t, { site });
-  const workspace = join(root, 'data', 'sites', SITE_ID, 'migration', 'workspace');
-  mkdirSync(workspace, { recursive: true });
+  const firstWorkspace = join(root, 'data', 'sites', SITE_ID, 'migration', 'workspace-old');
+  const nextWorkspace = join(root, 'data', 'sites', SITE_ID, 'migration', 'workspace-new');
+  mkdirSync(firstWorkspace, { recursive: true });
+  mkdirSync(nextWorkspace, { recursive: true });
 
-  await supervisor.prepareContainer(site, workspace);
+  await supervisor.prepareContainer(site, firstWorkspace);
+  assert.deepEqual(await supervisor.inspectOwnership(SITE_ID, {
+    workspace: nextWorkspace,
+    image: BASE_IMAGE_TAG,
+  }), {
+    owned: false,
+    workspace: firstWorkspace,
+    detail: 'container binding differs from the expected conversion',
+  }, 'a live binding from a different conversion is still rejected');
   await supervisor.delete(SITE_ID, { removeBroker: false });
   assert.equal(store.runtimeRecord(SITE_ID, 'handover'), null);
 
-  await supervisor.prepareContainer(site, workspace);
+  assert.equal(await supervisor.inspectOwnership(SITE_ID, {
+    workspace: nextWorkspace,
+    image: BASE_IMAGE_TAG,
+  }), null, 'a deleted runtime row has no live binding identity');
+  assert.equal(store.runtimeRecord(SITE_ID, 'binding'), null, 'the tombstoned conversion binding is retired');
+
+  await supervisor.prepareContainer(site, nextWorkspace);
   assert.deepEqual(control.registrations, [SITE_ID, SITE_ID]);
   assert.equal(control.requests.at(-1).expectedGeneration, 2);
+  assert.equal(JSON.parse(store.runtimeRecord(SITE_ID, 'binding')).sourcePath, nextWorkspace);
 });
 
 test('healthy running environment is adopted and clears a stale failure without lifecycle changes', async (t) => {
@@ -518,6 +535,17 @@ test('environment delete requests the typed delete, removes the broker through a
   assert.equal(site.sourceDir, '/workspace/project', 'the Project source directory is never touched');
   assert.notEqual(store.siteById(SITE_ID), null);
   assert.equal(gateway.ops.some(([name]) => name === 'remove'), true, 'the broker goes only after the provider stopped the container');
+});
+
+test('environment deletion can defer broker teardown until Site resources are gone', async (t) => {
+  const { supervisor, control, gateway, site } = await sitesSdkHarness(t, { controlState: 'stopped' });
+  await supervisor.state(site);
+  gateway.removeRuntimeSocket = async () => { throw new Error('the published-sites socket broker is unavailable'); };
+
+  await supervisor.delete(SITE_ID, { removeBroker: false });
+
+  assert.equal(control.state, 'deleted');
+  assert.deepEqual(requestKinds(control).at(-1), 'delete');
 });
 
 test('a staging conversion binding deletes as cleanup-stage and takes its broker with it', async (t) => {

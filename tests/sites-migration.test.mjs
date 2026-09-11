@@ -1057,6 +1057,26 @@ test('a completed command conversion with dataDir under /data restores the same 
   } finally { h.cleanup(); }
 });
 
+test('a completed conversion can roll back and complete a second forward conversion', async () => {
+  const h = harness();
+  try {
+    seedLiveStatic(h);
+
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+    await h.service.complete(SITE_ID);
+    await h.service.rollback(SITE_ID);
+
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+    const second = await h.service.complete(SITE_ID);
+
+    assert.equal(second.stage, 'completed');
+    assert.equal(h.store.siteById(SITE_ID).runtime, 'environment');
+    assert.equal(h.calls.prepareContainer.length, 2);
+  } finally { h.cleanup(); }
+});
+
 test('flipped rollback removes staged files while the environment still exists and leaves legacy serving', async () => {
   const h = harness({ removeStagedRequiresContainer: true });
   try {

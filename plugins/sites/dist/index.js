@@ -396,7 +396,7 @@ export function register(published) {
                 siteDir,
                 stopLegacy: (id) => supervisor.stop(id),
                 releasePublication: (target) => publications.release(target),
-                deleteEnvironment: (id) => environment.delete(id),
+                deleteEnvironment: (id, options) => environment.delete(id, options),
                 removeGateway: (slug) => gateway.removeSite(slug),
                 reportGatewayError: (target, error) => ctx.logger.warn(`site ${target.slug} gateway cleanup failed after deletion: ${error instanceof Error ? error.message : String(error)}`),
             });

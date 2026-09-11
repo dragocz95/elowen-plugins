@@ -368,10 +368,24 @@ export class EnvironmentSupervisor {
     }
     async inspectOwnership(id, expect) {
         const site = this.site(id);
+        let state;
+        try {
+            state = (await this.control().siteEnvironmentFor({ siteId: id, accountUserId: this.actor(site) })).state;
+        }
+        catch {
+            return null;
+        }
+        if (state === 'deleted') {
+            // A Sandbox tombstone retains only the generation history. Its old Sites binding does not identify
+            // a live resource and must not be carried into the next conversion registration.
+            this.deps.store.deleteRuntimeRecord(id, 'handover');
+            this.deps.store.deleteRuntimeRecord(id, 'binding');
+            return null;
+        }
+        if (state === 'unprovisioned')
+            return null;
         if (!this.registration(id))
             this.saveBinding(this.defaultBinding(site));
-        if (!await this.provisionedContainer(id))
-            return null;
         const binding = this.registration(id);
         if (expect && (expect.workspace !== binding.sourcePath || expect.image !== binding.image))
             return { owned: false, workspace: binding.sourcePath, detail: 'container binding differs from the expected conversion' };
@@ -440,9 +454,10 @@ export class EnvironmentSupervisor {
     async delete(id, options = {}) {
         const site = this.site(id);
         const binding = this.registration(id);
-        // Rollback restores the legacy runtime before cleanup. Reclassify the retained environment binding as
-        // staging so the plugin's own runtime authority can discard it after the Site row is command again.
-        if (site.runtime !== 'environment' && binding && !binding.staging) {
+        // Rollback restores the legacy runtime before cleanup. Site deletion also finalizes its gateway only
+        // after every other resource is gone. In both cases staging tells the runtime authority to leave the
+        // broker in place while Sandbox discards the container.
+        if (binding && !binding.staging && (site.runtime !== 'environment' || options.removeBroker === false)) {
             this.saveBinding({ ...binding, staging: true });
         }
         await this.perform(site, { kind: site.runtime === 'environment' ? 'delete' : 'cleanup-stage' }, undefined, true);
