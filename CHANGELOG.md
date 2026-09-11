@@ -1,5 +1,10 @@
 # Changelog
 
+## sites 0.10.21 - 2026-09-11
+
+- Treat a deleted Sandbox environment binding as absent during conversion preparation, so a completed conversion can roll back and convert forward again with a new binding identity while live mismatches remain rejected.
+- Complete Site deletion after environment resources are removed even when the published-sites socket broker is unavailable during final gateway teardown.
+
 ## sites 0.10.20 - 2026-09-11
 
 - Restore completed command conversions symmetrically when their application data directory is nested below `/data`, and retain rollback artifacts until environment cleanup succeeds.
