@@ -99,11 +99,12 @@ const staticCutover = test('a static site converts end to end and answers over i
     // A static conversion must not serve the release's dotfiles through the new runtime either.
     assert.equal((await httpOverSocket(h.brokerPath(site.id), '/.env')).status, 404);
 
-    // COMPLETE. Only allowed once the site really answers, so this is the readiness probe over real HTTP.
+    // COMPLETE. The route queues durable work; the daemon supervisor performs the lifecycle phases.
     res = await h.call(site.id, { step: 'complete' });
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.conversion.stage, 'none');
-    assert.equal(h.store.runtimeMigration(site.id), null);
+    assert.equal(res.status, 202, JSON.stringify(res.body));
+    assert.equal(res.body.conversion.stage, 'flipped');
+    await h.migration.reconcileCompletions();
+    assert.equal(h.store.runtimeMigration(site.id).stage, 'completed', JSON.stringify(h.store.runtimeMigration(site.id)));
     assert.equal(h.store.siteById(site.id).runtime, 'environment');
 
     // Identity survived the conversion.
@@ -113,13 +114,13 @@ const staticCutover = test('a static site converts end to end and answers over i
     assert.equal(converted.currentReleaseId, RELEASE_ID);
     assert.equal(h.store.releases(site.id).length, 1);
 
-    // ONE WORKING COPY. The completed site is indistinguishable from a natively created environment: the
-    // container is bound to the site's own source folder, nothing is staging any more, and the
-    // conversion left no directory behind.
+    // ONE WORKING COPY. The container is bound to the site's own source folder and nothing is staging.
+    // The protected conversion directory remains only as completed rollback material.
     const binding = JSON.parse(h.store.runtimeRecord(site.id, 'binding'));
     assert.equal(binding.sourcePath, converted.sourceDir);
     assert.equal(binding.staging, false);
-    assert.equal(existsSync(join(h.siteDir(site.id), 'migration')), false);
+    assert.equal(existsSync(join(h.siteDir(site.id), 'migration')), true);
+    assert.equal(existsSync(stagedWorkspace({ siteDir: h.siteDir }, site.id)), false);
     assert.equal(readFileSync(join(site.sourceDir, 'NOTES.md'), 'utf8'), 'kept only in the Project folder');
     assert.equal(readFileSync(join(site.sourceDir, 'assets/app.js'), 'utf8'), 'console.log(1)',
       'what only the staged copy held arrived in the Project folder');
@@ -174,8 +175,9 @@ const legacySurvives = test('a live legacy broker socket survives prepare and a 
     // PRE-FLIP ROLLBACK. The container goes; the legacy socket stays, because this conversion never
     // created it.
     res = await h.call(site.id, { step: 'rollback' });
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.conversion.stage, 'none');
+    assert.equal(res.status, 202, JSON.stringify(res.body));
+    await h.migration.reconcileRollbacks();
+    assert.equal(h.migration.status(site.id).stage, 'none');
     assert.deepEqual(await h.runtimeState(site.id), { state: 'deleted', provisioned: false }, 'the container was discarded');
     assert.equal(statSync(join(h.brokerRoot, site.id)).ino, legacyInode);
     assert.equal((await httpOverSocket(h.brokerPath(site.id), '/')).body, 'legacy-alive',
@@ -289,8 +291,9 @@ const statefulRollback = test('a stateful command site converts, serves its carr
       // command site. The restore also has to land before the container is discarded, so a failure
       // would still leave the writes recoverable.
       res = await h.call(site.id, { step: 'rollback', restoreData: true });
-      assert.equal(res.status, 200, JSON.stringify(res.body));
-      assert.equal(res.body.conversion.stage, 'none');
+      assert.equal(res.status, 202, JSON.stringify(res.body));
+      await h.migration.reconcileRollbacks();
+      assert.equal(h.migration.status(site.id).stage, 'none');
       assert.equal(h.store.siteById(site.id).runtime, 'command');
 
       // Container writes travelled back, the deletion stuck, the neighbour was untouched, the database is
@@ -302,7 +305,7 @@ const statefulRollback = test('a stateful command site converts, serves its carr
       assert.ok(restored.prepare('SELECT count(*) AS n FROM state').get().n >= 3, 'the container writes came back');
       restored.close();
       assert.equal((statSync(join(appDir, 'data.db')).mode & 0o777).toString(8), '600');
-      assert.equal(existsSync(join(h.brokerRoot, site.id)), false, 'the container broker directory went with it');
+      assert.equal(existsSync(join(h.brokerRoot, site.id)), true, 'the restored legacy socket keeps its broker directory');
       assert.equal(h.store.siteById(site.id).currentReleaseId, RELEASE_ID, 'the release the site serves is unchanged');
     } finally {
       await h.cleanup(site.id);

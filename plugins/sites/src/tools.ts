@@ -687,6 +687,10 @@ export function registerTools(deps: ToolDeps): void {
         if (site.kind === 'proxy') {
           const port = publicationPort(site);
           if (port === null) throw new ToolError('This publication has no usable port. Recreate it with SiteCreate (kind "proxy" and the port in target).');
+          // Response facts are resolved before the transport or row is mutated. A missing public base is a
+          // valid installation state, so success reports the verified socket and leaves the URL null.
+          const address = siteUrl(config, site.slug);
+          const projectName = ctx.host.stores().projects.get(site.projectId)?.slug ?? String(site.projectId);
           let socketPath: string;
           try {
             socketPath = (await deps.publications.establish(site, userId)).socketPath;
@@ -715,14 +719,15 @@ export function registerTools(deps: ToolDeps): void {
             lastError: null,
           });
           return text([
-            `Published "${site.title}" - the application inside project ${ctx.host.stores().projects.get(site.projectId)?.slug ?? site.projectId} answered on 127.0.0.1:${port} (${probe.detail}).`,
-            `Live at ${addressOf(config, site.slug)}`,
+            `Published "${site.title}" - the application inside project ${projectName} answered on 127.0.0.1:${port} (${probe.detail}).`,
+            address ? `Live at ${address}` : 'The public hostname is unavailable until the instance domain gateway is configured.',
+            `Transport socket: ${socketPath}`,
             `Visible to: ${site.visibility}`,
             '',
             'Nothing was copied, so the address always shows what the application serves right now. Restarting, snapshotting and reading its logs happen in the Project environment.',
           ].join('\n'), {
             siteId: site.id, slug: site.slug, kind: site.kind, target: site.target,
-            url: addressOf(config, site.slug), visibility: site.visibility, status: 'live', answered: probe.status,
+            url: address, socketPath, visibility: site.visibility, status: 'live', answered: probe.status,
           });
         }
 

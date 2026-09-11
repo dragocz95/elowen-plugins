@@ -1007,6 +1007,38 @@ test('a rolled-back site can be prepared, flipped and completed again', async ()
   } finally { h.cleanup(); }
 });
 
+test('a completed command conversion rolls back with data, clears its row, and converts again', async () => {
+  const h = harness({ legacyRunning: true, containerWrote: true });
+  try {
+    h.store.insertSite(legacySite({
+      sourceDir: sourceDirOf(h), runtime: 'command', startCommand: 'node server.mjs',
+    }));
+    h.store.insertRelease(release());
+    h.seedRelease(SITE_ID, RELEASE_ID, { 'server.mjs': 'run()' });
+    mkdirSync(join(h.legacyHome, '.local/share/this-app'), { recursive: true });
+    writeFileSync(join(h.legacyHome, '.local/share/this-app/data.db'), 'LEGACY-ROWS');
+
+    await h.service.prepare(SITE_ID, 'release-copy');
+    await h.service.flip(SITE_ID);
+    await h.service.complete(SITE_ID);
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'completed');
+
+    h.service.scheduleRollback(SITE_ID, { restoreData: true });
+    await h.service.reconcileRollbacks();
+
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal(h.store.siteById(SITE_ID).runtime, 'command');
+    assert.equal(h.store.siteById(SITE_ID).status, 'live');
+    assert.equal(readFileSync(join(h.legacyHome, '.local/share/this-app/data.db'), 'utf8'), 'WRITTEN-WHILE-CONVERTED');
+    assert.deepEqual(h.calls.restorePublication, [SITE_ID]);
+    assert.equal(h.calls.discard.at(-1).removeBroker, false, 'the environment is discarded after legacy serving is restored');
+
+    assert.equal((await h.service.prepare(SITE_ID, 'release-copy')).stage, 'prepared');
+    assert.equal((await h.service.flip(SITE_ID)).stage, 'flipped');
+    assert.equal((await h.service.complete(SITE_ID)).stage, 'completed');
+  } finally { h.cleanup(); }
+});
+
 test('flipped rollback removes staged files while the environment still exists and leaves legacy serving', async () => {
   const h = harness({ removeStagedRequiresContainer: true });
   try {
@@ -1227,7 +1259,7 @@ test('concurrent completion ticks consume and retire conversion artifacts once',
     assert.equal(h.calls.publish.length, 1);
     assert.equal(removals, 1, 'the staging directory is retired once');
     assert.equal(existsSync(conversionMarker), false);
-    assert.equal(existsSync(join(h.root, 'sites', SITE_ID, 'migration')), false);
+    assert.equal(existsSync(join(h.root, 'sites', SITE_ID, 'migration')), true, 'rollback artefacts remain retained');
     assert.equal(h.binding.staging, false);
     assert.equal(h.store.runtimeRecord(SITE_ID, 'completion'), null);
     assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'completed');
@@ -1532,7 +1564,7 @@ test('the route accepts only a named recipe and a known step', async () => {
   } finally { h.cleanup(); }
 });
 
-test('the route drives prepare, flip and complete against the real service', async () => {
+test('the completion route queues durable supervisor work instead of running lifecycle inline', async () => {
   const h = apiHarness();
   try {
     seedLiveStatic(h);
@@ -1545,7 +1577,16 @@ test('the route drives prepare, flip and complete against the real service', asy
     assert.equal(h.store.siteById(SITE_ID).runtime, 'environment');
 
     const done = await h.call(`/${SITE_ID}`, { method: 'POST', body: { step: 'complete' } });
-    assert.equal(done.body.conversion.stage, 'completed');
+    assert.equal(done.status, 202);
+    assert.equal(done.body.conversion.stage, 'flipped');
+    assert.equal(h.calls.stopContainer.length, 0, 'the request performs no completion lifecycle inline');
+
+    await h.service.reconcileCompletions();
+    assert.equal(h.store.runtimeMigration(SITE_ID).stage, 'completed');
+
+    const retired = await h.call(`/${SITE_ID}`, { method: 'POST', body: { step: 'retire' } });
+    assert.equal(retired.status, 200);
+    assert.equal(retired.body.conversion.stage, 'none');
   } finally { h.cleanup(); }
 });
 
@@ -3201,7 +3242,8 @@ test('completing a conversion leaves ONE working copy: the site source folder', 
     assert.equal(readFileSync(join(sourceDir, 'README.md'), 'utf8'), 'only in the Project folder', 'nothing was deleted');
     assert.equal(h.binding.sourcePath, sourceDir, 'the container is bound to the site source folder');
     assert.equal(h.binding.staging, false, 'and is an ordinary live binding');
-    assert.equal(existsSync(join(h.root, 'sites', SITE_ID, 'migration')), false, 'the conversion directory is gone');
+    assert.equal(existsSync(workspace), false, 'the spent staging workspace is gone');
+    assert.equal(existsSync(join(h.root, 'sites', SITE_ID, 'migration')), true, 'the rollback artefacts remain retained');
     assert.deepEqual(h.calls.rebind, [SITE_ID]);
     assert.deepEqual(h.calls.publish, [SITE_ID]);
     assert.equal(h.calls.clearStage[0].stageDir, '/data/.elowen-conversion');
@@ -3248,6 +3290,22 @@ test('completing twice is a no-op, and a completion holds the environment while 
     const again = await h.service.complete(SITE_ID);
     assert.equal(again.stage, 'completed');
     assert.deepEqual(h.calls.rebind, [], 'nothing is rebuilt a second time');
+  } finally { h.cleanup(); }
+});
+
+test('retire explicitly removes completed rollback artefacts and the audit row', async () => {
+  const h = harness({ containerWrote: true });
+  try {
+    await convertedSite(h);
+    await h.service.complete(SITE_ID);
+    assert.equal(existsSync(join(h.root, 'sites', SITE_ID, 'migration')), true);
+
+    const retired = await h.service.retireCompleted(SITE_ID);
+
+    assert.equal(retired.stage, 'none');
+    assert.equal(h.store.runtimeMigration(SITE_ID), null);
+    assert.equal(existsSync(join(h.root, 'sites', SITE_ID, 'migration')), false);
+    assert.equal(h.store.siteById(SITE_ID).runtime, 'environment');
   } finally { h.cleanup(); }
 });
 

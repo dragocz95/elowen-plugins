@@ -43,9 +43,12 @@ const suspensionOf = (row) => {
     // reconcile that started something in between would serve from a volume nobody restored yet.
     if (stage === 'completing')
         return 'environment';
+    const rollback = asRollbackStage(row.rollback_stage);
+    if (stage === 'completed') {
+        return rollback === 'quiescing' || rollback === 'exported' || rollback === 'restored' ? 'environment' : null;
+    }
     if (stage !== 'flipped')
         return row.legacy_stopped === 1 && row.last_error === null ? 'legacy' : null;
-    const rollback = asRollbackStage(row.rollback_stage);
     return rollback === 'quiescing' || rollback === 'exported' || rollback === 'restored' ? 'environment' : null;
 };
 const asVisibility = (value) => VISIBILITIES.includes(value) ? value : 'private';
@@ -928,7 +931,7 @@ export class SitesStore {
       SET rollback_stage = CASE WHEN rollback_stage = 'none' THEN 'requested' ELSE rollback_stage END,
           rollback_restore_data = CASE WHEN rollback_stage IN ('none', 'requested', 'quiescing') THEN ? ELSE rollback_restore_data END,
           rollback_requested = 1
-      WHERE site_id = ? AND stage <> 'completed'
+      WHERE site_id = ? AND stage <> 'completing'
     `).run(restoreData ? 1 : 0, siteId).changes === 1;
     }
     beginRuntimeRollback(siteId) {
@@ -936,7 +939,7 @@ export class SitesStore {
       UPDATE p_sites_runtime_migrations
       SET rollback_stage = CASE WHEN rollback_stage = 'requested' THEN 'quiescing' ELSE rollback_stage END,
           rollback_requested = 0, last_error = NULL
-      WHERE site_id = ? AND stage <> 'completed'
+      WHERE site_id = ? AND stage <> 'completing'
         AND (rollback_requested = 1 OR last_error IS NOT NULL)
     `).run(siteId).changes === 1;
     }
