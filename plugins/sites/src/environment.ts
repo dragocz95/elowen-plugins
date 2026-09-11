@@ -168,7 +168,7 @@ export class EnvironmentSupervisor {
       ...(converted || site.runtime !== 'environment' ? {} : { sourceRel: site.sourceRel }),
       sitesDataDir: this.deps.dataDir, brokerDir: this.brokerDirectory(site.id),
       image: recipe ? conversionImageTag(recipe.image) : BASE_IMAGE_TAG,
-      workspaceReadOnly: recipe?.image === 'static', network: this.deps.config().environmentNetwork,
+      workspaceReadOnly: recipe?.image === 'static', persistentRootfs: true, network: this.deps.config().environmentNetwork,
       limits: this.effectiveLimits(site), snapshotRetention: this.deps.config().releasesKept,
       staging: converted || site.runtime !== 'environment',
       initialIntent: { desiredState: site.runtime !== 'environment' || site.environmentDesiredState === 'stopped' ? 'stopped' : 'running',
@@ -225,7 +225,7 @@ export class EnvironmentSupervisor {
     if (this.deps.store.runtimeRecord(site.id, 'bootstrap-intent') === 'running') {
       // Fixed image tags are content-addressed and may advance with plugin releases. Provision only before
       // the first container exists; an existing generation must keep the exact image it was registered on.
-      if (registered.state === 'unprovisioned') {
+      if (registered.state === 'unprovisioned' && !binding.persistentRootfs) {
         await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
           action: { kind: 'provision-image', imageKind: imageKindOf(binding) }, expectedGeneration: registered.generation,
           requestId: `sites-bootstrap-image:${site.id}:${registered.generation}` }), accountUserId);
@@ -265,7 +265,7 @@ export class EnvironmentSupervisor {
     const control = this.control();
     const state = await control.siteEnvironmentFor({ siteId: site.id, accountUserId });
     const binding = this.registration(site.id)!;
-    if ((action.kind === 'start' || action.kind === 'restart') && state.state === 'unprovisioned'
+    if ((action.kind === 'start' || action.kind === 'restart') && state.state === 'unprovisioned' && !binding.persistentRootfs
       && this.deps.store.runtimeRecord(site.id, 'bootstrap-intent') !== 'complete') {
       await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
         action: { kind: 'provision-image', imageKind: imageKindOf(binding) },
@@ -361,7 +361,10 @@ export class EnvironmentSupervisor {
     await this.handover(site, accountUserId);
     return this.control().siteEnvironmentLogs({ siteId: site.id, accountUserId, lines: Math.min(1000, Math.max(1, Math.round(lines))) });
   }
-  async provision(site: Site, imageKind: SiteImageKind): Promise<void> { await this.perform(site, { kind: 'provision-image', imageKind }); }
+  async provision(site: Site, imageKind: SiteImageKind): Promise<void> {
+    if (this.registration(site.id)?.persistentRootfs) throw new Error('persistent rootfs Sites materialize directly from their registered image');
+    await this.perform(site, { kind: 'provision-image', imageKind });
+  }
   async prepareContainer(site: Site, workspace: string, image = BASE_IMAGE_TAG, workspaceReadOnly = false): Promise<{ created: boolean }> {
     this.control();
     const binding = await this.defaultBinding(site);
@@ -377,7 +380,7 @@ export class EnvironmentSupervisor {
     }
     this.saveBinding(binding);
     if (await this.provisionedContainer(site.id)) return { created: false };
-    await this.provision(site, imageKindOf(binding));
+    if (!binding.persistentRootfs) await this.provision(site, imageKindOf(binding));
     await this.perform(site, { kind: 'prepare' });
     return { created: true };
   }
@@ -413,7 +416,7 @@ export class EnvironmentSupervisor {
     }
     this.saveBinding(binding);
     if (await this.provisionedContainer(site.id)) return;
-    await this.perform(site, { kind: 'provision-image', imageKind: imageKindOf(binding) }, undefined, true, `${operationId}-image`);
+    if (!binding.persistentRootfs) await this.perform(site, { kind: 'provision-image', imageKind: imageKindOf(binding) }, undefined, true, `${operationId}-image`);
     await this.perform(site, { kind: 'prepare' }, undefined, true, `${operationId}-prepare`);
   }
 

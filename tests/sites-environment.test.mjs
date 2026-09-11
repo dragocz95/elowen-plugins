@@ -65,10 +65,10 @@ test('environment start performs the typed SDK sequence, prepares the ingress an
   const { supervisor, control, gateway, site, socketPath, root } = await sitesSdkHarness(t, { bootstrapped: false, controlState: 'unprovisioned' });
   await supervisor.start(site);
 
-  assert.deepEqual(requestKinds(control), ['provision-image', 'start']);
+  assert.deepEqual(requestKinds(control), ['start']);
   assert.equal(control.requests.some((request) => request.action.kind === 'restart'), false);
-  assert.match(control.requests[0].requestId, new RegExp(`^sites-bootstrap-image:${SITE_ID}:1$`));
-  assert.match(control.requests[1].requestId, new RegExp(`^sites-bootstrap-start:${SITE_ID}:1$`));
+  assert.match(control.requests[0].requestId, new RegExp(`^sites-bootstrap-start:${SITE_ID}:1$`));
+  assert.equal((await control.authority.resolve({ siteId: SITE_ID, accountUserId: 7, access: 'manage' })).persistentRootfs, true);
   for (const request of control.requests) {
     assert.equal(request.accountUserId, 7);
     assert.equal(request.expectedGeneration, 1);
@@ -88,6 +88,19 @@ test('environment start performs the typed SDK sequence, prepares the ingress an
   // level too deep, while the container create kept failing lstat on the git-stub bind source.
   assert.equal(existsSync(join(root, 'data', 'sites', SITE_ID, 'environment')), false,
     'the container contract must not be written under the source/release siteDir');
+});
+
+test('legacy image-backed environment still provisions before its first start', async (t) => {
+  const { supervisor, control, store, site, root, brokerDir } = await sitesSdkHarness(t, { bootstrapped: false, controlState: 'unprovisioned' });
+  store.putRuntimeRecord(SITE_ID, 'binding', JSON.stringify({
+    siteId: SITE_ID, projectId: site.projectId, sourceRel: site.sourceRel, sourcePath: `/workspace/${site.sourceRel}`,
+    sitesDataDir: join(root, 'data'), brokerDir, image: BASE_IMAGE_TAG, workspaceReadOnly: false, network: 'shared',
+    limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512 }, initialIntent: { desiredState: 'running', pendingAction: null },
+  }));
+
+  await supervisor.start(site);
+
+  assert.deepEqual(requestKinds(control), ['provision-image', 'start']);
 });
 
 test('restart of an existing generation does not provision a newer fixed recipe', async (t) => {

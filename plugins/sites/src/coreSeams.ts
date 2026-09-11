@@ -2,7 +2,7 @@ import type {
   PluginContext, PluginHttpRequest, PluginHttpResponse, SandboxControl, SiteEnvironmentRegistration,
 } from 'elowen/plugin-api';
 
-export type SitesSiteEnvironmentRegistration = SiteEnvironmentRegistration & { sourceRel?: string };
+export type SitesSiteEnvironmentRegistration = SiteEnvironmentRegistration & { sourceRel?: string; persistentRootfs?: boolean };
 
 /** ⚠️ WHY THIS SHAPE IS WRITTEN OUT HERE INSTEAD OF IMPORTED.
  *

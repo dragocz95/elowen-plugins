@@ -1,5 +1,10 @@
 # Changelog
 
+## sites 0.10.29 - 2026-09-11
+
+- Register new Site environments with a persistent exploded root filesystem, preserving installed applications and system configuration across container recreation and source rebinding.
+- Use conversion bootstrap seeds only for the first persistent-disk container, keep legacy image-backed rows unchanged, and route snapshots and rollback through Sandbox disk format 2 with optional data restoration.
+
 ## sites 0.10.28 - 2026-09-11
 
 - A Site built natively in its environment (no conversion recipe) creates its container without a bootstrap seed instead of failing with a missing recipe.
