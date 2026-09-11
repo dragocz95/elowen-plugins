@@ -38,19 +38,15 @@ const imageTagFor = (base, containerfile, conf) => `localhost/elowen-site-static
   createHash('sha256').update([base, containerfile, conf].join('\0')).digest('hex').slice(0, 16)}`;
 
 /** A supervisor whose ingress endpoint is a real unix socket, for probing readiness over real HTTP. */
-const readinessHarness = (socketPath) => {
-  const env = new EnvironmentSupervisor({
-    podman: {},
-    store: {},
-    gateway: {},
-    config: () => ({ startTimeoutSeconds: 5, environmentNetwork: 'shared', environmentCpus: 1,
-      environmentMemoryMb: 256, environmentPidsLimit: 128, releasesKept: 3 }),
-    siteDir: () => '/tmp/unused',
-    ensureBaseImage: async () => 'unused',
-  });
-  env.endpoints.set(SITE_ID, { kind: 'socket', path: socketPath });
-  return env;
-};
+const readinessHarness = (socketPath) => new EnvironmentSupervisor({
+  control: () => undefined,
+  store: { siteById: () => ({ id: SITE_ID, runtime: 'environment' }) },
+  access: {}, gateway: {}, dataDir: '/tmp/unused',
+  config: () => ({ startTimeoutSeconds: 5, environmentNetwork: 'shared', environmentCpus: 1,
+    environmentMemoryMb: 256, environmentPidsLimit: 128, releasesKept: 3 }),
+  siteDir: () => '/tmp/unused',
+  brokerPath: () => socketPath,
+});
 const OTHER_ID = '99999999-8888-7777-6666-555555555555';
 const RELEASE_ID = 'rel-live-0001';
 
@@ -2621,7 +2617,7 @@ test('P3 a wrong status is settled immediately and a dead socket gives up with t
     const dead = await env.probeReadiness(SITE_ID, { path: '/', expectStatus: 200 }, { deadlineMs: 600 });
     assert.equal(dead.ready, false);
     // The LAST real transport error is propagated, not swallowed into a generic timeout.
-    assert.match(dead.detail, /ENOENT|ECONNREFUSED|failed/);
+    assert.match(dead.detail, /ingress socket is unavailable|ECONNREFUSED|failed/);
     assert.match(dead.detail, /gave up after \d+ attempt/);
   } finally { rmSync(gone, { recursive: true, force: true }); }
 });

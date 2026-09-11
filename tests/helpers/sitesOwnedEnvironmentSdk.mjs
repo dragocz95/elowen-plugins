@@ -309,7 +309,8 @@ export async function sitesSdkHarness(t, {
   // The first-start sequence has its own test; a case about stop, limits or routing must not restate it.
   if (bootstrapped) store.putRuntimeRecord(site.id, 'bootstrap-intent', 'complete');
   const control = sitesSdkControl({ state: controlState, onStart: brokerSocketTracker(t, socketPath), ...controlOptions });
-  const supervisor = new EnvironmentSupervisor({
+  const warnings = [];
+  const deps = {
     control: () => control,
     store,
     access,
@@ -325,8 +326,10 @@ export async function sitesSdkHarness(t, {
     siteUrl: () => null,
     accountUserId: () => 7,
     brokerPath: () => socketPath,
-  });
-  return { supervisor, control, store, site, gateway, socketPath, brokerDir, root };
+    logger: { warn: message => warnings.push(message) },
+  };
+  const supervisor = new EnvironmentSupervisor(deps);
+  return { supervisor, control, store, site, gateway, socketPath, brokerDir, root, deps, warnings };
 }
 
 /** A release row shaped the way Sites records environment snapshots. */
