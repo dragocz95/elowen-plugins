@@ -3,16 +3,16 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync, statSync, wr
 import { request as httpRequest } from 'node:http';
 import { connect } from 'node:net';
 import { dirname, join, resolve, sep } from 'node:path';
-import type { SiteEnvironmentAction, SiteEnvironmentOperation, SiteRuntimeArtifact, SiteRuntimeAuthority, SiteImageKind, ManagedProjectRef } from 'elowen/plugin-api';
+import type { SiteEnvironmentAction, SiteEnvironmentOperation, SiteRuntimeArtifact, SiteImageKind, ManagedProjectRef } from 'elowen/plugin-api';
 import type { SitesContext, SitesSandboxControl, SitesSiteEnvironmentRegistration as SiteEnvironmentRegistration } from './coreSeams.js';
 import type { AccessDeps } from './access.js';
 import type { EnvironmentLimitOverrides } from './config.js';
 import type { Endpoint } from './runtime.js';
 import type { Release, Site, SitesStore, EnvironmentAction } from './store.js';
-import { createSiteRuntimeAuthority } from './siteRuntimeAuthority.js';
+import { createSiteRuntimeAuthority, type SeededSiteRuntimeAuthority } from './siteRuntimeAuthority.js';
 import { BASE_IMAGE_TAG, baseImageRecipe } from './baseImage.js';
 import { conversionImageRecipe, conversionImageTag } from './conversionImage.js';
-import { loadAppRecipe } from './recipe.js';
+import { appUnit, loadAppRecipe, provisionScript } from './recipe.js';
 
 interface EnvironmentConfig {
   startTimeoutSeconds: number;
@@ -38,6 +38,7 @@ export interface EnvironmentDeps {
   accountUserId?(): number | null;
   brokerPath?(siteId: string): string;
   logger?: Pick<SitesContext['logger'], 'warn'>;
+  buildSeedArchive(siteId: string, input: { provisionScript: string; appUnit: string; dataArchive: null }): Promise<string>;
 }
 /** Which fixed image recipe a registered binding runs on. `workspaceReadOnly` is the discriminator
  *  between the two conversion derivatives, because only a static site is served from a tree its own
@@ -74,7 +75,7 @@ interface SnapshotReceipt {
 
 /** Application readiness and Sites records only. All container mutations belong to Sandbox. */
 export class EnvironmentSupervisor {
-  private readonly authority: SiteRuntimeAuthority;
+  private readonly authority: SeededSiteRuntimeAuthority;
   private connected: SitesSandboxControl | undefined;
   private readonly handovers = new Map<string, Promise<void>>();
   private readonly sourceBindingUpgrades = new Map<string, SiteEnvironmentRegistration>();
@@ -86,6 +87,13 @@ export class EnvironmentSupervisor {
       beforeCreate: async id => {
         this.writeEnvironmentFiles(this.site(id));
         if (!this.brokerDirectoryExists(id)) await this.prepareBrokerDirectory(id);
+      },
+      containerSeed: async id => {
+        const recipe = loadAppRecipe(join(this.deps.siteDir(id), 'migration', 'artifacts'));
+        if (!recipe) return null;
+        return { kind: 'data', archivePath: await this.deps.buildSeedArchive(id, {
+          provisionScript: provisionScript(recipe), appUnit: appUnit(recipe), dataArchive: null,
+        }) };
       },
       imageRecipe: kind => kind === 'base' ? baseImageRecipe() : conversionImageRecipe(kind),
       projectDependents: async projectId => deps.store.allSites().filter(site => site.projectId === projectId).map(site => ({ siteId: site.id })),
@@ -212,11 +220,17 @@ export class EnvironmentSupervisor {
     }
     const registered = await control.registerSiteEnvironment({ siteId: site.id, accountUserId });
     if (this.deps.store.runtimeRecord(site.id, 'bootstrap-intent') === 'running') {
-      await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
-        action: { kind: 'provision-image', imageKind: imageKindOf(binding) }, expectedGeneration: registered.generation,
-        requestId: `sites-bootstrap-image:${site.id}:${registered.generation}` }), accountUserId);
-      await control.requestSiteEnvironment({ siteId: site.id, accountUserId, action: { kind: 'start' },
-        expectedGeneration: registered.generation, requestId: `sites-bootstrap-start:${site.id}:${registered.generation}` });
+      // Fixed image tags are content-addressed and may advance with plugin releases. Provision only before
+      // the first container exists; an existing generation must keep the exact image it was registered on.
+      if (registered.state === 'unprovisioned') {
+        await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
+          action: { kind: 'provision-image', imageKind: imageKindOf(binding) }, expectedGeneration: registered.generation,
+          requestId: `sites-bootstrap-image:${site.id}:${registered.generation}` }), accountUserId);
+      }
+      if (registered.state !== 'running') {
+        await control.requestSiteEnvironment({ siteId: site.id, accountUserId, action: { kind: 'start' },
+          expectedGeneration: registered.generation, requestId: `sites-bootstrap-start:${site.id}:${registered.generation}` });
+      }
       this.deps.store.putRuntimeRecord(site.id, 'bootstrap-intent', 'complete');
     }
     const pending = this.deps.store.environmentAction(site.id);
@@ -248,7 +262,7 @@ export class EnvironmentSupervisor {
     const control = this.control();
     const state = await control.siteEnvironmentFor({ siteId: site.id, accountUserId });
     const binding = this.registration(site.id)!;
-    if ((action.kind === 'start' || action.kind === 'restart')
+    if ((action.kind === 'start' || action.kind === 'restart') && state.state === 'unprovisioned'
       && this.deps.store.runtimeRecord(site.id, 'bootstrap-intent') !== 'complete') {
       await this.wait(await control.requestSiteEnvironment({ siteId: site.id, accountUserId,
         action: { kind: 'provision-image', imageKind: imageKindOf(binding) },
@@ -308,7 +322,7 @@ export class EnvironmentSupervisor {
       this.deps.store.deleteRuntimeRecord(site.id, 'handover');
       this.deps.store.deleteRuntimeRecord(site.id, 'binding');
     }
-    if (!this.registration(site.id)) this.saveBinding({ ...this.defaultBinding(site), sourcePath: destination,
+    if (!this.registration(site.id)) this.saveBinding({ ...await this.defaultBinding(site), sourcePath: destination,
       staging: true, initialIntent: { desiredState: 'stopped', pendingAction: null } });
     const artifact: SiteRuntimeArtifact = { kind: 'project-source', project, guestPath, destinationPath: destination };
     await this.wait(await this.artifactOperation(site, 'export-project', artifact, actor), actor);

@@ -30,6 +30,7 @@ import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
 import { EnvironmentProvisioningService } from '../plugins/sites/dist/provisioning.js';
 import { EnvironmentSupervisor } from '../plugins/sites/dist/environment.js';
+import { installAppRecipe } from '../plugins/sites/dist/recipe.js';
 import {
   SITE_ID, environmentSite, modeOf, snapshotRelease, sitesSdkHarness,
 } from './helpers/sitesOwnedEnvironmentSdk.mjs';
@@ -61,7 +62,7 @@ const restoreRequests = (control) => control.requests.filter((request) => reques
 // --- Supervisor over the fake EXACT SDK ----------------------------------------------------------
 
 test('environment start performs the typed SDK sequence, prepares the ingress and never issues a restart', async (t) => {
-  const { supervisor, control, gateway, site, socketPath, root } = await sitesSdkHarness(t, { bootstrapped: false });
+  const { supervisor, control, gateway, site, socketPath, root } = await sitesSdkHarness(t, { bootstrapped: false, controlState: 'unprovisioned' });
   await supervisor.start(site);
 
   assert.deepEqual(requestKinds(control), ['provision-image', 'start']);
@@ -87,6 +88,18 @@ test('environment start performs the typed SDK sequence, prepares the ingress an
   // level too deep, while the container create kept failing lstat on the git-stub bind source.
   assert.equal(existsSync(join(root, 'data', 'sites', SITE_ID, 'environment')), false,
     'the container contract must not be written under the source/release siteDir');
+});
+
+test('restart of an existing generation does not provision a newer fixed recipe', async (t) => {
+  const { supervisor, control, site } = await sitesSdkHarness(t, {
+    bootstrapped: false, controlState: 'stopped', control: { onStart: () => {} },
+  });
+
+  await supervisor.request(site, { kind: 'restart' });
+
+  assert.deepEqual(requestKinds(control), ['start', 'restart']);
+  assert.equal(control.requests.some((request) => request.action.kind === 'provision-image'), false);
+  assert.equal(control.state, 'running');
 });
 
 test('environment start waits for a late ingress socket before conversion readiness runs', async (t) => {
@@ -622,6 +635,34 @@ test('environment files survive repeated container creation', async (t) => {
   assert.equal(modeOf(stub), 0o400, 'the stub stays read-only after the second create');
   assert.equal(readFileSync(stub, 'utf8'), '');
   assert.match(readFileSync(join(environment, 'container.env'), 'utf8'), /ELOWEN_SITE_SLUG=environment-demo/);
+});
+
+test('container creation returns a fresh conversion seed without application data', async (t) => {
+  const { control, site, root, deps } = await sitesSdkHarness(t);
+  installAppRecipe(join(deps.siteDir(SITE_ID), 'migration', 'artifacts'), {
+    siteId: SITE_ID,
+    expectedReleaseId: 'release-1',
+    recipe: { kind: 'node-app', argv: ['/usr/local/bin/node', '/workspace/server.mjs'], dataIncludes: [], secretFiles: [] },
+  });
+  const calls = [];
+  deps.buildSeedArchive = async (siteId, input) => {
+    calls.push({ siteId, input });
+    return join(root, `seed-${calls.length}.tar`);
+  };
+  const restarted = new EnvironmentSupervisor(deps);
+  restarted.connect();
+
+  const first = await control.authority.containerSeed(SITE_ID);
+  const second = await control.authority.containerSeed(SITE_ID);
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].siteId, SITE_ID);
+  assert.equal(calls[0].input.dataArchive, null);
+  assert.match(calls[0].input.provisionScript, /elowen-app\.service/);
+  assert.match(calls[0].input.appUnit, /ExecStart="\/usr\/local\/bin\/node" "\/workspace\/server\.mjs"/);
+  assert.deepEqual(first, { kind: 'data', archivePath: join(root, 'seed-1.tar') });
+  assert.deepEqual(second, { kind: 'data', archivePath: join(root, 'seed-2.tar') });
+  assert.equal(site.id, SITE_ID);
 });
 
 test('a failed runtime is projected into the Site row instead of leaving it live', async (t) => {

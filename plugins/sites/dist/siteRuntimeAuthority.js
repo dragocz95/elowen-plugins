@@ -21,6 +21,7 @@ export function createSiteRuntimeAuthority(deps) {
         imageRecipe: deps.imageRecipe,
         projectDependents: deps.projectDependents,
         beforeCreate: deps.beforeCreate,
+        containerSeed: deps.containerSeed,
         async resolve({ siteId, accountUserId }) {
             const site = deps.store.siteById(siteId);
             if (!site || !deps.access.accountExists(accountUserId))
