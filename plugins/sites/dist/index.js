@@ -397,7 +397,14 @@ export function register(published) {
                 stopLegacy: (id) => supervisor.stop(id),
                 releasePublication: (target) => publications.release(target),
                 deleteEnvironment: (id, options) => environment.delete(id, options),
+                removeRuntimeSocket: async (id) => {
+                    const control = ctx.control('publishedSitesGateway');
+                    if (!control)
+                        throw new Error('the published-sites socket broker is unavailable');
+                    await control.removeRuntimeSocket(id);
+                },
                 removeGateway: (slug) => gateway.removeSite(slug),
+                reportRuntimeSocketError: (target, error) => ctx.logger.warn(`site ${target.slug} runtime socket cleanup failed after deletion: ${error instanceof Error ? error.message : String(error)}`),
                 reportGatewayError: (target, error) => ctx.logger.warn(`site ${target.slug} gateway cleanup failed after deletion: ${error instanceof Error ? error.message : String(error)}`),
             });
             deletingSiteIds.delete(siteId);

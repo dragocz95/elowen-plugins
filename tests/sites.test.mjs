@@ -1321,6 +1321,7 @@ test('deletion completes when the environment was already deleted', async () => 
       stopLegacy: async () => {},
       releasePublication: async () => {},
       deleteEnvironment: async () => { throw new Error('The environment has been deleted'); },
+      removeRuntimeSocket: async () => {},
       removeGateway: async (slug) => { cleaned.push(slug); },
     });
 
@@ -1338,6 +1339,8 @@ test('deletion succeeds when broker teardown is unavailable after environment re
   mkdirSync(join(root, target.id), { recursive: true });
   store.beginDelete(target.id);
   let removeBroker;
+  const socketRemovals = [];
+  const warnings = [];
 
   try {
     await deleteSiteResources(target.id, {
@@ -1349,12 +1352,51 @@ test('deletion succeeds when broker teardown is unavailable after environment re
         removeBroker = options?.removeBroker;
         if (removeBroker !== false) throw new Error('the published-sites socket broker is unavailable');
       },
+      removeRuntimeSocket: async (id) => {
+        socketRemovals.push(id);
+        throw new Error('the privileged gateway refused socket removal');
+      },
       removeGateway: async () => { throw new Error('the published-sites socket broker is unavailable'); },
+      reportRuntimeSocketError: (site, error) => warnings.push(`${site.slug}: ${error.message}`),
     });
 
     assert.equal(removeBroker, false, 'broker teardown runs only after the environment and Site resources are gone');
+    assert.deepEqual(socketRemovals, [target.id], 'the privileged gateway receives one final socket-directory removal');
+    assert.deepEqual(warnings, [`${target.slug}: the privileged gateway refused socket removal`]);
     assert.equal(store.siteById(target.id), null);
     assert.equal(existsSync(join(root, target.id)), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('deletion explicitly hands over a mismatched Sandbox binding and removes the Site row', async () => {
+  const store = new SitesStore(makeDb());
+  const root = tempDir('delete-mismatched-binding');
+  const target = site({ id: 'id-1', slug: 'report-a1b2c3', runtime: 'environment' });
+  store.insertSite(target);
+  store.putRuntimeRecord(target.id, 'binding', JSON.stringify({ siteId: target.id, sourcePath: '/new/source' }));
+  store.putRuntimeRecord(target.id, 'handover', 'complete');
+  mkdirSync(join(root, target.id), { recursive: true });
+  store.beginDelete(target.id);
+  const requests = [];
+
+  try {
+    await deleteSiteResources(target.id, {
+      store,
+      siteDir: (id) => join(root, id),
+      stopLegacy: async () => {},
+      releasePublication: async () => {},
+      deleteEnvironment: async (siteId, options) => {
+        requests.push({ siteId, ...options });
+        if (options?.handover !== true) {
+          throw new Error('The trusted Site binding changed; an explicit handover is required');
+        }
+      },
+      removeRuntimeSocket: async () => {},
+      removeGateway: async () => {},
+    });
+
+    assert.deepEqual(requests, [{ siteId: target.id, removeBroker: false, handover: true }]);
+    assert.equal(store.siteById(target.id), null);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -1391,6 +1433,7 @@ test('deleting retained legacy resources and a runtime tombstone removes the Sit
       stopLegacy: async () => {},
       releasePublication: async () => {},
       deleteEnvironment: async () => { tombstoneDiscarded = true; },
+      removeRuntimeSocket: async () => {},
       removeGateway: async () => {},
     });
 

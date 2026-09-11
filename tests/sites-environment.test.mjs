@@ -216,6 +216,28 @@ test('a deleted conversion binding is absent when a new conversion is prepared',
   assert.equal(JSON.parse(store.runtimeRecord(SITE_ID, 'binding')).sourcePath, nextWorkspace);
 });
 
+test('delete uses the Sandbox handover path when the stored runtime binding is foreign', async (t) => {
+  const { supervisor, control, store, site } = await sitesSdkHarness(t, { control: { authorityLifecycle: false } });
+  store.putRuntimeRecord(SITE_ID, 'handover', 'complete');
+  control.siteEnvironmentFor = async () => {
+    throw new Error('The trusted Site binding changed; an explicit handover is required');
+  };
+  const request = control.requestSiteEnvironment.bind(control);
+  control.requestSiteEnvironment = async (input) => {
+    if (input.action.kind === 'delete' && input.handover !== true) {
+      throw new Error('The trusted Site binding changed; an explicit handover is required');
+    }
+    return request(input);
+  };
+
+  await supervisor.delete(SITE_ID, { removeBroker: false, handover: true });
+
+  assert.equal(control.requests.at(-1).action.kind, 'delete');
+  assert.equal(control.requests.at(-1).handover, true);
+  assert.equal(control.state, 'deleted');
+  assert.equal(site.status, 'live');
+});
+
 test('healthy running environment is adopted and clears a stale failure without lifecycle changes', async (t) => {
   const { supervisor, control, gateway, store, site, socketPath, brokerDir } = await sitesSdkHarness(t, { controlState: 'running' });
   store.putRuntimeRecord(SITE_ID, 'handover', 'complete');

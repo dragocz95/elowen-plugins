@@ -13,7 +13,7 @@ export async function deleteSiteResources(siteId, deps) {
         // The gateway is finalized below, after the environment, plugin files and durable Site rows are gone.
         // Keeping broker removal out of the environment delete makes an unavailable gateway a harmless final no-op.
         try {
-            await deps.deleteEnvironment(siteId, { removeBroker: false });
+            await deps.deleteEnvironment(siteId, { removeBroker: false, handover: true });
         }
         catch (error) {
             if (!environmentAlreadyDeleted(error))
@@ -22,6 +22,12 @@ export async function deleteSiteResources(siteId, deps) {
     }
     rmSync(deps.siteDir(siteId), { recursive: true, force: true });
     deps.store.deleteSite(siteId);
+    try {
+        await deps.removeRuntimeSocket(siteId);
+    }
+    catch (error) {
+        deps.reportRuntimeSocketError?.(site, error);
+    }
     try {
         await deps.removeGateway(site.slug);
     }
