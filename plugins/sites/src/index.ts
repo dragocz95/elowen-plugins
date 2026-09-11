@@ -356,7 +356,8 @@ export function register(published: PluginContext): void {
       await environment.importDataVolume(site.id, seedArchive, operationId);
     },
     exportDataVolume: (site, output, operationId) => environment.exportDataVolume(site.id, output, operationId),
-    restoreLegacyData: (selection, archive, siteId) => dataSync.restoreLegacyData(selection, archive, siteId),
+    restoreLegacyData: (selection, archive, siteId, archivePrefix) =>
+      dataSync.restoreLegacyData(selection, archive, siteId, archivePrefix),
     recoverInterruptedRestore: (siteId) => dataSync.recoverInterruptedRestore(siteId),
     extractSecretArtifacts: (siteId, workspace, files) => dataSync.extractSecretArtifacts(siteId, workspace, files),
     stagedSecretDigest: (siteId) => dataSync.stagedSecretDigest(siteId),
@@ -390,16 +391,14 @@ export function register(published: PluginContext): void {
     }
   };
 
-  /** Deletion is two-phase and crash-safe. The durable marker removes access immediately; only the
-   * authoritative daemon touches processes and plugin-owned files. A forked tool runner stops after the
-   * marker and the daemon's five-second reconcile finishes the same operation. */
+  /** Deletion is crash-safe and synchronous for the caller. The durable marker removes access before any
+   * resource cleanup, while the same idempotent path is also safe for daemon reconciliation after a crash. */
   const deleteSite = async (siteId: string): Promise<void> => {
     const site = store.siteById(siteId);
     if (!site) return;
     if (site.status !== 'deleting') store.beginDelete(siteId);
     pendingHits.delete(siteId);
     deletingSiteIds.add(siteId);
-    if (!isDaemonProcess()) return;
     try {
       await deleteSiteResources(siteId, {
         store,

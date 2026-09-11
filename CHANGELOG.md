@@ -1,5 +1,11 @@
 # Changelog
 
+## sites 0.10.20 - 2026-09-11
+
+- Restore completed command conversions symmetrically when their application data directory is nested below `/data`, and retain rollback artifacts until environment cleanup succeeds.
+- Use the Sites runtime authority for supervisor cleanup after rollback restores a legacy runtime, including idempotent deletion of retained environments and tombstones.
+- Render one non-throwing publish result for file and proxy publications, and complete `SiteDelete` before reporting success.
+
 ## sites 0.10.19 - 2026-09-11
 
 - Keep completed conversion undo material until an explicit `retire` step, allow durable rollback from `completed`, and restore legacy data, runtime and publication before discarding the Project-side environment.
