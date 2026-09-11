@@ -77,6 +77,7 @@ export class EnvironmentSupervisor {
   private readonly authority: SiteRuntimeAuthority;
   private connected: SitesSandboxControl | undefined;
   private readonly handovers = new Map<string, Promise<void>>();
+  private readonly sourceBindingUpgrades = new Map<string, SiteEnvironmentRegistration>();
 
   constructor(private readonly deps: EnvironmentDeps) {
     this.authority = createSiteRuntimeAuthority({
@@ -135,6 +136,8 @@ export class EnvironmentSupervisor {
     this.deps.store.putRuntimeRecord(binding.siteId, 'binding', JSON.stringify(binding));
   }
   private async resolvedRegistration(id: string): Promise<SiteEnvironmentRegistration | null> {
+    const upgrading = this.sourceBindingUpgrades.get(id);
+    if (upgrading) return upgrading;
     const binding = this.registration(id);
     if (!binding || binding.staging) return binding;
     const site = this.deps.store.siteById(id);
@@ -160,6 +163,30 @@ export class EnvironmentSupervisor {
       initialIntent: { desiredState: site.runtime !== 'environment' || site.environmentDesiredState === 'stopped' ? 'stopped' : 'running',
         pendingAction: site.environmentDesiredState === 'restarting' ? 'restart' : null },
     };
+  }
+
+  async upgradeSourceBindings(): Promise<void> {
+    const control = this.control();
+    for (const site of this.deps.store.allSites()) {
+      if (site.runtime !== 'environment') continue;
+      const pending = this.deps.store.runtimeRecord(site.id, 'source-rel-upgrade');
+      let upgraded: SiteEnvironmentRegistration;
+      if (pending) upgraded = JSON.parse(pending);
+      else {
+        const binding = this.registration(site.id);
+        if (!binding || binding.staging || typeof binding.sourceRel === 'string') continue;
+        upgraded = { ...binding, sourceRel: site.sourceRel };
+        this.deps.store.putRuntimeRecord(site.id, 'source-rel-upgrade', JSON.stringify(upgraded));
+      }
+      this.sourceBindingUpgrades.set(site.id, upgraded);
+      try {
+        await control.registerSiteEnvironment({ siteId: site.id, accountUserId: this.actor(site) });
+        this.saveBinding(upgraded);
+        this.deps.store.deleteRuntimeRecord(site.id, 'source-rel-upgrade');
+      } finally {
+        this.sourceBindingUpgrades.delete(site.id);
+      }
+    }
   }
 
   /** Persist pins before registration. Retrying after a lost response adopts the same resource. */

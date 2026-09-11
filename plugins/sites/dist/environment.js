@@ -17,6 +17,7 @@ export class EnvironmentSupervisor {
     authority;
     connected;
     handovers = new Map();
+    sourceBindingUpgrades = new Map();
     constructor(deps) {
         this.deps = deps;
         this.authority = createSiteRuntimeAuthority({
@@ -82,6 +83,9 @@ export class EnvironmentSupervisor {
         this.deps.store.putRuntimeRecord(binding.siteId, 'binding', JSON.stringify(binding));
     }
     async resolvedRegistration(id) {
+        const upgrading = this.sourceBindingUpgrades.get(id);
+        if (upgrading)
+            return upgrading;
         const binding = this.registration(id);
         if (!binding || binding.staging)
             return binding;
@@ -109,6 +113,33 @@ export class EnvironmentSupervisor {
             initialIntent: { desiredState: site.runtime !== 'environment' || site.environmentDesiredState === 'stopped' ? 'stopped' : 'running',
                 pendingAction: site.environmentDesiredState === 'restarting' ? 'restart' : null },
         };
+    }
+    async upgradeSourceBindings() {
+        const control = this.control();
+        for (const site of this.deps.store.allSites()) {
+            if (site.runtime !== 'environment')
+                continue;
+            const pending = this.deps.store.runtimeRecord(site.id, 'source-rel-upgrade');
+            let upgraded;
+            if (pending)
+                upgraded = JSON.parse(pending);
+            else {
+                const binding = this.registration(site.id);
+                if (!binding || binding.staging || typeof binding.sourceRel === 'string')
+                    continue;
+                upgraded = { ...binding, sourceRel: site.sourceRel };
+                this.deps.store.putRuntimeRecord(site.id, 'source-rel-upgrade', JSON.stringify(upgraded));
+            }
+            this.sourceBindingUpgrades.set(site.id, upgraded);
+            try {
+                await control.registerSiteEnvironment({ siteId: site.id, accountUserId: this.actor(site) });
+                this.saveBinding(upgraded);
+                this.deps.store.deleteRuntimeRecord(site.id, 'source-rel-upgrade');
+            }
+            finally {
+                this.sourceBindingUpgrades.delete(site.id);
+            }
+        }
     }
     /** Persist pins before registration. Retrying after a lost response adopts the same resource. */
     async handover(site, accountUserId) {

@@ -648,6 +648,7 @@ export function register(published) {
             name: 'site-runtimes',
             criticalStop: true,
             start: async () => {
+                await environment.upgradeSourceBindings();
                 await supervisor.reconcile();
                 await environment.reconcile();
                 await publications.reconcile();
