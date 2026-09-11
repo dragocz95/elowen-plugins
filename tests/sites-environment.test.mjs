@@ -29,6 +29,7 @@ import { proxyToEnvironment } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
 import { EnvironmentProvisioningService } from '../plugins/sites/dist/provisioning.js';
+import { EnvironmentSupervisor } from '../plugins/sites/dist/environment.js';
 import {
   SITE_ID, environmentSite, modeOf, snapshotRelease, sitesSdkHarness,
 } from './helpers/sitesOwnedEnvironmentSdk.mjs';
@@ -86,6 +87,75 @@ test('environment start performs the typed SDK sequence, prepares the ingress an
   // level too deep, while the container create kept failing lstat on the git-stub bind source.
   assert.equal(existsSync(join(root, 'data', 'sites', SITE_ID, 'environment')), false,
     'the container contract must not be written under the source/release siteDir');
+});
+
+test('environment start waits for a late ingress socket before conversion readiness runs', async (t) => {
+  let lateServer;
+  const { supervisor, control, site, socketPath, brokerDir, warnings } = await sitesSdkHarness(t, {
+    config: { startTimeoutSeconds: 2 },
+    control: {
+      onStart: () => {
+        setTimeout(() => {
+          mkdirSync(brokerDir, { recursive: true });
+          lateServer = createHttpServer((_request, response) => { response.writeHead(200); response.end('ok'); });
+          lateServer.listen(socketPath);
+        }, 1_100);
+      },
+    },
+  });
+  t.after(async () => { if (lateServer?.listening) await new Promise((resolve) => lateServer.close(resolve)); });
+
+  await supervisor.start(site);
+  assert.deepEqual(supervisor.endpointFor(SITE_ID), { kind: 'socket', path: socketPath });
+  assert.equal((await supervisor.probeReadiness(SITE_ID, { path: '/', expectStatus: 200 })).ready, true,
+    'conversion completion can use the endpoint adopted after the delayed start');
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(requestKinds(control), ['start']);
+});
+
+test('a missing ingress socket times out once and the running environment stays retryable', async (t) => {
+  const { supervisor, site, socketPath, brokerDir, warnings } = await sitesSdkHarness(t, {
+    config: { startTimeoutSeconds: 1 },
+    control: { onStart: () => {} },
+  });
+
+  await assert.rejects(() => supervisor.start(site), /environment ingress did not become ready within 1 second/);
+  assert.equal(warnings.filter((message) => message.includes('did not become ready within 1 second')).length, 1,
+    'the bounded timeout is logged once');
+
+  const server = createHttpServer((_request, response) => { response.writeHead(200); response.end('ok'); });
+  mkdirSync(brokerDir, { recursive: true });
+  await new Promise((resolve) => server.listen(socketPath, resolve));
+  t.after(async () => { if (server.listening) await new Promise((resolve) => server.close(resolve)); });
+  await supervisor.start(site);
+  assert.equal((await supervisor.probeReadiness(SITE_ID, { path: '/', expectStatus: 200 })).ready, true);
+});
+
+test('flipped environment readiness survives reconcile and a supervisor restart', async (t) => {
+  let server;
+  const { supervisor, control, store, site, socketPath, brokerDir, deps } = await sitesSdkHarness(t, {
+    store: { conversionSuspends: () => 'environment' },
+    control: {
+      authorityLifecycle: false,
+      onStart: () => {
+        mkdirSync(brokerDir, { recursive: true });
+        server = createHttpServer((_request, response) => { response.writeHead(200); response.end('ok'); });
+        server.listen(socketPath);
+      },
+    },
+  });
+  t.after(async () => { if (server?.listening) await new Promise((resolve) => server.close(resolve)); });
+
+  await supervisor.start(site, { authorized: true });
+  await supervisor.reconcile();
+  assert.equal((await supervisor.probeReadiness(SITE_ID, { path: '/', expectStatus: 200 })).ready, true,
+    'conversion suspension does not discard a recoverable endpoint');
+
+  const restarted = new EnvironmentSupervisor(deps);
+  assert.equal((await restarted.probeReadiness(SITE_ID, { path: '/', expectStatus: 200 })).ready, true,
+    'readiness derives the endpoint after process memory is lost');
+  assert.equal(store.runtimeMigration(SITE_ID), null);
+  assert.deepEqual(requestKinds(control), ['start']);
 });
 
 test('a structural provider failure is surfaced once and never retried by the caller', async (t) => {
@@ -148,15 +218,15 @@ test('healthy running environment is adopted and clears a stale failure without 
   assert.equal(site.lastError, null);
 });
 
-test('service detach drops routing without any lifecycle request', async (t) => {
+test('service detach drops runtime control while durable socket routing remains available', async (t) => {
   const { supervisor, control, site } = await sitesSdkHarness(t, {
   });
   await supervisor.start(site);
   assert.notEqual(supervisor.endpointFor(SITE_ID), null);
 
   await supervisor.detach();
-  assert.equal(supervisor.endpointFor(SITE_ID), null);
-  assert.equal(supervisor.isRunning(SITE_ID), false);
+  assert.notEqual(supervisor.endpointFor(SITE_ID), null);
+  assert.equal(supervisor.isRunning(SITE_ID), true);
   assert.deepEqual(requestKinds(control).filter((kind) => kind === 'stop' || kind === 'kill'), [], 'detach never stops anything');
 });
 
@@ -509,7 +579,7 @@ test('an explicitly stopped runtime keeps its Site row untouched', async (t) => 
 // `live` for that whole window, so to any automatic starter the container looks exactly like one that
 // should be up and is not. The conversion's own authorized start is the marker's owner.
 
-test('a reconcile tick under conversion suspension drops routing and dispatches nothing', async (t) => {
+test('a reconcile tick under conversion suspension preserves a live durable endpoint and dispatches nothing', async (t) => {
   const suspension = { value: null };
   const { supervisor, control, store, socketPath } = await sitesSdkHarness(t, {
     controlState: 'running',
@@ -527,7 +597,8 @@ test('a reconcile tick under conversion suspension drops routing and dispatches 
   await supervisor.reconcile();
 
   assert.deepEqual(control.requests, [], 'nothing was started or dispatched');
-  assert.equal(supervisor.endpointFor(SITE_ID), null, 'nothing keeps routing to the stopped container');
+  assert.deepEqual(supervisor.endpointFor(SITE_ID), { kind: 'socket', path: socketPath },
+    'the durable environment row and live socket remain sufficient for routing');
 });
 
 test('only the conversion own start passes its guard, and a durable action defers instead of failing', async (t) => {

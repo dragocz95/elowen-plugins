@@ -14,7 +14,6 @@ const imageKindOf = (binding) => binding.image === BASE_IMAGE_TAG ? 'base' : bin
 /** Application readiness and Sites records only. All container mutations belong to Sandbox. */
 export class EnvironmentSupervisor {
     deps;
-    endpoints = new Map();
     authority;
     connected;
     handovers = new Map();
@@ -233,8 +232,21 @@ export class EnvironmentSupervisor {
         const artifact = { kind: 'project-source', project, guestPath, destinationPath: destination };
         await this.wait(await this.artifactOperation(site, 'export-project', artifact, actor), actor);
     }
-    endpointFor(id) { return this.endpoints.get(id) ?? null; }
-    isRunning(id) { return this.endpoints.has(id); }
+    /** Routing is a projection of durable publication state and the host-owned socket. Keeping a second
+     *  in-memory owner made flipped conversions unrecoverable after reconcile or process restart. */
+    endpointFor(id) {
+        const site = this.deps.store.siteById(id);
+        if (!site || site.runtime !== 'environment')
+            return null;
+        const path = join(this.brokerDirectory(id), 'app.sock');
+        try {
+            return lstatSync(path).isSocket() ? { kind: 'socket', path } : null;
+        }
+        catch {
+            return null;
+        }
+    }
+    isRunning(id) { return this.endpointFor(id) !== null; }
     effectiveLimits(site) {
         const config = this.deps.config();
         return { cpus: site.environmentCpus ?? config.environmentCpus, memoryMb: site.environmentMemoryMb ?? config.environmentMemoryMb,
@@ -309,7 +321,6 @@ export class EnvironmentSupervisor {
             await this.perform(site, { kind: 'cleanup-stage' }, undefined, true, `${operationId}-cleanup`);
             this.deps.store.deleteRuntimeRecord(site.id, 'handover');
             this.deps.store.deleteRuntimeRecord(site.id, 'binding');
-            this.endpoints.delete(site.id);
         }
         this.saveBinding(binding);
         if (await this.provisionedContainer(site.id))
@@ -400,8 +411,8 @@ export class EnvironmentSupervisor {
             await this.perform(site, { kind: 'start' }, undefined, options.authorized);
         await this.refreshReadiness(site);
     }
-    async stop(id) { await this.perform(this.site(id), { kind: 'stop' }); this.endpoints.delete(id); }
-    async quiesce(id) { await this.perform(this.site(id), { kind: 'stop' }, undefined, true); this.endpoints.delete(id); }
+    async stop(id) { await this.perform(this.site(id), { kind: 'stop' }); }
+    async quiesce(id) { await this.perform(this.site(id), { kind: 'stop' }, undefined, true); }
     async isStopped(id) { const state = await this.state(this.site(id)); return state.state === 'stopped' || state.state === 'unprovisioned' || state.state === 'deleted'; }
     async restart(site) { await this.perform(site, { kind: 'restart' }); await this.refreshReadiness(site); }
     async applyLimits(site, overrides, actor) {
@@ -429,7 +440,6 @@ export class EnvironmentSupervisor {
     async delete(id, options = {}) {
         const site = this.site(id);
         await this.perform(site, { kind: site.runtime === 'environment' ? 'delete' : 'cleanup-stage' }, undefined, true);
-        this.endpoints.delete(id);
         if (this.registration(id)?.staging && options.removeBroker !== false)
             await this.deps.gateway.removeRuntimeSocket(id);
         // Sandbox keeps a deleted Site row as the generation tombstone. The next publication must pass through
@@ -659,11 +669,25 @@ export class EnvironmentSupervisor {
             }
         });
     }
+    async awaitReadiness(deadlineMs, attempt) {
+        const deadline = Date.now() + deadlineMs;
+        let attempts = 0, detail = 'no response';
+        do {
+            attempts++;
+            const result = await attempt();
+            detail = result.detail;
+            if (result.done)
+                return { ready: result.ready, detail, attempts };
+            if (Date.now() >= deadline)
+                break;
+            await new Promise(wake => setTimeout(wake, 250));
+        } while (Date.now() <= deadline);
+        return { ready: false, detail: `${detail} (gave up after ${attempts} attempt(s))`, attempts };
+    }
     async refreshReadiness(site) {
         const state = await this.state(site);
         const path = join(this.brokerDirectory(site.id), 'app.sock');
         if (state.state !== 'running') {
-            this.endpoints.delete(site.id);
             // Returning here for EVERY non-running state left a Site whose container never came up reading
             // `status: live, lastError: null`, so SiteList and SiteGet advertised an environment that had failed
             // four lifecycle attempts. Only `failed` is projected: `stopped` is an explicit intent and the rest
@@ -678,31 +702,43 @@ export class EnvironmentSupervisor {
             }
             return;
         }
-        if (!lstatSync(path).isSocket())
-            throw new Error('the environment ingress is not a socket');
-        if ((statSync(this.brokerDirectory(site.id)).mode & 0o777) !== 0o510)
-            await this.deps.gateway.sealRuntimeSocket(site.id);
-        const ready = await new Promise(done => {
-            const socket = connect({ path });
-            const finish = (value) => { socket.destroy(); done(value); };
-            socket.setTimeout(1000);
-            socket.once('connect', () => finish(true));
-            socket.once('error', () => finish(false));
-            socket.once('timeout', () => finish(false));
+        const timeoutSeconds = this.deps.config().startTimeoutSeconds;
+        const outcome = await this.awaitReadiness(timeoutSeconds * 1000, async () => {
+            try {
+                if (!lstatSync(path).isSocket())
+                    throw new Error('the environment ingress is not a socket');
+            }
+            catch (error) {
+                if (error.code === 'ENOENT') {
+                    return { done: false, ready: false, detail: 'the environment ingress socket has not appeared' };
+                }
+                throw error;
+            }
+            if ((statSync(this.brokerDirectory(site.id)).mode & 0o777) !== 0o510)
+                await this.deps.gateway.sealRuntimeSocket(site.id);
+            const ready = await new Promise(done => {
+                const socket = connect({ path });
+                const finish = (value) => { socket.destroy(); done(value); };
+                socket.setTimeout(1000);
+                socket.once('connect', () => finish(true));
+                socket.once('error', () => finish(false));
+                socket.once('timeout', () => finish(false));
+            });
+            return { done: ready, ready, detail: ready ? 'the sealed environment ingress answered' : 'the sealed environment ingress did not answer' };
         });
-        if (!ready)
-            throw new Error('the sealed environment ingress did not answer');
-        this.endpoints.set(site.id, { kind: 'socket', path });
+        if (!outcome.ready) {
+            const unit = timeoutSeconds === 1 ? 'second' : 'seconds';
+            const message = `environment ingress did not become ready within ${timeoutSeconds} ${unit}: ${outcome.detail}`;
+            this.deps.logger?.warn(`site ${site.slug} readiness failed: ${message}`);
+            throw new Error(message);
+        }
         this.deps.store.updateSite(site.id, { status: 'live', lastError: null });
     }
     async probeReadiness(id, expect, options = {}) {
-        const endpoint = this.endpoints.get(id);
-        if (!endpoint)
-            return { ready: false, detail: 'the ingress socket has not been adopted', attempts: 0 };
-        const deadline = Date.now() + (options.deadlineMs ?? this.deps.config().startTimeoutSeconds * 1000);
-        let attempts = 0, detail = 'no response';
-        do {
-            attempts++;
+        return this.awaitReadiness(options.deadlineMs ?? this.deps.config().startTimeoutSeconds * 1000, async () => {
+            const endpoint = this.endpointFor(id);
+            if (!endpoint)
+                return { done: false, ready: false, detail: 'the environment ingress socket is unavailable' };
             const result = await new Promise(done => {
                 const req = httpRequest({ ...(endpoint.kind === 'socket' ? { socketPath: endpoint.path } : { host: '127.0.0.1', port: endpoint.port }), path: expect.path,
                     headers: { host: 'localhost', 'user-agent': 'elowen-conversion-readiness' }, timeout: options.timeoutMs ?? 5000 }, response => { response.resume(); done(response.statusCode ?? 0); });
@@ -711,21 +747,15 @@ export class EnvironmentSupervisor {
                 req.end();
             });
             if (typeof result === 'number')
-                return { ready: result === expect.expectStatus, detail: `GET ${expect.path} answered ${result}, expected ${expect.expectStatus}`, attempts };
-            detail = result;
-            if (Date.now() >= deadline)
-                break;
-            await new Promise(wake => setTimeout(wake, 250));
-        } while (Date.now() <= deadline);
-        return { ready: false, detail: `${detail} (gave up after ${attempts} attempt(s))`, attempts };
+                return { done: true, ready: result === expect.expectStatus, detail: `GET ${expect.path} answered ${result}, expected ${expect.expectStatus}` };
+            return { done: false, ready: false, detail: result };
+        });
     }
     /** Observe application readiness only. Sandbox independently reconciles durable container intent. */
     async reconcile() {
         for (const site of this.deps.store.environmentSitesForReconcile()) {
-            if (this.deps.store.conversionSuspends(site.id) === 'environment') {
-                this.endpoints.delete(site.id);
+            if (this.deps.store.conversionSuspends(site.id) === 'environment')
                 continue;
-            }
             try {
                 await this.handover(site, this.actor(site));
                 await this.recoverSnapshots(site);
@@ -733,12 +763,13 @@ export class EnvironmentSupervisor {
                 await this.refreshReadiness(site);
             }
             catch (error) {
-                this.endpoints.delete(site.id);
                 const message = error instanceof Error ? error.message : String(error);
                 this.deps.store.updateSite(site.id, { status: 'failed', lastError: message });
-                this.deps.logger?.warn(`site ${site.slug} readiness failed: ${message}`);
+                if (!message.startsWith('environment ingress did not become ready within ')) {
+                    this.deps.logger?.warn(`site ${site.slug} readiness failed: ${message}`);
+                }
             }
         }
     }
-    async detach() { this.endpoints.clear(); this.connected = undefined; }
+    async detach() { this.connected = undefined; }
 }

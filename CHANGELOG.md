@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.10.18 - 2026-09-11
+
+- Wait up to the configured start deadline for a persistent environment ingress socket, keep timeout failures retryable, and derive live routing from the durable Site row and socket so flipped conversions recover after reconcile or restart.
+
 ## sites 0.10.17 - 2026-09-11
 
 - Re-register a discarded conversion environment from its Sandbox tombstone before preparing the same Site again.
