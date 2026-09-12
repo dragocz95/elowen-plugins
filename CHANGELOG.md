@@ -1,5 +1,10 @@
 # Changelog
 
+## editor 0.4.1 - 2026-09-12
+
+- A file listing that fails is reported as a failure. It was drawn as an empty folder, so a refusal the daemon had already explained — a tree too large to render, an environment that is not running, access that was revoked — reached the browser as "No files" with no reason and nothing to retry. The refusal is now shown in the tree with the daemon's own wording and a retry beside it.
+- The Project and System switch moved from the toolbar into the File menu, where it sits with the actions whose target it decides. It is a submenu of the host's menu, so it is reachable by keyboard and to assistive technology, and the toolbar keeps its width for the file path.
+
 ## editor 0.4.0 - 2026-09-12
 
 - A managed Project's files are read at the directory it is actually mounted at, taken from core's canonical slug rule, instead of a hardcoded `/workspace`. That directory belongs to the base image and is empty in every Project, which is why a Project such as Sdilene showed an empty tree with no error at all.
