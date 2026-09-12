@@ -70,10 +70,20 @@ jobs:
       # reports a missing binary instead of checking that boundary. The smoke run uses the same confinement
       # flags as plugins/github/src/staging.ts, so a runner that cannot unshare a namespace fails here,
       # named, rather than inside the suite.
+      #
+      # Ubuntu 24.04 ships kernel.apparmor_restrict_unprivileged_userns=1, which lets bwrap open a user
+      # namespace but strips the capabilities inside it, and `--unshare-all` then dies configuring the
+      # loopback interface with "Failed RTM_NEWADDR: Operation not permitted". Lifting the restriction on
+      # this ephemeral runner is what the development host does with a targeted AppArmor profile for
+      # /usr/bin/bwrap. The sysctl only enables; the smoke run below is what proves it, so the step still
+      # fails loudly if a future image withholds the namespace for some other reason.
       - name: Install bubblewrap for the sandboxed staging suite
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends bubblewrap
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
           bwrap --unshare-all --die-with-parent --new-session --ro-bind /usr /usr \
             --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
             --proc /proc --dev /dev --tmpfs /tmp -- /bin/true
