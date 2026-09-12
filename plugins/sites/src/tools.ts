@@ -218,9 +218,21 @@ const addressOf = (config: SitesConfig, slug: string): string => {
   return url;
 };
 
-const publishedAddressLine = (address: string | null): string => address
-  ? `Live at ${address}`
-  : 'The public hostname is unavailable until the instance domain gateway is configured.';
+/** What a just-published address is actually worth to whoever opens it next.
+ *
+ *  Publishing writes the release and marks the site live; the certificate for its hostname is issued
+ *  afterwards, by the daemon's own gateway sweep. This tool cannot close that gap and cannot even observe
+ *  it: the privileged gateway control is withheld from the forked runner a publish arrives from, and the
+ *  issued-slug list exists only behind the root helper, so a republication of an already-certified slug is
+ *  indistinguishable here from a first publication. Until issuance lands the hostname is answered by the
+ *  catch-all block holding another site's certificate, which a browser rejects outright — so announcing
+ *  the address as already live reported a working publication as a broken product. */
+const publishedAddressLines = (address: string | null): string[] => (address
+  ? [
+    `Address: ${address}`,
+    'The certificate for this hostname is issued shortly after publishing, normally within a minute. Opening the address before then shows a certificate warning.',
+  ]
+  : ['The public hostname is unavailable until the instance domain gateway is configured.']);
 
 /** What an environment has instead of a publish.
  *
@@ -723,7 +735,7 @@ export function registerTools(deps: ToolDeps): void {
           });
           return text([
             `Published "${site.title}" - the application inside project ${projectName} answered on 127.0.0.1:${port} (${probe.detail}).`,
-            publishedAddressLine(address),
+            ...publishedAddressLines(address),
             `Transport socket: ${socketPath}`,
             `Visible to: ${site.visibility}`,
             '',
@@ -832,7 +844,7 @@ export function registerTools(deps: ToolDeps): void {
 
         return text([
           `Published "${site.title}" - ${snapshot.fileCount} files, ${(snapshot.sizeBytes / 1048576).toFixed(2)} MB.`,
-          publishedAddressLine(address),
+          ...publishedAddressLines(address),
           `Visible to: ${site.visibility}`,
           ...(site.runtime === 'command' && !isDaemonProcess()
             ? ['The daemon starts the runtime shortly; check SiteLogs if the address does not answer.']
