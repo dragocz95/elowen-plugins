@@ -1296,6 +1296,7 @@ test('SiteList reports what each row records about its certificate, and probes n
   // store stopped reading, and a summary line built from a null source throws before anything is printed.
   store.insertSite(site({ id: 'waiting', slug: 'waiting-a1b2c3', status: 'live', sourceRel: 'sites/waiting-a1b2c3' }));
   store.insertSite(site({ id: 'failed', slug: 'failed-a1b2c3', status: 'live', sourceRel: 'sites/failed-a1b2c3' }));
+  store.insertSite(site({ id: 'clean', slug: 'clean-a1b2c3', status: 'live', sourceRel: 'sites/clean-a1b2c3' }));
   store.insertSite(site({ id: 'draft', slug: 'draft-a1b2c3', status: 'draft', currentReleaseId: null, lastPublishAt: null, sourceRel: 'sites/draft-a1b2c3' }));
   // Written the way the certificate path writes them: the columns are updated on an existing row, never
   // supplied at insert.
@@ -1307,6 +1308,9 @@ test('SiteList reports what each row records about its certificate, and probes n
 
   assert.match(body, /certificate requested \(recorded\) - requested at 2026-09-12T02:40:00\.000Z/);
   assert.match(body, /certificate error \(recorded\) - the last recorded attempt failed: certbot failed: DNS problem/);
+  // A row holding nothing says so plainly, and says what that ALSO looks like: a completed issuance clears
+  // both columns, so this reader cannot distinguish the two and must not pretend otherwise.
+  assert.match(body, /certificate nothing recorded - no pending request and no recorded failure, which is equally what a completed issuance leaves behind/);
   // Nothing in a listing may read as a working certificate: only SiteGet observes one.
   assert.doesNotMatch(body, /certificate ready|Certificate: verified/);
 

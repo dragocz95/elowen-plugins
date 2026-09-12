@@ -354,8 +354,11 @@ test('a row that has recorded nothing reports exactly that, and never that it is
   const recorded = recordedCertificate(site());
 
   assert.equal(recorded.state, 'unrecorded');
-  assert.match(recorded.detail, /neither a pending request nor a failure/);
-  assert.doesNotMatch(recorded.detail, /\bserv(ing|ed)\b|\bvalid\b|\bverified\b/);
+  assert.match(recorded.detail, /no pending request and no recorded failure/);
+  // And it names the ambiguity rather than hiding it: a successful issuance clears both columns, so this is
+  // also what a perfectly working site looks like from the row alone.
+  assert.match(recorded.detail, /completed issuance/);
+  assert.doesNotMatch(recorded.detail, /\bis being served\b|\bverified\b|\bvalid until\b/);
 });
 
 test('a recorded request reports the wait, with the stamp that says how long it has been waiting', () => {
@@ -390,17 +393,22 @@ test('a site that is not live has no certificate line at all', () => {
 test('no row in any combination can be read as a certificate that is ready', () => {
   // The safety assertion, exhaustive over the row shape: `ready` is a word only an observed handshake earns,
   // and this reader has none. A future state added here without a probe behind it fails this.
+  let judged = 0;
   for (const status of ['live', 'draft', 'deleting']) {
     for (const certificateRequestedAt of [null, '2026-09-12T02:40:00.000Z']) {
       for (const certificateError of [null, '', 'certbot failed: DNS problem']) {
         const recorded = recordedCertificate(site({ status, certificateRequestedAt, certificateError }));
         if (recorded === null) continue;
+        judged += 1;
         assert.ok(['error', 'requested', 'unrecorded'].includes(recorded.state),
           `${status}/${certificateRequestedAt}/${certificateError} produced ${recorded.state}`);
         assert.notEqual(recorded.state, 'ready');
       }
     }
   }
+  // Counted, because a reader that regressed to answering null for everything would skip every assertion
+  // above and leave this test green while saying nothing at all.
+  assert.equal(judged, 6, 'every live combination must have been judged');
 });
 
 test('the recorded reading is synchronous, which is what makes it probe-free', () => {

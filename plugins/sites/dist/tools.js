@@ -215,6 +215,14 @@ const publishedAddressLines = (address, certificate) => {
     }
     return [`Address: ${address} - not usable over HTTPS yet.`, `Certificate pending: ${certificate.detail}.`];
 };
+/** How a listing prints one site's certificate facts. The verdict comes from the row, so the line says so:
+ *  `SiteGet` is the only reader that opens a handshake and the only one entitled to describe what is being
+ *  served. An absent record is written as such rather than as a state, because "unrecorded (recorded)"
+ *  contradicts itself in the one place an agent is scanning quickly. */
+const recordedCertificateLine = (recorded) => {
+    const label = recorded.state === 'unrecorded' ? 'nothing recorded' : `${recorded.state} (recorded)`;
+    return `  certificate ${label} - ${recorded.detail}`;
+};
 /** What an environment has instead of a publish.
  *
  *  SitePublish refuses an environment outright, so its `lastPublishAt` stays null forever. Reading the
@@ -862,7 +870,7 @@ export function registerTools(deps) {
                 })));
                 return text(rows.map((row) => [
                     describe(row.site, config, row.environment, latestSnapshotAt(store, row.site), projectOf(row.site)),
-                    ...(row.certificate ? [`  certificate ${row.certificate.state} (recorded) - ${row.certificate.detail}`] : []),
+                    ...(row.certificate ? [recordedCertificateLine(row.certificate)] : []),
                 ].join('\n')).join('\n\n'), {
                     sites: rows.map((row) => ({
                         id: row.site.id,

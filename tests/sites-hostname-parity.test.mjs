@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -73,6 +74,22 @@ test('the inputs that must produce no hostname at all produce none in either der
     assert.equal(coreHostnameBase(input), null, `core: ${String(input)}`);
     assert.equal(derivedHostnameBase(input), null, `plugin: ${String(input)}`);
   }
+});
+
+test('core feeds both seams the same URL, so identical rules cannot answer differently', () => {
+  // Equal functions are only half the guarantee: two derivations agreeing on every input still diverge if
+  // they are HANDED different inputs. Core computes one `canonicalPublicWebUrl` and passes it BOTH to the
+  // privileged gateway control and to the plugin context, which is what makes the rule above sufficient.
+  // Asserted against the built core, because that is what this instance actually runs.
+  const brainCore = readFileSync(resolve(configuredCoreRoot, 'dist/daemon/brainCore.js'), 'utf8');
+  const declaration = /const (\w+) = trustedPublicWebUrl\(/.exec(brainCore);
+  assert.ok(declaration, 'core must still derive one trusted public web URL for the process');
+  const shared = declaration[1];
+
+  assert.match(brainCore, new RegExp(`createPublishedSitesGatewayControl\\(\\{ publicWebUrl: ${shared}`),
+    'the privileged gateway control must be built from that one URL');
+  assert.match(brainCore, new RegExp(`publicWebUrl: \\(\\) => ${shared}`),
+    'and the plugin context must expose the same one');
 });
 
 test('an HTTPS deployment yields the lowercased sites. base in both derivations', () => {

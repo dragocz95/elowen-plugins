@@ -161,9 +161,12 @@ export function recordedCertificate(site) {
             detail: `requested at ${site.certificateRequestedAt}; the daemon issues it on its next gateway sweep`,
         };
     }
+    // Deliberately not read as "nothing has happened": a SUCCESSFUL issuance clears both columns, so a site
+    // whose certificate is being served right now leaves exactly this row behind, and so does one nobody has
+    // ever asked for. The row cannot tell them apart, and saying so is the honest answer.
     return {
         state: 'unrecorded',
-        detail: 'the row records neither a pending request nor a failure. Read the site with SiteGet to observe what the gateway serves',
+        detail: 'no pending request and no recorded failure, which is equally what a completed issuance leaves behind. Read the site with SiteGet to observe what the gateway serves',
     };
 }
 /** The per-site certificate operations a publish needs, and the only two it gets: ask for THIS site's
