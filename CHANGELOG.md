@@ -1,5 +1,9 @@
 # Changelog
 
+## telegram 0.2.15 - 2026-09-12
+
+- declare elowen-plugin-shared API 4 so the channel keeps loading on core 0.28.42, which refuses a plugin declaring API 3
+
 ## msteams 0.7.1 - 2026-09-12
 
 - declare elowen-plugin-shared API 4 so the channel keeps loading on core 0.28.42, which refuses a plugin declaring API 3

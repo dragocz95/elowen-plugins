@@ -193,7 +193,7 @@
     },
     {
       "name": "telegram",
-      "version": "0.2.14",
+      "version": "0.2.15",
       "requiresCore": "0.28.11",
       "description": "Telegram bot: chat with Elowen in a private chat, group or forum topic, with slash commands, inline keyboards and live message editing.",
       "category": "chat",
