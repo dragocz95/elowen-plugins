@@ -161,9 +161,12 @@ describe('managed editor compound operations with an executable provider fixture
       await symlink('src/a.ts', join(f.root, 'linked.ts'));
       await symlink('missing', join(f.root, 'broken'));
       const listing = await f.call('files');
-      expect(listing.body).toEqual(expect.arrayContaining([{ path: 'linked', type: 'dir' }, { path: 'linked/a.ts', type: 'file', size: 15 }, { path: 'linked.ts', type: 'file', size: 15 }]));
+      // A link is shown as what it points AT: the directory as a folder, the file with its target's size.
+      expect(listing.body).toEqual(expect.arrayContaining([{ path: 'linked', type: 'dir' }, { path: 'linked.ts', type: 'file', size: 15 }]));
       // The dangling link resolves to nothing and is dropped, exactly as it always was.
       expect((listing.body as { path: string }[]).map(node => node.path)).not.toContain('broken');
+      // What is behind the link is read when the link is opened, one level like any other folder.
+      expect((await f.call('files', 'GET', 'linked')).body).toEqual(expect.arrayContaining([{ path: 'linked/a.ts', type: 'file', size: 15 }]));
       const result = await f.call('raw', 'GET', 'linked.ts');
       expect(Buffer.from(result.body as Uint8Array).toString()).toBe('initial content');
       expect((await f.call('raw', 'GET', 'linked')).status).toBe(415);

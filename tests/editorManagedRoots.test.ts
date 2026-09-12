@@ -102,16 +102,72 @@ describe('the typed root selector', () => {
 
 describe('the project root of a managed project', () => {
   // The regression itself: a project whose slug is not "workspace" must be read at its own directory.
-  it('walks the canonical slug-derived directory and returns a non-empty tree', async () => {
+  it('reads the canonical slug-derived directory one level deep and returns a non-empty tree', async () => {
     const f = fixture({ slug: 'sdilene', files: walk('/sdilene', [
       { path: '/sdilene/README.md', kind: 'file', size: 12 },
       { path: '/sdilene/src', kind: 'directory' },
-      { path: '/sdilene/src/app.ts', kind: 'file', size: 40 },
     ]) });
     const response = await f.call('files');
-    expect(paths(response.body)).toEqual(['README.md', 'src', 'src/app.ts']);
-    expect(f.operations[0]).toMatchObject({ kind: 'walk', path: '/sdilene', maxDepth: 8 });
+    expect(paths(response.body)).toEqual(['README.md', 'src']);
+    expect(f.operations[0]).toMatchObject({ kind: 'walk', path: '/sdilene', maxDepth: 0 });
     expect(f.operations.some(op => String(op.path).startsWith('/workspace'))).toBe(false);
+  });
+  /** What Sdilene actually is: 64 entries at the top and, below one of them, more nodes than this view
+   *  will ever render. Read eight levels deep, its own root answered `directory listing is too large`
+   *  and the editor was unusable; read one level at a time, the size below a folder cannot reach the
+   *  root's answer at all. The cap is unchanged — nothing here raises it, and nothing trims a listing
+   *  and reports it as whole. */
+  describe('a project too large to arrive whole', () => {
+    const TOP = [
+      ...Array.from({ length: 40 }, (_, i) => ({ path: `/sdilene/file-${i}.ts`, kind: 'file' as const, size: 128 })),
+      ...Array.from({ length: 24 }, (_, i) => ({ path: `/sdilene/dir-${i}`, kind: 'directory' as const })),
+    ];
+    /** A guest that answers each directory truthfully, and refuses anything that asks past one level —
+     *  which is what the real walk does once the subtree under `dir-0` exceeds the node cap. */
+    const oneLevel = (op: GuestCall) => {
+      if (op.kind !== 'walk') return { kind: op.kind };
+      const path = String(op.path);
+      if (op.maxDepth !== 0) return { kind: 'walk', root: path, rootKind: 'directory', truncated: true, entries: [] };
+      const entries = path === '/sdilene' ? TOP
+        : path === '/sdilene/dir-0'
+          ? Array.from({ length: 12000 }, (_, i) => ({ path: `/sdilene/dir-0/leaf-${i}.ts`, kind: 'file' as const, size: 1 })).slice(0, 900)
+          : [];
+      return { kind: 'walk', root: path, rootKind: 'directory', truncated: false, entries: entries.map(e => ({ ...e, size: 'size' in e ? e.size : 0, mtime: 0 })) };
+    };
+
+    it('answers its root with all 64 top-level entries', async () => {
+      const f = fixture({ slug: 'sdilene', files: oneLevel });
+      const response = await f.call('files');
+      const body = response.body as { path: string; type: string }[];
+      expect(response.status ?? 200).toBe(200);
+      expect(body).toHaveLength(64);
+      expect(body.filter(node => node.type === 'dir')).toHaveLength(24);
+      expect(body.map(node => node.path)).toContain('file-39.ts');
+      // Every path is a direct child: nothing below the first level was read or reported.
+      expect(body.every(node => !node.path.includes('/'))).toBe(true);
+      expect(f.operations).toHaveLength(1);
+      expect(f.operations[0]).toMatchObject({ kind: 'walk', path: '/sdilene', maxDepth: 0 });
+    });
+
+    it('reads exactly one level when a folder is opened, however much lies below it', async () => {
+      const f = fixture({ slug: 'sdilene', files: oneLevel });
+      const response = await f.call('files', 'GET', { root: 'project', path: 'dir-0' });
+      const body = response.body as { path: string }[];
+      expect(body).toHaveLength(900);
+      expect(body.every(node => node.path.startsWith('dir-0/') && node.path.split('/').length === 2)).toBe(true);
+      expect(f.operations[0]).toMatchObject({ kind: 'walk', path: '/sdilene/dir-0', maxDepth: 0 });
+    });
+
+    // The cap still holds, and still says so: one directory of more than 10000 entries is a refusal the
+    // tree reports, not a listing quietly cut to fit.
+    it('refuses a single directory that exceeds the node cap instead of trimming it', async () => {
+      const f = fixture({ slug: 'sdilene', files: (op: GuestCall) => op.kind === 'walk'
+        ? { kind: 'walk', root: String(op.path), rootKind: 'directory', truncated: true, entries: [] }
+        : { kind: op.kind } });
+      const response = await f.call('files');
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error: 'directory listing is too large; select a subdirectory' });
+    });
   });
   it.each([
     ['sdilene', '/sdilene'],

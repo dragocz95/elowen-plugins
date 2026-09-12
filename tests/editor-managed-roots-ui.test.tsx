@@ -169,6 +169,48 @@ describe('a managed project offers two roots', () => {
   });
 });
 
+describe('the project tree is read one directory at a time', () => {
+  // Read eight levels deep, Sdilene's own root answered `directory listing is too large` and the editor
+  // was unusable there. The root now asks for its direct children and each folder is read as it opens.
+  it('asks for a folder with an explicit path when it is opened, and for nothing below it', async () => {
+    use(http.get('/api/projects/:id/files', ({ url }) => {
+      const path = url.searchParams.get('path') ?? '';
+      if (!path) return HttpResponse.json(TREES.project);
+      return HttpResponse.json(path === 'src'
+        ? [{ path: 'src/app.ts', type: 'file', size: 12 }, { path: 'src/lib', type: 'dir' }]
+        : [{ path: `${path}/deep.ts`, type: 'file', size: 3 }]);
+    }));
+    renderEditor();
+    await screen.findByText('README.md');
+    // Only the root was read; the folder's contents are not there until it is opened.
+    expect(within(screen.getByRole('tree')).queryByRole('button', { name: 'app.ts' })).toBeNull();
+
+    fireEvent.click(treeButton('src'));
+    await waitFor(() => expect(treeButton('app.ts')).toBeInTheDocument());
+    // One level: `src/lib` is listed, and nothing inside it was fetched with it.
+    expect(treeButton('lib')).toBeInTheDocument();
+    expect(within(screen.getByRole('tree')).queryByRole('button', { name: 'deep.ts' })).toBeNull();
+
+    fireEvent.click(treeButton('lib'));
+    await waitFor(() => expect(treeButton('deep.ts')).toBeInTheDocument());
+  });
+
+  // A folder that cannot be read must not sit open and empty: that is the same untrue statement the
+  // blank root made, one level down.
+  it('reports a folder that cannot be read and collapses it', async () => {
+    use(http.get('/api/projects/:id/files', ({ url }) => url.searchParams.get('path')
+      ? HttpResponse.json({ error: 'project environment operation failed' }, { status: 503 })
+      : HttpResponse.json(TREES.project)));
+    renderEditor();
+    await screen.findByText('README.md');
+
+    fireEvent.click(treeButton('src'));
+    expect(await screen.findByText(/project environment operation failed/)).toBeInTheDocument();
+    // Collapsed again, so the folder does not claim to be empty.
+    await waitFor(() => expect(screen.getByRole('treeitem', { name: 'src' })).toHaveAttribute('aria-expanded', 'false'));
+  });
+});
+
 describe('a listing that fails', () => {
   // The whole point of this work is that a project full of files must never read as a project with
   // none. A refused listing drawn as an empty folder is the same lie by another route, and it is what

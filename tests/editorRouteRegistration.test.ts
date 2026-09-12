@@ -96,14 +96,12 @@ describe('editor route registration', () => {
 describe('the live listing of a managed project', () => {
   const SLUG = 'sdilene';
   const ROOT = `/${SLUG}`;
-  /** A tree shaped like the real project: a mix of files and directories several levels deep, with the
-   *  ignored directories present in the guest and expected to be absent from the answer. */
+  /** The DIRECT children of the real project root, which is all one request reads: 64 entries, a mix of
+   *  files and directories, plus a staging leftover expected to be absent from the answer. */
   const entries = [
     ...['README.md', 'package.json', 'tsconfig.json', '.env.example'].map((name) => ({ path: `${ROOT}/${name}`, kind: 'file' as const, size: 128, mtime: 0 })),
-    { path: `${ROOT}/src`, kind: 'directory' as const, size: 0, mtime: 0 },
-    ...Array.from({ length: 40 }, (_, i) => ({ path: `${ROOT}/src/module-${i}.ts`, kind: 'file' as const, size: 512, mtime: 0 })),
-    { path: `${ROOT}/src/lib`, kind: 'directory' as const, size: 0, mtime: 0 },
-    ...Array.from({ length: 18 }, (_, i) => ({ path: `${ROOT}/src/lib/helper-${i}.ts`, kind: 'file' as const, size: 256, mtime: 0 })),
+    ...Array.from({ length: 52 }, (_, i) => ({ path: `${ROOT}/module-${i}.ts`, kind: 'file' as const, size: 512, mtime: 0 })),
+    ...Array.from({ length: 8 }, (_, i) => ({ path: `${ROOT}/dir-${i}`, kind: 'directory' as const, size: 0, mtime: 0 })),
     { path: `${ROOT}/.env.local.elowen-upload`, kind: 'file' as const, size: 1, mtime: 0 },
   ];
 
@@ -150,7 +148,9 @@ describe('the live listing of a managed project', () => {
     // The regression this exists for: a non-empty environment must not answer with an empty tree.
     expect(body.length).toBeGreaterThan(50);
     expect(body.map((node) => node.path)).toContain('README.md');
-    expect(body.map((node) => node.path)).toContain('src/lib/helper-3.ts');
+    expect(body.map((node) => node.path)).toContain('dir-7');
+    // One level: nothing the answer carries lies below the root that was asked for.
+    expect(body.every((node) => !node.path.includes('/'))).toBe(true);
     // Staging leftovers stay out, and every path is relative to the root that was asked for.
     expect(body.some((node) => node.path.endsWith('.elowen-upload'))).toBe(false);
     expect(body.every((node) => !node.path.startsWith('/'))).toBe(true);

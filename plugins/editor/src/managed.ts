@@ -19,13 +19,18 @@ const GUEST_CHUNK_BYTES = 512 * 1024;
  *  directory of the base image because a repository would have ignored one by that name would be a lie
  *  about the filesystem the root exists to show. */
 const IGNORE = new Set(['.git', 'node_modules', '.next', 'dist', '.turbo', 'coverage', '.cache']);
-/** How deep each root is walked in one crossing.
+/** How deep any root is read in one crossing: the directory that was asked for and its direct children,
+ *  nothing below them.
  *
- *  A project arrives whole, because eight levels of a project is a few thousand entries. A guest root
- *  filesystem is not that — two levels below `/` already hold tens of thousands of entries — so the
- *  system root is served one directory at a time and the browser asks for the next level as a folder is
- *  opened, exactly as the host system root is served. */
-const ROOT_WALK_DEPTH: Record<EditorRoot, number> = { project: 8, system: 0 };
+ *  The project root used to be read eight levels deep on the assumption that a project is a few thousand
+ *  entries. A real one is not. Sdilene answered `directory listing is too large` on its own root, so the
+ *  whole editor was unusable there, and every project large enough to need an editor was on its way to
+ *  the same wall — a depth bound cannot be chosen that is right for a repository with a vendored
+ *  dependency tree and also right for one without.
+ *
+ *  One level has no such bound to get wrong. The browser asks for the next level as a folder is opened,
+ *  which is what the system root already did, so both roots now read the same way. */
+const WALK_DEPTH = 0;
 /** The mounts that read the project's Git history, and therefore exist only under the project root. */
 const GIT_MOUNTS = new Set([
   '/projects/:id/diff', '/projects/:id/head', '/projects/:id/changes', '/projects/:id/changed',
@@ -300,20 +305,13 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
   };
   try {
     if (mount === '/projects/:id/files') {
-      // ONE guest traversal answers the whole view. Driving it from here cost a `list` per directory and
-      // each of those is a container execution, so a project root of four directories paid five crossings
-      // — three to ten seconds against roughly 750 ms for a single directory. The guest walks the tree
-      // itself and returns the same shape in one crossing.
-      const explicit = typeof req.query.path === 'string' && req.query.path !== '';
-      const start = explicit ? guestPath(req.query.path) : base;
-      // Expanding ONE directory asks for its children and nothing below them, which is `maxDepth: 0`; the
-      // project root keeps the eight levels this view has always shown, while the system root is served
-      // one level at a time whatever is asked for. `skip` omits an ignored directory entirely rather than
-      // descending into it, which is what the client-side filter did before — and it applies to CHILDREN
-      // only, so asking for an ignored directory by name still expands it.
-      const depthLimit = explicit ? 0 : ROOT_WALK_DEPTH[root];
+      // ONE directory per crossing, whichever root and whether it is the root itself or a folder the
+      // browser opened. `skip` omits an ignored directory rather than reporting it, which is what the
+      // client-side filter did before — and it applies to CHILDREN only, so asking for an ignored
+      // directory by name still lists it.
+      const start = typeof req.query.path === 'string' && req.query.path !== '' ? guestPath(req.query.path) : base;
       const result = await files({
-        kind: 'walk', path: start, limit: LIST_NODE_CAP, maxDepth: depthLimit, skip: root === 'system' ? [] : [...IGNORE],
+        kind: 'walk', path: start, limit: LIST_NODE_CAP, maxDepth: WALK_DEPTH, skip: root === 'system' ? [] : [...IGNORE],
       });
       if (result.kind !== 'walk') throw new Error('invalid guest result');
       // `rootKind` answers the existence question the old separate stat used to, and the two failures it
@@ -326,9 +324,6 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
       // The upload suffix is a staging filename the guest has no notion of, so it is dropped under both
       // roots. The repository ignores apply to the project tree alone.
       const hidden = (path: string): boolean => (root === 'project' && IGNORE.has(posix.basename(path))) || path.endsWith('.elowen-upload') || (root === 'system' && isVirtualGuestPath(path));
-      /** Levels below the directory that was asked for, counted the way the recursive listing counted
-       *  them: a direct child is 0, so `< depthLimit` is the same bound the walk itself applied. */
-      const depthOf = (path: string): number => path.slice(prefix.length).split('/').length - 1;
       /** One link the walk reported, resolved to the entry it points at, or null when it points nowhere.
        *  The walk gives the link's own facts and never its target's, so this stat is the only way to know
        *  what to show — which is what the per-directory listing did per link too. */
@@ -336,9 +331,8 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
         followEntry({ path, kind: 'symlink', size, modifiedAt: new Date(mtime).toISOString() });
       /** The per-directory listing, kept for what lies BEHIND a symlink and nothing else. The walk
        *  reports a link but never follows it, so a linked directory's contents have to be listed through
-       *  the link path itself, which `list` resolves. A tree without links never reaches this; one with
-       *  links pays the old cost for the linked subtrees alone. */
-      const expandLink = async (path: string, depth: number): Promise<void> => {
+       *  the link path itself, which `list` resolves. It reads ONE level, like everything else here. */
+      const expandLink = async (path: string): Promise<void> => {
         let cursor: string | undefined;
         do {
           const page = await files({ kind: 'list', path, limit: 1000, cursor });
@@ -352,13 +346,10 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
             const entry = await followEntry(original);
             if (!entry) continue;
             const child = posix.relative(base, clean);
-            if (entry.kind === 'directory') {
-              nodes.push({ path: child, type: 'dir' });
-              // The depth bound is also what terminates a link that points back at its own ancestor.
-              // Expanding ONE directory never descends, whatever it is reached through — and neither does
-              // the system root, whose bound is zero.
-              if (depth < depthLimit) await expandLink(clean, depth + 1);
-            } else if (entry.kind === 'file') nodes.push({ path: child, type: 'file', size: entry.size });
+            // One level, so a link that points back at its own ancestor is simply a folder the browser
+            // may open; there is no traversal here left for it to run away with.
+            if (entry.kind === 'directory') nodes.push({ path: child, type: 'dir' });
+            else if (entry.kind === 'file') nodes.push({ path: child, type: 'file', size: entry.size });
           }
           cursor = page.nextCursor ?? undefined;
         } while (cursor);
@@ -371,7 +362,7 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
         const target = await resolveLink(start, 0, 0);
         if (!target) throw new InputError('path does not exist', 404);
         if (target.kind !== 'directory') throw new InputError('not a directory');
-        await expandLink(start, 0);
+        await expandLink(start);
         return { body: nodes };
       }
       // A file is not a directory, and the walk would otherwise answer for its PARENT, which must never
@@ -398,12 +389,8 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
         // facts, so resolving it stays one stat per link, exactly as before.
         const target = await resolveLink(clean, entry.size, entry.mtime);
         if (!target) continue;
-        if (target.kind === 'directory') {
-          nodes.push({ path, type: 'dir' });
-          // Discovered at `depthOf`, expanded one level deeper — the same two counts the recursive
-          // listing kept, so a linked subtree bottoms out at the level a real one does.
-          if (depthOf(clean) < depthLimit) await expandLink(clean, depthOf(clean) + 1);
-        } else if (target.kind === 'file') nodes.push({ path, type: 'file', size: target.size });
+        if (target.kind === 'directory') nodes.push({ path, type: 'dir' });
+        else if (target.kind === 'file') nodes.push({ path, type: 'file', size: target.size });
       }
       if (nodes.length > LIST_NODE_CAP) throw new InputError('directory listing is too large; select a subdirectory');
       return { body: nodes };

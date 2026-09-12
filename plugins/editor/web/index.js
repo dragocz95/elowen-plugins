@@ -1058,7 +1058,7 @@ function useEditorTreeMutations(projectId, root) {
 
 // plugins/editor/web-src/editor/lazyTree.ts
 var import_react3 = __toESM(require_react(), 1);
-function useLazyDirs(projectId, root, enabled, expanded, epoch) {
+function useLazyDirs(projectId, root, enabled, expanded, epoch, onFailed) {
   const [levels, setLevels] = (0, import_react3.useState)({});
   const requested = (0, import_react3.useRef)(/* @__PURE__ */ new Set());
   const generation = (0, import_react3.useRef)(0);
@@ -1067,6 +1067,8 @@ function useLazyDirs(projectId, root, enabled, expanded, epoch) {
     requested.current = /* @__PURE__ */ new Set();
     setLevels({});
   }, [projectId, root, enabled, epoch]);
+  const failed = (0, import_react3.useRef)(onFailed);
+  failed.current = onFailed;
   (0, import_react3.useEffect)(() => {
     if (!enabled) return;
     const mine = generation.current;
@@ -1078,7 +1080,10 @@ function useLazyDirs(projectId, root, enabled, expanded, epoch) {
           const nodes = await runtime().api(editorApiPath(projectId, "files", root, { path: dir }));
           if (generation.current !== mine) return;
           setLevels((current) => ({ ...current, [dir]: nodes }));
-        } catch {
+        } catch (error) {
+          if (generation.current !== mine) return;
+          requested.current.delete(dir);
+          failed.current?.(dir, error);
         }
       })();
     }
@@ -5168,13 +5173,19 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, init
     () => new Set(commit ? commitData.data?.files ?? [] : workingChanged ?? []),
     [commit, commitData.data?.files, workingChanged]
   );
-  const lazyDirs = useLazyDirs(projectId, root, systemRoot && rootReady, expanded, treeEpoch);
+  const lazyDirs = useLazyDirs(projectId, root, rootReady, expanded, treeEpoch, systemRoot ? void 0 : (dir, error) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      next.delete(dir);
+      return next;
+    });
+    toast(`${dir}: ${utils.apiErrorMessage(error)}`, "error");
+  });
   const nodes = (0, import_react22.useMemo)(() => {
-    if (!systemRoot) return files.data ?? [];
     const byPath = new Map((files.data ?? []).map((node) => [node.path, node]));
     for (const node of lazyDirs) byPath.set(node.path, node);
     return [...byPath.values()];
-  }, [systemRoot, files.data, lazyDirs]);
+  }, [files.data, lazyDirs]);
   const selectedFile = selected ? nodes.find((node) => node.type === "file" && node.path === selected) : void 0;
   const fileKind = selected ? fileKindOf(selected) : null;
   const textFile = fileKind === "text" || fileKind === "markdown" || fileKind === "csv";
