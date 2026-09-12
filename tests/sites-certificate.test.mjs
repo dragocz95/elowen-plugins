@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 
+import { createServer } from 'node:net';
+
 import { SitesStore } from '../plugins/sites/dist/store.js';
-import { SiteCertificateService, evaluatePeerCertificate, sitesDueForCertificate } from '../plugins/sites/dist/certificate.js';
+import { SiteCertificateService, evaluatePeerCertificate, probeGatewayCertificate, sitesDueForCertificate } from '../plugins/sites/dist/certificate.js';
 
 const HOSTNAME = 'demo-abc123.sites.elowen.example';
 const OTHER_HOSTNAME = 'someone-else.sites.elowen.example';
@@ -141,12 +143,27 @@ test('a refused issuance is reported as an error carrying the authority reason a
   assert.deepEqual(h.probed, []);
 });
 
-test('issuance that reports success while the gateway serves another certificate is an error, never ready', async () => {
+test('a hostname not yet answered right after its own issuance is transient, not a fault', async () => {
+  // A gateway reload returns before the running workers have swapped, so a handshake microseconds after
+  // issuance can still be answered by the configuration that was live a moment ago. Reporting the ordinary
+  // successful publish as an error would be the same defect in the other direction.
   const h = harness({ probe: async () => NOT_COVERED, issuedSlugs: ['demo-abc123'] });
 
   const readiness = await h.service.publish(site(), HOSTNAME);
 
-  assert.equal(readiness.state, 'error');
+  assert.equal(readiness.state, 'pending');
+  assert.match(readiness.detail, /was issued and the gateway reloaded/);
+  assert.deepEqual(h.issued, ['demo-abc123']);
+});
+
+test('nothing is claimed usable when a fresh issuance is not being served', async () => {
+  // The safety half of the case above, asserted on its own so a later change to how the transient is worded
+  // can never quietly turn a hostname the gateway is not serving into a verified one.
+  const h = harness({ probe: async () => NOT_COVERED, issuedSlugs: ['demo-abc123'] });
+
+  const readiness = await h.service.publish(site(), HOSTNAME);
+
+  assert.notEqual(readiness.state, 'ready');
   assert.match(readiness.detail, new RegExp(OTHER_HOSTNAME));
 });
 
@@ -155,12 +172,40 @@ test('a certificate that exists but is not being served never degrades into a pe
   // promise a sweep that has already run, so a reader would wait for something nobody is going to do.
   const h = harness({ probe: async () => NOT_COVERED, issuedSlugs: ['demo-abc123'] });
 
-  const afterPublish = await h.service.publish(site(), HOSTNAME);
   const afterRead = await h.service.readiness(site(), HOSTNAME);
 
-  assert.equal(afterPublish.state, 'error');
   assert.equal(afterRead.state, 'error');
   assert.match(afterRead.detail, /holds a certificate/);
+});
+
+test('a peer that accepts the connection and then says nothing is bounded, not waited on forever', async (t) => {
+  // `tls.connect`'s own timeout option fires on inactivity, which this peer never triggers, so a publish
+  // would hang on it. Also the one place the real probe — SNI, sockets and settle-once — actually runs.
+  const held = [];
+  const server = createServer((socket) => { held.push(socket); });
+  t.after(() => { for (const socket of held) socket.destroy(); server.close(); });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+
+  const started = Date.now();
+  const observation = await probeGatewayCertificate(HOSTNAME, { host: '127.0.0.1', port });
+
+  assert.equal(observation.reachable, false);
+  assert.equal(observation.covered, false);
+  assert.match(observation.detail, /did not complete a TLS handshake within/);
+  assert.ok(Date.now() - started < 15_000, 'the probe must settle on its own deadline');
+});
+
+test('a port nothing listens on is reported unreachable rather than treated as pending coverage', async () => {
+  const server = createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+
+  const observation = await probeGatewayCertificate(HOSTNAME, { host: '127.0.0.1', port });
+
+  assert.equal(observation.reachable, false);
+  assert.match(observation.detail, /did not answer a TLS handshake/);
 });
 
 test('a backed-off slug is not asked again, and reports the recorded reason instead', async () => {

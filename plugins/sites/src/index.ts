@@ -648,9 +648,11 @@ export function register(published: PluginContext): void {
         // Cleared only once the attempt has actually returned, so a daemon that dies mid-certbot leaves the
         // request standing and the next sweep finishes the job. A failed attempt clears it too: the reason
         // recorded below is what a reader consults, and the slug is backed off either way.
+        // Re-read rather than trusting the snapshot taken before the await: issuance can run for minutes,
+        // and clearing a reason recorded in the meantime would discard the newer, truer one.
         store.updateSite(site.id, {
           ...(requested ? { certificateRequestedAt: null } : {}),
-          ...(site.certificateError != null ? { certificateError: null } : {}),
+          ...(store.siteById(site.id)?.certificateError != null ? { certificateError: null } : {}),
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

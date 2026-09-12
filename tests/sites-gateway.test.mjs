@@ -401,7 +401,8 @@ test('the certificate sweep consults the backoff, skips drafts, and runs often e
   const selector = readFileSync(new URL('../plugins/sites/dist/certificate.js', import.meta.url), 'utf8');
   // Bounded at BOTH ends, like the sweep slice above: an open-ended `slice(indexOf(...))` still matches when
   // the function is gone, because the rules also appear in the service further down the same module.
-  const rulesStart = selector.indexOf('export function sitesDueForCertificate');
+  // The opening paren is part of the marker, so renaming the function away is caught too, not only deleting it.
+  const rulesStart = selector.indexOf('export function sitesDueForCertificate(');
   assert.ok(rulesStart > -1, 'the due-site selector must still be recognisable in the build');
   const rulesEnd = selector.indexOf('\n}', rulesStart);
   assert.ok(rulesEnd > rulesStart, 'the due-site selector must still be a single function');

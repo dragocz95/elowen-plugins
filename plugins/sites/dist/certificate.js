@@ -62,40 +62,46 @@ export function evaluatePeerCertificate(hostname, cert, now, trust = { trusted: 
  *  This is the whole reason a readiness answer needs no privilege: the certificate a server presents is
  *  public by construction, so an account that cannot read the certificate directory or the nginx config
  *  can still establish what a visitor would be served. */
-export const probeGatewayCertificate = (hostname) => new Promise((resolve) => {
+export const probeGatewayCertificate = (hostname, endpoint) => new Promise((resolve) => {
     let settled = false;
+    // Declared before `settle` closes over them: an exception raised synchronously by `tls.connect` would
+    // otherwise reach the settle path while both are still uninitialised.
+    let deadline;
+    let socket;
     const settle = (observation) => {
         if (settled)
             return;
         settled = true;
-        clearTimeout(deadline);
-        socket.destroy();
+        if (deadline)
+            clearTimeout(deadline);
+        socket?.destroy();
         resolve(observation);
     };
-    const socket = tlsConnect({
-        host: GATEWAY_HOST,
-        port: GATEWAY_PORT,
+    // One deadline over the WHOLE exchange. `tls.connect`'s own `timeout` option fires on socket inactivity,
+    // which a TCP connect that never completes and a peer that accepts and then says nothing both survive —
+    // and a publish must not hang on either.
+    deadline = setTimeout(() => {
+        settle({ reachable: false, covered: false, detail: `the local sites gateway did not complete a TLS handshake within ${PROBE_TIMEOUT_MS}ms` });
+    }, PROBE_TIMEOUT_MS);
+    deadline.unref();
+    socket = tlsConnect({
+        host: endpoint?.host ?? GATEWAY_HOST,
+        port: endpoint?.port ?? GATEWAY_PORT,
         servername: hostname,
         // Verification still RUNS — `socket.authorized` below is its verdict — but it must not abort the
         // handshake: a gateway serving the wrong site's certificate has to be reported as exactly that rather
         // than collapsed into a connection error indistinguishable from a gateway that is down.
         rejectUnauthorized: false,
     }, () => {
-        settle(evaluatePeerCertificate(hostname, socket.getPeerCertificate(), Date.now(), {
-            trusted: socket.authorized,
-            ...(socket.authorizationError ? { detail: String(socket.authorizationError) } : {}),
+        const peer = socket;
+        settle(evaluatePeerCertificate(hostname, peer.getPeerCertificate(), Date.now(), {
+            trusted: peer.authorized,
+            ...(peer.authorizationError ? { detail: String(peer.authorizationError) } : {}),
         }));
     });
     socket.once('error', (error) => {
         settle({ reachable: false, covered: false, detail: `the local sites gateway did not answer a TLS handshake: ${messageOf(error)}` });
     });
-    // One deadline over the WHOLE exchange. `tls.connect`'s own `timeout` option fires on socket inactivity,
-    // which a TCP connect that never completes and a peer that accepts and then says nothing both survive —
-    // and a publish must not hang on either.
-    const deadline = setTimeout(() => {
-        settle({ reachable: false, covered: false, detail: `the local sites gateway did not complete a TLS handshake within ${PROBE_TIMEOUT_MS}ms` });
-    }, PROBE_TIMEOUT_MS);
-    deadline.unref();
 });
 /** Which live sites the gateway sweep must ask for on this pass.
  *
@@ -161,6 +167,17 @@ export class SiteCertificateService {
                 this.deps.store.updateSite(site.id, { certificateRequestedAt: null, certificateError: detail });
                 return { state: 'error', detail: `the certificate for ${hostname} was not issued: ${detail}` };
             }
+            const observation = await this.probe(hostname);
+            if (observation.covered)
+                return { state: 'ready', detail: observation.detail };
+            // The certificate exists and the gateway has been told to load it, but a reload returns before the
+            // running workers have swapped, so a handshake this soon can still be answered by the configuration
+            // that was live a moment ago. That is a transient nobody has to act on — unlike the same observation
+            // on a LATER read, which `observed` reports as the fault it is.
+            return {
+                state: 'pending',
+                detail: `the certificate for ${hostname} was issued and the gateway reloaded, but ${observation.detail}. Read the site again to confirm it is being served.`,
+            };
         }
         return await this.observed(site, hostname, true);
     }
