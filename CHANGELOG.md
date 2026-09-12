@@ -1,5 +1,9 @@
 # Changelog
 
+## github 0.1.16 - 2026-09-12
+
+- Read a managed Project's repository at its canonical guest root and request only the selected Project, so the Project drawer reports real Git state instead of a load failure; genuine Git, permission and runtime failures still surface as errors.
+
 ## whatsapp 0.2.18 - 2026-09-12
 
 - declare elowen-plugin-shared API 4 so the channel keeps loading on core 0.28.42, which refuses a plugin declaring API 3
