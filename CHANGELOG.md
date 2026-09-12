@@ -1,5 +1,9 @@
 # Changelog
 
+## msteams 0.7.1 - 2026-09-12
+
+- declare elowen-plugin-shared API 4 so the channel keeps loading on core 0.28.42, which refuses a plugin declaring API 3
+
 ## discord 0.3.19 - 2026-09-12
 
 - declare elowen-plugin-shared API 4 so the channel keeps loading on core 0.28.42, which refuses a plugin declaring API 3
