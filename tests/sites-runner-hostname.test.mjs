@@ -100,9 +100,12 @@ test('knowing the hostname buys a runner no certificate, and reaches no privileg
     /this daemon has no published-sites gateway broker/,
     'issuance refuses in a runner rather than falling back to anything',
   );
-  // Removal is the same refusal in the other direction: it never throws, and it asks nothing of a broker
-  // that is not there.
-  await harness.manager.removeSite('demo-abc123');
+  // Removal must also refuse. Treating an absent control as success would let durable deletion discard its
+  // retry owner while privileged gateway resources may still exist.
+  await assert.rejects(
+    harness.manager.removeSite('demo-abc123'),
+    /this daemon has no published-sites gateway broker/,
+  );
   assert.deepEqual(harness.warnings, []);
   assert.deepEqual([...harness.manager.issuedSlugs()], [],
     'a runner never reconciles, so it holds no issued set and must not invent one');
