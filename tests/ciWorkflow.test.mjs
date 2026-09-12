@@ -25,6 +25,14 @@ test('CI workflow parses and runs every registry gate before drift checks', () =
   assert.equal(job.steps[build]['working-directory'], 'core');
   assert.equal(job.steps[build].run, 'npm run build:ts');
   assert.ok(build < job.steps.findIndex((step) => step.run === 'npm run check'));
+  // tests/githubStaging.test.ts imports an untrusted bundle through real bubblewrap, which the runner
+  // image does not ship. Without the install the suite fails on a missing binary and stops checking the
+  // confinement it exists for, so the provisioning step is part of the contract, not an optimisation.
+  const bubblewrap = job.steps.findIndex((step) => step.name === 'Install bubblewrap for the sandboxed staging suite');
+  assert.ok(bubblewrap >= 0, 'the sandboxed staging suite has no bubblewrap on the runner');
+  assert.match(job.steps[bubblewrap].run, /apt-get install .*bubblewrap/);
+  assert.match(job.steps[bubblewrap].run, /bwrap --unshare-all/, 'the install is never proved usable');
+  assert.ok(bubblewrap < job.steps.findIndex((step) => step.run === 'npm test'));
   const versionGuard = job.steps.find((step) => step.name === 'Match core source to the installed daemon');
   assert.match(versionGuard.run, /assert\.equal/);
   assert.match(versionGuard.run, /node_modules\/elowen\/package\.json/);

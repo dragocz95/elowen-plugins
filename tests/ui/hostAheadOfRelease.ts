@@ -3,10 +3,9 @@
  *  Both parity guards (tests/hostRuntimeParity.test.ts, tests/hostDictionaryParity.test.ts) hold the
  *  stand-ins in tests/ui/* to the INSTALLED package, because CI has the package and nothing else. That
  *  is the right truth for a stand-in — except while this repository is deliberately built against a host
- *  change that has not been released yet. Core 0.28.31 ships API 16, including the host-owned
- *  `ProjectIcon` primitive. The pager's rows-per-page copy is NOT in any published release yet, so it
- *  still needs its exemption: a daemon working copy carrying a string is not the same as a release
- *  carrying it, and that distinction is the whole point of this list.
+ *  change that has not been released yet. Core 0.28.42 ships API 16, the host-owned `ProjectIcon`
+ *  primitive and the pager's rows-per-page copy, so as of that release NOTHING is exempt: both lists
+ *  below are empty and every name a stand-in carries has to exist in the installed package.
  *
  *  So the guards allow a stand-in to carry these names — and NOTHING else the package lacks. Every entry
  *  is a promise about the host, not a free pass: each guard also asserts that the package does NOT have
@@ -27,12 +26,7 @@ export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; 
 };
 
 /** Host dictionary leaves added after the pinned release, as flattened `section.key` paths. */
-export const AHEAD_OF_RELEASE_DICTIONARY: string[] = [
-  // The pager's rows-per-page select, which the register footer of every plugin page mounts and
-  // tests/ui/hostComponents.tsx reads. Present in the daemon's dictionary source and in its built bundle;
-  // absent from every `elowen` release published so far, including the pinned one.
-  'pagination.perPage',
-];
+export const AHEAD_OF_RELEASE_DICTIONARY: string[] = [];
 
-/** The plugin UI API version targeted by the stand-in, shipped by core 0.28.31. */
+/** The plugin UI API version targeted by the stand-in, shipped by core 0.28.42. */
 export const AHEAD_OF_RELEASE_API_VERSION = 16;
