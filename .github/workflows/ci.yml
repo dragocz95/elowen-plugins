@@ -64,6 +64,20 @@ jobs:
       # Static analysis is the same mandatory gate developers run locally.
       - run: npm run check
 
+      # tests/githubStaging.test.ts imports an untrusted Git bundle exactly the way the github plugin does:
+      # through /usr/bin/bwrap, which is what stops a bundle's hooks and credential helpers from ever
+      # executing. The runner image carries prlimit and git but not bubblewrap, so without this the suite
+      # reports a missing binary instead of checking that boundary. The smoke run uses the same confinement
+      # flags as plugins/github/src/staging.ts, so a runner that cannot unshare a namespace fails here,
+      # named, rather than inside the suite.
+      - name: Install bubblewrap for the sandboxed staging suite
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          bwrap --unshare-all --die-with-parent --new-session --ro-bind /usr /usr \
+            --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+            --proc /proc --dev /dev --tmpfs /tmp -- /bin/true
+
       - run: npm test
 
       # A plugin's browser bundle is COMMITTED, because the Elowen marketplace installs a plugin by
