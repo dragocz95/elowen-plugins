@@ -1148,6 +1148,29 @@ test('SitePublish refuses a removed Project without interpreting its guest sourc
   assert.equal(harness.store.releases('site-1').length, 0);
 });
 
+test('SitePublish never reports the new address as one that already answers', async (t) => {
+  // The release is written and the row is live before ANY certificate exists for the hostname: issuance
+  // happens afterwards, in the daemon's own gateway sweep, which a forked tool runner can neither call
+  // nor observe. Reporting "Live at <address>" therefore sent the reader to a hostname still answered by
+  // the catch-all 443 block holding another site's certificate, which a browser rejects outright with
+  // ERR_CERT_COMMON_NAME_INVALID — a working publication that reads as a broken product.
+  const harness = toolHarness(t);
+  const sourceDir = join(harness.dir, 'project', 'static-site');
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(join(sourceDir, 'index.html'), '<!doctype html><title>ok</title>');
+  harness.store.insertSite(site({
+    sourceDir, sourceRel: 'static-site', status: 'draft', currentReleaseId: null, lastPublishAt: null,
+  }));
+
+  const published = await harness.call('SitePublish', { site: 'site-1' });
+  const body = published.content[0].text;
+
+  assert.equal(published.details.url, 'https://demo-abc123.sites.elowen.example/');
+  assert.match(body, /https:\/\/demo-abc123\.sites\.elowen\.example/, 'the address is still reported');
+  assert.doesNotMatch(body, /\bLive at\b/, 'but never as an address that already works');
+  assert.match(body, /certificate/i, 'and the wait for its certificate is stated');
+});
+
 test('SitePublish returns truthful command success when the public hostname is unavailable', async (t) => {
   const harness = toolHarness(t, {
     gatewayHost: null,
