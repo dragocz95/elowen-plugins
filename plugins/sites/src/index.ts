@@ -92,6 +92,10 @@ export function register(published: PluginContext): void {
   const certificates = new SiteCertificateService({
     canIssue: () => gateway.hasBroker(),
     issue: (slug) => gateway.ensureSite(slug),
+    mayAttempt: (slug) => gateway.mayAttempt(slug),
+    // Null without the broker, which is exactly the process that cannot tell an unissued hostname from an
+    // issued one the gateway is not serving.
+    issuedSlugs: () => (gateway.hasBroker() ? gateway.issuedSlugs() : null),
     store,
   });
   /** The hostname the serving path uses, so a readiness verdict can never be about a different name. */
@@ -638,18 +642,22 @@ export function register(published: PluginContext): void {
     // issuing for one would publish its slug in a public Certificate Transparency log before anybody
     // decided to publish the page at all. The selector also carries the backoff and request rules.
     for (const site of sitesDueForCertificate(store.allSites(), { all, issued, mayAttempt: (slug) => gateway.mayAttempt(slug) })) {
-      // Cleared by the attempt that answers it, whatever the attempt's outcome — the recorded reason below
-      // is what a later reader consults, and leaving the request set would re-ask on every single tick.
-      if (site.certificateRequestedAt != null) store.updateSite(site.id, { certificateRequestedAt: null });
+      const requested = site.certificateRequestedAt != null;
       try {
         await gateway.ensureSite(site.slug);
-        if (store.siteById(site.id)?.certificateError != null) store.updateSite(site.id, { certificateError: null });
+        // Cleared only once the attempt has actually returned, so a daemon that dies mid-certbot leaves the
+        // request standing and the next sweep finishes the job. A failed attempt clears it too: the reason
+        // recorded below is what a reader consults, and the slug is backed off either way.
+        store.updateSite(site.id, {
+          ...(requested ? { certificateRequestedAt: null } : {}),
+          ...(site.certificateError != null ? { certificateError: null } : {}),
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        // Recorded, not only logged: a forked runner cannot read the certificate directory, the nginx
-        // config or this log, so the row is the only place it can learn why the hostname has no
-        // certificate. Without it every failure reads to an agent as "still pending".
-        store.updateSite(site.id, { certificateError: message });
+        // Recorded, not only logged: a forked runner cannot read the certificate directory, the nginx config
+        // or this log, so the row is the only place it can learn why the hostname has no certificate.
+        // Without it every failure reads to an agent as "still pending".
+        store.updateSite(site.id, { ...(requested ? { certificateRequestedAt: null } : {}), certificateError: message });
         ctx.logger.warn(`site ${site.slug} has no certificate yet: ${message}`);
       }
     }

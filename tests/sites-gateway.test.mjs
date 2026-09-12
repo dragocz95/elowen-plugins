@@ -399,8 +399,13 @@ test('the certificate sweep consults the backoff, skips drafts, and runs often e
   // failure budget, and between a draft and a public Certificate Transparency entry.
   assert.match(sweep, /sitesDueForCertificate\(/, 'syncGateway must route through the due-site selector');
   const selector = readFileSync(new URL('../plugins/sites/dist/certificate.js', import.meta.url), 'utf8');
-  const rules = selector.slice(selector.indexOf('function sitesDueForCertificate'));
-  assert.ok(rules.length > 0, 'the due-site selector must still be recognisable in the build');
+  // Bounded at BOTH ends, like the sweep slice above: an open-ended `slice(indexOf(...))` still matches when
+  // the function is gone, because the rules also appear in the service further down the same module.
+  const rulesStart = selector.indexOf('export function sitesDueForCertificate');
+  assert.ok(rulesStart > -1, 'the due-site selector must still be recognisable in the build');
+  const rulesEnd = selector.indexOf('\n}', rulesStart);
+  assert.ok(rulesEnd > rulesStart, 'the due-site selector must still be a single function');
+  const rules = selector.slice(rulesStart, rulesEnd);
 
   // `mayAttempt` existed and the backoff map was maintained correctly — and NOTHING called it, so every
   // plugin reload re-attempted each failing site against the authority's per-hostname failure budget.
