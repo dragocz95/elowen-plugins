@@ -9,10 +9,10 @@ const json = (path: string) => JSON.parse(readFileSync(join(root, path), 'utf8')
 describe('shared API v4 registry contract', () => {
   const versions = {
     cronjob: '0.4.7',
-    discord: '0.3.18',
-    telegram: '0.2.14',
-    msteams: '0.7.0',
-    whatsapp: '0.2.17',
+    discord: '0.3.19',
+    telegram: '0.2.15',
+    msteams: '0.7.1',
+    whatsapp: '0.2.18',
   } as const;
 
   it.each(Object.entries(versions))('%s manifest and registry entry agree on v4 and the patch version', (name, version) => {
