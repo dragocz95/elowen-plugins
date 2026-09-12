@@ -15,6 +15,15 @@ const runtimeActor = (req) => {
         throw new Error('a linked account is required for environment operations');
     return req.auth.userId;
 };
+const operationView = (operation) => ({
+    id: operation.id,
+    siteId: operation.siteId,
+    generation: operation.generation,
+    action: operation.action.kind,
+    status: operation.status,
+    percent: operation.percent ?? null,
+    error: operation.error ?? null,
+});
 /** Whether the caller may change this site. Viewing is a different question, answered by `mayOpen`. */
 const canManage = (site, auth) => auth.admin || (auth.userId !== null && auth.userId === site.ownerUserId);
 const canAccessProject = (projectId, auth) => auth.admin || (auth.accessibleProjects !== null && auth.accessibleProjects.includes(projectId));
@@ -178,6 +187,21 @@ export function createApiHandlers(deps) {
             const logs = await deps.environmentLogs(target, lines, runtimeActor(req));
             return json(200, { ...logs, lines });
         }
+        if (req.method === 'GET' && action === 'operation') {
+            if (!req.auth.admin)
+                return json(403, { error: 'environment migration operations require an administrator' });
+            if (target.kind === 'proxy')
+                return json(409, { ...PROXY_REFUSAL, detail: 'read the Project environment operation in the Sandbox plugin' });
+            if (target.runtime !== 'environment')
+                return json(400, { error: 'this site is not an environment' });
+            if (!canAccessProject(target.projectId, req.auth))
+                return json(403, { error: 'project access is required' });
+            const operationId = String(req.query.operationId ?? '');
+            if (!/^[A-Za-z0-9_.:-]{1,160}$/.test(operationId))
+                return json(400, { error: 'invalid operation id' });
+            const operation = await deps.environmentOperation(target, operationId, runtimeActor(req));
+            return operation ? json(200, { operation: operationView(operation) }) : json(404, { error: 'operation not found' });
+        }
         if (req.method === 'PATCH' && action === '')
             return patchSite(req, target);
         if (req.method === 'DELETE' && action === '') {
@@ -199,22 +223,32 @@ export function createApiHandlers(deps) {
         }
         if (req.method === 'POST' && action === 'control') {
             if (target.kind === 'proxy')
-                return json(409, { ...PROXY_REFUSAL, detail: 'start, stop and restart the Project environment in the Sandbox plugin' });
+                return json(409, { ...PROXY_REFUSAL, detail: 'control the Project environment in the Sandbox plugin' });
             if (target.runtime !== 'environment')
                 return json(400, { error: 'this site is not an environment' });
             if (!canAccessProject(target.projectId, req.auth))
                 return json(403, { error: 'project access is required' });
             const body = await req.json().catch(() => ({}));
-            if (body.action !== 'start' && body.action !== 'stop' && body.action !== 'restart') {
+            if (!['start', 'stop', 'restart', 'migrate-disk', 'migrate-runtime'].includes(String(body.action))) {
                 return json(400, { error: 'unknown environment action' });
             }
+            const action = body.action;
+            if ((action === 'migrate-disk' || action === 'migrate-runtime') && !req.auth.admin) {
+                return json(403, { error: 'environment migration requires an administrator' });
+            }
+            const requestId = body.requestId === undefined ? undefined : String(body.requestId);
+            if (requestId !== undefined && !/^[A-Za-z0-9_.:-]{1,160}$/.test(requestId))
+                return json(400, { error: 'invalid request id' });
+            if ((action === 'migrate-disk' || action === 'migrate-runtime') && requestId === undefined) {
+                return json(400, { error: 'environment migration requires a request id' });
+            }
             try {
-                await deps.requestEnvironmentControl(target, body.action, runtimeActor(req));
+                const operation = await deps.requestEnvironmentControl(target, action, runtimeActor(req), requestId);
+                return json(200, { ok: true, scheduled: true, action, operation: operationView(operation) });
             }
             catch (error) {
                 return json(409, { error: error instanceof Error ? error.message : 'action could not be scheduled' });
             }
-            return json(200, { ok: true, scheduled: true, action: body.action });
         }
         if (req.method === 'POST' && action === 'snapshot') {
             if (target.kind === 'proxy')

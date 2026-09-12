@@ -237,6 +237,11 @@ export class EnvironmentSupervisor {
             snapshotId: this.deps.store.runtimeRecord(site.id, `snapshot-runtime:${action.snapshotId}`) ?? action.snapshotId } : action;
         return control.requestSiteEnvironment({ siteId: site.id, accountUserId, action: resolvedAction, expectedGeneration: state.generation, requestId });
     }
+    async operation(site, operationId, actor) {
+        const accountUserId = this.actor(site, actor);
+        const operation = await this.control().siteEnvironmentOperation({ operationId, accountUserId });
+        return operation?.siteId === site.id ? operation : null;
+    }
     async wait(operation, accountUserId) {
         const deadline = Date.now() + Math.max(120_000, this.deps.config().startTimeoutSeconds * 1000);
         while (operation.status === 'pending' || operation.status === 'running') {

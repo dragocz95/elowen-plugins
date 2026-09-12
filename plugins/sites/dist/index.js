@@ -569,9 +569,10 @@ export function register(published) {
         environmentAction: (site, actor) => environment.pendingAction(site, actor),
         gatewayReadiness: () => gateway.readiness(),
         gatewayRecord: () => gateway.requiredRecord(),
-        requestEnvironmentControl: async (site, action, actor) => {
-            await environment.request(site, { kind: action }, actor);
-        },
+        // Core 0.28.42 executes migrate-runtime but its published SiteEnvironmentAction type omitted that
+        // discriminator. Keep the compatibility cast at this one boundary until the published type catches up.
+        requestEnvironmentControl: (site, action, actor, requestId) => environment.request(site, { kind: action }, actor, requestId),
+        environmentOperation: (site, operationId, actor) => environment.operation(site, operationId, actor),
         snapshotEnvironment: async (site, input, actor) => {
             const model = ctx.currentModel();
             return await environment.scheduleSnapshot(site, { ...input, model: model ? `${model.provider}/${model.model}` : '' }, actor);

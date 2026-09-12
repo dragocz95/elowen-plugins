@@ -1328,6 +1328,8 @@ function phase2ApiHarness({ provisioning } = {}) {
   const target = environmentSite({ ownerUserId: 1, projectId: 7 });
   store.insertSite(target);
   const calls = [];
+  const operationsById = new Map();
+  const operationsByRequest = new Map();
   const handlers = createApiHandlers({
     store,
     access: { accountExists: () => true, isAdmin: () => false, canAccessProject: () => true },
@@ -1352,9 +1354,22 @@ function phase2ApiHarness({ provisioning } = {}) {
       detail: 'wrong target', observedTargets: ['203.0.113.5'],
     }),
     gatewayRecord: () => ({ type: 'CNAME', name: '*.sites.elowen.example', value: 'elowen.example.' }),
-    requestEnvironmentControl: async (site, action, actor) => {
-      calls.push(['control', site.id, action, actor]);
+    requestEnvironmentControl: async (site, action, actor, requestId) => {
+      calls.push(['control', site.id, action, actor, requestId]);
       store.updateSite(site.id, { environmentDesiredState: action === 'stop' ? 'stopped' : action === 'restart' ? 'restarting' : 'running' });
+      if (requestId && operationsByRequest.has(requestId)) {
+        const existing = operationsByRequest.get(requestId);
+        if (existing.action.kind !== action) throw new Error('idempotency key already belongs to another action');
+        return existing;
+      }
+      const operation = { id: `env_${operationsById.size + 1}`, siteId: site.id, generation: 2, action: { kind: action }, status: 'pending', percent: 0, error: null };
+      operationsById.set(operation.id, operation);
+      if (requestId) operationsByRequest.set(requestId, operation);
+      return operation;
+    },
+    environmentOperation: async (site, operationId, actor) => {
+      calls.push(['operation', site.id, operationId, actor]);
+      return operationsById.get(operationId) ?? null;
     },
     snapshotEnvironment: async (site, input, actor) => {
       calls.push(['snapshot', site.id, input, actor]);
@@ -1418,7 +1433,9 @@ test('API environment detail, control, snapshot and rollback actions use durable
   // Not consuming: the full ordered sequence is asserted at the end of this test.
   assert.deepEqual(calls.filter(([name]) => name === 'logs'), [['logs', 1000, 1]]);
 
-  assert.equal((await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, body: { action: 'restart' } }))).status, 200);
+  const restarted = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, body: { action: 'restart' } }));
+  assert.equal(restarted.status, 200);
+  assert.equal(restarted.body.action, 'restart');
   store.updateSite(SITE_ID, { environmentDesiredState: 'running' });
   assert.equal((await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/snapshot`, body: { includeData: true } }))).status, 200);
   store.updateEnvironmentActionError(SITE_ID, 'api snapshot failed');
@@ -1428,6 +1445,52 @@ test('API environment detail, control, snapshot and rollback actions use durable
   store.updateSite(SITE_ID, { environmentDesiredState: 'running' });
   assert.equal((await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/rollback`, body: { releaseId: 'snap', restoreData: false } }))).status, 200);
   assert.deepEqual(calls.map(([name]) => name), ['state', 'action', 'logs', 'control', 'snapshot', 'state', 'action', 'rollback']);
+});
+
+test('API schedules and polls administrator-only environment migrations idempotently', async () => {
+  const { handlers, calls } = phase2ApiHarness();
+  const owner = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, body: {
+    action: 'migrate-disk', requestId: 'site-migration-disk-1',
+  } }));
+  assert.equal(owner.status, 403);
+  assert.equal(calls.some(([name]) => name === 'control'), false);
+
+  const missingKey = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, admin: true, body: {
+    action: 'migrate-disk',
+  } }));
+  assert.equal(missingKey.status, 400);
+
+  const request = { method: 'POST', path: `${SITE_ID}/control`, admin: true, body: {
+    action: 'migrate-disk', requestId: 'site-migration-disk-1',
+  } };
+  const scheduled = await handlers.site(apiRequest(request));
+  const repeated = await handlers.site(apiRequest(request));
+  assert.equal(scheduled.status, 200);
+  assert.equal(scheduled.body.action, 'migrate-disk');
+  assert.deepEqual(repeated.body.operation, scheduled.body.operation);
+  assert.deepEqual(scheduled.body.operation, {
+    id: 'env_1', siteId: SITE_ID, generation: 2,
+    action: 'migrate-disk', status: 'pending', percent: 0, error: null,
+  });
+
+  const ownerPoll = await handlers.site(apiRequest({ path: `${SITE_ID}/operation`, query: { operationId: 'env_1' } }));
+  assert.equal(ownerPoll.status, 403);
+  const polled = await handlers.site(apiRequest({ path: `${SITE_ID}/operation`, admin: true, query: { operationId: 'env_1' } }));
+  assert.equal(polled.status, 200);
+  assert.deepEqual(polled.body.operation, scheduled.body.operation);
+
+  const runtime = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, admin: true, body: {
+    action: 'migrate-runtime', requestId: 'site-migration-runtime-1',
+  } }));
+  assert.equal(runtime.status, 200);
+  assert.equal(runtime.body.operation.action, 'migrate-runtime');
+  assert.notEqual(runtime.body.operation.id, scheduled.body.operation.id);
+
+  const conflict = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, admin: true, body: {
+    action: 'migrate-runtime', requestId: 'site-migration-disk-1',
+  } }));
+  assert.equal(conflict.status, 409);
+  assert.deepEqual(calls.filter(([name]) => name === 'operation'), [['operation', SITE_ID, 'env_1', 1]]);
 });
 
 test('API environment routes refuse a proxy publication with a 409 code instead of an empty environment', async () => {
